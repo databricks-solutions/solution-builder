@@ -1,0 +1,41 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# version file
+src/demo_prompt_generator/_version.py
+
+# metadata file
+src/demo_prompt_generator/_metadata.py
+
+# build files
+dist
+
+# js-related
+node_modules/
+.tanstack
+
+# env files
+.env
+.env.local
+.env.*
+!.env.example
+
+# mac
+.DS_Store
+
+# DABs 
+.databricks
+
+# apx
+.apx/
+
+# UI dist folder
+src/demo_prompt_generator/__dist__/

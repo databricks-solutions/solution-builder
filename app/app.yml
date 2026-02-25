@@ -1,0 +1,1 @@
+command: ["uvicorn", "demo_prompt_generator.backend.app:app", "--workers", "2"]

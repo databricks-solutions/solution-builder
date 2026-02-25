@@ -1,0 +1,13 @@
+.DS_Store
+.env
+.env.local
+.env.*
+!.env.example
+
+# IDE and tool config -- each user configures their own
+.mcp.json
+.cursor/
+.claude/
+
+# ai-dev-kit (installed locally per user)
+.ai-dev-kit/

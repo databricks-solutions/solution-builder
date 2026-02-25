@@ -1,0 +1,54 @@
+[project]
+name = "demo-prompt-generator"
+dynamic = ["version"]
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.119.0",
+    "pydantic-settings>=2.11.0",
+    "uvicorn>=0.37.0",
+    "databricks-sdk>=0.74.0", "sqlmodel>=0.0.27", "psycopg[binary,pool]>=3.2.11",
+    "httpx>=0.28.0",
+]
+
+[dependency-groups]
+dev = [
+    "ty>=0.0.12",
+]
+
+[tool.apx.metadata]
+app-name = "demo-prompt-generator"
+app-slug = "demo_prompt_generator"
+app-entrypoint = "demo_prompt_generator.backend.app:app"
+api-prefix = "/api"
+metadata-path = "src/demo_prompt_generator/_metadata.py"
+
+[tool.apx.ui]
+root = "src/demo_prompt_generator/ui"
+
+[tool.apx.ui.registries]
+"@animate-ui" = "https://animate-ui.com/r/{name}.json"
+"@ai-elements" = "https://registry.ai-sdk.dev/{name}.json"
+"@svgl" = "https://svgl.app/r/{name}.json"
+
+[build-system]
+requires = ["hatchling", "uv-dynamic-versioning>=0.7.0"]
+build-backend = "hatchling.build"
+
+[tool.hatch.version]
+source = "uv-dynamic-versioning"
+
+[tool.uv-dynamic-versioning]
+vcs = "git"
+fallback-version = "0.0.0"
+
+[tool.hatch.build.hooks.version]
+path = "src/demo_prompt_generator/_version.py"
+template = '''
+version = "{version}"
+'''
+
+[tool.hatch.build]
+artifacts = ["src/demo_prompt_generator/__dist__", "src/demo_prompt_generator/_metadata.py"]
+exclude = ["src/demo_prompt_generator/ui"]
