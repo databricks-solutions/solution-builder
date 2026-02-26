@@ -12,6 +12,10 @@ export class ApiError extends Error {
         this.body = body;
     }
 }
+export interface ChatMessage {
+    content: string;
+    role: string;
+}
 export const Cloud = {
     aws: "aws",
     azure: "azure",
@@ -159,6 +163,15 @@ export interface ValidationError {
 }
 export interface VersionOut {
     version: string;
+}
+export interface WorkspaceGenerateRequest {
+    topic: string;
+}
+export interface WorkspaceRefineRequest {
+    focused_sections?: string[];
+    generation_id: number;
+    history?: ChatMessage[];
+    message: string;
 }
 export interface CurrentUserParams {
     "X-Forwarded-Host"?: string | null;
@@ -476,5 +489,77 @@ export function useVersionSuspense<TData = {
         queryKey: versionKey(),
         queryFn: ()=>version(),
         ...options?.query
+    });
+}
+export const workspaceGenerate = async (data: WorkspaceGenerateRequest, options?: RequestInit): Promise<{
+    data: unknown;
+}> =>{
+    const res = await fetch("/api/workspace/generate", {
+        ...options,
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+            ...options?.headers
+        },
+        body: JSON.stringify(data)
+    });
+    if (!res.ok) {
+        const body = await res.text();
+        let parsed: unknown;
+        try {
+            parsed = JSON.parse(body);
+        } catch  {
+            parsed = body;
+        }
+        throw new ApiError(res.status, res.statusText, parsed);
+    }
+    return {
+        data: await res.json()
+    };
+};
+export function useWorkspaceGenerate(options?: {
+    mutation?: UseMutationOptions<{
+        data: unknown;
+    }, ApiError, WorkspaceGenerateRequest>;
+}) {
+    return useMutation({
+        mutationFn: (data)=>workspaceGenerate(data),
+        ...options?.mutation
+    });
+}
+export const workspaceRefine = async (data: WorkspaceRefineRequest, options?: RequestInit): Promise<{
+    data: unknown;
+}> =>{
+    const res = await fetch("/api/workspace/refine", {
+        ...options,
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+            ...options?.headers
+        },
+        body: JSON.stringify(data)
+    });
+    if (!res.ok) {
+        const body = await res.text();
+        let parsed: unknown;
+        try {
+            parsed = JSON.parse(body);
+        } catch  {
+            parsed = body;
+        }
+        throw new ApiError(res.status, res.statusText, parsed);
+    }
+    return {
+        data: await res.json()
+    };
+};
+export function useWorkspaceRefine(options?: {
+    mutation?: UseMutationOptions<{
+        data: unknown;
+    }, ApiError, WorkspaceRefineRequest>;
+}) {
+    return useMutation({
+        mutationFn: (data)=>workspaceRefine(data),
+        ...options?.mutation
     });
 }

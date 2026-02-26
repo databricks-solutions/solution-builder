@@ -98,48 +98,71 @@ function NewDemoPage() {
   };
 
   return (
-    <div className="flex min-h-screen flex-col bg-background">
+    <div className="flex min-h-screen flex-col bg-background relative">
+      <div className="absolute inset-0 -z-10 bg-gradient-to-b from-primary/[0.03] via-transparent to-transparent" />
       <Navbar />
       <div className="mx-auto w-full max-w-3xl flex-1 px-4 py-8">
         <Button
           variant="ghost"
           size="sm"
-          className="mb-4"
+          className="mb-6 text-muted-foreground"
           onClick={() => navigate({ to: "/" })}
         >
           <ChevronLeft className="mr-1 h-4 w-4" /> Home
         </Button>
 
         {/* Step indicator */}
-        <div className="mb-8 space-y-3">
-          <div className="flex items-center justify-between text-sm text-muted-foreground">
-            <span>
-              Step {step + 1} of {STEPS.length}
-            </span>
-            <span className="font-medium text-foreground">{STEPS[step]}</span>
-          </div>
-          <Progress value={((step + 1) / STEPS.length) * 100} className="h-2" />
-          <div className="flex justify-between text-xs text-muted-foreground">
+        <div className="mb-8 space-y-4">
+          <div className="flex items-center gap-1.5">
             {STEPS.map((s, i) => (
               <button
                 key={s}
                 onClick={() => i < step && setStep(i)}
-                className={`transition-colors ${i <= step ? "text-foreground font-medium" : ""} ${i < step ? "cursor-pointer hover:underline" : "cursor-default"}`}
+                className={`group flex items-center gap-1.5 ${i < step ? "cursor-pointer" : "cursor-default"}`}
               >
-                {s}
+                <div
+                  className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-semibold transition-all ${
+                    i === step
+                      ? "bg-primary text-primary-foreground shadow-md shadow-primary/25"
+                      : i < step
+                        ? "bg-primary/15 text-primary group-hover:bg-primary/25"
+                        : "bg-muted text-muted-foreground"
+                  }`}
+                >
+                  {i + 1}
+                </div>
+                <span
+                  className={`hidden text-xs font-medium sm:block ${
+                    i === step
+                      ? "text-foreground"
+                      : i < step
+                        ? "text-primary/70 group-hover:text-primary"
+                        : "text-muted-foreground"
+                  }`}
+                >
+                  {s}
+                </span>
+                {i < STEPS.length - 1 && (
+                  <div
+                    className={`mx-1 h-px flex-1 min-w-4 ${
+                      i < step ? "bg-primary/30" : "bg-border"
+                    }`}
+                  />
+                )}
               </button>
             ))}
           </div>
+          <Progress value={((step + 1) / STEPS.length) * 100} className="h-1.5" />
         </div>
 
-        <Card>
-          <CardHeader>
+        <Card className="border-primary/10 shadow-sm">
+          <CardHeader className="border-b border-primary/5 bg-gradient-to-r from-primary/[0.04] to-transparent">
             <CardTitle className="flex items-center gap-2">
               <Sparkles className="h-5 w-5 text-primary" />
               {STEPS[step]}
             </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-5">
+          <CardContent className="space-y-5 pt-6">
             {step === 0 && <StepBasics form={form} set={set} />}
             {step === 1 && <StepStory form={form} set={set} />}
             {step === 2 && (
@@ -169,15 +192,15 @@ function NewDemoPage() {
               Next <ArrowRight className="ml-2 h-4 w-4" />
             </Button>
           ) : (
-            <Button onClick={handleSubmit} disabled={generate.isPending || !canAdvance()}>
+            <Button onClick={handleSubmit} disabled={generate.isPending || !canAdvance()} className="gap-2">
               {generate.isPending ? (
                 <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  <Loader2 className="h-4 w-4 animate-spin" />
                   Generating…
                 </>
               ) : (
                 <>
-                  <Sparkles className="mr-2 h-4 w-4" /> Generate SKILL.md
+                  <Sparkles className="h-4 w-4" /> Generate SKILL.md
                 </>
               )}
             </Button>
@@ -359,7 +382,11 @@ function StepContent({
             ([key, label]) => (
               <label
                 key={key}
-                className="flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm transition-colors hover:bg-muted"
+                className={`flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2.5 text-sm transition-all hover:bg-muted ${
+                  form.features[key]
+                    ? "border-primary/40 bg-primary/5 shadow-sm shadow-primary/10"
+                    : ""
+                }`}
               >
                 <Checkbox
                   checked={form.features[key]}
@@ -440,7 +467,11 @@ function StepLookFeel({ form, set }: { form: DemoRequestIn; set: SetFn }) {
           {deliveryOptions.map(({ value, label }) => (
             <label
               key={value}
-              className="flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm transition-colors hover:bg-muted"
+              className={`flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2.5 text-sm transition-all hover:bg-muted ${
+                form.delivery_formats.includes(value)
+                  ? "border-primary/40 bg-primary/5 shadow-sm shadow-primary/10"
+                  : ""
+              }`}
             >
               <Checkbox
                 checked={form.delivery_formats.includes(value)}
@@ -586,9 +617,9 @@ function StepReview({ form }: { form: DemoRequestIn }) {
 
 function ReviewRow({ label, value }: { label: string; value?: string | null }) {
   return (
-    <div className="flex gap-2 border-b pb-2">
-      <span className="w-36 shrink-0 font-medium text-muted-foreground">{label}</span>
-      <span className="text-foreground">{value || "—"}</span>
+    <div className="flex gap-2 border-b border-border/50 pb-2.5">
+      <span className="w-36 shrink-0 font-medium text-muted-foreground text-xs uppercase tracking-wider pt-0.5">{label}</span>
+      <span className="text-foreground">{value || <span className="text-muted-foreground/50">—</span>}</span>
     </div>
   );
 }

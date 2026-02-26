@@ -278,3 +278,228 @@ async def stream_inspiration(
                         yield delta
                 except (json.JSONDecodeError, IndexError, KeyError):
                     continue
+
+
+# ---------------------------------------------------------------------------
+# Workspace: generate SKILL.md from a plain topic (streaming)
+# ---------------------------------------------------------------------------
+
+
+async def stream_skill_from_topic(
+    topic: str,
+    databricks_host: str,
+    databricks_token: str,
+    model: str = "databricks-claude-sonnet-4",
+) -> AsyncIterator[str]:
+    """Stream a full SKILL.md generated from a freeform topic description."""
+    url = f"{databricks_host.rstrip('/')}/serving-endpoints/{model}/invocations"
+    headers = {
+        "Authorization": f"Bearer {databricks_token}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "messages": [
+            {"role": "system", "content": _build_system_prompt()},
+            {
+                "role": "user",
+                "content": (
+                    f"Generate a SKILL.md for this use-case topic:\n\n"
+                    f"{topic}\n\n"
+                    f"Infer the best industry, audience, Databricks features, datasets, "
+                    f"and demo structure from the topic. Use synthetic data. "
+                    f"Target a 15-20 minute live walkthrough with a technical tone.\n\n"
+                    f"Output ONLY the SKILL.md content starting with the --- frontmatter. "
+                    f"No commentary."
+                ),
+            },
+        ],
+        "max_tokens": 8192,
+        "temperature": 0.7,
+        "stream": True,
+    }
+
+    async with httpx.AsyncClient(timeout=180.0) as client:
+        async with client.stream("POST", url, json=payload, headers=headers) as resp:
+            resp.raise_for_status()
+            async for line in resp.aiter_lines():
+                if not line.startswith("data: "):
+                    continue
+                chunk = line[6:]
+                if chunk == "[DONE]":
+                    break
+                try:
+                    data = json.loads(chunk)
+                    delta = data.get("choices", [{}])[0].get("delta", {}).get("content", "")
+                    if delta:
+                        yield delta
+                except (json.JSONDecodeError, IndexError, KeyError):
+                    continue
+
+
+async def stream_skill_refinement(
+    current_skill_md: str,
+    user_message: str,
+    history: list[dict[str, str]],
+    databricks_host: str,
+    databricks_token: str,
+    model: str = "databricks-claude-sonnet-4",
+    focused_sections: list[str] | None = None,
+) -> AsyncIterator[str]:
+    """Stream a refined SKILL.md based on user feedback."""
+    url = f"{databricks_host.rstrip('/')}/serving-endpoints/{model}/invocations"
+    headers = {
+        "Authorization": f"Bearer {databricks_token}",
+        "Content-Type": "application/json",
+    }
+
+    focus_note = ""
+    if focused_sections:
+        section_list = ", ".join(f'"{s}"' for s in focused_sections)
+        focus_note = (
+            f"\n\nSECTION FOCUS: The user wants changes specifically in: {section_list}. "
+            f"Concentrate modifications on those sections. Keep all other sections identical."
+        )
+
+    messages: list[dict[str, str]] = [
+        {
+            "role": "system",
+            "content": (
+                f"{_build_system_prompt()}\n\n"
+                "You are now REFINING an existing SKILL.md based on the user's feedback. "
+                "Output the COMPLETE updated SKILL.md (not a diff). Start with the --- "
+                "frontmatter. Preserve all sections that the user did not ask to change. "
+                f"No commentary before or after the SKILL.md.{focus_note}"
+            ),
+        },
+        {
+            "role": "user",
+            "content": f"Here is the current SKILL.md:\n\n{current_skill_md}",
+        },
+        {
+            "role": "assistant",
+            "content": "I've reviewed the SKILL.md. What changes would you like?",
+        },
+    ]
+    for msg in history:
+        messages.append({"role": msg["role"], "content": msg["content"]})
+    messages.append({"role": "user", "content": user_message})
+
+    payload = {
+        "messages": messages,
+        "max_tokens": 8192,
+        "temperature": 0.5,
+        "stream": True,
+    }
+
+    async with httpx.AsyncClient(timeout=180.0) as client:
+        async with client.stream("POST", url, json=payload, headers=headers) as resp:
+            resp.raise_for_status()
+            async for line in resp.aiter_lines():
+                if not line.startswith("data: "):
+                    continue
+                chunk = line[6:]
+                if chunk == "[DONE]":
+                    break
+                try:
+                    data = json.loads(chunk)
+                    delta = data.get("choices", [{}])[0].get("delta", {}).get("content", "")
+                    if delta:
+                        yield delta
+                except (json.JSONDecodeError, IndexError, KeyError):
+                    continue
+
+
+async def stream_section_refinement(
+    section_title: str,
+    section_content: str,
+    user_message: str,
+    full_skill_context: str,
+    history: list[dict[str, str]],
+    databricks_host: str,
+    databricks_token: str,
+    model: str = "databricks-claude-sonnet-4",
+) -> AsyncIterator[str]:
+    """Stream a refined version of a single SKILL.md section."""
+    url = f"{databricks_host.rstrip('/')}/serving-endpoints/{model}/invocations"
+    headers = {
+        "Authorization": f"Bearer {databricks_token}",
+        "Content-Type": "application/json",
+    }
+
+    messages: list[dict[str, str]] = [
+        {
+            "role": "system",
+            "content": (
+                "You are editing a SINGLE section of a SKILL.md file. "
+                "You will receive the full SKILL.md for context, then the specific section to edit.\n\n"
+                "Rules:\n"
+                f"- Output ONLY the updated content for the '## {section_title}' section\n"
+                f"- Do NOT include the '## {section_title}' header line itself\n"
+                "- Do NOT output any other sections, frontmatter, or the full SKILL.md\n"
+                "- Do NOT add commentary before or after the content\n"
+                "- Preserve the style, formatting, and conventions of the existing skill\n"
+                "- The section must remain consistent with the rest of the SKILL.md\n"
+                "- If the section contains ### sub-headers, tables, or checklists, preserve that structure"
+            ),
+        },
+        {
+            "role": "user",
+            "content": f"Here is the full SKILL.md for context:\n\n{full_skill_context}",
+        },
+        {
+            "role": "assistant",
+            "content": f"I've reviewed the full SKILL.md. I'm ready to edit the '## {section_title}' section.",
+        },
+    ]
+    for msg in history:
+        messages.append({"role": msg["role"], "content": msg["content"]})
+    messages.append({
+        "role": "user",
+        "content": (
+            f"Current content of '## {section_title}':\n\n"
+            f"{section_content}\n\n"
+            f"Requested change: {user_message}\n\n"
+            f"Output ONLY the updated section content. No header line, no other sections."
+        ),
+    })
+
+    payload = {
+        "messages": messages,
+        "max_tokens": 4096,
+        "temperature": 0.5,
+        "stream": True,
+    }
+
+    async with httpx.AsyncClient(timeout=180.0) as client:
+        async with client.stream("POST", url, json=payload, headers=headers) as resp:
+            resp.raise_for_status()
+            async for line in resp.aiter_lines():
+                if not line.startswith("data: "):
+                    continue
+                chunk = line[6:]
+                if chunk == "[DONE]":
+                    break
+                try:
+                    data = json.loads(chunk)
+                    delta = data.get("choices", [{}])[0].get("delta", {}).get("content", "")
+                    if delta:
+                        yield delta
+                except (json.JSONDecodeError, IndexError, KeyError):
+                    continue
+
+
+def parse_skill_metadata(skill_md: str) -> dict[str, str]:
+    """Extract name and description from SKILL.md YAML frontmatter."""
+    result: dict[str, str] = {"name": "untitled", "description": "", "industry": ""}
+    if not skill_md.startswith("---"):
+        return result
+    end = skill_md.index("---", 3) if "---" in skill_md[3:] else -1
+    if end == -1:
+        return result
+    fm = skill_md[3:end].strip()
+    for line in fm.split("\n"):
+        if line.startswith("name:"):
+            result["name"] = line.split(":", 1)[1].strip().strip("\"'")
+        elif line.startswith("description:"):
+            result["description"] = line.split(":", 1)[1].strip().strip("\"'")
+    return result

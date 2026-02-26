@@ -37,8 +37,6 @@ export const defaultFormValues: DemoRequestIn = {
 
 /**
  * SSE streaming for the /inspire endpoint.
- * The auto-generated client treats it as a regular POST, but we need to read
- * the SSE stream chunk-by-chunk for the "Get Inspired" typewriter effect.
  */
 export async function* streamInspirationSSE(
   topic: string,
@@ -70,4 +68,81 @@ export async function* streamInspirationSSE(
       yield payload;
     }
   }
+}
+
+// ---------------------------------------------------------------------------
+// Workspace SSE types and helpers
+// ---------------------------------------------------------------------------
+
+export type WorkspaceEvent =
+  | { type: "skill"; content: string }
+  | { type: "section_start"; title: string }
+  | { type: "complete"; id: number; demo_name: string; industry?: string }
+  | { type: "error"; content: string };
+
+async function* parseSSEStream(
+  resp: Response,
+): AsyncGenerator<WorkspaceEvent> {
+  const reader = resp.body!.getReader();
+  const decoder = new TextDecoder();
+  let buf = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    const parts = buf.split("\n\n");
+    buf = parts.pop() || "";
+    for (const part of parts) {
+      if (!part.startsWith("data: ")) continue;
+      const payload = part.slice(6);
+      if (payload === "[DONE]") return;
+      try {
+        yield JSON.parse(payload) as WorkspaceEvent;
+      } catch {
+        // skip malformed events
+      }
+    }
+  }
+}
+
+export async function* streamWorkspaceGenerate(
+  topic: string,
+  signal?: AbortSignal,
+): AsyncGenerator<WorkspaceEvent> {
+  const resp = await fetch("/api/workspace/generate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ topic }),
+    signal,
+  });
+  if (!resp.ok) throw new Error(`Generation failed: ${resp.status}`);
+  yield* parseSSEStream(resp);
+}
+
+export interface ChatMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
+export async function* streamWorkspaceRefine(
+  generationId: number,
+  message: string,
+  history: ChatMessage[],
+  signal?: AbortSignal,
+  focusedSections?: string[],
+): AsyncGenerator<WorkspaceEvent> {
+  const resp = await fetch("/api/workspace/refine", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      generation_id: generationId,
+      message,
+      history,
+      focused_sections: focusedSections || [],
+    }),
+    signal,
+  });
+  if (!resp.ok) throw new Error(`Refinement failed: ${resp.status}`);
+  yield* parseSSEStream(resp);
 }

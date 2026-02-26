@@ -9,6 +9,7 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './../routes/__root'
+import { Route as WorkspaceRouteImport } from './../routes/workspace'
 import { Route as NewRouteImport } from './../routes/new'
 import { Route as SidebarRouteRouteImport } from './../routes/_sidebar/route'
 import { Route as IndexRouteImport } from './../routes/index'
@@ -16,6 +17,11 @@ import { Route as SidebarProfileRouteImport } from './../routes/_sidebar/profile
 import { Route as SidebarGenerationsRouteImport } from './../routes/_sidebar/generations'
 import { Route as SidebarGenerationsIdRouteImport } from './../routes/_sidebar/generations.$id'
 
+const WorkspaceRoute = WorkspaceRouteImport.update({
+  id: '/workspace',
+  path: '/workspace',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const NewRoute = NewRouteImport.update({
   id: '/new',
   path: '/new',
@@ -49,6 +55,7 @@ const SidebarGenerationsIdRoute = SidebarGenerationsIdRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/new': typeof NewRoute
+  '/workspace': typeof WorkspaceRoute
   '/generations': typeof SidebarGenerationsRouteWithChildren
   '/profile': typeof SidebarProfileRoute
   '/generations/$id': typeof SidebarGenerationsIdRoute
@@ -56,6 +63,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/new': typeof NewRoute
+  '/workspace': typeof WorkspaceRoute
   '/generations': typeof SidebarGenerationsRouteWithChildren
   '/profile': typeof SidebarProfileRoute
   '/generations/$id': typeof SidebarGenerationsIdRoute
@@ -65,20 +73,34 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/_sidebar': typeof SidebarRouteRouteWithChildren
   '/new': typeof NewRoute
+  '/workspace': typeof WorkspaceRoute
   '/_sidebar/generations': typeof SidebarGenerationsRouteWithChildren
   '/_sidebar/profile': typeof SidebarProfileRoute
   '/_sidebar/generations/$id': typeof SidebarGenerationsIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/new' | '/generations' | '/profile' | '/generations/$id'
+  fullPaths:
+    | '/'
+    | '/new'
+    | '/workspace'
+    | '/generations'
+    | '/profile'
+    | '/generations/$id'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/new' | '/generations' | '/profile' | '/generations/$id'
+  to:
+    | '/'
+    | '/new'
+    | '/workspace'
+    | '/generations'
+    | '/profile'
+    | '/generations/$id'
   id:
     | '__root__'
     | '/'
     | '/_sidebar'
     | '/new'
+    | '/workspace'
     | '/_sidebar/generations'
     | '/_sidebar/profile'
     | '/_sidebar/generations/$id'
@@ -88,10 +110,18 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   SidebarRouteRoute: typeof SidebarRouteRouteWithChildren
   NewRoute: typeof NewRoute
+  WorkspaceRoute: typeof WorkspaceRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/workspace': {
+      id: '/workspace'
+      path: '/workspace'
+      fullPath: '/workspace'
+      preLoaderRoute: typeof WorkspaceRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/new': {
       id: '/new'
       path: '/new'
@@ -166,6 +196,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   SidebarRouteRoute: SidebarRouteRouteWithChildren,
   NewRoute: NewRoute,
+  WorkspaceRoute: WorkspaceRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

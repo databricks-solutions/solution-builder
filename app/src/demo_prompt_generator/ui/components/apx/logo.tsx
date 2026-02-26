@@ -8,14 +8,16 @@ interface LogoProps {
 
 export function Logo({ to = "/", className = "", showText = true }: LogoProps) {
   const content = (
-    <div className={`flex items-center gap-2 ${className}`}>
+    <div className={`flex items-center gap-2.5 ${className}`}>
       <img
         src="/logo.svg"
-        alt="logo"
-        className="h-6 w-6 text-primary border border-primary rounded-sm"
+        alt="Databricks"
+        className="h-7 w-7"
       />
       {showText && (
-        <span className="font-semibold text-lg">{__APP_NAME__}</span>
+        <span className="font-semibold text-base tracking-tight">
+          <span className="text-primary">Demo Skill Builder</span>
+        </span>
       )}
     </div>
   );

@@ -23,7 +23,7 @@ function SidebarLayout({ children }: SidebarLayoutProps) {
     <SidebarProvider>
       <Sidebar>
         <SidebarHeader>
-          <div className="px-2 py-2">
+          <div className="px-2 pt-3 pb-2 border-b border-sidebar-border/50">
             <Logo />
           </div>
         </SidebarHeader>
@@ -34,8 +34,10 @@ function SidebarLayout({ children }: SidebarLayoutProps) {
         <SidebarRail />
       </Sidebar>
       <SidebarInset className="flex flex-col h-screen">
-        <header className="sticky top-0 z-50 bg-background/80 backdrop-blur-sm border-b flex h-16 shrink-0 items-center gap-2 px-4">
+        <header className="sticky top-0 z-50 bg-background/80 backdrop-blur-sm border-b flex h-14 shrink-0 items-center gap-2 px-4">
           <SidebarTrigger className="-ml-1 cursor-pointer" />
+          <div className="h-4 w-px bg-border mx-1" />
+          <span className="text-xs font-medium text-muted-foreground">Databricks Demo Skill Builder</span>
           <div className="flex-1" />
           <ModeToggle />
         </header>

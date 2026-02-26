@@ -9,6 +9,7 @@ router = create_router()
 from .routes import generate as _generate  # noqa: E402, F401
 from .routes import generations as _generations  # noqa: E402, F401
 from .routes import inspire as _inspire  # noqa: E402, F401
+from .routes import workspace as _workspace  # noqa: E402, F401
 
 
 @router.get("/version", response_model=VersionOut, operation_id="version")

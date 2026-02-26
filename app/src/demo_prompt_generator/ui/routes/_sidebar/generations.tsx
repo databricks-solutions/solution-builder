@@ -22,7 +22,7 @@ function GenerationsPage() {
         <h1 className="text-2xl font-bold">Past Generations</h1>
         <Button asChild>
           <Link to="/new">
-            <Plus className="mr-2 h-4 w-4" /> New Demo
+            <Plus className="mr-2 h-4 w-4" /> New Skill
           </Link>
         </Button>
       </div>
@@ -62,7 +62,7 @@ function GenerationsPage() {
         <div className="space-y-3">
           {data.map((gen) => (
             <Link key={gen.id} to="/generations/$id" params={{ id: String(gen.id) }}>
-              <Card className="transition-colors hover:bg-muted/50">
+              <Card className="transition-all hover:bg-muted/50 hover:border-primary/20 hover:shadow-sm">
                 <CardHeader className="py-4">
                   <div className="flex items-center justify-between">
                     <CardTitle className="text-base">{gen.demo_name}</CardTitle>

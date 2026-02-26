@@ -161,6 +161,30 @@ class InspireRequest(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Workspace (AI-driven) request/response models
+# ---------------------------------------------------------------------------
+
+
+class ChatMessage(BaseModel):
+    role: str = Field(..., description="'user' or 'assistant'")
+    content: str
+
+
+class WorkspaceGenerateRequest(BaseModel):
+    topic: str = Field(..., description="Use-case topic to generate a full SKILL.md from")
+
+
+class WorkspaceRefineRequest(BaseModel):
+    generation_id: int
+    message: str = Field(..., description="User's refinement instruction")
+    history: list[ChatMessage] = Field(default_factory=list)
+    focused_sections: list[str] = Field(
+        default_factory=list,
+        description="Section titles to focus refinement on (from @mentions)",
+    )
+
+
+# ---------------------------------------------------------------------------
 # SQLModel table — persisted in Lakebase
 # ---------------------------------------------------------------------------
 

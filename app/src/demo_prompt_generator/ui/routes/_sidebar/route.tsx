@@ -1,10 +1,11 @@
 import SidebarLayout from "@/components/apx/sidebar-layout";
 import { createFileRoute, Link, useLocation } from "@tanstack/react-router";
 import { cn } from "@/lib/utils";
-import { User, History, Plus } from "lucide-react";
+import { User, History, Sparkles } from "lucide-react";
 import {
   SidebarGroup,
   SidebarGroupContent,
+  SidebarGroupLabel,
   SidebarMenu,
   SidebarMenuItem,
 } from "@/components/ui/sidebar";
@@ -18,10 +19,10 @@ function Layout() {
 
   const navItems = [
     {
-      to: "/new",
-      label: "New Demo",
-      icon: <Plus size={16} />,
-      match: (path: string) => path === "/new",
+      to: "/workspace",
+      label: "New Skill",
+      icon: <Sparkles size={16} />,
+      match: (path: string) => path.startsWith("/workspace"),
     },
     {
       to: "/generations",
@@ -40,24 +41,28 @@ function Layout() {
   return (
     <SidebarLayout>
       <SidebarGroup>
+        <SidebarGroupLabel className="text-xs text-muted-foreground px-3">Navigate</SidebarGroupLabel>
         <SidebarGroupContent>
           <SidebarMenu>
-            {navItems.map((item) => (
-              <SidebarMenuItem key={item.to}>
-                <Link
-                  to={item.to}
-                  className={cn(
-                    "flex items-center gap-2 p-2 rounded-lg",
-                    item.match(location.pathname)
-                      ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                      : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
-                  )}
-                >
-                  {item.icon}
-                  <span>{item.label}</span>
-                </Link>
-              </SidebarMenuItem>
-            ))}
+            {navItems.map((item) => {
+              const active = item.match(location.pathname);
+              return (
+                <SidebarMenuItem key={item.to}>
+                  <Link
+                    to={item.to}
+                    className={cn(
+                      "flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-all",
+                      active
+                        ? "bg-primary/10 text-primary"
+                        : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+                    )}
+                  >
+                    <span className={active ? "text-primary" : ""}>{item.icon}</span>
+                    <span>{item.label}</span>
+                  </Link>
+                </SidebarMenuItem>
+              );
+            })}
           </SidebarMenu>
         </SidebarGroupContent>
       </SidebarGroup>

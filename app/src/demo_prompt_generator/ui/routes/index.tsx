@@ -1,130 +1,126 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
-import { useState, useCallback, useRef } from "react";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import Navbar from "@/components/apx/navbar";
 import { BubbleBackground } from "@/components/backgrounds/bubble";
 import {
   Sparkles,
-  Plus,
   History,
-  Loader2,
-  Lightbulb,
-  Wand2,
+  ArrowRight,
 } from "lucide-react";
-import { streamInspirationSSE } from "@/lib/custom-api";
 
 export const Route = createFileRoute("/")({
   component: Index,
 });
 
 function Index() {
+  const [topic, setTopic] = useState("");
+  const navigate = useNavigate();
+
+  const handleGo = () => {
+    if (!topic.trim()) return;
+    navigate({ to: "/workspace", search: { topic: topic.trim() } });
+  };
+
   return (
     <div className="relative flex min-h-screen flex-col overflow-hidden">
       <Navbar />
       <main className="flex flex-1 flex-col items-center justify-center px-4 py-16">
-        <BubbleBackground interactive />
+        <BubbleBackground
+          interactive
+          className="!absolute inset-0 -z-10 opacity-40"
+          colors={{
+            first: "255,54,33",
+            second: "255,120,80",
+            third: "255,85,50",
+            fourth: "200,40,25",
+            fifth: "255,160,100",
+            sixth: "255,100,60",
+          }}
+        />
 
         <div className="relative z-10 mx-auto max-w-3xl space-y-10 text-center">
-          <div className="space-y-4">
-            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/10">
-              <Wand2 className="h-8 w-8 text-primary" />
+          <div className="space-y-5">
+            <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-2xl bg-primary/10 backdrop-blur-sm border border-primary/20">
+              <img src="/logo.svg" alt="Databricks" className="h-12 w-12" />
             </div>
-            <h1 className="text-5xl font-bold tracking-tight md:text-6xl">
-              Demo Prompt Generator
-            </h1>
-            <p className="mx-auto max-w-xl text-lg text-muted-foreground">
-              Turn a business use-case into a self-contained{" "}
-              <code className="rounded bg-muted px-1.5 py-0.5 text-sm font-medium">
+            <div className="space-y-2">
+              <p className="text-sm font-semibold uppercase tracking-[0.2em] text-primary">
+                Databricks
+              </p>
+              <h1 className="text-5xl font-bold tracking-tight md:text-6xl">
+                Demo Skill Builder
+              </h1>
+            </div>
+            <p className="mx-auto max-w-xl text-lg text-muted-foreground leading-relaxed">
+              Describe a use-case and the AI architect will build a complete{" "}
+              <code className="rounded-md bg-primary/10 px-1.5 py-0.5 text-sm font-medium text-primary">
                 SKILL.md
               </code>{" "}
-              that any LLM with the Databricks AI Dev Kit can execute end-to-end.
+              with datasets, pipelines, dashboards, and build steps -- ready for any LLM to execute.
             </p>
           </div>
 
-          <div className="flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
-            <Button size="lg" asChild>
-              <Link to="/new" className="flex items-center gap-2">
-                <Plus className="h-5 w-5" /> Create New Demo
-              </Link>
-            </Button>
-            <Button size="lg" variant="outline" asChild>
-              <Link to="/generations" className="flex items-center gap-2">
-                <History className="h-5 w-5" /> Past Generations
-              </Link>
-            </Button>
-          </div>
+          <Card className="mx-auto w-full max-w-2xl text-left backdrop-blur-md bg-card/80 border-primary/10 shadow-lg shadow-primary/5">
+            <CardContent className="p-5">
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  handleGo();
+                }}
+                className="space-y-3"
+              >
+                <Input
+                  placeholder='Describe a use-case... e.g. "predictive maintenance for wind turbines"'
+                  value={topic}
+                  onChange={(e) => setTopic(e.target.value)}
+                  className="h-12 text-base bg-background/60"
+                  autoFocus
+                />
+                <div className="flex items-center justify-between">
+                  <Button
+                    variant="link"
+                    size="sm"
+                    className="text-muted-foreground px-0"
+                    asChild
+                  >
+                    <Link to="/generations" className="gap-1.5">
+                      <History className="h-3.5 w-3.5" /> Past generations
+                    </Link>
+                  </Button>
+                  <Button type="submit" disabled={!topic.trim()} className="gap-2 px-5">
+                    <Sparkles className="h-4 w-4" /> Build Skill
+                    <ArrowRight className="h-4 w-4" />
+                  </Button>
+                </div>
+              </form>
+            </CardContent>
+          </Card>
 
-          <InspireCard />
+          <div className="flex flex-wrap justify-center gap-2">
+            {[
+              "Predictive maintenance for manufacturing",
+              "Real-time fraud detection in banking",
+              "Patient readmission risk scoring",
+              "Supply chain demand forecasting",
+            ].map((suggestion) => (
+              <button
+                key={suggestion}
+                onClick={() => {
+                  setTopic(suggestion);
+                  navigate({ to: "/workspace", search: { topic: suggestion } });
+                }}
+                className="rounded-full border border-primary/15 bg-background/60 backdrop-blur-sm px-3.5 py-1.5 text-xs text-muted-foreground transition-all hover:border-primary/30 hover:text-foreground hover:bg-primary/5"
+              >
+                {suggestion}
+              </button>
+            ))}
+          </div>
         </div>
       </main>
-      <div className="absolute inset-0 -z-10 h-full w-full bg-background" />
+      <div className="absolute inset-0 -z-20 h-full w-full bg-background" />
     </div>
-  );
-}
-
-function InspireCard() {
-  const [topic, setTopic] = useState("");
-  const [output, setOutput] = useState("");
-  const [streaming, setStreaming] = useState(false);
-  const abortRef = useRef<AbortController | null>(null);
-
-  const handleInspire = useCallback(async () => {
-    if (!topic.trim()) return;
-    abortRef.current?.abort();
-    const ctrl = new AbortController();
-    abortRef.current = ctrl;
-    setOutput("");
-    setStreaming(true);
-    try {
-      for await (const chunk of streamInspirationSSE(topic.trim(), ctrl.signal)) {
-        setOutput((prev) => prev + chunk);
-      }
-    } catch {
-      if (!ctrl.signal.aborted) setOutput((prev) => prev + "\n\n[Error generating inspiration]");
-    } finally {
-      setStreaming(false);
-    }
-  }, [topic]);
-
-  return (
-    <Card className="mx-auto w-full max-w-2xl text-left">
-      <CardHeader className="pb-3">
-        <CardTitle className="flex items-center gap-2 text-base">
-          <Lightbulb className="h-4 w-4 text-yellow-500" />
-          Get Inspired
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        <p className="text-sm text-muted-foreground">
-          Enter an industry or topic and get an AI-generated business use-case to
-          jumpstart your demo.
-        </p>
-        <div className="flex gap-2">
-          <Input
-            placeholder='e.g. "predictive maintenance for manufacturing"'
-            value={topic}
-            onChange={(e) => setTopic(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && handleInspire()}
-          />
-          <Button onClick={handleInspire} disabled={streaming || !topic.trim()}>
-            {streaming ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Sparkles className="h-4 w-4" />
-            )}
-          </Button>
-        </div>
-        {output && (
-          <div className="rounded-lg border bg-muted/50 p-4 text-sm leading-relaxed whitespace-pre-wrap">
-            {output}
-            {streaming && (
-              <span className="ml-0.5 inline-block h-4 w-1 animate-pulse bg-primary" />
-            )}
-          </div>
-        )}
-      </CardContent>
-    </Card>
   );
 }
