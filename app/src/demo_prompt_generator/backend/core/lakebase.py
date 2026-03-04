@@ -32,7 +32,9 @@ class DatabaseConfig(BaseSettings):
         description="The name of the database", default="databricks_postgres"
     )
     instance_name: str = Field(
-        description="The name of the database instance", validation_alias="PGAPPNAME"
+        description="The name of the database instance",
+        default="demo-prompt-generator",
+        validation_alias="PGAPPNAME",
     )
 
 
