@@ -20,10 +20,18 @@ async def generate(
     req: DemoRequestIn,
     config: Dependencies.Config,
     session: Dependencies.Session,
+    ws_client: Dependencies.Client,
 ):
     """Accept a demo request form and return a generated SKILL.md."""
     host = config.databricks_host
     token = config.databricks_token
+    if not token and ws_client:
+        headers = ws_client.config.authenticate()
+        auth_header = headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            token = auth_header[len("Bearer "):]
+        if not host:
+            host = ws_client.config.host
     model = config.llm_model
 
     if not host or not token:

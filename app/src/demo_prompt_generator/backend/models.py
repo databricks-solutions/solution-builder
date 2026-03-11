@@ -146,6 +146,9 @@ class GenerationOut(BaseModel):
     owner_name: str
     industry: str
     skill_md: str
+    stage: str = "package"
+    proposal_md: Optional[str] = None
+    skill_files: Optional[dict[str, str]] = None
     created_at: datetime
 
 
@@ -153,6 +156,7 @@ class GenerationListItem(BaseModel):
     id: int
     demo_name: str
     industry: str
+    stage: str = "package"
     created_at: datetime
 
 
@@ -184,9 +188,30 @@ class WorkspaceRefineRequest(BaseModel):
     )
 
 
+class WorkspaceProposeRequest(BaseModel):
+    topic: str = Field(..., description="Use-case topic to generate a proposal from")
+
+
+class WorkspaceApproveRequest(BaseModel):
+    generation_id: int
+
+
+class WorkspaceBuildoutRequest(BaseModel):
+    generation_id: int
+
+
+class WorkspaceRefineFileRequest(BaseModel):
+    generation_id: int
+    filename: str = Field(..., description="Target file to refine (e.g. 'storyline.md')")
+    message: str = Field(..., description="User's refinement instruction")
+    history: list[ChatMessage] = Field(default_factory=list)
+
+
 # ---------------------------------------------------------------------------
 # SQLModel table — persisted in Lakebase
 # ---------------------------------------------------------------------------
+
+PACKAGE_FILES = ["SKILL.md", "storyline.md", "data-schema.md", "project-structure.md"]
 
 
 class Generation(SQLModel, table=True):
@@ -196,4 +221,7 @@ class Generation(SQLModel, table=True):
     industry: str
     form_json: str = SQLField(sa_column=Column(Text))
     skill_md: str = SQLField(sa_column=Column(Text))
+    stage: str = SQLField(default="package")
+    proposal_md: Optional[str] = SQLField(default=None, sa_column=Column(Text, nullable=True))
+    skill_files: Optional[str] = SQLField(default=None, sa_column=Column(Text, nullable=True))
     created_at: datetime = SQLField(default_factory=datetime.utcnow)

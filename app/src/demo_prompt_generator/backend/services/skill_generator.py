@@ -19,7 +19,7 @@ AI_DEV_KIT_SKILLS: list[tuple[str, str]] = [
     ("databricks-synthetic-data-generation", "Generate realistic synthetic data with Faker and Spark"),
     ("databricks-unstructured-pdf-generation", "Generate synthetic PDFs for RAG use cases"),
     ("databricks-dbsql", "Databricks SQL features and SQL warehouse capabilities"),
-    ("databricks-spark-declarative-pipelines", "Lakeflow Declarative Pipelines (DLT/SDP)"),
+    ("databricks-spark-declarative-pipelines", "Spark Declarative Pipelines (SDP) for medallion architecture"),
     ("databricks-spark-structured-streaming", "Spark Structured Streaming for production workloads"),
     ("databricks-aibi-dashboards", "Create AI/BI Lakeview dashboards"),
     ("databricks-genie", "Create and query Genie Spaces for natural language SQL"),
@@ -115,51 +115,45 @@ what they should contain with enough specificity to build but enough freedom to 
 
 10. **Reference Databricks MCP tools by name where useful.** For example: \
 "Use `execute_sql` to run the transformation queries" or \
-"Use `create_or_update_pipeline` to deploy the DLT pipeline."
+"Use `create_or_update_pipeline` to deploy the SDP pipeline."
+
+11. **Modern Databricks conventions.** Always use Spark Declarative Pipelines (SDP), NOT \
+Delta Live Tables (DLT). Use Databricks Asset Bundles for project structure. Use serverless \
+compute by default. Use CLUSTER BY (Liquid Clustering) not PARTITION BY.
 
 ## Available ai-dev-kit skills
 
 {_skills_catalog()}
 
-## Skill structure to follow
+## Proposal structure (keep it scannable — aim for ~40 lines max)
 
 ```
 ---
 name: <demo-name>
-description: "<What this demo builds and when to use it. Third person.>"
+description: "<One sentence: what this demo builds and who it's for.>"
 ---
 
 # <Demo Title>
 
 ## Overview
-One paragraph: audience, business problem, what makes it compelling. No fluff.
+2-3 sentences: audience, business problem, what makes it compelling, wow moment.
 
-## Prerequisites
-Catalog, schema, and workspace assumptions. Keep it to a short list.
+## Data
+Bullet list of tables (name, one-line purpose, source type, ~row count). No schemas.
 
-## Datasets
-One subsection per table. Each has a markdown table for schema (column | type | description).
-Include source type, approximate row count, and key relationships.
-
-## Transformations
-Describe silver/gold layer logic: joins, filters, aggregations, business rules.
-Reference table names from Datasets. Prose, not SQL — the executing LLM writes the SQL.
-
-## Outputs
-One subsection per deliverable (dashboard, Genie space, model, app, etc.).
-Describe what it shows/does with enough detail to build.
+## What Gets Built
+Bullet list of deliverables: pipelines, dashboards, Genie spaces, apps, models. \
+One line each — just name + what it does.
 
 ## Build Steps
-
-Checklist:
-- [ ] Step 1: ...
-- [ ] Step 2: ...
-
-Then numbered steps, each referencing an ai-dev-kit skill and/or MCP tool.
+Numbered list. Each step names an ai-dev-kit skill in backticks. Keep to 4-7 steps.
 
 ## Acceptance Criteria
-Checklist of what "done" looks like.
-```"""
+3-5 bullet checklist of what "done" looks like.
+```
+
+This is a PROPOSAL — a scannable pitch, not a spec. All detail (schemas, SQL, directory layout) \
+comes later during buildout in data-schema.md, storyline.md, and project-structure.md."""
 
 
 def _build_user_prompt(req: DemoRequestIn) -> str:
@@ -486,6 +480,423 @@ async def stream_section_refinement(
                         yield delta
                 except (json.JSONDecodeError, IndexError, KeyError):
                     continue
+
+
+# ---------------------------------------------------------------------------
+# Stage 1: Proposal generation
+# ---------------------------------------------------------------------------
+
+
+def _build_proposal_system_prompt() -> str:
+    return f"""\
+You are a Databricks demo architect. Generate a **short demo proposal** — \
+a scannable pitch with storyline and architecture.
+
+## Output format
+
+Start with `# Demo Proposal: <Name>`. Use these EXACT section headers (the UI parses them):
+
+## Background
+3-5 sentences. The industry context, fictional company name, sector, size, what's broken \
+today, the cost of the problem, and the key metrics. Combine industry context and business \
+problem into one tight narrative. Be specific with numbers — "Apex Manufacturing, a mid-market \
+auto parts producer with 12 plants, loses ~$4.2M/year from unplanned equipment downtime..."
+
+## Proposed Solution
+3-4 sentences. What does the Databricks demo build? Focus on the data flow and 2-3 key \
+Databricks capabilities. NO external tools (no Kafka, Airflow, dbt, Snowflake, etc.) — \
+everything is Databricks-native.
+
+## Company & Persona
+2 sentences. The fictional company's hero persona — name, role, and what they care about. \
+Example: "Maria Chen, VP of Operations at Apex, is tired of reactive maintenance schedules..."
+
+## Wow Moment
+1-2 sentences. The single most impressive thing the audience sees. A live prediction, \
+a Genie question answered, a real-time dashboard update — something specific and visual.
+
+## Datasets
+A markdown table with columns: Table | Description | ~Rows. One row per table. \
+Keep to 3-5 tables max. Example:
+| Table | Description | ~Rows |
+|-------|-------------|-------|
+| raw_sensor_readings | IoT telemetry from 200 machines | ~2M |
+
+## Transformations
+Brief bullet list of pipeline stages. One line each — just stage name + what it does. \
+Example:
+- **Bronze ingestion** — raw sensor data and maintenance logs
+- **Silver cleaning** — dedupe, standardize timestamps, enrich with asset metadata
+- **Gold features** — rolling averages, failure rate aggregations, ML feature tables
+
+## Outputs
+Brief bullet list of deliverables. One line each — name + what it does. Example:
+- **Predictive Maintenance Dashboard** — real-time equipment health scores + failure alerts
+- **Maintenance Genie Space** — natural language queries over maintenance history
+
+## Build Steps
+Numbered list, 4-6 steps. Each names ONE ai-dev-kit skill in backticks. Example:
+1. Generate synthetic sensor and maintenance data using `databricks-synthetic-data-generation`
+2. Build bronze→silver→gold SDP pipeline using `databricks-spark-declarative-pipelines`
+
+## Available ai-dev-kit skills
+
+{_skills_catalog()}
+
+## Rules
+- Keep the ENTIRE proposal under 50 lines of markdown. Short and punchy.
+- DATABRICKS ONLY. No external tools, middleware, or competing platforms. \
+Everything runs natively on Databricks: SDP pipelines, Unity Catalog, Model Serving, \
+AI/BI Dashboards, Genie, Databricks Apps, etc.
+- Be specific — real numbers, realistic company names, domain terminology
+- Use modern conventions: SDP (not DLT), Asset Bundles, serverless, Liquid Clustering
+- Output ONLY the markdown. No commentary. Start with `# Demo Proposal: <Name>`"""
+
+
+async def stream_proposal(
+    topic: str,
+    databricks_host: str,
+    databricks_token: str,
+    model: str = "databricks-claude-sonnet-4",
+) -> AsyncIterator[str]:
+    """Stream a demo proposal (storyline + architecture) for a use-case topic."""
+    url = f"{databricks_host.rstrip('/')}/serving-endpoints/{model}/invocations"
+    headers = {
+        "Authorization": f"Bearer {databricks_token}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "messages": [
+            {"role": "system", "content": _build_proposal_system_prompt()},
+            {
+                "role": "user",
+                "content": (
+                    f"Generate a demo proposal for this use-case:\n\n{topic}\n\n"
+                    f"Infer the best industry, audience, Databricks features, and demo structure. "
+                    f"Output ONLY the proposal markdown."
+                ),
+            },
+        ],
+        "max_tokens": 6144,
+        "temperature": 0.7,
+        "stream": True,
+    }
+
+    async with httpx.AsyncClient(timeout=180.0) as client:
+        async with client.stream("POST", url, json=payload, headers=headers) as resp:
+            resp.raise_for_status()
+            async for line in resp.aiter_lines():
+                if not line.startswith("data: "):
+                    continue
+                chunk = line[6:]
+                if chunk == "[DONE]":
+                    break
+                try:
+                    data = json.loads(chunk)
+                    delta = data.get("choices", [{}])[0].get("delta", {}).get("content", "")
+                    if delta:
+                        yield delta
+                except (json.JSONDecodeError, IndexError, KeyError):
+                    continue
+
+
+async def stream_proposal_refinement(
+    current_proposal: str,
+    user_message: str,
+    history: list[dict[str, str]],
+    databricks_host: str,
+    databricks_token: str,
+    model: str = "databricks-claude-sonnet-4",
+    focused_sections: list[str] | None = None,
+) -> AsyncIterator[str]:
+    """Stream a refined proposal based on user feedback."""
+    url = f"{databricks_host.rstrip('/')}/serving-endpoints/{model}/invocations"
+    headers = {
+        "Authorization": f"Bearer {databricks_token}",
+        "Content-Type": "application/json",
+    }
+
+    focus_note = ""
+    if focused_sections:
+        section_list = ", ".join(f'"{s}"' for s in focused_sections)
+        focus_note = (
+            f"\n\nSECTION FOCUS: Concentrate modifications on: {section_list}. "
+            f"Keep all other sections identical."
+        )
+
+    messages: list[dict[str, str]] = [
+        {
+            "role": "system",
+            "content": (
+                f"{_build_proposal_system_prompt()}\n\n"
+                "You are now REFINING an existing demo proposal. "
+                "Output the COMPLETE updated proposal (not a diff). "
+                "Preserve all sections the user did not ask to change. "
+                f"No commentary before or after.{focus_note}"
+            ),
+        },
+        {
+            "role": "user",
+            "content": f"Here is the current proposal:\n\n{current_proposal}",
+        },
+        {
+            "role": "assistant",
+            "content": "I've reviewed the proposal. What changes would you like?",
+        },
+    ]
+    for msg in history:
+        messages.append({"role": msg["role"], "content": msg["content"]})
+    messages.append({"role": "user", "content": user_message})
+
+    payload = {
+        "messages": messages,
+        "max_tokens": 6144,
+        "temperature": 0.5,
+        "stream": True,
+    }
+
+    async with httpx.AsyncClient(timeout=180.0) as client:
+        async with client.stream("POST", url, json=payload, headers=headers) as resp:
+            resp.raise_for_status()
+            async for line in resp.aiter_lines():
+                if not line.startswith("data: "):
+                    continue
+                chunk = line[6:]
+                if chunk == "[DONE]":
+                    break
+                try:
+                    data = json.loads(chunk)
+                    delta = data.get("choices", [{}])[0].get("delta", {}).get("content", "")
+                    if delta:
+                        yield delta
+                except (json.JSONDecodeError, IndexError, KeyError):
+                    continue
+
+
+# ---------------------------------------------------------------------------
+# Stage 2: Multi-file buildout
+# ---------------------------------------------------------------------------
+
+_BUILDOUT_FILE_PROMPTS: dict[str, tuple[str, str]] = {
+    "SKILL.md": (
+        "You are generating SKILL.md — the router/homepage that an LLM reads first when "
+        "building this demo. It is NOT a reference document. It contains ZERO data details.\n\n"
+        "SKILL.md has exactly these sections:\n"
+        "1. **Frontmatter** (---name/description---)\n"
+        "2. **Overview** — one paragraph: who it's for, what problem it solves, why it's compelling\n"
+        "3. **Before You Start** — mandatory reads list:\n"
+        "   - Read [storyline.md](storyline.md) for business context and narrative arc\n"
+        "   - Read [data-schema.md](data-schema.md) for all table schemas and transformation SQL\n"
+        "   - Read [project-structure.md](project-structure.md) for target directory layout\n"
+        "4. **Prerequisites** — catalog, schema, workspace assumptions (short bullet list)\n"
+        "5. **Build Steps** — numbered checklist, each step references an ai-dev-kit skill "
+        "in backticks AND the relevant reference file\n"
+        "6. **Acceptance Criteria** — checklist of what 'done' looks like\n\n"
+        "ABSOLUTE RULES:\n"
+        "- NO Datasets section. NO table names. NO schemas. NO column lists. That's data-schema.md's job.\n"
+        "- NO Transformations section. NO SQL. That's data-schema.md's job.\n"
+        "- NO directory trees. That's project-structure.md's job.\n"
+        "- NO Outputs section with detailed descriptions. Build Steps cover what gets built.\n"
+        "- SKILL.md is a ROUTING TABLE, not a reference document. Keep it under 80 lines.",
+        "Generate SKILL.md from this approved proposal. "
+        "Strip ALL data details — no table names, no schemas, no column lists, no SQL, no data generation instructions. "
+        "All data information lives ONLY in data-schema.md. SKILL.md just says 'Read data-schema.md'. "
+        "Keep it tight: overview, mandatory reads, prerequisites, build steps, acceptance criteria.\n\n"
+        "Output ONLY the SKILL.md starting with --- frontmatter. No commentary.",
+    ),
+    "storyline.md": (
+        "You are generating storyline.md — the expanded business narrative for a demo package. "
+        "This file is referenced by SKILL.md and provides domain context, company persona, "
+        "narrative arc, wow moment, and domain terminology that the downstream LLM uses "
+        "when building user-facing outputs (dashboards, Genie spaces, apps).",
+        "Generate storyline.md using the proposal's narrative sections as a starting point, "
+        "enriched with the concrete scope established in SKILL.md. "
+        "Include: Industry Context, Company Persona, Business Problem, Narrative Arc, "
+        "Wow Moment, Domain Terminology glossary.\n\n"
+        "Output ONLY the storyline.md content starting with `# Storyline`. No frontmatter, no commentary.",
+    ),
+    "data-schema.md": (
+        "You are generating data-schema.md — the single source of truth for all data in a demo package. "
+        "This file has TWO jobs:\n"
+        "1. Define exact table schemas for synthetic data generation\n"
+        "2. Show the transformation SQL that builds silver/gold tables from bronze\n\n"
+        "CRITICAL: Do NOT just describe transformations in prose. Show actual SQL code blocks "
+        "that demonstrate the joins, filters, aggregations, and business rules. The downstream LLM "
+        "will use these SQL examples as the blueprint for building SDP (Spark Declarative Pipelines).",
+        "Generate data-schema.md with these sections:\n\n"
+        "## Table Schemas\n"
+        "For each table: markdown schema table (column | type | description), source type, "
+        "approximate row count, distribution hints, relationships to other tables.\n\n"
+        "## Relationships\n"
+        "Foreign key relationships between tables. Brief.\n\n"
+        "## Transformations\n"
+        "For each medallion layer transition, show the ACTUAL SQL in fenced code blocks. Example:\n"
+        "```sql\n-- Silver: cleaned transactions\nCREATE OR REFRESH STREAMING TABLE silver_transactions AS\n"
+        "SELECT\n  transaction_id,\n  UPPER(customer_id) AS customer_id,\n  amount,\n  "
+        "CASE WHEN status = 'pending' THEN 'in_progress' ELSE status END AS status\n"
+        "FROM STREAM(bronze_raw_transactions)\nWHERE amount > 0;\n```\n\n"
+        "Show bronze→silver (cleaning, standardization) and silver→gold (aggregation, features) SQL. "
+        "Use Spark Declarative Pipelines (SDP) syntax: CREATE OR REFRESH STREAMING TABLE, "
+        "CREATE OR REFRESH MATERIALIZED VIEW. NOT old DLT @dlt.table syntax.\n"
+        "These SQL blocks are the blueprint — the downstream LLM adapts them for the actual pipeline.\n\n"
+        "Output ONLY the data-schema.md content starting with `# Data Schema`. No commentary.",
+    ),
+    "project-structure.md": (
+        "You are generating project-structure.md — the target directory layout for the demo package. "
+        "This file tells the downstream LLM what files and directories to create.\n\n"
+        "CRITICAL: Use MODERN Databricks conventions:\n"
+        "- Databricks Asset Bundles (databricks.yml at root)\n"
+        "- Spark Declarative Pipelines (SDP) — NOT Delta Live Tables (DLT), NOT notebooks\n"
+        "- Raw .sql or .py files in src/<pipeline>/transformations/ — NOT notebooks\n"
+        "- Resources defined in resources/*.yml (pipelines, dashboards, jobs, apps)\n"
+        "- Serverless compute by default\n"
+        "- CLUSTER BY (Liquid Clustering) not PARTITION BY\n\n"
+        "KEEP IT LEAN. A typical demo is 15-25 files, not 50+. No tests/, no config/ directories, "
+        "no utility directories unless the demo specifically requires them.",
+        "Generate project-structure.md using Databricks Asset Bundles as the foundation:\n\n"
+        "```\n<demo-name>/\n"
+        "├── databricks.yml                    # Bundle config + environment targets\n"
+        "├── resources/\n"
+        "│   ├── pipeline.pipeline.yml         # SDP pipeline resource\n"
+        "│   ├── dashboard.dashboard.yml       # AI/BI dashboard resource\n"
+        "│   └── [other resources as needed]\n"
+        "├── src/\n"
+        "│   ├── pipeline/\n"
+        "│   │   └── transformations/\n"
+        "│   │       ├── bronze_*.sql          # Raw ingestion\n"
+        "│   │       ├── silver_*.sql          # Cleaning & standardization\n"
+        "│   │       └── gold_*.sql            # Aggregation & features\n"
+        "│   └── dashboards/\n"
+        "│       └── dashboard.lvdash.json     # AI/BI dashboard definition\n"
+        "├── SKILL.md\n├── storyline.md\n├── data-schema.md\n└── project-structure.md\n```\n\n"
+        "Adapt this template to match the demo's specific outputs (add src/app/, src/genie/ sections only if needed). "
+        "For each file/directory, add a brief purpose comment. Keep the tree under 30 lines.\n\n"
+        "Output ONLY the project-structure.md content starting with `# Project Structure`. No commentary.",
+    ),
+}
+
+
+async def _stream_llm(
+    messages: list[dict[str, str]],
+    databricks_host: str,
+    databricks_token: str,
+    model: str,
+    max_tokens: int = 8192,
+    temperature: float = 0.7,
+) -> AsyncIterator[str]:
+    """Shared streaming LLM call helper."""
+    url = f"{databricks_host.rstrip('/')}/serving-endpoints/{model}/invocations"
+    headers = {
+        "Authorization": f"Bearer {databricks_token}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "messages": messages,
+        "max_tokens": max_tokens,
+        "temperature": temperature,
+        "stream": True,
+    }
+
+    async with httpx.AsyncClient(timeout=180.0) as client:
+        async with client.stream("POST", url, json=payload, headers=headers) as resp:
+            resp.raise_for_status()
+            async for line in resp.aiter_lines():
+                if not line.startswith("data: "):
+                    continue
+                chunk = line[6:]
+                if chunk == "[DONE]":
+                    break
+                try:
+                    data = json.loads(chunk)
+                    delta = data.get("choices", [{}])[0].get("delta", {}).get("content", "")
+                    if delta:
+                        yield delta
+                except (json.JSONDecodeError, IndexError, KeyError):
+                    continue
+
+
+async def stream_buildout_file(
+    filename: str,
+    proposal_md: str,
+    generated_files: dict[str, str],
+    databricks_host: str,
+    databricks_token: str,
+    model: str = "databricks-claude-sonnet-4",
+) -> AsyncIterator[str]:
+    """Stream generation of a single package file with prior files as context."""
+    system_hint, user_hint = _BUILDOUT_FILE_PROMPTS[filename]
+
+    system_content = f"{_build_system_prompt()}\n\n{system_hint}"
+
+    context_parts = [f"## Approved Proposal\n\n{proposal_md}"]
+    for prior_name, prior_content in generated_files.items():
+        context_parts.append(f"## {prior_name} (already generated)\n\n{prior_content}")
+
+    messages: list[dict[str, str]] = [
+        {"role": "system", "content": system_content},
+        {"role": "user", "content": "\n\n---\n\n".join(context_parts) + f"\n\n---\n\n{user_hint}"},
+    ]
+
+    async for chunk in _stream_llm(messages, databricks_host, databricks_token, model):
+        yield chunk
+
+
+async def stream_file_refinement(
+    filename: str,
+    file_content: str,
+    all_files: dict[str, str],
+    proposal_md: str,
+    user_message: str,
+    history: list[dict[str, str]],
+    databricks_host: str,
+    databricks_token: str,
+    model: str = "databricks-claude-sonnet-4",
+) -> AsyncIterator[str]:
+    """Stream a refined version of a single package file."""
+    other_files_ctx = "\n\n".join(
+        f"### {name}\n\n{content}" for name, content in all_files.items() if name != filename
+    )
+
+    messages: list[dict[str, str]] = [
+        {
+            "role": "system",
+            "content": (
+                f"You are editing {filename} in a demo package. "
+                f"Output the COMPLETE updated {filename} content. "
+                "Preserve consistency with the other package files.\n\n"
+                f"Other package files for context:\n\n{other_files_ctx}"
+            ),
+        },
+        {
+            "role": "user",
+            "content": f"Current {filename}:\n\n{file_content}",
+        },
+        {
+            "role": "assistant",
+            "content": f"I've reviewed {filename}. What changes would you like?",
+        },
+    ]
+    for msg in history:
+        messages.append({"role": msg["role"], "content": msg["content"]})
+    messages.append({"role": "user", "content": user_message})
+
+    async for chunk in _stream_llm(
+        messages, databricks_host, databricks_token, model, max_tokens=8192, temperature=0.5,
+    ):
+        yield chunk
+
+
+def parse_proposal_metadata(proposal_md: str) -> dict[str, str]:
+    """Extract name from proposal title line."""
+    result: dict[str, str] = {"name": "untitled", "description": ""}
+    for line in proposal_md.split("\n"):
+        if line.startswith("# Demo Proposal:"):
+            result["name"] = line.split(":", 1)[1].strip()
+            break
+        if line.startswith("# "):
+            result["name"] = line[2:].strip()
+            break
+    return result
 
 
 def parse_skill_metadata(skill_md: str) -> dict[str, str]:

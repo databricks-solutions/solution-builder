@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import io
 import json
+import zipfile
 
 from fastapi import HTTPException
 from fastapi.responses import StreamingResponse
@@ -9,11 +11,21 @@ from sqlmodel import select
 from ..core import Dependencies, create_router
 from ..models import (
     Generation,
+    PACKAGE_FILES,
+    WorkspaceApproveRequest,
+    WorkspaceBuildoutRequest,
     WorkspaceGenerateRequest,
+    WorkspaceProposeRequest,
+    WorkspaceRefineFileRequest,
     WorkspaceRefineRequest,
 )
 from ..services.skill_generator import (
+    parse_proposal_metadata,
     parse_skill_metadata,
+    stream_buildout_file,
+    stream_file_refinement,
+    stream_proposal,
+    stream_proposal_refinement,
     stream_skill_from_topic,
     stream_skill_refinement,
     stream_section_refinement,
@@ -32,15 +44,29 @@ def _strip_fences(content: str) -> str:
     return text.strip()
 
 
+def _resolve_credentials(config, ws_client):
+    """Resolve host and token, falling back to WorkspaceClient SDK auth."""
+    host = config.databricks_host
+    token = config.databricks_token
+    if not token and ws_client:
+        headers = ws_client.config.authenticate()
+        auth_header = headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            token = auth_header[len("Bearer "):]
+        if not host:
+            host = ws_client.config.host
+    return host, token
+
+
 @router.post("/workspace/generate", operation_id="workspaceGenerate")
 async def workspace_generate(
     req: WorkspaceGenerateRequest,
     config: Dependencies.Config,
     session: Dependencies.Session,
+    ws_client: Dependencies.Client,
 ):
     """Generate a full SKILL.md from a freeform topic, streaming via SSE."""
-    host = config.databricks_host
-    token = config.databricks_token
+    host, token = _resolve_credentials(config, ws_client)
     model = config.llm_model
 
     if not host or not token:
@@ -132,10 +158,10 @@ async def workspace_refine(
     req: WorkspaceRefineRequest,
     config: Dependencies.Config,
     session: Dependencies.Session,
+    ws_client: Dependencies.Client,
 ):
     """Refine an existing SKILL.md based on user chat message, streaming via SSE."""
-    host = config.databricks_host
-    token = config.databricks_token
+    host, token = _resolve_credentials(config, ws_client)
     model = config.llm_model
 
     if not host or not token:
@@ -225,3 +251,274 @@ async def workspace_refine(
         yield "data: [DONE]\n\n"
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+# ---------------------------------------------------------------------------
+# Stage 1: Proposal endpoints
+# ---------------------------------------------------------------------------
+
+
+@router.post("/workspace/propose", operation_id="workspacePropose")
+async def workspace_propose(
+    req: WorkspaceProposeRequest,
+    config: Dependencies.Config,
+    session: Dependencies.Session,
+    ws_client: Dependencies.Client,
+):
+    """Generate a demo proposal (storyline + architecture) from a topic, streaming via SSE."""
+    host, token = _resolve_credentials(config, ws_client)
+    model = config.llm_model
+
+    if not host or not token:
+        raise HTTPException(status_code=500, detail="Databricks host/token not configured")
+
+    async def event_stream():
+        collected = ""
+        try:
+            async for chunk in stream_proposal(req.topic, host, token, model=model):
+                collected += chunk
+                yield f"data: {json.dumps({'type': 'proposal', 'content': chunk})}\n\n"
+
+            proposal_md = _strip_fences(collected)
+            meta = parse_proposal_metadata(proposal_md)
+
+            row = Generation(
+                demo_name=meta["name"],
+                owner_name="AI Generated",
+                industry=req.topic[:120],
+                form_json=json.dumps({"topic": req.topic}),
+                skill_md="",
+                stage="proposal",
+                proposal_md=proposal_md,
+            )
+            session.add(row)
+            session.commit()
+            session.refresh(row)
+
+            yield f"data: {json.dumps({'type': 'complete', 'id': row.id, 'demo_name': row.demo_name, 'industry': row.industry})}\n\n"
+        except Exception as e:
+            yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+@router.post("/workspace/propose/refine", operation_id="workspaceProposeRefine")
+async def workspace_propose_refine(
+    req: WorkspaceRefineRequest,
+    config: Dependencies.Config,
+    session: Dependencies.Session,
+    ws_client: Dependencies.Client,
+):
+    """Refine an existing proposal based on user chat, streaming via SSE."""
+    host, token = _resolve_credentials(config, ws_client)
+    model = config.llm_model
+
+    if not host or not token:
+        raise HTTPException(status_code=500, detail="Databricks host/token not configured")
+
+    row = session.get(Generation, req.generation_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Generation not found")
+
+    history = [{"role": m.role, "content": m.content} for m in req.history]
+
+    async def event_stream():
+        collected = ""
+        try:
+            async for chunk in stream_proposal_refinement(
+                row.proposal_md or "",
+                req.message,
+                history,
+                host, token,
+                model=model,
+                focused_sections=req.focused_sections or None,
+            ):
+                collected += chunk
+                yield f"data: {json.dumps({'type': 'proposal', 'content': chunk})}\n\n"
+
+            proposal_md = _strip_fences(collected)
+            meta = parse_proposal_metadata(proposal_md)
+
+            row.proposal_md = proposal_md
+            row.demo_name = meta["name"]
+            session.add(row)
+            session.commit()
+
+            yield f"data: {json.dumps({'type': 'complete', 'id': row.id, 'demo_name': row.demo_name})}\n\n"
+        except Exception as e:
+            yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+@router.post("/workspace/approve", operation_id="workspaceApprove")
+async def workspace_approve(
+    req: WorkspaceApproveRequest,
+    session: Dependencies.Session,
+):
+    """Approve a proposal, transitioning it to the buildout stage."""
+    row = session.get(Generation, req.generation_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Generation not found")
+    if row.stage != "proposal":
+        raise HTTPException(status_code=400, detail="Generation is not in proposal stage")
+
+    row.stage = "approved"
+    session.add(row)
+    session.commit()
+    session.refresh(row)
+
+    return {"id": row.id, "stage": row.stage, "demo_name": row.demo_name}
+
+
+# ---------------------------------------------------------------------------
+# Stage 2: Multi-file buildout endpoints
+# ---------------------------------------------------------------------------
+
+
+@router.post("/workspace/buildout", operation_id="workspaceBuildout")
+async def workspace_buildout(
+    req: WorkspaceBuildoutRequest,
+    config: Dependencies.Config,
+    session: Dependencies.Session,
+    ws_client: Dependencies.Client,
+):
+    """Sequentially generate all package files from an approved proposal, streaming via SSE."""
+    host, token = _resolve_credentials(config, ws_client)
+    model = config.llm_model
+
+    if not host or not token:
+        raise HTTPException(status_code=500, detail="Databricks host/token not configured")
+
+    row = session.get(Generation, req.generation_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Generation not found")
+    if not row.proposal_md:
+        raise HTTPException(status_code=400, detail="No proposal to build from")
+
+    async def event_stream():
+        generated_files: dict[str, str] = {}
+        try:
+            for filename in PACKAGE_FILES:
+                yield f"data: {json.dumps({'type': 'file_start', 'filename': filename})}\n\n"
+
+                collected = ""
+                async for chunk in stream_buildout_file(
+                    filename, row.proposal_md, generated_files, host, token, model=model,
+                ):
+                    collected += chunk
+                    yield f"data: {json.dumps({'type': 'file_content', 'filename': filename, 'content': chunk})}\n\n"
+
+                clean = _strip_fences(collected)
+                generated_files[filename] = clean
+                yield f"data: {json.dumps({'type': 'file_complete', 'filename': filename})}\n\n"
+
+            row.skill_md = generated_files.get("SKILL.md", "")
+            row.skill_files = json.dumps(generated_files)
+            row.stage = "package"
+            meta = parse_skill_metadata(row.skill_md)
+            row.demo_name = meta["name"]
+            session.add(row)
+            session.commit()
+
+            yield f"data: {json.dumps({'type': 'complete', 'id': row.id, 'demo_name': row.demo_name})}\n\n"
+        except Exception as e:
+            yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+@router.post("/workspace/refine-file", operation_id="workspaceRefineFile")
+async def workspace_refine_file(
+    req: WorkspaceRefineFileRequest,
+    config: Dependencies.Config,
+    session: Dependencies.Session,
+    ws_client: Dependencies.Client,
+):
+    """Refine a single package file via chat, streaming via SSE."""
+    host, token = _resolve_credentials(config, ws_client)
+    model = config.llm_model
+
+    if not host or not token:
+        raise HTTPException(status_code=500, detail="Databricks host/token not configured")
+
+    row = session.get(Generation, req.generation_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Generation not found")
+
+    all_files: dict[str, str] = json.loads(row.skill_files) if row.skill_files else {}
+    if req.filename not in all_files:
+        raise HTTPException(status_code=404, detail=f"File '{req.filename}' not found in package")
+
+    history = [{"role": m.role, "content": m.content} for m in req.history]
+
+    async def event_stream():
+        collected = ""
+        try:
+            yield f"data: {json.dumps({'type': 'file_start', 'filename': req.filename})}\n\n"
+            async for chunk in stream_file_refinement(
+                req.filename,
+                all_files[req.filename],
+                all_files,
+                row.proposal_md or "",
+                req.message,
+                history,
+                host, token,
+                model=model,
+            ):
+                collected += chunk
+                yield f"data: {json.dumps({'type': 'file_content', 'filename': req.filename, 'content': chunk})}\n\n"
+
+            clean = _strip_fences(collected)
+            all_files[req.filename] = clean
+            row.skill_files = json.dumps(all_files)
+            if req.filename == "SKILL.md":
+                row.skill_md = clean
+                meta = parse_skill_metadata(clean)
+                row.demo_name = meta["name"]
+            session.add(row)
+            session.commit()
+
+            yield f"data: {json.dumps({'type': 'file_complete', 'filename': req.filename})}\n\n"
+            yield f"data: {json.dumps({'type': 'complete', 'id': row.id, 'demo_name': row.demo_name})}\n\n"
+        except Exception as e:
+            yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+@router.get("/workspace/{generation_id}/download", operation_id="workspaceDownload")
+async def workspace_download(
+    generation_id: int,
+    session: Dependencies.Session,
+):
+    """Download all package files as a zip archive."""
+    row = session.get(Generation, generation_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Generation not found")
+
+    all_files: dict[str, str] = {}
+    if row.skill_files:
+        all_files = json.loads(row.skill_files)
+    elif row.skill_md:
+        all_files = {"SKILL.md": row.skill_md}
+
+    if not all_files:
+        raise HTTPException(status_code=404, detail="No files to download")
+
+    buf = io.BytesIO()
+    folder = row.demo_name or "demo-package"
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for fname, content in all_files.items():
+            zf.writestr(f"{folder}/{fname}", content)
+    buf.seek(0)
+
+    return StreamingResponse(
+        buf,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{folder}.zip"'},
+    )

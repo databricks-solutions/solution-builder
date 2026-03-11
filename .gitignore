@@ -11,3 +11,14 @@
 
 # ai-dev-kit (installed locally per user)
 .ai-dev-kit/
+
+# Node / test tooling (root-level, used for local Playwright testing)
+node_modules/
+package.json
+package-lock.json
+bun.lockb
+
+# Playwright artifacts
+playwright-report/
+test-results/
+screenshot-eval/

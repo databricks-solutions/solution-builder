@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from fastapi import HTTPException
 from sqlmodel import select
 
@@ -26,10 +28,20 @@ def list_generations(session: Dependencies.Session):
             id=r.id,  # type: ignore[arg-type]
             demo_name=r.demo_name,
             industry=r.industry,
+            stage=r.stage,
             created_at=r.created_at,
         )
         for r in rows
     ]
+
+
+def _parse_skill_files(raw: str | None) -> dict[str, str] | None:
+    if not raw:
+        return None
+    try:
+        return json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        return None
 
 
 @router.get(
@@ -53,5 +65,8 @@ def get_generation(
         owner_name=row.owner_name,
         industry=row.industry,
         skill_md=row.skill_md,
+        stage=row.stage,
+        proposal_md=row.proposal_md,
+        skill_files=_parse_skill_files(row.skill_files),
         created_at=row.created_at,
     )
