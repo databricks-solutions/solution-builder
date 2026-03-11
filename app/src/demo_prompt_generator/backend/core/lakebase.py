@@ -84,7 +84,7 @@ def create_db_engine(db_config: DatabaseConfig, ws: WorkspaceClient) -> Engine:
     dev_port = _get_dev_db_port()
     engine_url = _build_engine_url(db_config, ws, dev_port)
 
-    engine_kwargs: dict[str, Any] = {"pool_size": 4, "pool_recycle": 45 * 60}
+    engine_kwargs: dict[str, Any] = {"pool_size": 4, "pool_recycle": 45 * 60, "pool_pre_ping": True}
 
     if not dev_port:
         engine_kwargs["connect_args"] = {"sslmode": "require"}
@@ -137,9 +137,25 @@ def validate_db(engine: Engine, db_config: DatabaseConfig) -> None:
 
 
 def initialize_models(engine: Engine) -> None:
-    """Create all SQLModel tables."""
+    """Create all SQLModel tables and add any missing columns."""
     logger.info("Initializing database models")
     SQLModel.metadata.create_all(engine)
+
+    # Migrate: add columns that may be missing from older schema versions
+    _migrations = [
+        ("stage", "ALTER TABLE generation ADD COLUMN IF NOT EXISTS stage TEXT DEFAULT 'package'"),
+        ("proposal_md", "ALTER TABLE generation ADD COLUMN IF NOT EXISTS proposal_md TEXT"),
+        ("skill_files", "ALTER TABLE generation ADD COLUMN IF NOT EXISTS skill_files TEXT"),
+    ]
+    with Session(engine) as session:
+        for col_name, ddl in _migrations:
+            try:
+                session.connection().execute(text(ddl))
+                session.commit()
+            except Exception:
+                session.rollback()
+                logger.debug(f"Column {col_name} migration skipped (may already exist)")
+
     logger.info("Database models initialized successfully")
 
 

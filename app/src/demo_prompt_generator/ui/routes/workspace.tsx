@@ -29,20 +29,51 @@ import {
   MessageCircle,
   BrainCircuit,
   ArrowRight,
+  PackageCheck,
+  BookOpen,
+  Table2,
+  FolderTree,
+  Archive,
+  CheckCircle2,
 } from "lucide-react";
 import {
+  streamWorkspacePropose,
+  streamProposalRefine,
+  approveProposal,
+  streamWorkspaceBuildout,
+  streamFileRefine,
   streamWorkspaceGenerate,
   streamWorkspaceRefine,
   type WorkspaceEvent,
   type ChatMessage,
 } from "@/lib/custom-api";
+import { FileRendererWithFallback } from "@/components/file-renderers";
+import { ProposalCards } from "@/components/proposal-cards";
 
 export const Route = createFileRoute("/workspace")({
   validateSearch: (search: Record<string, unknown>) => ({
     topic: (search.topic as string) || "",
+    generationId: search.generationId
+      ? Number(search.generationId)
+      : undefined,
   }),
   component: WorkspacePage,
 });
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+type Stage = "proposal" | "buildout" | "package";
+
+const PACKAGE_FILES = [
+  "SKILL.md",
+  "storyline.md",
+  "data-schema.md",
+  "project-structure.md",
+] as const;
+
+type PackageFilename = (typeof PACKAGE_FILES)[number];
 
 interface UIMessage {
   id: string;
@@ -56,18 +87,30 @@ interface Section {
   level: number;
 }
 
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+let _idCounter = 0;
+function uid(): string {
+  if (typeof crypto !== "undefined" && crypto.randomUUID) {
+    return uid();
+  }
+  return `id-${Date.now()}-${++_idCounter}`;
+}
+
 function parseSections(md: string): Section[] {
   const sections: Section[] = [];
-  const lines = md.split("\n");
-  for (const line of lines) {
+  for (const line of md.split("\n")) {
     const m = line.match(/^(#{1,3})\s+(.+)$/);
     if (m) {
       const level = m[1].length;
       const title = m[2].trim();
-      const id = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
-      if (level <= 2) {
-        sections.push({ id, title, level });
-      }
+      const id = title
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/(^-|-$)/g, "");
+      if (level <= 2) sections.push({ id, title, level });
     }
   }
   return sections;
@@ -92,7 +135,6 @@ function spliceSection(
   const lines = md.split("\n");
   const header = `## ${sectionTitle}`;
   let startIdx = -1;
-
   for (let i = 0; i < lines.length; i++) {
     if (lines[i].trim() === header) {
       startIdx = i;
@@ -100,7 +142,6 @@ function spliceSection(
     }
   }
   if (startIdx === -1) return md;
-
   let endIdx = lines.length;
   for (let i = startIdx + 1; i < lines.length; i++) {
     if (lines[i].startsWith("## ")) {
@@ -108,17 +149,33 @@ function spliceSection(
       break;
     }
   }
-
   const before = lines.slice(0, startIdx + 1);
   const after = lines.slice(endIdx);
   return [...before, ...newContent.split("\n"), ...after].join("\n");
 }
 
+const FILE_ICONS: Record<string, typeof FileText> = {
+  "SKILL.md": PackageCheck,
+  "storyline.md": BookOpen,
+  "data-schema.md": Table2,
+  "project-structure.md": FolderTree,
+};
+
+// ---------------------------------------------------------------------------
+// Main Page Component
+// ---------------------------------------------------------------------------
+
 function WorkspacePage() {
-  const { topic } = Route.useSearch();
+  const { topic, generationId: loadId } = Route.useSearch();
   const navigate = useNavigate();
 
-  const [skillMd, setSkillMd] = useState("");
+  // Stage management
+  const [stage, setStage] = useState<Stage>("proposal");
+  const [proposalMd, setProposalMd] = useState("");
+  const [packageFiles, setPackageFiles] = useState<Record<string, string>>({});
+  const [activeFile, setActiveFile] = useState<PackageFilename>("SKILL.md");
+
+  // Common state
   const [generationId, setGenerationId] = useState<number | null>(null);
   const [demoName, setDemoName] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
@@ -127,11 +184,14 @@ function WorkspacePage() {
   const [chatInput, setChatInput] = useState("");
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
   const [copied, setCopied] = useState(false);
-  const [activeSection, setActiveSection] = useState<string>("");
-  const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set());
+  const [activeSection, setActiveSection] = useState("");
+  const [collapsedSections, setCollapsedSections] = useState<Set<string>>(
+    new Set(),
+  );
   const [mentionIndex, setMentionIndex] = useState(0);
   const [mentionDismissed, setMentionDismissed] = useState(false);
   const [activeTab, setActiveTab] = useState("preview");
+  const [buildingFile, setBuildingFile] = useState<string | null>(null);
 
   const abortRef = useRef<AbortController | null>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
@@ -139,7 +199,12 @@ function WorkspacePage() {
   const hasStarted = useRef(false);
   const previewRef = useRef<HTMLDivElement>(null);
 
-  const sections = useMemo(() => parseSections(skillMd), [skillMd]);
+  const currentMd =
+    stage === "proposal"
+      ? proposalMd
+      : packageFiles[activeFile] || "";
+
+  const sections = useMemo(() => parseSections(currentMd), [currentMd]);
 
   const mentionContext = useMemo(() => {
     const lastAt = chatInput.lastIndexOf("@");
@@ -164,7 +229,10 @@ function WorkspacePage() {
   const showMentionDropdown = filteredMentions.length > 0;
 
   const scrollToBottom = useCallback(() => {
-    setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: "smooth" }), 50);
+    setTimeout(
+      () => chatEndRef.current?.scrollIntoView({ behavior: "smooth" }),
+      50,
+    );
   }, []);
 
   const addMessage = useCallback(
@@ -175,25 +243,23 @@ function WorkspacePage() {
     [scrollToBottom],
   );
 
-  // Scroll-spy: track which section is in view
+  // Scroll-spy
   useEffect(() => {
     const container = previewRef.current;
     if (!container || sections.length === 0) return;
-
     const handleScroll = () => {
-      const headings = container.querySelectorAll<HTMLElement>("[data-section-id]");
+      const headings =
+        container.querySelectorAll<HTMLElement>("[data-section-id]");
       let current = "";
       for (const el of headings) {
         const rect = el.getBoundingClientRect();
         const containerRect = container.getBoundingClientRect();
-        if (rect.top - containerRect.top < 80) {
-          current = el.dataset.sectionId || "";
-        }
+        if (rect.top - containerRect.top < 80) current = el.dataset.sectionId || "";
       }
       if (current) setActiveSection(current);
     };
-
-    const scrollEl = container.querySelector("[data-radix-scroll-area-viewport]") || container;
+    const scrollEl =
+      container.querySelector("[data-radix-scroll-area-viewport]") || container;
     scrollEl.addEventListener("scroll", handleScroll, { passive: true });
     return () => scrollEl.removeEventListener("scroll", handleScroll);
   }, [sections]);
@@ -211,11 +277,8 @@ function WorkspacePage() {
   const toggleSection = useCallback((sectionId: string) => {
     setCollapsedSections((prev) => {
       const next = new Set(prev);
-      if (next.has(sectionId)) {
-        next.delete(sectionId);
-      } else {
-        next.add(sectionId);
-      }
+      if (next.has(sectionId)) next.delete(sectionId);
+      else next.add(sectionId);
       return next;
     });
   }, []);
@@ -235,7 +298,11 @@ function WorkspacePage() {
     [chatInput, mentionContext],
   );
 
-  const handleGenerate = useCallback(
+  // -----------------------------------------------------------------------
+  // Stage 1: Proposal generation
+  // -----------------------------------------------------------------------
+
+  const handlePropose = useCallback(
     async (topicText: string) => {
       if (!topicText.trim() || isGenerating) return;
       abortRef.current?.abort();
@@ -243,44 +310,48 @@ function WorkspacePage() {
       abortRef.current = ctrl;
 
       setIsGenerating(true);
-      setSkillMd("");
+      setProposalMd("");
       setGenerationId(null);
+      setStage("proposal");
       setCollapsedSections(new Set());
       addMessage({
-        id: crypto.randomUUID(),
+        id: uid(),
         role: "system",
-        content: `Generating a demo skill for: **${topicText}**`,
+        content: `Generating a demo proposal for: **${topicText}**`,
       });
 
       let collected = "";
       try {
-        for await (const event of streamWorkspaceGenerate(topicText, ctrl.signal)) {
-          if (event.type === "skill") {
+        for await (const event of streamWorkspacePropose(
+          topicText,
+          ctrl.signal,
+        )) {
+          if (event.type === "proposal") {
             collected += event.content;
-            setSkillMd(collected);
+            setProposalMd(collected);
           } else if (event.type === "complete") {
             setGenerationId(event.id);
             setDemoName(event.demo_name);
           } else if (event.type === "error") {
             addMessage({
-              id: crypto.randomUUID(),
+              id: uid(),
               role: "system",
               content: `Error: ${event.content}`,
             });
           }
         }
         addMessage({
-          id: crypto.randomUUID(),
+          id: uid(),
           role: "assistant",
           content:
-            "Your demo skill is ready! Review it on the left. You can ask me to refine any part -- change the datasets, add features, adjust the story, or restructure the build steps.",
+            'Your proposal is ready! Review the storyline and architecture on the left. You can refine it here, or click "Approve & Build" when you\'re happy with the direction.',
         });
       } catch (err) {
         if (!ctrl.signal.aborted) {
           addMessage({
-            id: crypto.randomUUID(),
+            id: uid(),
             role: "system",
-            content: `Generation failed: ${err instanceof Error ? err.message : "Unknown error"}`,
+            content: `Proposal failed: ${err instanceof Error ? err.message : "Unknown error"}`,
           });
         }
       } finally {
@@ -291,80 +362,40 @@ function WorkspacePage() {
     [isGenerating, addMessage],
   );
 
-  useEffect(() => {
-    if (topic && !hasStarted.current) {
-      hasStarted.current = true;
-      handleGenerate(topic);
-    }
-  }, [topic, handleGenerate]);
-
-  const handleRefine = useCallback(async () => {
+  // Refine proposal via chat
+  const handleRefineProposal = useCallback(async () => {
     if (!chatInput.trim() || !generationId || isRefining) return;
 
     const userMsg = chatInput.trim();
     const focused = extractMentions(userMsg, sections);
-    const isSectionEdit = focused.length === 1;
     setChatInput("");
     setMentionDismissed(false);
-    addMessage({ id: crypto.randomUUID(), role: "user", content: userMsg });
+    addMessage({ id: uid(), role: "user", content: userMsg });
 
     abortRef.current?.abort();
     const ctrl = new AbortController();
     abortRef.current = ctrl;
-
     setIsRefining(true);
+    setProposalMd("");
+    setCollapsedSections(new Set());
 
-    if (isSectionEdit) {
-      // Expand the targeted section so the user sees it updating
-      setCollapsedSections((prev) => {
-        const next = new Set(prev);
-        const sectionId = focused[0]
-          .toLowerCase()
-          .replace(/[^a-z0-9]+/g, "-")
-          .replace(/(^-|-$)/g, "");
-        next.delete(sectionId);
-        return next;
-      });
-    } else {
-      setSkillMd("");
-      setCollapsedSections(new Set());
-    }
-
-    let sectionTitle = "";
-    let sectionCollected = "";
-    let fullCollected = "";
-
+    let collected = "";
     try {
-      for await (const event of streamWorkspaceRefine(
+      for await (const event of streamProposalRefine(
         generationId,
         userMsg,
         chatHistory,
         ctrl.signal,
         focused.length > 0 ? focused : undefined,
       )) {
-        if (event.type === "section_start") {
-          sectionTitle = event.title;
-          sectionCollected = "";
-        } else if (event.type === "skill") {
-          if (isSectionEdit && sectionTitle) {
-            sectionCollected += event.content;
-            // Strip header if the LLM included it
-            let body = sectionCollected;
-            const headerPrefix = `## ${sectionTitle}`;
-            const stripped = body.trimStart();
-            if (stripped.startsWith(headerPrefix)) {
-              body = stripped.slice(headerPrefix.length).replace(/^\n+/, "");
-            }
-            setSkillMd((prev) => spliceSection(prev, sectionTitle, body));
-          } else {
-            fullCollected += event.content;
-            setSkillMd(fullCollected);
-          }
+        if (event.type === "proposal") {
+          collected += event.content;
+          setProposalMd(collected);
         } else if (event.type === "complete") {
           setDemoName(event.demo_name);
         } else if (event.type === "error") {
           addMessage({
-            id: crypto.randomUUID(),
+            id: uid(),
             role: "system",
             content: `Error: ${event.content}`,
           });
@@ -373,22 +404,18 @@ function WorkspacePage() {
       setChatHistory((prev) => [
         ...prev,
         { role: "user", content: userMsg },
-        { role: "assistant", content: "Updated the SKILL.md." },
+        { role: "assistant", content: "Updated the proposal." },
       ]);
       addMessage({
-        id: crypto.randomUUID(),
+        id: uid(),
         role: "assistant",
         content:
-          isSectionEdit
-            ? `Done! I've updated the "${focused[0]}" section. Everything else is untouched. What else?`
-            : focused.length > 1
-              ? `Done! I've updated the ${focused.map((s) => `"${s}"`).join(", ")} sections. What else?`
-              : "Done! I've updated the skill. What else would you like to change?",
+          "Done! I've updated the proposal. Review the changes and refine further or approve to start the buildout.",
       });
     } catch (err) {
       if (!ctrl.signal.aborted) {
         addMessage({
-          id: crypto.randomUUID(),
+          id: uid(),
           role: "system",
           content: `Refinement failed: ${err instanceof Error ? err.message : "Unknown error"}`,
         });
@@ -397,25 +424,274 @@ function WorkspacePage() {
       setIsRefining(false);
       inputRef.current?.focus();
     }
-  }, [chatInput, generationId, isRefining, chatHistory, addMessage, sections]);
+  }, [
+    chatInput,
+    generationId,
+    isRefining,
+    chatHistory,
+    addMessage,
+    sections,
+  ]);
+
+  // -----------------------------------------------------------------------
+  // Approve proposal → trigger buildout
+  // -----------------------------------------------------------------------
+
+  const handleApproveAndBuild = useCallback(async () => {
+    if (!generationId || isGenerating) return;
+
+    try {
+      await approveProposal(generationId);
+    } catch (err) {
+      addMessage({
+        id: uid(),
+        role: "system",
+        content: `Approval failed: ${err instanceof Error ? err.message : "Unknown error"}`,
+      });
+      return;
+    }
+
+    setStage("buildout");
+    setPackageFiles({});
+    setChatHistory([]);
+    setCollapsedSections(new Set());
+    addMessage({
+      id: uid(),
+      role: "system",
+      content: "Proposal approved! Building the full demo package...",
+    });
+
+    abortRef.current?.abort();
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
+    setIsGenerating(true);
+
+    const files: Record<string, string> = {};
+    try {
+      for await (const event of streamWorkspaceBuildout(
+        generationId,
+        ctrl.signal,
+      )) {
+        if (event.type === "file_start") {
+          setBuildingFile(event.filename);
+          setActiveFile(event.filename as PackageFilename);
+          addMessage({
+            id: uid(),
+            role: "system",
+            content: `Generating ${event.filename}...`,
+          });
+        } else if (event.type === "file_content") {
+          const fn = event.filename;
+          files[fn] = (files[fn] || "") + event.content;
+          setPackageFiles({ ...files });
+        } else if (event.type === "file_complete") {
+          setBuildingFile(null);
+        } else if (event.type === "complete") {
+          setDemoName(event.demo_name);
+          setStage("package");
+        } else if (event.type === "error") {
+          addMessage({
+            id: uid(),
+            role: "system",
+            content: `Error: ${event.content}`,
+          });
+        }
+      }
+      addMessage({
+        id: uid(),
+        role: "assistant",
+        content:
+          "Your demo package is ready! All four files have been generated. Review each file using the tabs on the left. You can refine any file by chatting here.",
+      });
+    } catch (err) {
+      if (!ctrl.signal.aborted) {
+        addMessage({
+          id: uid(),
+          role: "system",
+          content: `Buildout failed: ${err instanceof Error ? err.message : "Unknown error"}`,
+        });
+      }
+    } finally {
+      setIsGenerating(false);
+      setBuildingFile(null);
+      inputRef.current?.focus();
+    }
+  }, [generationId, isGenerating, addMessage]);
+
+  // -----------------------------------------------------------------------
+  // Stage 2: Per-file refinement
+  // -----------------------------------------------------------------------
+
+  const handleRefineFile = useCallback(async () => {
+    if (!chatInput.trim() || !generationId || isRefining) return;
+
+    const userMsg = chatInput.trim();
+    setChatInput("");
+    setMentionDismissed(false);
+    addMessage({ id: uid(), role: "user", content: userMsg });
+
+    abortRef.current?.abort();
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
+    setIsRefining(true);
+
+    let collected = "";
+    try {
+      for await (const event of streamFileRefine(
+        generationId,
+        activeFile,
+        userMsg,
+        chatHistory,
+        ctrl.signal,
+      )) {
+        if (event.type === "file_content") {
+          collected += event.content;
+          setPackageFiles((prev) => ({
+            ...prev,
+            [event.filename]: collected,
+          }));
+        } else if (event.type === "complete") {
+          setDemoName(event.demo_name);
+        } else if (event.type === "error") {
+          addMessage({
+            id: uid(),
+            role: "system",
+            content: `Error: ${event.content}`,
+          });
+        }
+      }
+      setChatHistory((prev) => [
+        ...prev,
+        { role: "user", content: userMsg },
+        { role: "assistant", content: `Updated ${activeFile}.` },
+      ]);
+      addMessage({
+        id: uid(),
+        role: "assistant",
+        content: `Done! I've updated **${activeFile}**. What else would you like to change?`,
+      });
+    } catch (err) {
+      if (!ctrl.signal.aborted) {
+        addMessage({
+          id: uid(),
+          role: "system",
+          content: `Refinement failed: ${err instanceof Error ? err.message : "Unknown error"}`,
+        });
+      }
+    } finally {
+      setIsRefining(false);
+      inputRef.current?.focus();
+    }
+  }, [
+    chatInput,
+    generationId,
+    isRefining,
+    activeFile,
+    chatHistory,
+    addMessage,
+  ]);
+
+  // -----------------------------------------------------------------------
+  // Start generation on mount OR load existing generation
+  // -----------------------------------------------------------------------
+
+  useEffect(() => {
+    if (hasStarted.current) return;
+
+    if (loadId) {
+      hasStarted.current = true;
+      (async () => {
+        try {
+          const resp = await fetch(`/api/generations/${loadId}`);
+          if (!resp.ok) throw new Error("Generation not found");
+          const gen = await resp.json();
+
+          setGenerationId(gen.id);
+          setDemoName(gen.demo_name);
+
+          if (gen.skill_files && Object.keys(gen.skill_files).length > 0) {
+            setPackageFiles(gen.skill_files);
+            setStage("package");
+            addMessage({
+              id: uid(),
+              role: "system",
+              content: `Loaded package: **${gen.demo_name}**`,
+            });
+            addMessage({
+              id: uid(),
+              role: "assistant",
+              content:
+                "Your demo package is loaded. You can review each file using the tabs on the left, or refine any file by chatting here.",
+            });
+          } else if (gen.proposal_md) {
+            setProposalMd(gen.proposal_md);
+            setStage("proposal");
+            addMessage({
+              id: uid(),
+              role: "system",
+              content: `Loaded proposal: **${gen.demo_name}**`,
+            });
+            addMessage({
+              id: uid(),
+              role: "assistant",
+              content:
+                'Your proposal is loaded. You can refine it here, or click "Approve & Build" to generate the full package.',
+            });
+          } else if (gen.skill_md) {
+            setProposalMd(gen.skill_md);
+            setStage("proposal");
+          }
+        } catch {
+          addMessage({
+            id: uid(),
+            role: "system",
+            content: "Failed to load generation. Starting fresh.",
+          });
+        }
+      })();
+    } else if (topic) {
+      hasStarted.current = true;
+      handlePropose(topic);
+    }
+  }, [topic, loadId, handlePropose, addMessage]);
+
+  // -----------------------------------------------------------------------
+  // Copy / Download
+  // -----------------------------------------------------------------------
 
   const handleCopy = useCallback(async () => {
-    await navigator.clipboard.writeText(skillMd);
+    await navigator.clipboard.writeText(currentMd);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
-  }, [skillMd]);
+  }, [currentMd]);
 
   const handleDownload = useCallback(() => {
-    const blob = new Blob([skillMd], { type: "text/markdown" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${demoName || "skill"}-SKILL.md`;
-    a.click();
-    URL.revokeObjectURL(url);
-  }, [skillMd, demoName]);
+    if (stage === "proposal") {
+      const blob = new Blob([proposalMd], { type: "text/markdown" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${demoName || "proposal"}.md`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } else if (generationId) {
+      window.open(`/api/workspace/${generationId}/download`, "_blank");
+    }
+  }, [stage, proposalMd, demoName, generationId]);
 
   const busy = isGenerating || isRefining;
+
+  const handleSubmit = useCallback(() => {
+    if (stage === "proposal") {
+      handleRefineProposal();
+    } else {
+      handleRefineFile();
+    }
+  }, [stage, handleRefineProposal, handleRefineFile]);
+
+  // -----------------------------------------------------------------------
+  // Render
+  // -----------------------------------------------------------------------
 
   return (
     <div className="flex h-screen flex-col bg-background">
@@ -433,7 +709,34 @@ function WorkspacePage() {
               <span className="text-sm font-medium">
                 {demoName || "New Skill"}
               </span>
-              {busy && (
+              {/* Stage badges */}
+              {stage === "proposal" && !busy && generationId && (
+                <Badge
+                  variant="outline"
+                  className="gap-1 text-xs border-amber-500/30 text-amber-600"
+                >
+                  Proposal
+                </Badge>
+              )}
+              {stage === "buildout" && (
+                <Badge
+                  variant="outline"
+                  className="gap-1 text-xs border-blue-500/30 text-blue-600"
+                >
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  Building
+                </Badge>
+              )}
+              {stage === "package" && (
+                <Badge
+                  variant="outline"
+                  className="gap-1 text-xs border-emerald-500/30 text-emerald-600"
+                >
+                  <CheckCircle2 className="h-3 w-3" />
+                  Package
+                </Badge>
+              )}
+              {busy && stage === "proposal" && (
                 <Badge variant="secondary" className="gap-1 text-xs">
                   <Loader2 className="h-3 w-3 animate-spin" />
                   {isGenerating ? "Generating" : "Refining"}
@@ -445,29 +748,78 @@ function WorkspacePage() {
       />
 
       <div className="flex flex-1 overflow-hidden">
-        {/* Left Panel: SKILL.md viewer with outline */}
+        {/* ============================================================= */}
+        {/* Left Panel */}
+        {/* ============================================================= */}
         <div className="flex w-1/2 flex-col border-r border-border/60">
-          {/* Toolbar */}
           <div className="flex items-center justify-between border-b px-3 py-1.5 shrink-0">
-            <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+            <Tabs
+              value={activeTab}
+              onValueChange={setActiveTab}
+              className="w-full"
+            >
               <div className="flex items-center justify-between">
-                <TabsList className="h-8">
-                  <TabsTrigger value="preview" className="gap-1.5 text-xs px-2.5 h-6">
-                    <FileText className="h-3 w-3" /> Preview
-                  </TabsTrigger>
-                  <TabsTrigger value="architecture" className="gap-1.5 text-xs px-2.5 h-6">
-                    <Workflow className="h-3 w-3" /> Architecture
-                  </TabsTrigger>
-                  <TabsTrigger value="raw" className="gap-1.5 text-xs px-2.5 h-6">
-                    <Code className="h-3 w-3" /> Raw
-                  </TabsTrigger>
-                </TabsList>
+                {/* Tab bar changes based on stage */}
+                {stage === "proposal" ? (
+                  <TabsList className="h-8">
+                    <TabsTrigger
+                      value="preview"
+                      className="gap-1.5 text-xs px-2.5 h-6"
+                    >
+                      <FileText className="h-3 w-3" /> Proposal
+                    </TabsTrigger>
+                    <TabsTrigger
+                      value="architecture"
+                      className="gap-1.5 text-xs px-2.5 h-6"
+                    >
+                      <Workflow className="h-3 w-3" /> Architecture
+                    </TabsTrigger>
+                    <TabsTrigger
+                      value="raw"
+                      className="gap-1.5 text-xs px-2.5 h-6"
+                    >
+                      <Code className="h-3 w-3" /> Raw
+                    </TabsTrigger>
+                  </TabsList>
+                ) : (
+                  <TabsList className="h-8">
+                    <TabsTrigger
+                      value="preview"
+                      className="gap-1.5 text-xs px-2.5 h-6"
+                    >
+                      <FileText className="h-3 w-3" /> Preview
+                    </TabsTrigger>
+                    <TabsTrigger
+                      value="architecture"
+                      className="gap-1.5 text-xs px-2.5 h-6"
+                    >
+                      <Workflow className="h-3 w-3" /> Architecture
+                    </TabsTrigger>
+                    <TabsTrigger
+                      value="raw"
+                      className="gap-1.5 text-xs px-2.5 h-6"
+                    >
+                      <Code className="h-3 w-3" /> Raw
+                    </TabsTrigger>
+                  </TabsList>
+                )}
+
                 <div className="flex gap-1">
+                  {stage === "proposal" && generationId && !busy && (
+                    <Button
+                      size="sm"
+                      onClick={handleApproveAndBuild}
+                      className="h-7 px-3 text-xs gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white"
+                    >
+                      <PackageCheck className="h-3 w-3" />
+                      Approve & Build
+                    </Button>
+                  )}
                   <Button
                     variant="ghost"
                     size="sm"
                     onClick={handleCopy}
-                    disabled={!skillMd}
+                    disabled={!currentMd || busy}
                     className="h-7 px-2 text-xs"
                   >
                     {copied ? (
@@ -481,54 +833,120 @@ function WorkspacePage() {
                     variant="ghost"
                     size="sm"
                     onClick={handleDownload}
-                    disabled={!skillMd}
+                    disabled={!currentMd || busy}
                     className="h-7 px-2 text-xs"
                   >
-                    <Download className="mr-1 h-3 w-3" /> Download
+                    {(stage === "buildout" || stage === "package") ? (
+                      <>
+                        <Archive className="mr-1 h-3 w-3" /> ZIP
+                      </>
+                    ) : (
+                      <>
+                        <Download className="mr-1 h-3 w-3" /> Download
+                      </>
+                    )}
                   </Button>
                 </div>
               </div>
 
-              {/* Section outline - only on Preview tab */}
-              {sections.length > 0 && activeTab === "preview" && (
+              {/* File tabs for buildout / package stages */}
+              {(stage === "buildout" || stage === "package") && (
                 <div className="flex items-center gap-1 mt-1.5 pb-0.5 overflow-x-auto scrollbar-none">
-                  {sections.filter(s => s.level <= 2).map((s) => (
-                    <button
-                      key={s.id}
-                      onClick={() => scrollToSection(s.id)}
-                      className={`shrink-0 rounded-md px-2 py-0.5 text-[11px] font-medium transition-all whitespace-nowrap ${
-                        activeSection === s.id
-                          ? "bg-primary/15 text-primary"
-                          : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                      }`}
-                    >
-                      {s.title}
-                    </button>
-                  ))}
+                  {PACKAGE_FILES.map((fn) => {
+                    const Icon = FILE_ICONS[fn] || FileText;
+                    const isActive = activeFile === fn;
+                    const isBuilding = buildingFile === fn;
+                    const hasContent = !!packageFiles[fn];
+                    return (
+                      <button
+                        key={fn}
+                        onClick={() => {
+                          setActiveFile(fn);
+                          setCollapsedSections(new Set());
+                        }}
+                        className={`shrink-0 flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[11px] font-medium transition-all whitespace-nowrap ${
+                          isActive
+                            ? "bg-primary/15 text-primary"
+                            : hasContent
+                              ? "text-foreground hover:bg-muted"
+                              : "text-muted-foreground/50"
+                        }`}
+                        disabled={!hasContent && !isBuilding}
+                      >
+                        {isBuilding ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : (
+                          <Icon className="h-3 w-3" />
+                        )}
+                        {fn}
+                      </button>
+                    );
+                  })}
                 </div>
               )}
+
+              {/* Section outline for preview tab */}
+              {sections.length > 0 &&
+                activeTab === "preview" &&
+                stage === "proposal" && (
+                  <div className="flex items-center gap-1 mt-1.5 pb-0.5 overflow-x-auto scrollbar-none">
+                    {sections
+                      .filter((s) => s.level <= 2)
+                      .map((s) => (
+                        <button
+                          key={s.id}
+                          onClick={() => scrollToSection(s.id)}
+                          className={`shrink-0 rounded-md px-2 py-0.5 text-[11px] font-medium transition-all whitespace-nowrap ${
+                            activeSection === s.id
+                              ? "bg-primary/15 text-primary"
+                              : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                          }`}
+                        >
+                          {s.title}
+                        </button>
+                      ))}
+                  </div>
+                )}
 
               <TabsContent value="preview" className="mt-0">
                 <div ref={previewRef}>
                   <ScrollArea className="h-[calc(100vh-8.5rem)]">
                     <div className="px-5 py-4">
-                      {skillMd ? (
-                        <div className="prose prose-sm dark:prose-invert max-w-none">
-                          <SkillPreview
-                            markdown={skillMd}
-                            collapsedSections={collapsedSections}
-                            onToggleSection={toggleSection}
-                          />
-                          {busy && (
+                      {currentMd ? (
+                        <>
+                          {stage === "proposal" ? (
+                            <ProposalCards
+                              markdown={currentMd}
+                              streaming={busy}
+                            />
+                          ) : (stage === "buildout" || stage === "package") ? (
+                            <FileRendererWithFallback
+                              filename={activeFile}
+                              markdown={currentMd}
+                              collapsedSections={collapsedSections}
+                              onToggleSection={toggleSection}
+                            />
+                          ) : (
+                            <div className="prose prose-sm dark:prose-invert max-w-none">
+                              <SkillPreview
+                                markdown={currentMd}
+                                collapsedSections={collapsedSections}
+                                onToggleSection={toggleSection}
+                              />
+                            </div>
+                          )}
+                          {busy && stage !== "proposal" && (
                             <span className="inline-block h-4 w-1 animate-pulse bg-primary rounded-full" />
                           )}
-                        </div>
+                        </>
                       ) : (
                         <div className="flex flex-col items-center justify-center py-24 text-center text-muted-foreground">
                           <Sparkles className="mb-3 h-10 w-10 opacity-30" />
                           <p className="text-sm">
                             {busy
-                              ? "Generating your SKILL.md..."
+                              ? stage === "proposal"
+                                ? "Generating your proposal..."
+                                : `Generating ${buildingFile || "files"}...`
                               : "Enter a topic to get started"}
                           </p>
                         </div>
@@ -541,7 +959,7 @@ function WorkspacePage() {
               <TabsContent value="architecture" className="mt-0">
                 <ScrollArea className="h-[calc(100vh-8.5rem)]">
                   <div className="p-5">
-                    <ArchitectureGraph markdown={skillMd} />
+                    <ArchitectureGraph markdown={currentMd} />
                   </div>
                 </ScrollArea>
               </TabsContent>
@@ -549,7 +967,7 @@ function WorkspacePage() {
               <TabsContent value="raw" className="mt-0">
                 <ScrollArea className="h-[calc(100vh-8.5rem)]">
                   <pre className="whitespace-pre-wrap break-words px-5 py-4 font-mono text-xs leading-relaxed text-foreground/80">
-                    {skillMd || "No content yet."}
+                    {currentMd || "No content yet."}
                     {busy && (
                       <span className="inline-block h-3 w-0.5 animate-pulse bg-primary rounded-full" />
                     )}
@@ -560,11 +978,18 @@ function WorkspacePage() {
           </div>
         </div>
 
+        {/* ============================================================= */}
         {/* Right Panel: Chat */}
+        {/* ============================================================= */}
         <div className="flex w-1/2 flex-col">
           <div className="flex items-center gap-2 border-b px-4 py-2.5 shrink-0">
             <Bot className="h-4 w-4 text-primary" />
             <span className="text-sm font-medium">Skill Architect</span>
+            {(stage === "buildout" || stage === "package") && (
+              <Badge variant="outline" className="text-[10px] ml-auto">
+                Editing: {activeFile}
+              </Badge>
+            )}
           </div>
 
           <ScrollArea className="flex-1">
@@ -574,8 +999,8 @@ function WorkspacePage() {
                   <Bot className="mb-3 h-10 w-10 opacity-30" />
                   <p className="text-sm font-medium">Skill Architect</p>
                   <p className="mt-1 text-xs max-w-xs">
-                    Describe a use-case and I'll build a complete SKILL.md with
-                    datasets, transformations, and build steps.
+                    Describe a use-case and I'll build a complete demo package
+                    with storyline, data schemas, and build steps.
                   </p>
                 </div>
               )}
@@ -621,13 +1046,18 @@ function WorkspacePage() {
               >
                 <Input
                   ref={inputRef}
-                  placeholder="Describe a use-case to generate a demo skill..."
+                  placeholder="Describe a use-case to generate a demo proposal..."
                   value={chatInput}
                   onChange={(e) => setChatInput(e.target.value)}
                   disabled={busy}
                   className="bg-muted/40"
                 />
-                <Button type="submit" disabled={busy || !chatInput.trim()} size="icon" className="shrink-0">
+                <Button
+                  type="submit"
+                  disabled={busy || !chatInput.trim()}
+                  size="icon"
+                  className="shrink-0"
+                >
                   <Send className="h-4 w-4" />
                 </Button>
               </form>
@@ -635,7 +1065,7 @@ function WorkspacePage() {
               <form
                 onSubmit={(e) => {
                   e.preventDefault();
-                  handleRefine();
+                  handleSubmit();
                 }}
                 className="relative flex gap-2"
               >
@@ -670,7 +1100,9 @@ function WorkspacePage() {
                   placeholder={
                     busy
                       ? "Waiting for generation..."
-                      : "Refine the skill... Type @ to focus on a section"
+                      : stage === "proposal"
+                        ? "Refine the proposal... Type @ to focus on a section"
+                        : `Refine ${activeFile}... Type @ to focus on a section`
                   }
                   value={chatInput}
                   onChange={(e) => {
@@ -716,6 +1148,10 @@ function WorkspacePage() {
   );
 }
 
+// ---------------------------------------------------------------------------
+// MessageBubble
+// ---------------------------------------------------------------------------
+
 function MessageBubble({ message }: { message: UIMessage }) {
   if (message.role === "system") {
     return (
@@ -730,7 +1166,9 @@ function MessageBubble({ message }: { message: UIMessage }) {
   const isUser = message.role === "user";
 
   return (
-    <div className={`flex gap-2.5 items-start ${isUser ? "flex-row-reverse" : ""}`}>
+    <div
+      className={`flex gap-2.5 items-start ${isUser ? "flex-row-reverse" : ""}`}
+    >
       <div
         className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${
           isUser ? "bg-foreground/10" : "bg-primary/10"
@@ -750,19 +1188,29 @@ function MessageBubble({ message }: { message: UIMessage }) {
         }`}
       >
         {isUser
-          ? message.content.split(/(@\S+(?:\s\S+)*?)(?=\s+[^@]|$)/g).map((part, i) =>
-              part.startsWith("@") ? (
-                <span
-                  key={i}
-                  className="rounded bg-white/20 px-1 font-medium"
-                >
-                  {part}
-                </span>
-              ) : (
-                <span key={i}>{part}</span>
-              ),
-            )
-          : message.content}
+          ? message.content
+              .split(/(@\S+(?:\s\S+)*?)(?=\s+[^@]|$)/g)
+              .map((part, i) =>
+                part.startsWith("@") ? (
+                  <span
+                    key={i}
+                    className="rounded bg-white/20 px-1 font-medium"
+                  >
+                    {part}
+                  </span>
+                ) : (
+                  <span key={i}>{part}</span>
+                ),
+              )
+          : message.content
+              .split(/\*\*(.+?)\*\*/g)
+              .map((part, i) =>
+                i % 2 === 1 ? (
+                  <strong key={i}>{part}</strong>
+                ) : (
+                  <span key={i}>{part}</span>
+                ),
+              )}
       </div>
     </div>
   );
@@ -781,10 +1229,7 @@ function SkillPreview({
   collapsedSections: Set<string>;
   onToggleSection: (id: string) => void;
 }) {
-  const rendered = useMemo(
-    () => renderToSections(markdown),
-    [markdown],
-  );
+  const rendered = useMemo(() => renderToSections(markdown), [markdown]);
 
   return (
     <div>
@@ -794,7 +1239,11 @@ function SkillPreview({
       {rendered.sections.map((section) => {
         const isCollapsed = collapsedSections.has(section.id);
         return (
-          <div key={section.id} className="group" data-section-id={section.id}>
+          <div
+            key={section.id}
+            className="group"
+            data-section-id={section.id}
+          >
             <button
               onClick={() => onToggleSection(section.id)}
               className="flex w-full items-center gap-1.5 text-left mt-6 mb-2 border-b pb-1.5 border-primary/10 hover:border-primary/25 transition-colors"
@@ -836,7 +1285,6 @@ function renderToSections(md: string): RenderedSkill {
   let text = md;
   let preamble = "";
 
-  // Strip YAML frontmatter into preamble
   if (text.startsWith("---")) {
     const end = text.indexOf("---", 3);
     if (end !== -1) {
@@ -851,7 +1299,6 @@ function renderToSections(md: string): RenderedSkill {
     }
   }
 
-  // Split on ## headers (level 2) into sections
   const parts = text.split(/^(?=## )/gm);
   const sections: RenderedSection[] = [];
   let preParts = "";
@@ -860,22 +1307,18 @@ function renderToSections(md: string): RenderedSkill {
     const headerMatch = part.match(/^## (.+)\n/);
     if (headerMatch) {
       const title = headerMatch[1].trim();
-      const id = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+      const id = title
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/(^-|-$)/g, "");
       const body = part.slice(headerMatch[0].length);
-      sections.push({
-        id,
-        title,
-        html: renderInlineMarkdown(body),
-      });
+      sections.push({ id, title, html: renderInlineMarkdown(body) });
     } else {
       preParts += part;
     }
   }
 
-  // Render any content before the first ## (like # title) into preamble
-  if (preParts.trim()) {
-    preamble += renderInlineMarkdown(preParts);
-  }
+  if (preParts.trim()) preamble += renderInlineMarkdown(preParts);
 
   return { preamble, sections };
 }
@@ -883,19 +1326,25 @@ function renderToSections(md: string): RenderedSkill {
 function renderInlineMarkdown(text: string): string {
   let result = text;
 
-  // Code blocks
   result = result.replace(
     /```(\w+)?\n([\s\S]*?)```/g,
     (_, _lang, code) =>
       `<pre class="bg-muted rounded-lg p-3 overflow-x-auto my-2"><code class="text-xs">${esc(code.trim())}</code></pre>`,
   );
 
-  // Sub-headers
-  result = result.replace(/^#### (.+)$/gm, '<h4 class="text-sm font-semibold mt-3 mb-1">$1</h4>');
-  result = result.replace(/^### (.+)$/gm, '<h3 class="text-base font-semibold mt-4 mb-1.5">$1</h3>');
-  result = result.replace(/^# (.+)$/gm, '<h1 class="text-xl font-bold mb-2">$1</h1>');
+  result = result.replace(
+    /^#### (.+)$/gm,
+    '<h4 class="text-sm font-semibold mt-3 mb-1">$1</h4>',
+  );
+  result = result.replace(
+    /^### (.+)$/gm,
+    '<h3 class="text-base font-semibold mt-4 mb-1.5">$1</h3>',
+  );
+  result = result.replace(
+    /^# (.+)$/gm,
+    '<h1 class="text-xl font-bold mb-2">$1</h1>',
+  );
 
-  // Checkbox lists
   result = result.replace(
     /^- \[ \] (.+)$/gm,
     '<div class="flex items-start gap-2 ml-1 my-0.5"><input type="checkbox" disabled class="mt-1 accent-primary" /><span class="text-sm">$1</span></div>',
@@ -905,37 +1354,44 @@ function renderInlineMarkdown(text: string): string {
     '<div class="flex items-start gap-2 ml-1 my-0.5"><input type="checkbox" checked disabled class="mt-1 accent-primary" /><span class="text-sm">$1</span></div>',
   );
 
-  // Numbered lists
-  result = result.replace(/^(\d+)\.\s+(.+)$/gm, '<div class="flex gap-2 ml-1 my-0.5"><span class="text-xs font-semibold text-primary/60 mt-0.5 shrink-0 w-4 text-right">$1.</span><span class="text-sm">$2</span></div>');
-
-  // Bullet lists
-  result = result.replace(/^- (.+)$/gm, '<div class="flex gap-2 ml-1 my-0.5"><span class="text-primary/40 mt-1 shrink-0">&#8226;</span><span class="text-sm">$1</span></div>');
-
-  // Tables
   result = result.replace(
-    /^\|(.+)\|$/gm,
-    (match) => {
-      if (match.match(/^\|\s*[-:]+/)) return "";
-      const cells = match.split("|").filter(Boolean).map((c) => c.trim());
-      return `<tr>${cells.map((c) => `<td class="border border-border/50 px-2 py-1 text-xs">${c}</td>`).join("")}</tr>`;
-    },
+    /^(\d+)\.\s+(.+)$/gm,
+    '<div class="flex gap-2 ml-1 my-0.5"><span class="text-xs font-semibold text-primary/60 mt-0.5 shrink-0 w-4 text-right">$1.</span><span class="text-sm">$2</span></div>',
   );
+
+  result = result.replace(
+    /^- (.+)$/gm,
+    '<div class="flex gap-2 ml-1 my-0.5"><span class="text-primary/40 mt-1 shrink-0">&#8226;</span><span class="text-sm">$1</span></div>',
+  );
+
+  result = result.replace(/^\|(.+)\|$/gm, (match) => {
+    if (match.match(/^\|\s*[-:]+/)) return "";
+    const cells = match
+      .split("|")
+      .filter(Boolean)
+      .map((c) => c.trim());
+    return `<tr>${cells.map((c) => `<td class="border border-border/50 px-2 py-1 text-xs">${c}</td>`).join("")}</tr>`;
+  });
   result = result.replace(
     /(<tr>[\s\S]*?<\/tr>(\s*<tr>[\s\S]*?<\/tr>)*)/g,
     '<table class="w-full border-collapse my-2">$1</table>',
   );
 
-  // Inline formatting
   result = result.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
   result = result.replace(
     /`([^`]+)`/g,
     '<code class="bg-muted px-1 py-0.5 rounded text-xs text-primary/80">$1</code>',
   );
 
-  // Paragraphs
-  result = result.replace(/\n{2,}/g, "</p><p class=\"text-sm leading-relaxed my-1.5\">");
+  result = result.replace(
+    /\n{2,}/g,
+    '</p><p class="text-sm leading-relaxed my-1.5">',
+  );
   result = `<p class="text-sm leading-relaxed my-1.5">${result}</p>`;
-  result = result.replace(/<p class="text-sm leading-relaxed my-1.5">\s*<\/p>/g, "");
+  result = result.replace(
+    /<p class="text-sm leading-relaxed my-1.5">\s*<\/p>/g,
+    "",
+  );
 
   return result;
 }
@@ -949,7 +1405,7 @@ function esc(s: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// Architecture graph: parse SKILL.md and render a component flow diagram
+// Architecture graph
 // ---------------------------------------------------------------------------
 
 interface ArchNode {
@@ -1001,21 +1457,13 @@ function parseArchitecture(md: string): Architecture {
       if (subHeaders.length > 0) {
         for (const m of subHeaders) {
           const label = m[1].trim();
-          const id = label
-            .toLowerCase()
-            .replace(/[^a-z0-9]+/g, "-");
+          const id = label.toLowerCase().replace(/[^a-z0-9]+/g, "-");
           transforms.push({ id, label });
         }
       } else {
-        transforms.push({
-          id: "transformations",
-          label: "Data Pipeline",
-        });
+        transforms.push({ id: "transformations", label: "Data Pipeline" });
       }
-    } else if (
-      title.includes("output") ||
-      title.includes("deliverable")
-    ) {
+    } else if (title.includes("output") || title.includes("deliverable")) {
       for (const m of body.matchAll(/^### (.+)$/gm)) {
         const label = m[1].trim();
         const id = label.toLowerCase().replace(/[^a-z0-9]+/g, "-");
@@ -1035,7 +1483,11 @@ function parseArchitecture(md: string): Architecture {
 
 function getOutputIcon(label: string) {
   const l = label.toLowerCase();
-  if (l.includes("dashboard") || l.includes("chart") || l.includes("analytics"))
+  if (
+    l.includes("dashboard") ||
+    l.includes("chart") ||
+    l.includes("analytics")
+  )
     return BarChart3;
   if (l.includes("genie")) return MessageCircle;
   if (
@@ -1071,7 +1523,7 @@ function ArchitectureGraph({ markdown }: { markdown: string }) {
       <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
         <Workflow className="h-10 w-10 opacity-30 mb-3" />
         <p className="text-sm">
-          Could not extract architecture from this skill
+          Could not extract architecture from this content
         </p>
       </div>
     );
@@ -1085,7 +1537,6 @@ function ArchitectureGraph({ markdown }: { markdown: string }) {
       </div>
 
       <div className="grid grid-cols-[1fr_auto_1fr_auto_1fr] gap-x-3 gap-y-0 items-stretch">
-        {/* Sources */}
         <div className="space-y-2">
           <div className="text-[11px] font-semibold uppercase tracking-wider text-blue-500/80 mb-3 flex items-center gap-1.5">
             <Database className="h-3 w-3" />
@@ -1125,7 +1576,6 @@ function ArchitectureGraph({ markdown }: { markdown: string }) {
           </div>
         </div>
 
-        {/* Transforms */}
         <div className="space-y-2">
           <div className="text-[11px] font-semibold uppercase tracking-wider text-amber-500/80 mb-3 flex items-center gap-1.5">
             <Workflow className="h-3 w-3" />
@@ -1150,7 +1600,6 @@ function ArchitectureGraph({ markdown }: { markdown: string }) {
           </div>
         </div>
 
-        {/* Outputs */}
         <div className="space-y-2">
           <div className="text-[11px] font-semibold uppercase tracking-wider text-emerald-500/80 mb-3 flex items-center gap-1.5">
             <BarChart3 className="h-3 w-3" />

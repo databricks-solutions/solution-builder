@@ -104,6 +104,7 @@ export interface GenerationListItem {
     demo_name: string;
     id: number;
     industry: string;
+    stage?: string;
 }
 export interface GenerationOut {
     created_at: string;
@@ -111,7 +112,10 @@ export interface GenerationOut {
     id: number;
     industry: string;
     owner_name: string;
+    proposal_md?: string | null;
+    skill_files?: Record<string, string> | null;
     skill_md: string;
+    stage?: string;
 }
 export interface HTTPValidationError {
     detail?: ValidationError[];
@@ -164,8 +168,23 @@ export interface ValidationError {
 export interface VersionOut {
     version: string;
 }
+export interface WorkspaceApproveRequest {
+    generation_id: number;
+}
+export interface WorkspaceBuildoutRequest {
+    generation_id: number;
+}
 export interface WorkspaceGenerateRequest {
     topic: string;
+}
+export interface WorkspaceProposeRequest {
+    topic: string;
+}
+export interface WorkspaceRefineFileRequest {
+    filename: string;
+    generation_id: number;
+    history?: ChatMessage[];
+    message: string;
 }
 export interface WorkspaceRefineRequest {
     focused_sections?: string[];
@@ -491,6 +510,78 @@ export function useVersionSuspense<TData = {
         ...options?.query
     });
 }
+export const workspaceApprove = async (data: WorkspaceApproveRequest, options?: RequestInit): Promise<{
+    data: unknown;
+}> =>{
+    const res = await fetch("/api/workspace/approve", {
+        ...options,
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+            ...options?.headers
+        },
+        body: JSON.stringify(data)
+    });
+    if (!res.ok) {
+        const body = await res.text();
+        let parsed: unknown;
+        try {
+            parsed = JSON.parse(body);
+        } catch  {
+            parsed = body;
+        }
+        throw new ApiError(res.status, res.statusText, parsed);
+    }
+    return {
+        data: await res.json()
+    };
+};
+export function useWorkspaceApprove(options?: {
+    mutation?: UseMutationOptions<{
+        data: unknown;
+    }, ApiError, WorkspaceApproveRequest>;
+}) {
+    return useMutation({
+        mutationFn: (data)=>workspaceApprove(data),
+        ...options?.mutation
+    });
+}
+export const workspaceBuildout = async (data: WorkspaceBuildoutRequest, options?: RequestInit): Promise<{
+    data: unknown;
+}> =>{
+    const res = await fetch("/api/workspace/buildout", {
+        ...options,
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+            ...options?.headers
+        },
+        body: JSON.stringify(data)
+    });
+    if (!res.ok) {
+        const body = await res.text();
+        let parsed: unknown;
+        try {
+            parsed = JSON.parse(body);
+        } catch  {
+            parsed = body;
+        }
+        throw new ApiError(res.status, res.statusText, parsed);
+    }
+    return {
+        data: await res.json()
+    };
+};
+export function useWorkspaceBuildout(options?: {
+    mutation?: UseMutationOptions<{
+        data: unknown;
+    }, ApiError, WorkspaceBuildoutRequest>;
+}) {
+    return useMutation({
+        mutationFn: (data)=>workspaceBuildout(data),
+        ...options?.mutation
+    });
+}
 export const workspaceGenerate = async (data: WorkspaceGenerateRequest, options?: RequestInit): Promise<{
     data: unknown;
 }> =>{
@@ -524,6 +615,78 @@ export function useWorkspaceGenerate(options?: {
 }) {
     return useMutation({
         mutationFn: (data)=>workspaceGenerate(data),
+        ...options?.mutation
+    });
+}
+export const workspacePropose = async (data: WorkspaceProposeRequest, options?: RequestInit): Promise<{
+    data: unknown;
+}> =>{
+    const res = await fetch("/api/workspace/propose", {
+        ...options,
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+            ...options?.headers
+        },
+        body: JSON.stringify(data)
+    });
+    if (!res.ok) {
+        const body = await res.text();
+        let parsed: unknown;
+        try {
+            parsed = JSON.parse(body);
+        } catch  {
+            parsed = body;
+        }
+        throw new ApiError(res.status, res.statusText, parsed);
+    }
+    return {
+        data: await res.json()
+    };
+};
+export function useWorkspacePropose(options?: {
+    mutation?: UseMutationOptions<{
+        data: unknown;
+    }, ApiError, WorkspaceProposeRequest>;
+}) {
+    return useMutation({
+        mutationFn: (data)=>workspacePropose(data),
+        ...options?.mutation
+    });
+}
+export const workspaceProposeRefine = async (data: WorkspaceRefineRequest, options?: RequestInit): Promise<{
+    data: unknown;
+}> =>{
+    const res = await fetch("/api/workspace/propose/refine", {
+        ...options,
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+            ...options?.headers
+        },
+        body: JSON.stringify(data)
+    });
+    if (!res.ok) {
+        const body = await res.text();
+        let parsed: unknown;
+        try {
+            parsed = JSON.parse(body);
+        } catch  {
+            parsed = body;
+        }
+        throw new ApiError(res.status, res.statusText, parsed);
+    }
+    return {
+        data: await res.json()
+    };
+};
+export function useWorkspaceProposeRefine(options?: {
+    mutation?: UseMutationOptions<{
+        data: unknown;
+    }, ApiError, WorkspaceRefineRequest>;
+}) {
+    return useMutation({
+        mutationFn: (data)=>workspaceProposeRefine(data),
         ...options?.mutation
     });
 }
@@ -561,5 +724,99 @@ export function useWorkspaceRefine(options?: {
     return useMutation({
         mutationFn: (data)=>workspaceRefine(data),
         ...options?.mutation
+    });
+}
+export const workspaceRefineFile = async (data: WorkspaceRefineFileRequest, options?: RequestInit): Promise<{
+    data: unknown;
+}> =>{
+    const res = await fetch("/api/workspace/refine-file", {
+        ...options,
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+            ...options?.headers
+        },
+        body: JSON.stringify(data)
+    });
+    if (!res.ok) {
+        const body = await res.text();
+        let parsed: unknown;
+        try {
+            parsed = JSON.parse(body);
+        } catch  {
+            parsed = body;
+        }
+        throw new ApiError(res.status, res.statusText, parsed);
+    }
+    return {
+        data: await res.json()
+    };
+};
+export function useWorkspaceRefineFile(options?: {
+    mutation?: UseMutationOptions<{
+        data: unknown;
+    }, ApiError, WorkspaceRefineFileRequest>;
+}) {
+    return useMutation({
+        mutationFn: (data)=>workspaceRefineFile(data),
+        ...options?.mutation
+    });
+}
+export interface WorkspaceDownloadParams {
+    generation_id: number;
+}
+export const workspaceDownload = async (params: WorkspaceDownloadParams, options?: RequestInit): Promise<{
+    data: unknown;
+}> =>{
+    const res = await fetch(`/api/workspace/${params.generation_id}/download`, {
+        ...options,
+        method: "GET"
+    });
+    if (!res.ok) {
+        const body = await res.text();
+        let parsed: unknown;
+        try {
+            parsed = JSON.parse(body);
+        } catch  {
+            parsed = body;
+        }
+        throw new ApiError(res.status, res.statusText, parsed);
+    }
+    return {
+        data: await res.json()
+    };
+};
+export const workspaceDownloadKey = (params?: WorkspaceDownloadParams)=>{
+    return [
+        "/api/workspace/{generation_id}/download",
+        params
+    ] as const;
+};
+export function useWorkspaceDownload<TData = {
+    data: unknown;
+}>(options: {
+    params: WorkspaceDownloadParams;
+    query?: Omit<UseQueryOptions<{
+        data: unknown;
+    }, ApiError, TData>, "queryKey" | "queryFn">;
+}) {
+    return useQuery({
+        queryKey: workspaceDownloadKey(options.params),
+        queryFn: ()=>workspaceDownload(options.params),
+        ...options?.query
+    });
+}
+export function useWorkspaceDownloadSuspense<TData = {
+    data: unknown;
+}>(options: {
+    params: WorkspaceDownloadParams;
+    query?: Omit<UseSuspenseQueryOptions<{
+        data: unknown;
+    }, ApiError, TData>, "queryKey" | "queryFn">;
+}) {
+    return useSuspenseQuery({
+        queryKey: workspaceDownloadKey(options.params),
+        queryFn: ()=>workspaceDownload(options.params),
+        ...options?.query
     });
 }

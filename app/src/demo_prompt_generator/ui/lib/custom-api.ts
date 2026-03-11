@@ -78,7 +78,11 @@ export type WorkspaceEvent =
   | { type: "skill"; content: string }
   | { type: "section_start"; title: string }
   | { type: "complete"; id: number; demo_name: string; industry?: string }
-  | { type: "error"; content: string };
+  | { type: "error"; content: string }
+  | { type: "proposal"; content: string }
+  | { type: "file_start"; filename: string }
+  | { type: "file_content"; filename: string; content: string }
+  | { type: "file_complete"; filename: string };
 
 async function* parseSSEStream(
   resp: Response,
@@ -144,5 +148,95 @@ export async function* streamWorkspaceRefine(
     signal,
   });
   if (!resp.ok) throw new Error(`Refinement failed: ${resp.status}`);
+  yield* parseSSEStream(resp);
+}
+
+// ---------------------------------------------------------------------------
+// Stage 1: Proposal SSE
+// ---------------------------------------------------------------------------
+
+export async function* streamWorkspacePropose(
+  topic: string,
+  signal?: AbortSignal,
+): AsyncGenerator<WorkspaceEvent> {
+  const resp = await fetch("/api/workspace/propose", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ topic }),
+    signal,
+  });
+  if (!resp.ok) throw new Error(`Proposal generation failed: ${resp.status}`);
+  yield* parseSSEStream(resp);
+}
+
+export async function* streamProposalRefine(
+  generationId: number,
+  message: string,
+  history: ChatMessage[],
+  signal?: AbortSignal,
+  focusedSections?: string[],
+): AsyncGenerator<WorkspaceEvent> {
+  const resp = await fetch("/api/workspace/propose/refine", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      generation_id: generationId,
+      message,
+      history,
+      focused_sections: focusedSections || [],
+    }),
+    signal,
+  });
+  if (!resp.ok) throw new Error(`Proposal refinement failed: ${resp.status}`);
+  yield* parseSSEStream(resp);
+}
+
+export async function approveProposal(generationId: number): Promise<{ id: number; stage: string; demo_name: string }> {
+  const resp = await fetch("/api/workspace/approve", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ generation_id: generationId }),
+  });
+  if (!resp.ok) throw new Error(`Approval failed: ${resp.status}`);
+  return resp.json();
+}
+
+// ---------------------------------------------------------------------------
+// Stage 2: Buildout SSE
+// ---------------------------------------------------------------------------
+
+export async function* streamWorkspaceBuildout(
+  generationId: number,
+  signal?: AbortSignal,
+): AsyncGenerator<WorkspaceEvent> {
+  const resp = await fetch("/api/workspace/buildout", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ generation_id: generationId }),
+    signal,
+  });
+  if (!resp.ok) throw new Error(`Buildout failed: ${resp.status}`);
+  yield* parseSSEStream(resp);
+}
+
+export async function* streamFileRefine(
+  generationId: number,
+  filename: string,
+  message: string,
+  history: ChatMessage[],
+  signal?: AbortSignal,
+): AsyncGenerator<WorkspaceEvent> {
+  const resp = await fetch("/api/workspace/refine-file", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      generation_id: generationId,
+      filename,
+      message,
+      history,
+    }),
+    signal,
+  });
+  if (!resp.ok) throw new Error(`File refinement failed: ${resp.status}`);
   yield* parseSSEStream(resp);
 }

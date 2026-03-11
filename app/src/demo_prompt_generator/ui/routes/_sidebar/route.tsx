@@ -19,10 +19,10 @@ function Layout() {
 
   const navItems = [
     {
-      to: "/workspace",
+      to: "/",
       label: "New Skill",
       icon: <Sparkles size={16} />,
-      match: (path: string) => path.startsWith("/workspace"),
+      match: (path: string) => path === "/" || path.startsWith("/workspace"),
     },
     {
       to: "/generations",
