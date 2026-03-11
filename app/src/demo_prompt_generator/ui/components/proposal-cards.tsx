@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import React, { useMemo } from "react";
 import {
   Building2,
   Lightbulb,
@@ -438,52 +438,80 @@ export function ProposalCards({
   const outputItems = outputs.length > 0 ? parseOutputs(outputs[0].body) : null;
   const buildSteps = build.length > 0 ? parseBuildSteps(build[0].body) : null;
 
-  return (
-    <div className="space-y-5">
-      <h2 className="text-lg font-bold tracking-tight">{name}</h2>
+  // Stable rendering: always same order, animate in as content appears
+  const blocks: React.ReactNode[] = [];
 
-      {/* Row 1: Background/Overview — full width */}
-      {bgBody && (
+  if (bgBody) {
+    blocks.push(
+      <div key="bg" className="animate-in fade-in slide-in-from-bottom-2 duration-300">
         <ProseBlock body={bgBody} config={CATEGORY_CONFIG.background} title="Background" />
-      )}
+      </div>,
+    );
+  }
 
-      {/* Row 2: Proposed Solution — full width */}
-      {solution.length > 0 && (
+  if (solution.length > 0) {
+    blocks.push(
+      <div key="sol" className="animate-in fade-in slide-in-from-bottom-2 duration-300">
         <ProseBlock body={solution[0].body} config={CATEGORY_CONFIG.solution} title={solution[0].title} />
-      )}
+      </div>,
+    );
+  }
 
-      {/* Row 3: Company & Persona + Wow Moment — side by side */}
-      {(persona.length > 0 || wow.length > 0) && (
-        <div className="grid gap-4 sm:grid-cols-2">
-          {persona.map((s) => (
-            <ProseBlock key={s.key} body={s.body} config={CATEGORY_CONFIG.persona} title={s.title} />
-          ))}
-          {wow.map((s) => (
-            <ProseBlock key={s.key} body={s.body} config={CATEGORY_CONFIG.wow} title={s.title} />
-          ))}
-        </div>
-      )}
+  if (persona.length > 0 || wow.length > 0) {
+    blocks.push(
+      <div key="pw" className="grid gap-3 sm:grid-cols-2 animate-in fade-in slide-in-from-bottom-2 duration-300">
+        {persona.map((s) => (
+          <ProseBlock key={s.key} body={s.body} config={CATEGORY_CONFIG.persona} title={s.title} />
+        ))}
+        {wow.map((s) => (
+          <ProseBlock key={s.key} body={s.body} config={CATEGORY_CONFIG.wow} title={s.title} />
+        ))}
+      </div>,
+    );
+  }
 
-      {/* Datasets + Transforms + Outputs — compact horizontal layouts */}
-      {datasetRows && <DatasetsBlock rows={datasetRows} />}
+  if (datasetRows) {
+    blocks.push(
+      <div key="ds" className="animate-in fade-in slide-in-from-bottom-2 duration-300">
+        <DatasetsBlock rows={datasetRows} />
+      </div>,
+    );
+  }
 
-      {(transformSteps || outputItems) && (
-        <div className="grid gap-4 sm:grid-cols-2">
-          {transformSteps && <TransformsBlock steps={transformSteps} />}
-          {outputItems && <OutputsBlock items={outputItems} />}
-        </div>
-      )}
+  if (transformSteps || outputItems) {
+    blocks.push(
+      <div key="to" className="grid gap-3 sm:grid-cols-2 animate-in fade-in slide-in-from-bottom-2 duration-300">
+        {transformSteps && <TransformsBlock steps={transformSteps} />}
+        {outputItems && <OutputsBlock items={outputItems} />}
+      </div>,
+    );
+  }
 
-      {/* Build Steps — 2-col grid */}
-      {buildSteps && <BuildStepsBlock steps={buildSteps} />}
+  if (buildSteps) {
+    blocks.push(
+      <div key="bs" className="animate-in fade-in slide-in-from-bottom-2 duration-300">
+        <BuildStepsBlock steps={buildSteps} />
+      </div>,
+    );
+  }
 
-      {/* Anything else */}
-      {other.map((s) => (
-        <ProseBlock key={s.key} body={s.body} config={CATEGORY_CONFIG.other} title={s.title} />
-      ))}
+  for (const s of other) {
+    blocks.push(
+      <div key={s.key} className="animate-in fade-in slide-in-from-bottom-2 duration-300">
+        <ProseBlock body={s.body} config={CATEGORY_CONFIG.other} title={s.title} />
+      </div>,
+    );
+  }
 
+  return (
+    <div className="space-y-4">
+      <h2 className="text-lg font-bold tracking-tight">{name}</h2>
+      {blocks}
       {streaming && (
-        <span className="inline-block h-4 w-1 animate-pulse bg-primary rounded-full" />
+        <div className="flex items-center gap-2 py-2">
+          <span className="inline-block h-4 w-1 animate-pulse bg-primary rounded-full" />
+          <span className="text-xs text-muted-foreground animate-pulse">Generating...</span>
+        </div>
       )}
     </div>
   );

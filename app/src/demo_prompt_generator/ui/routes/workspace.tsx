@@ -94,7 +94,7 @@ interface Section {
 let _idCounter = 0;
 function uid(): string {
   if (typeof crypto !== "undefined" && crypto.randomUUID) {
-    return uid();
+    return crypto.randomUUID();
   }
   return `id-${Date.now()}-${++_idCounter}`;
 }
@@ -751,7 +751,7 @@ function WorkspacePage() {
         {/* ============================================================= */}
         {/* Left Panel */}
         {/* ============================================================= */}
-        <div className="flex w-1/2 flex-col border-r border-border/60">
+        <div className="flex w-[62%] flex-col border-r border-border/60">
           <div className="flex items-center justify-between border-b px-3 py-1.5 shrink-0">
             <Tabs
               value={activeTab}
@@ -767,12 +767,6 @@ function WorkspacePage() {
                       className="gap-1.5 text-xs px-2.5 h-6"
                     >
                       <FileText className="h-3 w-3" /> Proposal
-                    </TabsTrigger>
-                    <TabsTrigger
-                      value="architecture"
-                      className="gap-1.5 text-xs px-2.5 h-6"
-                    >
-                      <Workflow className="h-3 w-3" /> Architecture
                     </TabsTrigger>
                     <TabsTrigger
                       value="raw"
@@ -915,10 +909,17 @@ function WorkspacePage() {
                       {currentMd ? (
                         <>
                           {stage === "proposal" ? (
-                            <ProposalCards
-                              markdown={currentMd}
-                              streaming={busy}
-                            />
+                            <div className="space-y-6">
+                              <ProposalCards
+                                markdown={currentMd}
+                                streaming={busy}
+                              />
+                              {!busy && currentMd && (
+                                <div className="rounded-xl border border-border/50 p-5 bg-muted/[0.02]">
+                                  <ArchitectureGraph markdown={currentMd} />
+                                </div>
+                              )}
+                            </div>
                           ) : (stage === "buildout" || stage === "package") ? (
                             <FileRendererWithFallback
                               filename={activeFile}
@@ -941,14 +942,27 @@ function WorkspacePage() {
                         </>
                       ) : (
                         <div className="flex flex-col items-center justify-center py-24 text-center text-muted-foreground">
-                          <Sparkles className="mb-3 h-10 w-10 opacity-30" />
-                          <p className="text-sm">
-                            {busy
-                              ? stage === "proposal"
-                                ? "Generating your proposal..."
-                                : `Generating ${buildingFile || "files"}...`
-                              : "Enter a topic to get started"}
-                          </p>
+                          {busy ? (
+                            <>
+                              <div className="relative mb-4">
+                                <Sparkles className="h-10 w-10 opacity-30 animate-pulse" />
+                                <div className="absolute inset-0 h-10 w-10 rounded-full bg-primary/10 animate-ping" />
+                              </div>
+                              <p className="text-sm font-medium">
+                                {stage === "proposal"
+                                  ? "Crafting your proposal..."
+                                  : `Building ${buildingFile || "package files"}...`}
+                              </p>
+                              <p className="mt-1 text-xs text-muted-foreground/60">
+                                This usually takes 15–30 seconds
+                              </p>
+                            </>
+                          ) : (
+                            <>
+                              <Sparkles className="mb-3 h-10 w-10 opacity-20" />
+                              <p className="text-sm">Enter a topic to get started</p>
+                            </>
+                          )}
                         </div>
                       )}
                     </div>
@@ -981,7 +995,7 @@ function WorkspacePage() {
         {/* ============================================================= */}
         {/* Right Panel: Chat */}
         {/* ============================================================= */}
-        <div className="flex w-1/2 flex-col">
+        <div className="flex w-[38%] flex-col">
           <div className="flex items-center gap-2 border-b px-4 py-2.5 shrink-0">
             <Bot className="h-4 w-4 text-primary" />
             <span className="text-sm font-medium">Skill Architect</span>
@@ -1434,40 +1448,53 @@ function parseArchitecture(md: string): Architecture {
     const title = hdr[1].trim().toLowerCase();
     const body = part.slice(hdr[0].length);
 
-    if (title.includes("dataset") || title.includes("data source")) {
-      for (const m of body.matchAll(/^### (.+)$/gm)) {
-        const label = m[1].trim();
-        const id = label.toLowerCase().replace(/[^a-z0-9]+/g, "-");
-        const blockEnd = body.indexOf("###", body.indexOf(m[0]) + m[0].length);
-        const block = body.slice(
-          body.indexOf(m[0]) + m[0].length,
-          blockEnd > -1 ? blockEnd : undefined,
-        );
-        const rowMatch = block.match(
-          /(?:~?\s*)?(\d[\d,]*(?:\.\d+)?)\s*(?:K|M|B)?\s*rows?/i,
-        );
-        sources.push({
-          id,
-          label,
-          detail: rowMatch ? `~${rowMatch[0].trim()}` : undefined,
-        });
-      }
-    } else if (title.includes("transform")) {
+    if (title.includes("dataset") || title.includes("data source") || title.includes("data")) {
+      // Try subsection headers first
       const subHeaders = [...body.matchAll(/^### (.+)$/gm)];
       if (subHeaders.length > 0) {
         for (const m of subHeaders) {
           const label = m[1].trim();
           const id = label.toLowerCase().replace(/[^a-z0-9]+/g, "-");
-          transforms.push({ id, label });
+          const blockEnd = body.indexOf("###", body.indexOf(m[0]) + m[0].length);
+          const block = body.slice(body.indexOf(m[0]) + m[0].length, blockEnd > -1 ? blockEnd : undefined);
+          const rowMatch = block.match(/(?:~?\s*)?(\d[\d,]*(?:\.\d+)?)\s*(?:K|M|B)?\s*rows?/i);
+          sources.push({ id, label, detail: rowMatch ? `~${rowMatch[0].trim()}` : undefined });
         }
-      } else {
+      }
+      // Also try markdown table rows
+      for (const m of body.matchAll(/^\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*([^|]*?)\s*\|$/gm)) {
+        const name = m[1].trim();
+        if (name.match(/^[-:]+$/) || name.toLowerCase() === "table" || name.toLowerCase() === "name") continue;
+        const id = name.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+        if (!sources.find((s) => s.id === id)) {
+          sources.push({ id, label: name, detail: m[3]?.trim() || undefined });
+        }
+      }
+    } else if (title.includes("transform") || title.includes("pipeline")) {
+      const subHeaders = [...body.matchAll(/^### (.+)$/gm)];
+      if (subHeaders.length > 0) {
+        for (const m of subHeaders) {
+          transforms.push({ id: m[1].toLowerCase().replace(/[^a-z0-9]+/g, "-"), label: m[1].trim() });
+        }
+      }
+      // Also try bullet lists
+      for (const m of body.matchAll(/^[-*]\s+\*\*(.+?)\*\*/gm)) {
+        const label = m[1].trim();
+        const id = label.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+        if (!transforms.find((t) => t.id === id)) transforms.push({ id, label });
+      }
+      if (transforms.length === 0) {
         transforms.push({ id: "transformations", label: "Data Pipeline" });
       }
     } else if (title.includes("output") || title.includes("deliverable")) {
       for (const m of body.matchAll(/^### (.+)$/gm)) {
+        outputs.push({ id: m[1].toLowerCase().replace(/[^a-z0-9]+/g, "-"), label: m[1].trim() });
+      }
+      // Also try bullet lists
+      for (const m of body.matchAll(/^[-*]\s+\*\*(.+?)\*\*/gm)) {
         const label = m[1].trim();
         const id = label.toLowerCase().replace(/[^a-z0-9]+/g, "-");
-        outputs.push({ id, label });
+        if (!outputs.find((o) => o.id === id)) outputs.push({ id, label });
       }
     } else if (title.includes("build step")) {
       for (const m of body.matchAll(
