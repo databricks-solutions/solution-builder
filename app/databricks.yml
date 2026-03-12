@@ -25,6 +25,10 @@ resources:
             database_name: "databricks_postgres"
             instance_name: ${resources.database_instances.demo-prompt-generator-db.name}
             permission: "CAN_CONNECT_AND_CREATE"
+        - name: "llm"
+          serving_endpoint:
+            name: "databricks-claude-sonnet-4"
+            permission: "CAN_QUERY"
 
 targets:
   dev:
@@ -33,3 +37,6 @@ targets:
   tools:
     workspace:
       profile: TOOLS
+  west:
+    workspace:
+      profile: WEST
