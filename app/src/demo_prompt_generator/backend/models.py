@@ -225,3 +225,57 @@ class Generation(SQLModel, table=True):
     proposal_md: Optional[str] = SQLField(default=None, sa_column=Column(Text, nullable=True))
     skill_files: Optional[str] = SQLField(default=None, sa_column=Column(Text, nullable=True))
     created_at: datetime = SQLField(default_factory=datetime.utcnow)
+
+
+class Conversation(SQLModel, table=True):
+    """A chat conversation thread linked to a generation."""
+    id: Optional[int] = SQLField(default=None, primary_key=True)
+    generation_id: int = SQLField(index=True)
+    title: str = SQLField(default="")
+    created_at: datetime = SQLField(default_factory=datetime.utcnow)
+    updated_at: datetime = SQLField(default_factory=datetime.utcnow)
+
+
+class ChatMessageRecord(SQLModel, table=True):
+    """An individual chat message within a conversation."""
+    __tablename__ = "chat_message"
+    id: Optional[int] = SQLField(default=None, primary_key=True)
+    conversation_id: int = SQLField(index=True)
+    role: str  # "user", "assistant", or "system"
+    content: str = SQLField(sa_column=Column(Text))
+    created_at: datetime = SQLField(default_factory=datetime.utcnow)
+
+
+# ---------------------------------------------------------------------------
+# Conversation request/response models
+# ---------------------------------------------------------------------------
+
+
+class ConversationOut(BaseModel):
+    id: int
+    generation_id: int
+    title: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class ConversationWithMessages(BaseModel):
+    id: int
+    generation_id: int
+    title: str
+    messages: list[ChatMessage]
+    created_at: datetime
+    updated_at: datetime
+
+
+class ChatMessageOut(BaseModel):
+    id: int
+    conversation_id: int
+    role: str
+    content: str
+    created_at: datetime
+
+
+class SaveMessagesRequest(BaseModel):
+    generation_id: int
+    messages: list[ChatMessage] = Field(..., description="All messages to persist")

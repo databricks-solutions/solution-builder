@@ -146,6 +146,26 @@ def initialize_models(engine: Engine) -> None:
         ("stage", "ALTER TABLE generation ADD COLUMN IF NOT EXISTS stage TEXT DEFAULT 'package'"),
         ("proposal_md", "ALTER TABLE generation ADD COLUMN IF NOT EXISTS proposal_md TEXT"),
         ("skill_files", "ALTER TABLE generation ADD COLUMN IF NOT EXISTS skill_files TEXT"),
+        ("conversation_table", """
+            CREATE TABLE IF NOT EXISTS conversation (
+                id SERIAL PRIMARY KEY,
+                generation_id INTEGER NOT NULL,
+                title TEXT NOT NULL DEFAULT '',
+                created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+                updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+            )
+        """),
+        ("conversation_gen_idx", "CREATE INDEX IF NOT EXISTS ix_conversation_generation_id ON conversation (generation_id)"),
+        ("chat_message_table", """
+            CREATE TABLE IF NOT EXISTS chat_message (
+                id SERIAL PRIMARY KEY,
+                conversation_id INTEGER NOT NULL,
+                role TEXT NOT NULL,
+                content TEXT NOT NULL,
+                created_at TIMESTAMP NOT NULL DEFAULT NOW()
+            )
+        """),
+        ("chat_message_conv_idx", "CREATE INDEX IF NOT EXISTS ix_chat_message_conversation_id ON chat_message (conversation_id)"),
     ]
     with Session(engine) as session:
         for col_name, ddl in _migrations:

@@ -29,7 +29,7 @@ Built with [APX](https://github.com/databricks-solutions/apx) (FastAPI + React) 
 - Python 3.11+
 - [APX CLI](https://github.com/databricks-solutions/apx) (`pip install apx`)
 - [Databricks CLI](https://docs.databricks.com/dev-tools/cli/index.html) configured with a profile
-- A Databricks workspace with a Foundation Model endpoint (e.g. `databricks-claude-sonnet-4`)
+- A Databricks workspace with Foundation Model endpoints enabled (e.g. `databricks-claude-sonnet-4`)
 
 ### For executing generated packages
 
@@ -39,62 +39,137 @@ Install the [Databricks AI Dev Kit](https://github.com/databricks/ai-dev-kit) to
 git clone https://github.com/databricks/ai-dev-kit.git
 ```
 
-## Quick start
+## Quick start (local development)
 
 ```bash
 gh repo clone databricks-field-eng/industry-demo-prompts
 cd industry-demo-prompts/app
-cp .env.example .env
-# Edit .env with your Databricks host + token (or set DATABRICKS_CONFIG_PROFILE)
 apx dev start
 ```
 
-The app starts at **http://localhost:9000** with hot-reload for both frontend and backend.
+The app starts at **http://localhost:9000** with hot-reload for both frontend and backend. APX automatically provisions a local PostgreSQL instance for Lakebase tables — no manual database setup needed.
+
+> **Note:** The app resolves Databricks credentials from the SDK — either via environment variables (`DATABRICKS_HOST` / `DATABRICKS_TOKEN`), a `.env` file, or the active Databricks CLI profile.
 
 ## Deploy to Databricks
 
-```bash
-cd app
-apx build
-databricks bundle deploy -p YOUR_PROFILE
+The entire app — Lakebase instance, Databricks App, and source code — deploys with a single command via [Databricks Asset Bundles](https://docs.databricks.com/dev-tools/bundles/index.html).
+
+### 1. Configure a deployment target
+
+`databricks.yml` defines named targets. The `dev` target uses your default CLI profile. Add workspace-specific targets:
+
+```yaml
+# databricks.yml (already configured)
+targets:
+  dev:
+    mode: development
+    default: true
+  tools:
+    workspace:
+      profile: TOOLS    # maps to a [TOOLS] section in ~/.databrickscfg
 ```
 
-This creates a Databricks App backed by a Lakebase PostgreSQL instance.
+### 2. Deploy
+
+```bash
+cd app
+databricks bundle deploy -t tools   # or: -t dev, -p YOUR_PROFILE
+```
+
+This creates:
+- A **Lakebase provisioned PostgreSQL instance** (`demo-prompt-generator`, CU_1) with a `databricks_postgres` database
+- A **Databricks App** with the Lakebase instance bound as a resource
+
+### 3. First-time Lakebase setup
+
+After the first deploy, you need to grant the app's service principal permission to create tables in the `public` schema (this is a one-time step per Lakebase instance):
+
+```bash
+databricks psql demo-prompt-generator -p TOOLS -- \
+  -d databricks_postgres \
+  -c "GRANT ALL ON SCHEMA public TO PUBLIC; GRANT CREATE ON SCHEMA public TO PUBLIC;"
+```
+
+Then trigger a redeploy so the app retries table creation:
+
+```bash
+databricks apps deploy demo-prompt-generator \
+  --source-code-path /Workspace/Users/<your-email>/.bundle/demo-prompt-generator/<target>/files/.build \
+  -p TOOLS
+```
+
+### 4. Verify
+
+```bash
+databricks apps get demo-prompt-generator -p TOOLS
+# app_status.state should be "RUNNING"
+```
 
 ## Development
 
 ```bash
-apx dev start     # Start dev servers (detached)
+apx dev start     # Start dev servers (backend + frontend + OpenAPI watcher)
 apx dev stop      # Stop dev servers
 apx dev logs -f   # Stream logs
 apx dev status    # Check server status
-apx dev check     # Type checking + linting
+apx dev check     # TypeScript + Python type checking
 apx build         # Production build
 ```
 
-### Playwright testing
+## Architecture
 
-The repo includes Playwright tests for end-to-end UI verification. To run them against a local dev server:
+### Lakebase tables
 
-```bash
-npm install          # install Playwright (one-time)
-npx playwright test  # run tests
-```
+| Table | Purpose |
+|-------|---------|
+| `generation` | Proposals, SKILL.md, and package files (data-schema, storyline, etc.) |
+| `conversation` | Chat threads linked to a generation, with title and timestamps |
+| `chat_message` | Individual messages (user, assistant, system) within a conversation |
+
+Tables are auto-created on app startup via SQLModel + explicit DDL migrations in `lakebase.py`.
+
+### API surface
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/workspace/propose` | Generate a proposal from a topic (SSE) |
+| `POST` | `/api/workspace/propose/refine` | Refine a proposal via chat (SSE) |
+| `POST` | `/api/workspace/approve` | Approve proposal, transition to buildout |
+| `POST` | `/api/workspace/buildout` | Generate all package files (SSE) |
+| `POST` | `/api/workspace/refine-file` | Refine a single package file (SSE) |
+| `GET` | `/api/workspace/{id}/download` | Download package as zip |
+| `GET` | `/api/generations` | List all past generations |
+| `GET` | `/api/generations/{id}` | Get a single generation |
+| `GET` | `/api/conversations` | List conversations (optional `?generation_id=` filter) |
+| `GET` | `/api/conversations/{id}` | Get conversation with all messages |
+| `POST` | `/api/conversations/save` | Upsert conversation messages for a generation |
+| `DELETE` | `/api/conversations/{id}` | Delete a conversation |
+
+### Frontend auto-save
+
+Chat messages are automatically persisted to Lakebase with a 2-second debounce. When a user revisits a generation, the full conversation history is restored.
 
 ## Project structure
 
 ```
 industry-demo-prompts/
 ├── app/
-│   ├── databricks.yml                  # Databricks Asset Bundle config
+│   ├── databricks.yml                  # DAB config — Lakebase instance + App resource
 │   ├── pyproject.toml                  # Python deps + APX metadata
 │   ├── package.json                    # Frontend deps
 │   └── src/demo_prompt_generator/
 │       ├── backend/
 │       │   ├── app.py                  # FastAPI entry point
-│       │   ├── models.py              # SQLModel schemas (Generation, etc.)
+│       │   ├── models.py              # SQLModel tables + Pydantic request/response models
+│       │   ├── router.py             # Singleton router, imports all route modules
+│       │   ├── core/
+│       │   │   ├── _factory.py       # App factory, lifespan, singleton router
+│       │   │   ├── _config.py        # AppConfig (host, token, LLM model)
+│       │   │   └── lakebase.py       # DB engine, migrations, session dependency
 │       │   ├── routes/
-│       │   │   ├── workspace.py       # Proposal, approve, buildout, refine SSE
+│       │   │   ├── workspace.py       # Proposal, approve, buildout, refine (SSE)
+│       │   │   ├── conversations.py   # Conversation CRUD (list, get, save, delete)
 │       │   │   ├── generations.py     # GET /generations, /generations/:id
 │       │   │   └── inspire.py         # POST /inspire (topic → use case)
 │       │   └── services/
@@ -102,7 +177,7 @@ industry-demo-prompts/
 │       └── ui/
 │           ├── routes/
 │           │   ├── index.tsx          # Landing page — industry catalog
-│           │   ├── workspace.tsx      # Proposal → build workspace
+│           │   ├── workspace.tsx      # Proposal → build workspace (with auto-save)
 │           │   └── _sidebar/
 │           │       ├── generations.tsx        # Layout route
 │           │       ├── generations.index.tsx  # Past generations list
@@ -111,9 +186,8 @@ industry-demo-prompts/
 │           │   ├── proposal-cards.tsx  # Structured proposal card renderer
 │           │   └── file-renderers.tsx  # Visual renderers for package files
 │           └── lib/
-│               ├── api.ts             # Auto-generated API client
-│               └── custom-api.ts      # SSE streaming helpers
-├── playwright.config.ts               # Playwright test config
-├── tests/                             # E2E tests
+│               ├── api.ts             # Auto-generated API client (Orval)
+│               └── custom-api.ts      # SSE streaming + conversation API helpers
+├── docs/                              # Screenshots
 └── .gitignore
 ```

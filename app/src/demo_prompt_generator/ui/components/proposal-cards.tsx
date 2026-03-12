@@ -1,13 +1,14 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useState } from "react";
 import {
   Building2,
   Lightbulb,
   Sparkles,
   Database,
   Wrench,
-  Layers,
   LayoutGrid,
   Users,
+  ChevronDown,
+  ChevronRight,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 
@@ -116,7 +117,7 @@ const CATEGORY_CONFIG: Record<
     accent: "bg-violet-500/10",
   },
   transforms: {
-    icon: Layers,
+    icon: Building2,
     color: "text-orange-400",
     bg: "bg-orange-500/[0.04]",
     border: "border-orange-500/15",
@@ -229,54 +230,70 @@ function parseOutputs(body: string): OutputItem[] | null {
   if (items.length === 0) {
     const bullets = [...body.matchAll(/^[-*]\s+(.+)$/gm)];
     for (const b of bullets) {
-      const parts = b[1].split(/[:\u2014\u2013–]/, 2);
+      const parts = b[1].split(/[:\u2014\u2013\u2013]/, 2);
       items.push({ name: parts[0].trim().replace(/\*\*/g, ""), description: (parts[1] || "").trim() });
     }
   }
   return items.length > 0 ? items : null;
 }
 
-function parseTransformSteps(body: string): string[] | null {
-  const steps: string[] = [];
-  const subheaders = body.split(/^(?=### )/gm);
-  for (const sub of subheaders) {
-    const m = sub.match(/^### (.+)\n/);
-    if (m) steps.push(m[1].trim());
-  }
-  if (steps.length === 0) {
-    const bullets = [...body.matchAll(/^[-*]\s+\*\*(.+?)\*\*/gm)];
-    for (const b of bullets) steps.push(b[1].trim());
-  }
-  if (steps.length === 0) {
-    const bullets = [...body.matchAll(/^[-*]\s+(.+)$/gm)];
-    for (const b of bullets) steps.push(b[1].replace(/\*\*/g, "").trim());
-  }
-  return steps.length > 0 ? steps : null;
+
+// ---------------------------------------------------------------------------
+// Helper: extract a one-line summary from a body of text
+// ---------------------------------------------------------------------------
+
+function extractSummary(body: string, maxLen = 120): string {
+  const firstLine = body.split("\n").find((l) => l.trim().length > 20);
+  if (!firstLine) return body.slice(0, maxLen);
+  const clean = firstLine.replace(/\*\*/g, "").replace(/`[^`]+`/g, "").trim();
+  return clean.length > maxLen ? clean.slice(0, maxLen - 3) + "..." : clean;
 }
 
 // ---------------------------------------------------------------------------
 // Renderers
 // ---------------------------------------------------------------------------
 
-function ProseBlock({
+function CollapsibleProseBlock({
   body,
   config,
   title,
+  defaultOpen = false,
 }: {
   body: string;
   config: (typeof CATEGORY_CONFIG)[Category];
   title: string;
+  defaultOpen?: boolean;
 }) {
+  const [isOpen, setIsOpen] = useState(defaultOpen);
   const Icon = config.icon;
+  const summary = useMemo(() => extractSummary(body), [body]);
+
   return (
-    <div className={`rounded-xl border ${config.border} ${config.bg} p-4`}>
-      <div className="flex items-center gap-2 mb-2">
-        <div className={`flex h-6 w-6 items-center justify-center rounded-md ${config.accent}`}>
+    <div className={`rounded-xl border ${config.border} ${config.bg} overflow-hidden transition-all`}>
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        className="flex w-full items-center gap-2 p-3 text-left hover:bg-white/[0.02] transition-colors"
+      >
+        <div className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md ${config.accent}`}>
           <Icon className={`h-3.5 w-3.5 ${config.color}`} />
         </div>
-        <h3 className="text-sm font-semibold">{title}</h3>
-      </div>
-      <p className="text-sm leading-relaxed whitespace-pre-line text-foreground/80">{body}</p>
+        <div className="flex-1 min-w-0">
+          <h3 className="text-sm font-semibold">{title}</h3>
+          {!isOpen && (
+            <p className="text-xs text-muted-foreground truncate mt-0.5">{summary}</p>
+          )}
+        </div>
+        <span className="text-muted-foreground/50 shrink-0">
+          {isOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+        </span>
+      </button>
+      {isOpen && (
+        <div className="px-3 pb-3 pt-0 animate-in fade-in slide-in-from-top-1 duration-200">
+          <div className="pl-8">
+            <p className="text-sm leading-relaxed whitespace-pre-line text-foreground/80">{body}</p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -314,33 +331,6 @@ function DatasetsBlock({ rows }: { rows: DatasetRow[] }) {
   );
 }
 
-function TransformsBlock({ steps }: { steps: string[] }) {
-  const cfg = CATEGORY_CONFIG.transforms;
-  const Icon = cfg.icon;
-  return (
-    <div className="space-y-2">
-      <div className="flex items-center gap-2">
-        <div className={`flex h-6 w-6 items-center justify-center rounded-md ${cfg.accent}`}>
-          <Icon className={`h-3.5 w-3.5 ${cfg.color}`} />
-        </div>
-        <h3 className="text-sm font-semibold">Transformations</h3>
-      </div>
-      <div className="flex flex-wrap gap-2">
-        {steps.map((step, i) => (
-          <div
-            key={i}
-            className={`inline-flex items-center gap-2 rounded-lg border ${cfg.border} ${cfg.bg} px-3 py-2`}
-          >
-            <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-orange-500/15 text-[10px] font-bold text-orange-400">
-              {i + 1}
-            </div>
-            <span className="text-xs font-medium">{step}</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
 
 function OutputsBlock({ items }: { items: OutputItem[] }) {
   const cfg = CATEGORY_CONFIG.outputs;
@@ -427,24 +417,29 @@ export function ProposalCards({
   const persona = categorized.filter((s) => s.cat === "persona");
   const wow = categorized.filter((s) => s.cat === "wow");
   const datasets = categorized.filter((s) => s.cat === "datasets");
-  const transforms = categorized.filter((s) => s.cat === "transforms");
   const outputs = categorized.filter((s) => s.cat === "outputs");
   const build = categorized.filter((s) => s.cat === "build");
   const other = categorized.filter((s) => s.cat === "other");
 
-  const bgBody = background.map((s) => s.body).join("\n\n");
   const datasetRows = datasets.length > 0 ? parseDatasetTable(datasets[0].body) : null;
-  const transformSteps = transforms.length > 0 ? parseTransformSteps(transforms[0].body) : null;
   const outputItems = outputs.length > 0 ? parseOutputs(outputs[0].body) : null;
   const buildSteps = build.length > 0 ? parseBuildSteps(build[0].body) : null;
 
-  // Stable rendering: always same order, animate in as content appears
   const blocks: React.ReactNode[] = [];
 
-  if (bgBody) {
+  blocks.push(
+    <h2 key="title" className="text-lg font-bold tracking-tight">{name}</h2>,
+  );
+
+  // Narrative sections — collapsible to avoid overwhelming
+  if (background.length > 0) {
     blocks.push(
       <div key="bg" className="animate-in fade-in slide-in-from-bottom-2 duration-300">
-        <ProseBlock body={bgBody} config={CATEGORY_CONFIG.background} title="Background" />
+        <CollapsibleProseBlock
+          body={background.map((s) => s.body).join("\n\n")}
+          config={CATEGORY_CONFIG.background}
+          title="Background"
+        />
       </div>,
     );
   }
@@ -452,7 +447,11 @@ export function ProposalCards({
   if (solution.length > 0) {
     blocks.push(
       <div key="sol" className="animate-in fade-in slide-in-from-bottom-2 duration-300">
-        <ProseBlock body={solution[0].body} config={CATEGORY_CONFIG.solution} title={solution[0].title} />
+        <CollapsibleProseBlock
+          body={solution[0].body}
+          config={CATEGORY_CONFIG.solution}
+          title={solution[0].title}
+        />
       </div>,
     );
   }
@@ -461,15 +460,16 @@ export function ProposalCards({
     blocks.push(
       <div key="pw" className="grid gap-3 sm:grid-cols-2 animate-in fade-in slide-in-from-bottom-2 duration-300">
         {persona.map((s) => (
-          <ProseBlock key={s.key} body={s.body} config={CATEGORY_CONFIG.persona} title={s.title} />
+          <CollapsibleProseBlock key={s.key} body={s.body} config={CATEGORY_CONFIG.persona} title={s.title} />
         ))}
         {wow.map((s) => (
-          <ProseBlock key={s.key} body={s.body} config={CATEGORY_CONFIG.wow} title={s.title} />
+          <CollapsibleProseBlock key={s.key} body={s.body} config={CATEGORY_CONFIG.wow} title={s.title} />
         ))}
       </div>,
     );
   }
 
+  // Visual/structured sections — always expanded, these are easy to scan
   if (datasetRows) {
     blocks.push(
       <div key="ds" className="animate-in fade-in slide-in-from-bottom-2 duration-300">
@@ -478,11 +478,10 @@ export function ProposalCards({
     );
   }
 
-  if (transformSteps || outputItems) {
+  if (outputItems) {
     blocks.push(
-      <div key="to" className="grid gap-3 sm:grid-cols-2 animate-in fade-in slide-in-from-bottom-2 duration-300">
-        {transformSteps && <TransformsBlock steps={transformSteps} />}
-        {outputItems && <OutputsBlock items={outputItems} />}
+      <div key="out" className="animate-in fade-in slide-in-from-bottom-2 duration-300">
+        <OutputsBlock items={outputItems} />
       </div>,
     );
   }
@@ -498,14 +497,13 @@ export function ProposalCards({
   for (const s of other) {
     blocks.push(
       <div key={s.key} className="animate-in fade-in slide-in-from-bottom-2 duration-300">
-        <ProseBlock body={s.body} config={CATEGORY_CONFIG.other} title={s.title} />
+        <CollapsibleProseBlock body={s.body} config={CATEGORY_CONFIG.other} title={s.title} />
       </div>,
     );
   }
 
   return (
-    <div className="space-y-4">
-      <h2 className="text-lg font-bold tracking-tight">{name}</h2>
+    <div className="space-y-3">
       {blocks}
       {streaming && (
         <div className="flex items-center gap-2 py-2">

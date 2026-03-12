@@ -30,3 +30,6 @@ targets:
   dev:
     mode: development
     default: true
+  tools:
+    workspace:
+      profile: TOOLS

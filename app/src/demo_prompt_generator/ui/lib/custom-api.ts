@@ -125,7 +125,7 @@ export async function* streamWorkspaceGenerate(
 }
 
 export interface ChatMessage {
-  role: "user" | "assistant";
+  role: "user" | "assistant" | "system";
   content: string;
 }
 
@@ -218,6 +218,62 @@ export async function* streamWorkspaceBuildout(
   if (!resp.ok) throw new Error(`Buildout failed: ${resp.status}`);
   yield* parseSSEStream(resp);
 }
+
+// ---------------------------------------------------------------------------
+// Conversations API
+// ---------------------------------------------------------------------------
+
+export interface ConversationOut {
+  id: number;
+  generation_id: number;
+  title: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ConversationWithMessages {
+  id: number;
+  generation_id: number;
+  title: string;
+  messages: ChatMessage[];
+  created_at: string;
+  updated_at: string;
+}
+
+export async function listConversations(generationId?: number): Promise<ConversationOut[]> {
+  const params = generationId != null ? `?generation_id=${generationId}` : "";
+  const resp = await fetch(`/api/conversations${params}`);
+  if (!resp.ok) throw new Error(`Failed to list conversations: ${resp.status}`);
+  return resp.json();
+}
+
+export async function getConversation(conversationId: number): Promise<ConversationWithMessages> {
+  const resp = await fetch(`/api/conversations/${conversationId}`);
+  if (!resp.ok) throw new Error(`Failed to get conversation: ${resp.status}`);
+  return resp.json();
+}
+
+export async function saveConversation(
+  generationId: number,
+  messages: ChatMessage[],
+): Promise<ConversationOut> {
+  const resp = await fetch("/api/conversations/save", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ generation_id: generationId, messages }),
+  });
+  if (!resp.ok) throw new Error(`Failed to save conversation: ${resp.status}`);
+  return resp.json();
+}
+
+export async function deleteConversation(conversationId: number): Promise<void> {
+  const resp = await fetch(`/api/conversations/${conversationId}`, { method: "DELETE" });
+  if (!resp.ok) throw new Error(`Failed to delete conversation: ${resp.status}`);
+}
+
+// ---------------------------------------------------------------------------
+// Stage 2: Buildout SSE (continued)
+// ---------------------------------------------------------------------------
 
 export async function* streamFileRefine(
   generationId: number,

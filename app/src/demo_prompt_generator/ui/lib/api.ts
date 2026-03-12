@@ -29,6 +29,21 @@ export interface ComplexValue {
     type?: string | null;
     value?: string | null;
 }
+export interface ConversationOut {
+    created_at: string;
+    generation_id: number;
+    id: number;
+    title: string;
+    updated_at: string;
+}
+export interface ConversationWithMessages {
+    created_at: string;
+    generation_id: number;
+    id: number;
+    messages: ChatMessage[];
+    title: string;
+    updated_at: string;
+}
 export const DataSourceType = {
     synthetic: "synthetic",
     csv: "csv",
@@ -127,6 +142,10 @@ export interface Name {
     family_name?: string | null;
     given_name?: string | null;
 }
+export interface SaveMessagesRequest {
+    generation_id: number;
+    messages: ChatMessage[];
+}
 export const Tone = {
     business: "business",
     technical: "technical",
@@ -191,6 +210,198 @@ export interface WorkspaceRefineRequest {
     generation_id: number;
     history?: ChatMessage[];
     message: string;
+}
+export interface ListConversationsParams {
+    generation_id?: number | null;
+}
+export const listConversations = async (params?: ListConversationsParams, options?: RequestInit): Promise<{
+    data: ConversationOut[];
+}> =>{
+    const searchParams = new URLSearchParams();
+    if (params?.generation_id != null) searchParams.set("generation_id", String(params?.generation_id));
+    const queryString = searchParams.toString();
+    const url = queryString ? `/api/conversations?${queryString}` : "/api/conversations";
+    const res = await fetch(url, {
+        ...options,
+        method: "GET"
+    });
+    if (!res.ok) {
+        const body = await res.text();
+        let parsed: unknown;
+        try {
+            parsed = JSON.parse(body);
+        } catch  {
+            parsed = body;
+        }
+        throw new ApiError(res.status, res.statusText, parsed);
+    }
+    return {
+        data: await res.json()
+    };
+};
+export const listConversationsKey = (params?: ListConversationsParams)=>{
+    return [
+        "/api/conversations",
+        params
+    ] as const;
+};
+export function useListConversations<TData = {
+    data: ConversationOut[];
+}>(options?: {
+    params?: ListConversationsParams;
+    query?: Omit<UseQueryOptions<{
+        data: ConversationOut[];
+    }, ApiError, TData>, "queryKey" | "queryFn">;
+}) {
+    return useQuery({
+        queryKey: listConversationsKey(options?.params),
+        queryFn: ()=>listConversations(options?.params),
+        ...options?.query
+    });
+}
+export function useListConversationsSuspense<TData = {
+    data: ConversationOut[];
+}>(options?: {
+    params?: ListConversationsParams;
+    query?: Omit<UseSuspenseQueryOptions<{
+        data: ConversationOut[];
+    }, ApiError, TData>, "queryKey" | "queryFn">;
+}) {
+    return useSuspenseQuery({
+        queryKey: listConversationsKey(options?.params),
+        queryFn: ()=>listConversations(options?.params),
+        ...options?.query
+    });
+}
+export const saveConversation = async (data: SaveMessagesRequest, options?: RequestInit): Promise<{
+    data: ConversationOut;
+}> =>{
+    const res = await fetch("/api/conversations/save", {
+        ...options,
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+            ...options?.headers
+        },
+        body: JSON.stringify(data)
+    });
+    if (!res.ok) {
+        const body = await res.text();
+        let parsed: unknown;
+        try {
+            parsed = JSON.parse(body);
+        } catch  {
+            parsed = body;
+        }
+        throw new ApiError(res.status, res.statusText, parsed);
+    }
+    return {
+        data: await res.json()
+    };
+};
+export function useSaveConversation(options?: {
+    mutation?: UseMutationOptions<{
+        data: ConversationOut;
+    }, ApiError, SaveMessagesRequest>;
+}) {
+    return useMutation({
+        mutationFn: (data)=>saveConversation(data),
+        ...options?.mutation
+    });
+}
+export interface GetConversationParams {
+    conversation_id: number;
+}
+export const getConversation = async (params: GetConversationParams, options?: RequestInit): Promise<{
+    data: ConversationWithMessages;
+}> =>{
+    const res = await fetch(`/api/conversations/${params.conversation_id}`, {
+        ...options,
+        method: "GET"
+    });
+    if (!res.ok) {
+        const body = await res.text();
+        let parsed: unknown;
+        try {
+            parsed = JSON.parse(body);
+        } catch  {
+            parsed = body;
+        }
+        throw new ApiError(res.status, res.statusText, parsed);
+    }
+    return {
+        data: await res.json()
+    };
+};
+export const getConversationKey = (params?: GetConversationParams)=>{
+    return [
+        "/api/conversations/{conversation_id}",
+        params
+    ] as const;
+};
+export function useGetConversation<TData = {
+    data: ConversationWithMessages;
+}>(options: {
+    params: GetConversationParams;
+    query?: Omit<UseQueryOptions<{
+        data: ConversationWithMessages;
+    }, ApiError, TData>, "queryKey" | "queryFn">;
+}) {
+    return useQuery({
+        queryKey: getConversationKey(options.params),
+        queryFn: ()=>getConversation(options.params),
+        ...options?.query
+    });
+}
+export function useGetConversationSuspense<TData = {
+    data: ConversationWithMessages;
+}>(options: {
+    params: GetConversationParams;
+    query?: Omit<UseSuspenseQueryOptions<{
+        data: ConversationWithMessages;
+    }, ApiError, TData>, "queryKey" | "queryFn">;
+}) {
+    return useSuspenseQuery({
+        queryKey: getConversationKey(options.params),
+        queryFn: ()=>getConversation(options.params),
+        ...options?.query
+    });
+}
+export interface DeleteConversationParams {
+    conversation_id: number;
+}
+export const deleteConversation = async (params: DeleteConversationParams, options?: RequestInit): Promise<{
+    data: unknown;
+}> =>{
+    const res = await fetch(`/api/conversations/${params.conversation_id}`, {
+        ...options,
+        method: "DELETE"
+    });
+    if (!res.ok) {
+        const body = await res.text();
+        let parsed: unknown;
+        try {
+            parsed = JSON.parse(body);
+        } catch  {
+            parsed = body;
+        }
+        throw new ApiError(res.status, res.statusText, parsed);
+    }
+    return {
+        data: await res.json()
+    };
+};
+export function useDeleteConversation(options?: {
+    mutation?: UseMutationOptions<{
+        data: unknown;
+    }, ApiError, {
+        params: DeleteConversationParams;
+    }>;
+}) {
+    return useMutation({
+        mutationFn: (vars)=>deleteConversation(vars.params),
+        ...options?.mutation
+    });
 }
 export interface CurrentUserParams {
     "X-Forwarded-Host"?: string | null;

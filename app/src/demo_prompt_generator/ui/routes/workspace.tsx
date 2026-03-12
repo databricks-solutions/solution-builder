@@ -44,6 +44,9 @@ import {
   streamFileRefine,
   streamWorkspaceGenerate,
   streamWorkspaceRefine,
+  saveConversation,
+  listConversations,
+  getConversation,
   type WorkspaceEvent,
   type ChatMessage,
 } from "@/lib/custom-api";
@@ -376,10 +379,11 @@ function WorkspacePage() {
     const ctrl = new AbortController();
     abortRef.current = ctrl;
     setIsRefining(true);
-    setProposalMd("");
+    // Keep old content visible — don't blank the preview
     setCollapsedSections(new Set());
 
     let collected = "";
+    let firstChunk = true;
     try {
       for await (const event of streamProposalRefine(
         generationId,
@@ -389,7 +393,13 @@ function WorkspacePage() {
         focused.length > 0 ? focused : undefined,
       )) {
         if (event.type === "proposal") {
-          collected += event.content;
+          // On first chunk, replace old content so we don't show stale+new mixed
+          if (firstChunk) {
+            collected = event.content;
+            firstChunk = false;
+          } else {
+            collected += event.content;
+          }
           setProposalMd(collected);
         } else if (event.type === "complete") {
           setDemoName(event.demo_name);
@@ -612,34 +622,52 @@ function WorkspacePage() {
           if (gen.skill_files && Object.keys(gen.skill_files).length > 0) {
             setPackageFiles(gen.skill_files);
             setStage("package");
-            addMessage({
-              id: uid(),
-              role: "system",
-              content: `Loaded package: **${gen.demo_name}**`,
-            });
-            addMessage({
-              id: uid(),
-              role: "assistant",
-              content:
-                "Your demo package is loaded. You can review each file using the tabs on the left, or refine any file by chatting here.",
-            });
           } else if (gen.proposal_md) {
             setProposalMd(gen.proposal_md);
             setStage("proposal");
-            addMessage({
-              id: uid(),
-              role: "system",
-              content: `Loaded proposal: **${gen.demo_name}**`,
-            });
-            addMessage({
-              id: uid(),
-              role: "assistant",
-              content:
-                'Your proposal is loaded. You can refine it here, or click "Approve & Build" to generate the full package.',
-            });
           } else if (gen.skill_md) {
             setProposalMd(gen.skill_md);
             setStage("proposal");
+          }
+
+          // Load saved conversation messages
+          try {
+            const convos = await listConversations(gen.id);
+            if (convos.length > 0) {
+              const convo = await getConversation(convos[0].id);
+              const restored: UIMessage[] = convo.messages.map((m) => ({
+                id: uid(),
+                role: m.role as UIMessage["role"],
+                content: m.content,
+              }));
+              setMessages(restored);
+              // Rebuild chatHistory from user/assistant pairs
+              const history: ChatMessage[] = convo.messages
+                .filter((m) => m.role === "user" || m.role === "assistant")
+                .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
+              setChatHistory(history);
+            } else {
+              // No saved conversation — add welcome messages
+              addMessage({
+                id: uid(),
+                role: "system",
+                content: `Loaded: **${gen.demo_name}**`,
+              });
+              addMessage({
+                id: uid(),
+                role: "assistant",
+                content: gen.skill_files
+                  ? "Your demo package is loaded. Review each file using the tabs, or refine any file by chatting here."
+                  : 'Your proposal is loaded. Refine it here, or click "Approve & Build" to generate the full package.',
+              });
+            }
+          } catch {
+            // Conversation load failed — show welcome messages anyway
+            addMessage({
+              id: uid(),
+              role: "system",
+              content: `Loaded: **${gen.demo_name}**`,
+            });
           }
         } catch {
           addMessage({
@@ -654,6 +682,32 @@ function WorkspacePage() {
       handlePropose(topic);
     }
   }, [topic, loadId, handlePropose, addMessage]);
+
+  // -----------------------------------------------------------------------
+  // Auto-save conversation to Lakebase (debounced)
+  // -----------------------------------------------------------------------
+
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (!generationId || messages.length === 0) return;
+
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+
+    saveTimerRef.current = setTimeout(() => {
+      const toSave: ChatMessage[] = messages.map((m) => ({
+        role: m.role,
+        content: m.content,
+      }));
+      saveConversation(generationId, toSave).catch(() => {
+        // Silent fail — conversation save is best-effort
+      });
+    }, 2000);
+
+    return () => {
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    };
+  }, [generationId, messages]);
 
   // -----------------------------------------------------------------------
   // Copy / Download
@@ -1448,7 +1502,7 @@ function parseArchitecture(md: string): Architecture {
     const title = hdr[1].trim().toLowerCase();
     const body = part.slice(hdr[0].length);
 
-    if (title.includes("dataset") || title.includes("data source") || title.includes("data")) {
+    if (title.includes("dataset") || title.includes("data source") || (title.includes("data") && !title.includes("available"))) {
       // Try subsection headers first
       const subHeaders = [...body.matchAll(/^### (.+)$/gm)];
       if (subHeaders.length > 0) {
@@ -1462,12 +1516,20 @@ function parseArchitecture(md: string): Architecture {
         }
       }
       // Also try markdown table rows
-      for (const m of body.matchAll(/^\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*([^|]*?)\s*\|$/gm)) {
+      for (const m of body.matchAll(/^\|\s*`?([^|`]+?)`?\s*\|\s*([^|]+?)\s*\|\s*([^|]*?)\s*\|$/gm)) {
         const name = m[1].trim();
         if (name.match(/^[-:]+$/) || name.toLowerCase() === "table" || name.toLowerCase() === "name") continue;
         const id = name.toLowerCase().replace(/[^a-z0-9]+/g, "-");
         if (!sources.find((s) => s.id === id)) {
           sources.push({ id, label: name, detail: m[3]?.trim() || undefined });
+        }
+      }
+      // Fallback: try bullet list items for datasets
+      if (sources.length === 0) {
+        for (const m of body.matchAll(/^[-*]\s+\*\*(.+?)\*\*/gm)) {
+          const label = m[1].trim();
+          const id = label.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+          sources.push({ id, label });
         }
       }
     } else if (title.includes("transform") || title.includes("pipeline")) {
@@ -1477,11 +1539,21 @@ function parseArchitecture(md: string): Architecture {
           transforms.push({ id: m[1].toLowerCase().replace(/[^a-z0-9]+/g, "-"), label: m[1].trim() });
         }
       }
-      // Also try bullet lists
+      // Try bold bullet lists: - **Name** — description
       for (const m of body.matchAll(/^[-*]\s+\*\*(.+?)\*\*/gm)) {
         const label = m[1].trim();
         const id = label.toLowerCase().replace(/[^a-z0-9]+/g, "-");
         if (!transforms.find((t) => t.id === id)) transforms.push({ id, label });
+      }
+      // Try plain bullet lists: - Name — description
+      if (transforms.length === 0) {
+        for (const m of body.matchAll(/^[-*]\s+(.+?)(?:\s*[—\-–:]\s|$)/gm)) {
+          const label = m[1].trim().replace(/\*\*/g, "");
+          if (label.length > 2 && label.length < 60) {
+            const id = label.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+            transforms.push({ id, label });
+          }
+        }
       }
       if (transforms.length === 0) {
         transforms.push({ id: "transformations", label: "Data Pipeline" });

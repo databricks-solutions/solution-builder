@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import {
   Database,
   ArrowRight,
@@ -11,8 +11,8 @@ import {
   AlertTriangle,
   Sparkles,
   Quote,
-  Link2,
   ChevronRight,
+  ChevronDown,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 
@@ -49,8 +49,6 @@ export function FileRenderer({
 export function FileRendererWithFallback({
   filename,
   markdown,
-  collapsedSections,
-  onToggleSection,
 }: {
   filename: string;
   markdown: string;
@@ -440,7 +438,6 @@ function parseProjectTree(md: string): TreeNode[] {
 
   for (const line of lines) {
     const cleanLine = line.replace(/[│├└─┬\s]*/, "");
-    const stripped = line.replace(/[│\s]/g, "");
     const indent = line.search(/[├└]/) >= 0 ? line.search(/[├└]/) : 0;
 
     const parts = cleanLine.split(/\s{2,}#\s*|\s+#\s+/);
@@ -853,6 +850,66 @@ function parseStoryline(md: string): StorySection[] {
   return sections;
 }
 
+function StorySectionCard({ section, defaultOpen = false }: { section: StorySection; defaultOpen?: boolean }) {
+  const [isOpen, setIsOpen] = useState(defaultOpen);
+  const Icon = section.icon;
+
+  // Extract a 1-2 line preview from the content
+  const preview = useMemo(() => {
+    const lines = section.content.split("\n").filter((l) => l.trim().length > 10);
+    const first = lines[0] || section.content.slice(0, 140);
+    const clean = first.replace(/\*\*/g, "").replace(/`[^`]+`/g, "").trim();
+    return clean.length > 140 ? clean.slice(0, 137) + "..." : clean;
+  }, [section.content]);
+
+  const lineCount = section.content.split("\n").filter((l) => l.trim()).length;
+  const isShort = lineCount <= 4;
+
+  // Short sections just render inline (no collapse needed)
+  if (isShort) {
+    return (
+      <div className="rounded-xl border border-border/60 overflow-hidden">
+        <div className="flex items-center gap-2 bg-muted/30 px-4 py-2.5 border-b border-border/40">
+          <Icon className={`h-4 w-4 ${section.color}`} />
+          <span className="text-sm font-semibold">{section.title}</span>
+        </div>
+        <div className="px-4 py-3">
+          <div className="text-sm leading-relaxed text-foreground/80 whitespace-pre-line">
+            {section.content}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-xl border border-border/60 overflow-hidden transition-all">
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        className="flex w-full items-center gap-2 bg-muted/30 px-4 py-2.5 border-b border-border/40 text-left hover:bg-muted/50 transition-colors"
+      >
+        <Icon className={`h-4 w-4 shrink-0 ${section.color}`} />
+        <div className="flex-1 min-w-0">
+          <span className="text-sm font-semibold">{section.title}</span>
+          {!isOpen && (
+            <p className="text-xs text-muted-foreground truncate mt-0.5">{preview}</p>
+          )}
+        </div>
+        <span className="text-muted-foreground/50 shrink-0">
+          {isOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+        </span>
+      </button>
+      {isOpen && (
+        <div className="px-4 py-3 animate-in fade-in slide-in-from-top-1 duration-200">
+          <div className="text-sm leading-relaxed text-foreground/80 whitespace-pre-line">
+            {section.content}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function StorylineRenderer({ markdown }: { markdown: string }) {
   const sections = useMemo(() => parseStoryline(markdown), [markdown]);
 
@@ -860,28 +917,23 @@ function StorylineRenderer({ markdown }: { markdown: string }) {
 
   const titleMatch = markdown.match(/^# (.+)\n/m);
 
+  // Key sections that should be open by default
+  const keyKeywords = ["narrative", "arc", "wow", "moment", "solution"];
+
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       {titleMatch && (
         <h2 className="text-lg font-bold">{titleMatch[1].trim()}</h2>
       )}
       {sections.map((section, i) => {
-        const Icon = section.icon;
+        const titleLower = section.title.toLowerCase();
+        const isKey = keyKeywords.some((k) => titleLower.includes(k));
         return (
-          <div
+          <StorySectionCard
             key={i}
-            className="rounded-xl border border-border/60 overflow-hidden"
-          >
-            <div className="flex items-center gap-2 bg-muted/30 px-4 py-2.5 border-b border-border/40">
-              <Icon className={`h-4 w-4 ${section.color}`} />
-              <span className="text-sm font-semibold">{section.title}</span>
-            </div>
-            <div className="px-4 py-3">
-              <div className="text-sm leading-relaxed text-foreground/80 whitespace-pre-line">
-                {section.content}
-              </div>
-            </div>
-          </div>
+            section={section}
+            defaultOpen={isKey || i === 0}
+          />
         );
       })}
     </div>
