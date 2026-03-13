@@ -19,6 +19,7 @@ from ..models import (
     WorkspaceRefineFileRequest,
     WorkspaceRefineRequest,
 )
+from ..services.docx_export import walkthrough_md_to_docx
 from ..services.skill_generator import (
     parse_proposal_metadata,
     parse_skill_metadata,
@@ -515,6 +516,11 @@ async def workspace_download(
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         for fname, content in all_files.items():
             zf.writestr(f"{folder}/{fname}", content)
+        # Auto-generate walkthrough.docx from walkthrough.md
+        walkthrough_md = all_files.get("walkthrough.md")
+        if walkthrough_md:
+            docx_bytes = walkthrough_md_to_docx(walkthrough_md, demo_name=row.demo_name or "Demo")
+            zf.writestr(f"{folder}/walkthrough.docx", docx_bytes)
     buf.seek(0)
 
     return StreamingResponse(
