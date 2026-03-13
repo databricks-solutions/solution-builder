@@ -74,6 +74,7 @@ const PACKAGE_FILES = [
   "storyline.md",
   "data-schema.md",
   "project-structure.md",
+  "walkthrough.md",
 ] as const;
 
 type PackageFilename = (typeof PACKAGE_FILES)[number];
@@ -162,6 +163,7 @@ const FILE_ICONS: Record<string, typeof FileText> = {
   "storyline.md": BookOpen,
   "data-schema.md": Table2,
   "project-structure.md": FolderTree,
+  "walkthrough.md": Workflow,
 };
 
 // ---------------------------------------------------------------------------

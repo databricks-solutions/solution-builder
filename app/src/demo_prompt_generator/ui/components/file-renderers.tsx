@@ -13,6 +13,14 @@ import {
   Quote,
   ChevronRight,
   ChevronDown,
+  Presentation,
+  Navigation,
+  Eye,
+  Clock,
+  Users,
+  Briefcase,
+  Cpu,
+  Wrench,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 
@@ -36,6 +44,8 @@ export function FileRenderer({
       return <SkillRenderer markdown={markdown} />;
     case "storyline.md":
       return <StorylineRenderer markdown={markdown} />;
+    case "walkthrough.md":
+      return <WalkthroughRenderer markdown={markdown} />;
     default:
       return null;
   }
@@ -936,6 +946,436 @@ function StorylineRenderer({ markdown }: { markdown: string }) {
           />
         );
       })}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// walkthrough.md — Demo walkthrough script with navigation cues
+// ---------------------------------------------------------------------------
+
+interface WalkthroughStep {
+  number: number;
+  title: string;
+  timeEstimate: string;
+  cues: { type: "navigate" | "show"; text: string }[];
+  talkingPoints: string[];
+  contrast?: { without: string; withAI: string };
+}
+
+interface WalkthroughData {
+  overview: string;
+  kpis: string[];
+  steps: WalkthroughStep[];
+  pitchShort: string;
+  pitchExpanded: string;
+  architectureFlow: string;
+  audiences: { label: string; icon: typeof Users; points: string[] }[];
+}
+
+function parseWalkthrough(md: string): WalkthroughData {
+  const data: WalkthroughData = {
+    overview: "",
+    kpis: [],
+    steps: [],
+    pitchShort: "",
+    pitchExpanded: "",
+    architectureFlow: "",
+    audiences: [],
+  };
+
+  const sections = md.split(/^(?=## )/gm);
+
+  for (const section of sections) {
+    const hdr = section.match(/^## (.+)\n/);
+    if (!hdr) continue;
+    const title = hdr[1].trim().toLowerCase();
+    const body = section.slice(hdr[0].length).trim();
+
+    if (title.includes("overview")) {
+      // Extract KPI bullets and overview text
+      const lines = body.split("\n");
+      const overviewLines: string[] = [];
+      for (const line of lines) {
+        const bulletMatch = line.match(/^[-*]\s+\*\*(.+?)\*\*/);
+        if (bulletMatch) {
+          data.kpis.push(line.replace(/^[-*]\s+/, "").trim());
+        } else if (line.trim()) {
+          overviewLines.push(line);
+        }
+      }
+      data.overview = overviewLines.join("\n").trim();
+    } else if (title.includes("demo script") || title.includes("script")) {
+      const stepSections = body.split(/^(?=### )/gm);
+      for (const ss of stepSections) {
+        const stepMatch = ss.match(
+          /^### (?:Step\s+)?(\d+)[.:]\s*(.+?)(?:\s*\(([^)]+)\))?\s*\n/,
+        );
+        if (!stepMatch) continue;
+
+        const cues: WalkthroughStep["cues"] = [];
+        const talkingPoints: string[] = [];
+        let contrast: WalkthroughStep["contrast"] | undefined;
+
+        const lines = ss.slice(stepMatch[0].length).split("\n");
+        let withinWithout = false;
+        let withinWith = false;
+
+        for (const line of lines) {
+          const navMatch = line.match(/\[Navigate to (.+?)\]/);
+          const showMatch = line.match(/\[Show (.+?)\]/);
+          if (navMatch) {
+            cues.push({ type: "navigate", text: navMatch[1] });
+          } else if (showMatch) {
+            cues.push({ type: "show", text: showMatch[1] });
+          }
+
+          if (/without ai/i.test(line)) {
+            withinWithout = true;
+            withinWith = false;
+            if (!contrast) contrast = { without: "", withAI: "" };
+          } else if (/with ai/i.test(line) && contrast) {
+            withinWith = true;
+            withinWithout = false;
+          } else if (withinWithout && contrast && line.trim()) {
+            contrast.without +=
+              (contrast.without ? " " : "") +
+              line.replace(/^[-*]\s+/, "").trim();
+          } else if (withinWith && contrast && line.trim()) {
+            contrast.withAI +=
+              (contrast.withAI ? " " : "") +
+              line.replace(/^[-*]\s+/, "").trim();
+          }
+
+          const bulletMatch = line.match(/^[-*]\s+(.+)/);
+          if (
+            bulletMatch &&
+            !navMatch &&
+            !showMatch &&
+            !withinWithout &&
+            !withinWith
+          ) {
+            talkingPoints.push(bulletMatch[1].trim());
+          }
+        }
+
+        data.steps.push({
+          number: parseInt(stepMatch[1]),
+          title: stepMatch[2].trim(),
+          timeEstimate: stepMatch[3]?.trim() || "",
+          cues,
+          talkingPoints,
+          contrast,
+        });
+      }
+    } else if (
+      title.includes("executive") ||
+      title.includes("talk track")
+    ) {
+      const subSections = body.split(/^(?=### )/gm);
+      for (const sub of subSections) {
+        const subHdr = sub.match(/^### (.+)\n/);
+        if (!subHdr) {
+          if (!data.pitchShort) data.pitchShort = sub.trim();
+          continue;
+        }
+        const subTitle = subHdr[1].trim().toLowerCase();
+        const subBody = sub.slice(subHdr[0].length).trim();
+        if (subTitle.includes("60") || subTitle.includes("pitch") || subTitle.includes("elevator")) {
+          data.pitchShort = subBody;
+        } else if (subTitle.includes("expand") || subTitle.includes("summary") || subTitle.includes("3-min")) {
+          data.pitchExpanded = subBody;
+        }
+      }
+    } else if (title.includes("architecture") || title.includes("flow")) {
+      const codeMatch = body.match(/```[\w]*\n([\s\S]*?)```/);
+      data.architectureFlow = codeMatch ? codeMatch[1].trim() : body.trim();
+    } else if (title.includes("audience") || title.includes("adaptation")) {
+      const subSections = body.split(/^(?=### )/gm);
+      for (const sub of subSections) {
+        const subHdr = sub.match(/^### (.+)\n/);
+        if (!subHdr) continue;
+        const label = subHdr[1].trim();
+        const subBody = sub.slice(subHdr[0].length).trim();
+        const points = subBody
+          .split("\n")
+          .filter((l) => l.match(/^[-*]\s+/))
+          .map((l) => l.replace(/^[-*]\s+/, "").trim());
+
+        const labelLower = label.toLowerCase();
+        let icon: typeof Users = Users;
+        if (labelLower.includes("c-suite") || labelLower.includes("executive")) icon = Briefcase;
+        else if (labelLower.includes("technical")) icon = Cpu;
+        else if (labelLower.includes("individual") || labelLower.includes("ic")) icon = Wrench;
+
+        data.audiences.push({ label, icon, points });
+      }
+    }
+  }
+
+  return data;
+}
+
+function NavigationCue({
+  cue,
+}: {
+  cue: { type: "navigate" | "show"; text: string };
+}) {
+  const isNav = cue.type === "navigate";
+  return (
+    <div
+      className={`flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-medium ${
+        isNav
+          ? "border border-blue-500/20 bg-blue-500/[0.06] text-blue-400"
+          : "border border-amber-500/20 bg-amber-500/[0.06] text-amber-400"
+      }`}
+    >
+      {isNav ? (
+        <Navigation className="h-3.5 w-3.5 shrink-0" />
+      ) : (
+        <Eye className="h-3.5 w-3.5 shrink-0" />
+      )}
+      <span>
+        {isNav ? "Navigate to " : "Show "}
+        {cue.text}
+      </span>
+    </div>
+  );
+}
+
+function WalkthroughRenderer({ markdown }: { markdown: string }) {
+  const wt = useMemo(() => parseWalkthrough(markdown), [markdown]);
+  const [expandedAudience, setExpandedAudience] = useState<string | null>(null);
+
+  if (!wt.steps.length && !wt.overview) return null;
+
+  const titleMatch = markdown.match(/^# (.+)\n/m);
+
+  return (
+    <div className="space-y-6">
+      {/* Title */}
+      {titleMatch && (
+        <div className="flex items-center gap-2">
+          <Presentation className="h-5 w-5 text-primary" />
+          <h2 className="text-lg font-bold">{titleMatch[1].trim()}</h2>
+        </div>
+      )}
+
+      {/* Demo Overview */}
+      {(wt.overview || wt.kpis.length > 0) && (
+        <div className="rounded-xl border border-border/60 overflow-hidden">
+          <div className="flex items-center gap-2 bg-primary/[0.04] px-4 py-2.5 border-b border-border/40">
+            <Sparkles className="h-4 w-4 text-primary" />
+            <span className="text-sm font-semibold">Demo Overview</span>
+          </div>
+          <div className="px-4 py-3 space-y-3">
+            {wt.overview && (
+              <p className="text-sm leading-relaxed text-foreground/80">
+                {wt.overview}
+              </p>
+            )}
+            {wt.kpis.length > 0 && (
+              <div className="flex flex-wrap gap-1.5">
+                {wt.kpis.map((kpi, i) => (
+                  <Badge
+                    key={i}
+                    variant="outline"
+                    className="text-[10px] border-emerald-500/20 text-emerald-400 bg-emerald-500/[0.04]"
+                  >
+                    {kpi.replace(/\*\*/g, "")}
+                  </Badge>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Demo Script Steps */}
+      {wt.steps.length > 0 && (
+        <div className="space-y-3">
+          <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+            <Presentation className="h-4 w-4" />
+            Demo Script
+            <Badge variant="secondary" className="text-[10px]">
+              {wt.steps.length} steps
+            </Badge>
+          </div>
+          <div className="space-y-3">
+            {wt.steps.map((step) => (
+              <div
+                key={step.number}
+                className="rounded-xl border border-border/60 overflow-hidden"
+              >
+                <div className="flex items-center gap-3 bg-muted/30 px-4 py-2.5 border-b border-border/40">
+                  <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-bold text-primary">
+                    {step.number}
+                  </div>
+                  <span className="text-sm font-semibold flex-1">
+                    {step.title}
+                  </span>
+                  {step.timeEstimate && (
+                    <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                      <Clock className="h-3 w-3" />
+                      {step.timeEstimate}
+                    </div>
+                  )}
+                </div>
+                <div className="px-4 py-3 space-y-2">
+                  {/* Navigation cues */}
+                  {step.cues.length > 0 && (
+                    <div className="space-y-1.5">
+                      {step.cues.map((cue, i) => (
+                        <NavigationCue key={i} cue={cue} />
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Talking points */}
+                  {step.talkingPoints.length > 0 && (
+                    <div className="space-y-1">
+                      {step.talkingPoints.map((pt, i) => (
+                        <div
+                          key={i}
+                          className="flex items-start gap-2 text-xs text-foreground/80"
+                        >
+                          <Circle className="h-1.5 w-1.5 shrink-0 mt-1.5 fill-muted-foreground/40" />
+                          <span>{pt}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Contrast: Without vs With AI */}
+                  {step.contrast && (
+                    <div className="grid grid-cols-2 gap-2 mt-2">
+                      <div className="rounded-lg border border-red-500/15 bg-red-500/[0.03] px-3 py-2">
+                        <p className="text-[10px] font-semibold text-red-400 mb-1">
+                          Without AI
+                        </p>
+                        <p className="text-[11px] text-foreground/70">
+                          {step.contrast.without}
+                        </p>
+                      </div>
+                      <div className="rounded-lg border border-emerald-500/15 bg-emerald-500/[0.03] px-3 py-2">
+                        <p className="text-[10px] font-semibold text-emerald-400 mb-1">
+                          With AI
+                        </p>
+                        <p className="text-[11px] text-foreground/70">
+                          {step.contrast.withAI}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Executive Talk Track */}
+      {(wt.pitchShort || wt.pitchExpanded) && (
+        <div className="space-y-3">
+          <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+            <Briefcase className="h-4 w-4" />
+            Executive Talk Track
+          </div>
+          {wt.pitchShort && (
+            <div className="rounded-xl border border-primary/15 bg-primary/[0.03] px-4 py-3">
+              <p className="text-[10px] font-semibold text-primary mb-1.5">
+                60-Second Pitch
+              </p>
+              <p className="text-sm leading-relaxed text-foreground/80">
+                {wt.pitchShort}
+              </p>
+            </div>
+          )}
+          {wt.pitchExpanded && (
+            <div className="rounded-xl border border-border/60 px-4 py-3">
+              <p className="text-[10px] font-semibold text-muted-foreground mb-1.5">
+                Expanded Summary
+              </p>
+              <p className="text-sm leading-relaxed text-foreground/80 whitespace-pre-line">
+                {wt.pitchExpanded}
+              </p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Architecture Flow */}
+      {wt.architectureFlow && (
+        <div className="space-y-3">
+          <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+            <ArrowRight className="h-4 w-4" />
+            Architecture Flow
+          </div>
+          <div className="rounded-xl border border-violet-500/15 bg-violet-500/[0.03] px-4 py-3 overflow-x-auto">
+            <pre className="text-xs font-mono text-violet-300 leading-relaxed whitespace-pre">
+              {wt.architectureFlow}
+            </pre>
+          </div>
+        </div>
+      )}
+
+      {/* Audience Adaptations */}
+      {wt.audiences.length > 0 && (
+        <div className="space-y-3">
+          <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+            <Users className="h-4 w-4" />
+            Audience Adaptations
+          </div>
+          <div className="space-y-2">
+            {wt.audiences.map((aud) => {
+              const Icon = aud.icon;
+              const isOpen = expandedAudience === aud.label;
+              return (
+                <div
+                  key={aud.label}
+                  className="rounded-xl border border-border/60 overflow-hidden"
+                >
+                  <button
+                    onClick={() =>
+                      setExpandedAudience(isOpen ? null : aud.label)
+                    }
+                    className="flex w-full items-center gap-2 px-4 py-2.5 text-left hover:bg-muted/30 transition-colors"
+                  >
+                    <Icon className="h-4 w-4 text-muted-foreground shrink-0" />
+                    <span className="text-sm font-semibold flex-1">
+                      {aud.label}
+                    </span>
+                    <Badge
+                      variant="secondary"
+                      className="text-[10px] mr-1"
+                    >
+                      {aud.points.length} points
+                    </Badge>
+                    {isOpen ? (
+                      <ChevronDown className="h-4 w-4 text-muted-foreground/50" />
+                    ) : (
+                      <ChevronRight className="h-4 w-4 text-muted-foreground/50" />
+                    )}
+                  </button>
+                  {isOpen && (
+                    <div className="px-4 py-3 border-t border-border/40 space-y-1.5 animate-in fade-in slide-in-from-top-1 duration-200">
+                      {aud.points.map((pt, i) => (
+                        <div
+                          key={i}
+                          className="flex items-start gap-2 text-xs text-foreground/80"
+                        >
+                          <Circle className="h-1.5 w-1.5 shrink-0 mt-1.5 fill-muted-foreground/40" />
+                          <span>{pt}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
