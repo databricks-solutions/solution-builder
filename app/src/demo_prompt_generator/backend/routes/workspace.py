@@ -399,6 +399,8 @@ async def workspace_buildout(
     if not row.proposal_md:
         raise HTTPException(status_code=400, detail="No proposal to build from")
 
+    user_arch = req.user_architecture
+
     async def event_stream():
         generated_files: dict[str, str] = {}
         try:
@@ -408,6 +410,7 @@ async def workspace_buildout(
                 collected = ""
                 async for chunk in stream_buildout_file(
                     filename, row.proposal_md, generated_files, host, token, model=model,
+                    user_architecture=user_arch,
                 ):
                     collected += chunk
                     yield f"data: {json.dumps({'type': 'file_content', 'filename': filename, 'content': chunk})}\n\n"

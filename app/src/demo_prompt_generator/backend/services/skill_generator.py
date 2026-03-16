@@ -536,7 +536,9 @@ Brief bullet list of deliverables. One line each — name + what it does. Exampl
 - **Maintenance Genie Space** — natural language queries over maintenance history
 
 ## Build Steps
-Numbered list, 4-6 steps. Each names ONE ai-dev-kit skill in backticks. Example:
+Numbered list, 4-6 steps that implement the Proposed Solution end-to-end. Every capability \
+mentioned in Proposed Solution must map to at least one Build Step, and every Build Step must \
+trace back to the Proposed Solution. Each step names ONE ai-dev-kit skill in backticks. Example:
 1. Generate synthetic sensor and maintenance data using `databricks-synthetic-data-generation`
 2. Build bronze→silver→gold SDP pipeline using `databricks-spark-declarative-pipelines`
 
@@ -743,6 +745,10 @@ _BUILDOUT_FILE_PROMPTS: dict[str, tuple[str, str]] = {
         "enriched with the concrete scope established in SKILL.md. "
         "Include: Industry Context, Company Persona, Business Problem, Narrative Arc, "
         "Wow Moment, Domain Terminology glossary.\n\n"
+        "IMPORTANT: Start the file with an imperative instruction paragraph addressed to the executing agent, e.g.:\n"
+        "'Use this narrative when building all user-facing outputs — dashboards, Genie spaces, apps, "
+        "and documentation. All labels, descriptions, column aliases, and sample queries should reflect "
+        "the company persona, industry terminology, and business context defined below.'\n\n"
         "Output ONLY the storyline.md content starting with `# Storyline`. No frontmatter, no commentary.",
     ),
     "architecture.md": (
@@ -764,7 +770,14 @@ _BUILDOUT_FILE_PROMPTS: dict[str, tuple[str, str]] = {
         "- Metadata (tier, format, pattern) goes in a Mermaid comment on the same line: "
         "`%% tier=bronze, format=delta`.\n"
         "- Edges use `-->|label|` syntax where the label describes what flows.\n"
-        "- Use `subgraph \"Group Name\"` / `end` to group related components.\n"
+        "- **MEDALLION LAYERS (CRITICAL):** When using bronze/silver/gold tiers, represent each layer as a "
+        "SINGLE node that lists ALL tables in that layer inside the label. Format:\n"
+        "  `bronze[\"Bronze Layer | table1, table2, table3\"]:::data_asset %% tier=bronze, format=delta`\n"
+        "  Do NOT use `subgraph` for medallion layers. Do NOT create separate nodes for individual tables "
+        "within a layer. Each layer is ONE node. Connections go from layer nodes to compute nodes.\n"
+        "  WRONG: `subgraph \"Bronze Layer\"` with individual table nodes inside.\n"
+        "  RIGHT: `bronze[\"Bronze Layer | raw_sales, raw_customers\"]:::data_asset %% tier=bronze`\n"
+        "- Use `subgraph` only for non-medallion logical groupings (e.g., an \"Analytics\" section).\n"
         "- Data assets connect THROUGH compute nodes, never directly to other data assets.\n\n"
         "## Valid skill IDs\n"
         "Data Asset: `delta-table`, `streaming-table`, `materialized-view`, `uc-volume`, "
@@ -793,25 +806,30 @@ _BUILDOUT_FILE_PROMPTS: dict[str, tuple[str, str]] = {
         "capabilities. Simpler approaches that skip components defeat the purpose.\n\n"
         "## Example\n"
         "```mermaid\ngraph LR\n"
-        "  subgraph \"Data Preparation\"\n"
-        "    synth1[\"synthetic-data-gen | Generate synthetic retail transactions\"]:::compute %% pattern=batch\n"
-        "    bronze1[\"delta-table | Raw sales events\"]:::data_asset %% tier=bronze, format=delta\n"
-        "    pipeline1[\"declarative-pipeline | Cleanse and enrich transactions\"]:::compute %% pattern=batch\n"
-        "    silver1[\"delta-table | Enriched sales\"]:::data_asset %% tier=silver, format=delta\n"
-        "  end\n"
-        "  subgraph \"Analytics\"\n"
-        "    wh1[\"sql-warehouse | Analytics query engine\"]:::compute %% pattern=on-demand\n"
-        "    dash1[\"aibi-dashboard | Sales analytics dashboard\"]:::application\n"
-        "  end\n"
-        "  synth1 -->|\"Generated bronze records\"| bronze1\n"
-        "  bronze1 -->|\"Raw events for cleansing\"| pipeline1\n"
-        "  pipeline1 -->|\"Cleaned transactions\"| silver1\n"
-        "  silver1 -->|\"Gold data for queries\"| wh1\n"
+        "  synth1[\"synthetic-data-gen | Generate synthetic retail data\"]:::compute %% pattern=batch\n"
+        "  bronze[\"Bronze Layer | raw_sales, raw_customers, raw_products\"]:::data_asset %% tier=bronze, format=delta\n"
+        "  pipeline1[\"declarative-pipeline | Cleanse and enrich\"]:::compute %% pattern=batch\n"
+        "  silver[\"Silver Layer | enriched_sales, customer_profiles\"]:::data_asset %% tier=silver, format=delta\n"
+        "  pipeline2[\"declarative-pipeline | Build aggregates\"]:::compute %% pattern=batch\n"
+        "  gold[\"Gold Layer | sales_summary, customer_ltv\"]:::data_asset %% tier=gold, format=delta\n"
+        "  wh1[\"sql-warehouse | Analytics query engine\"]:::compute %% pattern=on-demand\n"
+        "  dash1[\"aibi-dashboard | Sales analytics dashboard\"]:::application\n"
+        "  synth1 -->|\"Generated records\"| bronze\n"
+        "  bronze -->|\"Raw data\"| pipeline1\n"
+        "  pipeline1 -->|\"Cleaned data\"| silver\n"
+        "  silver -->|\"Enriched data\"| pipeline2\n"
+        "  pipeline2 -->|\"Aggregated data\"| gold\n"
+        "  gold -->|\"Gold data for queries\"| wh1\n"
         "  wh1 -->|\"SQL query results\"| dash1\n```",
         "Generate architecture.md from the approved proposal and storyline. "
         "Create a complete Mermaid flowchart covering every component and connection in the demo. "
         "Follow the format rules and skill IDs exactly. Every component in the proposal's "
         "Build Steps and Outputs must appear as a node. Every data flow must appear as an edge.\n\n"
+        "IMPORTANT: Start the file with an imperative instruction paragraph addressed to the executing agent, e.g.:\n"
+        "'Build every component and connection in the following diagram — this is the binding contract "
+        "for what gets deployed. The Mermaid flowchart below defines every component, connection, and "
+        "logical grouping in the demo. Implement every node as a deployed resource and every edge as "
+        "a live runtime dependency. Do NOT bypass, merge, or skip any component.'\n\n"
         "Output ONLY the architecture.md content starting with `# Architecture`. No commentary.",
     ),
     "data-schema.md": (
@@ -858,7 +876,11 @@ _BUILDOUT_FILE_PROMPTS: dict[str, tuple[str, str]] = {
         "contract → 3x churn vs annual. Target ~15%.'\n"
         "For dashboards and analytics (even without ML), define distributions and trends: "
         "'Revenue: 15% YoY growth, Q4 seasonal peaks. Midwest region outperforms by ~20%.'",
-        "Generate data-schema.md with these sections:\n\n"
+        "Generate data-schema.md with these sections.\n\n"
+        "IMPORTANT: Start the file with an imperative instruction paragraph addressed to the executing agent, e.g.:\n"
+        "'Generate the following tables as synthetic data in the catalog and schema specified in "
+        "the prerequisites. Create tables in the order listed below to preserve referential integrity. "
+        "Then build the transformation pipeline using the SQL blueprints in the Transformations section.'\n\n"
         "## Table Schemas\n"
         "For each table: markdown schema table (column | type | description), source type, "
         "approximate row count (following the row count guidance), distribution hints, "
@@ -913,6 +935,10 @@ _BUILDOUT_FILE_PROMPTS: dict[str, tuple[str, str]] = {
         "Use the storyline for narrative arc, architecture.md for the component diagram, "
         "data-schema for technical details to reference, "
         "and project-structure for knowing what artifacts exist.\n\n"
+        "IMPORTANT: Start the file with an imperative instruction paragraph addressed to the executing agent, e.g.:\n"
+        "'After building ALL demo resources and passing all acceptance criteria, generate a demo "
+        "walkthrough script as a Google Doc. The script must reference actual deployed resource names "
+        "and include direct clickable URLs to every Databricks resource shown during the demo.'\n\n"
         "Include these sections:\n\n"
         "## Demo Assets Overview\n"
         "A complete inventory of every resource created for the demo. This is a reference table, "
@@ -980,7 +1006,10 @@ _BUILDOUT_FILE_PROMPTS: dict[str, tuple[str, str]] = {
         "- CLUSTER BY (Liquid Clustering) not PARTITION BY\n\n"
         "KEEP IT LEAN. A typical demo is 15-25 files, not 50+. No tests/, no config/ directories, "
         "no utility directories unless the demo specifically requires them.",
-        "Generate project-structure.md using Databricks Asset Bundles as the foundation:\n\n"
+        "Generate project-structure.md using Databricks Asset Bundles as the foundation.\n\n"
+        "IMPORTANT: Start the file with an imperative instruction paragraph addressed to the executing agent, e.g.:\n"
+        "'Create the following directory layout as a Databricks Asset Bundle. Every file listed below "
+        "must be created with the specified content. Use `databricks.yml` as the bundle root.'\n\n"
         "```\n<demo-name>/\n"
         "├── databricks.yml                    # Bundle config + environment targets\n"
         "├── resources/\n"
@@ -1049,6 +1078,7 @@ async def stream_buildout_file(
     databricks_host: str,
     databricks_token: str,
     model: str = "databricks-claude-sonnet-4",
+    user_architecture: str | None = None,
 ) -> AsyncIterator[str]:
     """Stream generation of a single package file with prior files as context."""
     system_hint, user_hint = _BUILDOUT_FILE_PROMPTS[filename]
@@ -1056,6 +1086,14 @@ async def stream_buildout_file(
     system_content = f"{_build_system_prompt()}\n\n{system_hint}"
 
     context_parts = [f"## Approved Proposal\n\n{proposal_md}"]
+    # Include user-designed architecture as context for all files
+    if user_architecture:
+        context_parts.append(
+            f"## User-Designed Architecture (from visual builder)\n\n"
+            f"The user created this architecture diagram during the proposal stage. "
+            f"{'Use this as the basis for architecture.md — expand and refine it, but preserve the components and connections the user specified.' if filename == 'architecture.md' else 'Reference this architecture when generating content.'}"
+            f"\n\n{user_architecture}"
+        )
     for prior_name, prior_content in generated_files.items():
         context_parts.append(f"## {prior_name} (already generated)\n\n{prior_content}")
 

@@ -963,8 +963,21 @@ interface WalkthroughStep {
   contrast?: { without: string; withAI: string };
 }
 
+interface AssetRow {
+  name: string;
+  type: string;
+  url: string;
+}
+
+interface AssetGroup {
+  heading: string;
+  rows: AssetRow[];
+}
+
 interface WalkthroughData {
   overview: string;
+  assetGroups: AssetGroup[];
+  architectureSummary: string;
   kpis: string[];
   steps: WalkthroughStep[];
   pitchShort: string;
@@ -976,6 +989,8 @@ interface WalkthroughData {
 function parseWalkthrough(md: string): WalkthroughData {
   const data: WalkthroughData = {
     overview: "",
+    assetGroups: [],
+    architectureSummary: "",
     kpis: [],
     steps: [],
     pitchShort: "",
@@ -992,8 +1007,36 @@ function parseWalkthrough(md: string): WalkthroughData {
     const title = hdr[1].trim().toLowerCase();
     const body = section.slice(hdr[0].length).trim();
 
-    if (title.includes("overview")) {
-      // Extract KPI bullets and overview text
+    if (title.includes("asset") && title.includes("overview")) {
+      // Demo Assets Overview: parse ### group headings with markdown tables
+      const subSections = body.split(/^(?=### )/gm);
+      for (const sub of subSections) {
+        const subHdr = sub.match(/^### (.+)\n/);
+        if (!subHdr) {
+          // Check for architecture summary (bold text after tables)
+          const summaryMatch = sub.match(/\*\*Architecture Summary[:\*]*\*?\*?\s*([\s\S]+)/i);
+          if (summaryMatch) data.architectureSummary = summaryMatch[1].trim();
+          continue;
+        }
+        const groupName = subHdr[1].trim();
+        const rows: AssetRow[] = [];
+        for (const m of sub.matchAll(/^\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*([^|]*?)\s*\|/gm)) {
+          const name = m[1].trim();
+          const type = m[2].trim();
+          const url = m[3].trim().replace(/`/g, "");
+          if (name && !name.startsWith("---") && name !== "Asset Name") {
+            rows.push({ name, type, url });
+          }
+        }
+        if (rows.length > 0) data.assetGroups.push({ heading: groupName, rows });
+      }
+      // Also grab trailing architecture summary outside ### sections
+      if (!data.architectureSummary) {
+        const summaryMatch = body.match(/\*\*Architecture Summary[:\*]*\*?\*?\s*([\s\S]+?)(?=\n## |\n$|$)/i);
+        if (summaryMatch) data.architectureSummary = summaryMatch[1].trim();
+      }
+    } else if (title.includes("overview")) {
+      // Demo Overview (non-asset): Extract KPI bullets and overview text
       const lines = body.split("\n");
       const overviewLines: string[] = [];
       for (const line of lines) {
@@ -1007,11 +1050,21 @@ function parseWalkthrough(md: string): WalkthroughData {
       data.overview = overviewLines.join("\n").trim();
     } else if (title.includes("demo script") || title.includes("script")) {
       const stepSections = body.split(/^(?=### )/gm);
+      let autoStepNum = 0;
       for (const ss of stepSections) {
-        const stepMatch = ss.match(
+        // Try numbered format: ### Step 1: Title (~2 min)
+        let stepMatch = ss.match(
           /^### (?:Step\s+)?(\d+)[.:]\s*(.+?)(?:\s*\(([^)]+)\))?\s*\n/,
         );
-        if (!stepMatch) continue;
+        // Fall back to non-numbered: ### Title (~2 min) or ### Title (45 seconds)
+        if (!stepMatch) {
+          const namedMatch = ss.match(
+            /^### (.+?)(?:\s*\(([^)]+)\))?\s*\n/,
+          );
+          if (!namedMatch) continue;
+          autoStepNum++;
+          stepMatch = [namedMatch[0], String(autoStepNum), namedMatch[1].trim(), namedMatch[2] || ""] as unknown as RegExpMatchArray;
+        }
 
         const cues: WalkthroughStep["cues"] = [];
         const talkingPoints: string[] = [];
@@ -1147,7 +1200,7 @@ function WalkthroughRenderer({ markdown }: { markdown: string }) {
   const wt = useMemo(() => parseWalkthrough(markdown), [markdown]);
   const [expandedAudience, setExpandedAudience] = useState<string | null>(null);
 
-  if (!wt.steps.length && !wt.overview) return null;
+  if (!wt.steps.length && !wt.overview && !wt.assetGroups.length) return null;
 
   const titleMatch = markdown.match(/^# (.+)\n/m);
 
@@ -1158,6 +1211,48 @@ function WalkthroughRenderer({ markdown }: { markdown: string }) {
         <div className="flex items-center gap-2">
           <Presentation className="h-5 w-5 text-primary" />
           <h2 className="text-lg font-bold">{titleMatch[1].trim()}</h2>
+        </div>
+      )}
+
+      {/* Demo Assets Overview */}
+      {wt.assetGroups.length > 0 && (
+        <div className="rounded-xl border border-border/60 overflow-hidden">
+          <div className="flex items-center gap-2 bg-primary/[0.04] px-4 py-2.5 border-b border-border/40">
+            <Database className="h-4 w-4 text-primary" />
+            <span className="text-sm font-semibold">Demo Assets Overview</span>
+          </div>
+          <div className="px-4 py-3 space-y-4">
+            {wt.assetGroups.map((group, gi) => (
+              <div key={gi}>
+                <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">{group.heading}</h4>
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="border-b border-border/40">
+                      <th className="text-left py-1.5 pr-3 font-medium text-muted-foreground">Asset</th>
+                      <th className="text-left py-1.5 pr-3 font-medium text-muted-foreground">Type</th>
+                      <th className="text-left py-1.5 font-medium text-muted-foreground">URL</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {group.rows.map((row, ri) => (
+                      <tr key={ri} className="border-b border-border/20">
+                        <td className="py-1.5 pr-3 font-medium text-foreground">{row.name}</td>
+                        <td className="py-1.5 pr-3">
+                          <Badge variant="outline" className="text-[9px]">{row.type}</Badge>
+                        </td>
+                        <td className="py-1.5 font-mono text-[10px] text-muted-foreground truncate max-w-[300px]">{row.url}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ))}
+            {wt.architectureSummary && (
+              <p className="text-xs leading-relaxed text-foreground/70 italic border-t border-border/30 pt-2">
+                {wt.architectureSummary}
+              </p>
+            )}
+          </div>
         </div>
       )}
 

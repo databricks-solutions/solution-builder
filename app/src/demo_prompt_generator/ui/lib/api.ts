@@ -192,6 +192,7 @@ export interface WorkspaceApproveRequest {
 }
 export interface WorkspaceBuildoutRequest {
     generation_id: number;
+    user_architecture?: string | null;
 }
 export interface WorkspaceGenerateRequest {
     topic: string;

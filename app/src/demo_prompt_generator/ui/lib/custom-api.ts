@@ -208,11 +208,14 @@ export async function approveProposal(generationId: number): Promise<{ id: numbe
 export async function* streamWorkspaceBuildout(
   generationId: number,
   signal?: AbortSignal,
+  userArchitecture?: string,
 ): AsyncGenerator<WorkspaceEvent> {
+  const body: Record<string, unknown> = { generation_id: generationId };
+  if (userArchitecture) body.user_architecture = userArchitecture;
   const resp = await fetch("/api/workspace/buildout", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ generation_id: generationId }),
+    body: JSON.stringify(body),
     signal,
   });
   if (!resp.ok) throw new Error(`Buildout failed: ${resp.status}`);

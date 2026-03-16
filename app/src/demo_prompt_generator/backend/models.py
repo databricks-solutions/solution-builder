@@ -198,6 +198,7 @@ class WorkspaceApproveRequest(BaseModel):
 
 class WorkspaceBuildoutRequest(BaseModel):
     generation_id: int
+    user_architecture: str | None = Field(default=None, description="User-designed architecture diagram (Mermaid) from the builder")
 
 
 class WorkspaceRefineFileRequest(BaseModel):
