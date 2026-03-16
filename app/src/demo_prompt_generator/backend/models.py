@@ -211,7 +211,7 @@ class WorkspaceRefineFileRequest(BaseModel):
 # SQLModel table — persisted in Lakebase
 # ---------------------------------------------------------------------------
 
-PACKAGE_FILES = ["SKILL.md", "storyline.md", "data-schema.md", "project-structure.md", "walkthrough.md"]
+PACKAGE_FILES = ["SKILL.md", "storyline.md", "architecture.md", "data-schema.md", "project-structure.md", "walkthrough.md"]
 
 
 class Generation(SQLModel, table=True):

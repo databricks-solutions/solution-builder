@@ -72,6 +72,7 @@ type Stage = "proposal" | "buildout" | "package";
 const PACKAGE_FILES = [
   "SKILL.md",
   "storyline.md",
+  "architecture.md",
   "data-schema.md",
   "project-structure.md",
   "walkthrough.md",
