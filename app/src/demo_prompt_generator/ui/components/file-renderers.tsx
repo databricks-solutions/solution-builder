@@ -1007,8 +1007,11 @@ function parseWalkthrough(md: string): WalkthroughData {
     const title = hdr[1].trim().toLowerCase();
     const body = section.slice(hdr[0].length).trim();
 
-    if (title.includes("asset") && title.includes("overview")) {
-      // Demo Assets Overview: parse ### group headings with markdown tables
+    if (title.includes("execution instructions") || title.includes("script output")) {
+      // LLM-only sections — skip rendering
+      continue;
+    } else if (title.includes("asset") && title.includes("overview")) {
+      // Demo Assets Overview — LLM-only, skip rendering
       const subSections = body.split(/^(?=### )/gm);
       for (const sub of subSections) {
         const subHdr = sub.match(/^### (.+)\n/);
@@ -1211,48 +1214,6 @@ function WalkthroughRenderer({ markdown }: { markdown: string }) {
         <div className="flex items-center gap-2">
           <Presentation className="h-5 w-5 text-primary" />
           <h2 className="text-lg font-bold">{titleMatch[1].trim()}</h2>
-        </div>
-      )}
-
-      {/* Demo Assets Overview */}
-      {wt.assetGroups.length > 0 && (
-        <div className="rounded-xl border border-border/60 overflow-hidden">
-          <div className="flex items-center gap-2 bg-primary/[0.04] px-4 py-2.5 border-b border-border/40">
-            <Database className="h-4 w-4 text-primary" />
-            <span className="text-sm font-semibold">Demo Assets Overview</span>
-          </div>
-          <div className="px-4 py-3 space-y-4">
-            {wt.assetGroups.map((group, gi) => (
-              <div key={gi}>
-                <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">{group.heading}</h4>
-                <table className="w-full text-xs">
-                  <thead>
-                    <tr className="border-b border-border/40">
-                      <th className="text-left py-1.5 pr-3 font-medium text-muted-foreground">Asset</th>
-                      <th className="text-left py-1.5 pr-3 font-medium text-muted-foreground">Type</th>
-                      <th className="text-left py-1.5 font-medium text-muted-foreground">URL</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {group.rows.map((row, ri) => (
-                      <tr key={ri} className="border-b border-border/20">
-                        <td className="py-1.5 pr-3 font-medium text-foreground">{row.name}</td>
-                        <td className="py-1.5 pr-3">
-                          <Badge variant="outline" className="text-[9px]">{row.type}</Badge>
-                        </td>
-                        <td className="py-1.5 font-mono text-[10px] text-muted-foreground truncate max-w-[300px]">{row.url}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ))}
-            {wt.architectureSummary && (
-              <p className="text-xs leading-relaxed text-foreground/70 italic border-t border-border/30 pt-2">
-                {wt.architectureSummary}
-              </p>
-            )}
-          </div>
         </div>
       )}
 

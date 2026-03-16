@@ -1032,275 +1032,6 @@ function parseLegacySections(md: string): ParsedArch {
   return { components, connections };
 }
 
-// Map ai-dev-kit skill names (used in proposals) to builder catalog IDs
-const AI_DEV_KIT_TO_CATALOG: Record<string, string> = {
-  "databricks-synthetic-data-generation": "synthetic-data-gen",
-  "databricks-unstructured-pdf-generation": "synthetic-data-gen",
-  "databricks-dbsql": "sql-warehouse",
-  "databricks-spark-declarative-pipelines": "declarative-pipeline",
-  "databricks-spark-structured-streaming": "structured-streaming",
-  "databricks-aibi-dashboards": "aibi-dashboard",
-  "databricks-genie": "genie-space",
-  "databricks-vector-search": "vector-index",
-  "databricks-model-serving": "model-serving",
-  "databricks-mlflow-evaluation": "mlflow-evaluation",
-  "databricks-agent-bricks": "ai-agent",
-  "databricks-unity-catalog": "delta-table",
-  "databricks-jobs": "databricks-job",
-  "databricks-asset-bundles": "databricks-job",
-  "databricks-app-apx": "databricks-app",
-  "databricks-app-python": "databricks-app",
-  "databricks-metric-views": "materialized-view",
-  "databricks-lakebase-provisioned": "lakebase-db",
-  "databricks-lakebase-autoscale": "lakebase-db",
-  "databricks-config": "databricks-job",
-  "databricks-python-sdk": "databricks-job",
-  "instrumenting-with-mlflow-tracing": "mlflow-tracking",
-  "databricks-zerobus-ingest": "zerobus-ingest",
-  "spark-python-data-source": "auto-loader",
-  "databricks-genie-space-creator": "genie-space",
-};
-
-/**
- * Build a minimal architecture from the proposal using medallion layer groups.
- * Bronze/Silver/Gold are represented as group boxes with tables inside (no table-level connections).
- * Connections flow between groups and compute nodes.
- *
- * Layout: [DataGen] → [Bronze Group] → [Pipeline] → [Gold Group] → [SQL WH] → [Apps]
- */
-function parseBuildStepsOnly(md: string): { nodes: Node<SkillNodeData>[]; edges: Edge[] } {
-  const parts = md.split(/^(?=## )/gm);
-
-  const datasets: string[] = [];
-  const transforms: { name: string; desc: string }[] = [];
-  const outputs: { name: string; desc: string }[] = [];
-  const buildSkills: string[] = [];
-
-  for (const part of parts) {
-    const hdr = part.match(/^## (.+)\n/);
-    if (!hdr) continue;
-    const title = hdr[1].trim().toLowerCase();
-    const body = part.slice(hdr[0].length);
-
-    if (title.includes("dataset")) {
-      for (const m of body.matchAll(/^\|\s*([^|]+?)\s*\|/gm)) {
-        const cell = m[1].trim();
-        if (cell && cell !== "Table" && !cell.startsWith("---")) datasets.push(cell);
-      }
-    } else if (title.includes("transform")) {
-      for (const m of body.matchAll(/^-\s+\*\*(.+?)\*\*\s*[—–-]\s*(.+)/gm)) {
-        transforms.push({ name: m[1].trim(), desc: m[2].trim() });
-      }
-    } else if (title.includes("output") || title.includes("deliverable")) {
-      for (const m of body.matchAll(/^-\s+\*\*(.+?)\*\*\s*[—–-]\s*(.+)/gm)) {
-        outputs.push({ name: m[1].trim(), desc: m[2].trim() });
-      }
-    } else if (title.includes("build step")) {
-      for (const m of body.matchAll(/`([a-z][\w-]+)`/g)) {
-        const raw = m[1];
-        if (raw === "databricks-asset-bundles") continue;
-        const mapped = AI_DEV_KIT_TO_CATALOG[raw] || raw;
-        if (!buildSkills.includes(mapped)) buildSkills.push(mapped);
-      }
-    }
-  }
-
-  if (datasets.length === 0 && buildSkills.length === 0) return { nodes: [], edges: [] };
-
-  const nodes: Node<SkillNodeData>[] = [];
-  const edges: Edge[] = [];
-  let nid = 0;
-
-  // Layout constants — table nodes are ~80px tall in ReactFlow
-  const GROUP_W = 260;
-  const TABLE_NODE_H = 90;
-  const GROUP_PAD_TOP = 45;
-  const GROUP_PAD_BOTTOM = 15;
-  const TABLE_PAD_LEFT = 15;
-  const COMPUTE_W = 230;
-  const COL_GAP = 100;
-
-  const mkSkillNode = (
-    id: string, x: number, y: number, skillId: string, desc: string,
-    overrides?: Partial<SkillNodeData>,
-  ) => {
-    const entry = SKILL_CATALOG.find((c) => c.id === skillId);
-    nodes.push({
-      id, type: "skill", position: { x, y },
-      data: {
-        label: entry?.label || skillId, skillId,
-        category: entry?.nodeType || "Compute",
-        description: desc,
-        tier: overrides?.tier || entry?.defaultTier,
-        format: overrides?.format || entry?.defaultFormat,
-        pattern: overrides?.pattern || entry?.defaultPattern,
-        ...overrides,
-      },
-    });
-  };
-
-  const mkGroupNode = (
-    id: string, x: number, y: number, w: number, h: number,
-    label: string, desc: string, colorIdx: number,
-  ) => {
-    nodes.push({
-      id, type: "group",
-      position: { x, y },
-      style: { width: w, height: h },
-      data: {
-        label, skillId: "", category: "Custom" as NodeType, description: desc,
-        groupColor: GROUP_COLORS[colorIdx % GROUP_COLORS.length],
-      },
-    });
-  };
-
-  const mkEdge = (src: string, tgt: string, label: string, srcHandle = "right", tgtHandle = "left") => {
-    edges.push({
-      id: `ae-${edges.length}`, source: src, target: tgt,
-      sourceHandle: srcHandle, targetHandle: tgtHandle,
-      label, type: "smoothstep", animated: true,
-      markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16 },
-    });
-  };
-
-  // ── Detect which medallion layers the proposal references ──
-  const transformText = transforms.map((t) => `${t.name} ${t.desc}`).join(" ").toLowerCase();
-  const allText = md.toLowerCase();
-
-  type LayerDef = { tier: MedallionTier; label: string; colorIdx: number; tables: string[] };
-  const detectedLayers: LayerDef[] = [];
-
-  if (allText.includes("bronze") || datasets.length > 0) {
-    detectedLayers.push({ tier: "bronze", label: "Bronze", colorIdx: 4, tables: datasets.slice(0, 4) });
-  }
-  if (transformText.includes("silver") || allText.includes("silver")) {
-    detectedLayers.push({ tier: "silver", label: "Silver", colorIdx: 1, tables: ["Cleaned & enriched data"] });
-  }
-  if (transformText.includes("gold") || allText.includes("gold") || allText.includes("feature") || allText.includes("aggregat")) {
-    detectedLayers.push({ tier: "gold", label: "Gold", colorIdx: 3, tables: ["Analytics & ML tables"] });
-  }
-  // Fallback: if datasets but no layers detected, assume bronze + gold
-  if (detectedLayers.length === 0 && datasets.length > 0) {
-    detectedLayers.push({ tier: "bronze", label: "Bronze", colorIdx: 4, tables: datasets.slice(0, 4) });
-    detectedLayers.push({ tier: "gold", label: "Gold", colorIdx: 3, tables: ["Analytics tables"] });
-  }
-
-  let curX = 80;
-  const topY = 60;
-
-  // ── Synthetic Data Gen ──
-  const hasDataGen = buildSkills.includes("synthetic-data-gen");
-  let prevConnectId: string | null = null;
-  if (hasDataGen) {
-    const id = `n-${nid++}`;
-    mkSkillNode(id, curX, topY + 40, "synthetic-data-gen", "Generate synthetic demo data");
-    prevConnectId = id;
-    curX += COMPUTE_W + COL_GAP;
-  }
-
-  // ── Medallion layer groups with pipeline compute between them ──
-  const hasPipeline = buildSkills.includes("declarative-pipeline") || buildSkills.includes("structured-streaming");
-  const pipelineSkill = buildSkills.includes("structured-streaming") ? "structured-streaming" : "declarative-pipeline";
-  let lastLayerGroupId: string | null = null;
-
-  detectedLayers.forEach((layer, layerIdx) => {
-    const tableCount = Math.max(layer.tables.length, 1);
-    const groupH = GROUP_PAD_TOP + tableCount * TABLE_NODE_H + GROUP_PAD_BOTTOM;
-
-    const groupId = `g-${layer.tier}`;
-    mkGroupNode(groupId, curX, topY, GROUP_W, groupH, layer.label,
-      layer.tier === "bronze" ? `${datasets.length} raw tables` : "",
-      layer.colorIdx);
-
-    // Place tables inside group — no connections to them
-    layer.tables.forEach((tbl, i) => {
-      mkSkillNode(`n-${nid++}`, curX + TABLE_PAD_LEFT, topY + GROUP_PAD_TOP + i * TABLE_NODE_H,
-        "delta-table", tbl, { tier: layer.tier, format: "delta" as DataFormat });
-    });
-
-    // Connect from previous (data gen or pipeline)
-    if (prevConnectId) {
-      mkEdge(prevConnectId, groupId, layerIdx === 0 ? "Generated" : "Transformed");
-    }
-
-    lastLayerGroupId = groupId;
-    curX += GROUP_W + COL_GAP;
-
-    // Add pipeline compute between this layer and the next
-    if (layerIdx < detectedLayers.length - 1 && (hasPipeline || transforms.length > 0)) {
-      const pipeId = `n-${nid++}`;
-      const relevantTransform = transforms[layerIdx];
-      const desc = relevantTransform
-        ? `${relevantTransform.name}: ${relevantTransform.desc}`
-        : `${layer.label} → ${detectedLayers[layerIdx + 1].label}`;
-      mkSkillNode(pipeId, curX, topY + 40, pipelineSkill, desc);
-      mkEdge(groupId, pipeId, "");
-      prevConnectId = pipeId;
-      curX += COMPUTE_W + COL_GAP;
-    }
-  });
-
-  // ── Downstream applications ──
-  const hasModelServing = buildSkills.includes("model-serving");
-  const hasVectorSearch = buildSkills.includes("vector-index") || buildSkills.includes("vector-search-endpoint");
-  const hasDashboard = buildSkills.includes("aibi-dashboard");
-  const hasGenie = buildSkills.includes("genie-space");
-  const hasApp = buildSkills.includes("databricks-app") || buildSkills.includes("agent-app");
-
-  let warehouseId: string | null = null;
-  if ((hasDashboard || hasGenie) && lastLayerGroupId) {
-    warehouseId = `n-${nid++}`;
-    mkSkillNode(warehouseId, curX, topY + 40, "sql-warehouse", "Analytics query engine");
-    mkEdge(lastLayerGroupId, warehouseId, "Query");
-    curX += COMPUTE_W + COL_GAP;
-  }
-
-  let appY = topY;
-  const APP_SPACING = 140;
-
-  if (hasModelServing) {
-    const desc = outputs.find((o) => o.name.toLowerCase().includes("model") || o.name.toLowerCase().includes("predict"))?.name || "ML prediction endpoint";
-    const id = `n-${nid++}`;
-    mkSkillNode(id, curX, appY, "model-serving", desc);
-    if (lastLayerGroupId) mkEdge(lastLayerGroupId, id, "Features");
-    appY += APP_SPACING;
-  }
-
-  if (hasVectorSearch) {
-    const desc = outputs.find((o) => o.name.toLowerCase().includes("vector") || o.name.toLowerCase().includes("search"))?.name || "Vector search index";
-    const id = `n-${nid++}`;
-    mkSkillNode(id, curX, appY, "vector-index", desc);
-    if (lastLayerGroupId) mkEdge(lastLayerGroupId, id, "Embeddings");
-    appY += APP_SPACING;
-  }
-
-  if (hasDashboard) {
-    const desc = outputs.find((o) => o.name.toLowerCase().includes("dashboard"))?.name || "Analytics dashboard";
-    const id = `n-${nid++}`;
-    mkSkillNode(id, curX, appY, "aibi-dashboard", desc);
-    if (warehouseId) mkEdge(warehouseId, id, "SQL results");
-    appY += APP_SPACING;
-  }
-
-  if (hasGenie) {
-    const desc = outputs.find((o) => o.name.toLowerCase().includes("genie"))?.name || "Genie Space";
-    const id = `n-${nid++}`;
-    mkSkillNode(id, curX, appY, "genie-space", desc);
-    if (warehouseId) mkEdge(warehouseId, id, "NL queries");
-    appY += APP_SPACING;
-  }
-
-  if (hasApp) {
-    const desc = outputs.find((o) => o.name.toLowerCase().includes("app"))?.name || "Databricks App";
-    const id = `n-${nid++}`;
-    mkSkillNode(id, curX, appY, "databricks-app", desc);
-    const servingNode = nodes.find((n) => n.data.skillId === "model-serving");
-    if (servingNode) mkEdge(servingNode.id, id, "API");
-    appY += APP_SPACING;
-  }
-
-  return { nodes, edges };
-}
 
 const VALID_CATEGORIES = Object.keys(CATEGORY_CONFIG) as NodeType[];
 
@@ -1485,6 +1216,7 @@ function buildFromSkillMd(md: string): { nodes: Node<SkillNodeData>[]; edges: Ed
           id: groupId, type: "group",
           position: { x, y },
           style: { width: GROUP_W, height: groupH },
+          zIndex: -1,
           data: {
             label: tierLabel, skillId: "", category: "Custom" as NodeType,
             description: `${tableCount} tables`,
@@ -1797,6 +1529,7 @@ function pickEdgeHandles(
 function ArchitectureBuilderInner({
   innerRef,
   onApplyArchitecture,
+  onArchitectureChange,
   busy,
   architectureMd,
   proposalBuildSteps,
@@ -1806,6 +1539,7 @@ function ArchitectureBuilderInner({
 }: {
   innerRef?: React.MutableRefObject<{ serialize: () => string } | null>;
   onApplyArchitecture?: (architectureDescription: string) => void;
+  onArchitectureChange?: (mermaid: string) => void;
   busy?: boolean;
   /** architecture.md content (buildout/package stage) */
   architectureMd?: string;
@@ -1916,22 +1650,27 @@ function ArchitectureBuilderInner({
     }
   }, [mdSource, setNodes, setEdges, fitView]);
 
-  // Proposal stage: populate from Build Steps skills only
-  const lastParsedBuildStepsRef = useRef<string>("");
+  // Proposal stage: populate from ## Architecture Mermaid in the proposal
+  const lastParsedProposalRef = useRef<string>("");
   useEffect(() => {
     if (!proposalBuildSteps || mdSource) return; // skip if architecture.md is present
-    const buildStepsMatch = proposalBuildSteps.match(/## Build Steps[\s\S]*?(?=\n## [^#]|$)/);
-    if (!buildStepsMatch) return;
-    const buildStepsContent = buildStepsMatch[0];
 
-    if (userEditedCanvas.current) return;
-    if (buildStepsContent === lastParsedBuildStepsRef.current) return;
+    // Only parse if the proposal contains a ## Architecture section with Mermaid
+    const archMatch = proposalBuildSteps.match(/## Architecture[\s\S]*?(?=\n## [^#]|$)/);
+    if (!archMatch) return;
+    const archContent = archMatch[0];
+    if (archContent === lastParsedProposalRef.current) return;
 
-    const { nodes: autoNodes, edges: autoEdges } = parseBuildStepsOnly(proposalBuildSteps);
-    if (autoNodes.length > 0) {
-      setNodes(autoNodes);
-      setEdges(autoEdges);
-      lastParsedBuildStepsRef.current = buildStepsContent;
+    // If user manually edited the canvas, only allow LLM refinements to override
+    if (userEditedCanvas.current) {
+      userEditedCanvas.current = false; // reset so next LLM change can update
+    }
+
+    const parsed = buildFromSkillMd(proposalBuildSteps);
+    if (parsed.nodes.length > 0) {
+      setNodes(parsed.nodes);
+      setEdges(parsed.edges);
+      lastParsedProposalRef.current = archContent;
       hasAutoPopulated.current = true;
       setTimeout(() => fitView({ padding: 0.3, maxZoom: 1.2 }), 150);
       setTimeout(() => fitView({ padding: 0.3, maxZoom: 1.2 }), 500);
@@ -1953,6 +1692,64 @@ function ArchitectureBuilderInner({
     edges,
     setNodes,
     setEdges,
+  );
+
+  // ── Dynamic tier assignment: update a node's tier based on which medallion group it's inside ──
+  const MEDALLION_TIERS: Record<string, MedallionTier> = { bronze: "bronze", silver: "silver", gold: "gold" };
+
+  /** For a given skill node, find which medallion group (if any) contains it */
+  const getTierForNode = useCallback(
+    (node: Node<SkillNodeData>, allNodes: Node<SkillNodeData>[]) => {
+      const groupNodes = allNodes.filter((n) => n.type === "group");
+      const sw = node.measured?.width || 180;
+      const sh = node.measured?.height || 60;
+      const cx = node.position.x + sw / 2;
+      const cy = node.position.y + sh / 2;
+      for (const g of groupNodes) {
+        const gx = g.position.x;
+        const gy = g.position.y;
+        const gw = (g.measured?.width ?? (g.style?.width as number)) || 0;
+        const gh = (g.measured?.height ?? (g.style?.height as number)) || 0;
+        if (cx >= gx && cx <= gx + gw && cy >= gy && cy <= gy + gh) {
+          return MEDALLION_TIERS[(g.data.label || "").toLowerCase()];
+        }
+      }
+      return undefined;
+    },
+    [],
+  );
+
+  const onNodeDragStop = useCallback(
+    (_event: React.MouseEvent, draggedNode: Node<SkillNodeData>) => {
+      if (draggedNode.type === "group") {
+        // Group was moved — re-evaluate all skill nodes' tiers
+        setNodes((nds) => {
+          const updated = nds.map((n) => {
+            if (n.type === "group") return n;
+            const newTier = getTierForNode(n, nds);
+            if (newTier !== n.data.tier) {
+              return { ...n, data: { ...n.data, tier: newTier, ...(newTier ? { format: "delta" as DataFormat } : {}) } };
+            }
+            return n;
+          });
+          return updated;
+        });
+        return;
+      }
+
+      // Skill node was moved — update just this node's tier
+      const newTier = getTierForNode(draggedNode, nodes);
+      if (newTier !== draggedNode.data.tier) {
+        setNodes((nds) =>
+          nds.map((n) =>
+            n.id === draggedNode.id
+              ? { ...n, data: { ...n.data, tier: newTier, ...(newTier ? { format: "delta" as DataFormat } : {}) } }
+              : n,
+          ),
+        );
+      }
+    },
+    [nodes, setNodes, getTierForNode],
   );
 
   // ── Group drawing: mouseUp (needs snapshot) ──
@@ -2382,6 +2179,14 @@ function ArchitectureBuilderInner({
     return () => { if (innerRef) innerRef.current = null; };
   }, [innerRef, serializeArchitecture]);
 
+  // Notify parent of architecture changes — only when user has edited the canvas,
+  // not on auto-populate (which would overwrite the LLM's original Mermaid)
+  useEffect(() => {
+    if (onArchitectureChange && nodes.length > 0 && userEditedCanvas.current) {
+      onArchitectureChange(serializeArchitecture());
+    }
+  }, [serializeArchitecture, onArchitectureChange, nodes.length]);
+
   const handleRefineSkill = useCallback(() => {
     const desc = serializeArchitecture();
     if (desc && onApplyArchitecture) {
@@ -2634,6 +2439,7 @@ function ArchitectureBuilderInner({
           onConnect={onConnect}
           onDragOver={onDragOver}
           onDrop={onDrop}
+          onNodeDragStop={onNodeDragStop}
           onEdgeClick={onEdgeClick}
           onNodeDoubleClick={onNodeDoubleClick}
           onEdgeDoubleClick={onEdgeDoubleClick}
@@ -3250,13 +3056,14 @@ export interface ArchitectureBuilderHandle {
 
 const ArchitectureBuilder = forwardRef<ArchitectureBuilderHandle, {
   onApplyArchitecture?: (architectureDescription: string) => void;
+  onArchitectureChange?: (mermaid: string) => void;
   busy?: boolean;
   architectureMd?: string;
   proposalBuildSteps?: string;
   hideCatalog?: boolean;
   isVisible?: boolean;
   stage?: string;
-}>(function ArchitectureBuilder({ onApplyArchitecture, busy, architectureMd, proposalBuildSteps, hideCatalog, isVisible, stage }, ref) {
+}>(function ArchitectureBuilder({ onApplyArchitecture, onArchitectureChange, busy, architectureMd, proposalBuildSteps, hideCatalog, isVisible, stage }, ref) {
   const innerRef = useRef<{ serialize: () => string } | null>(null);
 
   useImperativeHandle(ref, () => ({
@@ -3270,6 +3077,7 @@ const ArchitectureBuilder = forwardRef<ArchitectureBuilderHandle, {
       <ArchitectureBuilderInner
         innerRef={innerRef}
         onApplyArchitecture={onApplyArchitecture}
+        onArchitectureChange={onArchitectureChange}
         busy={busy}
         architectureMd={architectureMd}
         proposalBuildSteps={proposalBuildSteps}

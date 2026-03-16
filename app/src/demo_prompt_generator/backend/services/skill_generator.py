@@ -43,6 +43,59 @@ AI_DEV_KIT_SKILLS: list[tuple[str, str]] = [
 ]
 
 
+# Architecture component IDs — the valid node types for Mermaid architecture diagrams.
+# Mirrors SKILL_CATALOG in architecture-builder.tsx. Single source of truth for prompts.
+ARCHITECTURE_COMPONENTS: dict[str, list[tuple[str, str]]] = {
+    "Data Asset": [
+        ("delta-table", "Managed or external Delta Lake table"),
+        ("streaming-table", "Delta table with built-in streaming ingestion"),
+        ("materialized-view", "Pre-computed view that auto-refreshes"),
+        ("uc-volume", "Unity Catalog Volume for files and artifacts"),
+        ("feature-table", "Feature engineering table for ML models"),
+        ("vector-index", "Vector Search index for similarity queries"),
+        ("external-file", "CSV, JSON, Parquet, or PDF files"),
+    ],
+    "Compute": [
+        ("declarative-pipeline", "Lakeflow Declarative Pipeline (SDP)"),
+        ("auto-loader", "Incremental file ingestion from cloud storage"),
+        ("structured-streaming", "Spark Structured Streaming"),
+        ("databricks-job", "Orchestrated multi-task job with scheduling"),
+        ("model-serving", "Deploy and query Model Serving endpoints"),
+        ("sql-warehouse", "Serverless SQL compute for analytics queries"),
+        ("vector-search-endpoint", "Serve similarity search queries"),
+        ("ai-agent", "Mosaic AI Agent (tool-use, RAG, multi-turn)"),
+        ("ai-gateway", "LLM routing, rate limiting, and governance"),
+        ("lakeflow-connect", "Managed connectors for SaaS and database ingestion"),
+        ("zerobus-ingest", "Real-time Delta table ingestion via gRPC"),
+        ("lakebase-sync", "Real-time sync from Delta to Lakebase"),
+        ("synthetic-data-gen", "Generate realistic synthetic data"),
+    ],
+    "Application": [
+        ("aibi-dashboard", "AI/BI Lakeview dashboard with visualizations"),
+        ("genie-space", "Natural language SQL exploration"),
+        ("databricks-app", "Full-stack app (FastAPI/React or Streamlit)"),
+        ("agent-app", "LangGraph agent deployed as a Databricks App"),
+        ("custom-mcp-app", "Custom MCP server as a Databricks App"),
+        ("notebook", "Interactive notebook for analysis or orchestration"),
+        ("alert", "Scheduled SQL alert with notifications"),
+    ],
+    "External": [
+        ("lakebase-db", "Managed PostgreSQL for OLTP"),
+        ("delta-sharing", "Cross-org data sharing endpoint"),
+        ("external-mcp", "Third-party MCP server outside Databricks"),
+    ],
+}
+
+
+def _arch_components_catalog() -> str:
+    """Format architecture components for prompt inclusion."""
+    lines: list[str] = []
+    for category, components in ARCHITECTURE_COMPONENTS.items():
+        ids = ", ".join(f"`{cid}`" for cid, _ in components)
+        lines.append(f"{category}: {ids}")
+    return "\n".join(lines)
+
+
 def _features_summary(req: DemoRequestIn) -> str:
     mapping = {
         "delta_lake": "Delta Lake",
@@ -542,12 +595,44 @@ trace back to the Proposed Solution. Each step names ONE ai-dev-kit skill in bac
 1. Generate synthetic sensor and maintenance data using `databricks-synthetic-data-generation`
 2. Build bronze→silver→gold SDP pipeline using `databricks-spark-declarative-pipelines`
 
+## Architecture
+A Mermaid flowchart (`graph LR`) showing the data flow from the Proposed Solution. \
+This diagram must be consistent with the Build Steps and Outputs above. Rules:
+- Use `graph LR` (left-to-right).
+- For medallion layers, use ONE node per layer listing tables: \
+`bronze["Bronze Layer | table1, table2"]:::data_asset %% tier=bronze, format=delta`. \
+Do NOT use subgraphs or individual table nodes for medallion layers.
+- Compute nodes connect layers: `bronze -->|"Raw data"| pipeline1` then `pipeline1 -->|"Cleaned"| silver`.
+- Applications (dashboards, Genie, apps) connect downstream of gold via SQL warehouse or directly.
+- Node format: `id["skill-id | Description"]:::class %% metadata`.
+- The `skill-id` in each node label MUST be from this registry — do NOT invent names:\n\
+{_arch_components_catalog()}\n\
+For medallion layers use `Bronze Layer`, `Silver Layer`, `Gold Layer` as the skill-id.
+- Classes: `data_asset`, `compute`, `application`, `external`.
+- Keep it minimal — only components from the Proposed Solution, no extras.
+
+Example:
+```mermaid
+graph LR
+  synth["synthetic-data-gen | Generate data"]:::compute
+  bronze["Bronze Layer | raw_events, raw_users"]:::data_asset %% tier=bronze, format=delta
+  pipeline1["declarative-pipeline | Cleanse and enrich"]:::compute
+  gold["Gold Layer | user_metrics, event_summary"]:::data_asset %% tier=gold, format=delta
+  wh["sql-warehouse | Query engine"]:::compute
+  dash["aibi-dashboard | Analytics"]:::application
+  synth -->|"Generated"| bronze
+  bronze -->|"Raw"| pipeline1
+  pipeline1 -->|"Enriched"| gold
+  gold -->|"Query"| wh
+  wh -->|"Results"| dash
+```
+
 ## Available ai-dev-kit skills
 
 {_skills_catalog()}
 
 ## Rules
-- Keep the ENTIRE proposal under 50 lines of markdown. Short and punchy.
+- Keep the ENTIRE proposal under 80 lines of markdown. Short and punchy.
 - DATABRICKS ONLY. No external tools, middleware, or competing platforms. \
 Everything runs natively on Databricks: SDP pipelines, Unity Catalog, Model Serving, \
 AI/BI Dashboards, Genie, Databricks Apps, etc.
@@ -779,16 +864,8 @@ _BUILDOUT_FILE_PROMPTS: dict[str, tuple[str, str]] = {
         "  RIGHT: `bronze[\"Bronze Layer | raw_sales, raw_customers\"]:::data_asset %% tier=bronze`\n"
         "- Use `subgraph` only for non-medallion logical groupings (e.g., an \"Analytics\" section).\n"
         "- Data assets connect THROUGH compute nodes, never directly to other data assets.\n\n"
-        "## Valid skill IDs\n"
-        "Data Asset: `delta-table`, `streaming-table`, `materialized-view`, `uc-volume`, "
-        "`feature-table`, `vector-index`, `external-file`.\n"
-        "Compute: `declarative-pipeline`, `auto-loader`, `structured-streaming`, "
-        "`databricks-job`, `model-serving`, `sql-warehouse`, `vector-search-endpoint`, "
-        "`ai-agent`, `ai-gateway`, `lakeflow-connect`, `zerobus-ingest`, `lakebase-sync`, "
-        "`synthetic-data-gen`.\n"
-        "Application: `aibi-dashboard`, `genie-space`, `databricks-app`, `agent-app`, "
-        "`custom-mcp-app`, `notebook`, `alert`.\n"
-        "External: `lakebase-db`, `delta-sharing`, `external-mcp`.\n\n"
+        f"## Valid skill IDs\n"
+        f"{_arch_components_catalog()}\n\n"
         "Metadata keys: `tier` (raw/bronze/silver/gold), `format` (delta/csv/json/parquet/pdf/iceberg/avro), "
         "`pattern` (batch/streaming/real-time/on-demand), `compute` (serverless/classic, default serverless).\n\n"
         "## Architecture is a Contract\n"
@@ -935,18 +1012,25 @@ _BUILDOUT_FILE_PROMPTS: dict[str, tuple[str, str]] = {
         "Use the storyline for narrative arc, architecture.md for the component diagram, "
         "data-schema for technical details to reference, "
         "and project-structure for knowing what artifacts exist.\n\n"
-        "IMPORTANT: Start the file with an imperative instruction paragraph addressed to the executing agent, e.g.:\n"
-        "'After building ALL demo resources and passing all acceptance criteria, generate a demo "
-        "walkthrough script as a Google Doc. The script must reference actual deployed resource names "
-        "and include direct clickable URLs to every Databricks resource shown during the demo.'\n\n"
-        "Include these sections:\n\n"
-        "## Demo Assets Overview\n"
-        "A complete inventory of every resource created for the demo. This is a reference table, "
-        "not a narrative section. For each asset list: the resource name, its type (e.g., Delta Table, "
-        "Dashboard, Pipeline, App, Genie Space, Serving Endpoint, etc.), and its direct clickable URL "
-        "(use placeholder format `https://<workspace>/.../<id>` — the executing agent fills in real URLs "
-        "after deployment). Group assets by category (Data, Compute/Pipelines, Applications/Dashboards). "
-        "Below the table, include a 2-3 sentence architecture summary.\n\n"
+        "STRUCTURE: The file starts with an `## Execution Instructions` section (read by the executing LLM, "
+        "not rendered in the UI), followed by the human-readable demo script sections.\n\n"
+        "## Execution Instructions (FIRST section, immediately after `# Demo Walkthrough`)\n"
+        "This section contains all meta-instructions for the executing agent. Include ALL of the following "
+        "verbatim in this section:\n"
+        "- After building ALL demo resources and passing all acceptance criteria, write this demo "
+        "walkthrough script to a **Google Doc** with title: '{demo name} — Demo Script'.\n"
+        "- Each step must include the **direct URL** to every Databricks resource referenced. "
+        "Format links as clickable hyperlinks with descriptive text.\n"
+        "- Use headings for each section (Opening, Wow Moment, Walkthrough sections, Recap).\n"
+        "- Include presenter notes in italics for talking points and transitions.\n"
+        "- Include specific click paths, queries to run, and data to highlight — all derived "
+        "from the actual built demo resources.\n"
+        "- The script is the presenter's single source of truth — if a resource exists, its URL "
+        "must appear in the step where it is shown.\n"
+        "- The Google Doc MUST begin with a **Demo Assets Overview** — a complete inventory table of "
+        "every resource created for the demo (resource name, type, direct clickable URL), grouped by "
+        "category (Data, Compute/Pipelines, Applications/Dashboards), followed by a 2-3 sentence "
+        "architecture summary.\n\n"
         "## Demo Script\n"
         "Structure the script with these sections in order:\n\n"
         "### Opening (30-60 seconds)\n"
@@ -981,17 +1065,6 @@ _BUILDOUT_FILE_PROMPTS: dict[str, tuple[str, str]] = {
         "Focus on architecture, scalability, Databricks platform capabilities.\n"
         "### Individual Contributors\n"
         "Focus on implementation details, code patterns, developer experience.\n\n"
-        "## Script Output Instructions\n"
-        "Include these meta-instructions verbatim so the executing agent knows how to produce the final script:\n"
-        "- Write the script to a **Google Doc** with title: '{demo name} — Demo Script'\n"
-        "- Each step must include the **direct URL** to every Databricks resource referenced. "
-        "Format links as clickable hyperlinks with descriptive text.\n"
-        "- Use headings for each section (Opening, Wow Moment, Walkthrough sections, Recap)\n"
-        "- Include presenter notes in italics for talking points and transitions\n"
-        "- Include specific click paths, queries to run, and data to highlight — all derived "
-        "from the actual built demo resources\n"
-        "- The script is the presenter's single source of truth — if a resource exists, its URL "
-        "must appear in the step where it is shown\n\n"
         "Output ONLY the walkthrough.md content starting with `# Demo Walkthrough`. No commentary.",
     ),
     "project-structure.md": (

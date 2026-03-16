@@ -101,6 +101,21 @@ interface Section {
 // Helpers
 // ---------------------------------------------------------------------------
 
+const ARCH_SECTION_MARKER = "\n\n## Architecture\n";
+
+/** Strip the ## Architecture section from proposal markdown */
+function stripArchSection(md: string): string {
+  const idx = md.indexOf(ARCH_SECTION_MARKER);
+  return idx >= 0 ? md.slice(0, idx) : md;
+}
+
+/** Extract the ## Architecture section from proposal markdown */
+function extractArchSection(md: string): string {
+  const idx = md.indexOf(ARCH_SECTION_MARKER);
+  if (idx < 0) return "";
+  return md.slice(idx + ARCH_SECTION_MARKER.length).trim();
+}
+
 let _idCounter = 0;
 function uid(): string {
   if (typeof crypto !== "undefined" && crypto.randomUUID) {
@@ -204,6 +219,9 @@ function WorkspacePage() {
   const [activeTab, setActiveTab] = useState("preview");
   const [chatCollapsed, setChatCollapsed] = useState(false);
   const [buildingFile, setBuildingFile] = useState<string | null>(null);
+  const [proposalArchMermaid, setProposalArchMermaid] = useState("");
+  // When architecture changes in the builder, sync into proposalMd
+  const archSyncRef = useRef(false); // prevent loop: builder change → proposalMd update → builder re-parse
 
   const abortRef = useRef<AbortController | null>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
@@ -217,7 +235,7 @@ function WorkspacePage() {
       ? proposalMd
       : packageFiles[activeFile] || "";
 
-  const sections = useMemo(() => parseSections(currentMd), [currentMd]);
+  const sections = useMemo(() => parseSections(stage === "proposal" ? stripArchSection(currentMd) : currentMd), [currentMd, stage]);
 
   const mentionContext = useMemo(() => {
     const lastAt = chatInput.lastIndexOf("@");
@@ -1087,12 +1105,12 @@ function WorkspacePage() {
                           {stage === "proposal" ? (
                             <div className="space-y-6">
                               <ProposalCards
-                                markdown={currentMd}
+                                markdown={stripArchSection(currentMd)}
                                 streaming={busy}
                               />
                               {!busy && currentMd && (
                                 <div className="rounded-xl border border-border/50 p-5 bg-muted/[0.02]">
-                                  <ArchitectureGraph markdown={currentMd} />
+                                  <ArchitectureGraph markdown={stripArchSection(currentMd)} />
                                 </div>
                               )}
                             </div>
@@ -1158,6 +1176,12 @@ function WorkspacePage() {
                     <ArchitectureBuilder
                       ref={architectureBuilderRef}
                       onApplyArchitecture={generationId ? handleApplyArchitecture : undefined}
+                      onArchitectureChange={stage === "proposal" ? (mermaid: string) => {
+                        setProposalArchMermaid(mermaid);
+                        // Sync architecture into proposalMd so the refine endpoint sees it
+                        archSyncRef.current = true;
+                        setProposalMd((prev) => stripArchSection(prev) + ARCH_SECTION_MARKER + mermaid);
+                      } : undefined}
                       busy={busy}
                       architectureMd={(stage === "buildout" || stage === "package") ? packageFiles["architecture.md"] : undefined}
                       proposalBuildSteps={stage === "proposal" ? proposalMd : undefined}
