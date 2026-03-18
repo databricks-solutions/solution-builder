@@ -402,6 +402,30 @@ async def workspace_buildout(
 
     user_arch = req.user_architecture
 
+    _SENTINEL = object()
+
+    async def _stream_to_queue(
+        queue: asyncio.Queue,
+        filename: str,
+        proposal_md: str,
+        generated_files: dict[str, str],
+        host: str,
+        token: str,
+        model: str,
+        user_arch: str | None,
+    ):
+        """Run LLM stream in a task, pushing chunks into a queue."""
+        try:
+            async for chunk in stream_buildout_file(
+                filename, proposal_md, generated_files, host, token, model=model,
+                user_architecture=user_arch,
+            ):
+                await queue.put(chunk)
+        except Exception as exc:
+            await queue.put(exc)
+        finally:
+            await queue.put(_SENTINEL)
+
     async def event_stream():
         generated_files: dict[str, str] = {}
         try:
@@ -409,21 +433,26 @@ async def workspace_buildout(
                 yield f"data: {json.dumps({'type': 'file_start', 'filename': filename})}\n\n"
 
                 collected = ""
-                # Wrap the LLM stream with a keepalive: if no chunk arrives
-                # within 15s, send an SSE comment to prevent proxy timeouts.
-                llm_stream = stream_buildout_file(
-                    filename, row.proposal_md, generated_files, host, token, model=model,
-                    user_architecture=user_arch,
-                )
+                queue: asyncio.Queue = asyncio.Queue()
+                task = asyncio.create_task(_stream_to_queue(
+                    queue, filename, row.proposal_md, generated_files,
+                    host, token, model, user_arch,
+                ))
+
                 while True:
                     try:
-                        chunk = await asyncio.wait_for(llm_stream.__anext__(), timeout=15.0)
-                        collected += chunk
-                        yield f"data: {json.dumps({'type': 'file_content', 'filename': filename, 'content': chunk})}\n\n"
+                        item = await asyncio.wait_for(queue.get(), timeout=5.0)
                     except asyncio.TimeoutError:
                         yield ": keepalive\n\n"
-                    except StopAsyncIteration:
+                        continue
+                    if item is _SENTINEL:
                         break
+                    if isinstance(item, Exception):
+                        raise item
+                    collected += item
+                    yield f"data: {json.dumps({'type': 'file_content', 'filename': filename, 'content': item})}\n\n"
+
+                await task  # propagate any unhandled errors
 
                 clean = _strip_fences(collected)
                 generated_files[filename] = clean
