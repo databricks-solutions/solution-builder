@@ -1317,17 +1317,7 @@ function buildFromSkillMd(md: string): { nodes: Node<SkillNodeData>[]; edges: Ed
         animated: true,
         label: conn.description,
         data: { description: conn.description, canvasLabel },
-        labelStyle: { fontSize: 10, fontWeight: 500, fill: "hsl(var(--foreground))" },
-        labelBgStyle: {
-          fill: "hsl(var(--background))",
-          stroke: "hsl(var(--border))",
-          strokeWidth: 1,
-          rx: 4,
-          ry: 4,
-        },
         labelBgPadding: [6, 3] as [number, number],
-        markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16, color: "hsl(var(--foreground))" },
-        style: { strokeWidth: 2, stroke: "hsl(var(--foreground))" },
       });
     }
   }
@@ -1561,6 +1551,23 @@ function ArchitectureBuilderInner({
 
   const [nodes, setNodes, onNodesChange] = useNodesState<Node<SkillNodeData>>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
+
+  // Apply theme-aware colors to an edge
+  const styleEdge = useCallback(
+    (edge: Edge): Edge => ({
+      ...edge,
+      labelStyle: { fontSize: (edge.labelStyle as Record<string, unknown>)?.fontSize ?? 10, fontWeight: 500, fill: edgeColor },
+      labelBgStyle: { fill: resolvedDark ? "#1a1a2e" : "#ffffff", stroke: resolvedDark ? "#333" : "#ddd", strokeWidth: 1, rx: 4, ry: 4 },
+      markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16, color: edgeColor },
+      style: { strokeWidth: 2, stroke: edgeColor },
+    }),
+    [edgeColor, resolvedDark],
+  );
+
+  // Re-style all edges when theme changes
+  useEffect(() => {
+    setEdges((eds) => eds.map(styleEdge));
+  }, [edgeColor, styleEdge, setEdges]);
   const [catalogOpen, setCatalogOpen] = useState(!hideCatalog);
   const [catalogSearch, setCatalogSearch] = useState("");
   const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(new Set());
@@ -1966,24 +1973,14 @@ function ArchitectureBuilderInner({
       const edgeId = `e-${flipped.source}-${flipped.target}-${Date.now()}`;
       setEdges((eds) =>
         addEdge(
-          {
+          styleEdge({
             ...flipped,
             id: edgeId,
             type: "default",
             animated: true,
             label: description,
-            labelStyle: { fontSize: 11, fontWeight: 500, fill: edgeColor },
-            labelBgStyle: {
-              fill: "hsl(var(--background))",
-              stroke: "hsl(var(--border))",
-              strokeWidth: 1,
-              rx: 4,
-              ry: 4,
-            },
             labelBgPadding: [6, 3] as [number, number],
-            markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16, color: edgeColor },
-            style: { strokeWidth: 2, stroke: edgeColor },
-          },
+          }),
           eds,
         ),
       );
