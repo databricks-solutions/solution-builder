@@ -229,7 +229,7 @@ async def workspace_refine(
                 yield f"data: {json.dumps({'type': 'complete', 'id': row.id, 'demo_name': row.demo_name})}\n\n"
             except Exception as e:
                 logger.exception("SSE stream error")
-            yield f"data: {json.dumps({'type': 'error', 'content': 'An internal error occurred. Please try again.'})}\n\n"
+                yield f"data: {json.dumps({'type': 'error', 'content': 'An internal error occurred. Please try again.'})}\n\n"
             yield "data: [DONE]\n\n"
 
         return StreamingResponse(section_stream(), media_type="text/event-stream")
