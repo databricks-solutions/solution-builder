@@ -446,11 +446,13 @@ const GROUP_COLORS = [
   { border: "#ec4899", label: "#f472b6" }, // pink
 ];
 
-let groupColorIndex = 0;
-function nextGroupColor() {
-  const color = GROUP_COLORS[groupColorIndex % GROUP_COLORS.length];
-  groupColorIndex++;
-  return color;
+function createGroupColorCycler() {
+  let index = 0;
+  return () => {
+    const color = GROUP_COLORS[index % GROUP_COLORS.length];
+    index++;
+    return color;
+  };
 }
 
 function GroupNode({ data, selected }: NodeProps<Node<GroupNodeData>>) {
@@ -1315,7 +1317,7 @@ function buildFromSkillMd(md: string): { nodes: Node<SkillNodeData>[]; edges: Ed
         animated: true,
         label: conn.description,
         data: { description: conn.description, canvasLabel },
-        labelStyle: { fontSize: 10, fontWeight: 500, fill: "#ffffff" },
+        labelStyle: { fontSize: 10, fontWeight: 500, fill: "hsl(var(--foreground))" },
         labelBgStyle: {
           fill: "hsl(var(--background))",
           stroke: "hsl(var(--border))",
@@ -1324,8 +1326,8 @@ function buildFromSkillMd(md: string): { nodes: Node<SkillNodeData>[]; edges: Ed
           ry: 4,
         },
         labelBgPadding: [6, 3] as [number, number],
-        markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16, color: "#ffffff" },
-        style: { strokeWidth: 2, stroke: "#ffffff" },
+        markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16, color: "hsl(var(--foreground))" },
+        style: { strokeWidth: 2, stroke: "hsl(var(--foreground))" },
       });
     }
   }
@@ -1334,7 +1336,7 @@ function buildFromSkillMd(md: string): { nodes: Node<SkillNodeData>[]; edges: Ed
 }
 
 // ---------------------------------------------------------------------------
-// ELK.js Auto-Layout
+// Auto-Layout (topological sort)
 // ---------------------------------------------------------------------------
 
 async function elkAutoLayout(
@@ -1553,6 +1555,9 @@ function ArchitectureBuilderInner({
 }) {
   const { theme } = useTheme();
   const resolvedDark = theme === "dark" || (theme === "system" && typeof window !== "undefined" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+  const edgeColor = resolvedDark ? "#ffffff" : "#374151"; // gray-700 for light mode
+
+  const nextGroupColor = useRef(createGroupColorCycler()).current;
 
   const [nodes, setNodes, onNodesChange] = useNodesState<Node<SkillNodeData>>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
@@ -1766,6 +1771,7 @@ function ArchitectureBuilderInner({
       const h = Math.abs(endFlow.y - startFlow.y);
       if (w > 40 && h > 30) {
         snapshot();
+        userEditedCanvas.current = true;
         const newNode: Node<SkillNodeData> = {
           id: `group-${Date.now()}`,
           type: "group",
@@ -1815,6 +1821,7 @@ function ArchitectureBuilderInner({
   const addSkillToCanvas = useCallback(
     (skill: SkillDef, position?: { x: number; y: number }) => {
       snapshot();
+      userEditedCanvas.current = true;
       const id = `${skill.id}-${Date.now()}`;
       const newNode: Node<SkillNodeData> = {
         id,
@@ -1946,6 +1953,7 @@ function ArchitectureBuilderInner({
     (description: string) => {
       if (!pendingConnection) return;
       snapshot();
+      userEditedCanvas.current = true;
       const { connection } = pendingConnection;
       // Swap source/target so the arrow points from the node the user dragged
       // FROM (first click) to the node they dropped ON (second click).
@@ -1964,7 +1972,7 @@ function ArchitectureBuilderInner({
             type: "default",
             animated: true,
             label: description,
-            labelStyle: { fontSize: 11, fontWeight: 500, fill: "#ffffff" },
+            labelStyle: { fontSize: 11, fontWeight: 500, fill: edgeColor },
             labelBgStyle: {
               fill: "hsl(var(--background))",
               stroke: "hsl(var(--border))",
@@ -1973,8 +1981,8 @@ function ArchitectureBuilderInner({
               ry: 4,
             },
             labelBgPadding: [6, 3] as [number, number],
-            markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16, color: "#ffffff" },
-            style: { strokeWidth: 2, stroke: "#ffffff" },
+            markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16, color: edgeColor },
+            style: { strokeWidth: 2, stroke: edgeColor },
           },
           eds,
         ),
@@ -2005,6 +2013,7 @@ function ArchitectureBuilderInner({
   // Delete selected nodes/edges
   const deleteSelected = useCallback(() => {
     snapshot();
+    userEditedCanvas.current = true;
     const selectedNodes = nodes.filter((n) => n.selected);
     const selectedNodeIds = new Set(selectedNodes.map((n) => n.id));
     setNodes((nds) => nds.filter((n) => !n.selected));

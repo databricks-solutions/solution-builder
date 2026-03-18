@@ -102,18 +102,19 @@ interface Section {
 // ---------------------------------------------------------------------------
 
 const ARCH_SECTION_MARKER = "\n\n## Architecture\n";
+const ARCH_SECTION_RE = /\n{1,}\s*##\s+Architecture\s*\n/;
 
 /** Strip the ## Architecture section from proposal markdown */
 function stripArchSection(md: string): string {
-  const idx = md.indexOf(ARCH_SECTION_MARKER);
-  return idx >= 0 ? md.slice(0, idx) : md;
+  const match = ARCH_SECTION_RE.exec(md);
+  return match ? md.slice(0, match.index) : md;
 }
 
 /** Extract the ## Architecture section from proposal markdown */
 function extractArchSection(md: string): string {
-  const idx = md.indexOf(ARCH_SECTION_MARKER);
-  if (idx < 0) return "";
-  return md.slice(idx + ARCH_SECTION_MARKER.length).trim();
+  const match = ARCH_SECTION_RE.exec(md);
+  if (!match) return "";
+  return md.slice(match.index + match[0].length).trim();
 }
 
 let _idCounter = 0;
