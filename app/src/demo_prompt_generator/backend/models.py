@@ -201,6 +201,13 @@ class WorkspaceBuildoutRequest(BaseModel):
     user_architecture: str | None = Field(default=None, description="User-designed architecture diagram (Mermaid) from the builder")
 
 
+class WorkspaceBuildoutFileRequest(BaseModel):
+    generation_id: int
+    filename: str = Field(..., description="File to generate (e.g. 'data-schema.md')")
+    generated_files: dict[str, str] = Field(default_factory=dict, description="Previously generated files for context")
+    user_architecture: str | None = Field(default=None)
+
+
 class WorkspaceRefineFileRequest(BaseModel):
     generation_id: int
     filename: str = Field(..., description="Target file to refine (e.g. 'storyline.md')")

@@ -44,6 +44,7 @@ import {
   streamProposalRefine,
   approveProposal,
   streamWorkspaceBuildout,
+  streamBuildoutFile,
   streamFileRefine,
   streamWorkspaceGenerate,
   streamWorkspaceRefine,
@@ -512,42 +513,61 @@ function WorkspacePage() {
 
     const files: Record<string, string> = {};
     try {
-      for await (const event of streamWorkspaceBuildout(
-        generationId,
-        ctrl.signal,
-        userArchitecture,
-      )) {
-        if (event.type === "file_start") {
-          setBuildingFile(event.filename);
-          setActiveFile(event.filename as PackageFilename);
-          addMessage({
-            id: uid(),
-            role: "system",
-            content: `Generating ${event.filename}...`,
-          });
-        } else if (event.type === "file_content") {
-          const fn = event.filename;
-          files[fn] = (files[fn] || "") + event.content;
-          setPackageFiles({ ...files });
-        } else if (event.type === "file_complete") {
-          setBuildingFile(null);
-        } else if (event.type === "complete") {
-          setDemoName(event.demo_name);
-          setStage("package");
-        } else if (event.type === "error") {
-          addMessage({
-            id: uid(),
-            role: "system",
-            content: `Error: ${event.content}`,
-          });
+      // Generate each file in a separate SSE request to avoid proxy timeouts
+      for (const filename of PACKAGE_FILES) {
+        if (ctrl.signal.aborted) break;
+
+        setBuildingFile(filename);
+        setActiveFile(filename as PackageFilename);
+        addMessage({
+          id: uid(),
+          role: "system",
+          content: `Generating ${filename}...`,
+        });
+
+        for await (const event of streamBuildoutFile(
+          generationId,
+          filename,
+          files,
+          ctrl.signal,
+          userArchitecture,
+        )) {
+          if (event.type === "file_content") {
+            files[filename] = (files[filename] || "") + event.content;
+            setPackageFiles({ ...files });
+          } else if (event.type === "file_complete") {
+            // file_complete from per-file endpoint includes the clean content
+            if (event.content) files[filename] = event.content;
+            setPackageFiles({ ...files });
+            setBuildingFile(null);
+          } else if (event.type === "error") {
+            addMessage({
+              id: uid(),
+              role: "system",
+              content: `Error generating ${filename}: ${event.content}`,
+            });
+          }
         }
       }
-      addMessage({
-        id: uid(),
-        role: "assistant",
-        content:
-          "Your demo package is ready! All four files have been generated. Review each file using the tabs on the left. You can refine any file by chatting here.",
-      });
+
+      // Save all files to the backend and finalize
+      if (!ctrl.signal.aborted) {
+        await fetch("/api/workspace/buildout-finalize", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            generation_id: generationId,
+            user_architecture: JSON.stringify(files),
+          }),
+        });
+        setStage("package");
+        addMessage({
+          id: uid(),
+          role: "assistant",
+          content:
+            "Your demo package is ready! All files have been generated. Review each file using the tabs on the left. You can refine any file by chatting here.",
+        });
+      }
     } catch (err) {
       if (!ctrl.signal.aborted) {
         addMessage({

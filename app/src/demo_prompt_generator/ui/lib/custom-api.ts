@@ -82,7 +82,7 @@ export type WorkspaceEvent =
   | { type: "proposal"; content: string }
   | { type: "file_start"; filename: string }
   | { type: "file_content"; filename: string; content: string }
-  | { type: "file_complete"; filename: string };
+  | { type: "file_complete"; filename: string; content?: string };
 
 async function* parseSSEStream(
   resp: Response,
@@ -219,6 +219,29 @@ export async function* streamWorkspaceBuildout(
     signal,
   });
   if (!resp.ok) throw new Error(`Buildout failed: ${resp.status}`);
+  yield* parseSSEStream(resp);
+}
+
+export async function* streamBuildoutFile(
+  generationId: number,
+  filename: string,
+  generatedFiles: Record<string, string>,
+  signal?: AbortSignal,
+  userArchitecture?: string,
+): AsyncGenerator<WorkspaceEvent> {
+  const body: Record<string, unknown> = {
+    generation_id: generationId,
+    filename,
+    generated_files: generatedFiles,
+  };
+  if (userArchitecture) body.user_architecture = userArchitecture;
+  const resp = await fetch("/api/workspace/buildout-file", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    signal,
+  });
+  if (!resp.ok) throw new Error(`Buildout file failed: ${resp.status}`);
   yield* parseSSEStream(resp);
 }
 
