@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import io
 import json
 import zipfile
@@ -408,12 +409,21 @@ async def workspace_buildout(
                 yield f"data: {json.dumps({'type': 'file_start', 'filename': filename})}\n\n"
 
                 collected = ""
-                async for chunk in stream_buildout_file(
+                # Wrap the LLM stream with a keepalive: if no chunk arrives
+                # within 15s, send an SSE comment to prevent proxy timeouts.
+                llm_stream = stream_buildout_file(
                     filename, row.proposal_md, generated_files, host, token, model=model,
                     user_architecture=user_arch,
-                ):
-                    collected += chunk
-                    yield f"data: {json.dumps({'type': 'file_content', 'filename': filename, 'content': chunk})}\n\n"
+                )
+                while True:
+                    try:
+                        chunk = await asyncio.wait_for(llm_stream.__anext__(), timeout=15.0)
+                        collected += chunk
+                        yield f"data: {json.dumps({'type': 'file_content', 'filename': filename, 'content': chunk})}\n\n"
+                    except asyncio.TimeoutError:
+                        yield ": keepalive\n\n"
+                    except StopAsyncIteration:
+                        break
 
                 clean = _strip_fences(collected)
                 generated_files[filename] = clean
