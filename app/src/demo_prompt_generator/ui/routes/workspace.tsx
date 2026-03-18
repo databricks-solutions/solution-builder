@@ -1,5 +1,6 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useState, useCallback, useRef, useEffect, useMemo } from "react";
+import { useState, useCallback, useRef, useEffect, useMemo, lazy, Suspense } from "react";
+import { ErrorBoundary } from "react-error-boundary";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -35,12 +36,16 @@ import {
   FolderTree,
   Archive,
   CheckCircle2,
+  Blocks,
+  PanelRightOpen,
+  PanelRightClose,
 } from "lucide-react";
 import {
   streamWorkspacePropose,
   streamProposalRefine,
   approveProposal,
   streamWorkspaceBuildout,
+  streamBuildoutFile,
   streamFileRefine,
   streamWorkspaceGenerate,
   streamWorkspaceRefine,
@@ -52,6 +57,8 @@ import {
 } from "@/lib/custom-api";
 import { FileRendererWithFallback } from "@/components/file-renderers";
 import { ProposalCards } from "@/components/proposal-cards";
+
+const ArchitectureBuilder = lazy(() => import("@/components/architecture-builder"));
 
 export const Route = createFileRoute("/workspace")({
   validateSearch: (search: Record<string, unknown>) => ({
@@ -72,6 +79,7 @@ type Stage = "proposal" | "buildout" | "package";
 const PACKAGE_FILES = [
   "SKILL.md",
   "storyline.md",
+  "architecture.md",
   "data-schema.md",
   "project-structure.md",
   "walkthrough.md",
@@ -94,6 +102,22 @@ interface Section {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+const ARCH_SECTION_MARKER = "\n\n## Architecture\n";
+const ARCH_SECTION_RE = /(?:^|\n)\s*##\s+Architecture\s*\n/;
+
+/** Strip the ## Architecture section from proposal markdown */
+function stripArchSection(md: string): string {
+  const match = ARCH_SECTION_RE.exec(md);
+  return match ? md.slice(0, match.index) : md;
+}
+
+/** Extract the ## Architecture section from proposal markdown */
+function extractArchSection(md: string): string {
+  const match = ARCH_SECTION_RE.exec(md);
+  if (!match) return "";
+  return md.slice(match.index + match[0].length).trim();
+}
 
 let _idCounter = 0;
 function uid(): string {
@@ -196,20 +220,39 @@ function WorkspacePage() {
   const [mentionIndex, setMentionIndex] = useState(0);
   const [mentionDismissed, setMentionDismissed] = useState(false);
   const [activeTab, setActiveTab] = useState("preview");
+  const [chatCollapsed, setChatCollapsed] = useState(false);
   const [buildingFile, setBuildingFile] = useState<string | null>(null);
+  const [proposalArchMermaid, setProposalArchMermaid] = useState("");
+  // When architecture changes in the builder, sync into proposalMd
+  const archSyncRef = useRef(false); // prevent loop: builder change → proposalMd update → builder re-parse
 
   const abortRef = useRef<AbortController | null>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const hasStarted = useRef(false);
   const previewRef = useRef<HTMLDivElement>(null);
+  const architectureBuilderRef = useRef<{ getSerializedArchitecture: () => string | null }>(null);
+
+  // Reset archSyncRef after the proposalMd update from architecture builder is processed
+  useEffect(() => {
+    if (archSyncRef.current) {
+      archSyncRef.current = false;
+    }
+  }, [proposalMd]);
+
+  // Abort any in-flight streaming on unmount
+  useEffect(() => {
+    return () => {
+      abortRef.current?.abort();
+    };
+  }, []);
 
   const currentMd =
     stage === "proposal"
       ? proposalMd
       : packageFiles[activeFile] || "";
 
-  const sections = useMemo(() => parseSections(currentMd), [currentMd]);
+  const sections = useMemo(() => parseSections(stage === "proposal" ? stripArchSection(currentMd) : currentMd), [currentMd, stage]);
 
   const mentionContext = useMemo(() => {
     const lastAt = chatInput.lastIndexOf("@");
@@ -452,6 +495,9 @@ function WorkspacePage() {
   const handleApproveAndBuild = useCallback(async () => {
     if (!generationId || isGenerating) return;
 
+    // Capture user's architecture diagram before transitioning
+    const userArchitecture = architectureBuilderRef.current?.getSerializedArchitecture() || undefined;
+
     try {
       await approveProposal(generationId);
     } catch (err) {
@@ -470,7 +516,9 @@ function WorkspacePage() {
     addMessage({
       id: uid(),
       role: "system",
-      content: "Proposal approved! Building the full demo package...",
+      content: userArchitecture
+        ? "Proposal approved with user architecture! Building the full demo package..."
+        : "Proposal approved! Building the full demo package...",
     });
 
     abortRef.current?.abort();
@@ -480,41 +528,61 @@ function WorkspacePage() {
 
     const files: Record<string, string> = {};
     try {
-      for await (const event of streamWorkspaceBuildout(
-        generationId,
-        ctrl.signal,
-      )) {
-        if (event.type === "file_start") {
-          setBuildingFile(event.filename);
-          setActiveFile(event.filename as PackageFilename);
-          addMessage({
-            id: uid(),
-            role: "system",
-            content: `Generating ${event.filename}...`,
-          });
-        } else if (event.type === "file_content") {
-          const fn = event.filename;
-          files[fn] = (files[fn] || "") + event.content;
-          setPackageFiles({ ...files });
-        } else if (event.type === "file_complete") {
-          setBuildingFile(null);
-        } else if (event.type === "complete") {
-          setDemoName(event.demo_name);
-          setStage("package");
-        } else if (event.type === "error") {
-          addMessage({
-            id: uid(),
-            role: "system",
-            content: `Error: ${event.content}`,
-          });
+      // Generate each file in a separate SSE request to avoid proxy timeouts
+      for (const filename of PACKAGE_FILES) {
+        if (ctrl.signal.aborted) break;
+
+        setBuildingFile(filename);
+        setActiveFile(filename as PackageFilename);
+        addMessage({
+          id: uid(),
+          role: "system",
+          content: `Generating ${filename}...`,
+        });
+
+        for await (const event of streamBuildoutFile(
+          generationId,
+          filename,
+          files,
+          ctrl.signal,
+          userArchitecture,
+        )) {
+          if (event.type === "file_content") {
+            files[filename] = (files[filename] || "") + event.content;
+            setPackageFiles({ ...files });
+          } else if (event.type === "file_complete") {
+            // file_complete from per-file endpoint includes the clean content
+            if (event.content) files[filename] = event.content;
+            setPackageFiles({ ...files });
+            setBuildingFile(null);
+          } else if (event.type === "error") {
+            addMessage({
+              id: uid(),
+              role: "system",
+              content: `Error generating ${filename}: ${event.content}`,
+            });
+          }
         }
       }
-      addMessage({
-        id: uid(),
-        role: "assistant",
-        content:
-          "Your demo package is ready! All four files have been generated. Review each file using the tabs on the left. You can refine any file by chatting here.",
-      });
+
+      // Save all files to the backend and finalize
+      if (!ctrl.signal.aborted) {
+        await fetch("/api/workspace/buildout-finalize", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            generation_id: generationId,
+            user_architecture: JSON.stringify(files),
+          }),
+        });
+        setStage("package");
+        addMessage({
+          id: uid(),
+          role: "assistant",
+          content:
+            "Your demo package is ready! All files have been generated. Review each file using the tabs on the left. You can refine any file by chatting here.",
+        });
+      }
     } catch (err) {
       if (!ctrl.signal.aborted) {
         addMessage({
@@ -602,6 +670,129 @@ function WorkspacePage() {
     chatHistory,
     addMessage,
   ]);
+
+  // -----------------------------------------------------------------------
+  // Architecture Builder: apply diagram to architecture.md
+  // -----------------------------------------------------------------------
+
+  const handleApplyArchitecture = useCallback(
+    (architectureDescription: string) => {
+      if (!generationId || isRefining) return;
+
+      if (stage === "buildout" || stage === "package") {
+        // Buildout/package: refine architecture.md via file refinement
+        const msg = `Replace the architecture content with this updated architecture:\n\n${architectureDescription}`;
+        addMessage({ id: uid(), role: "user", content: "Updated architecture from visual builder" });
+
+        abortRef.current?.abort();
+        const ctrl = new AbortController();
+        abortRef.current = ctrl;
+        setIsRefining(true);
+
+        let collected = "";
+        (async () => {
+          try {
+            for await (const event of streamFileRefine(
+              generationId,
+              "architecture.md",
+              msg,
+              chatHistory,
+              ctrl.signal,
+            )) {
+              if (event.type === "file_content") {
+                collected += event.content;
+                setPackageFiles((prev) => ({
+                  ...prev,
+                  [event.filename]: collected,
+                }));
+              } else if (event.type === "complete") {
+                setDemoName(event.demo_name);
+              } else if (event.type === "error") {
+                addMessage({
+                  id: uid(),
+                  role: "system",
+                  content: `Error: ${event.content}`,
+                });
+              }
+            }
+            setChatHistory((prev) => [
+              ...prev,
+              { role: "user", content: msg },
+              { role: "assistant", content: "Updated architecture.md from builder." },
+            ]);
+            addMessage({
+              id: uid(),
+              role: "assistant",
+              content: "Done! I've updated **architecture.md** from your diagram.",
+            });
+            setActiveFile("architecture.md" as PackageFilename);
+            setActiveTab("preview");
+          } catch (err) {
+            if (!ctrl.signal.aborted) {
+              addMessage({
+                id: uid(),
+                role: "system",
+                content: `Architecture update failed: ${err instanceof Error ? err.message : "Unknown error"}`,
+              });
+            }
+          } finally {
+            setIsRefining(false);
+          }
+        })();
+      } else if (stage === "proposal") {
+        // Proposal stage: refine the Proposed Solution to reflect the diagram
+        const msg = `Update the Proposed Solution section to reflect this architecture design. Ensure the Build Steps align with these components and connections:\n\n${architectureDescription}`;
+        addMessage({ id: uid(), role: "user", content: "Refining Proposed Solution from architecture diagram" });
+
+        abortRef.current?.abort();
+        const ctrl = new AbortController();
+        abortRef.current = ctrl;
+        setIsRefining(true);
+
+        let collected = "";
+        let firstChunk = true;
+        (async () => {
+          try {
+            for await (const event of streamProposalRefine(
+              generationId,
+              msg,
+              chatHistory,
+              ctrl.signal,
+              ["Proposed Solution", "Build Steps"],
+            )) {
+              if (event.type === "proposal") {
+                if (firstChunk) { collected = event.content; firstChunk = false; }
+                else collected += event.content;
+                setProposalMd(collected);
+              } else if (event.type === "complete") {
+                setDemoName(event.demo_name);
+              } else if (event.type === "error") {
+                addMessage({ id: uid(), role: "system", content: `Error: ${event.content}` });
+              }
+            }
+            setChatHistory((prev) => [
+              ...prev,
+              { role: "user", content: msg },
+              { role: "assistant", content: "Updated the Proposed Solution from architecture." },
+            ]);
+            addMessage({
+              id: uid(),
+              role: "assistant",
+              content: "Done! I've updated the **Proposed Solution** and **Build Steps** to match your architecture diagram.",
+            });
+            setActiveTab("preview");
+          } catch (err) {
+            if (!ctrl.signal.aborted) {
+              addMessage({ id: uid(), role: "system", content: `Refinement failed: ${err instanceof Error ? err.message : "Unknown error"}` });
+            }
+          } finally {
+            setIsRefining(false);
+          }
+        })();
+      }
+    },
+    [generationId, isRefining, stage, chatHistory, addMessage, setIsRefining, setPackageFiles, setProposalMd, setDemoName, setChatHistory, setActiveFile, setActiveTab],
+  );
 
   // -----------------------------------------------------------------------
   // Start generation on mount OR load existing generation
@@ -803,11 +994,11 @@ function WorkspacePage() {
         }
       />
 
-      <div className="flex flex-1 overflow-hidden">
+      <div className="relative flex flex-1 overflow-hidden">
         {/* ============================================================= */}
         {/* Left Panel */}
         {/* ============================================================= */}
-        <div className="flex w-[62%] flex-col border-r border-border/60">
+        <div className={`flex flex-col border-r border-border/60 transition-all duration-200 ${chatCollapsed ? "w-full" : "w-[62%]"}`}>
           <div className="flex items-center justify-between border-b px-3 py-1.5 shrink-0">
             <Tabs
               value={activeTab}
@@ -816,43 +1007,26 @@ function WorkspacePage() {
             >
               <div className="flex items-center justify-between">
                 {/* Tab bar changes based on stage */}
-                {stage === "proposal" ? (
-                  <TabsList className="h-8">
-                    <TabsTrigger
-                      value="preview"
-                      className="gap-1.5 text-xs px-2.5 h-6"
-                    >
-                      <FileText className="h-3 w-3" /> Proposal
-                    </TabsTrigger>
-                    <TabsTrigger
-                      value="raw"
-                      className="gap-1.5 text-xs px-2.5 h-6"
-                    >
-                      <Code className="h-3 w-3" /> Raw
-                    </TabsTrigger>
-                  </TabsList>
-                ) : (
-                  <TabsList className="h-8">
-                    <TabsTrigger
-                      value="preview"
-                      className="gap-1.5 text-xs px-2.5 h-6"
-                    >
-                      <FileText className="h-3 w-3" /> Preview
-                    </TabsTrigger>
-                    <TabsTrigger
-                      value="architecture"
-                      className="gap-1.5 text-xs px-2.5 h-6"
-                    >
-                      <Workflow className="h-3 w-3" /> Architecture
-                    </TabsTrigger>
-                    <TabsTrigger
-                      value="raw"
-                      className="gap-1.5 text-xs px-2.5 h-6"
-                    >
-                      <Code className="h-3 w-3" /> Raw
-                    </TabsTrigger>
-                  </TabsList>
-                )}
+                <TabsList className="h-8">
+                  <TabsTrigger
+                    value="preview"
+                    className="gap-1.5 text-xs px-2.5 h-6"
+                  >
+                    <FileText className="h-3 w-3" /> {stage === "proposal" ? "Proposal" : "Preview"}
+                  </TabsTrigger>
+                  <TabsTrigger
+                    value="architecture"
+                    className="gap-1.5 text-xs px-2.5 h-6"
+                  >
+                    <Blocks className="h-3 w-3" /> Architecture
+                  </TabsTrigger>
+                  <TabsTrigger
+                    value="raw"
+                    className="gap-1.5 text-xs px-2.5 h-6"
+                  >
+                    <Code className="h-3 w-3" /> Raw
+                  </TabsTrigger>
+                </TabsList>
 
                 <div className="flex gap-1">
                   {stage === "proposal" && generationId && !busy && (
@@ -967,12 +1141,12 @@ function WorkspacePage() {
                           {stage === "proposal" ? (
                             <div className="space-y-6">
                               <ProposalCards
-                                markdown={currentMd}
+                                markdown={stripArchSection(currentMd)}
                                 streaming={busy}
                               />
                               {!busy && currentMd && (
                                 <div className="rounded-xl border border-border/50 p-5 bg-muted/[0.02]">
-                                  <ArchitectureGraph markdown={currentMd} />
+                                  <ArchitectureGraph markdown={stripArchSection(currentMd)} />
                                 </div>
                               )}
                             </div>
@@ -980,8 +1154,6 @@ function WorkspacePage() {
                             <FileRendererWithFallback
                               filename={activeFile}
                               markdown={currentMd}
-                              collapsedSections={collapsedSections}
-                              onToggleSection={toggleSection}
                             />
                           ) : (
                             <div className="prose prose-sm dark:prose-invert max-w-none">
@@ -1026,12 +1198,40 @@ function WorkspacePage() {
                 </div>
               </TabsContent>
 
-              <TabsContent value="architecture" className="mt-0">
-                <ScrollArea className="h-[calc(100vh-8.5rem)]">
-                  <div className="p-5">
-                    <ArchitectureGraph markdown={currentMd} />
-                  </div>
-                </ScrollArea>
+              <TabsContent value="architecture" className="mt-0" forceMount style={{ display: activeTab === "architecture" ? undefined : "none" }}>
+                <div className="h-[calc(100vh-8.5rem)]">
+                  <ErrorBoundary
+                    fallback={
+                      <div className="flex items-center justify-center h-full text-muted-foreground">
+                        Failed to load architecture builder.
+                      </div>
+                    }
+                  >
+                  <Suspense
+                    fallback={
+                      <div className="flex items-center justify-center h-full text-muted-foreground">
+                        <Loader2 className="h-6 w-6 animate-spin" />
+                      </div>
+                    }
+                  >
+                    <ArchitectureBuilder
+                      ref={architectureBuilderRef}
+                      onApplyArchitecture={generationId ? handleApplyArchitecture : undefined}
+                      onArchitectureChange={stage === "proposal" ? (mermaid: string) => {
+                        setProposalArchMermaid(mermaid);
+                        // Sync architecture into proposalMd so the refine endpoint sees it
+                        archSyncRef.current = true;
+                        setProposalMd((prev) => stripArchSection(prev) + ARCH_SECTION_MARKER + mermaid);
+                      } : undefined}
+                      busy={busy}
+                      architectureMd={(stage === "buildout" || stage === "package") ? packageFiles["architecture.md"] : undefined}
+                      proposalBuildSteps={stage === "proposal" ? proposalMd : undefined}
+                      isVisible={activeTab === "architecture"}
+                      stage={stage}
+                    />
+                  </Suspense>
+                  </ErrorBoundary>
+                </div>
               </TabsContent>
 
               <TabsContent value="raw" className="mt-0">
@@ -1049,9 +1249,27 @@ function WorkspacePage() {
         </div>
 
         {/* ============================================================= */}
+        {/* Collapse/Expand divider button */}
+        {/* ============================================================= */}
+        <button
+          onClick={() => setChatCollapsed((c) => !c)}
+          className={`absolute z-20 flex h-8 w-8 items-center justify-center rounded-full border border-border/60 bg-background shadow-md hover:bg-muted transition-all duration-200 top-1/2 -translate-y-1/2 ${
+            chatCollapsed ? "right-3" : "right-[37%]"
+          }`}
+          style={chatCollapsed ? undefined : { transform: "translateY(-50%) translateX(50%)" }}
+          title={chatCollapsed ? "Show chat panel" : "Hide chat panel"}
+        >
+          {chatCollapsed ? (
+            <PanelRightOpen className="h-4 w-4 text-muted-foreground" />
+          ) : (
+            <PanelRightClose className="h-4 w-4 text-muted-foreground" />
+          )}
+        </button>
+
+        {/* ============================================================= */}
         {/* Right Panel: Chat */}
         {/* ============================================================= */}
-        <div className="flex w-[38%] flex-col">
+        <div className={`flex flex-col transition-all duration-200 ${chatCollapsed ? "w-0 overflow-hidden" : "w-[38%]"}`}>
           <div className="flex items-center gap-2 border-b px-4 py-2.5 shrink-0">
             <Bot className="h-4 w-4 text-primary" />
             <span className="text-sm font-medium">Skill Architect</span>

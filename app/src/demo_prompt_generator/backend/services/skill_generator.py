@@ -43,6 +43,59 @@ AI_DEV_KIT_SKILLS: list[tuple[str, str]] = [
 ]
 
 
+# Architecture component IDs — the valid node types for Mermaid architecture diagrams.
+# Mirrors SKILL_CATALOG in architecture-builder.tsx. Single source of truth for prompts.
+ARCHITECTURE_COMPONENTS: dict[str, list[tuple[str, str]]] = {
+    "Data Asset": [
+        ("delta-table", "Managed or external Delta Lake table"),
+        ("streaming-table", "Delta table with built-in streaming ingestion"),
+        ("materialized-view", "Pre-computed view that auto-refreshes"),
+        ("uc-volume", "Unity Catalog Volume for files and artifacts"),
+        ("feature-table", "Feature engineering table for ML models"),
+        ("vector-index", "Vector Search index for similarity queries"),
+        ("external-file", "CSV, JSON, Parquet, or PDF files"),
+    ],
+    "Compute": [
+        ("declarative-pipeline", "Lakeflow Declarative Pipeline (SDP)"),
+        ("auto-loader", "Incremental file ingestion from cloud storage"),
+        ("structured-streaming", "Spark Structured Streaming"),
+        ("databricks-job", "Orchestrated multi-task job with scheduling"),
+        ("model-serving", "Deploy and query Model Serving endpoints"),
+        ("sql-warehouse", "Serverless SQL compute for analytics queries"),
+        ("vector-search-endpoint", "Serve similarity search queries"),
+        ("ai-agent", "Mosaic AI Agent (tool-use, RAG, multi-turn)"),
+        ("ai-gateway", "LLM routing, rate limiting, and governance"),
+        ("lakeflow-connect", "Managed connectors for SaaS and database ingestion"),
+        ("zerobus-ingest", "Real-time Delta table ingestion via gRPC"),
+        ("lakebase-sync", "Real-time sync from Delta to Lakebase"),
+        ("synthetic-data-gen", "Generate realistic synthetic data"),
+    ],
+    "Application": [
+        ("aibi-dashboard", "AI/BI Lakeview dashboard with visualizations"),
+        ("genie-space", "Natural language SQL exploration"),
+        ("databricks-app", "Full-stack app (FastAPI/React or Streamlit)"),
+        ("agent-app", "LangGraph agent deployed as a Databricks App"),
+        ("custom-mcp-app", "Custom MCP server as a Databricks App"),
+        ("notebook", "Interactive notebook for analysis or orchestration"),
+        ("alert", "Scheduled SQL alert with notifications"),
+    ],
+    "External": [
+        ("lakebase-db", "Managed PostgreSQL for OLTP"),
+        ("delta-sharing", "Cross-org data sharing endpoint"),
+        ("external-mcp", "Third-party MCP server outside Databricks"),
+    ],
+}
+
+
+def _arch_components_catalog() -> str:
+    """Format architecture components for prompt inclusion."""
+    lines: list[str] = []
+    for category, components in ARCHITECTURE_COMPONENTS.items():
+        ids = ", ".join(f"`{cid}`" for cid, _ in components)
+        lines.append(f"{category}: {ids}")
+    return "\n".join(lines)
+
+
 def _features_summary(req: DemoRequestIn) -> str:
     mapping = {
         "delta_lake": "Delta Lake",
@@ -152,8 +205,9 @@ Numbered list. Each step names an ai-dev-kit skill in backticks. Keep to 4-7 ste
 3-5 bullet checklist of what "done" looks like.
 ```
 
-This is a PROPOSAL — a scannable pitch, not a spec. All detail (schemas, SQL, directory layout) \
-comes later during buildout in data-schema.md, storyline.md, and project-structure.md."""
+This is a PROPOSAL — a scannable pitch, not a spec. All detail (schemas, SQL, architecture diagrams, \
+directory layout) comes later during buildout in data-schema.md, architecture.md, storyline.md, \
+project-structure.md, and walkthrough.md."""
 
 
 def _build_user_prompt(req: DemoRequestIn) -> str:
@@ -312,7 +366,7 @@ async def stream_skill_from_topic(
         "stream": True,
     }
 
-    async with httpx.AsyncClient(timeout=180.0) as client:
+    async with httpx.AsyncClient(timeout=httpx.Timeout(connect=30.0, read=120.0, write=30.0, pool=30.0)) as client:
         async with client.stream("POST", url, json=payload, headers=headers) as resp:
             resp.raise_for_status()
             async for line in resp.aiter_lines():
@@ -385,7 +439,7 @@ async def stream_skill_refinement(
         "stream": True,
     }
 
-    async with httpx.AsyncClient(timeout=180.0) as client:
+    async with httpx.AsyncClient(timeout=httpx.Timeout(connect=30.0, read=120.0, write=30.0, pool=30.0)) as client:
         async with client.stream("POST", url, json=payload, headers=headers) as resp:
             resp.raise_for_status()
             async for line in resp.aiter_lines():
@@ -464,7 +518,7 @@ async def stream_section_refinement(
         "stream": True,
     }
 
-    async with httpx.AsyncClient(timeout=180.0) as client:
+    async with httpx.AsyncClient(timeout=httpx.Timeout(connect=30.0, read=120.0, write=30.0, pool=30.0)) as client:
         async with client.stream("POST", url, json=payload, headers=headers) as resp:
             resp.raise_for_status()
             async for line in resp.aiter_lines():
@@ -535,16 +589,50 @@ Brief bullet list of deliverables. One line each — name + what it does. Exampl
 - **Maintenance Genie Space** — natural language queries over maintenance history
 
 ## Build Steps
-Numbered list, 4-6 steps. Each names ONE ai-dev-kit skill in backticks. Example:
+Numbered list, 4-6 steps that implement the Proposed Solution end-to-end. Every capability \
+mentioned in Proposed Solution must map to at least one Build Step, and every Build Step must \
+trace back to the Proposed Solution. Each step names ONE ai-dev-kit skill in backticks. Example:
 1. Generate synthetic sensor and maintenance data using `databricks-synthetic-data-generation`
 2. Build bronze→silver→gold SDP pipeline using `databricks-spark-declarative-pipelines`
+
+## Architecture
+A Mermaid flowchart (`graph LR`) showing the data flow from the Proposed Solution. \
+This diagram must be consistent with the Build Steps and Outputs above. Rules:
+- Use `graph LR` (left-to-right).
+- For medallion layers, use ONE node per layer listing tables: \
+`bronze["Bronze Layer | table1, table2"]:::data_asset %% tier=bronze, format=delta`. \
+Do NOT use subgraphs or individual table nodes for medallion layers.
+- Compute nodes connect layers: `bronze -->|"Raw data"| pipeline1` then `pipeline1 -->|"Cleaned"| silver`.
+- Applications (dashboards, Genie, apps) connect downstream of gold via SQL warehouse or directly.
+- Node format: `id["skill-id | Description"]:::class %% metadata`.
+- The `skill-id` in each node label MUST be from this registry — do NOT invent names:\n\
+{_arch_components_catalog()}\n\
+For medallion layers use `Bronze Layer`, `Silver Layer`, `Gold Layer` as the skill-id.
+- Classes: `data_asset`, `compute`, `application`, `external`.
+- Keep it minimal — only components from the Proposed Solution, no extras.
+
+Example:
+```mermaid
+graph LR
+  synth["synthetic-data-gen | Generate data"]:::compute
+  bronze["Bronze Layer | raw_events, raw_users"]:::data_asset %% tier=bronze, format=delta
+  pipeline1["declarative-pipeline | Cleanse and enrich"]:::compute
+  gold["Gold Layer | user_metrics, event_summary"]:::data_asset %% tier=gold, format=delta
+  wh["sql-warehouse | Query engine"]:::compute
+  dash["aibi-dashboard | Analytics"]:::application
+  synth -->|"Generated"| bronze
+  bronze -->|"Raw"| pipeline1
+  pipeline1 -->|"Enriched"| gold
+  gold -->|"Query"| wh
+  wh -->|"Results"| dash
+```
 
 ## Available ai-dev-kit skills
 
 {_skills_catalog()}
 
 ## Rules
-- Keep the ENTIRE proposal under 50 lines of markdown. Short and punchy.
+- Keep the ENTIRE proposal under 80 lines of markdown. Short and punchy.
 - DATABRICKS ONLY. No external tools, middleware, or competing platforms. \
 Everything runs natively on Databricks: SDP pipelines, Unity Catalog, Model Serving, \
 AI/BI Dashboards, Genie, Databricks Apps, etc.
@@ -582,7 +670,7 @@ async def stream_proposal(
         "stream": True,
     }
 
-    async with httpx.AsyncClient(timeout=180.0) as client:
+    async with httpx.AsyncClient(timeout=httpx.Timeout(connect=30.0, read=120.0, write=30.0, pool=30.0)) as client:
         async with client.stream("POST", url, json=payload, headers=headers) as resp:
             resp.raise_for_status()
             async for line in resp.aiter_lines():
@@ -655,7 +743,7 @@ async def stream_proposal_refinement(
         "stream": True,
     }
 
-    async with httpx.AsyncClient(timeout=180.0) as client:
+    async with httpx.AsyncClient(timeout=httpx.Timeout(connect=30.0, read=120.0, write=30.0, pool=30.0)) as client:
         async with client.stream("POST", url, json=payload, headers=headers) as resp:
             resp.raise_for_status()
             async for line in resp.aiter_lines():
@@ -686,23 +774,51 @@ _BUILDOUT_FILE_PROMPTS: dict[str, tuple[str, str]] = {
         "2. **Overview** — one paragraph: who it's for, what problem it solves, why it's compelling\n"
         "3. **Before You Start** — mandatory reads list:\n"
         "   - Read [storyline.md](storyline.md) for business context and narrative arc\n"
+        "   - Read [architecture.md](architecture.md) for the component diagram and binding contract\n"
         "   - Read [data-schema.md](data-schema.md) for all table schemas and transformation SQL\n"
         "   - Read [project-structure.md](project-structure.md) for target directory layout\n"
         "   - Read [walkthrough.md](walkthrough.md) for demo walkthrough script and talk track\n"
         "4. **Prerequisites** — catalog, schema, workspace assumptions (short bullet list)\n"
         "5. **Build Steps** — numbered checklist, each step references an ai-dev-kit skill "
-        "in backticks AND the relevant reference file\n"
-        "6. **Acceptance Criteria** — checklist of what 'done' looks like\n\n"
+        "in backticks AND the relevant reference file. IMPORTANT: Each step must include TWO verifications:\n"
+        "   - **Component verification:** Run a specific check and output the result. For tables: "
+        "run a SELECT query and show output. For endpoints: send a request and show response. "
+        "For dashboards/apps: open in Chrome DevTools, take a screenshot, check for console errors. "
+        "'It exists' is not verification — show it works.\n"
+        "   - **Integration verification:** Confirm the component is connected to its upstream and "
+        "downstream neighbors as specified in architecture.md. Show evidence of the live data flow.\n"
+        "   Format each step as:\n"
+        "   1. **<What should exist>** (<Databricks service>) — <Brief description>.\n"
+        "      - **Verify:** <specific check with expected output>\n"
+        "      - **Integration:** <what to confirm and how>\n"
+        "6. **Acceptance Criteria** — GATE: every item must pass before proceeding to walkthrough. "
+        "Checklist of what 'done' looks like. MUST include:\n"
+        "   - [ ] Every architecture.md connection is implemented as a live runtime dependency — "
+        "for each arrow in the diagram, name the component that makes the call and show evidence it works.\n"
+        "7. **App Testing** (REQUIRED if architecture includes `databricks-app`) — "
+        "Define end-to-end user journey tests that cover every tab, page, button, form, and "
+        "interactive element in the app. Each test specifies: journey name, exact steps "
+        "(navigate, click, fill, verify), expected outcome. At minimum test:\n"
+        "   - App loads without console errors\n"
+        "   - Every tab/page is reachable and renders correctly\n"
+        "   - All forms submit successfully\n"
+        "   - All data visualizations populate with real data\n"
+        "   - All interactive elements respond correctly\n"
+        "   Execute tests via Chrome DevTools. If any fail, fix, redeploy, and re-run.\n\n"
         "ABSOLUTE RULES:\n"
         "- NO Datasets section. NO table names. NO schemas. NO column lists. That's data-schema.md's job.\n"
         "- NO Transformations section. NO SQL. That's data-schema.md's job.\n"
         "- NO directory trees. That's project-structure.md's job.\n"
+        "- NO architecture diagrams. That's architecture.md's job.\n"
         "- NO Outputs section with detailed descriptions. Build Steps cover what gets built.\n"
-        "- SKILL.md is a ROUTING TABLE, not a reference document. Keep it under 80 lines.",
+        "- SKILL.md is a ROUTING TABLE, not a reference document. Keep it under 100 lines.",
         "Generate SKILL.md from this approved proposal. "
         "Strip ALL data details — no table names, no schemas, no column lists, no SQL, no data generation instructions. "
         "All data information lives ONLY in data-schema.md. SKILL.md just says 'Read data-schema.md'. "
-        "Keep it tight: overview, mandatory reads, prerequisites, build steps, acceptance criteria.\n\n"
+        "Architecture lives ONLY in architecture.md. SKILL.md just says 'Read architecture.md'. "
+        "Each build step MUST include component verification and integration verification. "
+        "Keep it tight: overview, mandatory reads, prerequisites, build steps with dual verification, "
+        "acceptance criteria gate, and app testing if applicable.\n\n"
         "Output ONLY the SKILL.md starting with --- frontmatter. No commentary.",
     ),
     "storyline.md": (
@@ -714,20 +830,144 @@ _BUILDOUT_FILE_PROMPTS: dict[str, tuple[str, str]] = {
         "enriched with the concrete scope established in SKILL.md. "
         "Include: Industry Context, Company Persona, Business Problem, Narrative Arc, "
         "Wow Moment, Domain Terminology glossary.\n\n"
+        "IMPORTANT: Start the file with an imperative instruction paragraph addressed to the executing agent, e.g.:\n"
+        "'Use this narrative when building all user-facing outputs — dashboards, Genie spaces, apps, "
+        "and documentation. All labels, descriptions, column aliases, and sample queries should reflect "
+        "the company persona, industry terminology, and business context defined below.'\n\n"
         "Output ONLY the storyline.md content starting with `# Storyline`. No frontmatter, no commentary.",
+    ),
+    "architecture.md": (
+        "You are generating architecture.md — the binding contract for every component and "
+        "connection in the demo. This is a Mermaid flowchart that defines what gets deployed. "
+        "The executing agent MUST implement every component and every connection exactly as specified.\n\n"
+        "DEFAULT STARTING POINT: Unless the user specifies a real external data source, "
+        "demos begin with synthetic data generation.\n\n"
+        "REFERENTIAL INTEGRITY: When synthetic data spans multiple tables with shared keys, "
+        "the spec MUST state that all tables are generated from a single keyspace with explicit "
+        "parent → child ordering and cardinality constraints.\n\n"
+        "## Format rules\n"
+        "- Use `graph LR` (left-to-right flow).\n"
+        "- Each node ID must be a valid Mermaid identifier (letters, digits, underscores).\n"
+        "- Node label format: `id[\"skill-id | Description\"]` — the label contains the skill-id "
+        "and a human-readable description separated by ` | `.\n"
+        "- Append a `:::` class to each node for its type: `:::data_asset`, `:::compute`, "
+        "`:::application`, `:::external`.\n"
+        "- Metadata (tier, format, pattern) goes in a Mermaid comment on the same line: "
+        "`%% tier=bronze, format=delta`.\n"
+        "- Edges use `-->|label|` syntax where the label describes what flows.\n"
+        "- **MEDALLION LAYERS (CRITICAL):** When using bronze/silver/gold tiers, represent each layer as a "
+        "SINGLE node that lists ALL tables in that layer inside the label. Format:\n"
+        "  `bronze[\"Bronze Layer | table1, table2, table3\"]:::data_asset %% tier=bronze, format=delta`\n"
+        "  Do NOT use `subgraph` for medallion layers. Do NOT create separate nodes for individual tables "
+        "within a layer. Each layer is ONE node. Connections go from layer nodes to compute nodes.\n"
+        "  WRONG: `subgraph \"Bronze Layer\"` with individual table nodes inside.\n"
+        "  RIGHT: `bronze[\"Bronze Layer | raw_sales, raw_customers\"]:::data_asset %% tier=bronze`\n"
+        "- Use `subgraph` only for non-medallion logical groupings (e.g., an \"Analytics\" section).\n"
+        "- Data assets connect THROUGH compute nodes, never directly to other data assets.\n\n"
+        f"## Valid skill IDs\n"
+        f"{_arch_components_catalog()}\n\n"
+        "Metadata keys: `tier` (raw/bronze/silver/gold), `format` (delta/csv/json/parquet/pdf/iceberg/avro), "
+        "`pattern` (batch/streaming/real-time/on-demand), `compute` (serverless/classic, default serverless).\n\n"
+        "## Architecture is a Contract\n"
+        "The Architecture section is a binding contract, not a reference diagram. These rules "
+        "are non-negotiable:\n"
+        "1. **No bypassing components.** If the architecture specifies a component in the data "
+        "path (e.g., a model serving endpoint for scoring, a vector search index for retrieval), "
+        "the pipeline MUST call that component at runtime. The executing agent must NOT substitute "
+        "a simpler inline implementation.\n"
+        "2. **Every connection is a runtime dependency.** Each connection must be implemented as "
+        "an actual data flow. A component that is deployed but never called is not complete.\n"
+        "3. **No merging separate components.** If the architecture lists two distinct components, "
+        "they must be implemented as two separate resources, not combined into one.\n"
+        "4. **This is a demo, not a production system.** The goal is to showcase Databricks "
+        "capabilities. Simpler approaches that skip components defeat the purpose.\n\n"
+        "## Example\n"
+        "```mermaid\ngraph LR\n"
+        "  synth1[\"synthetic-data-gen | Generate synthetic retail data\"]:::compute %% pattern=batch\n"
+        "  bronze[\"Bronze Layer | raw_sales, raw_customers, raw_products\"]:::data_asset %% tier=bronze, format=delta\n"
+        "  pipeline1[\"declarative-pipeline | Cleanse and enrich\"]:::compute %% pattern=batch\n"
+        "  silver[\"Silver Layer | enriched_sales, customer_profiles\"]:::data_asset %% tier=silver, format=delta\n"
+        "  pipeline2[\"declarative-pipeline | Build aggregates\"]:::compute %% pattern=batch\n"
+        "  gold[\"Gold Layer | sales_summary, customer_ltv\"]:::data_asset %% tier=gold, format=delta\n"
+        "  wh1[\"sql-warehouse | Analytics query engine\"]:::compute %% pattern=on-demand\n"
+        "  dash1[\"aibi-dashboard | Sales analytics dashboard\"]:::application\n"
+        "  synth1 -->|\"Generated records\"| bronze\n"
+        "  bronze -->|\"Raw data\"| pipeline1\n"
+        "  pipeline1 -->|\"Cleaned data\"| silver\n"
+        "  silver -->|\"Enriched data\"| pipeline2\n"
+        "  pipeline2 -->|\"Aggregated data\"| gold\n"
+        "  gold -->|\"Gold data for queries\"| wh1\n"
+        "  wh1 -->|\"SQL query results\"| dash1\n```",
+        "Generate architecture.md from the approved proposal and storyline. "
+        "Create a complete Mermaid flowchart covering every component and connection in the demo. "
+        "Follow the format rules and skill IDs exactly. Every component in the proposal's "
+        "Build Steps and Outputs must appear as a node. Every data flow must appear as an edge.\n\n"
+        "IMPORTANT: Start the file with an imperative instruction paragraph addressed to the executing agent, e.g.:\n"
+        "'Build every component and connection in the following diagram — this is the binding contract "
+        "for what gets deployed. The Mermaid flowchart below defines every component, connection, and "
+        "logical grouping in the demo. Implement every node as a deployed resource and every edge as "
+        "a live runtime dependency. Do NOT bypass, merge, or skip any component.'\n\n"
+        "Output ONLY the architecture.md content starting with `# Architecture`. No commentary.",
     ),
     "data-schema.md": (
         "You are generating data-schema.md — the single source of truth for all data in a demo package. "
-        "This file has TWO jobs:\n"
+        "This file has THREE jobs:\n"
         "1. Define exact table schemas for synthetic data generation\n"
-        "2. Show the transformation SQL that builds silver/gold tables from bronze\n\n"
+        "2. Specify referential integrity, row counts, and data correlations\n"
+        "3. Show the transformation SQL that builds silver/gold tables from bronze\n\n"
         "CRITICAL: Do NOT just describe transformations in prose. Show actual SQL code blocks "
         "that demonstrate the joins, filters, aggregations, and business rules. The downstream LLM "
-        "will use these SQL examples as the blueprint for building SDP (Spark Declarative Pipelines).",
-        "Generate data-schema.md with these sections:\n\n"
+        "will use these SQL examples as the blueprint for building SDP (Spark Declarative Pipelines).\n\n"
+        "## Row Count Guidance\n"
+        "These are demos, not production systems. Data volumes should be large enough to make "
+        "dashboards, queries, and models look realistic, but small enough to generate quickly "
+        "(under 2 minutes total). Default ranges unless the user specifies otherwise:\n"
+        "- Dimension/reference tables (customers, products, stores, devices): 50–200 rows\n"
+        "- Fact/event tables (transactions, orders, readings, visits): 2,000–5,000 rows\n"
+        "- High-frequency event streams (clickstream, sensor telemetry, logs): 5,000–10,000 rows\n"
+        "Never exceed 10,000 rows for any single table unless the user explicitly requests more.\n\n"
+        "## Column Type Safety\n"
+        "Only use column types fully compatible with all Databricks features including Vector Search, "
+        "Feature Store, and dashboards. Prefer simple types (STRING, INT, DOUBLE, BOOLEAN, DATE, "
+        "TIMESTAMP, DECIMAL). Avoid MAP and ARRAY types unless the use case absolutely requires them "
+        "— and if used, note any downstream compatibility constraints.\n\n"
+        "## Referential Integrity\n"
+        "When the spec defines multiple tables linked by shared keys (e.g. customers ↔ transactions), "
+        "explicitly state the generation order and key constraints. Specify which table is the parent "
+        "(generated first) and which tables reference it. Include approximate cardinality per parent "
+        "row. Example: 'Generate 200 customers first, then 5,000 transactions referencing those "
+        "customer_ids (10-50 per customer).' Without this, independently generated tables produce "
+        "mismatched foreign keys and broken joins.\n\n"
+        "## Data Correlations\n"
+        "When the demo involves ML, predictive analytics, scoring, or any outcome-driven analysis, "
+        "this subsection is REQUIRED. Without explicit correlations, synthetic data is random — "
+        "dashboards show flat/meaningless patterns, models overfit on noise, and the demo fails "
+        "to tell a story.\n"
+        "Define the relationships between features and outcomes. For each target/outcome column, "
+        "specify which features influence it, the direction and approximate strength, and the target "
+        "distribution. Use concrete rules the data generator can implement.\n"
+        "Good examples:\n"
+        "- 'fraud_label: amount > 3x avg → 70% fraud rate (vs 1% baseline); distance > 500km → +40%; "
+        "velocity > 5 txns/hr → +25%. Overall ~2-3%.'\n"
+        "- 'churn_flag: declining usage 3+ months → 80% churn; tickets > 3/90d → +35%; month-to-month "
+        "contract → 3x churn vs annual. Target ~15%.'\n"
+        "For dashboards and analytics (even without ML), define distributions and trends: "
+        "'Revenue: 15% YoY growth, Q4 seasonal peaks. Midwest region outperforms by ~20%.'",
+        "Generate data-schema.md with these sections.\n\n"
+        "IMPORTANT: Start the file with an imperative instruction paragraph addressed to the executing agent, e.g.:\n"
+        "'Generate the following tables as synthetic data in the catalog and schema specified in "
+        "the prerequisites. Create tables in the order listed below to preserve referential integrity. "
+        "Then build the transformation pipeline using the SQL blueprints in the Transformations section.'\n\n"
         "## Table Schemas\n"
         "For each table: markdown schema table (column | type | description), source type, "
-        "approximate row count, distribution hints, relationships to other tables.\n\n"
+        "approximate row count (following the row count guidance), distribution hints, "
+        "relationships to other tables. Use only safe column types.\n\n"
+        "## Referential Integrity\n"
+        "Explicit parent→child generation order with cardinality constraints for every "
+        "foreign key relationship.\n\n"
+        "## Data Correlations\n"
+        "If the demo involves ML, analytics, or outcome-driven analysis: define feature→outcome "
+        "relationships with concrete rules. If dashboard/analytics only: define distributions and trends.\n\n"
         "## Relationships\n"
         "Foreign key relationships between tables. Brief.\n\n"
         "## Transformations\n"
@@ -743,43 +983,81 @@ _BUILDOUT_FILE_PROMPTS: dict[str, tuple[str, str]] = {
         "Output ONLY the data-schema.md content starting with `# Data Schema`. No commentary.",
     ),
     "walkthrough.md": (
-        "You are generating walkthrough.md — a presenter-ready demo walkthrough script with "
-        "navigation cues and talking points. This file turns the demo package into a deliverable "
-        "that a sales engineer or solutions architect can pick up and present.\n\n"
+        "You are generating walkthrough.md — the complete demo script and presenter guide. "
+        "After building ALL demo resources, the executing agent must use this file to generate "
+        "a concise demo walkthrough script that a sales engineer can follow for a live presentation.\n\n"
+        "The script MUST be written to a **Google Doc** (not inline in the chat) so it can be "
+        "shared, printed, and used as a presenter's guide. The script MUST be written after "
+        "deployment — it should reference actual table names, dashboard titles, and real query "
+        "results from the built demo.\n\n"
+        "**CRITICAL: Every step that references a Databricks resource must include the direct "
+        "clickable URL to that resource.** For example, if a step says 'show the dashboard,' "
+        "the full URL to that specific dashboard must be embedded right there in that step "
+        "(e.g., `https://<workspace>/sql/dashboards/<id>`). This applies to ALL resource types: "
+        "dashboards, apps, Genie spaces, pipelines, tables, notebooks, jobs, model serving "
+        "endpoints, SQL warehouses, volumes, etc. The presenter should never have to search for "
+        "anything — every link is one click away in the script.\n\n"
         "The walkthrough uses navigation cues formatted as `[Navigate to ...]` and `[Show ...]` "
-        "to guide the presenter through the demo environment. It includes structured sections:\n"
-        "1. **Demo Overview** — business case summary, KPIs impacted, dashboard/output highlights\n"
-        "2. **Demo Script** — numbered step-by-step walkthrough with navigation cues, "
-        "'Without AI' vs 'With AI' contrast moments, and specific Databricks product references\n"
-        "3. **Executive Talk Track** — 60-second elevator pitch + expanded 3-minute summary\n"
-        "4. **Architecture Flow** — text-based logical pipeline visualization\n"
-        "5. **Audience Adaptations** — tailored talking points for C-suite, technical, and IC audiences\n\n"
+        "to guide the presenter through the demo environment.\n\n"
         "RULES:\n"
         "- Navigation cues MUST use the exact format: `[Navigate to ...]` or `[Show ...]`\n"
-        "- Each demo script step should reference specific Databricks UI elements or outputs\n"
+        "- Each demo script step must reference specific Databricks UI elements or outputs\n"
         "- Include time estimates for each major section (e.g., '~2 min')\n"
-        "- The executive talk track should work standalone without the demo",
+        "- The executive talk track should work standalone without the demo\n"
+        "- Target 10-15 minutes of speaking time\n"
+        "- Every feature shown must pass the 'so what?' test\n"
+        "- Never teach configuration or admin screens — show outcomes\n"
+        "- Match language to the audience: executives want outcomes, technical buyers want architecture",
         "Generate walkthrough.md from the approved proposal and all prior package files. "
-        "Use the storyline for narrative arc, data-schema for technical details to reference, "
+        "Use the storyline for narrative arc, architecture.md for the component diagram, "
+        "data-schema for technical details to reference, "
         "and project-structure for knowing what artifacts exist.\n\n"
-        "Include these sections:\n\n"
-        "## Demo Overview\n"
-        "Business case (2-3 sentences), KPIs impacted (bullet list), key outputs to showcase.\n\n"
+        "STRUCTURE: The file starts with an `## Execution Instructions` section (read by the executing LLM, "
+        "not rendered in the UI), followed by the human-readable demo script sections.\n\n"
+        "## Execution Instructions (FIRST section, immediately after `# Demo Walkthrough`)\n"
+        "This section contains all meta-instructions for the executing agent. Include ALL of the following "
+        "verbatim in this section:\n"
+        "- After building ALL demo resources and passing all acceptance criteria, write this demo "
+        "walkthrough script to a **Google Doc** with title: '{demo name} — Demo Script'.\n"
+        "- Each step must include the **direct URL** to every Databricks resource referenced. "
+        "Format links as clickable hyperlinks with descriptive text.\n"
+        "- Use headings for each section (Opening, Wow Moment, Walkthrough sections, Recap).\n"
+        "- Include presenter notes in italics for talking points and transitions.\n"
+        "- Include specific click paths, queries to run, and data to highlight — all derived "
+        "from the actual built demo resources.\n"
+        "- The script is the presenter's single source of truth — if a resource exists, its URL "
+        "must appear in the step where it is shown.\n"
+        "- The Google Doc MUST begin with a **Demo Assets Overview** — a complete inventory table of "
+        "every resource created for the demo (resource name, type, direct clickable URL), grouped by "
+        "category (Data, Compute/Pipelines, Applications/Dashboards), followed by a 2-3 sentence "
+        "architecture summary.\n\n"
         "## Demo Script\n"
-        "Numbered steps. Each step has:\n"
-        "- A title with time estimate (e.g., '### Step 1: Data Ingestion (~2 min)')\n"
+        "Structure the script with these sections in order:\n\n"
+        "### Opening (30-60 seconds)\n"
+        "Start with a limbic opener — an emotionally resonant hook tied to the audience's pain point "
+        "(stat, provocative question, or customer anecdote). State what the audience will see "
+        "(2-3 topics max). Do NOT open with login screens or config.\n\n"
+        "### Wow Moment (first thing shown)\n"
+        "Do the last thing first. Show the highest-value output immediately (dashboard, app UI, "
+        "prediction, analytical result). Frame as: 'Here is what [audience role] uses to make this decision.'\n\n"
+        "### Walkthrough (2-3 sections)\n"
+        "Walk backward from the wow moment through the architecture. Each section uses tell-show-tell: "
+        "Frame the business pain (1 sentence), Show the capability with specific screens/queries/click paths, "
+        "Bridge to the business value ('which means you can...'). Transition by referencing the roadmap.\n"
+        "Each step has:\n"
+        "- A title with time estimate (e.g., '#### Step 1: Data Ingestion (~2 min)')\n"
         "- `[Navigate to ...]` or `[Show ...]` cues on their own lines\n"
         "- What to say / what to point out\n"
         "- Where applicable, a 'Without AI' vs 'With AI' contrast\n"
-        "- Reference specific Databricks products from project-structure.md\n\n"
+        "- Reference specific Databricks products\n\n"
+        "### Recap and Close (30-60 seconds)\n"
+        "Summarize 2-3 key business outcomes (not features). Restate the delta between current pain "
+        "and improved state. End with a concrete next step.\n\n"
         "## Executive Talk Track\n"
         "### 60-Second Pitch\n"
         "A tight elevator pitch paragraph.\n"
         "### Expanded Summary\n"
         "A 3-minute version with more detail on architecture and business impact.\n\n"
-        "## Architecture Flow\n"
-        "A text-based pipeline visualization using arrows, e.g.:\n"
-        "```\nRaw Data → Bronze (ingestion) → Silver (cleaning) → Gold (features) → Dashboard / Genie / App\n```\n\n"
         "## Audience Adaptations\n"
         "### C-Suite\n"
         "Focus on ROI, business metrics, competitive advantage.\n"
@@ -801,7 +1079,10 @@ _BUILDOUT_FILE_PROMPTS: dict[str, tuple[str, str]] = {
         "- CLUSTER BY (Liquid Clustering) not PARTITION BY\n\n"
         "KEEP IT LEAN. A typical demo is 15-25 files, not 50+. No tests/, no config/ directories, "
         "no utility directories unless the demo specifically requires them.",
-        "Generate project-structure.md using Databricks Asset Bundles as the foundation:\n\n"
+        "Generate project-structure.md using Databricks Asset Bundles as the foundation.\n\n"
+        "IMPORTANT: Start the file with an imperative instruction paragraph addressed to the executing agent, e.g.:\n"
+        "'Create the following directory layout as a Databricks Asset Bundle. Every file listed below "
+        "must be created with the specified content. Use `databricks.yml` as the bundle root.'\n\n"
         "```\n<demo-name>/\n"
         "├── databricks.yml                    # Bundle config + environment targets\n"
         "├── resources/\n"
@@ -845,7 +1126,7 @@ async def _stream_llm(
         "stream": True,
     }
 
-    async with httpx.AsyncClient(timeout=180.0) as client:
+    async with httpx.AsyncClient(timeout=httpx.Timeout(connect=30.0, read=120.0, write=30.0, pool=30.0)) as client:
         async with client.stream("POST", url, json=payload, headers=headers) as resp:
             resp.raise_for_status()
             async for line in resp.aiter_lines():
@@ -870,6 +1151,7 @@ async def stream_buildout_file(
     databricks_host: str,
     databricks_token: str,
     model: str = "databricks-claude-sonnet-4",
+    user_architecture: str | None = None,
 ) -> AsyncIterator[str]:
     """Stream generation of a single package file with prior files as context."""
     system_hint, user_hint = _BUILDOUT_FILE_PROMPTS[filename]
@@ -877,6 +1159,19 @@ async def stream_buildout_file(
     system_content = f"{_build_system_prompt()}\n\n{system_hint}"
 
     context_parts = [f"## Approved Proposal\n\n{proposal_md}"]
+    # Include user-designed architecture as context for all files
+    if user_architecture:
+        guidance = (
+            "Use this as the basis for architecture.md — expand and refine it, "
+            "but preserve the components and connections the user specified."
+            if filename == "architecture.md"
+            else "Reference this architecture when generating content."
+        )
+        context_parts.append(
+            f"## User-Designed Architecture (from visual builder)\n\n"
+            f"The user created this architecture diagram during the proposal stage. "
+            f"{guidance}\n\n```mermaid\n{user_architecture}\n```"
+        )
     for prior_name, prior_content in generated_files.items():
         context_parts.append(f"## {prior_name} (already generated)\n\n{prior_content}")
 

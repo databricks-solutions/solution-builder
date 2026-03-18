@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 import io
 import json
+import logging
 import zipfile
 
 from fastapi import HTTPException
@@ -13,6 +15,7 @@ from ..models import (
     Generation,
     PACKAGE_FILES,
     WorkspaceApproveRequest,
+    WorkspaceBuildoutFileRequest,
     WorkspaceBuildoutRequest,
     WorkspaceGenerateRequest,
     WorkspaceProposeRequest,
@@ -31,6 +34,8 @@ from ..services.skill_generator import (
     stream_skill_refinement,
     stream_section_refinement,
 )
+
+logger = logging.getLogger(__name__)
 
 router = create_router()
 
@@ -96,7 +101,8 @@ async def workspace_generate(
 
             yield f"data: {json.dumps({'type': 'complete', 'id': row.id, 'demo_name': row.demo_name, 'industry': row.industry})}\n\n"
         except Exception as e:
-            yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
+            logger.exception("SSE stream error")
+            yield f"data: {json.dumps({'type': 'error', 'content': 'An internal error occurred. Please try again.'})}\n\n"
         yield "data: [DONE]\n\n"
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
@@ -222,7 +228,8 @@ async def workspace_refine(
 
                 yield f"data: {json.dumps({'type': 'complete', 'id': row.id, 'demo_name': row.demo_name})}\n\n"
             except Exception as e:
-                yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
+                logger.exception("SSE stream error")
+                yield f"data: {json.dumps({'type': 'error', 'content': 'An internal error occurred. Please try again.'})}\n\n"
             yield "data: [DONE]\n\n"
 
         return StreamingResponse(section_stream(), media_type="text/event-stream")
@@ -248,7 +255,8 @@ async def workspace_refine(
 
             yield f"data: {json.dumps({'type': 'complete', 'id': row.id, 'demo_name': row.demo_name})}\n\n"
         except Exception as e:
-            yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
+            logger.exception("SSE stream error")
+            yield f"data: {json.dumps({'type': 'error', 'content': 'An internal error occurred. Please try again.'})}\n\n"
         yield "data: [DONE]\n\n"
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
@@ -298,7 +306,8 @@ async def workspace_propose(
 
             yield f"data: {json.dumps({'type': 'complete', 'id': row.id, 'demo_name': row.demo_name, 'industry': row.industry})}\n\n"
         except Exception as e:
-            yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
+            logger.exception("SSE stream error")
+            yield f"data: {json.dumps({'type': 'error', 'content': 'An internal error occurred. Please try again.'})}\n\n"
         yield "data: [DONE]\n\n"
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
@@ -348,7 +357,8 @@ async def workspace_propose_refine(
 
             yield f"data: {json.dumps({'type': 'complete', 'id': row.id, 'demo_name': row.demo_name})}\n\n"
         except Exception as e:
-            yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
+            logger.exception("SSE stream error")
+            yield f"data: {json.dumps({'type': 'error', 'content': 'An internal error occurred. Please try again.'})}\n\n"
         yield "data: [DONE]\n\n"
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
@@ -399,6 +409,32 @@ async def workspace_buildout(
     if not row.proposal_md:
         raise HTTPException(status_code=400, detail="No proposal to build from")
 
+    user_arch = req.user_architecture
+
+    _SENTINEL = object()
+
+    async def _stream_to_queue(
+        queue: asyncio.Queue,
+        filename: str,
+        proposal_md: str,
+        generated_files: dict[str, str],
+        host: str,
+        token: str,
+        model: str,
+        user_arch: str | None,
+    ):
+        """Run LLM stream in a task, pushing chunks into a queue."""
+        try:
+            async for chunk in stream_buildout_file(
+                filename, proposal_md, generated_files, host, token, model=model,
+                user_architecture=user_arch,
+            ):
+                await queue.put(chunk)
+        except Exception as exc:
+            await queue.put(exc)
+        finally:
+            await queue.put(_SENTINEL)
+
     async def event_stream():
         generated_files: dict[str, str] = {}
         try:
@@ -406,11 +442,32 @@ async def workspace_buildout(
                 yield f"data: {json.dumps({'type': 'file_start', 'filename': filename})}\n\n"
 
                 collected = ""
-                async for chunk in stream_buildout_file(
-                    filename, row.proposal_md, generated_files, host, token, model=model,
-                ):
-                    collected += chunk
-                    yield f"data: {json.dumps({'type': 'file_content', 'filename': filename, 'content': chunk})}\n\n"
+                queue: asyncio.Queue = asyncio.Queue()
+                task = asyncio.create_task(_stream_to_queue(
+                    queue, filename, row.proposal_md, generated_files,
+                    host, token, model, user_arch,
+                ))
+
+                consecutive_keepalives = 0
+                while True:
+                    try:
+                        item = await asyncio.wait_for(queue.get(), timeout=5.0)
+                    except asyncio.TimeoutError:
+                        consecutive_keepalives += 1
+                        if consecutive_keepalives > 60:
+                            yield f"data: {json.dumps({'type': 'error', 'content': 'Stream timed out waiting for LLM response'})}\n\n"
+                            break
+                        yield ": keepalive\n\n"
+                        continue
+                    consecutive_keepalives = 0
+                    if item is _SENTINEL:
+                        break
+                    if isinstance(item, Exception):
+                        raise item
+                    collected += item
+                    yield f"data: {json.dumps({'type': 'file_content', 'filename': filename, 'content': item})}\n\n"
+
+                await task  # propagate any unhandled errors
 
                 clean = _strip_fences(collected)
                 generated_files[filename] = clean
@@ -426,10 +483,115 @@ async def workspace_buildout(
 
             yield f"data: {json.dumps({'type': 'complete', 'id': row.id, 'demo_name': row.demo_name})}\n\n"
         except Exception as e:
-            yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
+            logger.exception("SSE stream error")
+            yield f"data: {json.dumps({'type': 'error', 'content': 'An internal error occurred. Please try again.'})}\n\n"
         yield "data: [DONE]\n\n"
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+@router.post("/workspace/buildout-file", operation_id="workspaceBuildoutFile")
+async def workspace_buildout_file(
+    req: WorkspaceBuildoutFileRequest,
+    config: Dependencies.Config,
+    session: Dependencies.Session,
+    ws_client: Dependencies.Client,
+):
+    """Generate a single buildout file, streaming via SSE. Called per-file from the frontend."""
+    host, token = _resolve_credentials(config, ws_client)
+    model = config.llm_model
+
+    if not host or not token:
+        raise HTTPException(status_code=500, detail="Databricks host/token not configured")
+
+    row = session.get(Generation, req.generation_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Generation not found")
+    if not row.proposal_md:
+        raise HTTPException(status_code=400, detail="No proposal to build from")
+
+    if req.filename not in PACKAGE_FILES:
+        raise HTTPException(status_code=400, detail=f"Unknown file: {req.filename}")
+
+    _SENTINEL = object()
+
+    async def _stream_to_queue(queue: asyncio.Queue):
+        try:
+            async for chunk in stream_buildout_file(
+                req.filename, row.proposal_md, req.generated_files, host, token,
+                model=model, user_architecture=req.user_architecture,
+            ):
+                await queue.put(chunk)
+        except Exception as exc:
+            await queue.put(exc)
+        finally:
+            await queue.put(_SENTINEL)
+
+    async def event_stream():
+        try:
+            queue: asyncio.Queue = asyncio.Queue()
+            task = asyncio.create_task(_stream_to_queue(queue))
+            collected = ""
+
+            consecutive_keepalives = 0
+            while True:
+                try:
+                    item = await asyncio.wait_for(queue.get(), timeout=5.0)
+                except asyncio.TimeoutError:
+                    consecutive_keepalives += 1
+                    if consecutive_keepalives > 60:
+                        yield f"data: {json.dumps({'type': 'error', 'content': 'Stream timed out waiting for LLM response'})}\n\n"
+                        break
+                    yield ": keepalive\n\n"
+                    continue
+                consecutive_keepalives = 0
+                if item is _SENTINEL:
+                    break
+                if isinstance(item, Exception):
+                    raise item
+                collected += item
+                yield f"data: {json.dumps({'type': 'file_content', 'filename': req.filename, 'content': item})}\n\n"
+
+            await task
+            clean = _strip_fences(collected)
+            yield f"data: {json.dumps({'type': 'file_complete', 'filename': req.filename, 'content': clean})}\n\n"
+        except Exception as e:
+            logger.exception("SSE stream error")
+            yield f"data: {json.dumps({'type': 'error', 'content': 'An internal error occurred. Please try again.'})}\n\n"
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+@router.post("/workspace/buildout-finalize", operation_id="workspaceBuildoutFinalize")
+async def workspace_buildout_finalize(
+    req: WorkspaceBuildoutRequest,
+    config: Dependencies.Config,
+    session: Dependencies.Session,
+    ws_client: Dependencies.Client,
+):
+    """Save all generated files to the database after per-file buildout completes."""
+    row = session.get(Generation, req.generation_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Generation not found")
+
+    payload = req.files_payload or req.user_architecture
+    if not payload:
+        raise HTTPException(status_code=400, detail="No files provided")
+
+    try:
+        generated_files: dict[str, str] = json.loads(payload)
+    except (json.JSONDecodeError, TypeError) as e:
+        raise HTTPException(status_code=400, detail=f"Invalid files payload: {e}")
+    row.skill_md = generated_files.get("SKILL.md", "")
+    row.skill_files = json.dumps(generated_files)
+    row.stage = "package"
+    meta = parse_skill_metadata(row.skill_md)
+    row.demo_name = meta["name"]
+    session.add(row)
+    session.commit()
+
+    return {"id": row.id, "demo_name": row.demo_name, "stage": "package"}
 
 
 @router.post("/workspace/refine-file", operation_id="workspaceRefineFile")
@@ -486,7 +648,8 @@ async def workspace_refine_file(
             yield f"data: {json.dumps({'type': 'file_complete', 'filename': req.filename})}\n\n"
             yield f"data: {json.dumps({'type': 'complete', 'id': row.id, 'demo_name': row.demo_name})}\n\n"
         except Exception as e:
-            yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
+            logger.exception("SSE stream error")
+            yield f"data: {json.dumps({'type': 'error', 'content': 'An internal error occurred. Please try again.'})}\n\n"
         yield "data: [DONE]\n\n"
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")

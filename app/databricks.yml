@@ -17,7 +17,7 @@ resources:
   apps:
     demo-prompt-generator-app:
       name: "demo-prompt-generator"
-      description: "demo-prompt-generator created with apx"
+      description: "Demo Prompt Generator — generates Databricks demo skill packages"
       source_code_path: ./.build
       resources:
         - name: "db"
@@ -30,13 +30,13 @@ resources:
             name: "databricks-claude-sonnet-4"
             permission: "CAN_QUERY"
 
+# Deploy to any workspace:
+#   1. Configure a CLI profile:  databricks auth login --host <workspace-url> --profile <name>
+#   2. Deploy:                   databricks bundle deploy -t dev --profile <name>
+#
+# The bundle will create a Lakebase instance and app automatically.
+# The serving endpoint "databricks-claude-sonnet-4" must exist on the target workspace.
 targets:
   dev:
     mode: development
     default: true
-  tools:
-    workspace:
-      profile: TOOLS
-  west:
-    workspace:
-      profile: WEST

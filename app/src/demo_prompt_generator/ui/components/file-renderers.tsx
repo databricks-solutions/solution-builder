@@ -62,8 +62,6 @@ export function FileRendererWithFallback({
 }: {
   filename: string;
   markdown: string;
-  collapsedSections?: Set<string>;
-  onToggleSection?: (id: string) => void;
 }) {
   const visual = FileRenderer({ filename, markdown });
   if (visual) return visual;
@@ -963,8 +961,21 @@ interface WalkthroughStep {
   contrast?: { without: string; withAI: string };
 }
 
+interface AssetRow {
+  name: string;
+  type: string;
+  url: string;
+}
+
+interface AssetGroup {
+  heading: string;
+  rows: AssetRow[];
+}
+
 interface WalkthroughData {
   overview: string;
+  assetGroups: AssetGroup[];
+  architectureSummary: string;
   kpis: string[];
   steps: WalkthroughStep[];
   pitchShort: string;
@@ -976,6 +987,8 @@ interface WalkthroughData {
 function parseWalkthrough(md: string): WalkthroughData {
   const data: WalkthroughData = {
     overview: "",
+    assetGroups: [],
+    architectureSummary: "",
     kpis: [],
     steps: [],
     pitchShort: "",
@@ -992,8 +1005,39 @@ function parseWalkthrough(md: string): WalkthroughData {
     const title = hdr[1].trim().toLowerCase();
     const body = section.slice(hdr[0].length).trim();
 
-    if (title.includes("overview")) {
-      // Extract KPI bullets and overview text
+    if (title.includes("execution instructions") || title.includes("script output")) {
+      // LLM-only sections — skip rendering
+      continue;
+    } else if (title.includes("asset") && title.includes("overview")) {
+      // Demo Assets Overview — LLM-only, skip rendering
+      const subSections = body.split(/^(?=### )/gm);
+      for (const sub of subSections) {
+        const subHdr = sub.match(/^### (.+)\n/);
+        if (!subHdr) {
+          // Check for architecture summary (bold text after tables)
+          const summaryMatch = sub.match(/\*\*Architecture Summary[:\*]*\*?\*?\s*([\s\S]+)/i);
+          if (summaryMatch) data.architectureSummary = summaryMatch[1].trim();
+          continue;
+        }
+        const groupName = subHdr[1].trim();
+        const rows: AssetRow[] = [];
+        for (const m of sub.matchAll(/^\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*([^|]*?)\s*\|/gm)) {
+          const name = m[1].trim();
+          const type = m[2].trim();
+          const url = m[3].trim().replace(/`/g, "");
+          if (name && !name.startsWith("---") && name !== "Asset Name") {
+            rows.push({ name, type, url });
+          }
+        }
+        if (rows.length > 0) data.assetGroups.push({ heading: groupName, rows });
+      }
+      // Also grab trailing architecture summary outside ### sections
+      if (!data.architectureSummary) {
+        const summaryMatch = body.match(/\*\*Architecture Summary[:\*]*\*?\*?\s*([\s\S]+?)(?=\n## |\n$|$)/i);
+        if (summaryMatch) data.architectureSummary = summaryMatch[1].trim();
+      }
+    } else if (title.includes("overview")) {
+      // Demo Overview (non-asset): Extract KPI bullets and overview text
       const lines = body.split("\n");
       const overviewLines: string[] = [];
       for (const line of lines) {
@@ -1007,11 +1051,21 @@ function parseWalkthrough(md: string): WalkthroughData {
       data.overview = overviewLines.join("\n").trim();
     } else if (title.includes("demo script") || title.includes("script")) {
       const stepSections = body.split(/^(?=### )/gm);
+      let autoStepNum = 0;
       for (const ss of stepSections) {
-        const stepMatch = ss.match(
+        // Try numbered format: ### Step 1: Title (~2 min)
+        let stepMatch = ss.match(
           /^### (?:Step\s+)?(\d+)[.:]\s*(.+?)(?:\s*\(([^)]+)\))?\s*\n/,
         );
-        if (!stepMatch) continue;
+        // Fall back to non-numbered: ### Title (~2 min) or ### Title (45 seconds)
+        if (!stepMatch) {
+          const namedMatch = ss.match(
+            /^### (.+?)(?:\s*\(([^)]+)\))?\s*\n/,
+          );
+          if (!namedMatch) continue;
+          autoStepNum++;
+          stepMatch = [namedMatch[0], String(autoStepNum), namedMatch[1].trim(), namedMatch[2] || ""] as unknown as RegExpMatchArray;
+        }
 
         const cues: WalkthroughStep["cues"] = [];
         const talkingPoints: string[] = [];
@@ -1147,7 +1201,7 @@ function WalkthroughRenderer({ markdown }: { markdown: string }) {
   const wt = useMemo(() => parseWalkthrough(markdown), [markdown]);
   const [expandedAudience, setExpandedAudience] = useState<string | null>(null);
 
-  if (!wt.steps.length && !wt.overview) return null;
+  if (!wt.steps.length && !wt.overview && !wt.assetGroups.length) return null;
 
   const titleMatch = markdown.match(/^# (.+)\n/m);
 

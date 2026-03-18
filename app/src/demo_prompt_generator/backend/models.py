@@ -198,6 +198,15 @@ class WorkspaceApproveRequest(BaseModel):
 
 class WorkspaceBuildoutRequest(BaseModel):
     generation_id: int
+    user_architecture: str | None = Field(default=None, description="User-designed architecture diagram (Mermaid) from the builder")
+    files_payload: str | None = None
+
+
+class WorkspaceBuildoutFileRequest(BaseModel):
+    generation_id: int
+    filename: str = Field(..., description="File to generate (e.g. 'data-schema.md')")
+    generated_files: dict[str, str] = Field(default_factory=dict, description="Previously generated files for context")
+    user_architecture: str | None = Field(default=None)
 
 
 class WorkspaceRefineFileRequest(BaseModel):
@@ -211,7 +220,7 @@ class WorkspaceRefineFileRequest(BaseModel):
 # SQLModel table — persisted in Lakebase
 # ---------------------------------------------------------------------------
 
-PACKAGE_FILES = ["SKILL.md", "storyline.md", "data-schema.md", "project-structure.md", "walkthrough.md"]
+PACKAGE_FILES = ["SKILL.md", "storyline.md", "architecture.md", "data-schema.md", "project-structure.md", "walkthrough.md"]
 
 
 class Generation(SQLModel, table=True):

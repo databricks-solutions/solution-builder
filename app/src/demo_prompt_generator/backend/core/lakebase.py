@@ -32,10 +32,11 @@ class DatabaseConfig(BaseSettings):
         description="The name of the database", default="databricks_postgres"
     )
     instance_name: str = Field(
-        description="The name of the database instance",
+        description="The name of the database instance (override via DB_INSTANCE_NAME env var)",
         default="demo-prompt-generator",
-        validation_alias="PGAPPNAME",
+        validation_alias="DB_INSTANCE_NAME",
     )
+
 
 
 # --- Engine creation ---
