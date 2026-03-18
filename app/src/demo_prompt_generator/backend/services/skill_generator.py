@@ -1161,11 +1161,16 @@ async def stream_buildout_file(
     context_parts = [f"## Approved Proposal\n\n{proposal_md}"]
     # Include user-designed architecture as context for all files
     if user_architecture:
+        guidance = (
+            "Use this as the basis for architecture.md — expand and refine it, "
+            "but preserve the components and connections the user specified."
+            if filename == "architecture.md"
+            else "Reference this architecture when generating content."
+        )
         context_parts.append(
             f"## User-Designed Architecture (from visual builder)\n\n"
             f"The user created this architecture diagram during the proposal stage. "
-            f"{'Use this as the basis for architecture.md — expand and refine it, but preserve the components and connections the user specified.' if filename == 'architecture.md' else 'Reference this architecture when generating content.'}"
-            f"\n\n{user_architecture}"
+            f"{guidance}\n\n```mermaid\n{user_architecture}\n```"
         )
     for prior_name, prior_content in generated_files.items():
         context_parts.append(f"## {prior_name} (already generated)\n\n{prior_content}")

@@ -62,8 +62,6 @@ export function FileRendererWithFallback({
 }: {
   filename: string;
   markdown: string;
-  collapsedSections?: Set<string>;
-  onToggleSection?: (id: string) => void;
 }) {
   const visual = FileRenderer({ filename, markdown });
   if (visual) return visual;

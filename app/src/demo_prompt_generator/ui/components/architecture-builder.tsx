@@ -173,7 +173,7 @@ const SKILL_CATALOG: SkillDef[] = [
   { id: "external-file", label: "External File", description: "CSV, JSON, Parquet, or PDF files", nodeType: "Data Asset", defaultFormat: "csv" },
 
   // ── Compute / Services ──
-  { id: "declarative-pipeline", label: "Declarative Pipeline", description: "Lakeflow Declarative Pipeline (DLT/SDP)", nodeType: "Compute", defaultPattern: "batch" },
+  { id: "declarative-pipeline", label: "Declarative Pipeline", description: "Lakeflow Declarative Pipeline (SDP)", nodeType: "Compute", defaultPattern: "batch" },
   { id: "auto-loader", label: "Auto Loader", description: "Incremental file ingestion from cloud storage", nodeType: "Compute", defaultPattern: "streaming" },
   { id: "structured-streaming", label: "Structured Streaming", description: "Spark Structured Streaming for production workloads", nodeType: "Compute", defaultPattern: "streaming" },
   { id: "databricks-job", label: "Job / Workflow", description: "Orchestrated multi-task job with scheduling", nodeType: "Compute", defaultPattern: "batch" },
@@ -1676,6 +1676,7 @@ function ArchitectureBuilderInner({
     // If user manually edited the canvas, only allow LLM refinements to override
     if (userEditedCanvas.current) {
       userEditedCanvas.current = false; // reset so next LLM change can update
+      return;
     }
 
     const parsed = buildFromSkillMd(proposalBuildSteps);
@@ -1986,7 +1987,7 @@ function ArchitectureBuilderInner({
       );
       setPendingConnection(null);
     },
-    [pendingConnection, setEdges, snapshot],
+    [pendingConnection, setEdges, snapshot, styleEdge],
   );
 
   // Drag from catalog onto canvas
@@ -2000,7 +2001,12 @@ function ArchitectureBuilderInner({
       e.preventDefault();
       const skillJson = e.dataTransfer.getData("application/skill");
       if (!skillJson) return;
-      const skill: SkillDef = JSON.parse(skillJson);
+      let skill: SkillDef;
+      try {
+        skill = JSON.parse(skillJson);
+      } catch {
+        return;
+      }
       const position = screenToFlowPosition({ x: e.clientX, y: e.clientY });
       addSkillToCanvas(skill, position);
     },
@@ -2040,6 +2046,7 @@ function ArchitectureBuilderInner({
   const pasteClipboard = useCallback(() => {
     if (clipboardRef.current.length === 0) return;
     snapshot();
+    userEditedCanvas.current = true;
     const newNodes = clipboardRef.current.map((n) => ({
       ...n,
       id: `${n.data.skillId}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
@@ -2417,8 +2424,8 @@ function ArchitectureBuilderInner({
                   y={Math.min(drawStartScreen.y, drawCurrentScreen.y)}
                   width={Math.abs(drawCurrentScreen.x - drawStartScreen.x)}
                   height={Math.abs(drawCurrentScreen.y - drawStartScreen.y)}
-                  fill="rgba(139, 92, 246, 0.06)"
-                  stroke="rgba(139, 92, 246, 0.5)"
+                  fill="currentColor" fillOpacity={0.06}
+                  stroke="currentColor" strokeOpacity={0.5}
                   strokeWidth={2}
                   strokeDasharray="6 3"
                   rx={12}

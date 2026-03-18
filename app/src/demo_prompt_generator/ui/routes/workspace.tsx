@@ -1,5 +1,6 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useState, useCallback, useRef, useEffect, useMemo, lazy, Suspense } from "react";
+import { ErrorBoundary } from "react-error-boundary";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -103,7 +104,7 @@ interface Section {
 // ---------------------------------------------------------------------------
 
 const ARCH_SECTION_MARKER = "\n\n## Architecture\n";
-const ARCH_SECTION_RE = /\n{1,}\s*##\s+Architecture\s*\n/;
+const ARCH_SECTION_RE = /(?:^|\n)\s*##\s+Architecture\s*\n/;
 
 /** Strip the ## Architecture section from proposal markdown */
 function stripArchSection(md: string): string {
@@ -231,6 +232,20 @@ function WorkspacePage() {
   const hasStarted = useRef(false);
   const previewRef = useRef<HTMLDivElement>(null);
   const architectureBuilderRef = useRef<{ getSerializedArchitecture: () => string | null }>(null);
+
+  // Reset archSyncRef after the proposalMd update from architecture builder is processed
+  useEffect(() => {
+    if (archSyncRef.current) {
+      archSyncRef.current = false;
+    }
+  }, [proposalMd]);
+
+  // Abort any in-flight streaming on unmount
+  useEffect(() => {
+    return () => {
+      abortRef.current?.abort();
+    };
+  }, []);
 
   const currentMd =
     stage === "proposal"
@@ -776,7 +791,7 @@ function WorkspacePage() {
         })();
       }
     },
-    [generationId, isRefining, stage, chatHistory, addMessage],
+    [generationId, isRefining, stage, chatHistory, addMessage, setIsRefining, setPackageFiles, setProposalMd, setDemoName, setChatHistory, setActiveFile, setActiveTab],
   );
 
   // -----------------------------------------------------------------------
@@ -1139,8 +1154,6 @@ function WorkspacePage() {
                             <FileRendererWithFallback
                               filename={activeFile}
                               markdown={currentMd}
-                              collapsedSections={collapsedSections}
-                              onToggleSection={toggleSection}
                             />
                           ) : (
                             <div className="prose prose-sm dark:prose-invert max-w-none">
@@ -1187,6 +1200,13 @@ function WorkspacePage() {
 
               <TabsContent value="architecture" className="mt-0" forceMount style={{ display: activeTab === "architecture" ? undefined : "none" }}>
                 <div className="h-[calc(100vh-8.5rem)]">
+                  <ErrorBoundary
+                    fallback={
+                      <div className="flex items-center justify-center h-full text-muted-foreground">
+                        Failed to load architecture builder.
+                      </div>
+                    }
+                  >
                   <Suspense
                     fallback={
                       <div className="flex items-center justify-center h-full text-muted-foreground">
@@ -1210,6 +1230,7 @@ function WorkspacePage() {
                       stage={stage}
                     />
                   </Suspense>
+                  </ErrorBoundary>
                 </div>
               </TabsContent>
 
