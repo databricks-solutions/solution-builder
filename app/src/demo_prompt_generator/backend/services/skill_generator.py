@@ -366,7 +366,7 @@ async def stream_skill_from_topic(
         "stream": True,
     }
 
-    async with httpx.AsyncClient(timeout=180.0) as client:
+    async with httpx.AsyncClient(timeout=httpx.Timeout(connect=30.0, read=120.0, write=30.0, pool=30.0)) as client:
         async with client.stream("POST", url, json=payload, headers=headers) as resp:
             resp.raise_for_status()
             async for line in resp.aiter_lines():
@@ -439,7 +439,7 @@ async def stream_skill_refinement(
         "stream": True,
     }
 
-    async with httpx.AsyncClient(timeout=180.0) as client:
+    async with httpx.AsyncClient(timeout=httpx.Timeout(connect=30.0, read=120.0, write=30.0, pool=30.0)) as client:
         async with client.stream("POST", url, json=payload, headers=headers) as resp:
             resp.raise_for_status()
             async for line in resp.aiter_lines():
@@ -518,7 +518,7 @@ async def stream_section_refinement(
         "stream": True,
     }
 
-    async with httpx.AsyncClient(timeout=180.0) as client:
+    async with httpx.AsyncClient(timeout=httpx.Timeout(connect=30.0, read=120.0, write=30.0, pool=30.0)) as client:
         async with client.stream("POST", url, json=payload, headers=headers) as resp:
             resp.raise_for_status()
             async for line in resp.aiter_lines():
@@ -670,7 +670,7 @@ async def stream_proposal(
         "stream": True,
     }
 
-    async with httpx.AsyncClient(timeout=180.0) as client:
+    async with httpx.AsyncClient(timeout=httpx.Timeout(connect=30.0, read=120.0, write=30.0, pool=30.0)) as client:
         async with client.stream("POST", url, json=payload, headers=headers) as resp:
             resp.raise_for_status()
             async for line in resp.aiter_lines():
@@ -743,7 +743,7 @@ async def stream_proposal_refinement(
         "stream": True,
     }
 
-    async with httpx.AsyncClient(timeout=180.0) as client:
+    async with httpx.AsyncClient(timeout=httpx.Timeout(connect=30.0, read=120.0, write=30.0, pool=30.0)) as client:
         async with client.stream("POST", url, json=payload, headers=headers) as resp:
             resp.raise_for_status()
             async for line in resp.aiter_lines():
@@ -1126,7 +1126,7 @@ async def _stream_llm(
         "stream": True,
     }
 
-    async with httpx.AsyncClient(timeout=180.0) as client:
+    async with httpx.AsyncClient(timeout=httpx.Timeout(connect=30.0, read=120.0, write=30.0, pool=30.0)) as client:
         async with client.stream("POST", url, json=payload, headers=headers) as resp:
             resp.raise_for_status()
             async for line in resp.aiter_lines():
