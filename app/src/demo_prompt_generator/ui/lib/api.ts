@@ -12,6 +12,9 @@ export class ApiError extends Error {
         this.body = body;
     }
 }
+export interface Body_importGeneration {
+    file: string;
+}
 export interface ChatMessage {
     content: string;
     role: string;
@@ -190,7 +193,14 @@ export interface VersionOut {
 export interface WorkspaceApproveRequest {
     generation_id: number;
 }
+export interface WorkspaceBuildoutFileRequest {
+    filename: string;
+    generated_files?: Record<string, string>;
+    generation_id: number;
+    user_architecture?: string | null;
+}
 export interface WorkspaceBuildoutRequest {
+    files_payload?: string | null;
     generation_id: number;
     user_architecture?: string | null;
 }
@@ -576,6 +586,41 @@ export function useListGenerationsSuspense<TData = {
         ...options?.query
     });
 }
+export const importGeneration = async (data: FormData, options?: RequestInit): Promise<{
+    data: GenerationOut;
+}> =>{
+    const res = await fetch("/api/generations/import", {
+        ...options,
+        method: "POST",
+        headers: {
+            ...options?.headers
+        },
+        body: data
+    });
+    if (!res.ok) {
+        const body = await res.text();
+        let parsed: unknown;
+        try {
+            parsed = JSON.parse(body);
+        } catch  {
+            parsed = body;
+        }
+        throw new ApiError(res.status, res.statusText, parsed);
+    }
+    return {
+        data: await res.json()
+    };
+};
+export function useImportGeneration(options?: {
+    mutation?: UseMutationOptions<{
+        data: GenerationOut;
+    }, ApiError, FormData>;
+}) {
+    return useMutation({
+        mutationFn: (data)=>importGeneration(data),
+        ...options?.mutation
+    });
+}
 export interface GetGenerationParams {
     generation_id: number;
 }
@@ -791,6 +836,78 @@ export function useWorkspaceBuildout(options?: {
 }) {
     return useMutation({
         mutationFn: (data)=>workspaceBuildout(data),
+        ...options?.mutation
+    });
+}
+export const workspaceBuildoutFile = async (data: WorkspaceBuildoutFileRequest, options?: RequestInit): Promise<{
+    data: unknown;
+}> =>{
+    const res = await fetch("/api/workspace/buildout-file", {
+        ...options,
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+            ...options?.headers
+        },
+        body: JSON.stringify(data)
+    });
+    if (!res.ok) {
+        const body = await res.text();
+        let parsed: unknown;
+        try {
+            parsed = JSON.parse(body);
+        } catch  {
+            parsed = body;
+        }
+        throw new ApiError(res.status, res.statusText, parsed);
+    }
+    return {
+        data: await res.json()
+    };
+};
+export function useWorkspaceBuildoutFile(options?: {
+    mutation?: UseMutationOptions<{
+        data: unknown;
+    }, ApiError, WorkspaceBuildoutFileRequest>;
+}) {
+    return useMutation({
+        mutationFn: (data)=>workspaceBuildoutFile(data),
+        ...options?.mutation
+    });
+}
+export const workspaceBuildoutFinalize = async (data: WorkspaceBuildoutRequest, options?: RequestInit): Promise<{
+    data: unknown;
+}> =>{
+    const res = await fetch("/api/workspace/buildout-finalize", {
+        ...options,
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+            ...options?.headers
+        },
+        body: JSON.stringify(data)
+    });
+    if (!res.ok) {
+        const body = await res.text();
+        let parsed: unknown;
+        try {
+            parsed = JSON.parse(body);
+        } catch  {
+            parsed = body;
+        }
+        throw new ApiError(res.status, res.statusText, parsed);
+    }
+    return {
+        data: await res.json()
+    };
+};
+export function useWorkspaceBuildoutFinalize(options?: {
+    mutation?: UseMutationOptions<{
+        data: unknown;
+    }, ApiError, WorkspaceBuildoutRequest>;
+}) {
+    return useMutation({
+        mutationFn: (data)=>workspaceBuildoutFinalize(data),
         ...options?.mutation
     });
 }

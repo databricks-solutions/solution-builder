@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -9,8 +9,11 @@ import {
   PackageCheck,
   FileEdit,
   Loader2,
+  Upload,
 } from "lucide-react";
-import { useListGenerations } from "@/lib/api";
+import { useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { useListGenerations, listGenerationsKey } from "@/lib/api";
 import { selector } from "@/lib/selector";
 
 export const Route = createFileRoute("/_sidebar/generations/")({
@@ -56,17 +59,82 @@ function GenerationsPage() {
   const { data, isLoading, error } = useListGenerations({
     query: selector<import("@/lib/api").GenerationListItem[]>().query,
   });
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [importing, setImporting] = useState(false);
+  const [importError, setImportError] = useState<string | null>(null);
+
+  async function handleImport(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImporting(true);
+    setImportError(null);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      const res = await fetch("/api/generations/import", {
+        method: "POST",
+        body: form,
+      });
+      if (!res.ok) {
+        const body = await res.text();
+        let message = `HTTP ${res.status}`;
+        try {
+          const parsed = JSON.parse(body);
+          message = parsed?.detail || message;
+        } catch {
+          message = body || message;
+        }
+        throw new Error(message);
+      }
+      const gen = await res.json();
+      await queryClient.invalidateQueries({ queryKey: listGenerationsKey() });
+      navigate({ to: "/generations/$id", params: { id: String(gen.id) } });
+    } catch (err) {
+      setImportError(err instanceof Error ? err.message : "Import failed");
+    } finally {
+      setImporting(false);
+      // reset so the same file can be re-selected
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  }
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">Past Generations</h1>
-        <Button asChild>
-          <Link to="/">
-            <Plus className="mr-2 h-4 w-4" /> New Skill
-          </Link>
-        </Button>
+        <div className="flex items-center gap-2">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".zip"
+            className="hidden"
+            onChange={handleImport}
+          />
+          <Button
+            variant="outline"
+            disabled={importing}
+            onClick={() => fileInputRef.current?.click()}
+          >
+            {importing ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <Upload className="mr-2 h-4 w-4" />
+            )}
+            Import ZIP
+          </Button>
+          <Button asChild>
+            <Link to="/">
+              <Plus className="mr-2 h-4 w-4" /> New Skill
+            </Link>
+          </Button>
+        </div>
       </div>
+
+      {importError && (
+        <p className="text-sm text-destructive">Import failed: {importError}</p>
+      )}
 
       {isLoading && (
         <div className="space-y-3">
@@ -114,7 +182,7 @@ function GenerationsPage() {
                       {gen.demo_name}
                     </CardTitle>
                     <div className="flex items-center gap-1.5 shrink-0">
-                      <StageBadge stage={gen.stage} />
+                      <StageBadge stage={gen.stage ?? "package"} />
                     </div>
                   </div>
                 </CardHeader>
