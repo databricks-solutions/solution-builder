@@ -7,7 +7,9 @@
 # IDE and tool config -- each user configures their own
 .mcp.json
 .cursor/
-.claude/
+.claude/*
+!.claude/skills/
+!.claude/commands/
 
 # ai-dev-kit (installed locally per user)
 .ai-dev-kit/

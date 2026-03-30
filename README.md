@@ -2,6 +2,35 @@
 
 Turn a use-case topic into a complete **demo package** that any LLM with the [Databricks AI Dev Kit](https://github.com/databricks/ai-dev-kit) can execute end-to-end on Databricks.
 
+## Using the Skill with Claude Code
+
+This repo includes a Claude Code skill that generates demo instruction files interactively. To use it:
+
+1. **Open Claude Code** in this repository
+2. **Ask for a demo** — just describe what you want:
+   - "Create a retail demo about returns"
+   - "Build a manufacturing quality demo"
+   - "I need a healthcare patient readmission demo"
+3. **Pick a story** — the skill proposes 3 options, reply with "1", "2", or "3"
+4. **Confirm components** — accept the default stack or customize
+5. **Get your instructions** — files are generated in `./instructions/`
+
+The skill handles the full workflow: story design, data schemas, pipeline specs, dashboard layouts, Genie/KA configuration, and a walkthrough script.
+
+**Example:**
+```
+You: Create a demo for a fashion retailer
+Skill: Here are 3 story options... [returns spike / sales drop / stockouts]
+You: 2
+Skill: Components: Data → Pipeline → Dashboard → Genie → KA → MAS. Ok?
+You: ok
+Skill: Catalog/schema? Default: dbdemos_ai_gen.fashion_sales
+You: ok
+Skill: [generates all instruction files]
+```
+
+To execute the generated instructions, use an agent with the [Databricks AI Dev Kit](https://github.com/databricks/ai-dev-kit).
+
 ## How it works
 
 1. **Pick a use case** — browse 30+ use cases across 8 industry verticals, or describe your own.
