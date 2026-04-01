@@ -1,6 +1,15 @@
 bundle:
   name: "demo-prompt-generator"
 
+# ---------------------------------------------------------------------------
+# Variables — override per-target or via CLI:
+#   databricks bundle deploy -t dev --var llm_endpoint=databricks-claude-sonnet-4
+# ---------------------------------------------------------------------------
+variables:
+  llm_endpoint:
+    description: "Foundation Model serving endpoint for LLM calls"
+    default: "databricks-claude-sonnet-4-6"
+
 sync:
   include:
     - .build
@@ -12,11 +21,12 @@ artifacts:
 resources:
   database_instances:
     demo-prompt-generator-db:
-      name: "demo-prompt-generator"
+      name: "demo-prompt-gen-db"
       capacity: "CU_1"
+
   apps:
     demo-prompt-generator-app:
-      name: "demo-prompt-generator"
+      name: "demo-prompt-gen"
       description: "Demo Prompt Generator — generates Databricks demo skill packages"
       source_code_path: ./.build
       resources:
@@ -27,16 +37,26 @@ resources:
             permission: "CAN_CONNECT_AND_CREATE"
         - name: "llm"
           serving_endpoint:
-            name: "databricks-claude-sonnet-4"
+            name: ${var.llm_endpoint}
             permission: "CAN_QUERY"
+      permissions:
+        - level: "CAN_USE"
+          group_name: "users"
 
+# ---------------------------------------------------------------------------
 # Deploy to any workspace:
-#   1. Configure a CLI profile:  databricks auth login --host <workspace-url> --profile <name>
-#   2. Deploy:                   databricks bundle deploy -t dev --profile <name>
+#   1. databricks auth login --host <workspace-url> --profile <name>
+#   2. cd app && databricks bundle deploy -t dev --profile <name>
+#   3. databricks bundle run demo-prompt-generator-app -t dev --profile <name>
 #
-# The bundle will create a Lakebase instance and app automatically.
-# The serving endpoint "databricks-claude-sonnet-4" must exist on the target workspace.
+# Prerequisites:
+#   - A serving endpoint matching the llm_endpoint variable (default: databricks-claude-sonnet-4)
+#   - Databricks CLI v0.239.0+ (for Apps resource support)
+# ---------------------------------------------------------------------------
 targets:
   dev:
     mode: development
     default: true
+
+  prod:
+    mode: production

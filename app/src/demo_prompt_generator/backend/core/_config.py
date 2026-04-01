@@ -32,7 +32,7 @@ class AppConfig(BaseSettings):
     databricks_host: str = Field(default="")
     databricks_token: str = Field(default="")
     llm_model: str = Field(
-        default="databricks-claude-sonnet-4",
+        default="databricks-claude-sonnet-4-6",
     )
 
     @property

@@ -122,6 +122,9 @@ export interface GenerationListItem {
     demo_name: string;
     id: number;
     industry: string;
+    is_library?: boolean;
+    is_starred?: boolean;
+    library_tags?: string[] | null;
     stage?: string;
 }
 export interface GenerationOut {
@@ -129,6 +132,9 @@ export interface GenerationOut {
     demo_name: string;
     id: number;
     industry: string;
+    is_library?: boolean;
+    is_starred?: boolean;
+    library_tags?: string[] | null;
     owner_name: string;
     proposal_md?: string | null;
     skill_files?: Record<string, string> | null;
@@ -148,6 +154,9 @@ export interface Name {
 export interface SaveMessagesRequest {
     generation_id: number;
     messages: ChatMessage[];
+}
+export interface StarRequest {
+    is_starred: boolean;
 }
 export const Tone = {
     business: "business",
@@ -190,7 +199,15 @@ export interface ValidationError {
 export interface VersionOut {
     version: string;
 }
+export interface WorkspaceAgentRefineRequest {
+    generation_id: number;
+    history?: ChatMessage[];
+    message: string;
+}
 export interface WorkspaceApproveRequest {
+    generation_id: number;
+}
+export interface WorkspaceBuildRequest {
     generation_id: number;
 }
 export interface WorkspaceBuildoutFileRequest {
@@ -203,6 +220,10 @@ export interface WorkspaceBuildoutRequest {
     files_payload?: string | null;
     generation_id: number;
     user_architecture?: string | null;
+}
+export interface WorkspaceBuildoutSaveRequest {
+    files: Record<string, string>;
+    generation_id: number;
 }
 export interface WorkspaceGenerateRequest {
     topic: string;
@@ -284,7 +305,15 @@ export function useListConversationsSuspense<TData = {
         ...options?.query
     });
 }
-export const saveConversation = async (data: SaveMessagesRequest, options?: RequestInit): Promise<{
+export interface SaveConversationParams {
+    "X-Forwarded-Host"?: string | null;
+    "X-Forwarded-Preferred-Username"?: string | null;
+    "X-Forwarded-User"?: string | null;
+    "X-Forwarded-Email"?: string | null;
+    "X-Request-Id"?: string | null;
+    "X-Forwarded-Access-Token"?: string | null;
+}
+export const saveConversation = async (data: SaveMessagesRequest, params?: SaveConversationParams, options?: RequestInit): Promise<{
     data: ConversationOut;
 }> =>{
     const res = await fetch("/api/conversations/save", {
@@ -292,6 +321,24 @@ export const saveConversation = async (data: SaveMessagesRequest, options?: Requ
         method: "POST",
         headers: {
             "Content-Type": "application/json",
+            ...(params?.["X-Forwarded-Host"] != null && {
+                "X-Forwarded-Host": params["X-Forwarded-Host"]
+            }),
+            ...(params?.["X-Forwarded-Preferred-Username"] != null && {
+                "X-Forwarded-Preferred-Username": params["X-Forwarded-Preferred-Username"]
+            }),
+            ...(params?.["X-Forwarded-User"] != null && {
+                "X-Forwarded-User": params["X-Forwarded-User"]
+            }),
+            ...(params?.["X-Forwarded-Email"] != null && {
+                "X-Forwarded-Email": params["X-Forwarded-Email"]
+            }),
+            ...(params?.["X-Request-Id"] != null && {
+                "X-Request-Id": params["X-Request-Id"]
+            }),
+            ...(params?.["X-Forwarded-Access-Token"] != null && {
+                "X-Forwarded-Access-Token": params["X-Forwarded-Access-Token"]
+            }),
             ...options?.headers
         },
         body: JSON.stringify(data)
@@ -313,10 +360,13 @@ export const saveConversation = async (data: SaveMessagesRequest, options?: Requ
 export function useSaveConversation(options?: {
     mutation?: UseMutationOptions<{
         data: ConversationOut;
-    }, ApiError, SaveMessagesRequest>;
+    }, ApiError, {
+        params: SaveConversationParams;
+        data: SaveMessagesRequest;
+    }>;
 }) {
     return useMutation({
-        mutationFn: (data)=>saveConversation(data),
+        mutationFn: (vars)=>saveConversation(vars.data, vars.params),
         ...options?.mutation
     });
 }
@@ -534,12 +584,41 @@ export function useGenerateSkill(options?: {
         ...options?.mutation
     });
 }
-export const listGenerations = async (options?: RequestInit): Promise<{
+export interface ListGenerationsParams {
+    "X-Forwarded-Host"?: string | null;
+    "X-Forwarded-Preferred-Username"?: string | null;
+    "X-Forwarded-User"?: string | null;
+    "X-Forwarded-Email"?: string | null;
+    "X-Request-Id"?: string | null;
+    "X-Forwarded-Access-Token"?: string | null;
+}
+export const listGenerations = async (params?: ListGenerationsParams, options?: RequestInit): Promise<{
     data: GenerationListItem[];
 }> =>{
     const res = await fetch("/api/generations", {
         ...options,
-        method: "GET"
+        method: "GET",
+        headers: {
+            ...(params?.["X-Forwarded-Host"] != null && {
+                "X-Forwarded-Host": params["X-Forwarded-Host"]
+            }),
+            ...(params?.["X-Forwarded-Preferred-Username"] != null && {
+                "X-Forwarded-Preferred-Username": params["X-Forwarded-Preferred-Username"]
+            }),
+            ...(params?.["X-Forwarded-User"] != null && {
+                "X-Forwarded-User": params["X-Forwarded-User"]
+            }),
+            ...(params?.["X-Forwarded-Email"] != null && {
+                "X-Forwarded-Email": params["X-Forwarded-Email"]
+            }),
+            ...(params?.["X-Request-Id"] != null && {
+                "X-Request-Id": params["X-Request-Id"]
+            }),
+            ...(params?.["X-Forwarded-Access-Token"] != null && {
+                "X-Forwarded-Access-Token": params["X-Forwarded-Access-Token"]
+            }),
+            ...options?.headers
+        }
     });
     if (!res.ok) {
         const body = await res.text();
@@ -555,44 +634,73 @@ export const listGenerations = async (options?: RequestInit): Promise<{
         data: await res.json()
     };
 };
-export const listGenerationsKey = ()=>{
+export const listGenerationsKey = (params?: ListGenerationsParams)=>{
     return [
-        "/api/generations"
+        "/api/generations",
+        params
     ] as const;
 };
 export function useListGenerations<TData = {
     data: GenerationListItem[];
 }>(options?: {
+    params?: ListGenerationsParams;
     query?: Omit<UseQueryOptions<{
         data: GenerationListItem[];
     }, ApiError, TData>, "queryKey" | "queryFn">;
 }) {
     return useQuery({
-        queryKey: listGenerationsKey(),
-        queryFn: ()=>listGenerations(),
+        queryKey: listGenerationsKey(options?.params),
+        queryFn: ()=>listGenerations(options?.params),
         ...options?.query
     });
 }
 export function useListGenerationsSuspense<TData = {
     data: GenerationListItem[];
 }>(options?: {
+    params?: ListGenerationsParams;
     query?: Omit<UseSuspenseQueryOptions<{
         data: GenerationListItem[];
     }, ApiError, TData>, "queryKey" | "queryFn">;
 }) {
     return useSuspenseQuery({
-        queryKey: listGenerationsKey(),
-        queryFn: ()=>listGenerations(),
+        queryKey: listGenerationsKey(options?.params),
+        queryFn: ()=>listGenerations(options?.params),
         ...options?.query
     });
 }
-export const importGeneration = async (data: FormData, options?: RequestInit): Promise<{
+export interface ImportGenerationParams {
+    "X-Forwarded-Host"?: string | null;
+    "X-Forwarded-Preferred-Username"?: string | null;
+    "X-Forwarded-User"?: string | null;
+    "X-Forwarded-Email"?: string | null;
+    "X-Request-Id"?: string | null;
+    "X-Forwarded-Access-Token"?: string | null;
+}
+export const importGeneration = async (data: FormData, params?: ImportGenerationParams, options?: RequestInit): Promise<{
     data: GenerationOut;
 }> =>{
     const res = await fetch("/api/generations/import", {
         ...options,
         method: "POST",
         headers: {
+            ...(params?.["X-Forwarded-Host"] != null && {
+                "X-Forwarded-Host": params["X-Forwarded-Host"]
+            }),
+            ...(params?.["X-Forwarded-Preferred-Username"] != null && {
+                "X-Forwarded-Preferred-Username": params["X-Forwarded-Preferred-Username"]
+            }),
+            ...(params?.["X-Forwarded-User"] != null && {
+                "X-Forwarded-User": params["X-Forwarded-User"]
+            }),
+            ...(params?.["X-Forwarded-Email"] != null && {
+                "X-Forwarded-Email": params["X-Forwarded-Email"]
+            }),
+            ...(params?.["X-Request-Id"] != null && {
+                "X-Request-Id": params["X-Request-Id"]
+            }),
+            ...(params?.["X-Forwarded-Access-Token"] != null && {
+                "X-Forwarded-Access-Token": params["X-Forwarded-Access-Token"]
+            }),
             ...options?.headers
         },
         body: data
@@ -614,22 +722,52 @@ export const importGeneration = async (data: FormData, options?: RequestInit): P
 export function useImportGeneration(options?: {
     mutation?: UseMutationOptions<{
         data: GenerationOut;
-    }, ApiError, FormData>;
+    }, ApiError, {
+        params: ImportGenerationParams;
+        data: FormData;
+    }>;
 }) {
     return useMutation({
-        mutationFn: (data)=>importGeneration(data),
+        mutationFn: (vars)=>importGeneration(vars.data, vars.params),
         ...options?.mutation
     });
 }
 export interface GetGenerationParams {
     generation_id: number;
+    "X-Forwarded-Host"?: string | null;
+    "X-Forwarded-Preferred-Username"?: string | null;
+    "X-Forwarded-User"?: string | null;
+    "X-Forwarded-Email"?: string | null;
+    "X-Request-Id"?: string | null;
+    "X-Forwarded-Access-Token"?: string | null;
 }
 export const getGeneration = async (params: GetGenerationParams, options?: RequestInit): Promise<{
     data: GenerationOut;
 }> =>{
     const res = await fetch(`/api/generations/${params.generation_id}`, {
         ...options,
-        method: "GET"
+        method: "GET",
+        headers: {
+            ...(params?.["X-Forwarded-Host"] != null && {
+                "X-Forwarded-Host": params["X-Forwarded-Host"]
+            }),
+            ...(params?.["X-Forwarded-Preferred-Username"] != null && {
+                "X-Forwarded-Preferred-Username": params["X-Forwarded-Preferred-Username"]
+            }),
+            ...(params?.["X-Forwarded-User"] != null && {
+                "X-Forwarded-User": params["X-Forwarded-User"]
+            }),
+            ...(params?.["X-Forwarded-Email"] != null && {
+                "X-Forwarded-Email": params["X-Forwarded-Email"]
+            }),
+            ...(params?.["X-Request-Id"] != null && {
+                "X-Request-Id": params["X-Request-Id"]
+            }),
+            ...(params?.["X-Forwarded-Access-Token"] != null && {
+                "X-Forwarded-Access-Token": params["X-Forwarded-Access-Token"]
+            }),
+            ...options?.headers
+        }
     });
     if (!res.ok) {
         const body = await res.text();
@@ -679,6 +817,72 @@ export function useGetGenerationSuspense<TData = {
         ...options?.query
     });
 }
+export interface ToggleGenerationStarParams {
+    generation_id: number;
+    "X-Forwarded-Host"?: string | null;
+    "X-Forwarded-Preferred-Username"?: string | null;
+    "X-Forwarded-User"?: string | null;
+    "X-Forwarded-Email"?: string | null;
+    "X-Request-Id"?: string | null;
+    "X-Forwarded-Access-Token"?: string | null;
+}
+export const toggleGenerationStar = async (params: ToggleGenerationStarParams, data: StarRequest, options?: RequestInit): Promise<{
+    data: GenerationListItem;
+}> =>{
+    const res = await fetch(`/api/generations/${params.generation_id}/star`, {
+        ...options,
+        method: "PATCH",
+        headers: {
+            "Content-Type": "application/json",
+            ...(params?.["X-Forwarded-Host"] != null && {
+                "X-Forwarded-Host": params["X-Forwarded-Host"]
+            }),
+            ...(params?.["X-Forwarded-Preferred-Username"] != null && {
+                "X-Forwarded-Preferred-Username": params["X-Forwarded-Preferred-Username"]
+            }),
+            ...(params?.["X-Forwarded-User"] != null && {
+                "X-Forwarded-User": params["X-Forwarded-User"]
+            }),
+            ...(params?.["X-Forwarded-Email"] != null && {
+                "X-Forwarded-Email": params["X-Forwarded-Email"]
+            }),
+            ...(params?.["X-Request-Id"] != null && {
+                "X-Request-Id": params["X-Request-Id"]
+            }),
+            ...(params?.["X-Forwarded-Access-Token"] != null && {
+                "X-Forwarded-Access-Token": params["X-Forwarded-Access-Token"]
+            }),
+            ...options?.headers
+        },
+        body: JSON.stringify(data)
+    });
+    if (!res.ok) {
+        const body = await res.text();
+        let parsed: unknown;
+        try {
+            parsed = JSON.parse(body);
+        } catch  {
+            parsed = body;
+        }
+        throw new ApiError(res.status, res.statusText, parsed);
+    }
+    return {
+        data: await res.json()
+    };
+};
+export function useToggleGenerationStar(options?: {
+    mutation?: UseMutationOptions<{
+        data: GenerationListItem;
+    }, ApiError, {
+        params: ToggleGenerationStarParams;
+        data: StarRequest;
+    }>;
+}) {
+    return useMutation({
+        mutationFn: (vars)=>toggleGenerationStar(vars.params, vars.data),
+        ...options?.mutation
+    });
+}
 export const streamInspiration = async (data: InspireRequest, options?: RequestInit): Promise<{
     data: unknown;
 }> =>{
@@ -712,6 +916,179 @@ export function useStreamInspiration(options?: {
 }) {
     return useMutation({
         mutationFn: (data)=>streamInspiration(data),
+        ...options?.mutation
+    });
+}
+export const listLibrary = async (options?: RequestInit): Promise<{
+    data: GenerationListItem[];
+}> =>{
+    const res = await fetch("/api/library", {
+        ...options,
+        method: "GET"
+    });
+    if (!res.ok) {
+        const body = await res.text();
+        let parsed: unknown;
+        try {
+            parsed = JSON.parse(body);
+        } catch  {
+            parsed = body;
+        }
+        throw new ApiError(res.status, res.statusText, parsed);
+    }
+    return {
+        data: await res.json()
+    };
+};
+export const listLibraryKey = ()=>{
+    return [
+        "/api/library"
+    ] as const;
+};
+export function useListLibrary<TData = {
+    data: GenerationListItem[];
+}>(options?: {
+    query?: Omit<UseQueryOptions<{
+        data: GenerationListItem[];
+    }, ApiError, TData>, "queryKey" | "queryFn">;
+}) {
+    return useQuery({
+        queryKey: listLibraryKey(),
+        queryFn: ()=>listLibrary(),
+        ...options?.query
+    });
+}
+export function useListLibrarySuspense<TData = {
+    data: GenerationListItem[];
+}>(options?: {
+    query?: Omit<UseSuspenseQueryOptions<{
+        data: GenerationListItem[];
+    }, ApiError, TData>, "queryKey" | "queryFn">;
+}) {
+    return useSuspenseQuery({
+        queryKey: listLibraryKey(),
+        queryFn: ()=>listLibrary(),
+        ...options?.query
+    });
+}
+export interface GetLibraryPackageParams {
+    package_id: number;
+}
+export const getLibraryPackage = async (params: GetLibraryPackageParams, options?: RequestInit): Promise<{
+    data: GenerationOut;
+}> =>{
+    const res = await fetch(`/api/library/${params.package_id}`, {
+        ...options,
+        method: "GET"
+    });
+    if (!res.ok) {
+        const body = await res.text();
+        let parsed: unknown;
+        try {
+            parsed = JSON.parse(body);
+        } catch  {
+            parsed = body;
+        }
+        throw new ApiError(res.status, res.statusText, parsed);
+    }
+    return {
+        data: await res.json()
+    };
+};
+export const getLibraryPackageKey = (params?: GetLibraryPackageParams)=>{
+    return [
+        "/api/library/{package_id}",
+        params
+    ] as const;
+};
+export function useGetLibraryPackage<TData = {
+    data: GenerationOut;
+}>(options: {
+    params: GetLibraryPackageParams;
+    query?: Omit<UseQueryOptions<{
+        data: GenerationOut;
+    }, ApiError, TData>, "queryKey" | "queryFn">;
+}) {
+    return useQuery({
+        queryKey: getLibraryPackageKey(options.params),
+        queryFn: ()=>getLibraryPackage(options.params),
+        ...options?.query
+    });
+}
+export function useGetLibraryPackageSuspense<TData = {
+    data: GenerationOut;
+}>(options: {
+    params: GetLibraryPackageParams;
+    query?: Omit<UseSuspenseQueryOptions<{
+        data: GenerationOut;
+    }, ApiError, TData>, "queryKey" | "queryFn">;
+}) {
+    return useSuspenseQuery({
+        queryKey: getLibraryPackageKey(options.params),
+        queryFn: ()=>getLibraryPackage(options.params),
+        ...options?.query
+    });
+}
+export interface ForkLibraryPackageParams {
+    package_id: number;
+    "X-Forwarded-Host"?: string | null;
+    "X-Forwarded-Preferred-Username"?: string | null;
+    "X-Forwarded-User"?: string | null;
+    "X-Forwarded-Email"?: string | null;
+    "X-Request-Id"?: string | null;
+    "X-Forwarded-Access-Token"?: string | null;
+}
+export const forkLibraryPackage = async (params: ForkLibraryPackageParams, options?: RequestInit): Promise<{
+    data: GenerationOut;
+}> =>{
+    const res = await fetch(`/api/library/${params.package_id}/fork`, {
+        ...options,
+        method: "POST",
+        headers: {
+            ...(params?.["X-Forwarded-Host"] != null && {
+                "X-Forwarded-Host": params["X-Forwarded-Host"]
+            }),
+            ...(params?.["X-Forwarded-Preferred-Username"] != null && {
+                "X-Forwarded-Preferred-Username": params["X-Forwarded-Preferred-Username"]
+            }),
+            ...(params?.["X-Forwarded-User"] != null && {
+                "X-Forwarded-User": params["X-Forwarded-User"]
+            }),
+            ...(params?.["X-Forwarded-Email"] != null && {
+                "X-Forwarded-Email": params["X-Forwarded-Email"]
+            }),
+            ...(params?.["X-Request-Id"] != null && {
+                "X-Request-Id": params["X-Request-Id"]
+            }),
+            ...(params?.["X-Forwarded-Access-Token"] != null && {
+                "X-Forwarded-Access-Token": params["X-Forwarded-Access-Token"]
+            }),
+            ...options?.headers
+        }
+    });
+    if (!res.ok) {
+        const body = await res.text();
+        let parsed: unknown;
+        try {
+            parsed = JSON.parse(body);
+        } catch  {
+            parsed = body;
+        }
+        throw new ApiError(res.status, res.statusText, parsed);
+    }
+    return {
+        data: await res.json()
+    };
+};
+export function useForkLibraryPackage(options?: {
+    mutation?: UseMutationOptions<{
+        data: GenerationOut;
+    }, ApiError, {
+        params: ForkLibraryPackageParams;
+    }>;
+}) {
+    return useMutation({
+        mutationFn: (vars)=>forkLibraryPackage(vars.params),
         ...options?.mutation
     });
 }
@@ -767,7 +1144,80 @@ export function useVersionSuspense<TData = {
         ...options?.query
     });
 }
-export const workspaceApprove = async (data: WorkspaceApproveRequest, options?: RequestInit): Promise<{
+export interface WorkspaceAgentRefineParams {
+    "X-Forwarded-Host"?: string | null;
+    "X-Forwarded-Preferred-Username"?: string | null;
+    "X-Forwarded-User"?: string | null;
+    "X-Forwarded-Email"?: string | null;
+    "X-Request-Id"?: string | null;
+    "X-Forwarded-Access-Token"?: string | null;
+}
+export const workspaceAgentRefine = async (data: WorkspaceAgentRefineRequest, params?: WorkspaceAgentRefineParams, options?: RequestInit): Promise<{
+    data: unknown;
+}> =>{
+    const res = await fetch("/api/workspace/agent-refine", {
+        ...options,
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+            ...(params?.["X-Forwarded-Host"] != null && {
+                "X-Forwarded-Host": params["X-Forwarded-Host"]
+            }),
+            ...(params?.["X-Forwarded-Preferred-Username"] != null && {
+                "X-Forwarded-Preferred-Username": params["X-Forwarded-Preferred-Username"]
+            }),
+            ...(params?.["X-Forwarded-User"] != null && {
+                "X-Forwarded-User": params["X-Forwarded-User"]
+            }),
+            ...(params?.["X-Forwarded-Email"] != null && {
+                "X-Forwarded-Email": params["X-Forwarded-Email"]
+            }),
+            ...(params?.["X-Request-Id"] != null && {
+                "X-Request-Id": params["X-Request-Id"]
+            }),
+            ...(params?.["X-Forwarded-Access-Token"] != null && {
+                "X-Forwarded-Access-Token": params["X-Forwarded-Access-Token"]
+            }),
+            ...options?.headers
+        },
+        body: JSON.stringify(data)
+    });
+    if (!res.ok) {
+        const body = await res.text();
+        let parsed: unknown;
+        try {
+            parsed = JSON.parse(body);
+        } catch  {
+            parsed = body;
+        }
+        throw new ApiError(res.status, res.statusText, parsed);
+    }
+    return {
+        data: await res.json()
+    };
+};
+export function useWorkspaceAgentRefine(options?: {
+    mutation?: UseMutationOptions<{
+        data: unknown;
+    }, ApiError, {
+        params: WorkspaceAgentRefineParams;
+        data: WorkspaceAgentRefineRequest;
+    }>;
+}) {
+    return useMutation({
+        mutationFn: (vars)=>workspaceAgentRefine(vars.data, vars.params),
+        ...options?.mutation
+    });
+}
+export interface WorkspaceApproveParams {
+    "X-Forwarded-Host"?: string | null;
+    "X-Forwarded-Preferred-Username"?: string | null;
+    "X-Forwarded-User"?: string | null;
+    "X-Forwarded-Email"?: string | null;
+    "X-Request-Id"?: string | null;
+    "X-Forwarded-Access-Token"?: string | null;
+}
+export const workspaceApprove = async (data: WorkspaceApproveRequest, params?: WorkspaceApproveParams, options?: RequestInit): Promise<{
     data: unknown;
 }> =>{
     const res = await fetch("/api/workspace/approve", {
@@ -775,6 +1225,24 @@ export const workspaceApprove = async (data: WorkspaceApproveRequest, options?: 
         method: "POST",
         headers: {
             "Content-Type": "application/json",
+            ...(params?.["X-Forwarded-Host"] != null && {
+                "X-Forwarded-Host": params["X-Forwarded-Host"]
+            }),
+            ...(params?.["X-Forwarded-Preferred-Username"] != null && {
+                "X-Forwarded-Preferred-Username": params["X-Forwarded-Preferred-Username"]
+            }),
+            ...(params?.["X-Forwarded-User"] != null && {
+                "X-Forwarded-User": params["X-Forwarded-User"]
+            }),
+            ...(params?.["X-Forwarded-Email"] != null && {
+                "X-Forwarded-Email": params["X-Forwarded-Email"]
+            }),
+            ...(params?.["X-Request-Id"] != null && {
+                "X-Request-Id": params["X-Request-Id"]
+            }),
+            ...(params?.["X-Forwarded-Access-Token"] != null && {
+                "X-Forwarded-Access-Token": params["X-Forwarded-Access-Token"]
+            }),
             ...options?.headers
         },
         body: JSON.stringify(data)
@@ -796,14 +1264,90 @@ export const workspaceApprove = async (data: WorkspaceApproveRequest, options?: 
 export function useWorkspaceApprove(options?: {
     mutation?: UseMutationOptions<{
         data: unknown;
-    }, ApiError, WorkspaceApproveRequest>;
+    }, ApiError, {
+        params: WorkspaceApproveParams;
+        data: WorkspaceApproveRequest;
+    }>;
 }) {
     return useMutation({
-        mutationFn: (data)=>workspaceApprove(data),
+        mutationFn: (vars)=>workspaceApprove(vars.data, vars.params),
         ...options?.mutation
     });
 }
-export const workspaceBuildout = async (data: WorkspaceBuildoutRequest, options?: RequestInit): Promise<{
+export interface WorkspaceBuildParams {
+    "X-Forwarded-Host"?: string | null;
+    "X-Forwarded-Preferred-Username"?: string | null;
+    "X-Forwarded-User"?: string | null;
+    "X-Forwarded-Email"?: string | null;
+    "X-Request-Id"?: string | null;
+    "X-Forwarded-Access-Token"?: string | null;
+}
+export const workspaceBuild = async (data: WorkspaceBuildRequest, params?: WorkspaceBuildParams, options?: RequestInit): Promise<{
+    data: unknown;
+}> =>{
+    const res = await fetch("/api/workspace/build", {
+        ...options,
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+            ...(params?.["X-Forwarded-Host"] != null && {
+                "X-Forwarded-Host": params["X-Forwarded-Host"]
+            }),
+            ...(params?.["X-Forwarded-Preferred-Username"] != null && {
+                "X-Forwarded-Preferred-Username": params["X-Forwarded-Preferred-Username"]
+            }),
+            ...(params?.["X-Forwarded-User"] != null && {
+                "X-Forwarded-User": params["X-Forwarded-User"]
+            }),
+            ...(params?.["X-Forwarded-Email"] != null && {
+                "X-Forwarded-Email": params["X-Forwarded-Email"]
+            }),
+            ...(params?.["X-Request-Id"] != null && {
+                "X-Request-Id": params["X-Request-Id"]
+            }),
+            ...(params?.["X-Forwarded-Access-Token"] != null && {
+                "X-Forwarded-Access-Token": params["X-Forwarded-Access-Token"]
+            }),
+            ...options?.headers
+        },
+        body: JSON.stringify(data)
+    });
+    if (!res.ok) {
+        const body = await res.text();
+        let parsed: unknown;
+        try {
+            parsed = JSON.parse(body);
+        } catch  {
+            parsed = body;
+        }
+        throw new ApiError(res.status, res.statusText, parsed);
+    }
+    return {
+        data: await res.json()
+    };
+};
+export function useWorkspaceBuild(options?: {
+    mutation?: UseMutationOptions<{
+        data: unknown;
+    }, ApiError, {
+        params: WorkspaceBuildParams;
+        data: WorkspaceBuildRequest;
+    }>;
+}) {
+    return useMutation({
+        mutationFn: (vars)=>workspaceBuild(vars.data, vars.params),
+        ...options?.mutation
+    });
+}
+export interface WorkspaceBuildoutParams {
+    "X-Forwarded-Host"?: string | null;
+    "X-Forwarded-Preferred-Username"?: string | null;
+    "X-Forwarded-User"?: string | null;
+    "X-Forwarded-Email"?: string | null;
+    "X-Request-Id"?: string | null;
+    "X-Forwarded-Access-Token"?: string | null;
+}
+export const workspaceBuildout = async (data: WorkspaceBuildoutRequest, params?: WorkspaceBuildoutParams, options?: RequestInit): Promise<{
     data: unknown;
 }> =>{
     const res = await fetch("/api/workspace/buildout", {
@@ -811,6 +1355,24 @@ export const workspaceBuildout = async (data: WorkspaceBuildoutRequest, options?
         method: "POST",
         headers: {
             "Content-Type": "application/json",
+            ...(params?.["X-Forwarded-Host"] != null && {
+                "X-Forwarded-Host": params["X-Forwarded-Host"]
+            }),
+            ...(params?.["X-Forwarded-Preferred-Username"] != null && {
+                "X-Forwarded-Preferred-Username": params["X-Forwarded-Preferred-Username"]
+            }),
+            ...(params?.["X-Forwarded-User"] != null && {
+                "X-Forwarded-User": params["X-Forwarded-User"]
+            }),
+            ...(params?.["X-Forwarded-Email"] != null && {
+                "X-Forwarded-Email": params["X-Forwarded-Email"]
+            }),
+            ...(params?.["X-Request-Id"] != null && {
+                "X-Request-Id": params["X-Request-Id"]
+            }),
+            ...(params?.["X-Forwarded-Access-Token"] != null && {
+                "X-Forwarded-Access-Token": params["X-Forwarded-Access-Token"]
+            }),
             ...options?.headers
         },
         body: JSON.stringify(data)
@@ -832,14 +1394,25 @@ export const workspaceBuildout = async (data: WorkspaceBuildoutRequest, options?
 export function useWorkspaceBuildout(options?: {
     mutation?: UseMutationOptions<{
         data: unknown;
-    }, ApiError, WorkspaceBuildoutRequest>;
+    }, ApiError, {
+        params: WorkspaceBuildoutParams;
+        data: WorkspaceBuildoutRequest;
+    }>;
 }) {
     return useMutation({
-        mutationFn: (data)=>workspaceBuildout(data),
+        mutationFn: (vars)=>workspaceBuildout(vars.data, vars.params),
         ...options?.mutation
     });
 }
-export const workspaceBuildoutFile = async (data: WorkspaceBuildoutFileRequest, options?: RequestInit): Promise<{
+export interface WorkspaceBuildoutFileParams {
+    "X-Forwarded-Host"?: string | null;
+    "X-Forwarded-Preferred-Username"?: string | null;
+    "X-Forwarded-User"?: string | null;
+    "X-Forwarded-Email"?: string | null;
+    "X-Request-Id"?: string | null;
+    "X-Forwarded-Access-Token"?: string | null;
+}
+export const workspaceBuildoutFile = async (data: WorkspaceBuildoutFileRequest, params?: WorkspaceBuildoutFileParams, options?: RequestInit): Promise<{
     data: unknown;
 }> =>{
     const res = await fetch("/api/workspace/buildout-file", {
@@ -847,6 +1420,24 @@ export const workspaceBuildoutFile = async (data: WorkspaceBuildoutFileRequest, 
         method: "POST",
         headers: {
             "Content-Type": "application/json",
+            ...(params?.["X-Forwarded-Host"] != null && {
+                "X-Forwarded-Host": params["X-Forwarded-Host"]
+            }),
+            ...(params?.["X-Forwarded-Preferred-Username"] != null && {
+                "X-Forwarded-Preferred-Username": params["X-Forwarded-Preferred-Username"]
+            }),
+            ...(params?.["X-Forwarded-User"] != null && {
+                "X-Forwarded-User": params["X-Forwarded-User"]
+            }),
+            ...(params?.["X-Forwarded-Email"] != null && {
+                "X-Forwarded-Email": params["X-Forwarded-Email"]
+            }),
+            ...(params?.["X-Request-Id"] != null && {
+                "X-Request-Id": params["X-Request-Id"]
+            }),
+            ...(params?.["X-Forwarded-Access-Token"] != null && {
+                "X-Forwarded-Access-Token": params["X-Forwarded-Access-Token"]
+            }),
             ...options?.headers
         },
         body: JSON.stringify(data)
@@ -868,14 +1459,25 @@ export const workspaceBuildoutFile = async (data: WorkspaceBuildoutFileRequest, 
 export function useWorkspaceBuildoutFile(options?: {
     mutation?: UseMutationOptions<{
         data: unknown;
-    }, ApiError, WorkspaceBuildoutFileRequest>;
+    }, ApiError, {
+        params: WorkspaceBuildoutFileParams;
+        data: WorkspaceBuildoutFileRequest;
+    }>;
 }) {
     return useMutation({
-        mutationFn: (data)=>workspaceBuildoutFile(data),
+        mutationFn: (vars)=>workspaceBuildoutFile(vars.data, vars.params),
         ...options?.mutation
     });
 }
-export const workspaceBuildoutFinalize = async (data: WorkspaceBuildoutRequest, options?: RequestInit): Promise<{
+export interface WorkspaceBuildoutFinalizeParams {
+    "X-Forwarded-Host"?: string | null;
+    "X-Forwarded-Preferred-Username"?: string | null;
+    "X-Forwarded-User"?: string | null;
+    "X-Forwarded-Email"?: string | null;
+    "X-Request-Id"?: string | null;
+    "X-Forwarded-Access-Token"?: string | null;
+}
+export const workspaceBuildoutFinalize = async (data: WorkspaceBuildoutRequest, params?: WorkspaceBuildoutFinalizeParams, options?: RequestInit): Promise<{
     data: unknown;
 }> =>{
     const res = await fetch("/api/workspace/buildout-finalize", {
@@ -883,6 +1485,24 @@ export const workspaceBuildoutFinalize = async (data: WorkspaceBuildoutRequest, 
         method: "POST",
         headers: {
             "Content-Type": "application/json",
+            ...(params?.["X-Forwarded-Host"] != null && {
+                "X-Forwarded-Host": params["X-Forwarded-Host"]
+            }),
+            ...(params?.["X-Forwarded-Preferred-Username"] != null && {
+                "X-Forwarded-Preferred-Username": params["X-Forwarded-Preferred-Username"]
+            }),
+            ...(params?.["X-Forwarded-User"] != null && {
+                "X-Forwarded-User": params["X-Forwarded-User"]
+            }),
+            ...(params?.["X-Forwarded-Email"] != null && {
+                "X-Forwarded-Email": params["X-Forwarded-Email"]
+            }),
+            ...(params?.["X-Request-Id"] != null && {
+                "X-Request-Id": params["X-Request-Id"]
+            }),
+            ...(params?.["X-Forwarded-Access-Token"] != null && {
+                "X-Forwarded-Access-Token": params["X-Forwarded-Access-Token"]
+            }),
             ...options?.headers
         },
         body: JSON.stringify(data)
@@ -904,14 +1524,90 @@ export const workspaceBuildoutFinalize = async (data: WorkspaceBuildoutRequest, 
 export function useWorkspaceBuildoutFinalize(options?: {
     mutation?: UseMutationOptions<{
         data: unknown;
-    }, ApiError, WorkspaceBuildoutRequest>;
+    }, ApiError, {
+        params: WorkspaceBuildoutFinalizeParams;
+        data: WorkspaceBuildoutRequest;
+    }>;
 }) {
     return useMutation({
-        mutationFn: (data)=>workspaceBuildoutFinalize(data),
+        mutationFn: (vars)=>workspaceBuildoutFinalize(vars.data, vars.params),
         ...options?.mutation
     });
 }
-export const workspaceGenerate = async (data: WorkspaceGenerateRequest, options?: RequestInit): Promise<{
+export interface WorkspaceBuildoutSaveParams {
+    "X-Forwarded-Host"?: string | null;
+    "X-Forwarded-Preferred-Username"?: string | null;
+    "X-Forwarded-User"?: string | null;
+    "X-Forwarded-Email"?: string | null;
+    "X-Request-Id"?: string | null;
+    "X-Forwarded-Access-Token"?: string | null;
+}
+export const workspaceBuildoutSave = async (data: WorkspaceBuildoutSaveRequest, params?: WorkspaceBuildoutSaveParams, options?: RequestInit): Promise<{
+    data: unknown;
+}> =>{
+    const res = await fetch("/api/workspace/buildout-save", {
+        ...options,
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+            ...(params?.["X-Forwarded-Host"] != null && {
+                "X-Forwarded-Host": params["X-Forwarded-Host"]
+            }),
+            ...(params?.["X-Forwarded-Preferred-Username"] != null && {
+                "X-Forwarded-Preferred-Username": params["X-Forwarded-Preferred-Username"]
+            }),
+            ...(params?.["X-Forwarded-User"] != null && {
+                "X-Forwarded-User": params["X-Forwarded-User"]
+            }),
+            ...(params?.["X-Forwarded-Email"] != null && {
+                "X-Forwarded-Email": params["X-Forwarded-Email"]
+            }),
+            ...(params?.["X-Request-Id"] != null && {
+                "X-Request-Id": params["X-Request-Id"]
+            }),
+            ...(params?.["X-Forwarded-Access-Token"] != null && {
+                "X-Forwarded-Access-Token": params["X-Forwarded-Access-Token"]
+            }),
+            ...options?.headers
+        },
+        body: JSON.stringify(data)
+    });
+    if (!res.ok) {
+        const body = await res.text();
+        let parsed: unknown;
+        try {
+            parsed = JSON.parse(body);
+        } catch  {
+            parsed = body;
+        }
+        throw new ApiError(res.status, res.statusText, parsed);
+    }
+    return {
+        data: await res.json()
+    };
+};
+export function useWorkspaceBuildoutSave(options?: {
+    mutation?: UseMutationOptions<{
+        data: unknown;
+    }, ApiError, {
+        params: WorkspaceBuildoutSaveParams;
+        data: WorkspaceBuildoutSaveRequest;
+    }>;
+}) {
+    return useMutation({
+        mutationFn: (vars)=>workspaceBuildoutSave(vars.data, vars.params),
+        ...options?.mutation
+    });
+}
+export interface WorkspaceGenerateParams {
+    "X-Forwarded-Host"?: string | null;
+    "X-Forwarded-Preferred-Username"?: string | null;
+    "X-Forwarded-User"?: string | null;
+    "X-Forwarded-Email"?: string | null;
+    "X-Request-Id"?: string | null;
+    "X-Forwarded-Access-Token"?: string | null;
+}
+export const workspaceGenerate = async (data: WorkspaceGenerateRequest, params?: WorkspaceGenerateParams, options?: RequestInit): Promise<{
     data: unknown;
 }> =>{
     const res = await fetch("/api/workspace/generate", {
@@ -919,6 +1615,24 @@ export const workspaceGenerate = async (data: WorkspaceGenerateRequest, options?
         method: "POST",
         headers: {
             "Content-Type": "application/json",
+            ...(params?.["X-Forwarded-Host"] != null && {
+                "X-Forwarded-Host": params["X-Forwarded-Host"]
+            }),
+            ...(params?.["X-Forwarded-Preferred-Username"] != null && {
+                "X-Forwarded-Preferred-Username": params["X-Forwarded-Preferred-Username"]
+            }),
+            ...(params?.["X-Forwarded-User"] != null && {
+                "X-Forwarded-User": params["X-Forwarded-User"]
+            }),
+            ...(params?.["X-Forwarded-Email"] != null && {
+                "X-Forwarded-Email": params["X-Forwarded-Email"]
+            }),
+            ...(params?.["X-Request-Id"] != null && {
+                "X-Request-Id": params["X-Request-Id"]
+            }),
+            ...(params?.["X-Forwarded-Access-Token"] != null && {
+                "X-Forwarded-Access-Token": params["X-Forwarded-Access-Token"]
+            }),
             ...options?.headers
         },
         body: JSON.stringify(data)
@@ -940,14 +1654,25 @@ export const workspaceGenerate = async (data: WorkspaceGenerateRequest, options?
 export function useWorkspaceGenerate(options?: {
     mutation?: UseMutationOptions<{
         data: unknown;
-    }, ApiError, WorkspaceGenerateRequest>;
+    }, ApiError, {
+        params: WorkspaceGenerateParams;
+        data: WorkspaceGenerateRequest;
+    }>;
 }) {
     return useMutation({
-        mutationFn: (data)=>workspaceGenerate(data),
+        mutationFn: (vars)=>workspaceGenerate(vars.data, vars.params),
         ...options?.mutation
     });
 }
-export const workspacePropose = async (data: WorkspaceProposeRequest, options?: RequestInit): Promise<{
+export interface WorkspaceProposeParams {
+    "X-Forwarded-Host"?: string | null;
+    "X-Forwarded-Preferred-Username"?: string | null;
+    "X-Forwarded-User"?: string | null;
+    "X-Forwarded-Email"?: string | null;
+    "X-Request-Id"?: string | null;
+    "X-Forwarded-Access-Token"?: string | null;
+}
+export const workspacePropose = async (data: WorkspaceProposeRequest, params?: WorkspaceProposeParams, options?: RequestInit): Promise<{
     data: unknown;
 }> =>{
     const res = await fetch("/api/workspace/propose", {
@@ -955,6 +1680,24 @@ export const workspacePropose = async (data: WorkspaceProposeRequest, options?: 
         method: "POST",
         headers: {
             "Content-Type": "application/json",
+            ...(params?.["X-Forwarded-Host"] != null && {
+                "X-Forwarded-Host": params["X-Forwarded-Host"]
+            }),
+            ...(params?.["X-Forwarded-Preferred-Username"] != null && {
+                "X-Forwarded-Preferred-Username": params["X-Forwarded-Preferred-Username"]
+            }),
+            ...(params?.["X-Forwarded-User"] != null && {
+                "X-Forwarded-User": params["X-Forwarded-User"]
+            }),
+            ...(params?.["X-Forwarded-Email"] != null && {
+                "X-Forwarded-Email": params["X-Forwarded-Email"]
+            }),
+            ...(params?.["X-Request-Id"] != null && {
+                "X-Request-Id": params["X-Request-Id"]
+            }),
+            ...(params?.["X-Forwarded-Access-Token"] != null && {
+                "X-Forwarded-Access-Token": params["X-Forwarded-Access-Token"]
+            }),
             ...options?.headers
         },
         body: JSON.stringify(data)
@@ -976,14 +1719,25 @@ export const workspacePropose = async (data: WorkspaceProposeRequest, options?: 
 export function useWorkspacePropose(options?: {
     mutation?: UseMutationOptions<{
         data: unknown;
-    }, ApiError, WorkspaceProposeRequest>;
+    }, ApiError, {
+        params: WorkspaceProposeParams;
+        data: WorkspaceProposeRequest;
+    }>;
 }) {
     return useMutation({
-        mutationFn: (data)=>workspacePropose(data),
+        mutationFn: (vars)=>workspacePropose(vars.data, vars.params),
         ...options?.mutation
     });
 }
-export const workspaceProposeRefine = async (data: WorkspaceRefineRequest, options?: RequestInit): Promise<{
+export interface WorkspaceProposeRefineParams {
+    "X-Forwarded-Host"?: string | null;
+    "X-Forwarded-Preferred-Username"?: string | null;
+    "X-Forwarded-User"?: string | null;
+    "X-Forwarded-Email"?: string | null;
+    "X-Request-Id"?: string | null;
+    "X-Forwarded-Access-Token"?: string | null;
+}
+export const workspaceProposeRefine = async (data: WorkspaceRefineRequest, params?: WorkspaceProposeRefineParams, options?: RequestInit): Promise<{
     data: unknown;
 }> =>{
     const res = await fetch("/api/workspace/propose/refine", {
@@ -991,6 +1745,24 @@ export const workspaceProposeRefine = async (data: WorkspaceRefineRequest, optio
         method: "POST",
         headers: {
             "Content-Type": "application/json",
+            ...(params?.["X-Forwarded-Host"] != null && {
+                "X-Forwarded-Host": params["X-Forwarded-Host"]
+            }),
+            ...(params?.["X-Forwarded-Preferred-Username"] != null && {
+                "X-Forwarded-Preferred-Username": params["X-Forwarded-Preferred-Username"]
+            }),
+            ...(params?.["X-Forwarded-User"] != null && {
+                "X-Forwarded-User": params["X-Forwarded-User"]
+            }),
+            ...(params?.["X-Forwarded-Email"] != null && {
+                "X-Forwarded-Email": params["X-Forwarded-Email"]
+            }),
+            ...(params?.["X-Request-Id"] != null && {
+                "X-Request-Id": params["X-Request-Id"]
+            }),
+            ...(params?.["X-Forwarded-Access-Token"] != null && {
+                "X-Forwarded-Access-Token": params["X-Forwarded-Access-Token"]
+            }),
             ...options?.headers
         },
         body: JSON.stringify(data)
@@ -1012,14 +1784,25 @@ export const workspaceProposeRefine = async (data: WorkspaceRefineRequest, optio
 export function useWorkspaceProposeRefine(options?: {
     mutation?: UseMutationOptions<{
         data: unknown;
-    }, ApiError, WorkspaceRefineRequest>;
+    }, ApiError, {
+        params: WorkspaceProposeRefineParams;
+        data: WorkspaceRefineRequest;
+    }>;
 }) {
     return useMutation({
-        mutationFn: (data)=>workspaceProposeRefine(data),
+        mutationFn: (vars)=>workspaceProposeRefine(vars.data, vars.params),
         ...options?.mutation
     });
 }
-export const workspaceRefine = async (data: WorkspaceRefineRequest, options?: RequestInit): Promise<{
+export interface WorkspaceRefineParams {
+    "X-Forwarded-Host"?: string | null;
+    "X-Forwarded-Preferred-Username"?: string | null;
+    "X-Forwarded-User"?: string | null;
+    "X-Forwarded-Email"?: string | null;
+    "X-Request-Id"?: string | null;
+    "X-Forwarded-Access-Token"?: string | null;
+}
+export const workspaceRefine = async (data: WorkspaceRefineRequest, params?: WorkspaceRefineParams, options?: RequestInit): Promise<{
     data: unknown;
 }> =>{
     const res = await fetch("/api/workspace/refine", {
@@ -1027,6 +1810,24 @@ export const workspaceRefine = async (data: WorkspaceRefineRequest, options?: Re
         method: "POST",
         headers: {
             "Content-Type": "application/json",
+            ...(params?.["X-Forwarded-Host"] != null && {
+                "X-Forwarded-Host": params["X-Forwarded-Host"]
+            }),
+            ...(params?.["X-Forwarded-Preferred-Username"] != null && {
+                "X-Forwarded-Preferred-Username": params["X-Forwarded-Preferred-Username"]
+            }),
+            ...(params?.["X-Forwarded-User"] != null && {
+                "X-Forwarded-User": params["X-Forwarded-User"]
+            }),
+            ...(params?.["X-Forwarded-Email"] != null && {
+                "X-Forwarded-Email": params["X-Forwarded-Email"]
+            }),
+            ...(params?.["X-Request-Id"] != null && {
+                "X-Request-Id": params["X-Request-Id"]
+            }),
+            ...(params?.["X-Forwarded-Access-Token"] != null && {
+                "X-Forwarded-Access-Token": params["X-Forwarded-Access-Token"]
+            }),
             ...options?.headers
         },
         body: JSON.stringify(data)
@@ -1048,14 +1849,25 @@ export const workspaceRefine = async (data: WorkspaceRefineRequest, options?: Re
 export function useWorkspaceRefine(options?: {
     mutation?: UseMutationOptions<{
         data: unknown;
-    }, ApiError, WorkspaceRefineRequest>;
+    }, ApiError, {
+        params: WorkspaceRefineParams;
+        data: WorkspaceRefineRequest;
+    }>;
 }) {
     return useMutation({
-        mutationFn: (data)=>workspaceRefine(data),
+        mutationFn: (vars)=>workspaceRefine(vars.data, vars.params),
         ...options?.mutation
     });
 }
-export const workspaceRefineFile = async (data: WorkspaceRefineFileRequest, options?: RequestInit): Promise<{
+export interface WorkspaceRefineFileParams {
+    "X-Forwarded-Host"?: string | null;
+    "X-Forwarded-Preferred-Username"?: string | null;
+    "X-Forwarded-User"?: string | null;
+    "X-Forwarded-Email"?: string | null;
+    "X-Request-Id"?: string | null;
+    "X-Forwarded-Access-Token"?: string | null;
+}
+export const workspaceRefineFile = async (data: WorkspaceRefineFileRequest, params?: WorkspaceRefineFileParams, options?: RequestInit): Promise<{
     data: unknown;
 }> =>{
     const res = await fetch("/api/workspace/refine-file", {
@@ -1063,6 +1875,24 @@ export const workspaceRefineFile = async (data: WorkspaceRefineFileRequest, opti
         method: "POST",
         headers: {
             "Content-Type": "application/json",
+            ...(params?.["X-Forwarded-Host"] != null && {
+                "X-Forwarded-Host": params["X-Forwarded-Host"]
+            }),
+            ...(params?.["X-Forwarded-Preferred-Username"] != null && {
+                "X-Forwarded-Preferred-Username": params["X-Forwarded-Preferred-Username"]
+            }),
+            ...(params?.["X-Forwarded-User"] != null && {
+                "X-Forwarded-User": params["X-Forwarded-User"]
+            }),
+            ...(params?.["X-Forwarded-Email"] != null && {
+                "X-Forwarded-Email": params["X-Forwarded-Email"]
+            }),
+            ...(params?.["X-Request-Id"] != null && {
+                "X-Request-Id": params["X-Request-Id"]
+            }),
+            ...(params?.["X-Forwarded-Access-Token"] != null && {
+                "X-Forwarded-Access-Token": params["X-Forwarded-Access-Token"]
+            }),
             ...options?.headers
         },
         body: JSON.stringify(data)
@@ -1084,22 +1914,52 @@ export const workspaceRefineFile = async (data: WorkspaceRefineFileRequest, opti
 export function useWorkspaceRefineFile(options?: {
     mutation?: UseMutationOptions<{
         data: unknown;
-    }, ApiError, WorkspaceRefineFileRequest>;
+    }, ApiError, {
+        params: WorkspaceRefineFileParams;
+        data: WorkspaceRefineFileRequest;
+    }>;
 }) {
     return useMutation({
-        mutationFn: (data)=>workspaceRefineFile(data),
+        mutationFn: (vars)=>workspaceRefineFile(vars.data, vars.params),
         ...options?.mutation
     });
 }
 export interface WorkspaceDownloadParams {
     generation_id: number;
+    "X-Forwarded-Host"?: string | null;
+    "X-Forwarded-Preferred-Username"?: string | null;
+    "X-Forwarded-User"?: string | null;
+    "X-Forwarded-Email"?: string | null;
+    "X-Request-Id"?: string | null;
+    "X-Forwarded-Access-Token"?: string | null;
 }
 export const workspaceDownload = async (params: WorkspaceDownloadParams, options?: RequestInit): Promise<{
     data: unknown;
 }> =>{
     const res = await fetch(`/api/workspace/${params.generation_id}/download`, {
         ...options,
-        method: "GET"
+        method: "GET",
+        headers: {
+            ...(params?.["X-Forwarded-Host"] != null && {
+                "X-Forwarded-Host": params["X-Forwarded-Host"]
+            }),
+            ...(params?.["X-Forwarded-Preferred-Username"] != null && {
+                "X-Forwarded-Preferred-Username": params["X-Forwarded-Preferred-Username"]
+            }),
+            ...(params?.["X-Forwarded-User"] != null && {
+                "X-Forwarded-User": params["X-Forwarded-User"]
+            }),
+            ...(params?.["X-Forwarded-Email"] != null && {
+                "X-Forwarded-Email": params["X-Forwarded-Email"]
+            }),
+            ...(params?.["X-Request-Id"] != null && {
+                "X-Request-Id": params["X-Request-Id"]
+            }),
+            ...(params?.["X-Forwarded-Access-Token"] != null && {
+                "X-Forwarded-Access-Token": params["X-Forwarded-Access-Token"]
+            }),
+            ...options?.headers
+        }
     });
     if (!res.ok) {
         const body = await res.text();

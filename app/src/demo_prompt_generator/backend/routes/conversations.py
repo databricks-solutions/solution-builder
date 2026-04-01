@@ -15,6 +15,7 @@ from ..models import (
     Generation,
     SaveMessagesRequest,
 )
+from .generations import _get_user_id, _get_user_generation
 
 router = create_router()
 
@@ -84,15 +85,14 @@ def get_conversation(
 def save_conversation(
     req: SaveMessagesRequest,
     session: Dependencies.Session,
+    headers: Dependencies.Headers,
 ):
     """Save or update conversation messages for a generation.
 
     Creates a new conversation if none exists, or replaces messages
     in the existing one. This is an idempotent "sync" operation.
     """
-    gen = session.get(Generation, req.generation_id)
-    if not gen:
-        raise HTTPException(status_code=404, detail="Generation not found")
+    gen = _get_user_generation(session, req.generation_id, _get_user_id(headers))
 
     # Find existing conversation for this generation or create one
     stmt = (

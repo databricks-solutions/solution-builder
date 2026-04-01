@@ -11,6 +11,7 @@ import {
   ChevronRight,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Prose } from "@/components/markdown-prose";
 
 interface ProposalSection {
   key: string;
@@ -290,7 +291,7 @@ function CollapsibleProseBlock({
       {isOpen && (
         <div className="px-3 pb-3 pt-0 animate-in fade-in slide-in-from-top-1 duration-200">
           <div className="pl-8">
-            <p className="text-sm leading-relaxed whitespace-pre-line text-foreground/80">{body}</p>
+            <Prose compact className="text-foreground/80">{body}</Prose>
           </div>
         </div>
       )}
@@ -363,6 +364,7 @@ function OutputsBlock({ items }: { items: OutputItem[] }) {
 function BuildStepsBlock({ steps }: { steps: BuildStepItem[] }) {
   const cfg = CATEGORY_CONFIG.build;
   const Icon = cfg.icon;
+  const total = steps.length;
   return (
     <div className="space-y-2">
       <div className="flex items-center gap-2">
@@ -370,26 +372,60 @@ function BuildStepsBlock({ steps }: { steps: BuildStepItem[] }) {
           <Icon className={`h-3.5 w-3.5 ${cfg.color}`} />
         </div>
         <h3 className="text-sm font-semibold">Build Steps</h3>
+        <Badge variant="secondary" className="text-[10px] ml-auto">{total} steps</Badge>
       </div>
-      <div className="grid gap-2 sm:grid-cols-2">
-        {steps.map((step) => (
-          <div
-            key={step.number}
-            className="flex items-start gap-2.5 rounded-lg border border-primary/10 bg-primary/[0.02] px-3 py-2.5"
-          >
-            <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/15 text-[10px] font-bold text-primary mt-0.5">
-              {step.number}
+      <div className="relative flex flex-col gap-0">
+        {steps.map((step, i) => {
+          const progress = total > 1 ? i / (total - 1) : 0;
+          // Gradient from blue (start) → violet (mid) → emerald (end)
+          const hue = 220 - progress * 80; // 220 (blue) → 140 (emerald-ish)
+          const sat = 60 + progress * 15;
+          const light = 55;
+          const accentColor = `hsl(${hue}, ${sat}%, ${light}%)`;
+          return (
+            <div key={step.number} className="flex items-stretch gap-3">
+              {/* Vertical connector line + step circle */}
+              <div className="flex flex-col items-center w-6 shrink-0">
+                <div
+                  className="flex h-6 w-6 items-center justify-center rounded-full text-[10px] font-bold text-white shrink-0"
+                  style={{ backgroundColor: accentColor }}
+                >
+                  {step.number}
+                </div>
+                {i < total - 1 && (
+                  <div
+                    className="w-0.5 flex-1 min-h-[8px]"
+                    style={{
+                      background: `linear-gradient(to bottom, ${accentColor}, hsl(${220 - ((i + 1) / (total - 1)) * 80}, ${60 + ((i + 1) / (total - 1)) * 15}%, ${light}%))`,
+                      opacity: 0.3,
+                    }}
+                  />
+                )}
+              </div>
+              {/* Step content */}
+              <div className="min-w-0 flex-1 pb-3">
+                <div
+                  className="rounded-lg border px-3 py-2.5 transition-colors"
+                  style={{
+                    borderColor: `${accentColor}20`,
+                    backgroundColor: `${accentColor}06`,
+                  }}
+                >
+                  <Prose compact className="text-xs leading-snug">{step.text}</Prose>
+                  {step.skill && (
+                    <Badge
+                      variant="outline"
+                      className="mt-1 text-[10px] font-mono"
+                      style={{ borderColor: `${accentColor}30`, color: accentColor }}
+                    >
+                      {step.skill}
+                    </Badge>
+                  )}
+                </div>
+              </div>
             </div>
-            <div className="min-w-0 flex-1">
-              <p className="text-xs leading-snug">{step.text}</p>
-              {step.skill && (
-                <Badge variant="outline" className="mt-1 text-[10px] font-mono border-primary/20 text-primary/70">
-                  {step.skill}
-                </Badge>
-              )}
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );

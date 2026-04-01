@@ -19,6 +19,7 @@ import {
   Clapperboard,
   Landmark,
   Lightbulb,
+  Library,
 } from "lucide-react";
 
 export const Route = createFileRoute("/")({
@@ -179,7 +180,7 @@ function Index() {
                 Databricks
               </p>
               <h1 className="text-4xl font-bold tracking-tight md:text-5xl">
-                Demo Skill Builder
+                Use-Case Generator
               </h1>
             </div>
             <p className="mx-auto max-w-xl text-base text-muted-foreground leading-relaxed">
@@ -270,6 +271,27 @@ function Index() {
               </div>
             </div>
           </div>
+        </div>
+
+        {/* Template library callout */}
+        <div className="relative z-10 mx-auto mt-8 w-full max-w-2xl">
+          <Link
+            to="/library"
+            className="group flex items-center gap-3 rounded-xl border border-emerald-500/15 bg-emerald-500/[0.04] hover:bg-emerald-500/[0.08] hover:border-emerald-500/30 px-4 py-3 transition-all"
+          >
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-emerald-500/10">
+              <Library className="h-4 w-4 text-emerald-500" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-medium text-foreground">
+                Start from a template
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Browse vetted demo packages you can fork and customize
+              </p>
+            </div>
+            <ArrowRight className="h-4 w-4 text-muted-foreground opacity-0 -translate-x-1 group-hover:opacity-100 group-hover:translate-x-0 transition-all" />
+          </Link>
         </div>
 
         {/* Industry use-case catalog */}

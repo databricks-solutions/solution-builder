@@ -40,19 +40,15 @@ import {
   PanelRightOpen,
   PanelRightClose,
 } from "lucide-react";
+import { useBuildoutStore } from "@/lib/buildout-store";
 import {
   streamWorkspacePropose,
   streamProposalRefine,
-  approveProposal,
-  streamWorkspaceBuildout,
-  streamBuildoutFile,
   streamFileRefine,
-  streamWorkspaceGenerate,
-  streamWorkspaceRefine,
+  streamAgentRefine,
   saveConversation,
   listConversations,
   getConversation,
-  type WorkspaceEvent,
   type ChatMessage,
 } from "@/lib/custom-api";
 import { FileRendererWithFallback } from "@/components/file-renderers";
@@ -221,8 +217,12 @@ function WorkspacePage() {
   const [mentionDismissed, setMentionDismissed] = useState(false);
   const [activeTab, setActiveTab] = useState("preview");
   const [chatCollapsed, setChatCollapsed] = useState(false);
-  const [buildingFile, setBuildingFile] = useState<string | null>(null);
   const [proposalArchMermaid, setProposalArchMermaid] = useState("");
+  const [agentMode, setAgentMode] = useState(false);
+
+  // Buildout store — global state that survives route changes
+  const buildoutStore = useBuildoutStore();
+  const buildingFile = buildoutStore.status === "building" ? buildoutStore.currentFile : null;
   // When architecture changes in the builder, sync into proposalMd
   const archSyncRef = useRef(false); // prevent loop: builder change → proposalMd update → builder re-parse
 
@@ -244,6 +244,7 @@ function WorkspacePage() {
   useEffect(() => {
     return () => {
       abortRef.current?.abort();
+      hasStarted.current = false;
     };
   }, []);
 
@@ -494,25 +495,16 @@ function WorkspacePage() {
 
   const handleApproveAndBuild = useCallback(async () => {
     if (!generationId || isGenerating) return;
+    if (buildoutStore.status === "building") return;
 
     // Capture user's architecture diagram before transitioning
     const userArchitecture = architectureBuilderRef.current?.getSerializedArchitecture() || undefined;
-
-    try {
-      await approveProposal(generationId);
-    } catch (err) {
-      addMessage({
-        id: uid(),
-        role: "system",
-        content: `Approval failed: ${err instanceof Error ? err.message : "Unknown error"}`,
-      });
-      return;
-    }
 
     setStage("buildout");
     setPackageFiles({});
     setChatHistory([]);
     setCollapsedSections(new Set());
+    setIsGenerating(true);
     addMessage({
       id: uid(),
       role: "system",
@@ -521,82 +513,66 @@ function WorkspacePage() {
         : "Proposal approved! Building the full demo package...",
     });
 
-    abortRef.current?.abort();
-    const ctrl = new AbortController();
-    abortRef.current = ctrl;
-    setIsGenerating(true);
+    // Delegate to global buildout store — survives route changes
+    buildoutStore.startBuildout(generationId, demoName, userArchitecture);
+  }, [generationId, isGenerating, demoName, buildoutStore, addMessage, setStage, setPackageFiles, setChatHistory, setCollapsedSections, setIsGenerating]);
 
-    const files: Record<string, string> = {};
-    try {
-      // Generate each file in a separate SSE request to avoid proxy timeouts
-      for (const filename of PACKAGE_FILES) {
-        if (ctrl.signal.aborted) break;
-
-        setBuildingFile(filename);
-        setActiveFile(filename as PackageFilename);
-        addMessage({
-          id: uid(),
-          role: "system",
-          content: `Generating ${filename}...`,
-        });
-
-        for await (const event of streamBuildoutFile(
-          generationId,
-          filename,
-          files,
-          ctrl.signal,
-          userArchitecture,
-        )) {
-          if (event.type === "file_content") {
-            files[filename] = (files[filename] || "") + event.content;
-            setPackageFiles({ ...files });
-          } else if (event.type === "file_complete") {
-            // file_complete from per-file endpoint includes the clean content
-            if (event.content) files[filename] = event.content;
-            setPackageFiles({ ...files });
-            setBuildingFile(null);
-          } else if (event.type === "error") {
-            addMessage({
-              id: uid(),
-              role: "system",
-              content: `Error generating ${filename}: ${event.content}`,
-            });
-          }
-        }
+  // Sync buildout store state → local component state
+  useEffect(() => {
+    if (buildoutStore.generationId !== generationId) return;
+    if (buildoutStore.status === "building") {
+      setPackageFiles(buildoutStore.files);
+      if (buildoutStore.currentFile) {
+        setActiveFile(buildoutStore.currentFile as PackageFilename);
       }
-
-      // Save all files to the backend and finalize
-      if (!ctrl.signal.aborted) {
-        await fetch("/api/workspace/buildout-finalize", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            generation_id: generationId,
-            user_architecture: JSON.stringify(files),
-          }),
-        });
-        setStage("package");
-        addMessage({
-          id: uid(),
-          role: "assistant",
-          content:
-            "Your demo package is ready! All files have been generated. Review each file using the tabs on the left. You can refine any file by chatting here.",
-        });
-      }
-    } catch (err) {
-      if (!ctrl.signal.aborted) {
-        addMessage({
-          id: uid(),
-          role: "system",
-          content: `Buildout failed: ${err instanceof Error ? err.message : "Unknown error"}`,
-        });
-      }
-    } finally {
-      setIsGenerating(false);
-      setBuildingFile(null);
-      inputRef.current?.focus();
+      setIsGenerating(true);
+      setStage("buildout");
     }
-  }, [generationId, isGenerating, addMessage]);
+  }, [buildoutStore.files, buildoutStore.currentFile, buildoutStore.status, buildoutStore.generationId, generationId]);
+
+  // Handle buildout completion
+  useEffect(() => {
+    if (buildoutStore.generationId !== generationId) return;
+    if (buildoutStore.status === "complete") {
+      setPackageFiles(buildoutStore.files);
+      setStage("package");
+      setIsGenerating(false);
+      addMessage({
+        id: uid(),
+        role: "assistant",
+        content:
+          "Your demo package is ready! All files have been generated. Review each file using the tabs on the left. You can refine any file by chatting here.",
+      });
+      buildoutStore.reset();
+    } else if (buildoutStore.status === "error") {
+      setIsGenerating(false);
+      addMessage({
+        id: uid(),
+        role: "system",
+        content: buildoutStore.error || "Buildout failed",
+      });
+    } else if (buildoutStore.status === "stopped") {
+      setIsGenerating(false);
+      setPackageFiles(buildoutStore.files);
+    }
+  }, [buildoutStore.status, buildoutStore.generationId, generationId]);
+
+  // Handle stop button in workspace
+  const handleStopBuildout = useCallback(() => {
+    buildoutStore.stopBuildout();
+  }, [buildoutStore]);
+
+  // Handle resume in workspace
+  const handleResumeBuildout = useCallback(() => {
+    if (!generationId) return;
+    setIsGenerating(true);
+    buildoutStore.resumeBuildout(
+      generationId,
+      demoName,
+      packageFiles,
+      buildoutStore.userArchitecture,
+    );
+  }, [generationId, demoName, packageFiles, buildoutStore]);
 
   // -----------------------------------------------------------------------
   // Stage 2: Per-file refinement
@@ -670,6 +646,83 @@ function WorkspacePage() {
     chatHistory,
     addMessage,
   ]);
+
+  // -----------------------------------------------------------------------
+  // Agent mode: cross-file editing
+  // -----------------------------------------------------------------------
+
+  const handleAgentRefine = useCallback(async () => {
+    if (!chatInput.trim() || !generationId || isRefining) return;
+
+    const userMsg = chatInput.trim();
+    setChatInput("");
+    setMentionDismissed(false);
+    addMessage({ id: uid(), role: "user", content: userMsg });
+
+    abortRef.current?.abort();
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
+    setIsRefining(true);
+
+    try {
+      for await (const event of streamAgentRefine(
+        generationId,
+        userMsg,
+        chatHistory,
+        ctrl.signal,
+      )) {
+        if (event.type === "agent_reading") {
+          addMessage({
+            id: uid(),
+            role: "system",
+            content: `Reading ${event.filename}...`,
+          });
+        } else if (event.type === "file_start") {
+          addMessage({
+            id: uid(),
+            role: "system",
+            content: `Writing ${event.filename}...`,
+          });
+        } else if (event.type === "file_content") {
+          setPackageFiles((prev) => ({
+            ...prev,
+            [event.filename]: event.content,
+          }));
+          setActiveFile(event.filename as PackageFilename);
+        } else if (event.type === "agent_message") {
+          addMessage({
+            id: uid(),
+            role: "assistant",
+            content: event.content,
+          });
+        } else if (event.type === "complete") {
+          setDemoName(event.demo_name);
+        } else if (event.type === "error") {
+          addMessage({
+            id: uid(),
+            role: "system",
+            content: `Error: ${event.content}`,
+          });
+        }
+      }
+      setChatHistory((prev) => [
+        ...prev,
+        { role: "user", content: userMsg },
+        { role: "assistant", content: "Updated package files." },
+      ]);
+    } catch (err) {
+      if (!ctrl.signal.aborted) {
+        addMessage({
+          id: uid(),
+          role: "system",
+          content: `Agent failed: ${err instanceof Error ? err.message : "Unknown error"}`,
+        });
+      }
+    } finally {
+      setIsRefining(false);
+      inputRef.current?.focus();
+    }
+  }, [chatInput, generationId, isRefining, chatHistory, addMessage]);
 
   // -----------------------------------------------------------------------
   // Architecture Builder: apply diagram to architecture.md
@@ -800,9 +853,9 @@ function WorkspacePage() {
 
   useEffect(() => {
     if (hasStarted.current) return;
+    hasStarted.current = true;
 
     if (loadId) {
-      hasStarted.current = true;
       (async () => {
         try {
           const resp = await fetch(`/api/generations/${loadId}`);
@@ -812,7 +865,20 @@ function WorkspacePage() {
           setGenerationId(gen.id);
           setDemoName(gen.demo_name);
 
-          if (gen.skill_files && Object.keys(gen.skill_files).length > 0) {
+          if (gen.stage === "building" && gen.skill_files && Object.keys(gen.skill_files).length > 0) {
+            // Partially-completed buildout — check if store is already running
+            const store = useBuildoutStore.getState();
+            if (store.status === "building" && store.generationId === gen.id) {
+              // Store is actively building this generation — sync local state
+              setPackageFiles(store.files);
+              setStage("buildout");
+              setIsGenerating(true);
+            } else {
+              // Offer resume — show partial files and stopped state
+              setPackageFiles(gen.skill_files);
+              setStage("buildout");
+            }
+          } else if (gen.skill_files && Object.keys(gen.skill_files).length > 0) {
             setPackageFiles(gen.skill_files);
             setStage("package");
           } else if (gen.proposal_md) {
@@ -849,9 +915,11 @@ function WorkspacePage() {
               addMessage({
                 id: uid(),
                 role: "assistant",
-                content: gen.skill_files
-                  ? "Your demo package is loaded. Review each file using the tabs, or refine any file by chatting here."
-                  : 'Your proposal is loaded. Refine it here, or click "Approve & Build" to generate the full package.',
+                content: gen.stage === "building"
+                  ? `Buildout was interrupted (${Object.keys(gen.skill_files || {}).length}/6 files). Click "Resume" to continue.`
+                  : gen.skill_files
+                    ? "Your demo package is loaded. Review each file using the tabs, or refine any file by chatting here."
+                    : 'Your proposal is loaded. Refine it here, or click "Approve & Build" to generate the full package.',
               });
             }
           } catch {
@@ -871,10 +939,11 @@ function WorkspacePage() {
         }
       })();
     } else if (topic) {
-      hasStarted.current = true;
       handlePropose(topic);
     }
-  }, [topic, loadId, handlePropose, addMessage]);
+    // Run once on mount — topic/loadId come from URL search params and don't change
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // -----------------------------------------------------------------------
   // Auto-save conversation to Lakebase (debounced)
@@ -931,10 +1000,12 @@ function WorkspacePage() {
   const handleSubmit = useCallback(() => {
     if (stage === "proposal") {
       handleRefineProposal();
+    } else if (agentMode) {
+      handleAgentRefine();
     } else {
       handleRefineFile();
     }
-  }, [stage, handleRefineProposal, handleRefineFile]);
+  }, [stage, agentMode, handleRefineProposal, handleAgentRefine, handleRefineFile]);
 
   // -----------------------------------------------------------------------
   // Render
@@ -1039,6 +1110,45 @@ function WorkspacePage() {
                       Approve & Build
                     </Button>
                   )}
+                  {stage === "buildout" && buildoutStore.status === "building" && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={handleStopBuildout}
+                      className="h-7 px-3 text-xs gap-1.5 border-red-500/30 text-red-600 hover:bg-red-50"
+                    >
+                      Stop
+                    </Button>
+                  )}
+                  {stage === "buildout" && buildoutStore.status === "stopped" && (
+                    <Button
+                      size="sm"
+                      onClick={handleResumeBuildout}
+                      className="h-7 px-3 text-xs gap-1.5 bg-blue-600 hover:bg-blue-700 text-white"
+                    >
+                      Resume
+                    </Button>
+                  )}
+                  {stage === "buildout" && !isGenerating && buildoutStore.status !== "building" && buildoutStore.status !== "stopped" && generationId && (
+                    <Button
+                      size="sm"
+                      onClick={handleResumeBuildout}
+                      className="h-7 px-3 text-xs gap-1.5 bg-blue-600 hover:bg-blue-700 text-white"
+                    >
+                      Resume Build
+                    </Button>
+                  )}
+                  {stage === "package" && generationId && !busy && (
+                    <Link to="/build" search={{ generationId }}>
+                      <Button
+                        size="sm"
+                        className="h-7 px-3 text-xs gap-1.5 bg-purple-600 hover:bg-purple-700 text-white"
+                      >
+                        <Wrench className="h-3 w-3" />
+                        Build Demo
+                      </Button>
+                    </Link>
+                  )}
                   <Button
                     variant="ghost"
                     size="sm"
@@ -1075,12 +1185,13 @@ function WorkspacePage() {
 
               {/* File tabs for buildout / package stages */}
               {(stage === "buildout" || stage === "package") && (
-                <div className="flex items-center gap-1 mt-1.5 pb-0.5 overflow-x-auto scrollbar-none">
+                <div className="flex items-center gap-1.5 mt-2 pb-1 overflow-x-auto scrollbar-none">
                   {PACKAGE_FILES.map((fn) => {
                     const Icon = FILE_ICONS[fn] || FileText;
                     const isActive = activeFile === fn;
                     const isBuilding = buildingFile === fn;
                     const hasContent = !!packageFiles[fn];
+                    const label = fn.replace(/\.md$/, "");
                     return (
                       <button
                         key={fn}
@@ -1088,49 +1199,28 @@ function WorkspacePage() {
                           setActiveFile(fn);
                           setCollapsedSections(new Set());
                         }}
-                        className={`shrink-0 flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[11px] font-medium transition-all whitespace-nowrap ${
+                        className={`shrink-0 flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-all whitespace-nowrap border ${
                           isActive
-                            ? "bg-primary/15 text-primary"
+                            ? "bg-primary/15 text-primary border-primary/30 shadow-sm"
                             : hasContent
-                              ? "text-foreground hover:bg-muted"
-                              : "text-muted-foreground/50"
+                              ? "text-foreground border-border/60 hover:bg-muted hover:border-border"
+                              : "text-muted-foreground/40 border-transparent"
                         }`}
                         disabled={!hasContent && !isBuilding}
                       >
                         {isBuilding ? (
-                          <Loader2 className="h-3 w-3 animate-spin" />
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
                         ) : (
-                          <Icon className="h-3 w-3" />
+                          <Icon className={`h-3.5 w-3.5 ${isActive ? "text-primary" : hasContent ? "text-muted-foreground" : ""}`} />
                         )}
-                        {fn}
+                        {label}
                       </button>
                     );
                   })}
                 </div>
               )}
 
-              {/* Section outline for preview tab */}
-              {sections.length > 0 &&
-                activeTab === "preview" &&
-                stage === "proposal" && (
-                  <div className="flex items-center gap-1 mt-1.5 pb-0.5 overflow-x-auto scrollbar-none">
-                    {sections
-                      .filter((s) => s.level <= 2)
-                      .map((s) => (
-                        <button
-                          key={s.id}
-                          onClick={() => scrollToSection(s.id)}
-                          className={`shrink-0 rounded-md px-2 py-0.5 text-[11px] font-medium transition-all whitespace-nowrap ${
-                            activeSection === s.id
-                              ? "bg-primary/15 text-primary"
-                              : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                          }`}
-                        >
-                          {s.title}
-                        </button>
-                      ))}
-                  </div>
-                )}
+              {/* Section outline removed — proposal cards are self-navigating */}
 
               <TabsContent value="preview" className="mt-0">
                 <div ref={previewRef}>
@@ -1272,11 +1362,31 @@ function WorkspacePage() {
         <div className={`flex flex-col transition-all duration-200 ${chatCollapsed ? "w-0 overflow-hidden" : "w-[38%]"}`}>
           <div className="flex items-center gap-2 border-b px-4 py-2.5 shrink-0">
             <Bot className="h-4 w-4 text-primary" />
-            <span className="text-sm font-medium">Skill Architect</span>
-            {(stage === "buildout" || stage === "package") && (
+            <span className="text-sm font-medium">Use-Case Architect</span>
+            {(stage === "buildout" || stage === "package") && !agentMode && (
               <Badge variant="outline" className="text-[10px] ml-auto">
                 Editing: {activeFile}
               </Badge>
+            )}
+            {(stage === "buildout" || stage === "package") && agentMode && (
+              <Badge className="text-[10px] ml-auto bg-violet-500/15 text-violet-600 border-violet-500/30 hover:bg-violet-500/20">
+                Agent Mode <span className="ml-0.5 text-[9px] opacity-70">&beta;</span>
+              </Badge>
+            )}
+            {stage === "package" && (
+              <button
+                onClick={() => setAgentMode((m) => !m)}
+                className={`ml-auto shrink-0 relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+                  agentMode ? "bg-violet-500" : "bg-muted-foreground/20"
+                }`}
+                title={agentMode ? "Switch to single-file editing" : "Switch to agent mode (edits all files)"}
+              >
+                <span
+                  className={`inline-block h-3.5 w-3.5 rounded-full bg-white shadow-sm transition-transform ${
+                    agentMode ? "translate-x-[18px]" : "translate-x-[3px]"
+                  }`}
+                />
+              </button>
             )}
           </div>
 
@@ -1285,7 +1395,7 @@ function WorkspacePage() {
               {messages.length === 0 && !busy && (
                 <div className="flex flex-col items-center justify-center py-16 text-center text-muted-foreground">
                   <Bot className="mb-3 h-10 w-10 opacity-30" />
-                  <p className="text-sm font-medium">Skill Architect</p>
+                  <p className="text-sm font-medium">Use-Case Architect</p>
                   <p className="mt-1 text-xs max-w-xs">
                     Describe a use-case and I'll build a complete demo package
                     with storyline, data schemas, and build steps.
@@ -1390,7 +1500,9 @@ function WorkspacePage() {
                       ? "Waiting for generation..."
                       : stage === "proposal"
                         ? "Refine the proposal... Type @ to focus on a section"
-                        : `Refine ${activeFile}... Type @ to focus on a section`
+                        : agentMode
+                          ? "Ask the agent to edit any files..."
+                          : `Refine ${activeFile}... Type @ to focus on a section`
                   }
                   value={chatInput}
                   onChange={(e) => {
