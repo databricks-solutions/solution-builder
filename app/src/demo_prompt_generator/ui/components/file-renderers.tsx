@@ -23,6 +23,7 @@ import {
   Wrench,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Prose } from "@/components/markdown-prose";
 
 /**
  * Routes to the correct visual renderer based on filename.
@@ -74,16 +75,7 @@ export function FileRendererWithFallback({
 }
 
 function FallbackMarkdown({ markdown }: { markdown: string }) {
-  // Minimal markdown → HTML for unknown file types
-  const html = markdown
-    .replace(/^### (.+)$/gm, '<h3 class="text-sm font-semibold mt-4 mb-1">$1</h3>')
-    .replace(/^## (.+)$/gm, '<h2 class="text-base font-bold mt-5 mb-2">$1</h2>')
-    .replace(/^# (.+)$/gm, '<h1 class="text-lg font-bold mt-6 mb-2">$1</h1>')
-    .replace(/`([^`]+)`/g, '<code class="text-xs bg-muted px-1 py-0.5 rounded">$1</code>')
-    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
-    .replace(/\n\n/g, "</p><p>")
-    .replace(/\n/g, "<br/>");
-  return <div dangerouslySetInnerHTML={{ __html: `<p>${html}</p>` }} />;
+  return <Prose>{markdown}</Prose>;
 }
 
 // ---------------------------------------------------------------------------
@@ -882,9 +874,7 @@ function StorySectionCard({ section, defaultOpen = false }: { section: StorySect
           <span className="text-sm font-semibold">{section.title}</span>
         </div>
         <div className="px-4 py-3">
-          <div className="text-sm leading-relaxed text-foreground/80 whitespace-pre-line">
-            {section.content}
-          </div>
+          <Prose compact className="text-foreground/80">{section.content}</Prose>
         </div>
       </div>
     );
@@ -909,9 +899,7 @@ function StorySectionCard({ section, defaultOpen = false }: { section: StorySect
       </button>
       {isOpen && (
         <div className="px-4 py-3 animate-in fade-in slide-in-from-top-1 duration-200">
-          <div className="text-sm leading-relaxed text-foreground/80 whitespace-pre-line">
-            {section.content}
-          </div>
+          <Prose compact className="text-foreground/80">{section.content}</Prose>
         </div>
       )}
     </div>
@@ -1350,9 +1338,7 @@ function WalkthroughRenderer({ markdown }: { markdown: string }) {
               <p className="text-[10px] font-semibold text-muted-foreground mb-1.5">
                 Expanded Summary
               </p>
-              <p className="text-sm leading-relaxed text-foreground/80 whitespace-pre-line">
-                {wt.pitchExpanded}
-              </p>
+              <Prose compact className="text-foreground/80">{wt.pitchExpanded}</Prose>
             </div>
           )}
         </div>
@@ -1366,9 +1352,7 @@ function WalkthroughRenderer({ markdown }: { markdown: string }) {
             Architecture Flow
           </div>
           <div className="rounded-xl border border-violet-500/15 bg-violet-500/[0.03] px-4 py-3 overflow-x-auto">
-            <pre className="text-xs font-mono text-violet-300 leading-relaxed whitespace-pre">
-              {wt.architectureFlow}
-            </pre>
+            <Prose compact>{`\`\`\`mermaid\n${wt.architectureFlow}\n\`\`\``}</Prose>
           </div>
         </div>
       )}

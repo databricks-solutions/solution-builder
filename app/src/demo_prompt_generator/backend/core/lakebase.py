@@ -33,7 +33,7 @@ class DatabaseConfig(BaseSettings):
     )
     instance_name: str = Field(
         description="The name of the database instance (override via DB_INSTANCE_NAME env var)",
-        default="demo-prompt-generator",
+        default="demo-prompt-gen-db",
         validation_alias="DB_INSTANCE_NAME",
     )
 
@@ -55,11 +55,7 @@ def _build_engine_url(
     if dev_port:
         logger.info(f"Using local dev database at localhost:{dev_port}")
         username = "postgres"
-        password = os.environ.get("APX_DEV_DB_PWD")
-        if password is None:
-            raise ValueError(
-                "APX server didn't provide a password, please check the dev server logs"
-            )
+        password = os.environ.get("APX_DEV_DB_PWD", "postgres")
         return f"postgresql+psycopg://{username}:{password}@localhost:{dev_port}/postgres?sslmode=disable"
 
     # Production mode: use Databricks Database
@@ -167,6 +163,11 @@ def initialize_models(engine: Engine) -> None:
             )
         """),
         ("chat_message_conv_idx", "CREATE INDEX IF NOT EXISTS ix_chat_message_conversation_id ON chat_message (conversation_id)"),
+        ("is_starred", "ALTER TABLE generation ADD COLUMN IF NOT EXISTS is_starred BOOLEAN DEFAULT FALSE"),
+        ("is_library", "ALTER TABLE generation ADD COLUMN IF NOT EXISTS is_library BOOLEAN DEFAULT FALSE"),
+        ("library_tags", "ALTER TABLE generation ADD COLUMN IF NOT EXISTS library_tags TEXT"),
+        ("user_id", "ALTER TABLE generation ADD COLUMN IF NOT EXISTS user_id TEXT"),
+        ("user_id_idx", "CREATE INDEX IF NOT EXISTS ix_generation_user_id ON generation (user_id)"),
     ]
     with Session(engine) as session:
         for col_name, ddl in _migrations:
@@ -192,6 +193,9 @@ class _LakebaseDependency(LifespanDependency):
         engine = create_db_engine(db_config, ws)
         validate_db(engine, db_config)
         initialize_models(engine)
+
+        from ..services.seed_library import seed_library
+        seed_library(engine)
 
         app.state.engine = engine
         yield

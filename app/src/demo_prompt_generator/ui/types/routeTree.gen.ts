@@ -10,9 +10,12 @@
 
 import { Route as rootRouteImport } from './../routes/__root'
 import { Route as WorkspaceRouteImport } from './../routes/workspace'
+import { Route as BuildRouteImport } from './../routes/build'
 import { Route as SidebarRouteRouteImport } from './../routes/_sidebar/route'
 import { Route as IndexRouteImport } from './../routes/index'
 import { Route as SidebarProfileRouteImport } from './../routes/_sidebar/profile'
+import { Route as SidebarPlanRouteImport } from './../routes/_sidebar/plan'
+import { Route as SidebarLibraryRouteImport } from './../routes/_sidebar/library'
 import { Route as SidebarGenerationsRouteImport } from './../routes/_sidebar/generations'
 import { Route as SidebarGenerationsIndexRouteImport } from './../routes/_sidebar/generations.index'
 import { Route as SidebarGenerationsIdRouteImport } from './../routes/_sidebar/generations.$id'
@@ -20,6 +23,11 @@ import { Route as SidebarGenerationsIdRouteImport } from './../routes/_sidebar/g
 const WorkspaceRoute = WorkspaceRouteImport.update({
   id: '/workspace',
   path: '/workspace',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const BuildRoute = BuildRouteImport.update({
+  id: '/build',
+  path: '/build',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SidebarRouteRoute = SidebarRouteRouteImport.update({
@@ -34,6 +42,16 @@ const IndexRoute = IndexRouteImport.update({
 const SidebarProfileRoute = SidebarProfileRouteImport.update({
   id: '/profile',
   path: '/profile',
+  getParentRoute: () => SidebarRouteRoute,
+} as any)
+const SidebarPlanRoute = SidebarPlanRouteImport.update({
+  id: '/plan',
+  path: '/plan',
+  getParentRoute: () => SidebarRouteRoute,
+} as any)
+const SidebarLibraryRoute = SidebarLibraryRouteImport.update({
+  id: '/library',
+  path: '/library',
   getParentRoute: () => SidebarRouteRoute,
 } as any)
 const SidebarGenerationsRoute = SidebarGenerationsRouteImport.update({
@@ -54,15 +72,21 @@ const SidebarGenerationsIdRoute = SidebarGenerationsIdRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/build': typeof BuildRoute
   '/workspace': typeof WorkspaceRoute
   '/generations': typeof SidebarGenerationsRouteWithChildren
+  '/library': typeof SidebarLibraryRoute
+  '/plan': typeof SidebarPlanRoute
   '/profile': typeof SidebarProfileRoute
   '/generations/$id': typeof SidebarGenerationsIdRoute
   '/generations/': typeof SidebarGenerationsIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/build': typeof BuildRoute
   '/workspace': typeof WorkspaceRoute
+  '/library': typeof SidebarLibraryRoute
+  '/plan': typeof SidebarPlanRoute
   '/profile': typeof SidebarProfileRoute
   '/generations/$id': typeof SidebarGenerationsIdRoute
   '/generations': typeof SidebarGenerationsIndexRoute
@@ -71,8 +95,11 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/_sidebar': typeof SidebarRouteRouteWithChildren
+  '/build': typeof BuildRoute
   '/workspace': typeof WorkspaceRoute
   '/_sidebar/generations': typeof SidebarGenerationsRouteWithChildren
+  '/_sidebar/library': typeof SidebarLibraryRoute
+  '/_sidebar/plan': typeof SidebarPlanRoute
   '/_sidebar/profile': typeof SidebarProfileRoute
   '/_sidebar/generations/$id': typeof SidebarGenerationsIdRoute
   '/_sidebar/generations/': typeof SidebarGenerationsIndexRoute
@@ -81,19 +108,33 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/build'
     | '/workspace'
     | '/generations'
+    | '/library'
+    | '/plan'
     | '/profile'
     | '/generations/$id'
     | '/generations/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/workspace' | '/profile' | '/generations/$id' | '/generations'
+  to:
+    | '/'
+    | '/build'
+    | '/workspace'
+    | '/library'
+    | '/plan'
+    | '/profile'
+    | '/generations/$id'
+    | '/generations'
   id:
     | '__root__'
     | '/'
     | '/_sidebar'
+    | '/build'
     | '/workspace'
     | '/_sidebar/generations'
+    | '/_sidebar/library'
+    | '/_sidebar/plan'
     | '/_sidebar/profile'
     | '/_sidebar/generations/$id'
     | '/_sidebar/generations/'
@@ -102,6 +143,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   SidebarRouteRoute: typeof SidebarRouteRouteWithChildren
+  BuildRoute: typeof BuildRoute
   WorkspaceRoute: typeof WorkspaceRoute
 }
 
@@ -112,6 +154,13 @@ declare module '@tanstack/react-router' {
       path: '/workspace'
       fullPath: '/workspace'
       preLoaderRoute: typeof WorkspaceRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/build': {
+      id: '/build'
+      path: '/build'
+      fullPath: '/build'
+      preLoaderRoute: typeof BuildRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_sidebar': {
@@ -133,6 +182,20 @@ declare module '@tanstack/react-router' {
       path: '/profile'
       fullPath: '/profile'
       preLoaderRoute: typeof SidebarProfileRouteImport
+      parentRoute: typeof SidebarRouteRoute
+    }
+    '/_sidebar/plan': {
+      id: '/_sidebar/plan'
+      path: '/plan'
+      fullPath: '/plan'
+      preLoaderRoute: typeof SidebarPlanRouteImport
+      parentRoute: typeof SidebarRouteRoute
+    }
+    '/_sidebar/library': {
+      id: '/_sidebar/library'
+      path: '/library'
+      fullPath: '/library'
+      preLoaderRoute: typeof SidebarLibraryRouteImport
       parentRoute: typeof SidebarRouteRoute
     }
     '/_sidebar/generations': {
@@ -174,11 +237,15 @@ const SidebarGenerationsRouteWithChildren =
 
 interface SidebarRouteRouteChildren {
   SidebarGenerationsRoute: typeof SidebarGenerationsRouteWithChildren
+  SidebarLibraryRoute: typeof SidebarLibraryRoute
+  SidebarPlanRoute: typeof SidebarPlanRoute
   SidebarProfileRoute: typeof SidebarProfileRoute
 }
 
 const SidebarRouteRouteChildren: SidebarRouteRouteChildren = {
   SidebarGenerationsRoute: SidebarGenerationsRouteWithChildren,
+  SidebarLibraryRoute: SidebarLibraryRoute,
+  SidebarPlanRoute: SidebarPlanRoute,
   SidebarProfileRoute: SidebarProfileRoute,
 }
 
@@ -189,6 +256,7 @@ const SidebarRouteRouteWithChildren = SidebarRouteRoute._addFileChildren(
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   SidebarRouteRoute: SidebarRouteRouteWithChildren,
+  BuildRoute: BuildRoute,
   WorkspaceRoute: WorkspaceRoute,
 }
 export const routeTree = rootRouteImport

@@ -14,35 +14,6 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# ai-dev-kit skills the generated skill can reference in build steps.
-AI_DEV_KIT_SKILLS: list[tuple[str, str]] = [
-    ("databricks-synthetic-data-generation", "Generate realistic synthetic data with Faker and Spark"),
-    ("databricks-unstructured-pdf-generation", "Generate synthetic PDFs for RAG use cases"),
-    ("databricks-dbsql", "Databricks SQL features and SQL warehouse capabilities"),
-    ("databricks-spark-declarative-pipelines", "Spark Declarative Pipelines (SDP) for medallion architecture"),
-    ("databricks-spark-structured-streaming", "Spark Structured Streaming for production workloads"),
-    ("databricks-aibi-dashboards", "Create AI/BI Lakeview dashboards"),
-    ("databricks-genie", "Create and query Genie Spaces for natural language SQL"),
-    ("databricks-vector-search", "Vector Search endpoints, indexes, queries for RAG"),
-    ("databricks-model-serving", "Deploy and query Model Serving endpoints"),
-    ("databricks-mlflow-evaluation", "MLflow GenAI agent evaluation with scorers"),
-    ("databricks-agent-bricks", "Knowledge Assistants, Genie Spaces, Supervisor Agents"),
-    ("databricks-unity-catalog", "Unity Catalog system tables and volume operations"),
-    ("databricks-jobs", "Create, run, and manage Databricks Jobs"),
-    ("databricks-asset-bundles", "Databricks Asset Bundles for multi-env deployment"),
-    ("databricks-app-apx", "Full-stack Databricks Apps with APX (FastAPI + React)"),
-    ("databricks-app-python", "Python Databricks Apps (Streamlit, Dash, Gradio, etc.)"),
-    ("databricks-metric-views", "Unity Catalog metric views for governed business metrics"),
-    ("databricks-lakebase-provisioned", "Lakebase Provisioned managed PostgreSQL"),
-    ("databricks-lakebase-autoscale", "Lakebase Autoscale with branching and scale-to-zero"),
-    ("databricks-config", "Databricks profile and auth configuration"),
-    ("databricks-python-sdk", "Databricks Python SDK, Connect, CLI, REST API"),
-    ("instrumenting-with-mlflow-tracing", "MLflow Tracing for observability"),
-    ("databricks-zerobus-ingest", "Zerobus Ingest for real-time Delta table ingestion"),
-    ("spark-python-data-source", "Custom Spark data source connectors"),
-]
-
-
 # Architecture component IDs — the valid node types for Mermaid architecture diagrams.
 # Mirrors SKILL_CATALOG in architecture-builder.tsx. Single source of truth for prompts.
 ARCHITECTURE_COMPONENTS: dict[str, list[tuple[str, str]]] = {
@@ -120,23 +91,18 @@ def _features_summary(req: DemoRequestIn) -> str:
     return ", ".join(lines) if lines else "(none selected)"
 
 
-def _skills_catalog() -> str:
-    return "\n".join(f"- `{name}`: {desc}" for name, desc in AI_DEV_KIT_SKILLS)
-
-
 def _build_system_prompt() -> str:
-    return f"""\
-You are a Databricks demo architect. You produce a single SKILL.md file that an LLM \
-(with the ai-dev-kit skills and Databricks MCP tools) can read and execute to build a \
-complete demo end-to-end.
+    return """\
+You are a Databricks demo architect. You produce a single SKILL.md file that a \
+Subject Matter Expert (SME) or an LLM agent can read and execute to build a \
+complete demo end-to-end on the Databricks platform.
 
-Follow these authoring rules strictly. They come from the official Claude skill best \
-practices.
+Follow these authoring rules strictly.
 
 ## Authoring rules
 
-1. **Concise is key.** The executing LLM is already expert at Databricks. Only include \
-context it does NOT already know: domain-specific schemas, business logic, dataset \
+1. **Concise is key.** The reader is already expert at Databricks. Only include \
+context they do NOT already know: domain-specific schemas, business logic, dataset \
 relationships, acceptance criteria. Never explain what Delta Lake is or how Unity \
 Catalog works — just reference them.
 
@@ -144,7 +110,7 @@ Catalog works — just reference them.
    - `name`: lowercase-hyphen, max 64 chars, describes the demo
    - `description`: third-person, says what the skill does AND when to use it. Max 1024 chars.
 
-3. **Body under 500 lines.** If you need more, tell the LLM to create reference files, \
+3. **Body under 500 lines.** If you need more, tell the reader to create reference files, \
 but the SKILL.md itself must stay concise.
 
 4. **Degrees of freedom.** Use HIGH freedom for creative decisions (dashboard layout, \
@@ -152,8 +118,9 @@ chart colors). Use LOW freedom for fragile operations (exact catalog/schema name
 SQL DDL, table relationships). Provide exact table schemas with column names and types.
 
 5. **Workflow pattern with checklist.** The Build Steps section must be a numbered list \
-with a copyable checklist at the top. Each step names the specific ai-dev-kit skill \
-to read and may also reference Databricks MCP tools.
+with a copyable checklist at the top. Each step names the **Databricks service or \
+platform capability** being used (e.g. Spark Declarative Pipelines, Vector Search, \
+Model Serving, AI/BI Dashboards).
 
 6. **Consistent terminology.** Pick one term for each concept and stick with it.
 
@@ -163,20 +130,16 @@ for schemas. Describe transformations in prose. This is a skill, not a config fi
 8. **Template pattern for outputs.** For dashboards, Genie spaces, or apps, describe \
 what they should contain with enough specificity to build but enough freedom to adapt.
 
-9. **Reference ai-dev-kit skills by directory name.** For example: \
-"Read the `databricks-synthetic-data-generation` skill and use it to create these tables."
+9. **Reference Databricks services by official name.** For example: \
+"Use Spark Declarative Pipelines to build the medallion architecture" or \
+"Deploy a Model Serving endpoint for real-time scoring." Where domain-specific best \
+practices apply, note what kind of SME guidance would be valuable \
+(e.g. "An SME template for customer segmentation would define the recommended feature \
+engineering approach and clustering strategy").
 
-10. **Reference Databricks MCP tools by name where useful.** For example: \
-"Use `execute_sql` to run the transformation queries" or \
-"Use `create_or_update_pipeline` to deploy the SDP pipeline."
-
-11. **Modern Databricks conventions.** Always use Spark Declarative Pipelines (SDP), NOT \
+10. **Modern Databricks conventions.** Always use Spark Declarative Pipelines (SDP), NOT \
 Delta Live Tables (DLT). Use Databricks Asset Bundles for project structure. Use serverless \
 compute by default. Use CLUSTER BY (Liquid Clustering) not PARTITION BY.
-
-## Available ai-dev-kit skills
-
-{_skills_catalog()}
 
 ## Proposal structure (keep it scannable — aim for ~40 lines max)
 
@@ -199,7 +162,7 @@ Bullet list of deliverables: pipelines, dashboards, Genie spaces, apps, models. 
 One line each — just name + what it does.
 
 ## Build Steps
-Numbered list. Each step names an ai-dev-kit skill in backticks. Keep to 4-7 steps.
+Numbered list. Each step names the Databricks service being used. Keep to 4-7 steps.
 
 ## Acceptance Criteria
 3-5 bullet checklist of what "done" looks like.
@@ -591,9 +554,10 @@ Brief bullet list of deliverables. One line each — name + what it does. Exampl
 ## Build Steps
 Numbered list, 4-6 steps that implement the Proposed Solution end-to-end. Every capability \
 mentioned in Proposed Solution must map to at least one Build Step, and every Build Step must \
-trace back to the Proposed Solution. Each step names ONE ai-dev-kit skill in backticks. Example:
-1. Generate synthetic sensor and maintenance data using `databricks-synthetic-data-generation`
-2. Build bronze→silver→gold SDP pipeline using `databricks-spark-declarative-pipelines`
+trace back to the Proposed Solution. Each step names the **Databricks service or capability** \
+being used. Example:
+1. **Synthetic Data Generation** (Spark + Faker) — Generate sensor and maintenance data
+2. **Medallion Pipeline** (Spark Declarative Pipelines) — Build bronze→silver→gold pipeline
 
 ## Architecture
 A Mermaid flowchart (`graph LR`) showing the data flow from the Proposed Solution. \
@@ -626,10 +590,6 @@ graph LR
   gold -->|"Query"| wh
   wh -->|"Results"| dash
 ```
-
-## Available ai-dev-kit skills
-
-{_skills_catalog()}
 
 ## Rules
 - Keep the ENTIRE proposal under 80 lines of markdown. Short and punchy.
@@ -779,8 +739,12 @@ _BUILDOUT_FILE_PROMPTS: dict[str, tuple[str, str]] = {
         "   - Read [project-structure.md](project-structure.md) for target directory layout\n"
         "   - Read [walkthrough.md](walkthrough.md) for demo walkthrough script and talk track\n"
         "4. **Prerequisites** — catalog, schema, workspace assumptions (short bullet list)\n"
-        "5. **Build Steps** — numbered checklist, each step references an ai-dev-kit skill "
-        "in backticks AND the relevant reference file. IMPORTANT: Each step must include TWO verifications:\n"
+        "5. **Build Steps** — numbered checklist, each step names the **Databricks service or "
+        "platform capability** being used AND the relevant reference file. Where domain-specific "
+        "best practices apply, include a **Best Practice:** note describing what SME guidance "
+        "would be valuable (e.g. 'Best Practice: An SME template for customer segmentation "
+        "would define the recommended feature engineering approach'). "
+        "IMPORTANT: Each step must include TWO verifications:\n"
         "   - **Component verification:** Run a specific check and output the result. For tables: "
         "run a SELECT query and show output. For endpoints: send a request and show response. "
         "For dashboards/apps: open in Chrome DevTools, take a screenshot, check for console errors. "
@@ -1257,3 +1221,214 @@ def parse_skill_metadata(skill_md: str) -> dict[str, str]:
         elif line.startswith("description:"):
             result["description"] = line.split(":", 1)[1].strip().strip("\"'")
     return result
+
+
+# ---------------------------------------------------------------------------
+# Agent mode: cross-file editing via tool-use loop
+# ---------------------------------------------------------------------------
+
+from ..models import PACKAGE_FILES as _PACKAGE_FILES  # noqa: E402
+
+AGENT_TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "read_file",
+            "description": "Read the full content of a file in the demo package.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "filename": {
+                        "type": "string",
+                        "enum": list(_PACKAGE_FILES),
+                        "description": "The file to read.",
+                    },
+                },
+                "required": ["filename"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "write_file",
+            "description": "Overwrite a file in the demo package with new content. Use this after reading the file to make targeted edits.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "filename": {
+                        "type": "string",
+                        "enum": list(_PACKAGE_FILES),
+                        "description": "The file to write.",
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "The complete new content for the file.",
+                    },
+                },
+                "required": ["filename", "content"],
+            },
+        },
+    },
+]
+
+_AGENT_MAX_ITERATIONS = 15
+
+
+def _build_agent_system_prompt(files: dict[str, str]) -> str:
+    """Build a system prompt for the agent, including file summaries."""
+    file_summaries = []
+    for fn in _PACKAGE_FILES:
+        content = files.get(fn, "")
+        if content:
+            first_line = content.split("\n", 1)[0][:120]
+            size = len(content)
+            file_summaries.append(f"  - {fn} ({size} chars): {first_line}")
+        else:
+            file_summaries.append(f"  - {fn}: (empty)")
+    summaries = "\n".join(file_summaries)
+
+    return f"""You are a demo package editor for Databricks industry demos. The package has 6 interconnected markdown files:
+
+{summaries}
+
+## How to work
+1. Use `read_file` to inspect any file before editing it.
+2. Use `write_file` to update a file with its complete new content.
+3. When a change affects multiple files (e.g. changing the industry), read and update ALL affected files for consistency.
+4. Keep the existing markdown structure and formatting conventions.
+5. Preserve YAML frontmatter in SKILL.md.
+6. Be thorough but concise — make the requested changes and maintain cross-file consistency.
+7. After finishing edits, respond with a brief summary of what you changed."""
+
+
+async def _call_llm_with_tools(
+    messages: list[dict],
+    tools: list[dict],
+    databricks_host: str,
+    databricks_token: str,
+    model: str,
+    max_tokens: int = 8192,
+    temperature: float = 0.5,
+) -> dict:
+    """Non-streaming LLM call with tool definitions. Returns full response dict."""
+    url = f"{databricks_host.rstrip('/')}/serving-endpoints/{model}/invocations"
+    headers = {
+        "Authorization": f"Bearer {databricks_token}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "messages": messages,
+        "tools": tools,
+        "max_tokens": max_tokens,
+        "temperature": temperature,
+    }
+
+    async with httpx.AsyncClient(
+        timeout=httpx.Timeout(connect=30.0, read=120.0, write=30.0, pool=30.0),
+    ) as client:
+        resp = await client.post(url, json=payload, headers=headers)
+        resp.raise_for_status()
+        return resp.json()
+
+
+async def stream_agent_refine(
+    files: dict[str, str],
+    user_message: str,
+    history: list[dict[str, str]],
+    databricks_host: str,
+    databricks_token: str,
+    model: str,
+) -> AsyncIterator[dict]:
+    """Agentic loop: LLM decides which files to read/write via tool calls.
+
+    Yields SSE-ready event dicts:
+      - {"type": "agent_thinking", "content": "..."}
+      - {"type": "agent_reading", "filename": "..."}
+      - {"type": "file_start", "filename": "..."}
+      - {"type": "file_content", "filename": "...", "content": "..."}
+      - {"type": "file_complete", "filename": "..."}
+      - {"type": "agent_message", "content": "..."}
+    """
+    working_files = dict(files)  # mutable copy
+
+    messages: list[dict] = [
+        {"role": "system", "content": _build_agent_system_prompt(working_files)},
+    ]
+    # Append conversation history
+    for msg in history:
+        messages.append({"role": msg["role"], "content": msg["content"]})
+    # Append current user message
+    messages.append({"role": "user", "content": user_message})
+
+    for iteration in range(_AGENT_MAX_ITERATIONS):
+        logger.info("Agent iteration %d", iteration + 1)
+
+        try:
+            response = await _call_llm_with_tools(
+                messages, AGENT_TOOLS, databricks_host, databricks_token, model,
+            )
+        except httpx.HTTPStatusError as exc:
+            yield {"type": "error", "content": f"LLM call failed: {exc.response.status_code}"}
+            return
+        except Exception as exc:
+            yield {"type": "error", "content": f"LLM call failed: {exc}"}
+            return
+
+        choice = response.get("choices", [{}])[0]
+        message = choice.get("message", {})
+        finish_reason = choice.get("finish_reason", "")
+
+        # Append assistant message to history
+        messages.append(message)
+
+        # If no tool calls, we're done — the model gave a final text response
+        tool_calls = message.get("tool_calls")
+        if not tool_calls or finish_reason == "stop":
+            text = message.get("content", "")
+            if text:
+                yield {"type": "agent_message", "content": text}
+            return
+
+        # Process all tool calls
+        for tc in tool_calls:
+            fn_name = tc["function"]["name"]
+            try:
+                fn_args = json.loads(tc["function"]["arguments"])
+            except json.JSONDecodeError:
+                fn_args = {}
+            call_id = tc["id"]
+
+            if fn_name == "read_file":
+                filename = fn_args.get("filename", "")
+                yield {"type": "agent_reading", "filename": filename}
+                content = working_files.get(filename, "")
+                tool_result = content if content else f"(file {filename} is empty)"
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": call_id,
+                    "content": tool_result,
+                })
+
+            elif fn_name == "write_file":
+                filename = fn_args.get("filename", "")
+                content = fn_args.get("content", "")
+                working_files[filename] = content
+                yield {"type": "file_start", "filename": filename}
+                yield {"type": "file_content", "filename": filename, "content": content}
+                yield {"type": "file_complete", "filename": filename}
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": call_id,
+                    "content": f"Successfully wrote {len(content)} chars to {filename}.",
+                })
+
+            else:
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": call_id,
+                    "content": f"Unknown tool: {fn_name}",
+                })
+
+    # Hit iteration cap
+    yield {"type": "agent_message", "content": "Reached the maximum number of editing steps. Please review the changes and continue if needed."}

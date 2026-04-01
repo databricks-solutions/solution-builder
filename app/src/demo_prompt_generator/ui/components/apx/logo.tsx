@@ -16,7 +16,7 @@ export function Logo({ to = "/", className = "", showText = true }: LogoProps) {
       />
       {showText && (
         <span className="font-semibold text-base tracking-tight">
-          <span className="text-primary">Demo Skill Builder</span>
+          <span className="text-primary">Use-Case Generator</span>
         </span>
       )}
     </div>

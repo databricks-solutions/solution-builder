@@ -147,6 +147,9 @@ class GenerationOut(BaseModel):
     industry: str
     skill_md: str
     stage: str = "package"
+    is_starred: bool = False
+    is_library: bool = False
+    library_tags: Optional[list[str]] = None
     proposal_md: Optional[str] = None
     skill_files: Optional[dict[str, str]] = None
     created_at: datetime
@@ -157,7 +160,14 @@ class GenerationListItem(BaseModel):
     demo_name: str
     industry: str
     stage: str = "package"
+    is_starred: bool = False
+    is_library: bool = False
+    library_tags: Optional[list[str]] = None
     created_at: datetime
+
+
+class StarRequest(BaseModel):
+    is_starred: bool
 
 
 class InspireRequest(BaseModel):
@@ -216,6 +226,11 @@ class WorkspaceRefineFileRequest(BaseModel):
     history: list[ChatMessage] = Field(default_factory=list)
 
 
+class WorkspaceBuildoutSaveRequest(BaseModel):
+    generation_id: int
+    files: dict[str, str] = Field(..., description="Completed files so far")
+
+
 # ---------------------------------------------------------------------------
 # SQLModel table — persisted in Lakebase
 # ---------------------------------------------------------------------------
@@ -227,12 +242,16 @@ class Generation(SQLModel, table=True):
     id: Optional[int] = SQLField(default=None, primary_key=True)
     demo_name: str
     owner_name: str
+    user_id: Optional[str] = SQLField(default=None, index=True)
     industry: str
     form_json: str = SQLField(sa_column=Column(Text))
     skill_md: str = SQLField(sa_column=Column(Text))
     stage: str = SQLField(default="package")
     proposal_md: Optional[str] = SQLField(default=None, sa_column=Column(Text, nullable=True))
     skill_files: Optional[str] = SQLField(default=None, sa_column=Column(Text, nullable=True))
+    is_starred: bool = SQLField(default=False)
+    is_library: bool = SQLField(default=False)
+    library_tags: Optional[str] = SQLField(default=None, sa_column=Column(Text, nullable=True))
     created_at: datetime = SQLField(default_factory=datetime.utcnow)
 
 
@@ -288,3 +307,13 @@ class ChatMessageOut(BaseModel):
 class SaveMessagesRequest(BaseModel):
     generation_id: int
     messages: list[ChatMessage] = Field(..., description="All messages to persist")
+
+
+class WorkspaceAgentRefineRequest(BaseModel):
+    generation_id: int
+    message: str = Field(..., description="User's instruction for the agent")
+    history: list[ChatMessage] = Field(default_factory=list)
+
+
+class WorkspaceBuildRequest(BaseModel):
+    generation_id: int

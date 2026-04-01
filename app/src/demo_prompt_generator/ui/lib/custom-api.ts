@@ -82,7 +82,17 @@ export type WorkspaceEvent =
   | { type: "proposal"; content: string }
   | { type: "file_start"; filename: string }
   | { type: "file_content"; filename: string; content: string }
-  | { type: "file_complete"; filename: string; content?: string };
+  | { type: "file_complete"; filename: string; content?: string }
+  | { type: "agent_thinking"; content: string }
+  | { type: "agent_reading"; filename: string }
+  | { type: "agent_message"; content: string }
+  | { type: "build_start"; project_dir: string }
+  | { type: "build_init"; session_id: string }
+  | { type: "build_tool_call"; tool: string; args: Record<string, unknown> }
+  | { type: "build_tool_result"; tool: string; result: string }
+  | { type: "build_message"; content: string }
+  | { type: "build_complete"; project_dir: string; files_created: string[] }
+  | { type: "build_error"; content: string };
 
 async function* parseSSEStream(
   resp: Response,
@@ -320,5 +330,62 @@ export async function* streamFileRefine(
     signal,
   });
   if (!resp.ok) throw new Error(`File refinement failed: ${resp.status}`);
+  yield* parseSSEStream(resp);
+}
+
+// ---------------------------------------------------------------------------
+// Buildout progress persistence
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Agent mode: cross-file editing
+// ---------------------------------------------------------------------------
+
+export async function* streamAgentRefine(
+  generationId: number,
+  message: string,
+  history: ChatMessage[],
+  signal?: AbortSignal,
+): AsyncGenerator<WorkspaceEvent> {
+  const resp = await fetch("/api/workspace/agent-refine", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      generation_id: generationId,
+      message,
+      history,
+    }),
+    signal,
+  });
+  if (!resp.ok) throw new Error(`Agent refine failed: ${resp.status}`);
+  yield* parseSSEStream(resp);
+}
+
+export async function savePartialBuildout(
+  generationId: number,
+  files: Record<string, string>,
+): Promise<void> {
+  await fetch("/api/workspace/buildout-save", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ generation_id: generationId, files }),
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Build phase: execute package via agent loop
+// ---------------------------------------------------------------------------
+
+export async function* streamWorkspaceBuild(
+  generationId: number,
+  signal?: AbortSignal,
+): AsyncGenerator<WorkspaceEvent> {
+  const resp = await fetch("/api/workspace/build", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ generation_id: generationId }),
+    signal,
+  });
+  if (!resp.ok) throw new Error(`Build failed: ${resp.status}`);
   yield* parseSSEStream(resp);
 }

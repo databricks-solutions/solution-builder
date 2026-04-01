@@ -1,7 +1,7 @@
 import SidebarLayout from "@/components/apx/sidebar-layout";
 import { createFileRoute, Link, useLocation } from "@tanstack/react-router";
 import { cn } from "@/lib/utils";
-import { User, History, Sparkles } from "lucide-react";
+import { User, History, Sparkles, Map, Library } from "lucide-react";
 import {
   SidebarGroup,
   SidebarGroupContent,
@@ -25,10 +25,22 @@ function Layout() {
       match: (path: string) => path === "/" || path.startsWith("/workspace"),
     },
     {
+      to: "/library",
+      label: "Library",
+      icon: <Library size={16} />,
+      match: (path: string) => path.startsWith("/library"),
+    },
+    {
       to: "/generations",
       label: "Generations",
       icon: <History size={16} />,
       match: (path: string) => path.startsWith("/generations"),
+    },
+    {
+      to: "/plan",
+      label: "Plan",
+      icon: <Map size={16} />,
+      match: (path: string) => path === "/plan",
     },
     {
       to: "/profile",
