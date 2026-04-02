@@ -109,7 +109,7 @@ Pre-built packages for common scenarios are available in the shared library. For
 The demo generator is also available as a standalone Claude Code skill. Install it in any project to generate demo instruction files directly from the command line:
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/databricks-field-eng/industry-demo-prompts/main/install_demo_generator_skill.sh | bash
+gh repo clone databricks-field-eng/industry-demo-prompts /tmp/idp && /tmp/idp/install_demo_generator_skill.sh && rm -rf /tmp/idp
 ```
 
 This installs the `databricks-demo-generator` skill to `.claude/skills/` in your current directory. Then run `claude` and the skill will be available automatically.
