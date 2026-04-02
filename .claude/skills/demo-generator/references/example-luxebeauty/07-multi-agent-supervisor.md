@@ -199,6 +199,17 @@ For a reliable demo, follow this sequence:
 
 ---
 
+## Resource Tracking
+
+After creating the Multi-Agent Supervisor, **add the MAS ID to `resources.json`**:
+```json
+{
+  "multi_agent_supervisor_id": "<the-mas-id>"
+}
+```
+
+---
+
 ## Validation
 
 After creating the MAS, test the full demo flow:

@@ -22,4 +22,39 @@ I have a set of instruction files in the `instructions/` folder that describe a 
 
 **Before starting**: Run the pre-flight check to ensure required infrastructure exists. Ask me if any resources already contain data.
 
+---
+
+## Resource Tracking
+
+**IMPORTANT**: Maintain a `resources.json` file in the instructions folder to track all created Databricks resources. This makes it easy to reference IDs across steps and recover the demo state.
+
+Create this file at the start of Phase 3 and update it after each resource is created:
+
+```json
+{
+  "catalog": "dbdemos_ai_gen",
+  "schema": "luxebeauty_returns",
+  "volume_path": "/Volumes/dbdemos_ai_gen/luxebeauty_returns/raw_data",
+  "workspace_folder": "/Workspace/Users/.../luxebeauty_demo",
+  "pipeline_id": null,
+  "dashboard_id": null,
+  "genie_space_id": null,
+  "knowledge_assistant_id": null,
+  "multi_agent_supervisor_id": null
+}
+```
+
+Update each `*_id` field immediately after creating the corresponding resource. This ensures you can always find and reference resources without searching.
+
+---
+
+## Troubleshooting
+
+**PyPI failures**: If pip/uv fails to install packages, use the internal Databricks proxy:
+```bash
+--index-url https://pypi-proxy.dev.databricks.com/simple/
+```
+
+---
+
 Begin with Phase 1 - read all the instruction files.

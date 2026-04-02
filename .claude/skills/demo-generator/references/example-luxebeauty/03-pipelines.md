@@ -82,19 +82,41 @@ Create materialized views that join and enrich the data:
 
 ### Gold Layer (03_gold_aggregation.py)
 
-Create aggregated tables for dashboard and Genie:
+Create aggregated tables for dashboard and Genie.
 
-| Table | What It Contains | Why It Matters for Demo |
-|-------|------------------|-------------------------|
-| gold_daily_orders | Daily aggregations by region and category | Dashboard revenue charts |
-| gold_daily_returns | Daily returns by region, category, lot, product | Dashboard returns charts, spike visibility |
-| gold_weekly_summary | Weekly KPIs: revenue, items sold, returns, return rate | Dashboard KPI cards, the ~$180K spike |
-| gold_returns_by_lot | Returns aggregated by lot_id with customer feedback | Genie's "which lot" analysis, connects to incident |
+**IMPORTANT**: Gold tables should stay at **daily granularity**. Do NOT pre-aggregate to weekly - let the dashboard queries handle any weekly aggregation needed. This keeps the data flexible and ensures spikes are clearly visible at the day level.
+
+#### Why Gold Tables Need Region and Category
+
+The dashboard has global filters (Date Range, Region, Category) that let users drill down into the data. **For filters to work on a widget, the underlying data must include those filter dimensions.**
+
+For example:
+- If the "Region" filter should affect the KPI cards, returns trend, AND the products table, then ALL underlying gold tables must include the `region` column
+- Same for `category` - if we want to filter by Skincare/Makeup/Haircare across all widgets, every table needs this column
+
+**Rule of thumb**: Include region and category in every gold table that feeds dashboard widgets. This ensures users can slice and dice the data any way they want.
+
+| Table | Dimensions | Metrics | Why It Matters for Demo |
+|-------|------------|---------|-------------------------|
+| gold_daily_summary | date, **region**, **category** | orders, items, revenue, returns, return_rate | KPIs and returns trend - needs filtering by region/category |
+| gold_daily_orders | date, **region**, **category** | order_count, items_sold, revenue, profit | Revenue charts - already has region/category |
+| gold_returns_by_lot | lot_id, product, **region**, **category**, facility | return_count, refund_usd, avg_days_to_return | Products table - needs region/category for filtering |
 
 **Key columns for gold_returns_by_lot**:
-- lot_id, production_date, product_id, product_name, category
+- lot_id, production_date, product_id, product_name, category, **region**
 - return_count, total_refund_usd, avg_days_to_return
 - customer_feedback_samples (collect the return_reason_text values)
+
+---
+
+## Resource Tracking
+
+After creating the pipeline, **add the pipeline ID to `resources.json`**:
+```json
+{
+  "pipeline_id": "<the-pipeline-id>"
+}
+```
 
 ---
 
@@ -107,11 +129,13 @@ After the pipeline runs, verify the tables are populated correctly.
 | Table | What to Verify |
 |-------|----------------|
 | bronze_* tables | Row counts match source parquet files |
-| silver_returns | Contains lot_id column, can filter by LOT-2025-0212 |
-| gold_weekly_summary | Week of Mar 17 shows ~$180K returns (vs ~$60K normal weeks) |
-| gold_returns_by_lot | LOT-2025-0212 shows ~720 returns across 3 products |
+| silver_returns | Contains lot_id, region, category columns |
+| gold_daily_summary | Has date, **region**, **category** columns - enables dashboard filtering |
+| gold_returns_by_lot | Has **region** column, affected lot shows ~30% return rate |
+
+**Filter-readiness check**: Every gold table that feeds a dashboard widget should have `region` and `category` columns. Run a simple query like `SELECT DISTINCT region FROM gold_daily_summary` to verify.
 
 **Sample validation queries**:
-- Check gold_weekly_summary for the returns spike in the most recent complete week
-- Query gold_returns_by_lot for LOT-2025-0212 to see the affected products and return counts
+- Query gold_returns_by_lot for the affected lot to see return counts
 - Verify customer_feedback_samples contains texture complaints
+- Check that filtering by region (e.g., `WHERE region = 'US'`) returns meaningful data

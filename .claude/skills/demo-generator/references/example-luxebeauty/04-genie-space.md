@@ -124,6 +124,17 @@ Add these to help Genie route questions correctly:
 
 ---
 
+## Resource Tracking
+
+After creating the Genie Space, **add the Genie Space ID to `resources.json`**:
+```json
+{
+  "genie_space_id": "<the-genie-space-id>"
+}
+```
+
+---
+
 ## Validation
 
 After creating the Genie Space, test these queries:

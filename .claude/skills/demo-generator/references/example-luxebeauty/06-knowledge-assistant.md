@@ -91,6 +91,17 @@ Add these to help the KA route questions correctly:
 
 ---
 
+## Resource Tracking
+
+After creating the Knowledge Assistant, **add the KA ID to `resources.json`**:
+```json
+{
+  "knowledge_assistant_id": "<the-ka-id>"
+}
+```
+
+---
+
 ## Validation
 
 After creating the KA, test these queries:

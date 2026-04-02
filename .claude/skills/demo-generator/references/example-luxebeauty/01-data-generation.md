@@ -4,17 +4,38 @@
 
 Generate synthetic parquet files and upload them to the raw data volume.
 
-**Approach**: Write a Python script locally that generates the data using libraries like Faker and pandas/polars, saves as parquet files, then upload to the Databricks volume. Make sure you install faker in the serverless env at the begining of the script (spark connect and execute remotely)
+**Approach**: Write a Python data generation script locally, then run it via Spark Connect to generate data directly on Databricks.
+
+---
+
+## Data Volume Principle
+
+Generate enough data so that the anomaly (spike) is clearly visible above the baseline noise.
+
+With too little data, random variations in normal returns can obscure the spike. The baseline must be stable enough that when the spike occurs, it's unmistakably abnormal - not just a random fluctuation.
+
+**Rule of thumb**:
+- Baseline period should have consistent daily/weekly patterns with low variance
+- The spike should be **at least 3x the baseline** to be visually obvious
+- More total volume = smoother baseline = clearer spike
 
 ---
 
 ## Data Time Range
 
-The data should cover approximately one year, with the "current" date being around **March 24, 2025** (when Claire notices the spike):
+**IMPORTANT**: The data should always be current so the demo remains relevant. Use dynamic dates relative to NOW:
 
-- Orders: ~1 year of history (Mar 2024 - Mar 2025)
+| Date Reference | Calculation | Purpose |
+|----------------|-------------|---------|
+| STORY_END_DATE | **NOW** (current date) | Most recent data point |
+| STORY_START_DATE | NOW - 13 months | ~1 year of historical data |
+| AFFECTED_LOT_DATE | NOW - 7 weeks | Production date of bad lot |
+| Spike week | NOW - 5 to 6 weeks | When returns peak (visible in charts) |
+
+This ensures:
+- Orders: ~1 year of history ending today
 - Returns: follow orders with 7-30 day lag
-- The spike week: March 17-23, 2025
+- The spike is always ~5-6 weeks ago (recent enough to be actionable, old enough for returns to accumulate)
 
 ---
 
@@ -25,19 +46,21 @@ Upload to the **raw_data** volume (path defined in 00-demo-overview.md).
 **Files to Generate**:
 ```
 {raw_data_volume}/
-├── customers.parquet          (~12,000 rows)
+├── customers.parquet          (~50,000 rows)
 ├── products.parquet           (~80 rows)
-├── production_lots.parquet    (~500 rows)
-├── orders.parquet             (~52,000 rows)
-├── order_items.parquet        (~80,000 rows)
-└── returns.parquet            (~5,000 rows)
+├── production_lots.parquet    (~1,500 rows)
+├── orders.parquet             (~200,000 rows)
+├── order_items.parquet        (~320,000 rows)
+└── returns.parquet            (~25,000 rows)
 ```
+
+**Why these volumes**: With ~25K total returns and ~480/week baseline, the spike week (~1,500 returns) is clearly 3x+ above normal. Smaller datasets have too much noise to see the signal.
 
 ---
 
 ## Table Schemas
 
-### 1. customers (~12,000 rows)
+### 1. customers (~50,000 rows)
 
 | Column | Type | Description |
 |--------|------|-------------|
@@ -82,7 +105,7 @@ Upload to the **raw_data** volume (path defined in 00-demo-overview.md).
 
 ---
 
-### 3. production_lots (~500 rows)
+### 3. production_lots (~1,500 rows)
 
 | Column | Type | Description |
 |--------|------|-------------|
@@ -97,14 +120,14 @@ Upload to the **raw_data** volume (path defined in 00-demo-overview.md).
 - Lot ID: LOT-2025-0212
 - Production date: February 12, 2025
 - Products: SKU-1001, SKU-1002, SKU-1003
-- Quantity: ~800 units each (2,400 total)
+- Quantity: ~1,700 units each (5,000 total)
 - Status: released
 
 **Why this matters**: The demo story is that this lot had equipment issues during production, but was released anyway. The lot ID ties the returns back to the incident report.
 
 ---
 
-### 4. orders (~52,000 rows)
+### 4. orders (~200,000 rows)
 
 | Column | Type | Description |
 |--------|------|-------------|
@@ -118,7 +141,7 @@ Upload to the **raw_data** volume (path defined in 00-demo-overview.md).
 | total_usd | DECIMAL(10,2) | Total amount |
 | status | STRING | "delivered", "shipped", "processing" |
 
-**Seasonality** (baseline ~900 orders/week) - this makes the data more realistic:
+**Seasonality** (baseline ~3,800 orders/week) - this makes the data more realistic:
 | Period | Multiplier |
 |--------|------------|
 | Valentine's (Feb 7-14) | ~1.8x |
@@ -130,7 +153,7 @@ Upload to the **raw_data** volume (path defined in 00-demo-overview.md).
 
 ---
 
-### 5. order_items (~80,000 rows)
+### 5. order_items (~320,000 rows)
 
 | Column | Type | Description |
 |--------|------|-------------|
@@ -143,7 +166,7 @@ Upload to the **raw_data** volume (path defined in 00-demo-overview.md).
 | line_total_usd | DECIMAL(10,2) | quantity × unit_price |
 
 **Affected lot assignment**:
-- Around 2,400 order_items should reference lot LOT-2025-0212
+- Around 5,000 order_items should reference lot LOT-2025-0212
 - These orders happen between Feb 12 - Mar 15, 2025 (as the lot inventory ships out)
 - Use FIFO logic: assign to oldest available lot for each product
 
@@ -151,7 +174,7 @@ Upload to the **raw_data** volume (path defined in 00-demo-overview.md).
 
 ---
 
-### 6. returns (~5,000 rows)
+### 6. returns (~25,000 rows)
 
 | Column | Type | Description |
 |--------|------|-------------|
@@ -166,9 +189,9 @@ Upload to the **raw_data** volume (path defined in 00-demo-overview.md).
 **Normal return distribution**: quality ~25%, changed_mind ~40%, wrong_item ~15%, damaged ~10%, other ~10%
 
 **Affected lot returns** - this creates the spike that triggers the investigation:
-- Around 720 returns from LOT-2025-0212 items (~30% return rate vs ~8% normal)
+- Around 1,500 returns from LOT-2025-0212 items (~30% return rate vs ~8% normal)
 - Return dates: Feb 20 - Mar 25, 2025 (7-14 days after order)
-- Peak week: Mar 17-23 (~250 returns, creating the ~$180K spike)
+- Peak week: Mar 17-23 (~500 returns, creating the ~$180K spike vs ~$60K baseline)
 - Return reason: predominantly "quality"
 - Return reason text: texture complaints like:
   - "Cream has grainy texture, not smooth like usual"
@@ -191,8 +214,8 @@ After generating and uploading the data, verify the key demo facts are present.
 | What to Check | What You Should See |
 |---------------|---------------------|
 | LOT-2025-0212 in production_lots | 3 rows (one per affected SKU) |
-| Order items with lot LOT-2025-0212 | Around 2,400 items |
-| Returns from affected lot | Around 720 returns (~30% return rate) |
+| Order items with lot LOT-2025-0212 | Around 5,000 items |
+| Returns from affected lot | Around 1,500 returns (~30% return rate) |
 | Returns in week of Mar 17-23 | Significantly higher than other weeks (~$180K vs ~$60K) |
 | Return reasons for affected lot | Mostly "quality" with texture complaints |
 

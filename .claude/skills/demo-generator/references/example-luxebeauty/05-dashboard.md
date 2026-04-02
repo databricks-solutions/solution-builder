@@ -2,9 +2,22 @@
 
 ## Task
 
-Create an AI/BI dashboard that shows weekly operations metrics.
+Create an AI/BI dashboard that shows daily operations metrics.
 
 **Important**: This is a normal operational dashboard, not an "investigation" dashboard. The returns spike should appear naturally alongside other metrics - that's what triggers the persona's question.
+
+---
+
+## Local Dashboard File
+
+Save the dashboard JSON spec locally as `dashboard.json` in the workspace folder. This makes it easier to edit and update the dashboard later.
+
+```
+{workspace_folder}/
+└── dashboard.json    # Full dashboard JSON spec
+```
+
+After creating the dashboard via API, export the JSON and save it locally. When making updates, edit the local file and re-upload.
 
 ---
 
@@ -12,9 +25,15 @@ Create an AI/BI dashboard that shows weekly operations metrics.
 
 | Setting | Value |
 |---------|-------|
-| **Dashboard Name** | `LuxeBeauty Weekly Operations` |
+| **Dashboard Name** | `LuxeBeauty Operations` |
 | **Catalog/Schema** | As defined in 00-demo-overview.md |
 | **Parent Path** | The workspace folder defined in 00-demo-overview.md |
+
+---
+
+## Important Formatting Rules
+
+**Currency formatting**: All revenue/monetary widgets MUST display values in **$ USD format** (e.g., "$3.8M", "$180K", not "3800000" or "180000"). Configure number formatting to show currency symbol.
 
 ---
 
@@ -34,22 +53,25 @@ This visual contrast is what makes the persona ask "Why do I have so many return
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│  HEADER: LuxeBeauty Weekly Operations                                       │
+│  HEADER: LuxeBeauty Operations                                              │
 ├─────────────────────────────────────────────────────────────────────────────┤
-│  FILTERS: Region filter (US, EU, APAC) - low cardinality for quick slicing  │
+│  GLOBAL FILTERS:                                                            │
+│  • Date Range filter (applies to all temporal charts)                       │
+│  • Region filter (US, EU, APAC)                                             │
 ├─────────────────────────────────────────────────────────────────────────────┤
-│  KPI CARDS (4 counters)                                                     │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐                    │
-│  │ Revenue  │  │ Orders   │  │ Items    │  │ Returns  │ ← THE SPIKE        │
-│  │ ~$3.8M   │  │ ~924     │  │ ~1,450   │  │ ~$180K   │                    │
-│  └──────────┘  └──────────┘  └──────────┘  └──────────┘                    │
+│  KPI CARDS (4 counters) - FIXED time window (e.g., last 30 days)            │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐    │
+│  │Monthly Rev.  │  │Monthly Orders│  │Monthly Items │  │Monthly Returns│   │
+│  │ ~$3.8M       │  │ ~924         │  │ ~1,450       │  │ ~$180K ← SPIKE│   │
+│  └──────────────┘  └──────────────┘  └──────────────┘  └──────────────────┘│
 ├─────────────────────────────────────────────────────────────────────────────┤
-│  WEEKLY TREND (full width) - Combo chart                                    │
-│  Revenue bars + Returns line → spike visible in most recent week            │
+│  DAILY RETURNS TREND (full width) - Line/Area chart - THE KEY CHART         │
+│  Shows returns $ over time with clear spike in recent days                  │
+│  *** SPIKE MUST BE IMMEDIATELY OBVIOUS - DO NOT MIX WITH REVENUE ***        │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │  ┌──────────────────────┐  ┌──────────────────────┐                        │
-│  │ Revenue by Category  │  │ Daily Returns        │                        │
-│  │ (Pie Chart)          │  │ (Bar Chart)          │                        │
+│  │ Daily Revenue Trend  │  │ Revenue by Category  │                        │
+│  │ (Bar/Line Chart)     │  │ (Pie Chart)          │                        │
 │  └──────────────────────┘  └──────────────────────┘                        │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │  TOP PRODUCTS TABLE (full width)                                            │
@@ -61,14 +83,15 @@ This visual contrast is what makes the persona ask "Why do I have so many return
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
+**Key design choice**: Returns trend is a **dedicated chart** - do NOT combine with revenue in a combo chart. Mixing different scales makes the spike less obvious.
+
 ---
 
 ## Date Handling
 
-The data uses fixed dates (Feb-Mar 2025 per the story). Dashboard queries should:
-- Reference the spike week directly (week of March 17, 2025) for KPIs
-- Show ~8 weeks of history for trend charts
-- NOT use `CURRENT_DATE()` - use fixed date ranges so the spike is always visible
+The data is generated with dynamic dates relative to NOW (see 01-data-generation.md), so the demo stays current. The spike is always ~5-6 weeks ago.
+
+**Default date filter**: Set the default to "This Year" so the dashboard shows relevant, current data when first opened. Users can adjust the range to focus on specific periods.
 
 ---
 
@@ -76,47 +99,68 @@ The data uses fixed dates (Feb-Mar 2025 per the story). Dashboard queries should
 
 ### Filters
 
-Add a Region filter to allow slicing the data by geography:
+Add **global filters** for exploring the data. Filters let users drill down by time period, region, or product category.
+
+**IMPORTANT**: For a filter to affect a widget, the widget's underlying data must include that filter column. This is why the gold layer tables include region and category dimensions (see 03-pipelines.md). If your KPIs don't respond to the region filter, check that the underlying table has a `region` column.
+
+**1. Date Range Filter (REQUIRED)**
+- **Field**: date (from gold_daily_* tables)
+- **Type**: Date range picker
+- **Default**: "This Year" - ensures the dashboard shows current, relevant data
+- **Applies to**: All widgets that have a date column
+
+**2. Region Filter**
 - **Field**: region (from the gold tables)
 - **Values**: US, EU, APAC (3 values - good for filters)
 - **Type**: Multi-select dropdown
+- **Applies to**: All widgets - KPIs, charts, and tables should all respond to this filter
 
-The filter should apply to all dashboard components. The returns spike is visible across all regions, but filtering lets the persona drill in if needed.
+**3. Category Filter**
+- **Field**: category (from the gold tables)
+- **Values**: Skincare, Makeup, Haircare
+- **Type**: Multi-select dropdown
+- **Applies to**: All widgets - lets users focus on a specific product line
+
+**Filter behavior**:
+- When a user selects "EU" in the region filter, ALL widgets should update to show only EU data
+- When a user selects "Skincare" in category, ALL widgets should show only Skincare products
+- Filters combine: selecting "EU" + "Skincare" shows EU Skincare data across all widgets
 
 ---
 
 ### KPI Cards
 
-Four counter widgets showing the spike week's metrics.
+Three counter widgets showing key metrics for the selected period.
 
-| KPI | Source | Expected Value | Notes |
-|-----|--------|----------------|-------|
-| Weekly Revenue | gold_weekly_summary | ~$3.8M | Normal - provides contrast |
-| Weekly Orders | gold_weekly_summary or silver_orders | ~924 | Normal - provides contrast |
-| Items Sold | gold_weekly_summary | ~1,450 | Normal - provides contrast |
-| **Weekly Returns** | gold_weekly_summary | **~$180K** | **THE SPIKE - 3x normal** |
+**Display hint**: Add a description like "For the selected period" so users understand the KPIs respond to filters.
 
-**Visual emphasis**: The Returns KPI should stand out. Consider:
-- Red/warning color if the value exceeds a threshold
-- Placing it last so the eye lands on it after seeing "normal" values
+| KPI | Source | Format | Notes |
+|-----|--------|--------|-------|
+| Total Revenue | gold_daily_summary | **$ USD** | Normal - provides contrast |
+| Total Orders | gold_daily_summary | Number | Normal - provides contrast |
+| **Total Returns** | gold_daily_summary | **$ USD** | **Shows the spike when filtered to recent data** |
+
+**Formatting**: Revenue and Returns KPIs MUST display with $ currency symbol (e.g., "$3.8M" not "3800000").
+
+**Filter behavior**: KPIs respond to all filters (date, region, category). When a user filters to "This Year" and "Skincare", the KPIs show totals for Skincare products this year.
 
 ---
 
-### Weekly Trend Chart (Combo)
+### Daily Returns Trend (THE KEY CHART)
 
-A combo chart showing 8 weeks of data - this provides the historical context that makes the spike obvious.
+A dedicated line/area chart showing **only returns** over time. This is the most important visualization - the spike must be immediately obvious.
 
 | Element | Configuration |
 |---------|---------------|
-| **Chart type** | Combo (bar + line) |
-| **X-Axis** | week_start (temporal) |
-| **Bars (primary)** | total_revenue - shows steady business |
-| **Line (secondary)** | total_returns_usd - shows the spike |
-| **Source** | gold_weekly_summary |
+| **Chart type** | Line or Area (NOT combo with revenue) |
+| **X-Axis** | date (temporal, daily) |
+| **Y-Axis** | total_returns_usd |
+| **Source** | gold_daily_returns (aggregated by date) |
+| **Time range** | Controlled by global date filter |
 
-**Why combo**: Revenue and returns have different scales. Bars for revenue show "business as usual". The line for returns shows the spike clearly against historical trend.
+**CRITICAL**: Do NOT combine returns with revenue in the same chart. Different scales make the spike less visible. Returns deserve their own dedicated chart.
 
-**Why it matters**: The spike in the returns line should be visually obvious in the most recent week - a clear uptick compared to the flat historical trend.
+**Why it matters**: When someone looks at this chart, they should immediately see "something went wrong around March 17" - a clear spike compared to the flat baseline before it.
 
 ---
 
@@ -136,19 +180,19 @@ A pie chart showing revenue breakdown by product category.
 
 ---
 
-### Daily Returns This Week (Bar Chart)
+### Daily Revenue Trend (Bar/Line Chart)
 
-A bar chart showing daily returns for the spike week.
+A chart showing daily revenue over time - provides context that business is "normal" while returns spike.
 
 | Element | Configuration |
 |---------|---------------|
-| **Chart type** | Bar |
-| **X-Axis** | return_date (temporal, daily) |
-| **Y-Axis** | return amount or count |
-| **Source** | gold_daily_returns |
-| **Time range** | Spike week only |
+| **Chart type** | Bar or Line |
+| **X-Axis** | date (temporal, daily) |
+| **Y-Axis** | total_revenue (format as $ USD) |
+| **Source** | gold_daily_orders (aggregated by date) |
+| **Time range** | Controlled by global date filter |
 
-**Why it matters**: Shows returns are consistently high throughout the week - not a one-day anomaly.
+**Why it matters**: Shows revenue is steady while returns spike - this contrast reinforces that something is specifically wrong with returns, not overall business.
 
 ---
 
@@ -185,6 +229,17 @@ Embed the Genie Space (created in 04-genie-space.md) into the dashboard. This al
 
 ---
 
+## Resource Tracking
+
+After creating the dashboard, **add the dashboard ID to `resources.json`**:
+```json
+{
+  "dashboard_id": "<the-dashboard-id>"
+}
+```
+
+---
+
 ## Validation
 
 After creating the dashboard, verify the story is visually obvious:
@@ -192,9 +247,13 @@ After creating the dashboard, verify the story is visually obvious:
 | Check | What to Look For |
 |-------|------------------|
 | **Spike is obvious** | Can you immediately see something is wrong without studying the data? |
-| **Returns KPI** | Shows ~$180K - significantly higher than expected ~$60K |
-| **Trend chart** | Clear spike in returns line for most recent week vs flat history |
-| **Products table** | SKU-1001, SKU-1002, SKU-1003 visibly have higher return rates (~30% vs ~8%) |
-| **Contrast works** | Other metrics (revenue, orders) look normal, making returns stand out |
+| **Returns trend chart** | Clear spike ~5-6 weeks ago vs flat baseline before - dedicated chart, NOT mixed with revenue |
+| **Currency formatting** | All monetary values display with $ symbol (e.g., "$3.8M", "$180K") |
+| **Filters work everywhere** | Region filter affects ALL widgets (KPIs, charts, table). Same for Category filter. |
+| **Default date works** | Dashboard opens with "This Year" selected, showing current relevant data |
+| **Products table** | The affected lot shows high return rates (~30% vs ~8% for others) |
+| **Contrast works** | Revenue chart shows steady business while returns chart shows spike |
 
 **The 5-second test**: Show the dashboard to someone for 5 seconds. They should be able to say "something is wrong with returns" without any explanation. If not, the visualization needs adjustment.
+
+**Filter test**: Select a single region (e.g., "US") - verify ALL widgets update to show only US data. If some widgets don't change, the underlying data is missing the region column.
