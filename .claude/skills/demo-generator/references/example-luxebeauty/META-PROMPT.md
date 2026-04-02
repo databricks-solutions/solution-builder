@@ -50,10 +50,13 @@ Update each `*_id` field immediately after creating the corresponding resource. 
 
 ## Troubleshooting
 
+**CRITICAL - MCP server crashes**: If an MCP server crashes or becomes unresponsive, **STOP immediately**. Ask the user to restart the MCP server and wait for confirmation before continuing. Do NOT attempt workarounds, fallbacks, or alternative approaches - the MCP tools are required for this workflow.
+
 **PyPI failures**: If pip/uv fails to install packages, use the internal Databricks proxy:
 ```bash
 --index-url https://pypi-proxy.dev.databricks.com/simple/
 ```
+
 
 ---
 

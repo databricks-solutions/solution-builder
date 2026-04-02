@@ -30,11 +30,11 @@ Create this folder structure in the workspace folder (path defined in 00-demo-ov
 ```
 {workspace_folder}/
 ├── transformations/
-│   ├── 01_bronze_ingestion.py       # Bronze layer: raw parquet ingestion
-│   ├── 02_silver_transformation.py  # Silver layer: joins and enrichment
-│   └── 03_gold_aggregation.py       # Gold layer: aggregations for analytics
+│   ├── 01_bronze_ingestion.sql       # Bronze layer: raw parquet ingestion
+│   ├── 02_silver_transformation.sql  # Silver layer: joins and enrichment
+│   └── 03_gold_aggregation.sql       # Gold layer: aggregations for analytics
 └── exploration/
-    └── exploration_notebook.py      # Notebook to verify raw data
+    └── exploration_notebook.py       # Notebook to verify raw data
 ```
 
 ---
@@ -53,7 +53,7 @@ Before running the pipeline, create a simple exploration notebook to verify the 
 
 The pipeline should create tables in a medallion architecture (Bronze → Silver → Gold), with each layer in its own transformation file.
 
-### Bronze Layer (01_bronze_ingestion.py)
+### Bronze Layer (01_bronze_ingestion.sql)
 
 Ingest the parquet files as streaming tables:
 
@@ -66,7 +66,7 @@ Ingest the parquet files as streaming tables:
 | bronze_order_items | order_items.parquet | Raw line items |
 | bronze_returns | returns.parquet | Raw return records |
 
-### Silver Layer (02_silver_transformation.py)
+### Silver Layer (02_silver_transformation.sql)
 
 Create materialized views that join and enrich the data:
 
@@ -80,7 +80,7 @@ Create materialized views that join and enrich the data:
 - silver_order_items should include: order_id, order_date, customer region, product_id, product_name, category, lot_id, production_date, facility
 - silver_returns should include: return_id, order_item_id, product info, lot_id, return_date, refund_amount, return_reason, return_reason_text, days_to_return
 
-### Gold Layer (03_gold_aggregation.py)
+### Gold Layer (03_gold_aggregation.sql)
 
 Create aggregated tables for dashboard and Genie.
 
