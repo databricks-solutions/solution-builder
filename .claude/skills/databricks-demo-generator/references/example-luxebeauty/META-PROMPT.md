@@ -11,7 +11,7 @@ I have a set of instruction files in the `instructions/` folder that describe a 
 **Phase 2 - Plan**: Create a task list based on the build order in the overview. Each task should be a concrete implementation step (create file, upload data, create resource, validate). For each task, identify which skill to use (check `/skills` to see available skills - there's likely one for each type of task like data generation, pipelines, dashboards, Genie, KA, MAS).
 
 **Phase 3 - Implement**: Work through the task list one by one:
-- Before starting each task, load the relevant skill to get the latest patterns and best practices
+- **IMPORTANT - Check skills first**: Before starting each task, list your available skills and check if any are relevant to the task at hand (e.g., data generation, pipelines, dashboards, Genie, agents). If a relevant skill exists, read it first to get the latest patterns and best practices before implementing.
 - Create all files locally first (Python scripts, SQL files, configs)
 - Upload to Databricks (volumes for data, workspace for code)
 - Create Databricks resources via APIs (not DAB)

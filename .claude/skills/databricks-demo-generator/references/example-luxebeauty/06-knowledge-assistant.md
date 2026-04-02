@@ -1,5 +1,7 @@
 # Knowledge Assistant Creation
 
+> **Before starting**: Check if you have a relevant skill available and read it for best practices.
+
 ## Task
 
 Create a Knowledge Assistant (KA) that enables natural language queries against the incident documentation.

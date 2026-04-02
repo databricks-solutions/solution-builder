@@ -1,5 +1,7 @@
 # Data Generation
 
+> **Before starting**: Check if you have a relevant skill available and read it for best practices.
+
 ## Task
 
 Generate synthetic parquet files and upload them to the raw data volume.

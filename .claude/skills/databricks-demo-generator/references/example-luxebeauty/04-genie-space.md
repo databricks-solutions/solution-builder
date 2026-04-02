@@ -1,5 +1,7 @@
 # Genie Space Creation
 
+> **Before starting**: Check if you have a relevant skill available and read it for best practices.
+
 ## Task
 
 Create a Genie Space that enables natural language queries against the structured data.

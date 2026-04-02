@@ -1,5 +1,7 @@
 # Dashboard Creation
 
+> **Before starting**: Check if you have a relevant skill available and read it for best practices.
+
 ## Task
 
 Create an AI/BI dashboard that shows daily operations metrics.

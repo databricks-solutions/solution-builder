@@ -1,5 +1,7 @@
 # Pipeline Creation
 
+> **Before starting**: Check if you have a relevant skill available and read it for best practices.
+
 ## Task
 
 Create a Spark Declarative Pipeline (SDP) that transforms raw parquet data into analytics-ready tables.

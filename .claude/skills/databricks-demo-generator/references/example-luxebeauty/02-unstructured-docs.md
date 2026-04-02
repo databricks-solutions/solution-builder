@@ -1,5 +1,7 @@
 # PDF Generation
 
+> **Before starting**: Check if you have a relevant skill available and read it for best practices.
+
 ## Task
 
 Generate a collection of PDF documents for the volume. This collection will be indexed by the Knowledge Assistant later, which should be able to find the relevant document when asked about the returns issue.

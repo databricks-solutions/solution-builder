@@ -1,5 +1,7 @@
 # Multi-Agent Supervisor Creation
 
+> **Before starting**: Check if you have a relevant skill available and read it for best practices.
+
 ## Task
 
 Create a Multi-Agent Supervisor (MAS) that orchestrates the Knowledge Assistant and Genie Space to answer investigation questions.

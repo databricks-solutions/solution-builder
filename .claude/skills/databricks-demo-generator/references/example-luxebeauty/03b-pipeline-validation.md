@@ -1,5 +1,7 @@
 # Pipeline Validation
 
+> **Before starting**: Check if you have a relevant skill available and read it for best practices.
+
 ## Task
 
 After the SDP pipeline runs, validate that the data matches the demo story and meets the dashboard requirements. This is a critical checkpoint before proceeding.
