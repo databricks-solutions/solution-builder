@@ -104,6 +104,21 @@ The core idea: best practices are captured as context that an LLM uses to genera
 
 Pre-built packages for common scenarios are available in the shared library. Fork one as a starting point and personalize it for your customer, rather than starting from scratch.
 
+## Claude Code Skill (standalone)
+
+The demo generator is also available as a standalone Claude Code skill. Install it in any project to generate demo instruction files directly from the command line:
+
+```bash
+curl -sSL https://raw.githubusercontent.com/databricks-field-eng/industry-demo-prompts/main/install_demo_generator_skill.sh | bash
+```
+
+This installs the `databricks-demo-generator` skill to `.claude/skills/` in your current directory. Then run `claude` and the skill will be available automatically.
+
+**Included reference demos:**
+- Financial Services — Fraud Detection (Pacific Coast Bank)
+- Healthcare — Patient Readmissions (Meridian Regional Health)
+- Manufacturing — Quality Defects (TitanAuto Parts)
+
 ## Local development
 
 ```bash
