@@ -576,7 +576,12 @@ function CollectionsTab() {
         description: data.description,
         industry: data.industry,
         block_slugs: data.blockSlugs,
-        output_files: [] as { filename: string; purpose: string; depends_on: string[] }[],
+        output_files: [
+          { filename: "01-story-and-data.md", purpose: "Narrative, data schemas, and synthetic data spec", depends_on: [] },
+          { filename: "02-pipeline.md", purpose: "Data pipeline and transformations", depends_on: ["01-story-and-data.md"] },
+          { filename: "03-components.md", purpose: "Dashboards, agents, and application specs", depends_on: ["01-story-and-data.md"] },
+          { filename: "04-walkthrough.md", purpose: "Demo script and talk track", depends_on: ["*"] },
+        ] as { filename: string; purpose: string; depends_on: string[] }[],
       };
 
       if (formMode === "edit" && editingSlug) {

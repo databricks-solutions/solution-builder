@@ -1,6 +1,6 @@
 # Industry Demo Prompt Generator
 
-Databricks best practices for 30+ use cases across 8 industry verticals — encoded as **context, not code**. Instead of maintaining static demo repositories that drift out of date, this app captures architectural patterns, data schemas, storylines, and walkthrough scripts as structured knowledge that an LLM can dynamically assemble into a fully personalized demo package for any customer situation.
+Databricks best practices encoded as **context, not code**. Instead of maintaining static demo repositories that drift out of date, this app captures architectural patterns, data schemas, storylines, and walkthrough scripts as composable **blocks** of structured knowledge that an LLM assembles into fully personalized demo packages for any customer situation.
 
 Describe a customer's industry, pain points, and goals. The app generates a complete instruction set — tailored to that specific scenario — that the [Databricks AI Dev Kit](https://github.com/databricks/ai-dev-kit) can then execute end-to-end to build tables, pipelines, dashboards, Genie spaces, and apps on a live workspace.
 
@@ -86,7 +86,7 @@ targets:
 
 The core idea: best practices are captured as context that an LLM uses to generate personalized instructions, rather than as static code templates that need manual adaptation.
 
-1. **Pick a use case** — browse industry verticals (Financial Services, Healthcare, Retail, Manufacturing, Energy, Telecom, Media, Public Sector) or describe your own customer scenario.
+1. **Pick a use case** — browse collections (pre-composed block assemblies), describe your own scenario, or start from a template.
 2. **Review the proposal** — the app generates a structured proposal personalized to your customer's situation: background, solution approach, datasets, and build steps rendered as visual cards.
 3. **Approve & build** — one click generates a multi-file instruction package, each tailored to the specific scenario. Output files are defined by the collection's dependency graph and generated in parallel tiers.
 4. **Refine** — chat with the workspace to iterate on any file. Adjust the storyline for a specific account, swap out data schemas, change the architecture — then download the package as a zip.

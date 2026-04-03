@@ -367,7 +367,7 @@ You are a Databricks demo architect. Given a set of context blocks, suggest \
 what output files should be generated for this demo package.
 
 # Selected Blocks
-{"chr(10)".join(block_details)}
+{chr(10).join(block_details)}
 
 # Instructions
 

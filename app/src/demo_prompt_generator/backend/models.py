@@ -414,5 +414,19 @@ class WorkspaceParallelBuildoutRequest(BaseModel):
     collection_slug: str = Field(..., description="Collection to use for parallel buildout")
 
 
+class ModifyBlocksRequest(BaseModel):
+    block_slugs: list[str] = Field(default_factory=list)
+    message: str = Field(..., description="Natural language instruction for the block agent")
+    history: list[ChatMessage] = Field(default_factory=list)
+
+
+class SuggestCollectionRequest(BaseModel):
+    topic: str = Field(..., description="Use-case topic to suggest a collection for")
+
+
+class SuggestOutputFilesRequest(BaseModel):
+    block_slugs: list[str] = Field(..., description="Block slugs to suggest output files for")
+
+
 class WorkspaceBuildRequest(BaseModel):
     generation_id: int

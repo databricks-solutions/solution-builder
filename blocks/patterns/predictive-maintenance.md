@@ -10,7 +10,7 @@ description: >
   with historical failure patterns. IoT-heavy and time-series focused. Applicable
   to equipment failure prediction, infrastructure degradation monitoring, fleet
   management, and any asset-intensive operation where unplanned downtime is costly.
-suggested_capabilities: [pipeline, dashboard, genie, ml-notebook, knowledge-assistant, multi-agent-supervisor]
+suggested_capabilities: [declarative-pipeline, aibi-dashboards, genie-space, notebooks, knowledge-assistant, multi-agent-supervisor]
 ---
 
 ## Narrative Arc

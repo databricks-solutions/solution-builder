@@ -83,13 +83,13 @@ def update_collection(
     req: CollectionCreateRequest,
     headers: Dependencies.Headers,
 ):
-    """Update an existing collection."""
+    """Update an existing collection. Slug is immutable — use the URL path slug."""
     existing = collection_service.get_collection_obj(slug)
     if not existing:
         raise HTTPException(status_code=404, detail=f"Collection '{slug}' not found")
 
     coll = Collection(
-        slug=req.slug,
+        slug=slug,  # immutable — always use URL path slug
         name=req.name,
         description=req.description,
         industry=req.industry,

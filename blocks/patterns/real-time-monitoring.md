@@ -11,7 +11,7 @@ description: >
   manually. Real-time data flow emphasis throughout. Applicable to network
   monitoring, trading floor surveillance, patient vitals, supply chain tracking,
   energy grid management, and any domain where seconds matter.
-suggested_capabilities: [pipeline, dashboard, genie, knowledge-assistant, multi-agent-supervisor, ml-notebook]
+suggested_capabilities: [declarative-pipeline, aibi-dashboards, genie-space, knowledge-assistant, multi-agent-supervisor, notebooks]
 ---
 
 ## Narrative Arc

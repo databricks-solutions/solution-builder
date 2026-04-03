@@ -10,7 +10,7 @@ description: >
   segments, and activating those segments through downstream systems. Applicable
   to marketing targeting, financial risk tiers, patient cohorts, product
   recommendations, and any scenario where grouping entities unlocks action.
-suggested_capabilities: [dashboard, genie, pipeline, ml-notebook, knowledge-assistant, multi-agent-supervisor]
+suggested_capabilities: [aibi-dashboards, genie-space, declarative-pipeline, notebooks, knowledge-assistant, multi-agent-supervisor]
 ---
 
 ## Narrative Arc

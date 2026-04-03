@@ -12,7 +12,7 @@ description: >
   and rule-based with AI augmentation. Applicable to AML, HIPAA, SOX, environmental
   compliance, trade surveillance, and any regulated domain where violations carry
   material penalties.
-suggested_capabilities: [pipeline, dashboard, genie, knowledge-assistant, multi-agent-supervisor, ml-notebook]
+suggested_capabilities: [declarative-pipeline, aibi-dashboards, genie-space, knowledge-assistant, multi-agent-supervisor, notebooks]
 ---
 
 ## Narrative Arc

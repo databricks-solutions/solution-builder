@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 from fastapi import HTTPException
 
 from ..core import Dependencies, create_router
@@ -9,6 +11,16 @@ from ..models import BlockCreateRequest
 from ..services.block_registry import Block, registry
 
 router = create_router()
+
+_SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]*[a-z0-9]$")
+
+
+def _validate_slug(slug: str) -> None:
+    if not slug or len(slug) > 128 or not _SLUG_RE.match(slug):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid slug '{slug}'. Must be lowercase kebab-case (a-z, 0-9, hyphens), 2-128 chars.",
+        )
 
 
 @router.get(
@@ -65,6 +77,7 @@ def create_block(
     headers: Dependencies.Headers,
 ):
     """Create a new block."""
+    _validate_slug(req.slug)
     existing = registry.get_block(req.slug)
     if existing:
         raise HTTPException(status_code=409, detail=f"Block '{req.slug}' already exists")
@@ -92,13 +105,13 @@ def update_block(
     req: BlockCreateRequest,
     headers: Dependencies.Headers,
 ):
-    """Update an existing block."""
+    """Update an existing block. Slug is immutable — use the URL path slug."""
     existing = registry.get_block(slug)
     if not existing:
         raise HTTPException(status_code=404, detail=f"Block '{slug}' not found")
 
     block = Block(
-        slug=req.slug,
+        slug=slug,  # immutable — always use the URL path slug
         name=req.name,
         category=req.category,
         tags=req.tags,

@@ -10,7 +10,7 @@ description: >
   uncovering a root cause and driving corrective action. Applicable to fraud spikes,
   quality defects, readmission surges, return rate anomalies, and any scenario where
   a business operator must diagnose and resolve an unexpected change.
-suggested_capabilities: [dashboard, genie, knowledge-assistant, multi-agent-supervisor, pipeline, ml-notebook]
+suggested_capabilities: [aibi-dashboards, genie-space, knowledge-assistant, multi-agent-supervisor, declarative-pipeline, notebooks]
 ---
 
 ## Narrative Arc

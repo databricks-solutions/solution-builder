@@ -492,6 +492,7 @@ function SaveCollectionInline({
   const [name, setName] = useState(`${originalName} (custom)`);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const slug = name
     .toLowerCase()
@@ -527,8 +528,8 @@ function SaveCollectionInline({
         });
         setSaved(true);
         onSave?.(name.trim(), slug, blockSlugs);
-      } catch {
-        // silent fail
+      } catch (e2) {
+        setSaveError(`Failed to save: ${e2 instanceof Error ? e2.message : "Unknown error"}`);
       }
     } finally {
       setSaving(false);
@@ -549,6 +550,9 @@ function SaveCollectionInline({
       <div className="text-xs font-medium text-amber-400">
         Blocks modified — save as a new collection?
       </div>
+      {saveError && (
+        <div className="text-xs text-red-400">{saveError}</div>
+      )}
       <div className="flex items-center gap-2">
         <Input
           value={name}

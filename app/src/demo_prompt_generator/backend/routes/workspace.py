@@ -13,6 +13,7 @@ from ..core import Dependencies, create_router
 from ..models import (
     Generation,
     PACKAGE_FILES,
+    ModifyBlocksRequest,
     WorkspaceAgentRefineRequest,
     WorkspaceApproveRequest,
     WorkspaceBuildRequest,
@@ -550,7 +551,7 @@ async def workspace_parallel_buildout(
 
 @router.post("/workspace/modify-blocks", operation_id="workspaceModifyBlocks")
 async def workspace_modify_blocks(
-    req: dict,
+    req: ModifyBlocksRequest,
     config: Dependencies.Config,
     ws_client: Dependencies.Client,
     headers: Dependencies.Headers,
@@ -562,9 +563,9 @@ async def workspace_modify_blocks(
     if not host or not token:
         raise HTTPException(status_code=500, detail="Databricks host/token not configured")
 
-    current_slugs = req.get("block_slugs", [])
-    message = req.get("message", "")
-    history = req.get("history", [])
+    current_slugs = req.block_slugs
+    message = req.message
+    history = [{"role": m.role, "content": m.content} for m in req.history]
 
     if not message:
         raise HTTPException(status_code=400, detail="message is required")
@@ -601,9 +602,6 @@ async def workspace_buildout_file(
     row = _get_user_generation(session, req.generation_id, _get_user_id(headers))
     if not row.proposal_md:
         raise HTTPException(status_code=400, detail="No proposal to build from")
-
-    if req.filename not in PACKAGE_FILES:
-        raise HTTPException(status_code=400, detail=f"Unknown file: {req.filename}")
 
     async def event_stream():
         collected = ""
