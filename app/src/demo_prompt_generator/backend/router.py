@@ -12,6 +12,8 @@ from .routes import inspire as _inspire  # noqa: E402, F401
 from .routes import workspace as _workspace  # noqa: E402, F401
 from .routes import conversations as _conversations  # noqa: E402, F401
 from .routes import library as _library  # noqa: E402, F401
+from .routes import blocks as _blocks  # noqa: E402, F401
+from .routes import collections as _collections_rt  # noqa: E402, F401
 
 
 @router.get("/version", response_model=VersionOut, operation_id="version")

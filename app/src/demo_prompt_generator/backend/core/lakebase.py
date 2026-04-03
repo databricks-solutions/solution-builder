@@ -33,7 +33,7 @@ class DatabaseConfig(BaseSettings):
     )
     instance_name: str = Field(
         description="The name of the database instance (override via DB_INSTANCE_NAME env var)",
-        default="demo-prompt-gen-db",
+        default="demo-prompt-generator-db",
         validation_alias="DB_INSTANCE_NAME",
     )
 
@@ -168,6 +168,42 @@ def initialize_models(engine: Engine) -> None:
         ("library_tags", "ALTER TABLE generation ADD COLUMN IF NOT EXISTS library_tags TEXT"),
         ("user_id", "ALTER TABLE generation ADD COLUMN IF NOT EXISTS user_id TEXT"),
         ("user_id_idx", "CREATE INDEX IF NOT EXISTS ix_generation_user_id ON generation (user_id)"),
+        ("collection_json", "ALTER TABLE generation ADD COLUMN IF NOT EXISTS collection_json TEXT"),
+        ("block_table", """
+            CREATE TABLE IF NOT EXISTS block (
+                id SERIAL PRIMARY KEY,
+                slug TEXT UNIQUE NOT NULL,
+                name TEXT NOT NULL,
+                category TEXT NOT NULL,
+                tags TEXT NOT NULL DEFAULT '[]',
+                description TEXT NOT NULL DEFAULT '',
+                content TEXT NOT NULL DEFAULT '',
+                related TEXT NOT NULL DEFAULT '[]',
+                created_by TEXT,
+                is_seed BOOLEAN NOT NULL DEFAULT FALSE,
+                created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+                updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+            )
+        """),
+        ("block_slug_idx", "CREATE UNIQUE INDEX IF NOT EXISTS ix_block_slug ON block (slug)"),
+        ("collection_table", """
+            CREATE TABLE IF NOT EXISTS collection (
+                id SERIAL PRIMARY KEY,
+                slug TEXT UNIQUE NOT NULL,
+                name TEXT NOT NULL,
+                description TEXT NOT NULL DEFAULT '',
+                industry TEXT NOT NULL DEFAULT '',
+                block_slugs TEXT NOT NULL DEFAULT '[]',
+                output_files TEXT NOT NULL DEFAULT '[]',
+                created_by TEXT,
+                is_seed BOOLEAN NOT NULL DEFAULT FALSE,
+                created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+                updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+            )
+        """),
+        ("collection_slug_idx", "CREATE UNIQUE INDEX IF NOT EXISTS ix_collection_slug ON collection (slug)"),
+        ("conversation_user_id", "ALTER TABLE conversation ADD COLUMN IF NOT EXISTS user_id TEXT"),
+        ("conversation_user_id_idx", "CREATE INDEX IF NOT EXISTS ix_conversation_user_id ON conversation (user_id)"),
     ]
     with Session(engine) as session:
         for col_name, ddl in _migrations:
@@ -196,6 +232,17 @@ class _LakebaseDependency(LifespanDependency):
 
         from ..services.seed_library import seed_library
         seed_library(engine)
+
+        # Load block registry and collection service (with DB persistence)
+        from ..services.block_registry import registry as block_registry
+        block_registry.set_engine(engine)
+        block_registry.load()
+        block_registry.seed_to_db()
+
+        from ..services.collection_service import collection_service
+        collection_service.set_engine(engine)
+        collection_service.load()
+        collection_service.seed_to_db()
 
         app.state.engine = engine
         yield

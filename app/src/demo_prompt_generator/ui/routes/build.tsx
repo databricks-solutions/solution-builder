@@ -173,7 +173,7 @@ function BuildPage() {
       <Navbar />
       {/* Header */}
       <div className="flex items-center gap-3 px-4 py-3 border-b">
-        <Link to="/workspace" search={{ topic: "", generationId }}>
+        <Link to="/workspace" search={{ topic: "", generationId, collection: "" }}>
           <Button variant="ghost" size="sm" className="h-7 px-2 text-xs gap-1">
             <ChevronLeft className="h-3 w-3" />
             Back to Workspace

@@ -1,5 +1,5 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useState, useMemo } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
@@ -10,147 +10,37 @@ import {
   History,
   ArrowRight,
   Search,
-  Building2,
-  HeartPulse,
-  Factory,
-  ShoppingCart,
-  Zap,
-  Radio,
-  Clapperboard,
-  Landmark,
   Lightbulb,
   Library,
+  Layers,
+  Blocks,
 } from "lucide-react";
+import {
+  listCollections,
+  type CollectionSummary,
+} from "@/lib/custom-api";
 
 export const Route = createFileRoute("/")({
   component: Index,
 });
 
-const INDUSTRY_CATALOG = [
-  {
-    name: "Financial Services",
-    icon: Landmark,
-    color: "text-blue-400",
-    border: "border-blue-500/15 hover:border-blue-500/30",
-    bg: "bg-blue-500/[0.04] hover:bg-blue-500/[0.08]",
-    useCases: [
-      "Real-time fraud detection for credit card transactions",
-      "Anti-money laundering transaction monitoring",
-      "Credit risk scoring with alternative data",
-      "Algorithmic trading signal generation",
-    ],
-  },
-  {
-    name: "Healthcare & Life Sciences",
-    icon: HeartPulse,
-    color: "text-emerald-400",
-    border: "border-emerald-500/15 hover:border-emerald-500/30",
-    bg: "bg-emerald-500/[0.04] hover:bg-emerald-500/[0.08]",
-    useCases: [
-      "Patient readmission risk scoring",
-      "Clinical trial patient matching",
-      "Drug interaction prediction from EHR data",
-      "Medical claims anomaly detection",
-    ],
-  },
-  {
-    name: "Manufacturing",
-    icon: Factory,
-    color: "text-amber-400",
-    border: "border-amber-500/15 hover:border-amber-500/30",
-    bg: "bg-amber-500/[0.04] hover:bg-amber-500/[0.08]",
-    useCases: [
-      "Predictive maintenance for industrial equipment",
-      "Real-time quality control with IoT sensors",
-      "Supply chain demand forecasting",
-      "Digital twin simulation for factory floor",
-    ],
-  },
-  {
-    name: "Retail & CPG",
-    icon: ShoppingCart,
-    color: "text-pink-400",
-    border: "border-pink-500/15 hover:border-pink-500/30",
-    bg: "bg-pink-500/[0.04] hover:bg-pink-500/[0.08]",
-    useCases: [
-      "Customer churn prediction and next-best-action",
-      "Dynamic pricing optimization",
-      "Personalized product recommendation engine",
-      "Inventory optimization across distribution centers",
-    ],
-  },
-  {
-    name: "Energy & Utilities",
-    icon: Zap,
-    color: "text-yellow-400",
-    border: "border-yellow-500/15 hover:border-yellow-500/30",
-    bg: "bg-yellow-500/[0.04] hover:bg-yellow-500/[0.08]",
-    useCases: [
-      "Smart grid load balancing and outage prediction",
-      "Renewable energy output forecasting",
-      "Pipeline integrity monitoring with sensor data",
-    ],
-  },
-  {
-    name: "Telecom",
-    icon: Radio,
-    color: "text-violet-400",
-    border: "border-violet-500/15 hover:border-violet-500/30",
-    bg: "bg-violet-500/[0.04] hover:bg-violet-500/[0.08]",
-    useCases: [
-      "Customer churn prediction for telecom subscribers",
-      "Network anomaly detection and capacity planning",
-      "Real-time call quality optimization",
-    ],
-  },
-  {
-    name: "Media & Entertainment",
-    icon: Clapperboard,
-    color: "text-orange-400",
-    border: "border-orange-500/15 hover:border-orange-500/30",
-    bg: "bg-orange-500/[0.04] hover:bg-orange-500/[0.08]",
-    useCases: [
-      "Content recommendation engine for streaming",
-      "Ad spend optimization with real-time bidding",
-      "Audience engagement analytics and segmentation",
-    ],
-  },
-  {
-    name: "Public Sector",
-    icon: Building2,
-    color: "text-slate-400",
-    border: "border-slate-500/15 hover:border-slate-500/30",
-    bg: "bg-slate-500/[0.04] hover:bg-slate-500/[0.08]",
-    useCases: [
-      "Benefits fraud detection across agencies",
-      "Citizen service request triage and routing",
-      "Infrastructure asset lifecycle management",
-    ],
-  },
-] as const;
 
 function Index() {
   const [topic, setTopic] = useState("");
-  const [filter, setFilter] = useState("");
+  const [collections, setCollections] = useState<CollectionSummary[]>([]);
   const navigate = useNavigate();
+
+  useEffect(() => {
+    listCollections()
+      .then(setCollections)
+      .catch(() => {});
+  }, []);
 
   const handleGo = (text?: string) => {
     const val = (text || topic).trim();
     if (!val) return;
-    navigate({ to: "/workspace", search: { topic: val } });
+    navigate({ to: "/workspace", search: { topic: val, generationId: undefined, collection: "" } });
   };
-
-  const filteredCatalog = useMemo(() => {
-    if (!filter) return INDUSTRY_CATALOG;
-    const q = filter.toLowerCase();
-    return INDUSTRY_CATALOG.map((ind) => ({
-      ...ind,
-      useCases: ind.useCases.filter(
-        (uc) =>
-          uc.toLowerCase().includes(q) || ind.name.toLowerCase().includes(q),
-      ),
-    })).filter((ind) => ind.useCases.length > 0);
-  }, [filter]);
 
   return (
     <div className="relative flex min-h-screen flex-col overflow-hidden">
@@ -273,93 +163,99 @@ function Index() {
           </div>
         </div>
 
-        {/* Template library callout */}
-        <div className="relative z-10 mx-auto mt-8 w-full max-w-2xl">
+        {/* Three paths: Browse, Create, Manage */}
+        <div className="relative z-10 mx-auto mt-10 w-full max-w-3xl grid grid-cols-3 gap-3">
           <Link
             to="/library"
-            className="group flex items-center gap-3 rounded-xl border border-emerald-500/15 bg-emerald-500/[0.04] hover:bg-emerald-500/[0.08] hover:border-emerald-500/30 px-4 py-3 transition-all"
+                        className="group rounded-xl border border-violet-500/15 bg-violet-500/[0.04] hover:bg-violet-500/[0.08] hover:border-violet-500/30 p-4 transition-all text-left"
           >
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-emerald-500/10">
-              <Library className="h-4 w-4 text-emerald-500" />
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="text-sm font-medium text-foreground">
-                Start from a template
-              </p>
-              <p className="text-xs text-muted-foreground">
-                Browse vetted demo packages you can fork and customize
-              </p>
-            </div>
-            <ArrowRight className="h-4 w-4 text-muted-foreground opacity-0 -translate-x-1 group-hover:opacity-100 group-hover:translate-x-0 transition-all" />
+            <Layers className="h-5 w-5 text-violet-400 mb-2" />
+            <p className="text-sm font-medium">Browse Collections</p>
+            <p className="text-[11px] text-muted-foreground mt-1">
+              Pre-built block assemblies ready to generate
+            </p>
+          </Link>
+          <Link
+            to="/library"
+                        className="group rounded-xl border border-emerald-500/15 bg-emerald-500/[0.04] hover:bg-emerald-500/[0.08] hover:border-emerald-500/30 p-4 transition-all text-left"
+          >
+            <Blocks className="h-5 w-5 text-emerald-400 mb-2" />
+            <p className="text-sm font-medium">Browse Blocks</p>
+            <p className="text-[11px] text-muted-foreground mt-1">
+              Explore structured context for domains, patterns, and capabilities
+            </p>
+          </Link>
+          <Link
+            to="/library"
+                        className="group rounded-xl border border-blue-500/15 bg-blue-500/[0.04] hover:bg-blue-500/[0.08] hover:border-blue-500/30 p-4 transition-all text-left"
+          >
+            <Library className="h-5 w-5 text-blue-400 mb-2" />
+            <p className="text-sm font-medium">Template Library</p>
+            <p className="text-[11px] text-muted-foreground mt-1">
+              Fork vetted demo packages and customize
+            </p>
           </Link>
         </div>
 
-        {/* Industry use-case catalog */}
-        <div className="relative z-10 mx-auto mt-14 w-full max-w-6xl">
-          <div className="flex items-center justify-between mb-5">
-            <div>
-              <h2 className="text-lg font-semibold tracking-tight">
-                Browse by industry
-              </h2>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                Pick a use-case to get started instantly, or use it as
-                inspiration
-              </p>
+        {/* Collections grid */}
+        {collections.length > 0 && (
+          <div className="relative z-10 mx-auto mt-12 w-full max-w-5xl">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h2 className="text-lg font-semibold tracking-tight">
+                  Collections
+                </h2>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Each collection is a set of context blocks that generate a complete demo
+                </p>
+              </div>
+              <Link to="/library" search={{ tab: "collections" }}>
+                <Button variant="outline" size="sm" className="gap-1.5 text-xs">
+                  <Layers className="h-3 w-3" />
+                  Create Collection
+                </Button>
+              </Link>
             </div>
-            <div className="relative w-56">
-              <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                placeholder="Filter use-cases..."
-                value={filter}
-                onChange={(e) => setFilter(e.target.value)}
-                className="h-8 pl-8 text-xs bg-background/60"
-              />
-            </div>
-          </div>
 
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            {filteredCatalog.map((industry) => {
-              const Icon = industry.icon;
-              return (
-                <div
-                  key={industry.name}
-                  className={`rounded-xl border ${industry.border} ${industry.bg} p-3.5 transition-all`}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+              {collections.map((collection) => (
+                <button
+                  key={collection.slug}
+                  onClick={() =>
+                    navigate({
+                      to: "/workspace",
+                      search: {
+                        topic: "",
+                        generationId: undefined,
+                        collection: collection.slug,
+                      },
+                    })
+                  }
+                  className="group flex flex-col rounded-xl border border-border/50 bg-card/60 backdrop-blur-sm p-4 text-left transition-all hover:border-primary/30 hover:bg-card/80"
                 >
-                  <div className="flex items-center gap-2 mb-2.5">
-                    <Icon className={`h-4 w-4 ${industry.color}`} />
-                    <span className="text-sm font-semibold">
-                      {industry.name}
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-sm font-semibold text-foreground group-hover:text-primary transition-colors">
+                      {collection.name}
                     </span>
                   </div>
-                  <div className="space-y-1">
-                    {industry.useCases.map((uc) => (
-                      <button
-                        key={uc}
-                        onClick={() => handleGo(uc)}
-                        className="flex w-full items-start gap-2 rounded-lg px-2 py-1.5 text-left text-xs text-muted-foreground transition-all hover:bg-background/60 hover:text-foreground group"
-                      >
-                        <ArrowRight className="h-3 w-3 shrink-0 mt-0.5 opacity-0 -translate-x-1 group-hover:opacity-100 group-hover:translate-x-0 transition-all text-primary" />
-                        <span className="group-hover:translate-x-0 -translate-x-3 transition-transform leading-relaxed">
-                          {uc}
-                        </span>
-                      </button>
-                    ))}
+                  <span className="inline-flex w-fit rounded-md bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary mb-2">
+                    {collection.industry}
+                  </span>
+                  <p className="text-[11px] text-muted-foreground leading-relaxed line-clamp-2 flex-1">
+                    {collection.description}
+                  </p>
+                  <div className="flex items-center gap-3 mt-3 pt-2 border-t border-border/30 text-[10px] text-muted-foreground">
+                    <span>{collection.block_slugs.length} blocks</span>
+                    <span>{collection.output_file_count} outputs</span>
+                    <ArrowRight className="h-3 w-3 ml-auto opacity-0 group-hover:opacity-100 transition-opacity text-primary" />
                   </div>
-                </div>
-              );
-            })}
-          </div>
-
-          {filteredCatalog.length === 0 && (
-            <div className="flex flex-col items-center py-12 text-muted-foreground">
-              <Search className="h-8 w-8 opacity-30 mb-2" />
-              <p className="text-sm">No matching use-cases</p>
-              <p className="text-xs mt-1">
-                Try a different search, or type your own above
-              </p>
+                </button>
+              ))}
             </div>
-          )}
-        </div>
+          </div>
+        )}
+
+        <div className="h-12" />
       </main>
       <div className="absolute inset-0 -z-20 h-full w-full bg-background" />
     </div>

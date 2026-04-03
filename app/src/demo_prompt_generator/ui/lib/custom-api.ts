@@ -92,7 +92,29 @@ export type WorkspaceEvent =
   | { type: "build_tool_result"; tool: string; result: string }
   | { type: "build_message"; content: string }
   | { type: "build_complete"; project_dir: string; files_created: string[] }
-  | { type: "build_error"; content: string };
+  | { type: "build_error"; content: string }
+  // Block agent events
+  | { type: "block_added"; slug: string; name: string; category: string }
+  | { type: "block_removed"; slug: string }
+  | { type: "block_created"; slug: string; name: string; category: string }
+  | { type: "blocks_updated"; slugs: string[] }
+  // Collection suggestion events
+  | { type: "suggestion"; content: string }
+  // Parallel buildout events
+  | { type: "tier_start"; tier: number; files: string[] }
+  | { type: "tier_complete"; tier: number }
+  | { type: "all_complete"; files: Record<string, string>; id?: number; demo_name?: string }
+  // Supervisor build events
+  | { type: "supervisor_start"; project_dir: string; mode: string }
+  | { type: "supervisor_tier_start"; tier: number; workers: string[] }
+  | { type: "supervisor_tier_complete"; tier: number }
+  | { type: "supervisor_validating"; tier: number }
+  | { type: "supervisor_complete"; project_dir: string; files_created: string[] }
+  | { type: "worker_start"; worker: string; filename: string }
+  | { type: "worker_complete"; worker: string }
+  | { type: "worker_error"; worker: string; content: string }
+  | { type: "worker_message"; content: string; worker: string }
+  | { type: "worker_tool_call"; tool: string; args: Record<string, unknown>; worker: string };
 
 async function* parseSSEStream(
   resp: Response,
@@ -370,6 +392,206 @@ export async function savePartialBuildout(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ generation_id: generationId, files }),
   });
+}
+
+// ---------------------------------------------------------------------------
+// Build phase: execute package via agent loop
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Parallel buildout SSE
+// ---------------------------------------------------------------------------
+
+export async function* streamParallelBuildout(
+  generationId: number,
+  collectionSlug: string,
+  signal?: AbortSignal,
+): AsyncGenerator<WorkspaceEvent> {
+  const resp = await fetch("/api/workspace/buildout-parallel", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      generation_id: generationId,
+      collection_slug: collectionSlug,
+    }),
+    signal,
+  });
+  if (!resp.ok) throw new Error(`Parallel buildout failed: ${resp.status}`);
+  yield* parseSSEStream(resp);
+}
+
+// ---------------------------------------------------------------------------
+// Block & Collection APIs
+// ---------------------------------------------------------------------------
+
+export interface BlockSummary {
+  slug: string;
+  name: string;
+  category: string;
+  tags: string[];
+  description: string;
+  related: string[];
+  suggested_capabilities?: string[];
+}
+
+export interface BlockFull extends BlockSummary {
+  content: string;
+}
+
+export interface CollectionSummary {
+  slug: string;
+  name: string;
+  description: string;
+  industry: string;
+  block_slugs: string[];
+  output_file_count: number;
+}
+
+export interface CollectionFull extends CollectionSummary {
+  blocks: BlockFull[];
+  output_files: { filename: string; purpose: string; depends_on: string[] }[];
+}
+
+export async function listBlocks(category?: string): Promise<BlockSummary[]> {
+  const params = category ? `?category=${category}` : "";
+  const resp = await fetch(`/api/blocks${params}`);
+  if (!resp.ok) throw new Error(`Failed to list blocks: ${resp.status}`);
+  return resp.json();
+}
+
+export async function searchBlocks(query: string): Promise<BlockSummary[]> {
+  const resp = await fetch(`/api/blocks/search?q=${encodeURIComponent(query)}`);
+  if (!resp.ok) throw new Error(`Failed to search blocks: ${resp.status}`);
+  return resp.json();
+}
+
+export async function getBlock(slug: string): Promise<BlockFull> {
+  const resp = await fetch(`/api/blocks/${slug}`);
+  if (!resp.ok) throw new Error(`Failed to get block: ${resp.status}`);
+  return resp.json();
+}
+
+export async function* streamModifyBlocks(
+  blockSlugs: string[],
+  message: string,
+  history: ChatMessage[] = [],
+  signal?: AbortSignal,
+): AsyncGenerator<WorkspaceEvent> {
+  const resp = await fetch("/api/workspace/modify-blocks", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ block_slugs: blockSlugs, message, history }),
+    signal,
+  });
+  if (!resp.ok) throw new Error(`Block agent failed: ${resp.status}`);
+  yield* parseSSEStream(resp);
+}
+
+export async function modifyCollectionBlocks(
+  blockSlugs: string[],
+  message: string,
+): Promise<{ updated_slugs: string[]; explanation: string }> {
+  const resp = await fetch("/api/collections/modify", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ block_slugs: blockSlugs, message }),
+  });
+  if (!resp.ok) throw new Error(`Failed to modify blocks: ${resp.status}`);
+  return resp.json();
+}
+
+export async function matchCollection(topic: string): Promise<{ match: CollectionSummary | null }> {
+  const resp = await fetch(`/api/collections/match?topic=${encodeURIComponent(topic)}`);
+  if (!resp.ok) throw new Error(`Failed to match collection: ${resp.status}`);
+  return resp.json();
+}
+
+export async function listCollections(): Promise<CollectionSummary[]> {
+  const resp = await fetch("/api/collections");
+  if (!resp.ok) throw new Error(`Failed to list collections: ${resp.status}`);
+  return resp.json();
+}
+
+export async function createBlock(block: {
+  slug: string; name: string; category: string; tags: string[];
+  description: string; content: string; related?: string[];
+}): Promise<BlockFull> {
+  const resp = await fetch("/api/blocks", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(block),
+  });
+  if (!resp.ok) throw new Error(`Failed to create block: ${resp.status}`);
+  return resp.json();
+}
+
+export async function updateBlock(slug: string, block: {
+  slug: string; name: string; category: string; tags: string[];
+  description: string; content: string; related?: string[];
+}): Promise<BlockFull> {
+  const resp = await fetch(`/api/blocks/${slug}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(block),
+  });
+  if (!resp.ok) throw new Error(`Failed to update block: ${resp.status}`);
+  return resp.json();
+}
+
+export async function deleteBlock(slug: string): Promise<void> {
+  const resp = await fetch(`/api/blocks/${slug}`, { method: "DELETE" });
+  if (!resp.ok) throw new Error(`Failed to delete block: ${resp.status}`);
+}
+
+export async function createCollection(coll: {
+  slug: string; name: string; description: string; industry: string;
+  block_slugs: string[]; output_files: { filename: string; purpose: string; depends_on: string[] }[];
+}): Promise<CollectionFull> {
+  const resp = await fetch("/api/collections", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(coll),
+  });
+  if (!resp.ok) throw new Error(`Failed to create collection: ${resp.status}`);
+  return resp.json();
+}
+
+export async function updateCollection(slug: string, coll: {
+  slug: string; name: string; description: string; industry: string;
+  block_slugs: string[]; output_files: { filename: string; purpose: string; depends_on: string[] }[];
+}): Promise<CollectionFull> {
+  const resp = await fetch(`/api/collections/${slug}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(coll),
+  });
+  if (!resp.ok) throw new Error(`Failed to update collection: ${resp.status}`);
+  return resp.json();
+}
+
+export async function deleteCollection(slug: string): Promise<void> {
+  const resp = await fetch(`/api/collections/${slug}`, { method: "DELETE" });
+  if (!resp.ok) throw new Error(`Failed to delete collection: ${resp.status}`);
+}
+
+export async function getCollection(slug: string): Promise<CollectionFull> {
+  const resp = await fetch(`/api/collections/${slug}`);
+  if (!resp.ok) throw new Error(`Failed to get collection: ${resp.status}`);
+  return resp.json();
+}
+
+export async function* streamCollectionSuggestion(
+  topic: string,
+  signal?: AbortSignal,
+): AsyncGenerator<WorkspaceEvent> {
+  const resp = await fetch("/api/collections/suggest", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ topic }),
+    signal,
+  });
+  if (!resp.ok) throw new Error(`Collection suggestion failed: ${resp.status}`);
+  yield* parseSSEStream(resp);
 }
 
 // ---------------------------------------------------------------------------

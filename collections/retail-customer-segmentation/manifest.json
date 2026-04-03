@@ -1,0 +1,48 @@
+{
+  "name": "Retail Customer Segmentation",
+  "slug": "retail-customer-segmentation",
+  "description": "Segment customers by behavior, deploy ML predictions, and serve insights through a custom app with Lakebase backend",
+  "industry": "Retail & CPG",
+  "blocks": [
+    "retail",
+    "customer-segmentation",
+    "declarative-pipeline",
+    "model-serving",
+    "aibi-dashboards",
+    "databricks-app",
+    "lakebase",
+    "synthetic-data-gen"
+  ],
+  "output_files": [
+    {
+      "filename": "01-story-and-data.md",
+      "purpose": "Narrative arc, company/persona, customer and transaction schemas, synthetic data spec",
+      "depends_on": []
+    },
+    {
+      "filename": "02-pipeline.md",
+      "purpose": "Medallion pipeline: Bronze ingestion, Silver enrichment with feature engineering, Gold segment tables",
+      "depends_on": ["01-story-and-data.md"]
+    },
+    {
+      "filename": "03-model.md",
+      "purpose": "ML model training notebook, feature table, model serving endpoint deployment",
+      "depends_on": ["01-story-and-data.md"]
+    },
+    {
+      "filename": "04-dashboard.md",
+      "purpose": "AI/BI dashboard showing segment distribution, revenue by segment, migration trends",
+      "depends_on": ["01-story-and-data.md"]
+    },
+    {
+      "filename": "05-app.md",
+      "purpose": "Databricks App (FastAPI + React) with Lakebase backend, serving segment predictions and customer lookup",
+      "depends_on": ["01-story-and-data.md", "03-model.md"]
+    },
+    {
+      "filename": "06-walkthrough.md",
+      "purpose": "Demo script showing end-to-end flow from data to predictions to app",
+      "depends_on": ["*"]
+    }
+  ]
+}

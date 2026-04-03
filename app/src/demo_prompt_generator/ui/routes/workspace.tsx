@@ -31,12 +31,10 @@ import {
   BrainCircuit,
   ArrowRight,
   PackageCheck,
-  BookOpen,
-  Table2,
-  FolderTree,
   Archive,
   CheckCircle2,
   Blocks,
+  Layers,
   PanelRightOpen,
   PanelRightClose,
 } from "lucide-react";
@@ -46,6 +44,9 @@ import {
   streamProposalRefine,
   streamFileRefine,
   streamAgentRefine,
+  streamParallelBuildout,
+  streamModifyBlocks,
+  streamCollectionSuggestion,
   saveConversation,
   listConversations,
   getConversation,
@@ -53,6 +54,8 @@ import {
 } from "@/lib/custom-api";
 import { FileRendererWithFallback } from "@/components/file-renderers";
 import { ProposalCards } from "@/components/proposal-cards";
+import { BlockPicker, BlockPills } from "@/components/block-picker";
+import { CollectionInfo, CollectionDetailView, ParallelBuildoutProgress } from "@/components/collection-builder";
 
 const ArchitectureBuilder = lazy(() => import("@/components/architecture-builder"));
 
@@ -62,6 +65,7 @@ export const Route = createFileRoute("/workspace")({
     generationId: search.generationId
       ? Number(search.generationId)
       : undefined,
+    collection: (search.collection as string) || "",
   }),
   component: WorkspacePage,
 });
@@ -70,15 +74,10 @@ export const Route = createFileRoute("/workspace")({
 // Types
 // ---------------------------------------------------------------------------
 
-type Stage = "proposal" | "buildout" | "package";
+type Stage = "collection" | "proposal" | "buildout" | "package";
 
 const PACKAGE_FILES = [
-  "SKILL.md",
-  "storyline.md",
-  "architecture.md",
-  "data-schema.md",
-  "project-structure.md",
-  "walkthrough.md",
+  "reference.md",
 ] as const;
 
 type PackageFilename = (typeof PACKAGE_FILES)[number];
@@ -109,7 +108,7 @@ function stripArchSection(md: string): string {
 }
 
 /** Extract the ## Architecture section from proposal markdown */
-function extractArchSection(md: string): string {
+function _extractArchSection(md: string): string {
   const match = ARCH_SECTION_RE.exec(md);
   if (!match) return "";
   return md.slice(match.index + match[0].length).trim();
@@ -151,7 +150,7 @@ function extractMentions(text: string, sectionList: Section[]): string[] {
   return found;
 }
 
-function spliceSection(
+function _spliceSection(
   md: string,
   sectionTitle: string,
   newContent: string,
@@ -178,12 +177,8 @@ function spliceSection(
   return [...before, ...newContent.split("\n"), ...after].join("\n");
 }
 
-const FILE_ICONS: Record<string, typeof FileText> = {
-  "SKILL.md": PackageCheck,
-  "storyline.md": BookOpen,
-  "data-schema.md": Table2,
-  "project-structure.md": FolderTree,
-  "walkthrough.md": Workflow,
+const _FILE_ICONS: Record<string, any> = {
+  "reference.md": FileText,
 };
 
 // ---------------------------------------------------------------------------
@@ -191,14 +186,14 @@ const FILE_ICONS: Record<string, typeof FileText> = {
 // ---------------------------------------------------------------------------
 
 function WorkspacePage() {
-  const { topic, generationId: loadId } = Route.useSearch();
+  const { topic, generationId: loadId, collection: collectionParam } = Route.useSearch();
   const navigate = useNavigate();
 
   // Stage management
   const [stage, setStage] = useState<Stage>("proposal");
   const [proposalMd, setProposalMd] = useState("");
   const [packageFiles, setPackageFiles] = useState<Record<string, string>>({});
-  const [activeFile, setActiveFile] = useState<PackageFilename>("SKILL.md");
+  const [activeFile, setActiveFile] = useState<PackageFilename>("reference.md");
 
   // Common state
   const [generationId, setGenerationId] = useState<number | null>(null);
@@ -209,7 +204,7 @@ function WorkspacePage() {
   const [chatInput, setChatInput] = useState("");
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
   const [copied, setCopied] = useState(false);
-  const [activeSection, setActiveSection] = useState("");
+  const [_activeSection, _setActiveSection] = useState("");
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(
     new Set(),
   );
@@ -217,8 +212,19 @@ function WorkspacePage() {
   const [mentionDismissed, setMentionDismissed] = useState(false);
   const [activeTab, setActiveTab] = useState("preview");
   const [chatCollapsed, setChatCollapsed] = useState(false);
-  const [proposalArchMermaid, setProposalArchMermaid] = useState("");
-  const [agentMode, setAgentMode] = useState(false);
+  const [_proposalArchMermaid, _setProposalArchMermaid] = useState("");
+  const [agentMode] = useState(true); // Agent mode is always on — this is an agent SDK product
+
+  // Collection/block state
+  const [collectionSlug, setCollectionSlug] = useState<string | null>(null);
+  const [selectedBlocks, setSelectedBlocks] = useState<string[]>([]);
+  const [collectionOutputFiles, setCollectionOutputFiles] = useState<{ filename: string; purpose: string; depends_on: string[] }[]>([]);
+  const [suggestingCollection, setSuggestingCollection] = useState(false);
+  const [showBlockPicker, setShowBlockPicker] = useState(false);
+  const [buildoutTiers, setBuildoutTiers] = useState<{ tier: number; files: string[] }[]>([]);
+  const [currentBuildoutTier, setCurrentBuildoutTier] = useState(-1);
+  const [completedBuildoutFiles, setCompletedBuildoutFiles] = useState<Set<string>>(new Set());
+  const [activeBuildoutFiles, setActiveBuildoutFiles] = useState<Set<string>>(new Set());
 
   // Buildout store — global state that survives route changes
   const buildoutStore = useBuildoutStore();
@@ -313,13 +319,13 @@ function WorkspacePage() {
     return () => scrollEl.removeEventListener("scroll", handleScroll);
   }, [sections]);
 
-  const scrollToSection = useCallback((sectionId: string) => {
+  const _scrollToSection = useCallback((sectionId: string) => {
     const container = previewRef.current;
     if (!container) return;
     const el = container.querySelector(`[data-section-id="${sectionId}"]`);
     if (el) {
       el.scrollIntoView({ behavior: "smooth", block: "start" });
-      setActiveSection(sectionId);
+      _setActiveSection(sectionId);
     }
   }, []);
 
@@ -393,8 +399,35 @@ function WorkspacePage() {
           id: uid(),
           role: "assistant",
           content:
-            'Your proposal is ready! Review the storyline and architecture on the left. You can refine it here, or click "Approve & Build" when you\'re happy with the direction.',
+            'Your proposal is ready! Review the storyline and architecture on the left. I\'m also suggesting a **collection** of building blocks for parallel generation.',
         });
+
+        // Auto-suggest a matching collection
+        setSuggestingCollection(true);
+        try {
+          let suggestionRaw = "";
+          for await (const event of streamCollectionSuggestion(topicText)) {
+            if (event.type === "suggestion") {
+              suggestionRaw += (event as { type: string; content: string }).content;
+            } else if (event.type === "complete") {
+              const ev = event as { type: string; collection?: { slug: string; blocks: string[]; output_files: { filename: string; purpose: string; depends_on: string[] }[] } };
+              if (ev.collection) {
+                setCollectionSlug(ev.collection.slug);
+                setSelectedBlocks(ev.collection.blocks);
+                setCollectionOutputFiles(ev.collection.output_files || []);
+                addMessage({
+                  id: uid(),
+                  role: "assistant",
+                  content: `Suggested collection: **${ev.collection.slug}** with ${ev.collection.blocks.length} blocks. You can adjust the blocks below, then Approve & Build for parallel generation.`,
+                });
+              }
+            }
+          }
+        } catch {
+          // Collection suggestion is best-effort — don't block the flow
+        } finally {
+          setSuggestingCollection(false);
+        }
       } catch (err) {
         if (!ctrl.signal.aborted) {
           addMessage({
@@ -505,17 +538,91 @@ function WorkspacePage() {
     setChatHistory([]);
     setCollapsedSections(new Set());
     setIsGenerating(true);
-    addMessage({
-      id: uid(),
-      role: "system",
-      content: userArchitecture
-        ? "Proposal approved with user architecture! Building the full demo package..."
-        : "Proposal approved! Building the full demo package...",
-    });
 
-    // Delegate to global buildout store — survives route changes
-    buildoutStore.startBuildout(generationId, demoName, userArchitecture);
-  }, [generationId, isGenerating, demoName, buildoutStore, addMessage, setStage, setPackageFiles, setChatHistory, setCollapsedSections, setIsGenerating]);
+    if (collectionSlug) {
+      // --- Parallel buildout via collection ---
+      setBuildoutTiers([]);
+      setCurrentBuildoutTier(-1);
+      setCompletedBuildoutFiles(new Set());
+      setActiveBuildoutFiles(new Set());
+
+      addMessage({
+        id: uid(),
+        role: "system",
+        content: `Proposal approved! Building with collection **${collectionSlug}** — ${collectionOutputFiles.length} files will generate in parallel tiers...`,
+      });
+
+      const ctrl = new AbortController();
+      abortRef.current = ctrl;
+
+      try {
+        for await (const event of streamParallelBuildout(
+          generationId,
+          collectionSlug,
+          ctrl.signal,
+        )) {
+          if (event.type === "tier_start") {
+            const { tier, files } = event as { type: string; tier: number; files: string[] };
+            setBuildoutTiers((prev) => [...prev, { tier, files }]);
+            setCurrentBuildoutTier(tier);
+            setActiveBuildoutFiles(new Set(files));
+          } else if (event.type === "file_start") {
+            // file is being generated
+          } else if (event.type === "file_complete") {
+            const { filename, content } = event as { type: string; filename: string; content: string };
+            setPackageFiles((prev) => ({ ...prev, [filename]: content }));
+            setCompletedBuildoutFiles((prev) => new Set([...prev, filename]));
+            setActiveBuildoutFiles((prev) => {
+              const next = new Set(prev);
+              next.delete(filename);
+              return next;
+            });
+          } else if (event.type === "tier_complete") {
+            setActiveBuildoutFiles(new Set());
+          } else if (event.type === "all_complete") {
+            const ev = event as { type: string; files: Record<string, string>; id?: number; demo_name?: string };
+            setPackageFiles(ev.files);
+            if (ev.demo_name) setDemoName(ev.demo_name);
+            setStage("package");
+            setIsGenerating(false);
+            addMessage({
+              id: uid(),
+              role: "assistant",
+              content: `Demo package ready! ${Object.keys(ev.files).length} files generated in parallel. Review each file using the tabs.`,
+            });
+          } else if (event.type === "error") {
+            addMessage({
+              id: uid(),
+              role: "system",
+              content: `Error: ${(event as { content: string }).content}`,
+            });
+          }
+        }
+      } catch (err) {
+        if (!ctrl.signal.aborted) {
+          addMessage({
+            id: uid(),
+            role: "system",
+            content: `Parallel buildout failed: ${err instanceof Error ? err.message : "Unknown error"}`,
+          });
+        }
+      } finally {
+        setIsGenerating(false);
+      }
+    } else {
+      // --- Legacy single-file buildout ---
+      addMessage({
+        id: uid(),
+        role: "system",
+        content: userArchitecture
+          ? "Proposal approved with user architecture! Building the full demo package..."
+          : "Proposal approved! Building the full demo package...",
+      });
+
+      // Delegate to global buildout store — survives route changes
+      buildoutStore.startBuildout(generationId, demoName, userArchitecture);
+    }
+  }, [generationId, isGenerating, demoName, collectionSlug, buildoutStore, addMessage, setStage, setPackageFiles, setChatHistory, setCollapsedSections, setIsGenerating]);
 
   // Sync buildout store state → local component state
   useEffect(() => {
@@ -725,7 +832,7 @@ function WorkspacePage() {
   }, [chatInput, generationId, isRefining, chatHistory, addMessage]);
 
   // -----------------------------------------------------------------------
-  // Architecture Builder: apply diagram to architecture.md
+  // Architecture Builder: apply diagram to reference.md
   // -----------------------------------------------------------------------
 
   const handleApplyArchitecture = useCallback(
@@ -733,7 +840,7 @@ function WorkspacePage() {
       if (!generationId || isRefining) return;
 
       if (stage === "buildout" || stage === "package") {
-        // Buildout/package: refine architecture.md via file refinement
+        // Buildout/package: refine reference.md via file refinement
         const msg = `Replace the architecture content with this updated architecture:\n\n${architectureDescription}`;
         addMessage({ id: uid(), role: "user", content: "Updated architecture from visual builder" });
 
@@ -747,7 +854,7 @@ function WorkspacePage() {
           try {
             for await (const event of streamFileRefine(
               generationId,
-              "architecture.md",
+              "reference.md",
               msg,
               chatHistory,
               ctrl.signal,
@@ -771,14 +878,14 @@ function WorkspacePage() {
             setChatHistory((prev) => [
               ...prev,
               { role: "user", content: msg },
-              { role: "assistant", content: "Updated architecture.md from builder." },
+              { role: "assistant", content: "Updated reference.md from builder." },
             ]);
             addMessage({
               id: uid(),
               role: "assistant",
-              content: "Done! I've updated **architecture.md** from your diagram.",
+              content: "Done! I've updated **reference.md** from your diagram.",
             });
-            setActiveFile("architecture.md" as PackageFilename);
+            setActiveFile("reference.md" as PackageFilename);
             setActiveTab("preview");
           } catch (err) {
             if (!ctrl.signal.aborted) {
@@ -916,7 +1023,7 @@ function WorkspacePage() {
                 id: uid(),
                 role: "assistant",
                 content: gen.stage === "building"
-                  ? `Buildout was interrupted (${Object.keys(gen.skill_files || {}).length}/6 files). Click "Resume" to continue.`
+                  ? `Buildout was interrupted (${Object.keys(gen.skill_files || {}).length}/${PACKAGE_FILES.length} files). Click "Resume" to continue.`
                   : gen.skill_files
                     ? "Your demo package is loaded. Review each file using the tabs, or refine any file by chatting here."
                     : 'Your proposal is loaded. Refine it here, or click "Approve & Build" to generate the full package.',
@@ -938,6 +1045,22 @@ function WorkspacePage() {
           });
         }
       })();
+    } else if (collectionParam) {
+      // Collection mode: show detail view, skip proposal
+      setStage("collection");
+      setCollectionSlug(collectionParam);
+      setDemoName(collectionParam.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()));
+      addMessage({
+        id: uid(),
+        role: "assistant",
+        content: `Viewing collection **${collectionParam}**. Review the blocks below, then click **Generate Demo** to build.`,
+      });
+      // Load the collection's blocks into selectedBlocks
+      import("@/lib/custom-api").then(({ getCollection: fetchColl }) => {
+        fetchColl(collectionParam).then((coll) => {
+          setSelectedBlocks(coll.block_slugs);
+        }).catch(() => {});
+      });
     } else if (topic) {
       handlePropose(topic);
     }
@@ -997,15 +1120,104 @@ function WorkspacePage() {
 
   const busy = isGenerating || isRefining;
 
+  // Handle chat from collection view — agent modifies blocks via tool use
+  const handleCollectionChat = useCallback(async () => {
+    if (!chatInput.trim() || isRefining) return;
+
+    const userMsg = chatInput.trim();
+    setChatInput("");
+    addMessage({ id: uid(), role: "user", content: userMsg });
+    setIsRefining(true);
+
+    abortRef.current?.abort();
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
+
+    try {
+      for await (const event of streamModifyBlocks(
+        selectedBlocks,
+        userMsg,
+        chatHistory,
+        ctrl.signal,
+      )) {
+        if (event.type === "agent_thinking") {
+          // Show what the agent is doing
+          addMessage({
+            id: uid(),
+            role: "system",
+            content: (event as { content: string }).content,
+          });
+        } else if (event.type === "block_added") {
+          const ev = event as { slug: string; name: string; category: string };
+          setSelectedBlocks((prev) => prev.includes(ev.slug) ? prev : [...prev, ev.slug]);
+          addMessage({
+            id: uid(),
+            role: "system",
+            content: `Added **${ev.name}** (${ev.category})`,
+          });
+        } else if (event.type === "block_created") {
+          const ev = event as { slug: string; name: string; category: string };
+          addMessage({
+            id: uid(),
+            role: "system",
+            content: `Created new block: **${ev.name}** (${ev.category})`,
+          });
+        } else if (event.type === "block_removed") {
+          const ev = event as { slug: string };
+          setSelectedBlocks((prev) => prev.filter((s) => s !== ev.slug));
+          addMessage({
+            id: uid(),
+            role: "system",
+            content: `Removed **${ev.slug}**`,
+          });
+        } else if (event.type === "blocks_updated") {
+          const ev = event as { slugs: string[] };
+          setSelectedBlocks(ev.slugs);
+        } else if (event.type === "agent_message") {
+          addMessage({
+            id: uid(),
+            role: "assistant",
+            content: (event as { content: string }).content,
+          });
+        } else if (event.type === "error") {
+          addMessage({
+            id: uid(),
+            role: "system",
+            content: `Error: ${(event as { content: string }).content}`,
+          });
+        }
+      }
+
+      setChatHistory((prev) => [
+        ...prev,
+        { role: "user", content: userMsg },
+        { role: "assistant", content: "Modified collection blocks." },
+      ]);
+    } catch (err) {
+      if (!ctrl.signal.aborted) {
+        addMessage({
+          id: uid(),
+          role: "system",
+          content: `Agent failed: ${err instanceof Error ? err.message : "Unknown"}`,
+        });
+      }
+    } finally {
+      setIsRefining(false);
+      inputRef.current?.focus();
+    }
+  }, [chatInput, isRefining, selectedBlocks, chatHistory, addMessage]);
+
   const handleSubmit = useCallback(() => {
-    if (stage === "proposal") {
+    if (stage === "collection") {
+      handleCollectionChat();
+    } else if (stage === "proposal") {
       handleRefineProposal();
     } else if (agentMode) {
       handleAgentRefine();
     } else {
       handleRefineFile();
     }
-  }, [stage, agentMode, handleRefineProposal, handleAgentRefine, handleRefineFile]);
+  }, [stage, agentMode, handleCollectionChat, handleRefineProposal, handleAgentRefine, handleRefineFile]);
 
   // -----------------------------------------------------------------------
   // Render
@@ -1027,39 +1239,53 @@ function WorkspacePage() {
               <span className="text-sm font-medium">
                 {demoName || "New Skill"}
               </span>
-              {/* Stage badges */}
-              {stage === "proposal" && !busy && generationId && (
-                <Badge
-                  variant="outline"
-                  className="gap-1 text-xs border-amber-500/30 text-amber-600"
-                >
-                  Proposal
-                </Badge>
-              )}
-              {stage === "buildout" && (
-                <Badge
-                  variant="outline"
-                  className="gap-1 text-xs border-blue-500/30 text-blue-600"
-                >
-                  <Loader2 className="h-3 w-3 animate-spin" />
-                  Building
-                </Badge>
-              )}
-              {stage === "package" && (
-                <Badge
-                  variant="outline"
-                  className="gap-1 text-xs border-emerald-500/30 text-emerald-600"
-                >
-                  <CheckCircle2 className="h-3 w-3" />
-                  Package
-                </Badge>
-              )}
-              {busy && stage === "proposal" && (
-                <Badge variant="secondary" className="gap-1 text-xs">
-                  <Loader2 className="h-3 w-3 animate-spin" />
-                  {isGenerating ? "Generating" : "Refining"}
-                </Badge>
-              )}
+              {/* Stage stepper */}
+              <div className="flex items-center gap-1 ml-2">
+                {(collectionParam
+                  ? [
+                      { key: "collection", label: "Collection", icon: Layers },
+                      { key: "buildout", label: "Generate", icon: Blocks },
+                      { key: "package", label: "Package", icon: PackageCheck },
+                    ]
+                  : [
+                      { key: "proposal", label: "Propose", icon: Sparkles },
+                      { key: "buildout", label: "Generate", icon: Blocks },
+                      { key: "package", label: "Package", icon: PackageCheck },
+                    ]
+                ).map((s, i) => {
+                  const stageOrder = collectionParam
+                    ? ["collection", "buildout", "package"]
+                    : ["proposal", "buildout", "package"];
+                  const currentIdx = stageOrder.indexOf(stage);
+                  const stepIdx = stageOrder.indexOf(s.key);
+                  const isActive = stage === s.key;
+                  const isPast = stepIdx < currentIdx;
+                  const Icon = s.icon;
+                  return (
+                    <div key={s.key} className="flex items-center">
+                      {i > 0 && (
+                        <ChevronRight className={`h-3 w-3 mx-0.5 ${isPast || isActive ? "text-primary/60" : "text-muted-foreground/30"}`} />
+                      )}
+                      <div className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium transition-colors ${
+                        isActive
+                          ? "bg-primary/15 text-primary"
+                          : isPast
+                            ? "text-primary/60"
+                            : "text-muted-foreground/40"
+                      }`}>
+                        {isActive && busy ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : isPast ? (
+                          <CheckCircle2 className="h-3 w-3" />
+                        ) : (
+                          <Icon className="h-3 w-3" />
+                        )}
+                        {s.label}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           </div>
         }
@@ -1100,14 +1326,18 @@ function WorkspacePage() {
                 </TabsList>
 
                 <div className="flex gap-1">
-                  {stage === "proposal" && generationId && !busy && (
+                  {stage === "proposal" && generationId && !busy && !suggestingCollection && (
                     <Button
                       size="sm"
                       onClick={handleApproveAndBuild}
-                      className="h-7 px-3 text-xs gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white"
+                      className={`h-7 px-3 text-xs gap-1.5 text-white ${
+                        collectionSlug
+                          ? "bg-primary hover:bg-primary/90"
+                          : "bg-emerald-600 hover:bg-emerald-700"
+                      }`}
                     >
                       <PackageCheck className="h-3 w-3" />
-                      Approve & Build
+                      {collectionSlug ? "Approve & Parallel Build" : "Approve & Build"}
                     </Button>
                   )}
                   {stage === "buildout" && buildoutStore.status === "building" && (
@@ -1183,40 +1413,45 @@ function WorkspacePage() {
                 </div>
               </div>
 
-              {/* File tabs for buildout / package stages */}
-              {(stage === "buildout" || stage === "package") && (
+              {/* File tabs for multi-file packages */}
+              {(stage === "buildout" || stage === "package") && Object.keys(packageFiles).length > 1 && (
                 <div className="flex items-center gap-1.5 mt-2 pb-1 overflow-x-auto scrollbar-none">
-                  {PACKAGE_FILES.map((fn) => {
-                    const Icon = FILE_ICONS[fn] || FileText;
-                    const isActive = activeFile === fn;
-                    const isBuilding = buildingFile === fn;
-                    const hasContent = !!packageFiles[fn];
-                    const label = fn.replace(/\.md$/, "");
+                  {Object.keys(packageFiles).sort().map((fname) => {
+                    const isActive = activeFile === fname;
                     return (
                       <button
-                        key={fn}
-                        onClick={() => {
-                          setActiveFile(fn);
-                          setCollapsedSections(new Set());
-                        }}
-                        className={`shrink-0 flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-all whitespace-nowrap border ${
+                        key={fname}
+                        onClick={() => setActiveFile(fname as PackageFilename)}
+                        className={`shrink-0 px-2.5 py-1 text-xs font-medium rounded-md transition-colors ${
                           isActive
-                            ? "bg-primary/15 text-primary border-primary/30 shadow-sm"
-                            : hasContent
-                              ? "text-foreground border-border/60 hover:bg-muted hover:border-border"
-                              : "text-muted-foreground/40 border-transparent"
+                            ? "bg-primary/20 text-primary"
+                            : "bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground"
                         }`}
-                        disabled={!hasContent && !isBuilding}
                       >
-                        {isBuilding ? (
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        ) : (
-                          <Icon className={`h-3.5 w-3.5 ${isActive ? "text-primary" : hasContent ? "text-muted-foreground" : ""}`} />
-                        )}
-                        {label}
+                        {fname}
                       </button>
                     );
                   })}
+                </div>
+              )}
+              {/* Section navigation for single-file packages */}
+              {(stage === "buildout" || stage === "package") && Object.keys(packageFiles).length <= 1 && currentMd && (
+                <div className="flex items-center gap-1.5 mt-2 pb-1 overflow-x-auto scrollbar-none">
+                  {currentMd.split('\n')
+                    .filter(line => line.startsWith('## '))
+                    .map(line => line.replace('## ', ''))
+                    .map((section) => (
+                      <button
+                        key={section}
+                        onClick={() => {
+                          const el = document.getElementById(`section-${section.toLowerCase().replace(/\s+/g, '-')}`);
+                          el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        }}
+                        className="shrink-0 px-2.5 py-1 text-xs font-medium rounded-md transition-colors bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground"
+                      >
+                        {section}
+                      </button>
+                    ))}
                 </div>
               )}
 
@@ -1226,7 +1461,69 @@ function WorkspacePage() {
                 <div ref={previewRef}>
                   <ScrollArea className="h-[calc(100vh-8.5rem)]">
                     <div className="px-5 py-4">
-                      {currentMd ? (
+                      {stage === "collection" && collectionSlug ? (
+                        <CollectionDetailView
+                          slug={collectionSlug}
+                          overrideBlockSlugs={selectedBlocks.length > 0 ? selectedBlocks : undefined}
+                          onGenerate={async (slug, blockSlugs) => {
+                            setCollectionSlug(slug);
+                            setSelectedBlocks(blockSlugs);
+                            setStage("buildout");
+                            setPackageFiles({});
+                            setIsGenerating(true);
+                            setBuildoutTiers([]);
+                            setCurrentBuildoutTier(-1);
+                            setCompletedBuildoutFiles(new Set());
+                            setActiveBuildoutFiles(new Set());
+
+                            addMessage({
+                              id: uid(),
+                              role: "system",
+                              content: `Generating demo from collection **${slug}**...`,
+                            });
+
+                            const ctrl = new AbortController();
+                            abortRef.current = ctrl;
+
+                            try {
+                              for await (const event of streamParallelBuildout(
+                                0, // no generation ID yet — the endpoint handles this
+                                slug,
+                                ctrl.signal,
+                              )) {
+                                if (event.type === "tier_start") {
+                                  const { tier, files } = event as { type: string; tier: number; files: string[] };
+                                  setBuildoutTiers((prev) => [...prev, { tier, files }]);
+                                  setCurrentBuildoutTier(tier);
+                                  setActiveBuildoutFiles(new Set(files));
+                                } else if (event.type === "file_complete") {
+                                  const { filename, content } = event as { type: string; filename: string; content: string };
+                                  setPackageFiles((prev) => ({ ...prev, [filename]: content }));
+                                  setCompletedBuildoutFiles((prev) => new Set([...prev, filename]));
+                                  setActiveBuildoutFiles((prev) => { const n = new Set(prev); n.delete(filename); return n; });
+                                } else if (event.type === "tier_complete") {
+                                  setActiveBuildoutFiles(new Set());
+                                } else if (event.type === "all_complete") {
+                                  const ev = event as { type: string; files: Record<string, string>; id?: number; demo_name?: string };
+                                  setPackageFiles(ev.files);
+                                  if (ev.id) setGenerationId(ev.id);
+                                  if (ev.demo_name) setDemoName(ev.demo_name);
+                                  setStage("package");
+                                  addMessage({ id: uid(), role: "assistant", content: `Demo package ready! ${Object.keys(ev.files).length} files generated.` });
+                                } else if (event.type === "error") {
+                                  addMessage({ id: uid(), role: "system", content: `Error: ${(event as { content: string }).content}` });
+                                }
+                              }
+                            } catch (err) {
+                              if (!ctrl.signal.aborted) {
+                                addMessage({ id: uid(), role: "system", content: `Generation failed: ${err instanceof Error ? err.message : "Unknown"}` });
+                              }
+                            } finally {
+                              setIsGenerating(false);
+                            }
+                          }}
+                        />
+                      ) : currentMd ? (
                         <>
                           {stage === "proposal" ? (
                             <div className="space-y-6">
@@ -1234,9 +1531,82 @@ function WorkspacePage() {
                                 markdown={stripArchSection(currentMd)}
                                 streaming={busy}
                               />
+                              {/* Collection suggestion & block picker */}
+                              {suggestingCollection && (
+                                <div className="rounded-lg border border-primary/20 bg-primary/5 p-3 flex items-center gap-2 text-xs text-primary animate-pulse">
+                                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                  Suggesting a collection of building blocks...
+                                </div>
+                              )}
+                              {collectionSlug && selectedBlocks.length > 0 && !suggestingCollection && (
+                                <div className="space-y-3">
+                                  <CollectionInfo
+                                    collectionSlug={collectionSlug}
+                                    blockSlugs={selectedBlocks}
+                                    outputFileCount={collectionOutputFiles.length || undefined}
+                                  />
+                                  <div className="flex items-center gap-2">
+                                    <button
+                                      onClick={() => setShowBlockPicker(!showBlockPicker)}
+                                      className="text-xs text-primary hover:underline flex items-center gap-1"
+                                    >
+                                      <Blocks className="h-3 w-3" />
+                                      {showBlockPicker ? "Hide" : "Edit"} blocks
+                                    </button>
+                                    {collectionOutputFiles.length > 0 && (
+                                      <span className="text-[10px] text-muted-foreground">
+                                        {collectionOutputFiles.length} files will generate in parallel tiers
+                                      </span>
+                                    )}
+                                  </div>
+                                  {showBlockPicker && (
+                                    <div className="rounded-lg border p-3 bg-background">
+                                      <BlockPicker
+                                        selectedSlugs={selectedBlocks}
+                                        onToggle={(slug) => {
+                                          setSelectedBlocks((prev) =>
+                                            prev.includes(slug)
+                                              ? prev.filter((s) => s !== slug)
+                                              : [...prev, slug],
+                                          );
+                                        }}
+                                        compact
+                                      />
+                                    </div>
+                                  )}
+                                </div>
+                              )}
                               {!busy && currentMd && (
                                 <div className="rounded-xl border border-border/50 p-5 bg-muted/[0.02]">
                                   <ArchitectureGraph markdown={stripArchSection(currentMd)} />
+                                </div>
+                              )}
+                            </div>
+                          ) : (stage === "buildout" && buildoutTiers.length > 0) ? (
+                            <div className="space-y-4">
+                              <ParallelBuildoutProgress
+                                tiers={buildoutTiers}
+                                currentTier={currentBuildoutTier}
+                                completedFiles={completedBuildoutFiles}
+                                activeFiles={activeBuildoutFiles}
+                              />
+                              {/* Show completed files as expandable sections */}
+                              {Object.entries(packageFiles).sort().map(([fname, content]) => (
+                                <details key={fname} className="rounded-lg border border-border/50 overflow-hidden">
+                                  <summary className="flex items-center gap-2 px-3 py-2 text-xs font-medium cursor-pointer hover:bg-muted/30 transition-colors">
+                                    <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
+                                    <span className="text-foreground">{fname}</span>
+                                    <span className="text-muted-foreground ml-auto">{content.split("\n").length} lines</span>
+                                  </summary>
+                                  <div className="border-t px-3 py-2 max-h-64 overflow-y-auto">
+                                    <FileRendererWithFallback filename={fname} markdown={content} />
+                                  </div>
+                                </details>
+                              ))}
+                              {isGenerating && (
+                                <div className="text-center text-xs text-muted-foreground py-4">
+                                  <Loader2 className="h-4 w-4 animate-spin mx-auto mb-2" />
+                                  Generating files... {completedBuildoutFiles.size} of {buildoutTiers.reduce((n, t) => n + t.files.length, 0)} complete
                                 </div>
                               )}
                             </div>
@@ -1314,7 +1684,7 @@ function WorkspacePage() {
                         setProposalMd((prev) => stripArchSection(prev) + ARCH_SECTION_MARKER + mermaid);
                       } : undefined}
                       busy={busy}
-                      architectureMd={(stage === "buildout" || stage === "package") ? packageFiles["architecture.md"] : undefined}
+                      architectureMd={(stage === "buildout" || stage === "package") ? packageFiles["reference.md"] : undefined}
                       proposalBuildSteps={stage === "proposal" ? proposalMd : undefined}
                       isVisible={activeTab === "architecture"}
                       stage={stage}
@@ -1363,30 +1733,10 @@ function WorkspacePage() {
           <div className="flex items-center gap-2 border-b px-4 py-2.5 shrink-0">
             <Bot className="h-4 w-4 text-primary" />
             <span className="text-sm font-medium">Use-Case Architect</span>
-            {(stage === "buildout" || stage === "package") && !agentMode && (
-              <Badge variant="outline" className="text-[10px] ml-auto">
-                Editing: {activeFile}
+            {(stage === "buildout" || stage === "package") && (
+              <Badge className="text-[10px] ml-auto bg-violet-500/15 text-violet-600 border-violet-500/30">
+                Agent Mode
               </Badge>
-            )}
-            {(stage === "buildout" || stage === "package") && agentMode && (
-              <Badge className="text-[10px] ml-auto bg-violet-500/15 text-violet-600 border-violet-500/30 hover:bg-violet-500/20">
-                Agent Mode <span className="ml-0.5 text-[9px] opacity-70">&beta;</span>
-              </Badge>
-            )}
-            {stage === "package" && (
-              <button
-                onClick={() => setAgentMode((m) => !m)}
-                className={`ml-auto shrink-0 relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
-                  agentMode ? "bg-violet-500" : "bg-muted-foreground/20"
-                }`}
-                title={agentMode ? "Switch to single-file editing" : "Switch to agent mode (edits all files)"}
-              >
-                <span
-                  className={`inline-block h-3.5 w-3.5 rounded-full bg-white shadow-sm transition-transform ${
-                    agentMode ? "translate-x-[18px]" : "translate-x-[3px]"
-                  }`}
-                />
-              </button>
             )}
           </div>
 
@@ -1428,14 +1778,14 @@ function WorkspacePage() {
 
           {/* Chat input */}
           <div className="border-t bg-background p-3 shrink-0">
-            {!topic && !generationId ? (
+            {!topic && !generationId && !collectionParam ? (
               <form
                 onSubmit={(e) => {
                   e.preventDefault();
                   if (chatInput.trim()) {
                     navigate({
                       to: "/workspace",
-                      search: { topic: chatInput.trim() },
+                      search: { topic: chatInput.trim(), generationId: undefined, collection: "" },
                     });
                     setChatInput("");
                   }
@@ -1498,11 +1848,11 @@ function WorkspacePage() {
                   placeholder={
                     busy
                       ? "Waiting for generation..."
-                      : stage === "proposal"
-                        ? "Refine the proposal... Type @ to focus on a section"
-                        : agentMode
-                          ? "Ask the agent to edit any files..."
-                          : `Refine ${activeFile}... Type @ to focus on a section`
+                      : stage === "collection"
+                        ? "Customize this collection... e.g. \"tailor for Acme Corp\" or \"add lakebase\""
+                        : stage === "proposal"
+                          ? "Refine the proposal... Type @ to focus on a section"
+                          : "Ask the agent to edit any files..."
                   }
                   value={chatInput}
                   onChange={(e) => {
@@ -1528,12 +1878,12 @@ function WorkspacePage() {
                       setMentionDismissed(true);
                     }
                   }}
-                  disabled={busy || !generationId}
+                  disabled={busy || (!generationId && stage !== "collection")}
                   className="bg-muted/40"
                 />
                 <Button
                   type="submit"
-                  disabled={busy || !chatInput.trim() || !generationId}
+                  disabled={busy || !chatInput.trim() || (!generationId && stage !== "collection")}
                   size="icon"
                   className="shrink-0"
                 >

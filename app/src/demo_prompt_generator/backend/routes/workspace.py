@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import io
 import json
 import logging
@@ -20,6 +19,7 @@ from ..models import (
     WorkspaceBuildoutFileRequest,
     WorkspaceBuildoutRequest,
     WorkspaceGenerateRequest,
+    WorkspaceParallelBuildoutRequest,
     WorkspaceProposeRequest,
     WorkspaceBuildoutSaveRequest,
     WorkspaceRefineFileRequest,
@@ -27,13 +27,16 @@ from ..models import (
 )
 from .generations import _get_user_id, _get_user_generation
 from ..services.build_executor import stream_build_execution
+from ..services.build_supervisor import stream_supervised_build
 from ..services.docx_export import walkthrough_md_to_docx
 from ..services.skill_generator import (
     parse_proposal_metadata,
     parse_skill_metadata,
+    stream_agent_buildout,
     stream_agent_refine,
-    stream_buildout_file,
+    stream_block_agent,
     stream_file_refinement,
+    stream_parallel_buildout,
     stream_proposal,
     stream_proposal_refinement,
     stream_skill_from_topic,
@@ -406,7 +409,7 @@ async def workspace_buildout(
     ws_client: Dependencies.Client,
     headers: Dependencies.Headers,
 ):
-    """Sequentially generate all package files from an approved proposal, streaming via SSE."""
+    """Generate reference.md from an approved proposal, streaming via SSE."""
     host, token = _resolve_credentials(config, ws_client)
     model = config.llm_model
 
@@ -417,82 +420,164 @@ async def workspace_buildout(
     if not row.proposal_md:
         raise HTTPException(status_code=400, detail="No proposal to build from")
 
-    user_arch = req.user_architecture
-
-    _SENTINEL = object()
-
-    async def _stream_to_queue(
-        queue: asyncio.Queue,
-        filename: str,
-        proposal_md: str,
-        generated_files: dict[str, str],
-        host: str,
-        token: str,
-        model: str,
-        user_arch: str | None,
-    ):
-        """Run LLM stream in a task, pushing chunks into a queue."""
-        try:
-            async for chunk in stream_buildout_file(
-                filename, proposal_md, generated_files, host, token, model=model,
-                user_architecture=user_arch,
-            ):
-                await queue.put(chunk)
-        except Exception as exc:
-            await queue.put(exc)
-        finally:
-            await queue.put(_SENTINEL)
-
     async def event_stream():
-        generated_files: dict[str, str] = {}
+        generated_content = ""
         try:
-            for filename in PACKAGE_FILES:
-                yield f"data: {json.dumps({'type': 'file_start', 'filename': filename})}\n\n"
+            yield f"data: {json.dumps({'type': 'file_start', 'filename': 'reference.md'})}\n\n"
 
-                collected = ""
-                queue: asyncio.Queue = asyncio.Queue()
-                task = asyncio.create_task(_stream_to_queue(
-                    queue, filename, row.proposal_md, generated_files,
-                    host, token, model, user_arch,
-                ))
+            async for chunk in stream_agent_buildout(
+                row.proposal_md,
+                host,
+                token,
+                model,
+            ):
+                generated_content += chunk
+                yield f"data: {json.dumps({'type': 'file_content', 'filename': 'reference.md', 'content': chunk})}\n\n"
 
-                consecutive_keepalives = 0
-                while True:
-                    try:
-                        item = await asyncio.wait_for(queue.get(), timeout=5.0)
-                    except asyncio.TimeoutError:
-                        consecutive_keepalives += 1
-                        if consecutive_keepalives > 60:
-                            yield f"data: {json.dumps({'type': 'error', 'content': 'Stream timed out waiting for LLM response'})}\n\n"
-                            break
-                        yield ": keepalive\n\n"
-                        continue
-                    consecutive_keepalives = 0
-                    if item is _SENTINEL:
-                        break
-                    if isinstance(item, Exception):
-                        raise item
-                    collected += item
-                    yield f"data: {json.dumps({'type': 'file_content', 'filename': filename, 'content': item})}\n\n"
+            clean = _strip_fences(generated_content)
+            yield f"data: {json.dumps({'type': 'file_complete', 'filename': 'reference.md', 'content': clean})}\n\n"
 
-                await task  # propagate any unhandled errors
-
-                clean = _strip_fences(collected)
-                generated_files[filename] = clean
-                yield f"data: {json.dumps({'type': 'file_complete', 'filename': filename})}\n\n"
-
-            row.skill_md = generated_files.get("SKILL.md", "")
-            row.skill_files = json.dumps(generated_files)
+            # Save to DB
+            all_files = {"reference.md": clean}
+            row.skill_files = json.dumps(all_files)
+            row.skill_md = clean
             row.stage = "package"
-            meta = parse_skill_metadata(row.skill_md)
-            row.demo_name = meta["name"]
+
+            meta = parse_skill_metadata(clean) or {}
+            if not meta.get("name"):
+                meta = parse_proposal_metadata(row.proposal_md or "") or {}
+            if meta.get("name"):
+                row.demo_name = meta["name"]
+
             session.add(row)
             session.commit()
 
             yield f"data: {json.dumps({'type': 'complete', 'id': row.id, 'demo_name': row.demo_name})}\n\n"
+
+        except Exception as exc:
+            logger.exception("Buildout failed")
+            yield f"data: {json.dumps({'type': 'error', 'content': str(exc)})}\n\n"
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+@router.post("/workspace/buildout-parallel", operation_id="workspaceParallelBuildout")
+async def workspace_parallel_buildout(
+    req: WorkspaceParallelBuildoutRequest,
+    config: Dependencies.Config,
+    session: Dependencies.Session,
+    ws_client: Dependencies.Client,
+    headers: Dependencies.Headers,
+):
+    """Generate multiple output files in parallel using a collection's dependency graph."""
+    host, token = _resolve_credentials(config, ws_client)
+    model = config.llm_model
+
+    if not host or not token:
+        raise HTTPException(status_code=500, detail="Databricks host/token not configured")
+
+    user_id = _get_user_id(headers)
+
+    # Load collection first
+    from ..services.collection_service import collection_service
+    coll_data = collection_service.get_collection(req.collection_slug)
+    if not coll_data:
+        raise HTTPException(status_code=404, detail=f"Collection '{req.collection_slug}' not found")
+
+    if req.generation_id and req.generation_id > 0:
+        # Existing generation (from proposal flow)
+        row = _get_user_generation(session, req.generation_id, user_id)
+    else:
+        # Direct from collection — create a generation on-the-fly
+        row = Generation(
+            demo_name=coll_data.get("name", req.collection_slug),
+            owner_name=headers.user_name or "AI Generated",
+            user_id=user_id,
+            industry=coll_data.get("industry", ""),
+            form_json=json.dumps({"source": "collection", "collection_slug": req.collection_slug}),
+            skill_md="",
+            stage="building",
+            proposal_md=f"# {coll_data.get('name', '')}\n\n{coll_data.get('description', '')}",
+        )
+        session.add(row)
+        session.commit()
+        session.refresh(row)
+
+    row.collection_json = json.dumps(coll_data)
+    row.stage = "building"
+    session.add(row)
+    session.commit()
+
+    async def event_stream():
+        try:
+            all_files: dict[str, str] = {}
+            async for event in stream_parallel_buildout(
+                row.proposal_md,
+                req.collection_slug,
+                host, token, model,
+            ):
+                event_type = event.get("type")
+
+                if event_type == "file_complete":
+                    all_files[event["filename"]] = event["content"]
+
+                elif event_type == "all_complete":
+                    # Save all files to DB
+                    row.skill_files = json.dumps(all_files)
+                    row.skill_md = all_files.get("01-story-and-data.md", next(iter(all_files.values()), ""))
+                    row.stage = "package"
+
+                    meta = parse_proposal_metadata(row.proposal_md or "")
+                    if meta.get("name"):
+                        row.demo_name = meta["name"]
+
+                    session.add(row)
+                    session.commit()
+
+                    event["id"] = row.id
+                    event["demo_name"] = row.demo_name
+
+                yield f"data: {json.dumps(event)}\n\n"
+
+        except Exception as exc:
+            logger.exception("Parallel buildout failed")
+            yield f"data: {json.dumps({'type': 'error', 'content': str(exc)})}\n\n"
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+@router.post("/workspace/modify-blocks", operation_id="workspaceModifyBlocks")
+async def workspace_modify_blocks(
+    req: dict,
+    config: Dependencies.Config,
+    ws_client: Dependencies.Client,
+    headers: Dependencies.Headers,
+):
+    """Use the block agent to modify a collection's blocks via natural language."""
+    host, token = _resolve_credentials(config, ws_client)
+    model = config.llm_model
+
+    if not host or not token:
+        raise HTTPException(status_code=500, detail="Databricks host/token not configured")
+
+    current_slugs = req.get("block_slugs", [])
+    message = req.get("message", "")
+    history = req.get("history", [])
+
+    if not message:
+        raise HTTPException(status_code=400, detail="message is required")
+
+    async def event_stream():
+        try:
+            async for event in stream_block_agent(
+                current_slugs, message, history, host, token, model,
+            ):
+                yield f"data: {json.dumps(event)}\n\n"
         except Exception as e:
-            logger.exception("SSE stream error")
-            yield f"data: {json.dumps({'type': 'error', 'content': 'An internal error occurred. Please try again.'})}\n\n"
+            logger.exception("Block agent failed")
+            yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
         yield "data: [DONE]\n\n"
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
@@ -520,46 +605,20 @@ async def workspace_buildout_file(
     if req.filename not in PACKAGE_FILES:
         raise HTTPException(status_code=400, detail=f"Unknown file: {req.filename}")
 
-    _SENTINEL = object()
-
-    async def _stream_to_queue(queue: asyncio.Queue):
-        try:
-            async for chunk in stream_buildout_file(
-                req.filename, row.proposal_md, req.generated_files, host, token,
-                model=model, user_architecture=req.user_architecture,
-            ):
-                await queue.put(chunk)
-        except Exception as exc:
-            await queue.put(exc)
-        finally:
-            await queue.put(_SENTINEL)
-
     async def event_stream():
+        collected = ""
         try:
-            queue: asyncio.Queue = asyncio.Queue()
-            task = asyncio.create_task(_stream_to_queue(queue))
-            collected = ""
+            yield f"data: {json.dumps({'type': 'file_start', 'filename': req.filename})}\n\n"
 
-            consecutive_keepalives = 0
-            while True:
-                try:
-                    item = await asyncio.wait_for(queue.get(), timeout=5.0)
-                except asyncio.TimeoutError:
-                    consecutive_keepalives += 1
-                    if consecutive_keepalives > 60:
-                        yield f"data: {json.dumps({'type': 'error', 'content': 'Stream timed out waiting for LLM response'})}\n\n"
-                        break
-                    yield ": keepalive\n\n"
-                    continue
-                consecutive_keepalives = 0
-                if item is _SENTINEL:
-                    break
-                if isinstance(item, Exception):
-                    raise item
-                collected += item
-                yield f"data: {json.dumps({'type': 'file_content', 'filename': req.filename, 'content': item})}\n\n"
+            async for chunk in stream_agent_buildout(
+                row.proposal_md,
+                host,
+                token,
+                model,
+            ):
+                collected += chunk
+                yield f"data: {json.dumps({'type': 'file_content', 'filename': req.filename, 'content': chunk})}\n\n"
 
-            await task
             clean = _strip_fences(collected)
             yield f"data: {json.dumps({'type': 'file_complete', 'filename': req.filename, 'content': clean})}\n\n"
         except Exception as e:
@@ -815,21 +874,46 @@ async def workspace_build(
     session.add(row)
     session.commit()
 
+    # Check if this generation has a collection (use supervisor mode)
+    collection_data = None
+    if row.collection_json:
+        try:
+            collection_data = json.loads(row.collection_json)
+        except (json.JSONDecodeError, TypeError):
+            pass
+
     async def event_stream():
         final_stage = "built"
         try:
-            async for event in stream_build_execution(
-                files=all_files,
-                user_email=user_email,
-                demo_name=row.demo_name or "demo",
-                generation_id=row.id,
-                databricks_host=host,
-                databricks_token=token,
-                model=model,
-            ):
-                if event.get("type") == "build_error":
-                    final_stage = "execute_error"
-                yield f"data: {json.dumps(event)}\n\n"
+            if collection_data and collection_data.get("output_files"):
+                # Supervised multi-agent build
+                async for event in stream_supervised_build(
+                    files=all_files,
+                    collection_json=collection_data,
+                    user_email=user_email,
+                    demo_name=row.demo_name or "demo",
+                    generation_id=row.id,
+                    databricks_host=host,
+                    databricks_token=token,
+                    model=model,
+                ):
+                    if event.get("type") in ("worker_error", "build_error"):
+                        final_stage = "execute_error"
+                    yield f"data: {json.dumps(event)}\n\n"
+            else:
+                # Legacy single-agent build
+                async for event in stream_build_execution(
+                    files=all_files,
+                    user_email=user_email,
+                    demo_name=row.demo_name or "demo",
+                    generation_id=row.id,
+                    databricks_host=host,
+                    databricks_token=token,
+                    model=model,
+                ):
+                    if event.get("type") == "build_error":
+                        final_stage = "execute_error"
+                    yield f"data: {json.dumps(event)}\n\n"
         except Exception as e:
             logger.exception("Build stream error")
             final_stage = "execute_error"

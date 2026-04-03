@@ -43,6 +43,15 @@ def _to_list_item(r: Generation) -> GenerationListItem:
     )
 
 
+def _parse_collection_json(raw: str | None) -> dict | None:
+    if not raw:
+        return None
+    try:
+        return json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        return None
+
+
 def _to_generation_out(r: Generation) -> GenerationOut:
     return GenerationOut(
         id=r.id,  # type: ignore[arg-type]
@@ -56,6 +65,7 @@ def _to_generation_out(r: Generation) -> GenerationOut:
         library_tags=_parse_library_tags(r.library_tags),
         proposal_md=r.proposal_md,
         skill_files=_parse_skill_files(r.skill_files),
+        collection_json=_parse_collection_json(r.collection_json),
         created_at=r.created_at,
     )
 

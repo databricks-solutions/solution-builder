@@ -88,15 +88,21 @@ The core idea: best practices are captured as context that an LLM uses to genera
 
 1. **Pick a use case** — browse industry verticals (Financial Services, Healthcare, Retail, Manufacturing, Energy, Telecom, Media, Public Sector) or describe your own customer scenario.
 2. **Review the proposal** — the app generates a structured proposal personalized to your customer's situation: background, solution approach, datasets, and build steps rendered as visual cards.
-3. **Approve & build** — one click generates a 6-file instruction package, each tailored to the specific scenario:
-   - `SKILL.md` — build steps, prerequisites, and acceptance criteria (the entry point the AI Dev Kit reads first)
-   - `storyline.md` — business narrative, company persona, wow moment, domain glossary
-   - `architecture.md` — Mermaid architecture diagram (data assets, compute, apps)
-   - `data-schema.md` — table schemas with types, relationships, and transformation SQL
-   - `project-structure.md` — target directory layout using Databricks Asset Bundles
-   - `walkthrough.md` — step-by-step demo script with navigation cues (also exported as `.docx`)
+3. **Approve & build** — one click generates a multi-file instruction package, each tailored to the specific scenario. Output files are defined by the collection's dependency graph and generated in parallel tiers.
 4. **Refine** — chat with the workspace to iterate on any file. Adjust the storyline for a specific account, swap out data schemas, change the architecture — then download the package as a zip.
 5. **Execute** — feed the package to an LLM equipped with the [AI Dev Kit](https://github.com/databricks/ai-dev-kit) to build everything on a live Databricks workspace.
+
+### Block-based structured context
+
+Instead of monolithic prompt templates, knowledge is decomposed into **blocks** — small, reusable Markdown files with YAML frontmatter. Blocks come in three categories:
+
+- **Domain** — industry vertical context (terminology, KPIs, personas, pain points). Examples: `retail`, `healthcare`, `financial-services`.
+- **Capability** — Databricks feature guidance (architecture patterns, configuration, best practices). Examples: `declarative-pipeline`, `genie-space`, `aibi-dashboards`.
+- **Pattern** — cross-industry analytical patterns (methodology, algorithm choices, evaluation criteria). Examples: `anomaly-detection`, `customer-segmentation`, `predictive-maintenance`.
+
+A **collection** is a curated group of blocks paired with an **output file dependency graph**. Each output file declares which other files it depends on, forming a DAG. The build executor uses this graph to generate files in parallel tiers — all files with satisfied dependencies are generated concurrently (supervisor/worker model), then their outputs become context for the next tier. Files that depend on `"*"` (all others) run last.
+
+The app ships with 21 seed blocks and 4 seed collections on disk. These are auto-loaded into Lakebase on startup. Users can create additional blocks and collections via the API or UI; user-created entries persist in Lakebase and are never overwritten by seed data.
 
 ![Workspace with data-schema visual renderer](docs/screenshot-workspace.png)
 
@@ -126,6 +132,8 @@ APX automatically provisions a local PostgreSQL instance — no manual database 
 | `generation` | Proposals, SKILL.md, package files, stage tracking (`proposal` → `approved` → `package`), starred/library flags |
 | `conversation` | Chat threads linked to a generation, with title and timestamps |
 | `chat_message` | Individual messages (user, assistant, system) within a conversation |
+| `block` | Structured context blocks — `slug`, `name`, `category`, `tags` (JSON), `description`, `content`, `related` (JSON), `created_by`, `is_seed` |
+| `collection` | Curated block groups — `slug`, `name`, `description`, `industry`, `block_slugs` (JSON), `output_files` (JSON array of `{filename, purpose, depends_on}`), `created_by`, `is_seed` |
 
 Tables are auto-created on app startup via SQLModel + DDL migrations in `lakebase.py`.
 
@@ -144,6 +152,7 @@ All routes are prefixed with `/api`.
 | `POST` | `/workspace/buildout` | Generate all package files sequentially (SSE) |
 | `POST` | `/workspace/buildout-file` | Generate a single package file (SSE) |
 | `POST` | `/workspace/buildout-save` | Save a single file to database during buildout |
+| `POST` | `/workspace/buildout-parallel` | Generate output files in parallel tiers from a collection (SSE) |
 | `POST` | `/workspace/buildout-finalize` | Save all files to database after buildout |
 | `POST` | `/workspace/refine` | Refine the SKILL.md via chat (SSE) |
 | `POST` | `/workspace/refine-file` | Refine a single package file via chat (SSE) |
@@ -176,6 +185,31 @@ All routes are prefixed with `/api`.
 | `POST` | `/conversations/save` | Upsert conversation messages for a generation |
 | `DELETE` | `/conversations/{id}` | Delete a conversation |
 
+**Blocks**
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/blocks` | List all blocks (optional `?category=` and `?tags=` filters) |
+| `POST` | `/blocks` | Create a new block |
+| `GET` | `/blocks/search` | Search blocks by name, description, and tags (`?q=`) |
+| `GET` | `/blocks/index` | Compact text index of all blocks (for LLM prompt assembly) |
+| `GET` | `/blocks/{slug}` | Get a single block with full content |
+| `PUT` | `/blocks/{slug}` | Update an existing block |
+| `DELETE` | `/blocks/{slug}` | Delete a block |
+
+**Collections**
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/collections` | List all collections (summary only) |
+| `POST` | `/collections` | Create a new collection |
+| `GET` | `/collections/match` | Check if a topic matches a collection via keyword scoring (`?topic=`) |
+| `POST` | `/collections/suggest` | Ask LLM to suggest a collection for a topic (SSE) |
+| `POST` | `/collections/output-files` | Ask LLM to suggest output files for a set of blocks |
+| `GET` | `/collections/{slug}` | Get a collection with resolved block content |
+| `PUT` | `/collections/{slug}` | Update an existing collection |
+| `DELETE` | `/collections/{slug}` | Delete a collection |
+
 **Other**
 
 | Method | Path | Description |
@@ -189,6 +223,40 @@ All routes are prefixed with `/api`.
 
 ```
 industry-demo-prompts/
+├── blocks/                                    # Seed blocks (auto-loaded on startup)
+│   ├── domains/                               #   4 industry verticals
+│   │   ├── financial-services.md
+│   │   ├── healthcare.md
+│   │   ├── manufacturing.md
+│   │   └── retail.md
+│   ├── capabilities/                          #   12 Databricks feature blocks
+│   │   ├── aibi-dashboards.md
+│   │   ├── databricks-app.md
+│   │   ├── declarative-pipeline.md
+│   │   ├── genie-space.md
+│   │   ├── knowledge-assistant.md
+│   │   ├── lakebase.md
+│   │   ├── model-serving.md
+│   │   ├── multi-agent-supervisor.md
+│   │   ├── notebooks.md
+│   │   ├── streaming.md
+│   │   ├── synthetic-data-gen.md
+│   │   └── vector-search.md
+│   └── patterns/                              #   5 analytical patterns
+│       ├── anomaly-detection.md
+│       ├── compliance-audit.md
+│       ├── customer-segmentation.md
+│       ├── predictive-maintenance.md
+│       └── real-time-monitoring.md
+├── collections/                               # Seed collection manifests (4 collections)
+│   ├── healthcare-patient-readmissions/
+│   │   └── manifest.json
+│   ├── manufacturing-quality-defects/
+│   │   └── manifest.json
+│   ├── retail-customer-segmentation/
+│   │   └── manifest.json
+│   └── retail-fraud-detection/
+│       └── manifest.json
 ├── app/
 │   ├── databricks.yml                  # DAB config — Lakebase instance + App resource
 │   ├── pyproject.toml                  # Python deps + APX metadata
@@ -208,7 +276,9 @@ industry-demo-prompts/
 │       │   │   ├── dependencies.py   # Dependency type aliases
 │       │   │   └── lakebase.py       # DB engine, migrations, session dependency
 │       │   ├── routes/
-│       │   │   ├── workspace.py       # Proposal, approve, buildout, refine (SSE)
+│       │   │   ├── workspace.py       # Proposal, approve, buildout, parallel buildout, refine (SSE)
+│       │   │   ├── blocks.py          # Block CRUD, search, index
+│       │   │   ├── collections.py     # Collection CRUD, match, suggest, output-files
 │       │   │   ├── conversations.py   # Conversation CRUD
 │       │   │   ├── generations.py     # Generation CRUD, import, star
 │       │   │   ├── library.py         # Shared library (list, get, fork)
@@ -216,6 +286,8 @@ industry-demo-prompts/
 │       │   │   └── inspire.py         # POST /inspire (topic → use case)
 │       │   └── services/
 │       │       ├── skill_generator.py # LLM prompts for proposals + package files
+│       │       ├── block_registry.py  # Block loading, search, persistence
+│       │       ├── collection_service.py # Collection loading, matching, LLM suggestions
 │       │       └── docx_export.py     # Walkthrough → Word document export
 │       └── ui/
 │           ├── routes/
@@ -242,3 +314,49 @@ industry-demo-prompts/
 ├── docs/                              # Screenshots
 └── .gitignore
 ```
+
+## How to extend
+
+### Adding a new block
+
+Create a Markdown file in the appropriate `blocks/` subdirectory (`domains/`, `capabilities/`, or `patterns/`) with YAML frontmatter:
+
+```markdown
+---
+name: My New Block
+slug: my-new-block
+category: capability
+tags: [tag1, tag2]
+description: One-line summary of what this block provides.
+related: [genie-space, retail]
+---
+
+Block content goes here — terminology, best practices, configuration guidance, etc.
+```
+
+Alternatively, use `POST /api/blocks` or the UI block editor. Blocks created via API/UI are persisted in Lakebase and survive redeployments.
+
+### Creating a collection
+
+A collection binds blocks together and defines an output file dependency graph. Create a `manifest.json` in `collections/<slug>/`:
+
+```json
+{
+  "name": "My Collection",
+  "slug": "my-collection",
+  "description": "What this collection builds",
+  "industry": "Retail & CPG",
+  "blocks": ["retail", "anomaly-detection", "declarative-pipeline"],
+  "output_files": [
+    { "filename": "01-story-and-data.md", "purpose": "Narrative and schemas", "depends_on": [] },
+    { "filename": "02-pipeline.md", "purpose": "Data pipeline", "depends_on": ["01-story-and-data.md"] },
+    { "filename": "03-walkthrough.md", "purpose": "Demo script", "depends_on": ["*"] }
+  ]
+}
+```
+
+Or use `POST /api/collections`, `POST /api/collections/suggest` (LLM-assisted), or the UI. The `depends_on` graph controls parallel generation tiers — files with no dependencies run first, then files whose dependencies are satisfied, and `"*"` runs last after everything else completes.
+
+### Seeding behavior
+
+On startup the app scans `blocks/` and `collections/` on disk, upserting any entries marked `is_seed=true` into Lakebase. User-created blocks and collections (with `is_seed=false`) are never overwritten.

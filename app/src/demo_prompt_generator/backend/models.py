@@ -152,6 +152,7 @@ class GenerationOut(BaseModel):
     library_tags: Optional[list[str]] = None
     proposal_md: Optional[str] = None
     skill_files: Optional[dict[str, str]] = None
+    collection_json: Optional[dict] = None
     created_at: datetime
 
 
@@ -235,7 +236,98 @@ class WorkspaceBuildoutSaveRequest(BaseModel):
 # SQLModel table — persisted in Lakebase
 # ---------------------------------------------------------------------------
 
-PACKAGE_FILES = ["SKILL.md", "storyline.md", "architecture.md", "data-schema.md", "project-structure.md", "walkthrough.md"]
+# ---------------------------------------------------------------------------
+# Block & Collection tables — user-creatable structured context
+# ---------------------------------------------------------------------------
+
+
+class BlockRecord(SQLModel, table=True):
+    """A structured context block — domain, capability, or pattern knowledge."""
+    __tablename__ = "block"
+    id: Optional[int] = SQLField(default=None, primary_key=True)
+    slug: str = SQLField(unique=True, index=True)
+    name: str
+    category: str  # domain | capability | pattern
+    tags: str = SQLField(sa_column=Column(Text))  # JSON array
+    description: str = SQLField(sa_column=Column(Text))
+    content: str = SQLField(sa_column=Column(Text))
+    related: str = SQLField(default="[]", sa_column=Column(Text))  # JSON array
+    created_by: Optional[str] = SQLField(default=None)
+    is_seed: bool = SQLField(default=False)  # True = came from disk seed
+    created_at: datetime = SQLField(default_factory=datetime.utcnow)
+    updated_at: datetime = SQLField(default_factory=datetime.utcnow)
+
+
+class CollectionRecord(SQLModel, table=True):
+    """A curated group of blocks with an output dependency graph."""
+    __tablename__ = "collection"
+    id: Optional[int] = SQLField(default=None, primary_key=True)
+    slug: str = SQLField(unique=True, index=True)
+    name: str
+    description: str = SQLField(sa_column=Column(Text))
+    industry: str = SQLField(default="")
+    block_slugs: str = SQLField(sa_column=Column(Text))  # JSON array
+    output_files: str = SQLField(sa_column=Column(Text))  # JSON array of {filename, purpose, depends_on}
+    created_by: Optional[str] = SQLField(default=None)
+    is_seed: bool = SQLField(default=False)
+    created_at: datetime = SQLField(default_factory=datetime.utcnow)
+    updated_at: datetime = SQLField(default_factory=datetime.utcnow)
+
+
+# ---------------------------------------------------------------------------
+# Request/response models for blocks and collections
+# ---------------------------------------------------------------------------
+
+
+class BlockCreateRequest(BaseModel):
+    slug: str = Field(..., description="Unique kebab-case identifier")
+    name: str
+    category: str = Field(..., description="domain | capability | pattern")
+    tags: list[str] = Field(default_factory=list)
+    description: str
+    content: str
+    related: list[str] = Field(default_factory=list)
+
+
+class BlockOut(BaseModel):
+    id: int
+    slug: str
+    name: str
+    category: str
+    tags: list[str]
+    description: str
+    content: str
+    related: list[str]
+    created_by: Optional[str] = None
+    is_seed: bool = False
+    created_at: datetime
+    updated_at: datetime
+
+
+class CollectionCreateRequest(BaseModel):
+    slug: str = Field(..., description="Unique kebab-case identifier")
+    name: str
+    description: str
+    industry: str = ""
+    block_slugs: list[str] = Field(default_factory=list)
+    output_files: list[dict] = Field(default_factory=list)
+
+
+class CollectionOut(BaseModel):
+    id: int
+    slug: str
+    name: str
+    description: str
+    industry: str
+    block_slugs: list[str]
+    output_files: list[dict]
+    created_by: Optional[str] = None
+    is_seed: bool = False
+    created_at: datetime
+    updated_at: datetime
+
+
+PACKAGE_FILES = ["reference.md"]
 
 
 class Generation(SQLModel, table=True):
@@ -249,6 +341,7 @@ class Generation(SQLModel, table=True):
     stage: str = SQLField(default="package")
     proposal_md: Optional[str] = SQLField(default=None, sa_column=Column(Text, nullable=True))
     skill_files: Optional[str] = SQLField(default=None, sa_column=Column(Text, nullable=True))
+    collection_json: Optional[str] = SQLField(default=None, sa_column=Column(Text, nullable=True))
     is_starred: bool = SQLField(default=False)
     is_library: bool = SQLField(default=False)
     library_tags: Optional[str] = SQLField(default=None, sa_column=Column(Text, nullable=True))
@@ -259,6 +352,7 @@ class Conversation(SQLModel, table=True):
     """A chat conversation thread linked to a generation."""
     id: Optional[int] = SQLField(default=None, primary_key=True)
     generation_id: int = SQLField(index=True)
+    user_id: Optional[str] = SQLField(default=None, index=True)
     title: str = SQLField(default="")
     created_at: datetime = SQLField(default_factory=datetime.utcnow)
     updated_at: datetime = SQLField(default_factory=datetime.utcnow)
@@ -313,6 +407,11 @@ class WorkspaceAgentRefineRequest(BaseModel):
     generation_id: int
     message: str = Field(..., description="User's instruction for the agent")
     history: list[ChatMessage] = Field(default_factory=list)
+
+
+class WorkspaceParallelBuildoutRequest(BaseModel):
+    generation_id: int = Field(default=0, description="Generation ID (0 = create new from collection)")
+    collection_slug: str = Field(..., description="Collection to use for parallel buildout")
 
 
 class WorkspaceBuildRequest(BaseModel):

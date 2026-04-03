@@ -138,7 +138,7 @@ function GenerationDetail() {
           <Button variant="default" size="sm" asChild>
             <Link
               to="/workspace"
-              search={{ generationId: gen.id, topic: "" }}
+              search={{ generationId: gen.id, topic: "", collection: "" }}
             >
               <ExternalLink className="mr-1.5 h-3.5 w-3.5" /> Open in
               Workspace

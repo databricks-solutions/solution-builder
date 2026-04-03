@@ -15,6 +15,7 @@ dependencies = [
     "python-docx>=1.1.0",
     "python-multipart>=0.0.22",
     "claude-agent-sdk>=0.1.50",
+    "pyyaml>=6.0",
 ]
 
 [dependency-groups]

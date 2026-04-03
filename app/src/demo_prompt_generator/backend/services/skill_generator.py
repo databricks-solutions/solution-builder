@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 from collections.abc import AsyncIterator
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import httpx
@@ -725,350 +726,6 @@ async def stream_proposal_refinement(
 # Stage 2: Multi-file buildout
 # ---------------------------------------------------------------------------
 
-_BUILDOUT_FILE_PROMPTS: dict[str, tuple[str, str]] = {
-    "SKILL.md": (
-        "You are generating SKILL.md — the router/homepage that an LLM reads first when "
-        "building this demo. It is NOT a reference document. It contains ZERO data details.\n\n"
-        "SKILL.md has exactly these sections:\n"
-        "1. **Frontmatter** (---name/description---)\n"
-        "2. **Overview** — one paragraph: who it's for, what problem it solves, why it's compelling\n"
-        "3. **Before You Start** — mandatory reads list:\n"
-        "   - Read [storyline.md](storyline.md) for business context and narrative arc\n"
-        "   - Read [architecture.md](architecture.md) for the component diagram and binding contract\n"
-        "   - Read [data-schema.md](data-schema.md) for all table schemas and transformation SQL\n"
-        "   - Read [project-structure.md](project-structure.md) for target directory layout\n"
-        "   - Read [walkthrough.md](walkthrough.md) for demo walkthrough script and talk track\n"
-        "4. **Prerequisites** — catalog, schema, workspace assumptions (short bullet list)\n"
-        "5. **Build Steps** — numbered checklist, each step names the **Databricks service or "
-        "platform capability** being used AND the relevant reference file. Where domain-specific "
-        "best practices apply, include a **Best Practice:** note describing what SME guidance "
-        "would be valuable (e.g. 'Best Practice: An SME template for customer segmentation "
-        "would define the recommended feature engineering approach'). "
-        "IMPORTANT: Each step must include TWO verifications:\n"
-        "   - **Component verification:** Run a specific check and output the result. For tables: "
-        "run a SELECT query and show output. For endpoints: send a request and show response. "
-        "For dashboards/apps: open in Chrome DevTools, take a screenshot, check for console errors. "
-        "'It exists' is not verification — show it works.\n"
-        "   - **Integration verification:** Confirm the component is connected to its upstream and "
-        "downstream neighbors as specified in architecture.md. Show evidence of the live data flow.\n"
-        "   Format each step as:\n"
-        "   1. **<What should exist>** (<Databricks service>) — <Brief description>.\n"
-        "      - **Verify:** <specific check with expected output>\n"
-        "      - **Integration:** <what to confirm and how>\n"
-        "6. **Acceptance Criteria** — GATE: every item must pass before proceeding to walkthrough. "
-        "Checklist of what 'done' looks like. MUST include:\n"
-        "   - [ ] Every architecture.md connection is implemented as a live runtime dependency — "
-        "for each arrow in the diagram, name the component that makes the call and show evidence it works.\n"
-        "7. **App Testing** (REQUIRED if architecture includes `databricks-app`) — "
-        "Define end-to-end user journey tests that cover every tab, page, button, form, and "
-        "interactive element in the app. Each test specifies: journey name, exact steps "
-        "(navigate, click, fill, verify), expected outcome. At minimum test:\n"
-        "   - App loads without console errors\n"
-        "   - Every tab/page is reachable and renders correctly\n"
-        "   - All forms submit successfully\n"
-        "   - All data visualizations populate with real data\n"
-        "   - All interactive elements respond correctly\n"
-        "   Execute tests via Chrome DevTools. If any fail, fix, redeploy, and re-run.\n\n"
-        "ABSOLUTE RULES:\n"
-        "- NO Datasets section. NO table names. NO schemas. NO column lists. That's data-schema.md's job.\n"
-        "- NO Transformations section. NO SQL. That's data-schema.md's job.\n"
-        "- NO directory trees. That's project-structure.md's job.\n"
-        "- NO architecture diagrams. That's architecture.md's job.\n"
-        "- NO Outputs section with detailed descriptions. Build Steps cover what gets built.\n"
-        "- SKILL.md is a ROUTING TABLE, not a reference document. Keep it under 100 lines.",
-        "Generate SKILL.md from this approved proposal. "
-        "Strip ALL data details — no table names, no schemas, no column lists, no SQL, no data generation instructions. "
-        "All data information lives ONLY in data-schema.md. SKILL.md just says 'Read data-schema.md'. "
-        "Architecture lives ONLY in architecture.md. SKILL.md just says 'Read architecture.md'. "
-        "Each build step MUST include component verification and integration verification. "
-        "Keep it tight: overview, mandatory reads, prerequisites, build steps with dual verification, "
-        "acceptance criteria gate, and app testing if applicable.\n\n"
-        "Output ONLY the SKILL.md starting with --- frontmatter. No commentary.",
-    ),
-    "storyline.md": (
-        "You are generating storyline.md — the expanded business narrative for a demo package. "
-        "This file is referenced by SKILL.md and provides domain context, company persona, "
-        "narrative arc, wow moment, and domain terminology that the downstream LLM uses "
-        "when building user-facing outputs (dashboards, Genie spaces, apps).",
-        "Generate storyline.md using the proposal's narrative sections as a starting point, "
-        "enriched with the concrete scope established in SKILL.md. "
-        "Include: Industry Context, Company Persona, Business Problem, Narrative Arc, "
-        "Wow Moment, Domain Terminology glossary.\n\n"
-        "IMPORTANT: Start the file with an imperative instruction paragraph addressed to the executing agent, e.g.:\n"
-        "'Use this narrative when building all user-facing outputs — dashboards, Genie spaces, apps, "
-        "and documentation. All labels, descriptions, column aliases, and sample queries should reflect "
-        "the company persona, industry terminology, and business context defined below.'\n\n"
-        "Output ONLY the storyline.md content starting with `# Storyline`. No frontmatter, no commentary.",
-    ),
-    "architecture.md": (
-        "You are generating architecture.md — the binding contract for every component and "
-        "connection in the demo. This is a Mermaid flowchart that defines what gets deployed. "
-        "The executing agent MUST implement every component and every connection exactly as specified.\n\n"
-        "DEFAULT STARTING POINT: Unless the user specifies a real external data source, "
-        "demos begin with synthetic data generation.\n\n"
-        "REFERENTIAL INTEGRITY: When synthetic data spans multiple tables with shared keys, "
-        "the spec MUST state that all tables are generated from a single keyspace with explicit "
-        "parent → child ordering and cardinality constraints.\n\n"
-        "## Format rules\n"
-        "- Use `graph LR` (left-to-right flow).\n"
-        "- Each node ID must be a valid Mermaid identifier (letters, digits, underscores).\n"
-        "- Node label format: `id[\"skill-id | Description\"]` — the label contains the skill-id "
-        "and a human-readable description separated by ` | `.\n"
-        "- Append a `:::` class to each node for its type: `:::data_asset`, `:::compute`, "
-        "`:::application`, `:::external`.\n"
-        "- Metadata (tier, format, pattern) goes in a Mermaid comment on the same line: "
-        "`%% tier=bronze, format=delta`.\n"
-        "- Edges use `-->|label|` syntax where the label describes what flows.\n"
-        "- **MEDALLION LAYERS (CRITICAL):** When using bronze/silver/gold tiers, represent each layer as a "
-        "SINGLE node that lists ALL tables in that layer inside the label. Format:\n"
-        "  `bronze[\"Bronze Layer | table1, table2, table3\"]:::data_asset %% tier=bronze, format=delta`\n"
-        "  Do NOT use `subgraph` for medallion layers. Do NOT create separate nodes for individual tables "
-        "within a layer. Each layer is ONE node. Connections go from layer nodes to compute nodes.\n"
-        "  WRONG: `subgraph \"Bronze Layer\"` with individual table nodes inside.\n"
-        "  RIGHT: `bronze[\"Bronze Layer | raw_sales, raw_customers\"]:::data_asset %% tier=bronze`\n"
-        "- Use `subgraph` only for non-medallion logical groupings (e.g., an \"Analytics\" section).\n"
-        "- Data assets connect THROUGH compute nodes, never directly to other data assets.\n\n"
-        f"## Valid skill IDs\n"
-        f"{_arch_components_catalog()}\n\n"
-        "Metadata keys: `tier` (raw/bronze/silver/gold), `format` (delta/csv/json/parquet/pdf/iceberg/avro), "
-        "`pattern` (batch/streaming/real-time/on-demand), `compute` (serverless/classic, default serverless).\n\n"
-        "## Architecture is a Contract\n"
-        "The Architecture section is a binding contract, not a reference diagram. These rules "
-        "are non-negotiable:\n"
-        "1. **No bypassing components.** If the architecture specifies a component in the data "
-        "path (e.g., a model serving endpoint for scoring, a vector search index for retrieval), "
-        "the pipeline MUST call that component at runtime. The executing agent must NOT substitute "
-        "a simpler inline implementation.\n"
-        "2. **Every connection is a runtime dependency.** Each connection must be implemented as "
-        "an actual data flow. A component that is deployed but never called is not complete.\n"
-        "3. **No merging separate components.** If the architecture lists two distinct components, "
-        "they must be implemented as two separate resources, not combined into one.\n"
-        "4. **This is a demo, not a production system.** The goal is to showcase Databricks "
-        "capabilities. Simpler approaches that skip components defeat the purpose.\n\n"
-        "## Example\n"
-        "```mermaid\ngraph LR\n"
-        "  synth1[\"synthetic-data-gen | Generate synthetic retail data\"]:::compute %% pattern=batch\n"
-        "  bronze[\"Bronze Layer | raw_sales, raw_customers, raw_products\"]:::data_asset %% tier=bronze, format=delta\n"
-        "  pipeline1[\"declarative-pipeline | Cleanse and enrich\"]:::compute %% pattern=batch\n"
-        "  silver[\"Silver Layer | enriched_sales, customer_profiles\"]:::data_asset %% tier=silver, format=delta\n"
-        "  pipeline2[\"declarative-pipeline | Build aggregates\"]:::compute %% pattern=batch\n"
-        "  gold[\"Gold Layer | sales_summary, customer_ltv\"]:::data_asset %% tier=gold, format=delta\n"
-        "  wh1[\"sql-warehouse | Analytics query engine\"]:::compute %% pattern=on-demand\n"
-        "  dash1[\"aibi-dashboard | Sales analytics dashboard\"]:::application\n"
-        "  synth1 -->|\"Generated records\"| bronze\n"
-        "  bronze -->|\"Raw data\"| pipeline1\n"
-        "  pipeline1 -->|\"Cleaned data\"| silver\n"
-        "  silver -->|\"Enriched data\"| pipeline2\n"
-        "  pipeline2 -->|\"Aggregated data\"| gold\n"
-        "  gold -->|\"Gold data for queries\"| wh1\n"
-        "  wh1 -->|\"SQL query results\"| dash1\n```",
-        "Generate architecture.md from the approved proposal and storyline. "
-        "Create a complete Mermaid flowchart covering every component and connection in the demo. "
-        "Follow the format rules and skill IDs exactly. Every component in the proposal's "
-        "Build Steps and Outputs must appear as a node. Every data flow must appear as an edge.\n\n"
-        "IMPORTANT: Start the file with an imperative instruction paragraph addressed to the executing agent, e.g.:\n"
-        "'Build every component and connection in the following diagram — this is the binding contract "
-        "for what gets deployed. The Mermaid flowchart below defines every component, connection, and "
-        "logical grouping in the demo. Implement every node as a deployed resource and every edge as "
-        "a live runtime dependency. Do NOT bypass, merge, or skip any component.'\n\n"
-        "Output ONLY the architecture.md content starting with `# Architecture`. No commentary.",
-    ),
-    "data-schema.md": (
-        "You are generating data-schema.md — the single source of truth for all data in a demo package. "
-        "This file has THREE jobs:\n"
-        "1. Define exact table schemas for synthetic data generation\n"
-        "2. Specify referential integrity, row counts, and data correlations\n"
-        "3. Show the transformation SQL that builds silver/gold tables from bronze\n\n"
-        "CRITICAL: Do NOT just describe transformations in prose. Show actual SQL code blocks "
-        "that demonstrate the joins, filters, aggregations, and business rules. The downstream LLM "
-        "will use these SQL examples as the blueprint for building SDP (Spark Declarative Pipelines).\n\n"
-        "## Row Count Guidance\n"
-        "These are demos, not production systems. Data volumes should be large enough to make "
-        "dashboards, queries, and models look realistic, but small enough to generate quickly "
-        "(under 2 minutes total). Default ranges unless the user specifies otherwise:\n"
-        "- Dimension/reference tables (customers, products, stores, devices): 50–200 rows\n"
-        "- Fact/event tables (transactions, orders, readings, visits): 2,000–5,000 rows\n"
-        "- High-frequency event streams (clickstream, sensor telemetry, logs): 5,000–10,000 rows\n"
-        "Never exceed 10,000 rows for any single table unless the user explicitly requests more.\n\n"
-        "## Column Type Safety\n"
-        "Only use column types fully compatible with all Databricks features including Vector Search, "
-        "Feature Store, and dashboards. Prefer simple types (STRING, INT, DOUBLE, BOOLEAN, DATE, "
-        "TIMESTAMP, DECIMAL). Avoid MAP and ARRAY types unless the use case absolutely requires them "
-        "— and if used, note any downstream compatibility constraints.\n\n"
-        "## Referential Integrity\n"
-        "When the spec defines multiple tables linked by shared keys (e.g. customers ↔ transactions), "
-        "explicitly state the generation order and key constraints. Specify which table is the parent "
-        "(generated first) and which tables reference it. Include approximate cardinality per parent "
-        "row. Example: 'Generate 200 customers first, then 5,000 transactions referencing those "
-        "customer_ids (10-50 per customer).' Without this, independently generated tables produce "
-        "mismatched foreign keys and broken joins.\n\n"
-        "## Data Correlations\n"
-        "When the demo involves ML, predictive analytics, scoring, or any outcome-driven analysis, "
-        "this subsection is REQUIRED. Without explicit correlations, synthetic data is random — "
-        "dashboards show flat/meaningless patterns, models overfit on noise, and the demo fails "
-        "to tell a story.\n"
-        "Define the relationships between features and outcomes. For each target/outcome column, "
-        "specify which features influence it, the direction and approximate strength, and the target "
-        "distribution. Use concrete rules the data generator can implement.\n"
-        "Good examples:\n"
-        "- 'fraud_label: amount > 3x avg → 70% fraud rate (vs 1% baseline); distance > 500km → +40%; "
-        "velocity > 5 txns/hr → +25%. Overall ~2-3%.'\n"
-        "- 'churn_flag: declining usage 3+ months → 80% churn; tickets > 3/90d → +35%; month-to-month "
-        "contract → 3x churn vs annual. Target ~15%.'\n"
-        "For dashboards and analytics (even without ML), define distributions and trends: "
-        "'Revenue: 15% YoY growth, Q4 seasonal peaks. Midwest region outperforms by ~20%.'",
-        "Generate data-schema.md with these sections.\n\n"
-        "IMPORTANT: Start the file with an imperative instruction paragraph addressed to the executing agent, e.g.:\n"
-        "'Generate the following tables as synthetic data in the catalog and schema specified in "
-        "the prerequisites. Create tables in the order listed below to preserve referential integrity. "
-        "Then build the transformation pipeline using the SQL blueprints in the Transformations section.'\n\n"
-        "## Table Schemas\n"
-        "For each table: markdown schema table (column | type | description), source type, "
-        "approximate row count (following the row count guidance), distribution hints, "
-        "relationships to other tables. Use only safe column types.\n\n"
-        "## Referential Integrity\n"
-        "Explicit parent→child generation order with cardinality constraints for every "
-        "foreign key relationship.\n\n"
-        "## Data Correlations\n"
-        "If the demo involves ML, analytics, or outcome-driven analysis: define feature→outcome "
-        "relationships with concrete rules. If dashboard/analytics only: define distributions and trends.\n\n"
-        "## Relationships\n"
-        "Foreign key relationships between tables. Brief.\n\n"
-        "## Transformations\n"
-        "For each medallion layer transition, show the ACTUAL SQL in fenced code blocks. Example:\n"
-        "```sql\n-- Silver: cleaned transactions\nCREATE OR REFRESH STREAMING TABLE silver_transactions AS\n"
-        "SELECT\n  transaction_id,\n  UPPER(customer_id) AS customer_id,\n  amount,\n  "
-        "CASE WHEN status = 'pending' THEN 'in_progress' ELSE status END AS status\n"
-        "FROM STREAM(bronze_raw_transactions)\nWHERE amount > 0;\n```\n\n"
-        "Show bronze→silver (cleaning, standardization) and silver→gold (aggregation, features) SQL. "
-        "Use Spark Declarative Pipelines (SDP) syntax: CREATE OR REFRESH STREAMING TABLE, "
-        "CREATE OR REFRESH MATERIALIZED VIEW. NOT old DLT @dlt.table syntax.\n"
-        "These SQL blocks are the blueprint — the downstream LLM adapts them for the actual pipeline.\n\n"
-        "Output ONLY the data-schema.md content starting with `# Data Schema`. No commentary.",
-    ),
-    "walkthrough.md": (
-        "You are generating walkthrough.md — the complete demo script and presenter guide. "
-        "After building ALL demo resources, the executing agent must use this file to generate "
-        "a concise demo walkthrough script that a sales engineer can follow for a live presentation.\n\n"
-        "The script MUST be written to a **Google Doc** (not inline in the chat) so it can be "
-        "shared, printed, and used as a presenter's guide. The script MUST be written after "
-        "deployment — it should reference actual table names, dashboard titles, and real query "
-        "results from the built demo.\n\n"
-        "**CRITICAL: Every step that references a Databricks resource must include the direct "
-        "clickable URL to that resource.** For example, if a step says 'show the dashboard,' "
-        "the full URL to that specific dashboard must be embedded right there in that step "
-        "(e.g., `https://<workspace>/sql/dashboards/<id>`). This applies to ALL resource types: "
-        "dashboards, apps, Genie spaces, pipelines, tables, notebooks, jobs, model serving "
-        "endpoints, SQL warehouses, volumes, etc. The presenter should never have to search for "
-        "anything — every link is one click away in the script.\n\n"
-        "The walkthrough uses navigation cues formatted as `[Navigate to ...]` and `[Show ...]` "
-        "to guide the presenter through the demo environment.\n\n"
-        "RULES:\n"
-        "- Navigation cues MUST use the exact format: `[Navigate to ...]` or `[Show ...]`\n"
-        "- Each demo script step must reference specific Databricks UI elements or outputs\n"
-        "- Include time estimates for each major section (e.g., '~2 min')\n"
-        "- The executive talk track should work standalone without the demo\n"
-        "- Target 10-15 minutes of speaking time\n"
-        "- Every feature shown must pass the 'so what?' test\n"
-        "- Never teach configuration or admin screens — show outcomes\n"
-        "- Match language to the audience: executives want outcomes, technical buyers want architecture",
-        "Generate walkthrough.md from the approved proposal and all prior package files. "
-        "Use the storyline for narrative arc, architecture.md for the component diagram, "
-        "data-schema for technical details to reference, "
-        "and project-structure for knowing what artifacts exist.\n\n"
-        "STRUCTURE: The file starts with an `## Execution Instructions` section (read by the executing LLM, "
-        "not rendered in the UI), followed by the human-readable demo script sections.\n\n"
-        "## Execution Instructions (FIRST section, immediately after `# Demo Walkthrough`)\n"
-        "This section contains all meta-instructions for the executing agent. Include ALL of the following "
-        "verbatim in this section:\n"
-        "- After building ALL demo resources and passing all acceptance criteria, write this demo "
-        "walkthrough script to a **Google Doc** with title: '{demo name} — Demo Script'.\n"
-        "- Each step must include the **direct URL** to every Databricks resource referenced. "
-        "Format links as clickable hyperlinks with descriptive text.\n"
-        "- Use headings for each section (Opening, Wow Moment, Walkthrough sections, Recap).\n"
-        "- Include presenter notes in italics for talking points and transitions.\n"
-        "- Include specific click paths, queries to run, and data to highlight — all derived "
-        "from the actual built demo resources.\n"
-        "- The script is the presenter's single source of truth — if a resource exists, its URL "
-        "must appear in the step where it is shown.\n"
-        "- The Google Doc MUST begin with a **Demo Assets Overview** — a complete inventory table of "
-        "every resource created for the demo (resource name, type, direct clickable URL), grouped by "
-        "category (Data, Compute/Pipelines, Applications/Dashboards), followed by a 2-3 sentence "
-        "architecture summary.\n\n"
-        "## Demo Script\n"
-        "Structure the script with these sections in order:\n\n"
-        "### Opening (30-60 seconds)\n"
-        "Start with a limbic opener — an emotionally resonant hook tied to the audience's pain point "
-        "(stat, provocative question, or customer anecdote). State what the audience will see "
-        "(2-3 topics max). Do NOT open with login screens or config.\n\n"
-        "### Wow Moment (first thing shown)\n"
-        "Do the last thing first. Show the highest-value output immediately (dashboard, app UI, "
-        "prediction, analytical result). Frame as: 'Here is what [audience role] uses to make this decision.'\n\n"
-        "### Walkthrough (2-3 sections)\n"
-        "Walk backward from the wow moment through the architecture. Each section uses tell-show-tell: "
-        "Frame the business pain (1 sentence), Show the capability with specific screens/queries/click paths, "
-        "Bridge to the business value ('which means you can...'). Transition by referencing the roadmap.\n"
-        "Each step has:\n"
-        "- A title with time estimate (e.g., '#### Step 1: Data Ingestion (~2 min)')\n"
-        "- `[Navigate to ...]` or `[Show ...]` cues on their own lines\n"
-        "- What to say / what to point out\n"
-        "- Where applicable, a 'Without AI' vs 'With AI' contrast\n"
-        "- Reference specific Databricks products\n\n"
-        "### Recap and Close (30-60 seconds)\n"
-        "Summarize 2-3 key business outcomes (not features). Restate the delta between current pain "
-        "and improved state. End with a concrete next step.\n\n"
-        "## Executive Talk Track\n"
-        "### 60-Second Pitch\n"
-        "A tight elevator pitch paragraph.\n"
-        "### Expanded Summary\n"
-        "A 3-minute version with more detail on architecture and business impact.\n\n"
-        "## Audience Adaptations\n"
-        "### C-Suite\n"
-        "Focus on ROI, business metrics, competitive advantage.\n"
-        "### Technical Leadership\n"
-        "Focus on architecture, scalability, Databricks platform capabilities.\n"
-        "### Individual Contributors\n"
-        "Focus on implementation details, code patterns, developer experience.\n\n"
-        "Output ONLY the walkthrough.md content starting with `# Demo Walkthrough`. No commentary.",
-    ),
-    "project-structure.md": (
-        "You are generating project-structure.md — the target directory layout for the demo package. "
-        "This file tells the downstream LLM what files and directories to create.\n\n"
-        "CRITICAL: Use MODERN Databricks conventions:\n"
-        "- Databricks Asset Bundles (databricks.yml at root)\n"
-        "- Spark Declarative Pipelines (SDP) — NOT Delta Live Tables (DLT), NOT notebooks\n"
-        "- Raw .sql or .py files in src/<pipeline>/transformations/ — NOT notebooks\n"
-        "- Resources defined in resources/*.yml (pipelines, dashboards, jobs, apps)\n"
-        "- Serverless compute by default\n"
-        "- CLUSTER BY (Liquid Clustering) not PARTITION BY\n\n"
-        "KEEP IT LEAN. A typical demo is 15-25 files, not 50+. No tests/, no config/ directories, "
-        "no utility directories unless the demo specifically requires them.",
-        "Generate project-structure.md using Databricks Asset Bundles as the foundation.\n\n"
-        "IMPORTANT: Start the file with an imperative instruction paragraph addressed to the executing agent, e.g.:\n"
-        "'Create the following directory layout as a Databricks Asset Bundle. Every file listed below "
-        "must be created with the specified content. Use `databricks.yml` as the bundle root.'\n\n"
-        "```\n<demo-name>/\n"
-        "├── databricks.yml                    # Bundle config + environment targets\n"
-        "├── resources/\n"
-        "│   ├── pipeline.pipeline.yml         # SDP pipeline resource\n"
-        "│   ├── dashboard.dashboard.yml       # AI/BI dashboard resource\n"
-        "│   └── [other resources as needed]\n"
-        "├── src/\n"
-        "│   ├── pipeline/\n"
-        "│   │   └── transformations/\n"
-        "│   │       ├── bronze_*.sql          # Raw ingestion\n"
-        "│   │       ├── silver_*.sql          # Cleaning & standardization\n"
-        "│   │       └── gold_*.sql            # Aggregation & features\n"
-        "│   └── dashboards/\n"
-        "│       └── dashboard.lvdash.json     # AI/BI dashboard definition\n"
-        "├── SKILL.md\n├── storyline.md\n├── data-schema.md\n└── project-structure.md\n```\n\n"
-        "Adapt this template to match the demo's specific outputs (add src/app/, src/genie/ sections only if needed). "
-        "For each file/directory, add a brief purpose comment. Keep the tree under 30 lines.\n\n"
-        "Output ONLY the project-structure.md content starting with `# Project Structure`. No commentary.",
-    ),
-}
-
-
 async def _stream_llm(
     messages: list[dict[str, str]],
     databricks_host: str,
@@ -1108,44 +765,320 @@ async def _stream_llm(
                     continue
 
 
-async def stream_buildout_file(
-    filename: str,
+# ---------------------------------------------------------------------------
+# Stage 2: Agent-based buildout (generates reference.md)
+# ---------------------------------------------------------------------------
+
+# Read the luxebeauty reference example and capabilities catalog
+# These are bundled as constants read from the skill directory at module load
+_SKILL_DIR = Path(__file__).resolve().parent.parent.parent.parent.parent.parent / ".claude" / "skills" / "databricks-demo-generator"
+_REFERENCE_EXAMPLE = ""
+_CAPABILITIES = ""
+try:
+    _ref_path = _SKILL_DIR / "references" / "luxebeauty-returns" / "reference.md"
+    if _ref_path.exists():
+        _REFERENCE_EXAMPLE = _ref_path.read_text()
+    _cap_path = _SKILL_DIR / "capabilities.md"
+    if _cap_path.exists():
+        _CAPABILITIES = _cap_path.read_text()
+except Exception:
+    pass  # graceful fallback if files not found
+
+
+def _build_buildout_system_prompt(proposal_md: str) -> str:
+    """Build the system prompt for the agent that generates reference.md."""
+    return f"""\
+You are a Databricks demo architect. Your job is to generate a single reference.md \
+file that completely specifies a demo — story, data schemas, component configurations, \
+and walkthrough script.
+
+# Format Example
+
+Study this example carefully. Your output MUST match this structure and density level:
+
+{_REFERENCE_EXAMPLE}
+
+# Available Databricks Capabilities
+
+{_CAPABILITIES}
+
+# Approved Proposal
+
+{proposal_md}
+
+# Instructions
+
+Generate a reference.md for the demo described in the proposal above.
+
+RULES:
+1. Match the example's section structure EXACTLY: Story, Data, Documents, Dashboard, \
+Genie, Knowledge Assistant, Multi-Agent Supervisor, Walkthrough, Coherence Contract
+2. Every line must be load-bearing — no filler, no explanatory prose
+3. Include Scale Targets in the Data section with explicit math
+4. Include Transformations showing Silver/Gold table names and join semantics
+5. The Coherence Contract must list every identifier that appears across components
+6. Dashboard must include ASCII layout with the 5-second test
+7. Genie/KA instructions must be complete instruction blocks (not summaries)
+8. Use fixed dates, NOT CURRENT_DATE()
+9. Business metrics in $ terms
+10. Target 400-500 lines total
+
+Output ONLY the reference.md content. No commentary, no code fences wrapping the whole file."""
+
+
+async def stream_agent_buildout(
     proposal_md: str,
-    generated_files: dict[str, str],
     databricks_host: str,
     databricks_token: str,
     model: str = "databricks-claude-sonnet-4",
-    user_architecture: str | None = None,
 ) -> AsyncIterator[str]:
-    """Stream generation of a single package file with prior files as context."""
-    system_hint, user_hint = _BUILDOUT_FILE_PROMPTS[filename]
+    """Generate reference.md from an approved proposal using a single LLM call.
 
-    system_content = f"{_build_system_prompt()}\n\n{system_hint}"
+    Uses the same streaming pattern as stream_proposal but with buildout-specific
+    system prompt that includes the luxebeauty example and capabilities catalog.
+    """
+    system_prompt = _build_buildout_system_prompt(proposal_md)
 
-    context_parts = [f"## Approved Proposal\n\n{proposal_md}"]
-    # Include user-designed architecture as context for all files
-    if user_architecture:
-        guidance = (
-            "Use this as the basis for architecture.md — expand and refine it, "
-            "but preserve the components and connections the user specified."
-            if filename == "architecture.md"
-            else "Reference this architecture when generating content."
-        )
-        context_parts.append(
-            f"## User-Designed Architecture (from visual builder)\n\n"
-            f"The user created this architecture diagram during the proposal stage. "
-            f"{guidance}\n\n```mermaid\n{user_architecture}\n```"
-        )
-    for prior_name, prior_content in generated_files.items():
-        context_parts.append(f"## {prior_name} (already generated)\n\n{prior_content}")
-
-    messages: list[dict[str, str]] = [
-        {"role": "system", "content": system_content},
-        {"role": "user", "content": "\n\n---\n\n".join(context_parts) + f"\n\n---\n\n{user_hint}"},
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": (
+            "Generate the reference.md for this demo now. "
+            "Follow the format example exactly. Every section must be present."
+        )},
     ]
 
-    async for chunk in _stream_llm(messages, databricks_host, databricks_token, model):
+    async for chunk in _stream_llm(
+        messages=messages,
+        databricks_host=databricks_host,
+        databricks_token=databricks_token,
+        model=model,
+        max_tokens=16384,
+        temperature=0.7,
+    ):
         yield chunk
+
+
+# ---------------------------------------------------------------------------
+# Parallel multi-file buildout (collection-aware)
+# ---------------------------------------------------------------------------
+
+
+def _build_file_system_prompt(
+    filename: str,
+    purpose: str,
+    block_context: str,
+    proposal_md: str,
+    dependency_outputs: dict[str, str],
+) -> str:
+    """Build a focused system prompt for generating a single output file."""
+    deps_section = ""
+    if dependency_outputs:
+        deps_parts = []
+        for dep_name, dep_content in dependency_outputs.items():
+            deps_parts.append(f"### {dep_name}\n\n{dep_content}")
+        deps_section = (
+            "\n\n# Already-Generated Files (use for consistency)\n\n"
+            + "\n\n---\n\n".join(deps_parts)
+        )
+
+    return f"""\
+You are a Databricks demo architect generating a single build instruction file.
+
+# Your Task
+
+Generate **{filename}** — {purpose}
+
+# Domain & Capability Context
+
+{block_context}
+
+# Approved Proposal
+
+{proposal_md}
+{deps_section}
+
+# Rules
+
+1. Output ONLY the content for {filename}. No commentary, no code fences wrapping the file.
+2. Every line must be load-bearing — no filler, no explanatory prose.
+3. Use identifiers, dates, and metrics that are CONSISTENT with any already-generated files above.
+4. If this file defines data schemas, include exact column names, types, and realistic row counts.
+5. If this file defines a dashboard, include ASCII layout and the 5-second anomaly test.
+6. If this file defines agent instructions, include complete instruction blocks with sample questions.
+7. If this is a walkthrough, write a 5-act demo script with specific timing and talk track.
+8. Use fixed dates (not CURRENT_DATE). Express business impact in dollar terms.
+9. Reference Databricks services by their official modern names (SDP not DLT, etc.)."""
+
+
+async def _generate_file(
+    filename: str,
+    purpose: str,
+    block_context: str,
+    proposal_md: str,
+    dependency_outputs: dict[str, str],
+    databricks_host: str,
+    databricks_token: str,
+    model: str,
+) -> str:
+    """Generate a single file (non-streaming, for use in parallel tiers)."""
+    system_prompt = _build_file_system_prompt(
+        filename, purpose, block_context, proposal_md, dependency_outputs,
+    )
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": f"Generate {filename} now. Follow the rules exactly."},
+    ]
+
+    collected = ""
+    async for chunk in _stream_llm(
+        messages, databricks_host, databricks_token, model,
+        max_tokens=8192, temperature=0.7,
+    ):
+        collected += chunk
+    return collected.strip()
+
+
+async def stream_parallel_buildout(
+    proposal_md: str,
+    collection_slug: str,
+    databricks_host: str,
+    databricks_token: str,
+    model: str = "databricks-claude-sonnet-4",
+) -> AsyncIterator[dict]:
+    """Generate multiple output files in parallel tiers using the collection's dependency graph.
+
+    Yields SSE-ready event dicts:
+      - {"type": "tier_start", "tier": N, "files": [...]}
+      - {"type": "file_start", "filename": "..."}
+      - {"type": "file_complete", "filename": "...", "content": "..."}
+      - {"type": "tier_complete", "tier": N}
+      - {"type": "all_complete", "files": {...}}
+      - {"type": "error", "content": "..."}
+    """
+    import asyncio
+    from .collection_service import collection_service
+    from .block_registry import registry
+
+    coll = collection_service.get_collection_obj(collection_slug)
+    if not coll:
+        yield {"type": "error", "content": f"Collection '{collection_slug}' not found"}
+        return
+
+    block_context = registry.load_blocks(coll.block_slugs)
+    tiers = coll.dependency_tiers()
+    completed_files: dict[str, str] = {}
+
+    # Generate meta.md — the context router for this package
+    meta_lines = [
+        f"# {coll.name}",
+        "",
+        f"**Collection**: `{coll.slug}`  ",
+        f"**Industry**: {coll.industry}  ",
+        f"**Description**: {coll.description}",
+        "",
+        "## Context Blocks",
+        "",
+        "These blocks provided the structured context for generating this package:",
+        "",
+    ]
+    for slug in coll.block_slugs:
+        block = registry.get_block(slug)
+        if block:
+            meta_lines.append(f"- **{block['name']}** (`{slug}`, {block['category']}) — {block['description'][:100]}")
+        else:
+            meta_lines.append(f"- `{slug}` (not found)")
+
+    meta_lines += [
+        "",
+        "## Output Files",
+        "",
+        "Files in this package, listed in generation/execution order:",
+        "",
+    ]
+    for tier_idx_m, tier in enumerate(tiers):
+        parallel_note = f" (parallel)" if len(tier) > 1 else ""
+        meta_lines.append(f"### Tier {tier_idx_m}{parallel_note}")
+        meta_lines.append("")
+        for f in tier:
+            deps = ", ".join(f.depends_on) if f.depends_on and f.depends_on != ["*"] else "all previous"
+            meta_lines.append(f"- **`{f.filename}`** — {f.purpose}  ")
+            meta_lines.append(f"  Dependencies: {deps if f.depends_on else 'none'}")
+        meta_lines.append("")
+
+    meta_lines += [
+        "## Reading Order",
+        "",
+        "1. Start with `00-meta.md` (this file) for package overview",
+        "2. Read `01-story-and-data.md` for the narrative and data schemas",
+        "3. Read capability files (02-xx through 05-xx) for component specs",
+        "4. Read the walkthrough last for the demo script",
+        "",
+        "## Execution Order",
+        "",
+        "An agent executing this package should follow the tier order above.",
+        "Files within the same tier can be built in parallel.",
+        "Each file contains self-contained build instructions for its component.",
+    ]
+
+    meta_content = "\n".join(meta_lines)
+    completed_files["00-meta.md"] = meta_content
+    yield {"type": "file_start", "filename": "00-meta.md"}
+    yield {"type": "file_complete", "filename": "00-meta.md", "content": meta_content}
+
+    for tier_idx, tier_files in enumerate(tiers):
+        filenames = [f.filename for f in tier_files]
+        yield {"type": "tier_start", "tier": tier_idx, "files": filenames}
+
+        async def _gen_one(output_file):
+            """Generate a single file and return (filename, content)."""
+            # Gather dependency outputs for this file
+            deps = {}
+            for dep_name in output_file.depends_on:
+                if dep_name == "*":
+                    deps = dict(completed_files)
+                    break
+                if dep_name in completed_files:
+                    deps[dep_name] = completed_files[dep_name]
+
+            content = await _generate_file(
+                output_file.filename,
+                output_file.purpose,
+                block_context,
+                proposal_md,
+                deps,
+                databricks_host,
+                databricks_token,
+                model,
+            )
+            return output_file.filename, content
+
+        # Emit file_start for all files in this tier
+        for f in tier_files:
+            yield {"type": "file_start", "filename": f.filename}
+
+        # Generate all files in this tier concurrently
+        tasks = [_gen_one(f) for f in tier_files]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        for result in results:
+            if isinstance(result, Exception):
+                yield {"type": "error", "content": f"File generation failed: {result}"}
+                continue
+            filename, content = result
+            # Strip markdown fences if present
+            clean = content.strip()
+            if clean.startswith("```"):
+                clean = clean[clean.index("\n") + 1:]
+            if clean.rstrip().endswith("```"):
+                clean = clean[:clean.rfind("```")]
+            clean = clean.strip()
+
+            completed_files[filename] = clean
+            yield {"type": "file_complete", "filename": filename, "content": clean}
+
+        yield {"type": "tier_complete", "tier": tier_idx}
+
+    yield {"type": "all_complete", "files": completed_files}
 
 
 async def stream_file_refinement(
@@ -1221,6 +1154,248 @@ def parse_skill_metadata(skill_md: str) -> dict[str, str]:
         elif line.startswith("description:"):
             result["description"] = line.split(":", 1)[1].strip().strip("\"'")
     return result
+
+
+# ---------------------------------------------------------------------------
+# Block agent: modify collection blocks via tool-use loop
+# ---------------------------------------------------------------------------
+
+BLOCK_AGENT_TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "search_blocks",
+            "description": "Search available blocks by keyword. Returns matching blocks with slug, name, category, and description.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Search query (e.g. 'healthcare', 'dashboard', 'streaming')"},
+                },
+                "required": ["query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_current_blocks",
+            "description": "Get the current list of blocks in this collection with their names and categories.",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "add_block",
+            "description": "Add an EXISTING block to the collection by its slug. Only use slugs returned by search_blocks.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "slug": {"type": "string", "description": "The block slug to add"},
+                },
+                "required": ["slug"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "remove_block",
+            "description": "Remove a block from the collection by its slug.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "slug": {"type": "string", "description": "The block slug to remove"},
+                },
+                "required": ["slug"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "create_block",
+            "description": "Create a NEW block that doesn't exist yet. Use this when the user needs context that isn't covered by any existing block. Provide a slug, name, category, and the full content (markdown with structured context).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "slug": {"type": "string", "description": "Unique kebab-case slug for the new block"},
+                    "name": {"type": "string", "description": "Display name for the block"},
+                    "category": {"type": "string", "enum": ["domain", "capability", "pattern"], "description": "Block category"},
+                    "tags": {"type": "string", "description": "Comma-separated tags"},
+                    "description": {"type": "string", "description": "One-paragraph description of what context this block provides"},
+                    "content": {"type": "string", "description": "Full block content in markdown — industry terms, KPIs, personas, configuration guidance, etc."},
+                },
+                "required": ["slug", "name", "category", "description", "content"],
+            },
+        },
+    },
+]
+
+
+async def stream_block_agent(
+    current_slugs: list[str],
+    user_message: str,
+    history: list[dict[str, str]],
+    databricks_host: str,
+    databricks_token: str,
+    model: str,
+) -> AsyncIterator[dict]:
+    """Agent loop that modifies collection blocks via tool calls.
+
+    Yields SSE-ready events:
+      - {"type": "agent_thinking", "content": "..."}
+      - {"type": "block_added", "slug": "..."}
+      - {"type": "block_removed", "slug": "..."}
+      - {"type": "agent_message", "content": "..."}
+      - {"type": "blocks_updated", "slugs": [...]}
+    """
+    from .block_registry import registry
+
+    working_slugs = list(current_slugs)
+    block_index = registry.get_block_index()
+
+    system_prompt = f"""\
+You are a collection editor. You modify which context blocks are in a demo collection.
+
+# Available Blocks
+{block_index}
+
+# CRITICAL RULES — read carefully
+
+1. **MINIMAL CHANGES ONLY.** Only add/remove the blocks the user specifically asked about. \
+NEVER remove blocks the user didn't mention. If the user says "switch to retail," that means \
+swap the domain block — keep ALL capability and pattern blocks untouched.
+
+2. **Always call `get_current_blocks` FIRST** to see what's in the collection before making changes.
+
+3. **Search before adding.** Use `search_blocks` to find the right slug. Don't guess slugs.
+
+4. **Swaps = remove old + add new.** When the user says "change X to Y" or "switch to Y", \
+remove only the block that matches X (same category), then add Y. Keep everything else.
+
+5. **Create blocks when needed.** If the user asks for something that doesn't exist as a \
+block (e.g. "add context about supply chain optimization"), use `create_block` to generate \
+a new block with rich, useful content. Write 40-80 lines of structured markdown with \
+terminology, KPIs, personas, and practical guidance.
+
+6. After changes, respond with a brief summary of what changed and what the collection now contains."""
+
+    messages: list[dict] = [
+        {"role": "system", "content": system_prompt},
+    ]
+    for msg in history:
+        messages.append({"role": msg["role"], "content": msg["content"]})
+    messages.append({"role": "user", "content": user_message})
+
+    for _iteration in range(10):
+        try:
+            response = await _call_llm_with_tools(
+                messages, BLOCK_AGENT_TOOLS, databricks_host, databricks_token, model,
+            )
+        except Exception as exc:
+            yield {"type": "error", "content": f"Agent call failed: {exc}"}
+            return
+
+        choice = response.get("choices", [{}])[0]
+        message = choice.get("message", {})
+        finish_reason = choice.get("finish_reason", "")
+
+        messages.append(message)
+
+        tool_calls = message.get("tool_calls")
+        if not tool_calls or finish_reason == "stop":
+            text = message.get("content", "")
+            if text:
+                yield {"type": "agent_message", "content": text}
+            yield {"type": "blocks_updated", "slugs": working_slugs}
+            return
+
+        for tc in tool_calls:
+            fn_name = tc["function"]["name"]
+            try:
+                fn_args = json.loads(tc["function"]["arguments"])
+            except json.JSONDecodeError:
+                fn_args = {}
+            call_id = tc["id"]
+
+            if fn_name == "search_blocks":
+                query = fn_args.get("query", "")
+                results = registry.search_blocks(query)[:5]
+                tool_result = json.dumps(results, indent=2)
+                messages.append({"role": "tool", "tool_call_id": call_id, "content": tool_result})
+                yield {"type": "agent_thinking", "content": f"Searching blocks for \"{query}\"..."}
+
+            elif fn_name == "get_current_blocks":
+                current = []
+                for slug in working_slugs:
+                    block = registry.get_block(slug)
+                    if block:
+                        current.append({"slug": slug, "name": block["name"], "category": block["category"]})
+                    else:
+                        current.append({"slug": slug, "name": slug, "category": "unknown"})
+                tool_result = json.dumps(current, indent=2)
+                messages.append({"role": "tool", "tool_call_id": call_id, "content": tool_result})
+                yield {"type": "agent_thinking", "content": "Checking current blocks..."}
+
+            elif fn_name == "add_block":
+                slug = fn_args.get("slug", "")
+                if slug and slug not in working_slugs:
+                    block = registry.get_block(slug)
+                    if block:
+                        working_slugs.append(slug)
+                        messages.append({"role": "tool", "tool_call_id": call_id, "content": f"Added {slug} ({block['name']})"})
+                        yield {"type": "block_added", "slug": slug, "name": block["name"], "category": block["category"]}
+                    else:
+                        messages.append({"role": "tool", "tool_call_id": call_id, "content": f"Block '{slug}' not found"})
+                elif slug in working_slugs:
+                    messages.append({"role": "tool", "tool_call_id": call_id, "content": f"{slug} is already in the collection"})
+                else:
+                    messages.append({"role": "tool", "tool_call_id": call_id, "content": "No slug provided"})
+
+            elif fn_name == "remove_block":
+                slug = fn_args.get("slug", "")
+                if slug and slug in working_slugs:
+                    working_slugs.remove(slug)
+                    messages.append({"role": "tool", "tool_call_id": call_id, "content": f"Removed {slug}"})
+                    yield {"type": "block_removed", "slug": slug}
+                elif slug:
+                    messages.append({"role": "tool", "tool_call_id": call_id, "content": f"{slug} is not in the collection"})
+                else:
+                    messages.append({"role": "tool", "tool_call_id": call_id, "content": "No slug provided"})
+
+            elif fn_name == "create_block":
+                slug = fn_args.get("slug", "")
+                name = fn_args.get("name", slug)
+                category = fn_args.get("category", "capability")
+                tags_str = fn_args.get("tags", "")
+                description = fn_args.get("description", "")
+                content = fn_args.get("content", "")
+
+                if not slug or not content:
+                    messages.append({"role": "tool", "tool_call_id": call_id, "content": "slug and content are required"})
+                else:
+                    from .block_registry import Block
+                    tags = [t.strip() for t in tags_str.split(",") if t.strip()] if tags_str else []
+                    new_block = Block(
+                        slug=slug,
+                        name=name,
+                        category=category,
+                        tags=tags,
+                        description=description,
+                        content=content,
+                        related=[],
+                    )
+                    registry.save_block(new_block, created_by="block-agent")
+                    working_slugs.append(slug)
+                    messages.append({"role": "tool", "tool_call_id": call_id, "content": f"Created and added new block: {slug} ({name})"})
+                    yield {"type": "block_created", "slug": slug, "name": name, "category": category}
+                    yield {"type": "block_added", "slug": slug, "name": name, "category": category}
+
+            else:
+                messages.append({"role": "tool", "tool_call_id": call_id, "content": f"Unknown tool: {fn_name}"})
+
+    yield {"type": "blocks_updated", "slugs": working_slugs}
 
 
 # ---------------------------------------------------------------------------

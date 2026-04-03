@@ -13,20 +13,25 @@ variables:
 sync:
   include:
     - .build
+    - .build/app.yml
+    - .build/*.whl
+    - .build/requirements.txt
+    - ../blocks/**
+    - ../collections/**
 
 artifacts:
   default:
-    build: apx build
+    build: apx build && rm .build/.gitignore
 
 resources:
   database_instances:
     demo-prompt-generator-db:
-      name: "demo-prompt-gen-db"
+      name: "demo-prompt-generator-db"
       capacity: "CU_1"
 
   apps:
     demo-prompt-generator-app:
-      name: "demo-prompt-gen"
+      name: "demo-prompt-generator"
       description: "Demo Prompt Generator — generates Databricks demo skill packages"
       source_code_path: ./.build
       resources:
