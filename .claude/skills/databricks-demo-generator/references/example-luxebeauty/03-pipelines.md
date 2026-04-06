@@ -88,15 +88,7 @@ Create aggregated tables for dashboard and Genie.
 
 **IMPORTANT**: Gold tables should stay at **daily granularity**. Do NOT pre-aggregate to weekly - let the dashboard queries handle any weekly aggregation needed. This keeps the data flexible and ensures spikes are clearly visible at the day level.
 
-#### Why Gold Tables Need Region and Category
-
-The dashboard has global filters (Date Range, Region, Category) that let users drill down into the data. **For filters to work on a widget, the underlying data must include those filter dimensions.**
-
-For example:
-- If the "Region" filter should affect the KPI cards, returns trend, AND the products table, then ALL underlying gold tables must include the `region` column
-- Same for `category` - if we want to filter by Skincare/Makeup/Haircare across all widgets, every table needs this column
-
-**Rule of thumb**: Include region and category in every gold table that feeds dashboard widgets. This ensures users can slice and dice the data any way they want.
+**Important**: Include region and category in all gold tables - dashboard filters require these dimensions.
 
 | Table | Dimensions | Metrics | Why It Matters for Demo |
 |-------|------------|---------|-------------------------|
@@ -120,24 +112,3 @@ After creating the pipeline, **add the pipeline ID to `resources.json`**:
 }
 ```
 
----
-
-## Validation
-
-After the pipeline runs, verify the tables are populated correctly.
-
-**Key checks**:
-
-| Table | What to Verify |
-|-------|----------------|
-| bronze_* tables | Row counts match source parquet files |
-| silver_returns | Contains lot_id, region, category columns |
-| gold_daily_summary | Has date, **region**, **category** columns - enables dashboard filtering |
-| gold_returns_by_lot | Has **region** column, affected lot shows ~30% return rate |
-
-**Filter-readiness check**: Every gold table that feeds a dashboard widget should have `region` and `category` columns. Run a simple query like `SELECT DISTINCT region FROM gold_daily_summary` to verify.
-
-**Sample validation queries**:
-- Query gold_returns_by_lot for the affected lot to see return counts
-- Verify customer_feedback_samples contains texture complaints
-- Check that filtering by region (e.g., `WHERE region = 'US'`) returns meaningful data

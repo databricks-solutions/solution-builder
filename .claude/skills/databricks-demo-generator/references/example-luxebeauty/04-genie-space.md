@@ -4,9 +4,7 @@
 
 ## Task
 
-Create a Genie Space that enables natural language queries against the structured data.
-
-**Important**: The Genie should have instructions that guide it to perform deep analysis when asked simple questions like "Why do I have so many returns?" - this creates the demo's wow moment.
+Create a Genie Space for natural language queries against the structured data.
 
 ---
 
@@ -15,7 +13,7 @@ Create a Genie Space that enables natural language queries against the structure
 | Setting | Value |
 |---------|-------|
 | **Space Name** | `LuxeBeauty Operations Analytics` |
-| **Description** | "Ask questions about customer orders, returns, product performance, and production lots. Great for investigating operational anomalies." |
+| **Description** | "Explore orders, returns, products, and production lots. Tables join on customer_id, order_id, product_id, and lot_id." |
 | **Catalog/Schema** | As defined in 00-demo-overview.md |
 
 ---
@@ -24,88 +22,46 @@ Create a Genie Space that enables natural language queries against the structure
 
 | Table | Purpose |
 |-------|---------|
-| `gold_weekly_summary` | Weekly KPIs and trends |
-| `gold_daily_orders` | Daily sales by date/region/category |
-| `gold_daily_returns` | Daily returns with lot context |
-| `gold_returns_by_lot` | Lot-level return analysis |
-| `silver_orders` | Order details |
-| `silver_order_items` | Item-level with lot traceability |
-| `silver_returns` | Returns with customer feedback |
-| `bronze_products` | Product catalog |
-| `bronze_production_lots` | Production lot records |
+| gold_daily_summary | KPIs and trends |
+| gold_daily_orders | Sales by date/region/category |
+| gold_returns_by_lot | Lot-level return analysis |
+| silver_returns | Returns with customer feedback |
+| bronze_products | Product catalog |
+| bronze_production_lots | Production lot records |
 
 ---
 
-## Genie Instructions
+## Instructions for Query Logic
 
-Add instructions like these to the Genie Space (adapt as needed):
+Add certified Q&A pairs to ensure reliable routing and safe demos without surprises.
 
-```
-You are an operations analyst for LuxeBeauty Co., a cosmetics company.
+### Investigate returns spike (THE KEY DEMO QUERY)
 
-## AUTOMATIC DEEP ANALYSIS
+1. Compare to baseline: `gold_daily_summary` → recent returns vs ~$60K/week average → show 3x spike
+2. Find affected products: `gold_returns_by_lot` GROUP BY product_id WHERE return_rate > 20%, JOIN `bronze_products` ON product_id for names/category
+3. Trace to common lot: `gold_returns_by_lot` GROUP BY lot_id → LOT-2025-0212 is the common factor
+4. Get feedback: `silver_returns.return_reason_text` WHERE lot_id = affected lot → texture complaints
+5. Summarize: 3x returns → 3 Skincare products → LOT-2025-0212 → texture issues → suggest checking incidents
 
-When someone asks a general question like "Why do I have so many returns?" or "What's happening with returns?", you should AUTOMATICALLY:
+### Find products with high return rates
 
-1. COMPARE to baseline: Look at recent weeks vs historical average
-   - Normal weekly returns: ~$60K
-   - If current week is significantly higher, quantify the difference (e.g., "3x higher than normal")
+`gold_returns_by_lot` GROUP BY product_id, JOIN `bronze_products` ON product_id. Calculate return_rate = returns/units, ORDER BY return_rate DESC. SKU-1001/1002/1003 show ~30% vs ~8% normal.
 
-2. IDENTIFY affected products: Query gold_daily_returns and gold_returns_by_lot
-   - List the top products by return count/value
-   - Calculate what % of total returns they represent
+### Get customer feedback themes
 
-3. FIND the common factor: Look for patterns
-   - Do affected products share a lot_id?
-   - When was that lot produced?
-   - What facility produced it?
+`silver_returns.return_reason_text`, GROUP BY common phrases, filter to affected lot. Surfaces texture complaints.
 
-4. ANALYZE customer feedback: Query silver_returns for return_reason_text
-   - What are customers actually saying?
-   - Are there common themes (texture, smell, consistency)?
+### Investigate specific lot
 
-5. PROVIDE a summary with:
-   - The anomaly: "Returns are X times higher than normal"
-   - The products: "3 Skincare products account for Y% of returns"
-   - The lot: "All trace to lot LOT-XXXX produced on [date]"
-   - The feedback: "Customers report [common themes]"
-   - Suggested next step: "Check if there's an incident report for this lot"
-
-## KEY DOMAIN KNOWLEDGE
-
-- Normal return rate: ~8% across products
-- Normal weekly returns: ~$60K
-- A return rate above 20% for any product is unusual
-- Multiple products sharing the same lot_id with high returns suggests a manufacturing issue
-- Texture complaints (grainy, separated, lumpy) often indicate emulsification problems
-- The lot_id format is LOT-YYYY-MMDD (e.g., LOT-2025-0212 = February 12, 2025)
-
-## RESPONSE FORMAT
-
-Always provide:
-- Specific numbers (counts, percentages, dollar amounts)
-- Reference specific lot IDs and product names
-- Highlight anomalies compared to baseline
-- Connect the dots (products → lot → production date)
-- End with a clear summary and suggested action
-```
+`gold_returns_by_lot` WHERE lot_id = 'LOT-2025-0212', JOIN `bronze_production_lots` ON lot_id for production_date/facility.
 
 ---
 
-## Demo Questions (Configure as Sample Questions)
+## Sample Questions
 
-These are the key questions for the demo:
-
-### Primary Demo Question
 ```
 "Why do I have so many returns?"
-```
-**Expected behavior**: Genie performs comprehensive analysis and identifies LOT-2025-0212 as the common factor.
-
-### Secondary Questions
-```
-"What's happening with returns this week?"
-"Which products have the highest returns?"
+"Which products have the highest return rate?"
 "Tell me about lot LOT-2025-0212"
 "What are customers saying about returns?"
 "Show me weekly returns for the last 8 weeks"
@@ -113,36 +69,17 @@ These are the key questions for the demo:
 
 ---
 
-## Example Question/Guideline Pairs
-
-Add these to help Genie route questions correctly:
-
-| Question | Guideline |
-|----------|-----------|
-| "Why do I have so many returns?" | Perform comprehensive analysis: compare to baseline, identify top products, find common lot_id, analyze customer feedback, summarize and suggest checking incident reports |
-| "Which products have issues?" | Query gold_returns_by_lot for products with return rate > 20%, list with lot_id |
-| "What are customers complaining about?" | Query silver_returns.return_reason_text, group by common themes |
-| "Tell me about lot LOT-2025-0212" | Query gold_returns_by_lot and silver_returns for this lot, show products, return count, customer feedback |
-
----
-
 ## Resource Tracking
 
-After creating the Genie Space, **add the Genie Space ID to `resources.json`**:
-```json
-{
-  "genie_space_id": "<the-genie-space-id>"
-}
-```
+After creating, add the Genie Space ID to `resources.json`.
 
 ---
 
 ## Validation
 
-After creating the Genie Space, test these queries:
+Test these queries work:
 
-| Question | Expected Key Results |
-|----------|---------------------|
-| "Why do I have so many returns?" | Returns 3x normal, 3 products, LOT-2025-0212, texture complaints |
+| Question | Expected Result |
+|----------|-----------------|
+| "Why do I have so many returns?" | Identifies spike, affected products, LOT-2025-0212 |
 | "Which lot has the most returns?" | LOT-2025-0212 |
-| "What's the return rate for Hydrating Serum?" | ~30% (vs 8% normal) |

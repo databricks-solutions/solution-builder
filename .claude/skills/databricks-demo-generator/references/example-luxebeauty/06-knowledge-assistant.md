@@ -18,7 +18,6 @@ Create a Knowledge Assistant (KA) that enables natural language queries against 
 | **Description** | "Search production incident reports and quality documentation for LuxeBeauty Co." |
 | **Volume Path** | `/Volumes/{catalog}/{schema}/{volume}/incident_pdf/` (as defined in 00-demo-overview.md and 02-unstructured-docs.md) |
 
-The KA indexes all PDF documents from this folder (generated per 02-unstructured-docs.md).
 
 ---
 
@@ -95,12 +94,7 @@ Add these to help the KA route questions correctly:
 
 ## Resource Tracking
 
-After creating the Knowledge Assistant, **add the KA ID to `resources.json`**:
-```json
-{
-  "knowledge_assistant_id": "<the-ka-id>"
-}
-```
+After creating, add the KA ID to `resources.json`.
 
 ---
 

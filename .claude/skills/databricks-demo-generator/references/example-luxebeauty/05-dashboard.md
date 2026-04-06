@@ -12,14 +12,7 @@ Create an AI/BI dashboard that shows daily operations metrics.
 
 ## Local Dashboard File
 
-Save the dashboard JSON spec locally as `dashboard.json` in the workspace folder. This makes it easier to edit and update the dashboard later.
-
-```
-{workspace_folder}/
-└── dashboard.json    # Full dashboard JSON spec
-```
-
-After creating the dashboard via API, export the JSON and save it locally. When making updates, edit the local file and re-upload.
+Save as `{workspace_folder}/dashboard.json` for easier editing and updates.
 
 ---
 
@@ -123,111 +116,79 @@ Add **global filters** for exploring the data. Filters let users drill down by t
 - **Type**: Multi-select dropdown
 - **Applies to**: All widgets - lets users focus on a specific product line
 
-**Filter behavior**:
-- When a user selects "EU" in the region filter, ALL widgets should update to show only EU data
-- When a user selects "Skincare" in category, ALL widgets should show only Skincare products
-- Filters combine: selecting "EU" + "Skincare" shows EU Skincare data across all widgets
+**Filter behavior**: All filters should affect ALL widgets (KPIs, charts, table). Filters combine.
 
 ---
 
 ### KPI Cards
 
-Three counter widgets showing key metrics for the selected period.
-
-**Display hint**: Add a description like "For the selected period" so users understand the KPIs respond to filters.
-
 | KPI | Source | Format | Notes |
 |-----|--------|--------|-------|
 | Total Revenue | gold_daily_summary | **$ USD** | Normal - provides contrast |
 | Total Orders | gold_daily_summary | Number | Normal - provides contrast |
-| **Total Returns** | gold_daily_summary | **$ USD** | **Shows the spike when filtered to recent data** |
+| **Total Returns** | gold_daily_summary | **$ USD** | **Shows the spike** |
 
-**Formatting**: Revenue and Returns KPIs MUST display with $ currency symbol (e.g., "$3.8M" not "3800000").
-
-**Filter behavior**: KPIs respond to all filters (date, region, category). When a user filters to "This Year" and "Skincare", the KPIs show totals for Skincare products this year.
+KPIs respond to all filters and MUST display $ currency symbol.
 
 ---
 
 ### Daily Returns Trend (THE KEY CHART)
-
-A dedicated line/area chart showing **only returns** over time. This is the most important visualization - the spike must be immediately obvious.
 
 | Element | Configuration |
 |---------|---------------|
 | **Chart type** | Line or Area (NOT combo with revenue) |
 | **X-Axis** | date (temporal, daily) |
 | **Y-Axis** | total_returns_usd |
-| **Source** | gold_daily_returns (aggregated by date) |
-| **Time range** | Controlled by global date filter |
+| **Source** | gold_daily_summary |
 
-**CRITICAL**: Do NOT combine returns with revenue in the same chart. Different scales make the spike less visible. Returns deserve their own dedicated chart.
-
-**Why it matters**: When someone looks at this chart, they should immediately see "something went wrong around March 17" - a clear spike compared to the flat baseline before it.
+**CRITICAL**: Dedicated returns chart only - do NOT mix with revenue. The spike must be immediately obvious.
 
 ---
 
 ### Revenue by Category (Pie Chart)
 
-A pie chart showing revenue breakdown by product category.
-
 | Element | Configuration |
 |---------|---------------|
 | **Chart type** | Pie |
 | **Angle** | Revenue amount |
-| **Color** | Category (3-5 categories max for readability) |
-| **Source** | gold_daily_orders aggregated by category |
-| **Time range** | Spike week |
+| **Color** | Category (3-5 max) |
+| **Source** | gold_daily_summary aggregated by category |
 
-**Why it matters**: Shows Skincare is a significant revenue contributor - context for why returns in that category matter.
+Shows Skincare is a significant revenue contributor.
 
 ---
 
 ### Daily Revenue Trend (Bar/Line Chart)
 
-A chart showing daily revenue over time - provides context that business is "normal" while returns spike.
-
 | Element | Configuration |
 |---------|---------------|
 | **Chart type** | Bar or Line |
 | **X-Axis** | date (temporal, daily) |
-| **Y-Axis** | total_revenue (format as $ USD) |
-| **Source** | gold_daily_orders (aggregated by date) |
-| **Time range** | Controlled by global date filter |
+| **Y-Axis** | total_revenue ($ USD) |
+| **Source** | gold_daily_summary |
 
-**Why it matters**: Shows revenue is steady while returns spike - this contrast reinforces that something is specifically wrong with returns, not overall business.
+Shows revenue is steady while returns spike - reinforces the contrast.
 
 ---
 
 ### Top Products Table
 
-A table showing products with their return metrics. This is where the affected products become visible.
+| Column | Source |
+|--------|--------|
+| Product Name | gold_returns_by_lot |
+| Category | gold_returns_by_lot |
+| Units Sold | aggregated |
+| Revenue | aggregated |
+| Returns | aggregated |
+| Return Rate | calculated (returns/units) |
 
-| Column | Source | Notes |
-|--------|--------|-------|
-| Product Name | products/order_items | Human-readable name |
-| Category | products | Skincare, Makeup, etc. |
-| Units Sold | order_items aggregated | Count |
-| Revenue | order_items aggregated | Sum of line totals |
-| Returns | returns aggregated | Sum of refund amounts |
-| Return Rate | Calculated | returns / units as % |
-
-**Cardinality**: Limit to top 10-15 products by revenue. Too many rows make it hard to spot the problem products.
-
-**Why it matters**: The 3 affected products (SKU-1001, SKU-1002, SKU-1003) should show ~30% return rates, while others show ~8%. This contrast draws attention.
-
-**Visual hint**: Consider conditional formatting to highlight return rates > 20% in red/warning color.
+Limit to top 10-15 products. Affected SKUs should show ~30% return rate vs ~8% normal. Consider conditional formatting for rates > 20%.
 
 ---
 
 ### Genie Space Integration
 
-Embed the Genie Space (created in 04-genie-space.md) into the dashboard. This allows the persona to ask natural language questions directly from the dashboard when they see the spike.
-
-**Why it matters**: When Claire sees the returns spike and asks "Why do I have so many returns?", she can type that question directly in the dashboard. The embedded Genie provides the analysis without leaving the dashboard context.
-
-**Configuration**:
-- Use the Genie Space ID from the previous step
-- Position it prominently - either as a dedicated section or accessible via a chat interface
+Embed the Genie Space (from 04-genie-space.md) into the dashboard. Use the Genie Space ID from `resources.json`. This lets the persona ask "Why do I have so many returns?" directly from the dashboard.
 
 ---
 
@@ -256,6 +217,4 @@ After creating the dashboard, verify the story is visually obvious:
 | **Products table** | The affected lot shows high return rates (~30% vs ~8% for others) |
 | **Contrast works** | Revenue chart shows steady business while returns chart shows spike |
 
-**The 5-second test**: Show the dashboard to someone for 5 seconds. They should be able to say "something is wrong with returns" without any explanation. If not, the visualization needs adjustment.
-
-**Filter test**: Select a single region (e.g., "US") - verify ALL widgets update to show only US data. If some widgets don't change, the underlying data is missing the region column.
+**5-second test**: Someone should immediately say "something is wrong with returns" without explanation. If not, adjust the visualization.

@@ -109,106 +109,31 @@ When providing final answers that combine both sources:
 
 ---
 
-## Demo Questions (Configure as Sample Questions)
+## Demo Flow
 
-These questions must work reliably for the demo:
-
-### Primary Demo Flow
-
-**Step 1 - Ask Genie via MAS:**
-```
-"Why do I have so many returns?"
-```
-**Expected**: Routes to data_analyst, performs deep analysis, identifies LOT-2025-0212, suggests checking incidents.
-
-**Step 2 - Follow-up to KA:**
-```
-"Was there any incident reported for lot LOT-2025-0212?"
-```
-**Expected**: Routes to incident_expert, finds the incident report, explains pressure fluctuation cause.
-
-### Alternative Demo Questions
-
-| Question | Routes To | Expected Behavior |
-|----------|-----------|-------------------|
-| "What's happening with returns?" | data_analyst | Weekly comparison, identifies spike |
-| "Which products are affected?" | data_analyst | Lists SKU-1001, SKU-1002, SKU-1003 |
-| "What are customers complaining about?" | data_analyst | Texture complaints from return feedback |
-| "What caused the manufacturing problem?" | incident_expert | Homogenizer pressure issues |
-| "Was the lot released?" | incident_expert | Yes, RELEASE FOR DISTRIBUTION |
+1. **"Why do I have so many returns?"** → data_analyst → Identifies LOT-2025-0212, suggests checking incidents
+2. **"Was there any incident for that lot?"** → incident_expert → Finds PIR-2025-0212, explains pressure issue
 
 ---
 
-## Example Question/Guideline Pairs
+## Question/Guideline Pairs
 
-Add these to ensure reliable routing:
+Add these to ensure reliable routing and safe demos without surprises:
 
-```json
-[
-  {
-    "question": "Why do I have so many returns?",
-    "guideline": "Route to data_analyst. The Genie has smart instructions to automatically perform deep analysis and identify the problematic lot."
-  },
-  {
-    "question": "Was there any incident reported for lot LOT-2025-0212?",
-    "guideline": "Route to incident_expert. Search for production incident reports mentioning this lot ID."
-  },
-  {
-    "question": "What caused the texture problems?",
-    "guideline": "Route to incident_expert. Find documentation explaining the manufacturing issue with the homogenizer."
-  },
-  {
-    "question": "Which products have the highest returns?",
-    "guideline": "Route to data_analyst for product return analysis from the operational data."
-  },
-  {
-    "question": "What are customers saying about the products?",
-    "guideline": "Route to data_analyst. Query return feedback data for customer complaints."
-  },
-  {
-    "question": "What happened during production?",
-    "guideline": "Route to incident_expert. Search production incident reports for manufacturing details."
-  }
-]
-```
-
----
-
-## Demo Script
-
-For a reliable demo, follow this sequence:
-
-1. **Open with the key question:**
-   > "Why do I have so many returns?"
-
-   The MAS routes to Genie, which performs deep analysis and identifies:
-   - Returns 3x higher than normal
-   - 3 Skincare products affected
-   - All trace to lot LOT-2025-0212
-   - Customers report texture issues
-
-2. **Follow up on the lot:**
-   > "Was there any incident reported for that lot?"
-
-   The MAS routes to KA, which finds:
-   - Incident report PIR-2025-0212
-   - Homogenizer pressure fluctuations
-   - QC note about texture variations
-   - Lot was released despite the issue
-
-3. **Connect the dots:**
-   The user now has the full picture - data shows the problem (high returns), documentation explains why (manufacturing incident).
+| Question | Route To | Guideline |
+|----------|----------|-----------|
+| "Why do I have so many returns?" | data_analyst | Genie performs deep analysis, identifies problematic lot |
+| "Was there any incident for lot LOT-2025-0212?" | incident_expert | Search incident reports for this lot ID |
+| "What caused the texture problems?" | incident_expert | Find homogenizer documentation |
+| "Which products have the highest returns?" | data_analyst | Product return analysis |
+| "What are customers saying?" | data_analyst | Query return feedback data |
+| "What happened during production?" | incident_expert | Search production incident reports |
 
 ---
 
 ## Resource Tracking
 
-After creating the Multi-Agent Supervisor, **add the MAS ID to `resources.json`**:
-```json
-{
-  "multi_agent_supervisor_id": "<the-mas-id>"
-}
-```
+After creating, add the MAS ID to `resources.json`.
 
 ---
 
@@ -221,5 +146,3 @@ After creating the MAS, test the full demo flow:
 | 1 | "Why do I have so many returns?" | Routes to Genie, identifies LOT-2025-0212 |
 | 2 | "Was there an incident for that lot?" | Routes to KA, finds incident report |
 | 3 | "What caused it?" | Routes to KA, explains pressure fluctuation |
-
-The MAS should correctly route each question and provide coherent answers that connect the structured data insights with the incident documentation.

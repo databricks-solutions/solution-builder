@@ -73,6 +73,49 @@ The demo is a **pitch**. Keep it simple.
 
 ---
 
+## Product Positioning
+
+Demos showcase the Databricks platform. **Read `{SKILL_BASE_DIR}/references/databricks_products.md`** to understand what each product does, what pain it solves, and how to position it.
+
+### Default Demo Stack (adapt to user needs)
+
+```
+Lakeflow Connect → SDP → DW/SQL Dashboard → Genie → Agents (MAS/KA) → Apps
+                              ↑
+                        Unity Catalog (governance across everything)
+```
+
+This is a starting point. Users may want different products, fewer products, or additional ones. Follow their lead.
+
+### Product Stack in Overview
+
+When generating the demo overview, include a **Product Stack** section explaining which products are showcased and why. For each product:
+
+| Field | Description |
+|-------|-------------|
+| **Role in Demo** | What it does in this specific demo |
+| **Pain Solved** | Business problem it addresses (reference `databricks_products.md` for positioning) |
+| **Demo Moment** | Presales talking point - what to say when this product appears |
+
+See `00-demo-overview.md` in the reference example for the format.
+
+### Choosing Products
+
+Products should connect to the story. Ask:
+- Does this product solve a pain in the demo narrative?
+- Does it have a clear "moment" in the walkthrough?
+- How does it connect to other products in the flow?
+
+**Examples of customization:**
+- ML story → add Notebooks + MLflow
+- Document-heavy → emphasize Vector Search + KA
+- Security use case → include Lakewatch
+- Operational app → add Databricks Apps + Lakebase
+
+But always follow user input - they know their audience.
+
+---
+
 ## Part 1: Generate Instructions
 
 ### Phase 1: Capture Intent
@@ -244,15 +287,15 @@ Ok, or specify different location?
 **Default output**: `./instructions/` folder (flexible - adapt to user needs).
 
 **Files to generate:**
-1. **Overview** - Story, timeline, key numbers, build order
-2. **Data layer** - Table schemas, distributions, relationships, the event encoded
-3. **Documents** - PDF specs (background noise + key document with the "smoking gun")
-4. **Pipeline layer** - Bronze/Silver/Gold definitions, validation
-5. **Genie** - Config with smart instructions, sample questions, domain knowledge
-6. **Dashboard** - Layout, KPIs, the visual story (anomaly obvious at a glance)
-7. **KA** - Config, instructions, identifiers matching structured data
-8. **MAS** - Routing logic
-9. **Walkthrough** - Demo script with talk track (humans read this - keep simple!)
+1. **Overview (00)** - Story, product stack, timeline, key numbers, walkthrough with talk track. This is the human-readable "pitch deck" for the demo.
+2. **META-PROMPT** - Build instructions for the AI: local project structure, build order, resource tracking, troubleshooting.
+3. **Data layer (01)** - Table schemas, distributions, relationships, the event encoded
+4. **Documents (02)** - PDF specs (background noise + key document with the "smoking gun")
+5. **Pipeline layer (03)** - Bronze/Silver/Gold definitions, validation
+6. **Genie (04)** - Config with smart instructions, sample questions, domain knowledge
+7. **Dashboard (05)** - Layout, KPIs, the visual story (anomaly obvious at a glance)
+8. **KA (06)** - Config, instructions, identifiers matching structured data
+9. **MAS (07)** - Routing logic
 
 Generate all files, then do coherence review.
 

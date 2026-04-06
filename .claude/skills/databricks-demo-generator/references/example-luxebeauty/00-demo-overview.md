@@ -1,180 +1,198 @@
 # LuxeBeauty Co. - Returns Intelligence Demo
 
-## What to Build
+## Overview
 
-Build a demo showcasing how a cosmetics retailer investigates a sudden spike in product returns. An executive sees the anomaly in a dashboard, asks "Why do I have so many returns?", and the Multi-Agent Supervisor combines structured data (Genie) with incident documentation (Knowledge Assistant) to reveal the root cause.
+A cosmetics retailer investigates a sudden spike in product returns. An executive sees the anomaly in a dashboard, asks "Why do I have so many returns?", and AI combines structured data with incident documentation to reveal the root cause.
 
-**Demo Duration**: 5-7 minutes
+**Duration:** 5-7 minutes | **Key message:** One question, complete answer - from anyone, not just analysts.
 
 ---
 
-## How to Build This Demo
-
-### Workflow: Local First, Then Deploy
-
-Create all files locally in a project folder, then deploy to Databricks:
-
-1. **Write code and configs locally** - Python scripts, SQL files, pipeline definitions
-2. **Upload files to Databricks** - To volumes (data) and workspace (code)
-3. **Create Databricks resources** - Pipelines, dashboards, Genie spaces, KA, MAS via APIs
-4. **Validate after each step** - Query tables to confirm data is correct
-
-### Local Project Structure
-
-Create this folder structure locally:
+## Product Stack
 
 ```
-luxebeauty_demo/
-├── data_generation/
-│   └── generate_data.py              # Script to generate synthetic parquet files
-├── documents/
-│   └── generate_incident_pdf.py      # Script to generate the incident report PDF
-├── pipeline/
-│   ├── transformations/
-│   │   ├── 01_bronze_ingestion.py    # Bronze layer: raw parquet ingestion
-│   │   ├── 02_silver_transformation.py # Silver layer: joins and enrichment
-│   │   └── 03_gold_aggregation.py    # Gold layer: aggregations for analytics
-│   └── exploration/
-│       └── exploration_notebook.py   # Notebook to verify raw data
-└── instructions/                     # These instruction files (for reference)
+┌──────────┐    ┌──────────┐    ┌───────────┐    ┌─────────┐    ┌─────────┐
+│ Lakeflow │ →  │   SDP    │ →  │ Dashboard │ →  │  Genie  │ →  │   KA    │
+│ Connect  │    │ Pipeline │    │  (AI/BI)  │    │ (AI/BI) │    │         │
+└──────────┘    └──────────┘    └───────────┘    └─────────┘    └─────────┘
+  Ingestion      Processing       Analytics       NL Query      Documents
+                                                      ↑              ↑
+                                                      └──────────────┘
+                                                  Multi-Agent Supervisor
+
+═══════════════════════════════════════════════════════════════════════════
+                         Unity Catalog (governance across all)
 ```
 
-After running scripts locally, upload to the Databricks resources defined above (volumes for data, workspace folder for code).
-
 ---
 
-## Databricks Infrastructure
+## The Story
 
-### Resource Names
-
-| Resource | Name |
-|----------|------|
-| **Catalog** | `luxebeauty` |
-| **Schema** | `analytics` |
-| **Workspace Folder** | `/Workspace/Users/{user}/ai_demos/luxebeauty_demo/` |
-
-Derived paths:
-- **Raw Data Volume**: `/Volumes/{catalog}/{schema}/raw_data/`
-
-### Pre-flight Check
-
-Before starting, verify:
-
-**Local environment**:
-- Python 3.12 is available (required for Databricks Connect compatibility)
-- If not, use `uv` to create a virtual environment with Python 3.12: `uv venv --python 3.12`
-
-**Databricks resources** (create if needed). If any already contain data, ask the user whether to overwrite or use a different name:
-- Catalog and schema
-- Volume (raw_data)
-- Workspace folder
-
-### Assets to Create
-
-| Asset | Type | Name |
-|-------|------|------|
-| Pipeline | Spark Declarative Pipeline | `luxebeauty_operations` |
-| Dashboard | AI/BI Dashboard | `LuxeBeauty Weekly Operations` |
-| Genie Space | Genie | `LuxeBeauty Operations Analytics` |
-| Knowledge Assistant | KA | `LuxeBeauty Incidents` |
-| Multi-Agent Supervisor | MAS | `LuxeBeauty Operations Assistant` |
-
----
-
-## The Demo Story
-
-### Company Profile
-
-- **Company**: LuxeBeauty Co. - D2C cosmetics e-commerce
-- **Persona**: Claire Dubois, VP of Operations
-- **Manufacturing**: Single facility in Lyon, France
+| | |
+|---|---|
+| **Company** | LuxeBeauty Co. - D2C cosmetics e-commerce |
+| **Hero** | Claire Dubois, VP of Operations (non-technical) |
+| **Problem** | Returns spike to $180K (3x normal) |
+| **Root cause** | Equipment issue in lot LOT-2025-0212 |
 
 ### Timeline
 
 | Date | Event |
 |------|-------|
-| **Feb 12, 2025** | Homogenizer equipment issue during production. Lot LOT-2025-0212 released after visual QC passes. |
-| **Feb 12 - Mar 15** | Products from affected lot ship gradually (~2,400 units) |
-| **Feb 20 - Mar 25** | Returns accumulate as customers notice texture issues |
-| **Mar 24, 2025** | Claire sees spike in dashboard → **DEMO STARTS** |
-
-**Note on dates**: The data uses fixed dates (Feb-Mar 2025). Dashboard queries should use these specific date ranges rather than `CURRENT_DATE()` to ensure the spike is always visible.
+| Feb 12 | Homogenizer issue during production. Lot released after visual QC passes. |
+| Feb 12 - Mar 15 | Affected products ship (~2,400 units) |
+| Feb 20 - Mar 25 | Returns accumulate - customers notice texture issues |
+| **Mar 24** | Claire sees spike → **DEMO STARTS** |
 
 ### Key Numbers
 
 | Metric | Value |
 |--------|-------|
-| Normal weekly returns | ~$60K |
-| Spike week returns | ~$180K (3x normal) |
+| Normal returns | ~$60K/week |
+| Spike returns | ~$180K (3x) |
 | Affected lot | LOT-2025-0212 |
-| Affected products | SKU-1001, SKU-1002, SKU-1003 |
-| Units in lot | 2,400 |
-| Return rate for lot | ~30% (vs 8% normal) |
-
-### Affected Products
-
-| SKU | Product Name | Price |
-|-----|--------------|-------|
-| SKU-1001 | Hydrating Serum 30ml | $68 |
-| SKU-1002 | Vitamin C Cream 50ml | $55 |
-| SKU-1003 | HA Moisture Boost 15ml | $42 |
+| Affected SKUs | SKU-1001, SKU-1002, SKU-1003 |
+| Return rate | ~30% vs 8% normal |
 
 ---
 
-## Demo Flow
+## Databricks Resources
 
-### Step 1: Dashboard (30 seconds)
-
-Claire opens dashboard. Everything normal except:
-- **Weekly Returns: $180K** (usually ~$60K)
-- Clear spike visible in trend chart
-
-*Claire's reaction*: "Why do I have so many returns?"
-
-### Step 2: Ask the MAS (2 minutes)
-
-**Question 1**: "Why do I have so many returns this week?"
-
-MAS routes to Genie, which finds:
-- Returns 3x higher than normal
-- 3 Skincare products account for 78% of returns
-- All trace to lot LOT-2025-0212
-- Customers report texture issues (grainy, separated)
-
-### Step 3: Find Root Cause (2 minutes)
-
-**Question 2**: "Was there any incident reported for lot LOT-2025-0212?"
-
-MAS routes to KA, which finds:
-- Homogenizer had pressure fluctuations on Feb 12
-- QC noted "minor texture variations due to pressure fluctuations during emulsification"
-- Lot was released because visual inspection passed
-
-### Step 4: Resolution
-
-Claire now knows:
-- **What**: 3 products, $180K in returns, texture complaints
-- **Why**: Equipment calibration issue caused emulsification problems
-- **Action**: Contact remaining customers, review QC process
+| Type | Name |
+|------|------|
+| Pipeline (SDP) | `luxebeauty_operations` |
+| Dashboard | `LuxeBeauty Operations` |
+| Genie Space | `LuxeBeauty Operations Analytics` |
+| Knowledge Assistant | `LuxeBeauty Incidents` |
+| Multi-Agent Supervisor | `LuxeBeauty Operations Assistant` |
 
 ---
 
-## Build Order
+## Demo Walkthrough
 
-1. **Create catalog and schema** (as defined above)
-2. **Create volume** (`raw_data`)
-3. **Generate synthetic data** → upload to `raw_data` volume (see 01-data-generation.md)
-4. **Generate incident PDFs** → upload to volume `incident_pdf/` folder (see 02-unstructured-docs.md)
-5. **Create SDP pipeline** → run to create Bronze/Silver/Gold tables (see 03-pipelines.md)
-6. **Validate pipeline data** → verify data matches story and dashboard requirements (see 03b-pipeline-validation.md)
-7. **Create Genie Space** (see 04-genie-space.md)
-8. **Create dashboard** → include Genie Space for natural language queries (see 05-dashboard.md)
-9. **Create Knowledge Assistant** (see 06-knowledge-assistant.md)
-10. **Create Multi-Agent Supervisor** (see 07-multi-agent-supervisor.md)
-11. **Test demo flow** (see 08-walkthrough.md)
+### Pre-flight
+
+- [ ] Dashboard shows $180K returns (spike obvious at a glance)
+- [ ] MAS responds to "Why so many returns?"
+- [ ] KA finds incident for LOT-2025-0212
 
 ---
 
-## Validation
+### Setup: How We Got Here (30 sec - optional)
 
-After each step that creates tables or data, run validation queries to confirm the demo facts are present before moving to the next step.
+> "Before we dive in, let me show you how this works.
+>
+> LuxeBeauty's data - orders from Shopify, returns from Zendesk, production from their ERP - flows into Databricks through **Lakeflow Connect**. A few clicks per source. No custom pipelines. No waiting weeks for engineering.
+>
+> That data is transformed by an **SDP pipeline** - built with **Genie Code** by describing what tables we need. No hand-coded Spark jobs that only three people understand.
+>
+> All governed by **Unity Catalog** - same permissions from raw data to dashboards to AI.
+>
+> Now let's see what their VP of Operations sees every Monday."
+
+---
+
+### Act 1: The Dashboard (1 min)
+
+**[Open: LuxeBeauty Operations Dashboard]**
+
+> "This is Claire, VP of Ops. Not a data analyst. Not technical.
+>
+> She built this dashboard herself. No IT ticket. No BI team. No waiting 3 weeks for a new chart. With **AI/BI Dashboard**, there's no per-seat licensing - anyone can build and view.
+>
+> Revenue: $3.8M - normal. Orders: steady.
+>
+> But returns: **$180K**. Usually $60K. And three Skincare products at 30% return rates - everything else is 8%.
+>
+> In most companies, Claire's next step is: email the analyst, open a ticket, wait. Maybe two weeks later she gets a report.
+>
+> But Claire doesn't have to wait. She thinks: *Why do I have so many returns?*"
+
+---
+
+### Act 2: The Investigation (3-4 min)
+
+**[Open: MAS - Operations Assistant]**
+
+**[Type]** `Why do I have so many returns?`
+
+> "Claire doesn't know SQL. She doesn't need to.
+>
+> This is **AI/BI Genie**. It puts analytics in the hands of business users - not just the data team. Claire asks a business question in plain English. The kind of question that used to create a ticket, sit in a backlog, take weeks.
+>
+> Watch what happens."
+
+*Wait for response*
+
+> "In seconds:
+> - Returns 3x normal
+> - Three Skincare products account for 78%
+> - All trace to **lot LOT-2025-0212**, manufactured February 12th
+> - Customers saying: 'grainy texture', 'product separated'
+>
+> Genie didn't just query - it *investigated*. Trend analysis, product breakdown, lot tracing, customer sentiment. All from one question.
+>
+> And it suggests: *check for an incident report*. Let's do that."
+
+---
+
+**[Type]** `Was there an incident for lot LOT-2025-0212?`
+
+> "Now we're asking the **Knowledge Assistant** - it searches through incident reports, QC documents, anything indexed.
+>
+> The structured data told us WHAT happened. The documents tell us WHY."
+
+*Wait for response*
+
+> "There it is. February 12th - the homogenizer had pressure fluctuations. QC noted *'minor texture variations due to pressure fluctuations during emulsification.'*
+>
+> The lot was released because visual inspection passed. They thought it was cosmetic.
+>
+> Two questions. One platform. Complete answer:
+> - Equipment calibration issue
+> - → Texture problems in 2,400 units
+> - → Customer returns
+> - → $180K impact this week"
+
+---
+
+### Act 3: The Platform (1 min)
+
+> "Let's zoom out. What did we just see?
+>
+> Data from Shopify, Zendesk, ERP - **ingested in clicks** with Lakeflow Connect.
+>
+> Transformed by **SDP pipelines** - built by describing what we need, not hand-coding fragile jobs.
+>
+> Visualized in a **dashboard** Claire built herself - no BI team required.
+>
+> Queried in plain English by **Genie** - analytics for business users, not just analysts.
+>
+> Connected to documents by **Knowledge Assistant** - data tells you WHAT, docs tell you WHY.
+>
+> Orchestrated by the **Multi-Agent Supervisor** - Claire doesn't need to know which system to ask.
+>
+> All governed by **Unity Catalog** - same permissions, same lineage, from raw data to AI.
+>
+> **One platform. Anyone can ask. Everyone gets answers.**
+>
+> That's Databricks."
+
+---
+
+### Closing
+
+> "You've invested millions collecting data. How much value are you actually getting from it?
+>
+> Most companies have data scattered across dozens of systems. AI projects take months just to get the data ready. Business users wait weeks for basic answers. Most questions never even get asked.
+>
+> What we just showed you is different:
+> - Any data source connects in clicks
+> - Any question gets answered in seconds
+> - Any AI use case - BI, ML, agents, apps - runs on the same governed data
+>
+> Claire isn't special. She's a VP with no technical skills. But she just did in 2 minutes what used to take a team two weeks.
+>
+> **That's the real value: not one investigation, but unlocking all the value from all your data - for everyone in your company.**
+>
+> That's Databricks."

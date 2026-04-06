@@ -12,14 +12,9 @@ Generate synthetic parquet files and upload them to the raw data volume.
 
 ## Data Volume Principle
 
-Generate enough data so that the anomaly (spike) is clearly visible above the baseline noise.
+Generate enough data so that the anomaly (spike) is clearly visible above the baseline noise. With too little data, random variations obscure the spike.
 
-With too little data, random variations in normal returns can obscure the spike. The baseline must be stable enough that when the spike occurs, it's unmistakably abnormal - not just a random fluctuation.
-
-**Rule of thumb**:
-- Baseline period should have consistent daily/weekly patterns with low variance
-- The spike should be **at least 3x the baseline** to be visually obvious
-- More total volume = smoother baseline = clearer spike
+**Rule of thumb**: Spike should be **at least 3x the baseline**. More volume = smoother baseline = clearer spike.
 
 ---
 
@@ -33,11 +28,6 @@ With too little data, random variations in normal returns can obscure the spike.
 | STORY_START_DATE | NOW - 13 months | ~1 year of historical data |
 | AFFECTED_LOT_DATE | NOW - 7 weeks | Production date of bad lot |
 | Spike week | NOW - 5 to 6 weeks | When returns peak (visible in charts) |
-
-This ensures:
-- Orders: ~1 year of history ending today
-- Returns: follow orders with 7-30 day lag
-- The spike is always ~5-6 weeks ago (recent enough to be actionable, old enough for returns to accumulate)
 
 ---
 
@@ -67,11 +57,11 @@ Upload to the **raw_data** volume (path defined in 00-demo-overview.md).
 | Column | Type | Description |
 |--------|------|-------------|
 | customer_id | STRING | Primary key (format: CUST-NNNNNN) |
-| email | STRING | Customer email |
-| first_name | STRING | First name |
-| last_name | STRING | Last name |
+| email | STRING | |
+| first_name | STRING | |
+| last_name | STRING | |
 | region | STRING | "US", "EU", "APAC" |
-| registration_date | DATE | Account creation date |
+| registration_date | DATE | |
 | loyalty_tier | STRING | "standard", "silver", "gold" |
 
 **Distribution**:
@@ -221,8 +211,3 @@ After generating and uploading the data, verify the key demo facts are present.
 | Returns in week of Mar 17-23 | Significantly higher than other weeks (~$180K vs ~$60K) |
 | Return reasons for affected lot | Mostly "quality" with texture complaints |
 
-**Sample validation queries** (run against the parquet files):
-- Count of production_lots where lot_id = 'LOT-2025-0212'
-- Count of order_items where lot_id = 'LOT-2025-0212'
-- Return rate calculation for affected vs normal lots
-- Weekly returns aggregation to see the spike
