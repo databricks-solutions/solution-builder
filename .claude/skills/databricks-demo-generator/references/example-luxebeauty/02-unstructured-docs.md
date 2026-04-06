@@ -1,6 +1,6 @@
 # PDF Generation
 
-> **Before starting**: Check if you have a relevant skill available and read it for best practices.
+> **Before starting**: Check relevant skill (`databricks-unstructured-pdf-generation` should be present if ai-dev-kit is installed).
 
 ## Task
 
@@ -59,8 +59,8 @@ Generate ONE specific document that contains the "smoking gun" - the incident re
 
 ### Header Information
 - Company: LuxeBeauty Co.
-- Report Number: PIR-2025-0212
-- Date: February 12, 2025
+- Report Number: `PIR-{YYYY}-{MMDD}` matching the lot ID format
+- Date: AFFECTED_LOT_DATE (same date as production lot)
 - Facility: Lyon Manufacturing Center
 - Reported By: Marc Dupont, Production Supervisor
 
@@ -73,10 +73,10 @@ Generate ONE specific document that contains the "smoking gun" - the incident re
 ### Affected Production
 - Lot Number: LOT-2025-0212
 - Products affected:
-  - SKU-1001 - Hydrating Serum 30ml (~800 units)
-  - SKU-1002 - Vitamin C Cream 50ml (~800 units)
-  - SKU-1003 - HA Moisture Boost 15ml (~800 units)
-- Total: ~2,400 units
+  - SKU-1001 - Hydrating Serum 30ml (~1,700 units)
+  - SKU-1002 - Vitamin C Cream 50ml (~1,700 units)
+  - SKU-1003 - HA Moisture Boost 15ml (~1,700 units)
+- Total: ~5,000 units
 
 ### QC Assessment (the "smoking gun")
 - Visual inspection passed (color, odor, container, labels all normal)

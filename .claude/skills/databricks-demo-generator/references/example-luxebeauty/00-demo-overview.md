@@ -37,12 +37,14 @@ A cosmetics retailer investigates a sudden spike in product returns. An executiv
 
 ### Timeline
 
-| Date | Event |
-|------|-------|
-| Feb 12 | Homogenizer issue during production. Lot released after visual QC passes. |
-| Feb 12 - Mar 15 | Affected products ship (~2,400 units) |
-| Feb 20 - Mar 25 | Returns accumulate - customers notice texture issues |
-| **Mar 24** | Claire sees spike → **DEMO STARTS** |
+*Note: Dates below are illustrative. Actual data uses dynamic dates relative to NOW (see 01-data-generation.md).*
+
+| Event | Relative Timing |
+|-------|-----------------|
+| Homogenizer issue during production | AFFECTED_LOT_DATE (NOW - 7 weeks) |
+| Affected products ship (~5,000 units) | AFFECTED_LOT_DATE to +5 weeks |
+| Returns accumulate - texture issues | AFFECTED_LOT_DATE +1 week to +6 weeks |
+| **Claire sees spike → DEMO STARTS** | **NOW** |
 
 ### Key Numbers
 
@@ -150,7 +152,7 @@ A cosmetics retailer investigates a sudden spike in product returns. An executiv
 >
 > Two questions. One platform. Complete answer:
 > - Equipment calibration issue
-> - → Texture problems in 2,400 units
+> - → Texture problems in 5,000 units
 > - → Customer returns
 > - → $180K impact this week"
 

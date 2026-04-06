@@ -17,6 +17,19 @@ This skill has two parts:
 
 ---
 
+## Quick Reference
+
+| Phase | What | Output |
+|-------|------|--------|
+| 1. Capture | Understand request, search demo bank | Selected story direction |
+| 2. Design | Define hero, disruption, quest, resolution | Story spec |
+| 3. Components | Select Databricks products | Component list |
+| 4. Generate | Write instruction files 00-07 | ./instructions/ folder |
+| 5. Review | Coherence check across all files | Verified instructions |
+| 6. Build (opt) | Create Databricks resources | Working demo |
+
+---
+
 ## Workflow Overview
 
 ```
@@ -44,13 +57,17 @@ The demo is a **pitch**. Keep it simple.
 
 ### The Story Arc
 
-1. **Business as usual** - Dashboard shows normal operations (the baseline)
-2. **Something's wrong** - An anomaly appears (obvious at a glance)
-3. **Ask why** - Hero asks Genie a natural question
-4. **Get the answer** - AI reveals root cause + business impact
-5. **Value** - "We found the issue and can act. This used to take days. Now: minutes."
+The demo follows a classic three-act structure *(default pattern - adapt to user requirements)*:
 
-**Important:** The demo ends at step 4 (discovery). Step 5 (resolution/action) is **narrative only** - what the presenter says, not what we build.
+| Act | What Happens | Demo Moment |
+|-----|--------------|-------------|
+| **Setup** (optional) | How data flows in | Mention Lakeflow, SDP, UC |
+| **Act 1: Dashboard** | Baseline + anomaly visible | "Revenue normal... but returns are 3x" |
+| **Act 2: Investigation** | Ask why → get answer | Genie finds lot, KA finds incident |
+| **Act 3: Platform** | Zoom out - what made this possible | Recap products, governance |
+| **Closing** | Value statement | "Days → minutes. That's Databricks." |
+
+**Key rule:** Act 2 is the live demo (interactive). Acts 1, 3, and Closing are mostly narration with visuals.
 
 **Resolution should leverage Databricks agents** - don't just say "now they can act." Focus on what agents can do next:
 - "Claire asks a Databricks agent to generate personalized win-back offers for at-risk customers"
@@ -426,15 +443,27 @@ Never change a resource without updating its instruction file. Never let instruc
 
 ---
 
-## Reference Example
+## Reference Materials
 
 **Before generating any instructions, read the files in `{SKILL_BASE_DIR}/references/example-luxebeauty/`** to understand the structure and level of detail expected.
 
-This is a standalone example - a cosmetics returns spike investigation with the full Lakehouse stack. Use it to understand:
+### example-luxebeauty/ (Structure Template)
+
+Complete worked example showing file format, level of detail, and how files connect. Use it to understand:
 - How detailed each file should be
 - How to encode the "event" in data
 - How to write Genie/KA instructions
 - How to structure the walkthrough
+
+### tools/demo_references/ (Story Bank)
+
+Pre-built story templates for different industries. Use `search_demos.py` to find relevant templates, then adapt for your use case.
+
+### Workflow
+
+1. **Always read example-luxebeauty first** for structure
+2. **Optionally search demo_references** for a relevant story
+3. **Combine**: structure from example + story from bank (if applicable)
 
 Adapt for each use-case - don't copy blindly.
 

@@ -91,7 +91,7 @@ Follow this sequence. Each step has a dedicated instruction file.
 | 4 | Create SDP pipeline | `03-pipelines.md` | Bronze/Silver/Gold tables |
 | 5 | Validate pipeline data | `03b-pipeline-validation.md` | Confirmed data matches story |
 | 6 | Create Genie Space | `04-genie-space.md` | Genie with smart instructions |
-| 7 | Create dashboard | `05-dashboard.md` | Dashboard with Genie embedded |
+| 7 | Create dashboard | `05-dashboard.md` | Dashboard with Genie embedded ← *requires step 6* |
 | 8 | Create Knowledge Assistant | `06-knowledge-assistant.md` | KA indexing incident docs |
 | 9 | Create Multi-Agent Supervisor | `07-multi-agent-supervisor.md` | MAS routing to Genie + KA |
 | 10 | Test demo flow | `00-demo-overview.md` (walkthrough section) | Working end-to-end demo |

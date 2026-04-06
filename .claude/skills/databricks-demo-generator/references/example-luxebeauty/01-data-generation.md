@@ -1,6 +1,6 @@
 # Data Generation
 
-> **Before starting**: Check if you have a relevant skill available and read it for best practices.
+> **Before starting**: Check relevant skill (`databricks-synthetic-data-gen` should be present if ai-dev-kit is installed).
 
 ## Task
 
@@ -109,8 +109,8 @@ Upload to the **raw_data** volume (path defined in 00-demo-overview.md).
 | status | STRING | "released", "on_hold", "recalled" |
 
 **The affected lot** - this is the lot that causes the returns spike:
-- Lot ID: LOT-2025-0212
-- Production date: February 12, 2025
+- Lot ID: `LOT-{YYYY}-{MMDD}` based on AFFECTED_LOT_DATE (e.g., if AFFECTED_LOT_DATE is Feb 12, 2025 → LOT-2025-0212)
+- Production date: AFFECTED_LOT_DATE (NOW - 7 weeks)
 - Products: SKU-1001, SKU-1002, SKU-1003
 - Quantity: ~1,700 units each (5,000 total)
 - Status: released
@@ -158,8 +158,8 @@ Upload to the **raw_data** volume (path defined in 00-demo-overview.md).
 | line_total_usd | DECIMAL(10,2) | quantity × unit_price |
 
 **Affected lot assignment**:
-- Around 5,000 order_items should reference lot LOT-2025-0212
-- These orders happen between Feb 12 - Mar 15, 2025 (as the lot inventory ships out)
+- Around 5,000 order_items should reference the affected lot
+- These orders happen between AFFECTED_LOT_DATE and AFFECTED_LOT_DATE + 5 weeks (as the lot inventory ships out)
 - Use FIFO logic: assign to oldest available lot for each product
 
 **Why this matters**: This links orders to the specific production lot, enabling the "trace back to source" analysis in Genie.
@@ -181,9 +181,9 @@ Upload to the **raw_data** volume (path defined in 00-demo-overview.md).
 **Normal return distribution**: quality ~25%, changed_mind ~40%, wrong_item ~15%, damaged ~10%, other ~10%
 
 **Affected lot returns** - this creates the spike that triggers the investigation:
-- Around 1,500 returns from LOT-2025-0212 items (~30% return rate vs ~8% normal)
-- Return dates: Feb 20 - Mar 25, 2025 (7-14 days after order)
-- Peak week: Mar 17-23 (~500 returns, creating the ~$180K spike vs ~$60K baseline)
+- Around 1,500 returns from affected lot items (~30% return rate vs ~8% normal)
+- Return dates: AFFECTED_LOT_DATE + 1 week to AFFECTED_LOT_DATE + 6 weeks (7-14 days after order)
+- Peak week: NOW - 5 to 6 weeks (~500 returns, creating the ~$180K spike vs ~$60K baseline)
 - Return reason: predominantly "quality"
 - Return reason text: texture complaints like:
   - "Cream has grainy texture, not smooth like usual"
@@ -205,9 +205,9 @@ After generating and uploading the data, verify the key demo facts are present.
 
 | What to Check | What You Should See |
 |---------------|---------------------|
-| LOT-2025-0212 in production_lots | 3 rows (one per affected SKU) |
-| Order items with lot LOT-2025-0212 | Around 5,000 items |
+| Affected lot in production_lots | 3 rows (one per affected SKU) |
+| Order items with affected lot | Around 5,000 items |
 | Returns from affected lot | Around 1,500 returns (~30% return rate) |
-| Returns in week of Mar 17-23 | Significantly higher than other weeks (~$180K vs ~$60K) |
+| Returns in spike week (NOW - 5 to 6 weeks) | Significantly higher than other weeks (~$180K vs ~$60K) |
 | Return reasons for affected lot | Mostly "quality" with texture complaints |
 

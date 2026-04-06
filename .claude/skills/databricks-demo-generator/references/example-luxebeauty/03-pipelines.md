@@ -1,6 +1,6 @@
 # Pipeline Creation
 
-> **Before starting**: Check if you have a relevant skill available and read it for best practices.
+> **Before starting**: Check relevant skill (`databricks-spark-declarative-pipelines` should be present if ai-dev-kit is installed).
 
 ## Task
 

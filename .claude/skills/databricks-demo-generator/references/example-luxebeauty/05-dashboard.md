@@ -1,6 +1,6 @@
 # Dashboard Creation
 
-> **Before starting**: Check if you have a relevant skill available and read it for best practices.
+> **Before starting**: Check relevant skill (`databricks-aibi-dashboards` should be present if ai-dev-kit is installed).
 
 ## Task
 
