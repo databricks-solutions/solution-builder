@@ -32,22 +32,11 @@ This skill has two parts:
 
 ## Workflow Overview
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  PART 1: GENERATE INSTRUCTIONS                                  │
-│                                                                 │
-│  Capture Intent → Design Story → Select Components →            │
-│  Generate Files → Coherence Review → Output                     │
-│                                                                 │
-├─────────────────────────────────────────────────────────────────┤
-│  PART 2: BUILD RESOURCES (optional, requires ai-dev-kit)        │
-│                                                                 │
-│  Read README.md → Build each component → Keep instructions      │
-│  in sync with any changes                                       │
-└─────────────────────────────────────────────────────────────────┘
-```
+**Part 1:** Capture Intent → Design Story → Select Components → Generate Files → Coherence Review → Output
 
-**Use TodoWrite to track progress.** This is a multi-step process - tracking ensures nothing gets forgotten and helps the user see progress.
+**Part 2 (optional, requires ai-dev-kit):** Read META-PROMPT → Build each component → Keep instructions in sync
+
+**Use TodoWrite to track progress.** Multi-step process - tracking ensures nothing gets forgotten.
 
 ---
 
@@ -153,35 +142,25 @@ This returns the top 3 matching reference demos (mocked vector search for now).
 
 #### Step 2: Present Options
 
-Show both AI-generated ideas AND reference demos from the bank:
+Show both AI-generated ideas AND reference demos. Example *(all options should follow format of #1 and A - abbreviated here)*:
 
 ```
-Here's a story for your retail demo:
-
 **Generated Ideas:**
-
-**1. Returns spike** - Online beauty retailer...
-**2. Sales drop** - Fashion retailer...
-**3. Stockouts** - Home goods e-commerce...
-
----
+**1. Returns spike** - Online beauty retailer. VP Ops sees returns 3x higher this week.
+   → Genie traces to 3 skincare products from same supplier batch.
+   → KA reveals supplier quality incident (texture issues). $180K at risk.
+   Data: orders, returns (Salesforce via Lakeflow Connect) · batches (NetSuite via Lakeflow Connect)
+**2. Sales drop** - ...
+**3. Stockouts** - ...
 
 **Reference Demos (from demo bank):**
-*Note: Search is currently mocked - showing top matches*
-
 **A. Manufacturing Quality Defects** - Automotive parts manufacturer sees 4x defect spike.
    → Traces to CNC machine with worn bearing. ML predicts equipment failures.
    Components: Full stack + ML Notebook
+**B. Healthcare Patient Readmissions** - ...
+**C. Financial Services Fraud** - ...
 
-**B. Healthcare Patient Readmissions** - Hospital sees readmission rate spike to 18%.
-   → Traces to staffing gap in discharge coordination. ML predicts readmission risk.
-   Components: Full stack + ML Notebook
-
-**C. Financial Services Fraud** - Bank sees 3x fraud spike in CNP transactions.
-   → Traces to merchant breach and fraud ring. ML scores transactions in real-time.
-   Components: Full stack + ML Notebook
-
-Pick 1-3 for a generated idea, A-C to use a reference demo, or describe something else.
+Pick 1-3 for generated, A-C for reference, or describe something else.
 ```
 
 #### Step 3: If User Picks a Reference Demo
@@ -202,33 +181,6 @@ Then:
    - Customize: Adapt company name, industry details, specific numbers, then write
 
 After this, continue to Part 2 (building) if user wants.
-
----
-
-#### Generated Ideas Example
-
-When proposing generated ideas (not from reference bank):
-
-```
-Here's a story for your retail demo:
-
-**1. Returns spike** - Online beauty retailer. VP Ops sees returns 3x higher this week.
-   → Genie traces to 3 skincare products from same supplier batch.
-   → KA reveals supplier quality incident (texture issues). $180K at risk.
-   Data: orders, returns (Salesforce via Lakeflow Connect) · batches (NetSuite via Lakeflow Connect)
-
-**2. Sales drop** - Fashion retailer with 50 stores. Southwest region sales down 40%.
-   → Genie finds it's the premium denim category, tied to one competitor.
-   → KA reveals competitor opened 5 outlets with aggressive promos. $500K impact.
-   Data: sales, customers (Salesforce via Lakeflow Connect) · stores (PostgreSQL) · market docs
-
-**3. Stockouts** - Home goods e-commerce. Top items showing zero inventory.
-   → Genie traces to demand spike last Tuesday.
-   → KA reveals viral TikTok post the demand forecast completely missed.
-   Data: inventory (NetSuite via Lakeflow Connect) · sales (Salesforce via Lakeflow Connect)
-
-Pick 1, 2, 3 - or describe something else.
-```
 
 #### Lakeflow Connect Requirement
 
@@ -255,37 +207,11 @@ Once the user picks a direction, nail down the specifics:
 
 ### Phase 3: Component Selection
 
-After story is approved, show the building blocks:
+After story is approved, confirm the building blocks:
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                     DEMO COMPONENTS                             │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                 │
-│  [Data Gen] ──→ [Pipeline] ──→ [Dashboard]                      │
-│       │              │               │                          │
-│       │              │               ▼                          │
-│       │              │         [Genie Space] ◄──┐               │
-│       │              │                          │               │
-│       ▼              │                          │               │
-│  [PDF Docs] ────────────────→ [Knowledge       │               │
-│                                Assistant]       │               │
-│                                    │            │               │
-│                                    ▼            │               │
-│                            [Multi-Agent        │               │
-│                             Supervisor] ◄──────┘               │
-│                                                                 │
-├─────────────────────────────────────────────────────────────────┤
-│  OPTIONAL ADDITIONS:                                            │
-│  • ML Notebook (forecasting, anomaly detection, classification) │
-│  • Metric Views (for BI tools)                                  │
-│  • AI Functions (sentiment, summarization, extraction)          │
-│  • Vector Search (semantic document retrieval)                  │
-│  • Workflows (scheduled refresh, alerts)                        │
-└─────────────────────────────────────────────────────────────────┘
-```
+**Default flow:** Data Gen → Pipeline → Dashboard → Genie → KA → MAS (the full "ask anything" experience)
 
-**Default**: Data Gen → Pipeline → Dashboard → Genie → KA → MAS (the full "ask anything" experience).
+**Optional additions:** ML Notebook, Metric Views, AI Functions, Vector Search, Workflows
 
 Ask user to confirm or modify. If unfamiliar with a component, fetch docs from `https://docs.databricks.com/llms.txt`.
 
@@ -428,16 +354,7 @@ If we delete all Databricks resources and ask you to rebuild from the instructio
 
 The instruction files are the **single source of truth**. The actual resources are just an implementation of those specs.
 
-**Sync workflow:**
-```
-User requests change
-       ↓
-Update instruction file(s) FIRST
-       ↓
-Then apply change to resource
-       ↓
-Confirm both are in sync
-```
+**Sync workflow:** User requests change → Update instruction file FIRST → Apply to resource → Confirm in sync
 
 Never change a resource without updating its instruction file. Never let instructions drift from reality.
 
