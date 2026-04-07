@@ -104,11 +104,27 @@ A **collection** is a curated group of blocks paired with an **output file depen
 
 The app ships with 21 seed blocks and 4 seed collections on disk. These are auto-loaded into Lakebase on startup. Users can create additional blocks and collections via the API or UI; user-created entries persist in Lakebase and are never overwritten by seed data.
 
+
 ![Workspace with data-schema visual renderer](docs/screenshot-workspace.png)
 
 ### Library
 
 Pre-built packages for common scenarios are available in the shared library. Fork one as a starting point and personalize it for your customer, rather than starting from scratch.
+
+## Claude Code Skill (standalone)
+
+The demo generator is also available as a standalone Claude Code skill. Install it in any project to generate demo instruction files directly from the command line:
+
+```bash
+gh repo clone databricks-field-eng/industry-demo-prompts /tmp/idp && /tmp/idp/install_demo_generator_skill.sh && rm -rf /tmp/idp
+```
+
+This installs the `databricks-demo-generator` skill to `.claude/skills/` in your current directory. Then run `claude` and the skill will be available automatically.
+
+**Included reference demos:**
+- Financial Services — Fraud Detection (Pacific Coast Bank)
+- Healthcare — Patient Readmissions (Meridian Regional Health)
+- Manufacturing — Quality Defects (TitanAuto Parts)
 
 ## Local development
 

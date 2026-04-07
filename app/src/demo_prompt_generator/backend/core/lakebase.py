@@ -33,7 +33,7 @@ class DatabaseConfig(BaseSettings):
     )
     instance_name: str = Field(
         description="The name of the database instance (override via DB_INSTANCE_NAME env var)",
-        default="demo-prompt-generator-db",
+        default="demo-prompt-gen-db",
         validation_alias="DB_INSTANCE_NAME",
     )
 

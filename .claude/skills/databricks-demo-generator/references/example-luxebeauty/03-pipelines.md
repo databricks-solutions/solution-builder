@@ -1,5 +1,7 @@
 # Pipeline Creation
 
+> **Before starting**: Check relevant skill (`databricks-spark-declarative-pipelines` should be present if ai-dev-kit is installed).
+
 ## Task
 
 Create a Spark Declarative Pipeline (SDP) that transforms raw parquet data into analytics-ready tables.
@@ -30,11 +32,11 @@ Create this folder structure in the workspace folder (path defined in 00-demo-ov
 ```
 {workspace_folder}/
 ├── transformations/
-│   ├── 01_bronze_ingestion.py       # Bronze layer: raw parquet ingestion
-│   ├── 02_silver_transformation.py  # Silver layer: joins and enrichment
-│   └── 03_gold_aggregation.py       # Gold layer: aggregations for analytics
+│   ├── 01_bronze_ingestion.sql       # Bronze layer: raw parquet ingestion
+│   ├── 02_silver_transformation.sql  # Silver layer: joins and enrichment
+│   └── 03_gold_aggregation.sql       # Gold layer: aggregations for analytics
 └── exploration/
-    └── exploration_notebook.py      # Notebook to verify raw data
+    └── exploration_notebook.py       # Notebook to verify raw data
 ```
 
 ---
@@ -53,7 +55,7 @@ Before running the pipeline, create a simple exploration notebook to verify the 
 
 The pipeline should create tables in a medallion architecture (Bronze → Silver → Gold), with each layer in its own transformation file.
 
-### Bronze Layer (01_bronze_ingestion.py)
+### Bronze Layer (01_bronze_ingestion.sql)
 
 Ingest the parquet files as streaming tables:
 
@@ -66,7 +68,7 @@ Ingest the parquet files as streaming tables:
 | bronze_order_items | order_items.parquet | Raw line items |
 | bronze_returns | returns.parquet | Raw return records |
 
-### Silver Layer (02_silver_transformation.py)
+### Silver Layer (02_silver_transformation.sql)
 
 Create materialized views that join and enrich the data:
 
@@ -80,38 +82,33 @@ Create materialized views that join and enrich the data:
 - silver_order_items should include: order_id, order_date, customer region, product_id, product_name, category, lot_id, production_date, facility
 - silver_returns should include: return_id, order_item_id, product info, lot_id, return_date, refund_amount, return_reason, return_reason_text, days_to_return
 
-### Gold Layer (03_gold_aggregation.py)
+### Gold Layer (03_gold_aggregation.sql)
 
-Create aggregated tables for dashboard and Genie:
+Create aggregated tables for dashboard and Genie.
 
-| Table | What It Contains | Why It Matters for Demo |
-|-------|------------------|-------------------------|
-| gold_daily_orders | Daily aggregations by region and category | Dashboard revenue charts |
-| gold_daily_returns | Daily returns by region, category, lot, product | Dashboard returns charts, spike visibility |
-| gold_weekly_summary | Weekly KPIs: revenue, items sold, returns, return rate | Dashboard KPI cards, the ~$180K spike |
-| gold_returns_by_lot | Returns aggregated by lot_id with customer feedback | Genie's "which lot" analysis, connects to incident |
+**IMPORTANT**: Gold tables should stay at **daily granularity**. Do NOT pre-aggregate to weekly - let the dashboard queries handle any weekly aggregation needed. This keeps the data flexible and ensures spikes are clearly visible at the day level.
+
+**Important**: Include region and category in all gold tables - dashboard filters require these dimensions.
+
+| Table | Dimensions | Metrics | Why It Matters for Demo |
+|-------|------------|---------|-------------------------|
+| gold_daily_summary | date, **region**, **category** | orders, items, revenue, returns, return_rate | KPIs and returns trend - needs filtering by region/category |
+| gold_daily_orders | date, **region**, **category** | order_count, items_sold, revenue, profit | Revenue charts - already has region/category |
+| gold_returns_by_lot | lot_id, product, **region**, **category**, facility | return_count, refund_usd, avg_days_to_return | Products table - needs region/category for filtering |
 
 **Key columns for gold_returns_by_lot**:
-- lot_id, production_date, product_id, product_name, category
+- lot_id, production_date, product_id, product_name, category, **region**
 - return_count, total_refund_usd, avg_days_to_return
 - customer_feedback_samples (collect the return_reason_text values)
 
 ---
 
-## Validation
+## Resource Tracking
 
-After the pipeline runs, verify the tables are populated correctly.
+After creating the pipeline, **add the pipeline ID to `resources.json`**:
+```json
+{
+  "pipeline_id": "<the-pipeline-id>"
+}
+```
 
-**Key checks**:
-
-| Table | What to Verify |
-|-------|----------------|
-| bronze_* tables | Row counts match source parquet files |
-| silver_returns | Contains lot_id column, can filter by LOT-2025-0212 |
-| gold_weekly_summary | Week of Mar 17 shows ~$180K returns (vs ~$60K normal weeks) |
-| gold_returns_by_lot | LOT-2025-0212 shows ~720 returns across 3 products |
-
-**Sample validation queries**:
-- Check gold_weekly_summary for the returns spike in the most recent complete week
-- Query gold_returns_by_lot for LOT-2025-0212 to see the affected products and return counts
-- Verify customer_feedback_samples contains texture complaints

@@ -10,6 +10,8 @@
 .claude/*
 !.claude/skills/
 !.claude/commands/
+app/.claude/
+*.code-workspace
 
 # ai-dev-kit (installed locally per user)
 .ai-dev-kit/

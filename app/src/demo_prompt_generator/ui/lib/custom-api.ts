@@ -594,10 +594,6 @@ export async function* streamCollectionSuggestion(
   yield* parseSSEStream(resp);
 }
 
-// ---------------------------------------------------------------------------
-// Build phase: execute package via agent loop
-// ---------------------------------------------------------------------------
-
 export async function* streamWorkspaceBuild(
   generationId: number,
   signal?: AbortSignal,

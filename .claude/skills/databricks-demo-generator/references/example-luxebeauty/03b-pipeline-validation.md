@@ -1,5 +1,7 @@
 # Pipeline Validation
 
+> **Before starting**: Check relevant skill (`databricks-dbsql` should be present if ai-dev-kit is installed).
+
 ## Task
 
 After the SDP pipeline runs, validate that the data matches the demo story and meets the dashboard requirements. This is a critical checkpoint before proceeding.
@@ -54,21 +56,11 @@ Re-read the dashboard requirements in `04-dashboard.md` and verify:
    - Joins producing unexpected results? Aggregations wrong?
    - If transformations are wrong → **Pipeline Transformation Issue**
 
-### Fix: Data Generation Issue
+### Fix Issues
 
-1. Identify what's wrong (missing records, wrong values, wrong distribution, not enough data, wrong dates, etc.)
-2. Update the data generation script
-3. Re-run the script to generate new parquet files
-4. Re-run the SDP pipeline with **full refresh**
-5. **Repeat validation from Step 1**
-
-### Fix: Pipeline Transformation Issue
-
-1. Identify which transformation file has the issue
-2. Update the transformation file locally
-3. Upload the updated file to the workspace (overwrite existing)
-4. Re-run the SDP pipeline with **full refresh**
-5. **Repeat validation from Step 1**
+1. **Identify what's wrong** - Compare data against the story and what you want to see in the dashboard/Genie (spike visible? metrics match? lot traceable?)
+2. **Data Generation Issue** (bronze wrong): Update generation script → re-run → full refresh pipeline → re-validate
+3. **Transformation Issue** (silver/gold wrong): Update SQL file → upload → full refresh pipeline → re-validate
 
 ---
 

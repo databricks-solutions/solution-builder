@@ -1,5 +1,7 @@
 # Knowledge Assistant Creation
 
+> **Before starting**: Check relevant skill (`databricks-agent-bricks` should be present if ai-dev-kit is installed).
+
 ## Task
 
 Create a Knowledge Assistant (KA) that enables natural language queries against the incident documentation.
@@ -16,7 +18,6 @@ Create a Knowledge Assistant (KA) that enables natural language queries against 
 | **Description** | "Search production incident reports and quality documentation for LuxeBeauty Co." |
 | **Volume Path** | `/Volumes/{catalog}/{schema}/{volume}/incident_pdf/` (as defined in 00-demo-overview.md and 02-unstructured-docs.md) |
 
-The KA indexes all PDF documents from this folder (generated per 02-unstructured-docs.md).
 
 ---
 
@@ -88,6 +89,12 @@ Add these to help the KA route questions correctly:
 | "Was the lot released?" | Find disposition section, state RELEASE FOR DISTRIBUTION and the rationale |
 | "Which products were affected?" | List SKU-1001, SKU-1002, SKU-1003 with quantities |
 | "What happened at the Lyon facility?" | Reference HMG-03 homogenizer, pressure gauge fluctuations, calibration drift |
+
+---
+
+## Resource Tracking
+
+After creating, add the KA ID to `resources.json`.
 
 ---
 

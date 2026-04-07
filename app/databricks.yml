@@ -26,12 +26,12 @@ artifacts:
 resources:
   database_instances:
     demo-prompt-generator-db:
-      name: "demo-prompt-generator-db"
+      name: "demo-prompt-gen-db"
       capacity: "CU_1"
 
   apps:
     demo-prompt-generator-app:
-      name: "demo-prompt-generator"
+      name: "demo-prompt-gen"
       description: "Demo Prompt Generator — generates Databricks demo skill packages"
       source_code_path: ./.build
       resources:

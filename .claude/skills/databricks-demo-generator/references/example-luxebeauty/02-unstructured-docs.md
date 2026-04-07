@@ -1,5 +1,7 @@
 # PDF Generation
 
+> **Before starting**: Check relevant skill (`databricks-unstructured-pdf-generation` should be present if ai-dev-kit is installed).
+
 ## Task
 
 Generate a collection of PDF documents for the volume. This collection will be indexed by the Knowledge Assistant later, which should be able to find the relevant document when asked about the returns issue.
@@ -41,7 +43,7 @@ Generate ~9 PDF documents about production and quality operations at a cosmetics
 
 Generate ONE specific document that contains the "smoking gun" - the incident report for LOT-2025-0212.
 
-**Why this document matters for the demo**: This is the document that answers the question "Why are we having so many returns?". The structured data (from data generation) shows WHAT is happening - a spike in returns for specific SKUs tied to lot LOT-2025-0212. This document explains WHY - an equipment issue caused texture problems, but the lot was released anyway. The Knowledge Assistant will retrieve this document when asked about the incident, connecting the dots between the returns data and the root cause.
+**Why this document matters**: Data shows WHAT (returns spike), this doc explains WHY (equipment issue, lot released anyway).
 
 **Document Details**:
 
@@ -51,14 +53,14 @@ Generate ONE specific document that contains the "smoking gun" - the incident re
 | **Question** | Was there any incident reported for lot LOT-2025-0212? |
 | **Guideline** | Answer MUST mention: (1) homogenizer pressure fluctuations, (2) the specific affected products SKU-1001, SKU-1002, SKU-1003, (3) QC note about texture variations during emulsification, (4) lot was released for distribution despite the issue |
 
-**Important**: The SKUs in this document (SKU-1001, SKU-1002, SKU-1003) MUST match the SKUs generated in the data generation step (01-data-generation.md) - these are the products with the returns spike. Before finalizing this document, verify that the structured data has these same SKUs associated with lot LOT-2025-0212 and elevated return rates. The demo story depends on this connection.
+**Important**: SKUs (SKU-1001, SKU-1002, SKU-1003) MUST match 01-data-generation.md.
 
 **Content requirements** - the document should include:
 
 ### Header Information
 - Company: LuxeBeauty Co.
-- Report Number: PIR-2025-0212
-- Date: February 12, 2025
+- Report Number: `PIR-{YYYY}-{MMDD}` matching the lot ID format
+- Date: AFFECTED_LOT_DATE (same date as production lot)
 - Facility: Lyon Manufacturing Center
 - Reported By: Marc Dupont, Production Supervisor
 
@@ -71,10 +73,10 @@ Generate ONE specific document that contains the "smoking gun" - the incident re
 ### Affected Production
 - Lot Number: LOT-2025-0212
 - Products affected:
-  - SKU-1001 - Hydrating Serum 30ml (~800 units)
-  - SKU-1002 - Vitamin C Cream 50ml (~800 units)
-  - SKU-1003 - HA Moisture Boost 15ml (~800 units)
-- Total: ~2,400 units
+  - SKU-1001 - Hydrating Serum 30ml (~1,700 units)
+  - SKU-1002 - Vitamin C Cream 50ml (~1,700 units)
+  - SKU-1003 - HA Moisture Boost 15ml (~1,700 units)
+- Total: ~5,000 units
 
 ### QC Assessment (the "smoking gun")
 - Visual inspection passed (color, odor, container, labels all normal)
