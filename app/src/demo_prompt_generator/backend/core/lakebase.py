@@ -46,12 +46,30 @@ class DatabaseConfig(BaseSettings):
 # --- Engine creation ---
 
 
+def _get_static_pg_url() -> str | None:
+    """Check for static PostgreSQL URL (e.g., Lakebase connection string).
+
+    If LAKEBASE_PG_URL is set, use it directly instead of APX dev database.
+    """
+    url = os.environ.get("LAKEBASE_PG_URL")
+    if url:
+        # Convert to psycopg driver if needed
+        if url.startswith("postgresql://"):
+            url = url.replace("postgresql://", "postgresql+psycopg://", 1)
+        return url
+    return None
+
+
 def _get_dev_db_port() -> int | None:
     """Check for local development database port.
 
     Checks APX_DEV_DB_PORT first, then PGPORT as fallback.
     Returns port if found, None for production mode.
     """
+    # If static URL is configured, don't use APX dev database
+    if _get_static_pg_url():
+        return None
+
     # APX sets this when it manages the dev database
     port = os.environ.get("APX_DEV_DB_PORT")
     if port:
@@ -70,6 +88,12 @@ def _build_engine_url(
     db_config: DatabaseConfig, ws: WorkspaceClient, dev_port: int | None
 ) -> str:
     """Build the database engine URL for dev or production mode."""
+    # Check for static Lakebase URL first (highest priority)
+    static_url = _get_static_pg_url()
+    if static_url:
+        logger.info("Using static LAKEBASE_PG_URL for database connection")
+        return static_url
+
     if dev_port:
         logger.info(f"Using local dev database at 127.0.0.1:{dev_port}")
         username = "postgres"
@@ -94,16 +118,28 @@ def create_db_engine(db_config: DatabaseConfig, ws: WorkspaceClient) -> Engine:
     """
     Create a SQLAlchemy engine.
 
-    In dev mode: no SSL, no password callback, smaller pool.
-    In production: require SSL and use Databricks credential callback.
+    Priority:
+    1. Static LAKEBASE_PG_URL (real Postgres with SSL)
+    2. APX dev database (PGLite, no SSL, serialized access)
+    3. Production Databricks Database (SSL, dynamic OAuth tokens)
     """
+    static_url = _get_static_pg_url()
     dev_port = _get_dev_db_port()
     engine_url = _build_engine_url(db_config, ws, dev_port)
 
     global _dev_db_lock
-    if dev_port:
-        # Dev mode: use NullPool and serialized access - PGLite can't handle concurrency
+
+    if static_url:
+        # Static URL mode: real Postgres with connection pool
         engine_kwargs: dict[str, Any] = {
+            "pool_size": 4,
+            "pool_recycle": 45 * 60,
+            "pool_pre_ping": True,
+        }
+        # SSL is specified in the URL itself (sslmode=require)
+    elif dev_port:
+        # Dev mode: use NullPool and serialized access - PGLite can't handle concurrency
+        engine_kwargs = {
             "poolclass": NullPool,
         }
         # Initialize the lock for serializing database access
@@ -122,7 +158,8 @@ def create_db_engine(db_config: DatabaseConfig, ws: WorkspaceClient) -> Engine:
         )
         cparams["password"] = cred.token
 
-    if not dev_port:
+    # Only use dynamic token refresh for production Databricks Database
+    if not static_url and not dev_port:
         event.listens_for(engine, "do_connect")(before_connect)
 
     return engine
@@ -130,9 +167,12 @@ def create_db_engine(db_config: DatabaseConfig, ws: WorkspaceClient) -> Engine:
 
 def validate_db(engine: Engine, db_config: DatabaseConfig) -> None:
     """Validate that the database connection works."""
+    static_url = _get_static_pg_url()
     dev_port = _get_dev_db_port()
 
-    if dev_port:
+    if static_url:
+        logger.info("Validating static LAKEBASE_PG_URL database connection")
+    elif dev_port:
         logger.info(f"Validating local dev database connection at 127.0.0.1:{dev_port}")
     else:
         logger.info(
@@ -150,10 +190,12 @@ def validate_db(engine: Engine, db_config: DatabaseConfig) -> None:
         with Session(engine) as session:
             session.connection().execute(text("SELECT 1"))
             session.close()
-    except Exception:
-        raise ConnectionError("Failed to connect to the database")
+    except Exception as e:
+        raise ConnectionError(f"Failed to connect to the database: {e}")
 
-    if dev_port:
+    if static_url:
+        logger.info("Static LAKEBASE_PG_URL database connection validated successfully")
+    elif dev_port:
         logger.info("Local dev database connection validated successfully")
     else:
         logger.info(
@@ -162,7 +204,16 @@ def validate_db(engine: Engine, db_config: DatabaseConfig) -> None:
 
 
 def initialize_models(engine: Engine) -> None:
-    """Create all SQLModel tables and add any missing columns."""
+    """Create all SQLModel tables and add any missing columns.
+
+    Set RESET_DB=1 environment variable to drop all tables and start fresh.
+    """
+    # Check for reset flag
+    if os.environ.get("RESET_DB") == "1":
+        logger.warning("RESET_DB=1 detected - dropping all tables!")
+        SQLModel.metadata.drop_all(engine)
+        logger.info("All tables dropped. Recreating...")
+
     logger.info("Initializing database models")
     SQLModel.metadata.create_all(engine)
 
@@ -232,6 +283,20 @@ def initialize_models(engine: Engine) -> None:
         ("executions_project_idx", "CREATE INDEX IF NOT EXISTS ix_executions_project_id ON executions (project_id)"),
         ("executions_project_status_idx", "CREATE INDEX IF NOT EXISTS ix_executions_project_status ON executions (project_id, status)"),
         ("executions_project_created_idx", "CREATE INDEX IF NOT EXISTS ix_executions_project_created ON executions (project_id, created_at)"),
+
+        # Add catalog/schema columns to projects
+        ("projects_add_catalog", "ALTER TABLE projects ADD COLUMN IF NOT EXISTS default_catalog VARCHAR(255)"),
+        ("projects_add_schema", "ALTER TABLE projects ADD COLUMN IF NOT EXISTS default_schema VARCHAR(255)"),
+
+        # Add session_id to executions for conversation resumption
+        ("executions_add_session_id", "ALTER TABLE executions ADD COLUMN IF NOT EXISTS session_id VARCHAR(100)"),
+
+        # Add reasoning_data JSON column to messages
+        ("messages_add_reasoning_data", "ALTER TABLE messages ADD COLUMN IF NOT EXISTS reasoning_data JSON"),
+
+        # Add cluster_name and warehouse_name to projects
+        ("projects_add_cluster_name", "ALTER TABLE projects ADD COLUMN IF NOT EXISTS cluster_name VARCHAR(255)"),
+        ("projects_add_warehouse_name", "ALTER TABLE projects ADD COLUMN IF NOT EXISTS warehouse_name VARCHAR(255)"),
     ]
 
     with Session(engine) as session:

@@ -14,6 +14,7 @@ from typing import Optional
 
 from pydantic import BaseModel, Field
 from sqlalchemy import Column, Index, LargeBinary, String, Text
+from sqlalchemy.dialects.postgresql import JSON
 from sqlmodel import Field as SQLField, SQLModel
 
 from .. import __version__
@@ -93,7 +94,13 @@ class Project(SQLModel, table=True):
     # Claude Code session fields (1:1 conversation per project)
     session_id: Optional[str] = SQLField(default=None, max_length=100)
     cluster_id: Optional[str] = SQLField(default=None, max_length=100)
+    cluster_name: Optional[str] = SQLField(default=None, max_length=255)
     warehouse_id: Optional[str] = SQLField(default=None, max_length=100)
+    warehouse_name: Optional[str] = SQLField(default=None, max_length=255)
+
+    # Default Unity Catalog context
+    default_catalog: Optional[str] = SQLField(default=None, max_length=255)
+    default_schema: Optional[str] = SQLField(default=None, max_length=255)
 
     # Timestamps
     created_at: datetime = SQLField(default_factory=utc_now)
@@ -142,6 +149,7 @@ class Message(SQLModel, table=True):
     Chat message within a project's conversation.
 
     Since each project has exactly one conversation, messages link directly to project.
+    Metadata field stores reasoning (thinking/tools) for assistant messages.
     """
     __tablename__ = "messages"
 
@@ -156,6 +164,8 @@ class Message(SQLModel, table=True):
     role: str = SQLField(max_length=20)  # "user" | "assistant" | "system"
     content: str = SQLField(sa_column=Column(Text, nullable=False))
     is_error: bool = SQLField(default=False)
+    # Reasoning data for assistant messages (ordered list of thinking/tool entries)
+    reasoning_data: Optional[dict] = SQLField(default=None, sa_column=Column(JSON, nullable=True))
     created_at: datetime = SQLField(default_factory=utc_now)
 
     __table_args__ = (
@@ -169,6 +179,7 @@ class Execution(SQLModel, table=True):
 
     Enables session independence - users can reconnect after page refresh.
     Events stored as JSON array for replay/streaming continuation.
+    session_id enables conversation resumption across invocations.
     """
     __tablename__ = "executions"
 
@@ -185,6 +196,7 @@ class Execution(SQLModel, table=True):
         )
     )
     status: str = SQLField(default=ExecutionStatus.RUNNING.value, max_length=20)
+    session_id: Optional[str] = SQLField(default=None, max_length=100)  # Claude Code session for resumption
     events_json: str = SQLField(default="[]", sa_column=Column(Text))
     error: Optional[str] = SQLField(default=None, sa_column=Column(Text))
     created_at: datetime = SQLField(default_factory=utc_now)
@@ -213,6 +225,16 @@ class ProjectUpdateRequest(BaseModel):
     description: Optional[str] = None
 
 
+class ProjectResourcesUpdateRequest(BaseModel):
+    """Request to update project resource settings."""
+    cluster_id: Optional[str] = None
+    cluster_name: Optional[str] = None
+    warehouse_id: Optional[str] = None
+    warehouse_name: Optional[str] = None
+    default_catalog: Optional[str] = None
+    default_schema: Optional[str] = None
+
+
 class ProjectOut(BaseModel):
     """Project details response."""
     id: str
@@ -224,6 +246,13 @@ class ProjectOut(BaseModel):
     updated_at: datetime
     message_count: int = 0
     file_count: int = 0
+    # Resource settings
+    cluster_id: Optional[str] = None
+    cluster_name: Optional[str] = None
+    warehouse_id: Optional[str] = None
+    warehouse_name: Optional[str] = None
+    default_catalog: Optional[str] = None
+    default_schema: Optional[str] = None
 
 
 class ProjectListItem(BaseModel):
@@ -261,6 +290,7 @@ class MessageOut(BaseModel):
     role: str
     content: str
     is_error: bool
+    reasoning_data: Optional[dict] = None  # Reasoning entries for assistant messages
     created_at: datetime
 
 
@@ -288,6 +318,7 @@ class ExecutionOut(BaseModel):
     id: str
     project_id: str
     status: str
+    session_id: Optional[str] = None
     error: Optional[str]
     created_at: datetime
     updated_at: datetime

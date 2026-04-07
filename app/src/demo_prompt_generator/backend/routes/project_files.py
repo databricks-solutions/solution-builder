@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import logging
+import os
 import traceback
+from datetime import datetime, timezone
+from pathlib import Path
 
 from fastapi import HTTPException, Request
 from sqlmodel import select
@@ -19,6 +22,11 @@ from ..services.file_sync import FileSyncService
 
 logger = logging.getLogger(__name__)
 router = create_router()
+
+PROJECTS_BASE_DIR = os.getenv("PROJECTS_BASE_DIR", "./projects")
+
+# Files/folders to exclude from listing
+EXCLUDED_PATTERNS = {".claude", "__pycache__", ".git", ".DS_Store", "node_modules"}
 
 
 def _get_user_email(headers) -> str:
@@ -40,6 +48,38 @@ def _get_user_project(session, project_id: str, user_email: str) -> Project:
     return row
 
 
+def _list_files_from_filesystem(project_dir: Path) -> list[dict]:
+    """List all files in a project directory from the filesystem."""
+    files = []
+
+    if not project_dir.exists():
+        return files
+
+    for file_path in project_dir.rglob("*"):
+        # Skip directories
+        if file_path.is_dir():
+            continue
+
+        # Skip excluded patterns
+        rel_path = file_path.relative_to(project_dir)
+        if any(part in EXCLUDED_PATTERNS for part in rel_path.parts):
+            continue
+
+        try:
+            stat = file_path.stat()
+            files.append({
+                "path": str(rel_path),
+                "name": file_path.name,
+                "size": stat.st_size,
+                "last_modified": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
+            })
+        except OSError:
+            # Skip files we can't stat
+            continue
+
+    return sorted(files, key=lambda f: f["path"])
+
+
 @router.get(
     "/projects/{project_id}/files",
     response_model=list[ProjectFileOut],
@@ -51,15 +91,22 @@ def list_project_files(
     headers: Dependencies.Headers,
     request: Request,
 ):
-    """List all files in a project."""
+    """List all files in a project from the local filesystem."""
     try:
         user_email = _get_user_email(headers)
         logger.info(f"list_project_files: user={user_email}, project={project_id}")
         _get_user_project(session, project_id, user_email)
 
-        file_sync: FileSyncService = request.app.state.file_sync
-        # Pass session to avoid creating new connection (PGLite issue)
-        files = file_sync.get_project_files_list(project_id, session=session)
+        project_dir = Path(PROJECTS_BASE_DIR).resolve() / project_id
+
+        # If folder doesn't exist, restore from DB first
+        if not project_dir.exists():
+            logger.info(f"Project folder missing, restoring from DB: {project_id}")
+            file_sync: FileSyncService = request.app.state.file_sync
+            file_sync.restore_project_from_db(project_id, session=session)
+
+        # List files directly from filesystem
+        files = _list_files_from_filesystem(project_dir)
         logger.info(f"list_project_files: found {len(files)} files")
 
         return [
@@ -68,7 +115,7 @@ def list_project_files(
                 name=f["name"],
                 size=f["size"],
                 last_modified=f["last_modified"],
-                synced_at=f["synced_at"],
+                synced_at=f["last_modified"],  # Use last_modified as synced_at for filesystem files
             )
             for f in files
         ]

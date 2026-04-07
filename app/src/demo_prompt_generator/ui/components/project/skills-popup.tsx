@@ -2,7 +2,7 @@
  * Skills popup component - displays available skills in a sheet panel.
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import {
   Sheet,
   SheetContent,
@@ -20,12 +20,18 @@ import {
   FileText,
   ChevronRight,
   ChevronDown,
+  Code,
+  Eye,
+  Terminal,
 } from "lucide-react";
+import Markdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import {
   getProjectSkills,
   getSkillFiles,
   getSkillFileContent,
   refreshProjectSkills,
+  getProjectSystemPrompt,
   type Skill,
   type SkillFile,
 } from "@/lib/custom-api";
@@ -119,7 +125,10 @@ function FileTreeItem({
   );
 }
 
+type ViewMode = "skills" | "system-prompt";
+
 export function SkillsPopup({ projectId, isOpen, onClose }: SkillsPopupProps) {
+  const [viewMode, setViewMode] = useState<ViewMode>("system-prompt");
   const [skills, setSkills] = useState<Skill[]>([]);
   const [selectedSkill, setSelectedSkill] = useState<string | null>(null);
   const [expandedSkills, setExpandedSkills] = useState<Set<string>>(new Set());
@@ -135,11 +144,21 @@ export function SkillsPopup({ projectId, isOpen, onClose }: SkillsPopupProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isLoadingFile, setIsLoadingFile] = useState(false);
+  const [showRaw, setShowRaw] = useState(false);
+  const [systemPrompt, setSystemPrompt] = useState<string>("");
+  const [isLoadingPrompt, setIsLoadingPrompt] = useState(false);
 
-  // Load skills when popup opens
+  // Check if current file is markdown
+  const isMarkdownFile = useMemo(() => {
+    if (!selectedFile) return false;
+    return selectedFile.path.endsWith(".md");
+  }, [selectedFile]);
+
+  // Load skills and system prompt when popup opens
   useEffect(() => {
     if (isOpen && projectId) {
       loadSkills();
+      loadSystemPrompt();
     }
   }, [isOpen, projectId]);
 
@@ -152,6 +171,19 @@ export function SkillsPopup({ projectId, isOpen, onClose }: SkillsPopupProps) {
       console.error("Failed to load skills:", error);
     } finally {
       setIsLoading(false);
+    }
+  }, [projectId]);
+
+  const loadSystemPrompt = useCallback(async () => {
+    setIsLoadingPrompt(true);
+    try {
+      const prompt = await getProjectSystemPrompt(projectId);
+      setSystemPrompt(prompt);
+    } catch (error) {
+      console.error("Failed to load system prompt:", error);
+      setSystemPrompt("Failed to load system prompt");
+    } finally {
+      setIsLoadingPrompt(false);
     }
   }, [projectId]);
 
@@ -234,14 +266,14 @@ export function SkillsPopup({ projectId, isOpen, onClose }: SkillsPopupProps) {
     <Sheet open={isOpen} onOpenChange={(open) => !open && onClose()}>
       <SheetContent
         side="right"
-        className="w-[800px] sm:max-w-[800px] flex flex-col"
+        className="w-[1100px] sm:max-w-[1100px] flex flex-col"
       >
         <SheetHeader className="flex-shrink-0">
           <div className="flex items-center justify-between">
             <div>
-              <SheetTitle>Project Skills</SheetTitle>
+              <SheetTitle>Agent Configuration</SheetTitle>
               <SheetDescription>
-                Skills available in this project's .claude/skills folder
+                System prompt and skills for the Claude Code agent
               </SheetDescription>
             </div>
             <Button
@@ -259,8 +291,49 @@ export function SkillsPopup({ projectId, isOpen, onClose }: SkillsPopupProps) {
           </div>
         </SheetHeader>
 
-        <Separator className="my-4" />
+        {/* Tab buttons */}
+        <div className="flex gap-2 mt-4 mb-2">
+          <Button
+            variant={viewMode === "system-prompt" ? "default" : "outline"}
+            size="sm"
+            onClick={() => setViewMode("system-prompt")}
+            className="gap-1.5"
+          >
+            <Terminal className="h-4 w-4" />
+            System Prompt
+          </Button>
+          <Button
+            variant={viewMode === "skills" ? "default" : "outline"}
+            size="sm"
+            onClick={() => setViewMode("skills")}
+            className="gap-1.5"
+          >
+            <Folder className="h-4 w-4" />
+            Skills ({skills.length})
+          </Button>
+        </div>
 
+        <Separator className="my-2" />
+
+        {/* System Prompt View */}
+        {viewMode === "system-prompt" && (
+          <div className="flex-1 min-h-0">
+            <ScrollArea className="h-full">
+              {isLoadingPrompt ? (
+                <div className="flex items-center justify-center py-8">
+                  <RefreshCw className="h-6 w-6 animate-spin text-muted-foreground" />
+                </div>
+              ) : (
+                <pre className="text-xs bg-muted/50 p-4 rounded-md overflow-x-auto whitespace-pre-wrap font-mono">
+                  {systemPrompt}
+                </pre>
+              )}
+            </ScrollArea>
+          </div>
+        )}
+
+        {/* Skills View */}
+        {viewMode === "skills" && (
         <div className="flex flex-1 gap-4 min-h-0">
           {/* Skills list (left panel) */}
           <div className="w-[300px] flex-shrink-0">
@@ -339,22 +412,55 @@ export function SkillsPopup({ projectId, isOpen, onClose }: SkillsPopupProps) {
           <Separator orientation="vertical" />
 
           {/* File content (right panel) */}
-          <div className="flex-1 min-w-0">
-            <ScrollArea className="h-full">
+          <div className="flex-1 min-w-0 flex flex-col">
+            {/* Header with file path and toggle - always visible */}
+            {selectedFile && (
+              <div className="mb-3 pb-2 border-b flex items-center justify-between flex-shrink-0">
+                <p className="text-sm font-medium truncate">
+                  {selectedFile.skill}/{selectedFile.path}
+                </p>
+                {isMarkdownFile && (
+                  <div className="flex items-center gap-1 bg-muted rounded-md p-0.5 flex-shrink-0 ml-2">
+                    <Button
+                      variant={!showRaw ? "secondary" : "ghost"}
+                      size="sm"
+                      onClick={() => setShowRaw(false)}
+                      className="h-7 px-2 gap-1"
+                    >
+                      <Eye className="h-3.5 w-3.5" />
+                      <span className="text-xs">Preview</span>
+                    </Button>
+                    <Button
+                      variant={showRaw ? "secondary" : "ghost"}
+                      size="sm"
+                      onClick={() => setShowRaw(true)}
+                      className="h-7 px-2 gap-1"
+                    >
+                      <Code className="h-3.5 w-3.5" />
+                      <span className="text-xs">Raw</span>
+                    </Button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Scrollable content area */}
+            <ScrollArea className="flex-1">
               {isLoadingFile ? (
                 <div className="flex items-center justify-center py-8">
                   <RefreshCw className="h-6 w-6 animate-spin text-muted-foreground" />
                 </div>
               ) : selectedFile ? (
                 <div>
-                  <div className="mb-2 pb-2 border-b">
-                    <p className="text-sm font-medium">
-                      {selectedFile.skill}/{selectedFile.path}
-                    </p>
-                  </div>
-                  <pre className="text-xs bg-muted/50 p-4 rounded-md overflow-x-auto whitespace-pre-wrap font-mono">
-                    {fileContent}
-                  </pre>
+                  {isMarkdownFile && !showRaw ? (
+                    <div className="prose prose-sm dark:prose-invert max-w-none prose-headings:mt-4 prose-headings:mb-2 prose-p:my-2 prose-pre:bg-muted prose-pre:text-xs prose-code:text-xs prose-code:bg-muted prose-code:px-1 prose-code:py-0.5 prose-code:rounded">
+                      <Markdown remarkPlugins={[remarkGfm]}>{fileContent}</Markdown>
+                    </div>
+                  ) : (
+                    <pre className="text-xs bg-muted/50 p-4 rounded-md overflow-x-auto whitespace-pre-wrap font-mono">
+                      {fileContent}
+                    </pre>
+                  )}
                 </div>
               ) : (
                 <div className="flex items-center justify-center h-full text-muted-foreground">
@@ -367,6 +473,7 @@ export function SkillsPopup({ projectId, isOpen, onClose }: SkillsPopupProps) {
             </ScrollArea>
           </div>
         </div>
+        )}
       </SheetContent>
     </Sheet>
   );

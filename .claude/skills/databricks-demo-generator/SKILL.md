@@ -24,17 +24,35 @@ This skill has two parts:
 | 1. Capture | Understand request, search demo bank | Selected story direction |
 | 2. Design | Define hero, disruption, quest, resolution | Story spec |
 | 3. Components | Select Databricks products | Component list |
-| 4. Generate | Write instruction files 00-07 | ./instructions/ folder |
-| 5. Review | Coherence check across all files | Verified instructions |
-| 6. Build (opt) | Create Databricks resources | Working demo |
+| 4. Generate README | Write story overview | `./README.md` |
+| 5. **User Review** | User confirms story is good | Approval to continue |
+| 6. Generate Details | Write detailed instruction files | `./instructions/` folder |
+| 7. Review | Coherence check across all files | Verified instructions |
+| 8. Build (opt) | Create Databricks resources | Working demo |
+
+---
+
+## Project Structure
+
+Each demo project has this structure:
+```
+./README.md           # Story overview (hero, disruption, quest, resolution, walkthrough)
+./META-PROMPT.md      # Build instructions for the AI
+./instructions/       # Detailed specs (content varies based on demo components)
+  resources.json      # Tracks created Databricks resource IDs
+```
+
+The `./instructions/` folder contains detailed specs for each component in the demo. The exact files depend on what the demo includes (data, pipelines, dashboards, AI components, etc.).
 
 ---
 
 ## Workflow Overview
 
-**Part 1:** Capture Intent → Design Story → Select Components → Generate Files → Coherence Review → Output
+**Part 1a:** Capture Intent → Design Story → Select Components → **Generate README.md** → **Ask User to Review**
 
-**Part 2 (optional, requires ai-dev-kit):** Read META-PROMPT → Build each component → Keep instructions in sync
+**Part 1b (after approval):** Generate detailed instructions in `./instructions/` → Coherence Review
+
+**Part 2 (optional):** Read META-PROMPT → Build each component → Keep instructions in sync
 
 **Use TodoWrite to track progress.** Multi-step process - tracking ensures nothing gets forgotten.
 
@@ -103,7 +121,7 @@ When generating the demo overview, include a **Product Stack** section explainin
 | **Pain Solved** | Business problem it addresses (reference `databricks_products.md` for positioning) |
 | **Demo Moment** | Presales talking point - what to say when this product appears |
 
-See `00-demo-overview.md` in the reference example for the format.
+See `README.md` in the reference example for the format.
 
 ### Choosing Products
 
@@ -223,22 +241,51 @@ Default: dbdemos_ai_gen.beauty_returns
 Ok, or specify different location?
 ```
 
-### Phase 4: Generate Files
+### Phase 4: Generate README.md
 
-**First:** Read `{SKILL_BASE_DIR}/references/example-luxebeauty/` to calibrate on structure and detail level. Adapt for the current use-case - don't copy blindly.
+**First:** Read `{SKILL_BASE_DIR}/references/example-luxebeauty/README.md` to understand the structure and detail level expected.
 
-**Default output**: `./instructions/` folder (flexible - adapt to user needs).
+Generate `./README.md` with:
+- Story overview (hero, disruption, quest, resolution)
+- Product stack and what each product does in the demo
+- Key numbers and dates
+- Complete walkthrough with talk track
 
-**Files to generate:**
-1. **Overview (00)** - Story, product stack, timeline, key numbers, walkthrough with talk track. This is the human-readable "pitch deck" for the demo.
-2. **META-PROMPT** - Build instructions for the AI: local project structure, build order, resource tracking, troubleshooting.
-3. **Data layer (01)** - Table schemas, distributions, relationships, the event encoded
-4. **Documents (02)** - PDF specs (background noise + key document with the "smoking gun")
-5. **Pipeline layer (03)** - Bronze/Silver/Gold definitions, validation
-6. **Genie (04)** - Config with smart instructions, sample questions, domain knowledge
-7. **Dashboard (05)** - Layout, KPIs, the visual story (anomaly obvious at a glance)
-8. **KA (06)** - Config, instructions, identifiers matching structured data
-9. **MAS (07)** - Routing logic
+This is the "pitch deck" - the human-readable summary of the entire demo.
+
+### Phase 5: User Review Checkpoint
+
+**IMPORTANT: Stop and ask for user approval before generating detailed instructions.**
+
+After writing README.md, say:
+```
+I've created the demo story in README.md with:
+- [Brief summary of the story]
+- [Key products being showcased]
+- [The investigation flow]
+
+**Should I go ahead and generate the detailed instruction files?**
+
+Reply "yes" to continue, or let me know what to change.
+```
+
+**Wait for user confirmation before proceeding.** This checkpoint lets them review the story before committing to detailed specs.
+
+### Phase 6: Generate Detailed Instructions
+
+After user approves, generate the remaining files:
+
+**At project root:**
+- **META-PROMPT.md** - Build instructions for the AI: local project structure, build order, resource tracking, troubleshooting.
+
+**In `./instructions/` folder:**
+1. **Data layer (01)** - Table schemas, distributions, relationships, the event encoded
+2. **Documents (02)** - PDF specs (background noise + key document with the "smoking gun")
+3. **Pipeline layer (03)** - Bronze/Silver/Gold definitions, validation
+4. **Genie (04)** - Config with smart instructions, sample questions, domain knowledge
+5. **Dashboard (05)** - Layout, KPIs, the visual story (anomaly obvious at a glance)
+6. **KA (06)** - Config, instructions, identifiers matching structured data
+7. **MAS (07)** - Routing logic
 
 Generate all files, then do coherence review.
 

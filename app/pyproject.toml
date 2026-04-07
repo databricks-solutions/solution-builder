@@ -17,7 +17,21 @@ dependencies = [
     "claude-agent-sdk>=0.1.50",
     "pyyaml>=6.0",
     "watchdog>=4.0.0",
+    # MCP tools dependencies
+    "mcp>=1.0.0",
+    "fastmcp==3.1.1",
+    "sqlglot>=20.0.0",
+    "sqlfluff>=3.0.0",
+    "plutoprint==0.19.0",
+    # Local packages from ai_dev_kit
+    "databricks-tools-core",
+    "databricks-mcp-server",
 ]
+
+# Local path dependencies for Databricks MCP tools
+[tool.uv.sources]
+databricks-tools-core = { path = "ai_dev_kit/databricks-tools-core", editable = true }
+databricks-mcp-server = { path = "ai_dev_kit/databricks-mcp-server", editable = true }
 
 [dependency-groups]
 dev = [

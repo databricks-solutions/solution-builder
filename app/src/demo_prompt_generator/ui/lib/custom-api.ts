@@ -18,6 +18,13 @@ export interface Project {
   updated_at: string;
   message_count: number;
   file_count: number;
+  // Resource settings
+  cluster_id: string | null;
+  cluster_name: string | null;
+  warehouse_id: string | null;
+  warehouse_name: string | null;
+  default_catalog: string | null;
+  default_schema: string | null;
 }
 
 export interface ProjectListItem {
@@ -45,12 +52,39 @@ export interface ProjectFileContent {
   last_modified: string;
 }
 
+// Reasoning entry types for ordered thinking/tool display
+export interface ThinkingEntry {
+  type: "thinking";
+  content: string;
+}
+
+export interface ToolEntry {
+  type: "tool";
+  id: string;
+  name: string;
+  input: unknown;
+}
+
+export interface ToolResultEntry {
+  type: "tool_result";
+  tool_id: string;
+  content: string;
+  is_error: boolean;
+}
+
+export type ReasoningEntry = ThinkingEntry | ToolEntry | ToolResultEntry;
+
+export interface MessageReasoningData {
+  reasoning?: ReasoningEntry[];
+}
+
 export interface Message {
   id: number;
   project_id: string;
   role: "user" | "assistant" | "system";
   content: string;
   is_error: boolean;
+  reasoning_data?: MessageReasoningData | null;
   created_at: string;
 }
 
@@ -68,6 +102,7 @@ export interface Execution {
   id: string;
   project_id: string;
   status: "running" | "completed" | "cancelled" | "error";
+  session_id: string | null;
   error: string | null;
   created_at: string;
   updated_at: string;
@@ -84,14 +119,17 @@ export type AgentEvent =
   | { type: "text_delta"; text: string }
   | { type: "text"; text: string }
   | { type: "thinking"; thinking: string }
+  | { type: "thinking_delta"; thinking: string }
   | { type: "tool_use"; tool_id: string; tool_name: string; tool_input: unknown }
   | { type: "tool_result"; tool_use_id: string; content: string; is_error: boolean }
-  | { type: "result"; session_id: string | null; duration_ms: number; total_cost_usd?: number }
+  | { type: "result"; session_id: string | null; duration_ms: number; total_cost_usd?: number; is_error?: boolean; num_turns?: number }
+  | { type: "system"; subtype: string; data: unknown }
   | { type: "error"; error: string }
   | { type: "cancelled" }
   | { type: "stream.completed"; is_error: boolean; is_cancelled: boolean }
   | { type: "stream.reconnect"; execution_id: string; last_timestamp: number }
-  | { type: "keepalive"; elapsed_since_last_event: number };
+  | { type: "keepalive"; elapsed_since_last_event: number }
+  | { type: "unknown"; message_type: string; data: string };
 
 // ---------------------------------------------------------------------------
 // Projects API
@@ -142,6 +180,28 @@ export async function syncProject(projectId: string): Promise<SyncStats> {
     method: "POST",
   });
   if (!resp.ok) throw new Error(`Failed to sync project: ${resp.status}`);
+  return resp.json();
+}
+
+export interface ProjectResourcesUpdate {
+  cluster_id?: string | null;
+  cluster_name?: string | null;
+  warehouse_id?: string | null;
+  warehouse_name?: string | null;
+  default_catalog?: string | null;
+  default_schema?: string | null;
+}
+
+export async function updateProjectResources(
+  projectId: string,
+  resources: ProjectResourcesUpdate
+): Promise<Project> {
+  const resp = await fetch(`/api/projects/${projectId}/resources`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(resources),
+  });
+  if (!resp.ok) throw new Error(`Failed to update resources: ${resp.status}`);
   return resp.json();
 }
 
@@ -215,43 +275,87 @@ export async function* streamAgentProgress(
   executionId: string,
   signal?: AbortSignal
 ): AsyncGenerator<AgentEvent> {
-  const resp = await fetch(`/api/stream_progress/${executionId}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({}),
-    signal,
-  });
+  let cursor = 0;
+  let reconnectAttempts = 0;
+  const MAX_RECONNECT_ATTEMPTS = 10;
 
-  if (!resp.ok) throw new Error(`Stream failed: ${resp.status}`);
+  while (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+    try {
+      const resp = await fetch(`/api/stream_progress/${executionId}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ last_timestamp: cursor }),
+        signal,
+      });
 
-  const reader = resp.body!.getReader();
-  const decoder = new TextDecoder();
-  let buf = "";
+      if (!resp.ok) throw new Error(`Stream failed: ${resp.status}`);
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
+      const reader = resp.body!.getReader();
+      const decoder = new TextDecoder();
+      let buf = "";
+      let shouldReconnect = false;
 
-    buf += decoder.decode(value, { stream: true });
-    const parts = buf.split("\n\n");
-    buf = parts.pop() || "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
 
-    for (const part of parts) {
-      if (!part.startsWith("data: ")) continue;
-      const payload = part.slice(6);
-      if (payload === "[DONE]") return;
+        buf += decoder.decode(value, { stream: true });
+        const parts = buf.split("\n\n");
+        buf = parts.pop() || "";
 
-      try {
-        const event = JSON.parse(payload) as AgentEvent;
-        yield event;
+        for (const part of parts) {
+          if (!part.startsWith("data: ")) continue;
+          const payload = part.slice(6);
+          if (payload === "[DONE]") return;
 
-        // Check for stream completion
-        if (event.type === "stream.completed") {
-          return;
+          try {
+            const event = JSON.parse(payload) as AgentEvent;
+
+            // Update cursor for reconnection
+            if ("_cursor" in event) {
+              cursor = (event as { _cursor: number })._cursor;
+            }
+
+            // Handle reconnect signal
+            if (event.type === "stream.reconnect") {
+              shouldReconnect = true;
+              break;
+            }
+
+            // Handle completion
+            if (event.type === "stream.completed") {
+              yield event;
+              return;
+            }
+
+            yield event;
+          } catch {
+            // Skip malformed events
+          }
         }
-      } catch {
-        // Skip malformed events
+
+        if (shouldReconnect) break;
       }
+
+      if (shouldReconnect) {
+        // Small delay before reconnecting
+        await new Promise(r => setTimeout(r, 100));
+        reconnectAttempts++;
+        continue;
+      }
+
+      // Normal end of stream
+      return;
+    } catch (error) {
+      if ((error as Error).name === "AbortError") {
+        return;
+      }
+      // Retry on connection errors
+      reconnectAttempts++;
+      if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+        throw error;
+      }
+      await new Promise(r => setTimeout(r, 1000 * reconnectAttempts));
     }
   }
 }
@@ -322,6 +426,13 @@ export async function refreshProjectSkills(projectId: string): Promise<{ success
   return resp.json();
 }
 
+export async function getProjectSystemPrompt(projectId: string): Promise<string> {
+  const resp = await fetch(`/api/projects/${projectId}/system-prompt`);
+  if (!resp.ok) throw new Error(`Failed to get system prompt: ${resp.status}`);
+  const data = await resp.json();
+  return data.prompt;
+}
+
 // ---------------------------------------------------------------------------
 // Resources API
 // ---------------------------------------------------------------------------
@@ -352,16 +463,43 @@ export async function listWarehouses(): Promise<Warehouse[]> {
   return resp.json();
 }
 
-export async function listCatalogs(): Promise<string[]> {
-  const resp = await fetch("/api/resources/catalogs");
+export async function listCatalogs(query?: string): Promise<string[]> {
+  const params = query ? `?q=${encodeURIComponent(query)}` : "";
+  const resp = await fetch(`/api/resources/catalogs${params}`);
   if (!resp.ok) throw new Error(`Failed to list catalogs: ${resp.status}`);
   return resp.json();
 }
 
-export async function listSchemas(catalog: string): Promise<string[]> {
-  const resp = await fetch(`/api/resources/schemas?catalog=${encodeURIComponent(catalog)}`);
+export async function listSchemas(catalog: string, query?: string): Promise<string[]> {
+  const params = new URLSearchParams({ catalog });
+  if (query) params.set("q", query);
+  const resp = await fetch(`/api/resources/schemas?${params}`);
   if (!resp.ok) throw new Error(`Failed to list schemas: ${resp.status}`);
   return resp.json();
+}
+
+export interface ResourceDefaults {
+  catalog: string;
+  schema_prefix: string;
+}
+
+export async function getResourceDefaults(): Promise<ResourceDefaults> {
+  const resp = await fetch("/api/resources/defaults");
+  if (!resp.ok) throw new Error(`Failed to get resource defaults: ${resp.status}`);
+  return resp.json();
+}
+
+export async function refreshResources(
+  resourceType?: string,
+  catalog?: string
+): Promise<void> {
+  const params = new URLSearchParams();
+  if (resourceType) params.set("resource_type", resourceType);
+  if (catalog) params.set("catalog", catalog);
+
+  const url = `/api/resources/refresh${params.toString() ? `?${params}` : ""}`;
+  const resp = await fetch(url, { method: "POST" });
+  if (!resp.ok) throw new Error(`Failed to refresh resources: ${resp.status}`);
 }
 
 // ---------------------------------------------------------------------------

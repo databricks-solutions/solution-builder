@@ -39,6 +39,16 @@ apx dev status
 apx dev stop
 ```
 
+### Database Reset
+
+To reset the database and start fresh (drops all tables and recreates them):
+
+```bash
+RESET_DB=1 apx dev start
+```
+
+This is useful during development when the database schema changes.
+
 ## ✅ Code Quality
 
 Run type checking and linting for both TypeScript and Python:

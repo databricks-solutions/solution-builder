@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
 
 from fastapi import HTTPException, Request
 from sqlmodel import func, select
 
 from ..core import Dependencies, create_router
+from ..core._config import logger
 from ..models import (
     Message,
     Project,
@@ -15,6 +17,7 @@ from ..models import (
     ProjectFile,
     ProjectListItem,
     ProjectOut,
+    ProjectResourcesUpdateRequest,
     ProjectUpdateRequest,
 )
 from ..services.file_sync import FileSyncService
@@ -22,8 +25,58 @@ from ..services.skills_manager import (
     create_project_directory,
     ensure_project_skills,
 )
+from .resources import list_clusters, list_warehouses
 
 router = create_router()
+
+# Default resource settings
+DEFAULT_CATALOG = "ai_demo_gen"
+DEFAULT_SCHEMA_PREFIX = "demo_"
+
+
+def _find_shared_warehouse(ws) -> tuple[str | None, str | None]:
+    """Find a warehouse with 'shared' in the name (uses cached list).
+
+    Returns (warehouse_id, warehouse_name) tuple.
+    """
+    try:
+        warehouses = list_warehouses(ws)
+        for w in warehouses:
+            if "shared" in w.name.lower():
+                logger.info(f"Found shared warehouse: {w.name} ({w.id})")
+                return w.id, w.name
+    except Exception as e:
+        logger.warning(f"Failed to find shared warehouse: {e}")
+    return None, None
+
+
+def _find_shared_cluster(ws) -> tuple[str | None, str | None]:
+    """Find a cluster with 'shared' in the name (uses cached list).
+
+    Returns (cluster_id, cluster_name) tuple.
+    Returns (None, None) if no shared cluster found - cluster is optional.
+    """
+    try:
+        clusters = list_clusters(ws)
+        for c in clusters:
+            if "shared" in c.name.lower():
+                logger.info(f"Found shared cluster: {c.name} ({c.id})")
+                return c.id, c.name
+        logger.info("No shared cluster found, leaving cluster_id empty")
+    except Exception as e:
+        logger.warning(f"Failed to find shared cluster: {e}")
+    return None, None
+
+
+def _generate_schema_name(project_name: str) -> str:
+    """Generate a valid schema name from project name."""
+    # Convert to lowercase, replace non-alphanumeric with underscore
+    clean_name = re.sub(r"[^a-z0-9]+", "_", project_name.lower())
+    # Remove leading/trailing underscores
+    clean_name = clean_name.strip("_")
+    # Limit length
+    clean_name = clean_name[:50]
+    return f"{DEFAULT_SCHEMA_PREFIX}{clean_name}"
 
 
 def _get_user_email(headers) -> str:
@@ -100,15 +153,27 @@ def create_project(
     body: ProjectCreateRequest,
     session: Dependencies.Session,
     headers: Dependencies.Headers,
+    request: Request,
+    ws: Dependencies.UserClient,
 ):
-    """Create a new project."""
+    """Create a new project with default resources."""
     user_email = _get_user_email(headers)
 
-    # Create DB record
+    # Find default resources (returns tuples of id, name)
+    warehouse_id, warehouse_name = _find_shared_warehouse(ws)
+    default_schema = _generate_schema_name(body.name)
+
+    # Create DB record with default resources (cluster left empty - user sets it manually)
     project = Project(
         user_email=user_email,
         name=body.name,
         description=body.description,
+        warehouse_id=warehouse_id,
+        warehouse_name=warehouse_name,
+        cluster_id=None,
+        cluster_name=None,
+        default_catalog=DEFAULT_CATALOG,
+        default_schema=default_schema,
     )
     session.add(project)
     session.commit()
@@ -117,6 +182,17 @@ def create_project(
     # Create project directory with initial README
     initial_readme = f"# {body.name}\n\n{body.description or 'A new Databricks Asset Generator project.'}\n"
     create_project_directory(project.id, initial_readme)
+
+    # Sync files to database so they appear in the file list
+    file_sync: FileSyncService = request.app.state.file_sync
+    file_sync.full_sync_project(project.id, session=session)
+
+    # Get actual file count from DB
+    file_count = session.exec(
+        select(func.count())
+        .select_from(ProjectFile)
+        .where(ProjectFile.project_id == project.id)
+    ).one()
 
     return ProjectOut(
         id=project.id,
@@ -127,7 +203,13 @@ def create_project(
         created_at=project.created_at,
         updated_at=project.updated_at,
         message_count=0,
-        file_count=1,  # README.md
+        file_count=file_count,
+        cluster_id=project.cluster_id,
+        cluster_name=project.cluster_name,
+        warehouse_id=project.warehouse_id,
+        warehouse_name=project.warehouse_name,
+        default_catalog=project.default_catalog,
+        default_schema=project.default_schema,
     )
 
 
@@ -172,6 +254,12 @@ def get_project(
         updated_at=project.updated_at,
         message_count=msg_count,
         file_count=file_count,
+        cluster_id=project.cluster_id,
+        cluster_name=project.cluster_name,
+        warehouse_id=project.warehouse_id,
+        warehouse_name=project.warehouse_name,
+        default_catalog=project.default_catalog,
+        default_schema=project.default_schema,
     )
 
 
@@ -221,6 +309,76 @@ def update_project(
         updated_at=project.updated_at,
         message_count=msg_count,
         file_count=file_count,
+        cluster_id=project.cluster_id,
+        cluster_name=project.cluster_name,
+        warehouse_id=project.warehouse_id,
+        warehouse_name=project.warehouse_name,
+        default_catalog=project.default_catalog,
+        default_schema=project.default_schema,
+    )
+
+
+@router.patch(
+    "/projects/{project_id}/resources",
+    response_model=ProjectOut,
+    operation_id="updateProjectResources",
+)
+def update_project_resources(
+    project_id: str,
+    body: ProjectResourcesUpdateRequest,
+    session: Dependencies.Session,
+    headers: Dependencies.Headers,
+):
+    """Update a project's resource settings (cluster, warehouse, catalog, schema)."""
+    user_email = _get_user_email(headers)
+    project = _get_user_project(session, project_id, user_email)
+
+    # Update only the provided fields
+    if body.cluster_id is not None:
+        project.cluster_id = body.cluster_id if body.cluster_id else None
+    if body.cluster_name is not None:
+        project.cluster_name = body.cluster_name if body.cluster_name else None
+    if body.warehouse_id is not None:
+        project.warehouse_id = body.warehouse_id if body.warehouse_id else None
+    if body.warehouse_name is not None:
+        project.warehouse_name = body.warehouse_name if body.warehouse_name else None
+    if body.default_catalog is not None:
+        project.default_catalog = body.default_catalog if body.default_catalog else None
+    if body.default_schema is not None:
+        project.default_schema = body.default_schema if body.default_schema else None
+
+    project.updated_at = datetime.now(timezone.utc)
+    session.add(project)
+    session.commit()
+    session.refresh(project)
+
+    # Get counts
+    msg_count = session.exec(
+        select(func.count()).select_from(Message).where(Message.project_id == project.id)
+    ).one()
+
+    file_count = session.exec(
+        select(func.count())
+        .select_from(ProjectFile)
+        .where(ProjectFile.project_id == project.id)
+    ).one()
+
+    return ProjectOut(
+        id=project.id,
+        name=project.name,
+        user_email=project.user_email,
+        description=project.description,
+        project_type=project.project_type,
+        created_at=project.created_at,
+        updated_at=project.updated_at,
+        message_count=msg_count,
+        file_count=file_count,
+        cluster_id=project.cluster_id,
+        cluster_name=project.cluster_name,
+        warehouse_id=project.warehouse_id,
+        warehouse_name=project.warehouse_name,
+        default_catalog=project.default_catalog,
+        default_schema=project.default_schema,
     )
 
 

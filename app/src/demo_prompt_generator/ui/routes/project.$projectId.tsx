@@ -26,7 +26,6 @@ import {
   Trash2,
   AlertTriangle,
   Sparkles,
-  Server,
 } from "lucide-react";
 import {
   getProject,
@@ -60,9 +59,14 @@ function ProjectPage() {
 
   // Chat state
   const [messages, setMessages] = useState<Message[]>([]);
+  const [isLoadingMessages, setIsLoadingMessages] = useState(true);
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamingContent, setStreamingContent] = useState("");
+  const [streamingThinking, setStreamingThinking] = useState("");
+  const [streamingTools, setStreamingTools] = useState<Map<string, { name: string; input: unknown; result?: string; isError?: boolean }>>(new Map());
   const [executionId, setExecutionId] = useState<string | null>(null);
+  const [pendingUserMessage, setPendingUserMessage] = useState<string | null>(null);
+  const [lastReasoning, setLastReasoning] = useState<{ thinking: string; tools: Map<string, { name: string; input: unknown; result?: string; isError?: boolean }> } | null>(null);
 
   // Delete dialog state
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
@@ -82,12 +86,30 @@ function ProjectPage() {
     schema: null,
   });
 
+  // Load resources from project when it loads (names now come from project directly)
+  useEffect(() => {
+    if (project) {
+      setResources({
+        clusterId: project.cluster_id,
+        clusterName: project.cluster_name,
+        warehouseId: project.warehouse_id,
+        warehouseName: project.warehouse_name,
+        catalog: project.default_catalog,
+        schema: project.default_schema,
+      });
+    }
+  }, [project]);
+
   // Abort controller for cancellation
   const abortControllerRef = useRef<AbortController | null>(null);
+
+  // Ref to capture reasoning during streaming (for saving in finally)
+  const reasoningRef = useRef<{ thinking: string; tools: Map<string, { name: string; input: unknown; result?: string; isError?: boolean }> } | null>(null);
 
   // Load project data
   useEffect(() => {
     async function loadProject() {
+      setIsLoadingMessages(true);
       try {
         // Load project details (also restores files from DB if needed)
         const proj = await getProject(projectId);
@@ -110,6 +132,8 @@ function ProjectPage() {
         setMessages(msgs);
       } catch (error) {
         console.error("Failed to load project:", error);
+      } finally {
+        setIsLoadingMessages(false);
       }
     }
 
@@ -144,8 +168,14 @@ function ProjectPage() {
     async (message: string) => {
       if (isStreaming) return;
 
+      // Show user message immediately
+      setPendingUserMessage(message);
+      setLastReasoning(null);
+      reasoningRef.current = null;
       setIsStreaming(true);
       setStreamingContent("");
+      setStreamingThinking("");
+      setStreamingTools(new Map());
 
       try {
         // Start agent
@@ -157,6 +187,9 @@ function ProjectPage() {
 
         // Stream progress
         let fullContent = "";
+        let fullThinking = "";
+        const toolsMap = new Map<string, { name: string; input: unknown; result?: string; isError?: boolean }>();
+
         for await (const event of streamAgentProgress(
           response.execution_id,
           abortControllerRef.current.signal
@@ -165,8 +198,36 @@ function ProjectPage() {
             fullContent += event.text;
             setStreamingContent(fullContent);
           } else if (event.type === "text") {
-            fullContent = event.text;
-            setStreamingContent(fullContent);
+            // Ignore final text event - we already have content from deltas
+          } else if (event.type === "thinking_delta") {
+            fullThinking += event.thinking;
+            setStreamingThinking(fullThinking);
+            // Update ref for use in finally
+            reasoningRef.current = { thinking: fullThinking, tools: new Map(toolsMap) };
+          } else if (event.type === "thinking") {
+            // Ignore final thinking event - we already have content from deltas
+          } else if (event.type === "tool_use") {
+            // Tool started - add with pending state
+            toolsMap.set(event.tool_id, {
+              name: event.tool_name,
+              input: event.tool_input,
+            });
+            setStreamingTools(new Map(toolsMap));
+            // Update ref for use in finally
+            reasoningRef.current = { thinking: fullThinking, tools: new Map(toolsMap) };
+          } else if (event.type === "tool_result") {
+            // Tool completed - update with result
+            const existing = toolsMap.get(event.tool_use_id);
+            if (existing) {
+              toolsMap.set(event.tool_use_id, {
+                ...existing,
+                result: event.content,
+                isError: event.is_error ?? false,
+              });
+              setStreamingTools(new Map(toolsMap));
+              // Update ref for use in finally
+              reasoningRef.current = { thinking: fullThinking, tools: new Map(toolsMap) };
+            }
           } else if (event.type === "error") {
             console.error("Agent error:", event.error);
           } else if (event.type === "stream.completed") {
@@ -174,9 +235,35 @@ function ProjectPage() {
           }
         }
 
-        // Refresh messages after completion
-        const msgs = await listProjectMessages(projectId);
-        setMessages(msgs);
+        // Add new messages locally (no re-fetch to avoid flash)
+        // The backend saves these, we just add them to local state
+        const now = new Date().toISOString();
+        const userMsg: Message = {
+          id: Date.now(), // Temporary ID, will be replaced on reload
+          project_id: projectId,
+          role: "user",
+          content: message,
+          is_error: false,
+          created_at: now,
+        };
+        const assistantMsg: Message = {
+          id: Date.now() + 1,
+          project_id: projectId,
+          role: "assistant",
+          content: fullContent,
+          is_error: false,
+          reasoning_data: reasoningRef.current ? {
+            reasoning: [
+              ...(reasoningRef.current.thinking ? [{ type: "thinking" as const, content: reasoningRef.current.thinking }] : []),
+              ...Array.from(reasoningRef.current.tools.entries()).flatMap(([id, tool]) => [
+                { type: "tool" as const, id, name: tool.name, input: tool.input },
+                ...(tool.result !== undefined ? [{ type: "tool_result" as const, tool_id: id, content: tool.result, is_error: tool.isError ?? false }] : []),
+              ]),
+            ],
+          } : null,
+          created_at: now,
+        };
+        setMessages(prev => [...prev, userMsg, assistantMsg]);
 
         // Refresh files (agent may have created new files)
         const fileList = await listProjectFiles(projectId);
@@ -196,8 +283,15 @@ function ProjectPage() {
           console.error("Failed to send message:", error);
         }
       } finally {
+        // Save reasoning from ref BEFORE clearing streaming state
+        if (reasoningRef.current) {
+          setLastReasoning(reasoningRef.current);
+        }
         setIsStreaming(false);
         setStreamingContent("");
+        setStreamingThinking("");
+        setStreamingTools(new Map());
+        setPendingUserMessage(null);
         setExecutionId(null);
         abortControllerRef.current = null;
       }
@@ -249,7 +343,7 @@ function ProjectPage() {
   }, [projectId, navigate]);
 
   return (
-    <div className="flex min-h-screen flex-col">
+    <div className="flex h-screen flex-col overflow-hidden">
       {/* Header */}
       <div className="shrink-0 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
         <div className="flex h-14 items-center justify-between px-4">
@@ -283,20 +377,6 @@ function ProjectPage() {
               <Sparkles className="h-4 w-4" />
               Skills
             </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setIsResourcesOpen(true)}
-              className="gap-1.5"
-            >
-              <Server className="h-4 w-4" />
-              Resources
-              {(resources.clusterName || resources.warehouseName) && (
-                <span className="text-xs text-muted-foreground ml-1">
-                  ({resources.clusterName || resources.warehouseName})
-                </span>
-              )}
-            </Button>
             <div className="h-6 w-px bg-border" />
             <Button
               variant="ghost"
@@ -321,9 +401,9 @@ function ProjectPage() {
       </div>
 
       {/* Main content */}
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex flex-1 min-h-0">
         {/* File viewer (left side) */}
-        <div className="flex-1 min-w-0">
+        <div className="flex-1 min-w-0 overflow-hidden">
           <FileViewer
             files={files}
             selectedFile={selectedFile}
@@ -335,13 +415,20 @@ function ProjectPage() {
         </div>
 
         {/* Chat panel (right side) */}
-        <div className="w-[400px] shrink-0">
+        <div className="w-[600px] shrink-0 h-full">
           <ChatPanel
             messages={messages}
             onSendMessage={handleSendMessage}
             isStreaming={isStreaming}
+            isLoadingMessages={isLoadingMessages}
             streamingContent={streamingContent}
+            streamingThinking={streamingThinking}
+            streamingTools={streamingTools}
+            pendingUserMessage={pendingUserMessage}
+            lastReasoning={lastReasoning}
             onStop={handleStop}
+            resources={resources}
+            onEditResources={() => setIsResourcesOpen(true)}
           />
         </div>
       </div>
@@ -410,6 +497,7 @@ function ProjectPage() {
 
       {/* Resources Popover */}
       <ResourcesPopover
+        projectId={projectId}
         isOpen={isResourcesOpen}
         onClose={() => setIsResourcesOpen(false)}
         resources={resources}

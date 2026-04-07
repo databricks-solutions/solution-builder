@@ -109,17 +109,17 @@ export const Prose = memo(function Prose({
             );
           },
           // Headings
-          h1: ({ children: h }) => <h1 className="text-xl font-bold mt-6 mb-2">{h}</h1>,
-          h2: ({ children: h }) => <h2 className="text-base font-bold mt-5 mb-2 border-b border-border/30 pb-1">{h}</h2>,
-          h3: ({ children: h }) => <h3 className="text-sm font-semibold mt-4 mb-1.5">{h}</h3>,
-          h4: ({ children: h }) => <h4 className="text-sm font-semibold mt-3 mb-1 text-muted-foreground">{h}</h4>,
+          h1: ({ children: h }) => <h1 className="text-base font-bold mt-4 mb-1.5">{h}</h1>,
+          h2: ({ children: h }) => <h2 className="text-sm font-bold mt-3 mb-1.5 border-b border-border/30 pb-1">{h}</h2>,
+          h3: ({ children: h }) => <h3 className="text-xs font-semibold mt-3 mb-1">{h}</h3>,
+          h4: ({ children: h }) => <h4 className="text-xs font-semibold mt-2 mb-1 text-muted-foreground">{h}</h4>,
           // Paragraphs
-          p: ({ children: p }) => <p className="my-1.5 text-sm leading-relaxed">{p}</p>,
+          p: ({ children: p }) => <p className="my-1 text-xs leading-relaxed">{p}</p>,
           // Lists
-          ul: ({ children: u }) => <ul className="my-2 ml-1 space-y-1 list-none">{u}</ul>,
-          ol: ({ children: o }) => <ol className="my-2 ml-1 space-y-1 list-none counter-reset-item">{o}</ol>,
+          ul: ({ children: u }) => <ul className="my-1.5 ml-1 space-y-0.5 list-none">{u}</ul>,
+          ol: ({ children: o }) => <ol className="my-1.5 ml-1 space-y-0.5 list-none counter-reset-item">{o}</ol>,
           li: ({ children: l }) => (
-            <li className="flex gap-2 text-sm leading-relaxed">
+            <li className="flex gap-1.5 text-xs leading-relaxed">
               <span className="shrink-0 mt-0.5 text-primary/40">{"\u2022"}</span>
               <span className="flex-1">{l}</span>
             </li>

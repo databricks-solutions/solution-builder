@@ -11,9 +11,9 @@ router = create_router()
 from .routes import projects as _projects  # noqa: E402, F401
 from .routes import project_files as _project_files  # noqa: E402, F401
 from .routes import messages as _messages  # noqa: E402, F401
-from .routes import agent as _agent  # noqa: E402, F401
 from .routes import skills as _skills  # noqa: E402, F401
 from .routes import resources as _resources  # noqa: E402, F401
+from .routes import agent as _agent  # noqa: E402, F401
 
 
 @router.get("/version", response_model=VersionOut, operation_id="version")

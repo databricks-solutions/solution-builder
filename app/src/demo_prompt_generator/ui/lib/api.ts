@@ -12,6 +12,11 @@ export class ApiError extends Error {
         this.body = body;
     }
 }
+export interface ActiveExecutionOut {
+    execution_id: string;
+    is_running: boolean;
+    project_id: string;
+}
 export interface ClusterInfo {
     id: string;
     name: string;
@@ -24,14 +29,6 @@ export interface ComplexValue {
     ref?: string | null;
     type?: string | null;
     value?: string | null;
-}
-export interface ExecutionOut {
-    created_at: string;
-    error: string | null;
-    id: string;
-    project_id: string;
-    status: string;
-    updated_at: string;
 }
 export interface HTTPValidationError {
     detail?: ValidationError[];
@@ -55,6 +52,7 @@ export interface MessageOut {
     id: number;
     is_error: boolean;
     project_id: string;
+    reasoning_data?: Record<string, unknown> | null;
     role: string;
 }
 export interface Name {
@@ -88,7 +86,11 @@ export interface ProjectListItem {
     updated_at: string;
 }
 export interface ProjectOut {
+    cluster_id?: string | null;
+    cluster_name?: string | null;
     created_at: string;
+    default_catalog?: string | null;
+    default_schema?: string | null;
     description: string | null;
     file_count?: number;
     id: string;
@@ -97,10 +99,24 @@ export interface ProjectOut {
     project_type: string;
     updated_at: string;
     user_email: string;
+    warehouse_id?: string | null;
+    warehouse_name?: string | null;
+}
+export interface ProjectResourcesUpdateRequest {
+    cluster_id?: string | null;
+    cluster_name?: string | null;
+    default_catalog?: string | null;
+    default_schema?: string | null;
+    warehouse_id?: string | null;
+    warehouse_name?: string | null;
 }
 export interface ProjectUpdateRequest {
     description?: string | null;
     name?: string | null;
+}
+export interface ResourceDefaults {
+    catalog?: string;
+    schema_prefix?: string;
 }
 export interface SkillFileContent {
     content: string;
@@ -110,6 +126,12 @@ export interface SkillInfo {
     description: string;
     dir_name: string;
     name: string;
+}
+export interface StreamProgressRequest {
+    last_timestamp?: number;
+}
+export interface SystemPromptResponse {
+    prompt: string;
 }
 export interface User {
     active?: boolean | null;
@@ -667,7 +689,7 @@ export interface GetActiveExecutionParams {
     "X-Forwarded-Access-Token"?: string | null;
 }
 export const getActiveExecution = async (params: GetActiveExecutionParams, options?: RequestInit): Promise<{
-    data: ExecutionOut | null;
+    data: ActiveExecutionOut | null;
 }> =>{
     const res = await fetch(`/api/projects/${params.project_id}/execution`, {
         ...options,
@@ -715,11 +737,11 @@ export const getActiveExecutionKey = (params?: GetActiveExecutionParams)=>{
     ] as const;
 };
 export function useGetActiveExecution<TData = {
-    data: ExecutionOut | null;
+    data: ActiveExecutionOut | null;
 }>(options: {
     params: GetActiveExecutionParams;
     query?: Omit<UseQueryOptions<{
-        data: ExecutionOut | null;
+        data: ActiveExecutionOut | null;
     }, ApiError, TData>, "queryKey" | "queryFn">;
 }) {
     return useQuery({
@@ -729,11 +751,11 @@ export function useGetActiveExecution<TData = {
     });
 }
 export function useGetActiveExecutionSuspense<TData = {
-    data: ExecutionOut | null;
+    data: ActiveExecutionOut | null;
 }>(options: {
     params: GetActiveExecutionParams;
     query?: Omit<UseSuspenseQueryOptions<{
-        data: ExecutionOut | null;
+        data: ActiveExecutionOut | null;
     }, ApiError, TData>, "queryKey" | "queryFn">;
 }) {
     return useSuspenseQuery({
@@ -1127,6 +1149,72 @@ export function useClearProjectMessages(options?: {
         ...options?.mutation
     });
 }
+export interface UpdateProjectResourcesParams {
+    project_id: string;
+    "X-Forwarded-Host"?: string | null;
+    "X-Forwarded-Preferred-Username"?: string | null;
+    "X-Forwarded-User"?: string | null;
+    "X-Forwarded-Email"?: string | null;
+    "X-Request-Id"?: string | null;
+    "X-Forwarded-Access-Token"?: string | null;
+}
+export const updateProjectResources = async (params: UpdateProjectResourcesParams, data: ProjectResourcesUpdateRequest, options?: RequestInit): Promise<{
+    data: ProjectOut;
+}> =>{
+    const res = await fetch(`/api/projects/${params.project_id}/resources`, {
+        ...options,
+        method: "PATCH",
+        headers: {
+            "Content-Type": "application/json",
+            ...(params?.["X-Forwarded-Host"] != null && {
+                "X-Forwarded-Host": params["X-Forwarded-Host"]
+            }),
+            ...(params?.["X-Forwarded-Preferred-Username"] != null && {
+                "X-Forwarded-Preferred-Username": params["X-Forwarded-Preferred-Username"]
+            }),
+            ...(params?.["X-Forwarded-User"] != null && {
+                "X-Forwarded-User": params["X-Forwarded-User"]
+            }),
+            ...(params?.["X-Forwarded-Email"] != null && {
+                "X-Forwarded-Email": params["X-Forwarded-Email"]
+            }),
+            ...(params?.["X-Request-Id"] != null && {
+                "X-Request-Id": params["X-Request-Id"]
+            }),
+            ...(params?.["X-Forwarded-Access-Token"] != null && {
+                "X-Forwarded-Access-Token": params["X-Forwarded-Access-Token"]
+            }),
+            ...options?.headers
+        },
+        body: JSON.stringify(data)
+    });
+    if (!res.ok) {
+        const body = await res.text();
+        let parsed: unknown;
+        try {
+            parsed = JSON.parse(body);
+        } catch  {
+            parsed = body;
+        }
+        throw new ApiError(res.status, res.statusText, parsed);
+    }
+    return {
+        data: await res.json()
+    };
+};
+export function useUpdateProjectResources(options?: {
+    mutation?: UseMutationOptions<{
+        data: ProjectOut;
+    }, ApiError, {
+        params: UpdateProjectResourcesParams;
+        data: ProjectResourcesUpdateRequest;
+    }>;
+}) {
+    return useMutation({
+        mutationFn: (vars)=>updateProjectResources(vars.params, vars.data),
+        ...options?.mutation
+    });
+}
 export interface GetProjectSkillsParams {
     project_id: string;
     "X-Forwarded-Host"?: string | null;
@@ -1511,7 +1599,93 @@ export function useSyncProject(options?: {
         ...options?.mutation
     });
 }
+export interface GetProjectSystemPromptParams {
+    project_id: string;
+    "X-Forwarded-Host"?: string | null;
+    "X-Forwarded-Preferred-Username"?: string | null;
+    "X-Forwarded-User"?: string | null;
+    "X-Forwarded-Email"?: string | null;
+    "X-Request-Id"?: string | null;
+    "X-Forwarded-Access-Token"?: string | null;
+}
+export const getProjectSystemPrompt = async (params: GetProjectSystemPromptParams, options?: RequestInit): Promise<{
+    data: SystemPromptResponse;
+}> =>{
+    const res = await fetch(`/api/projects/${params.project_id}/system-prompt`, {
+        ...options,
+        method: "GET",
+        headers: {
+            ...(params?.["X-Forwarded-Host"] != null && {
+                "X-Forwarded-Host": params["X-Forwarded-Host"]
+            }),
+            ...(params?.["X-Forwarded-Preferred-Username"] != null && {
+                "X-Forwarded-Preferred-Username": params["X-Forwarded-Preferred-Username"]
+            }),
+            ...(params?.["X-Forwarded-User"] != null && {
+                "X-Forwarded-User": params["X-Forwarded-User"]
+            }),
+            ...(params?.["X-Forwarded-Email"] != null && {
+                "X-Forwarded-Email": params["X-Forwarded-Email"]
+            }),
+            ...(params?.["X-Request-Id"] != null && {
+                "X-Request-Id": params["X-Request-Id"]
+            }),
+            ...(params?.["X-Forwarded-Access-Token"] != null && {
+                "X-Forwarded-Access-Token": params["X-Forwarded-Access-Token"]
+            }),
+            ...options?.headers
+        }
+    });
+    if (!res.ok) {
+        const body = await res.text();
+        let parsed: unknown;
+        try {
+            parsed = JSON.parse(body);
+        } catch  {
+            parsed = body;
+        }
+        throw new ApiError(res.status, res.statusText, parsed);
+    }
+    return {
+        data: await res.json()
+    };
+};
+export const getProjectSystemPromptKey = (params?: GetProjectSystemPromptParams)=>{
+    return [
+        "/api/projects/{project_id}/system-prompt",
+        params
+    ] as const;
+};
+export function useGetProjectSystemPrompt<TData = {
+    data: SystemPromptResponse;
+}>(options: {
+    params: GetProjectSystemPromptParams;
+    query?: Omit<UseQueryOptions<{
+        data: SystemPromptResponse;
+    }, ApiError, TData>, "queryKey" | "queryFn">;
+}) {
+    return useQuery({
+        queryKey: getProjectSystemPromptKey(options.params),
+        queryFn: ()=>getProjectSystemPrompt(options.params),
+        ...options?.query
+    });
+}
+export function useGetProjectSystemPromptSuspense<TData = {
+    data: SystemPromptResponse;
+}>(options: {
+    params: GetProjectSystemPromptParams;
+    query?: Omit<UseSuspenseQueryOptions<{
+        data: SystemPromptResponse;
+    }, ApiError, TData>, "queryKey" | "queryFn">;
+}) {
+    return useSuspenseQuery({
+        queryKey: getProjectSystemPromptKey(options.params),
+        queryFn: ()=>getProjectSystemPrompt(options.params),
+        ...options?.query
+    });
+}
 export interface ListCatalogsParams {
+    q?: string | null;
     "X-Forwarded-Host"?: string | null;
     "X-Forwarded-Preferred-Username"?: string | null;
     "X-Forwarded-User"?: string | null;
@@ -1522,7 +1696,11 @@ export interface ListCatalogsParams {
 export const listCatalogs = async (params?: ListCatalogsParams, options?: RequestInit): Promise<{
     data: string[];
 }> =>{
-    const res = await fetch("/api/resources/catalogs", {
+    const searchParams = new URLSearchParams();
+    if (params?.q != null) searchParams.set("q", String(params?.q));
+    const queryString = searchParams.toString();
+    const url = queryString ? `/api/resources/catalogs?${queryString}` : "/api/resources/catalogs";
+    const res = await fetch(url, {
         ...options,
         method: "GET",
         headers: {
@@ -1679,8 +1857,103 @@ export function useListClustersSuspense<TData = {
         ...options?.query
     });
 }
+export const getResourceDefaults = async (options?: RequestInit): Promise<{
+    data: ResourceDefaults;
+}> =>{
+    const res = await fetch("/api/resources/defaults", {
+        ...options,
+        method: "GET"
+    });
+    if (!res.ok) {
+        const body = await res.text();
+        let parsed: unknown;
+        try {
+            parsed = JSON.parse(body);
+        } catch  {
+            parsed = body;
+        }
+        throw new ApiError(res.status, res.statusText, parsed);
+    }
+    return {
+        data: await res.json()
+    };
+};
+export const getResourceDefaultsKey = ()=>{
+    return [
+        "/api/resources/defaults"
+    ] as const;
+};
+export function useGetResourceDefaults<TData = {
+    data: ResourceDefaults;
+}>(options?: {
+    query?: Omit<UseQueryOptions<{
+        data: ResourceDefaults;
+    }, ApiError, TData>, "queryKey" | "queryFn">;
+}) {
+    return useQuery({
+        queryKey: getResourceDefaultsKey(),
+        queryFn: ()=>getResourceDefaults(),
+        ...options?.query
+    });
+}
+export function useGetResourceDefaultsSuspense<TData = {
+    data: ResourceDefaults;
+}>(options?: {
+    query?: Omit<UseSuspenseQueryOptions<{
+        data: ResourceDefaults;
+    }, ApiError, TData>, "queryKey" | "queryFn">;
+}) {
+    return useSuspenseQuery({
+        queryKey: getResourceDefaultsKey(),
+        queryFn: ()=>getResourceDefaults(),
+        ...options?.query
+    });
+}
+export interface RefreshResourcesParams {
+    resource_type?: string | null;
+    catalog?: string | null;
+}
+export const refreshResources = async (params?: RefreshResourcesParams, options?: RequestInit): Promise<{
+    data: unknown;
+}> =>{
+    const searchParams = new URLSearchParams();
+    if (params?.resource_type != null) searchParams.set("resource_type", String(params?.resource_type));
+    if (params?.catalog != null) searchParams.set("catalog", String(params?.catalog));
+    const queryString = searchParams.toString();
+    const url = queryString ? `/api/resources/refresh?${queryString}` : "/api/resources/refresh";
+    const res = await fetch(url, {
+        ...options,
+        method: "POST"
+    });
+    if (!res.ok) {
+        const body = await res.text();
+        let parsed: unknown;
+        try {
+            parsed = JSON.parse(body);
+        } catch  {
+            parsed = body;
+        }
+        throw new ApiError(res.status, res.statusText, parsed);
+    }
+    return {
+        data: await res.json()
+    };
+};
+export function useRefreshResources(options?: {
+    mutation?: UseMutationOptions<{
+        data: unknown;
+    }, ApiError, {
+        params: RefreshResourcesParams;
+    }>;
+}) {
+    return useMutation({
+        mutationFn: (vars)=>refreshResources(vars.params),
+        ...options?.mutation
+    });
+}
 export interface ListSchemasParams {
     catalog: string;
+    q?: string | null;
     "X-Forwarded-Host"?: string | null;
     "X-Forwarded-Preferred-Username"?: string | null;
     "X-Forwarded-User"?: string | null;
@@ -1693,6 +1966,7 @@ export const listSchemas = async (params: ListSchemasParams, options?: RequestIn
 }> =>{
     const searchParams = new URLSearchParams();
     if (params.catalog != null) searchParams.set("catalog", String(params.catalog));
+    if (params?.q != null) searchParams.set("q", String(params?.q));
     const queryString = searchParams.toString();
     const url = queryString ? `/api/resources/schemas?${queryString}` : "/api/resources/schemas";
     const res = await fetch(url, {
@@ -1854,40 +2128,13 @@ export function useListWarehousesSuspense<TData = {
 }
 export interface StopStreamParams {
     execution_id: string;
-    "X-Forwarded-Host"?: string | null;
-    "X-Forwarded-Preferred-Username"?: string | null;
-    "X-Forwarded-User"?: string | null;
-    "X-Forwarded-Email"?: string | null;
-    "X-Request-Id"?: string | null;
-    "X-Forwarded-Access-Token"?: string | null;
 }
 export const stopStream = async (params: StopStreamParams, options?: RequestInit): Promise<{
     data: unknown;
 }> =>{
     const res = await fetch(`/api/stop_stream/${params.execution_id}`, {
         ...options,
-        method: "POST",
-        headers: {
-            ...(params?.["X-Forwarded-Host"] != null && {
-                "X-Forwarded-Host": params["X-Forwarded-Host"]
-            }),
-            ...(params?.["X-Forwarded-Preferred-Username"] != null && {
-                "X-Forwarded-Preferred-Username": params["X-Forwarded-Preferred-Username"]
-            }),
-            ...(params?.["X-Forwarded-User"] != null && {
-                "X-Forwarded-User": params["X-Forwarded-User"]
-            }),
-            ...(params?.["X-Forwarded-Email"] != null && {
-                "X-Forwarded-Email": params["X-Forwarded-Email"]
-            }),
-            ...(params?.["X-Request-Id"] != null && {
-                "X-Request-Id": params["X-Request-Id"]
-            }),
-            ...(params?.["X-Forwarded-Access-Token"] != null && {
-                "X-Forwarded-Access-Token": params["X-Forwarded-Access-Token"]
-            }),
-            ...options?.headers
-        }
+        method: "POST"
     });
     if (!res.ok) {
         const body = await res.text();
@@ -1917,40 +2164,18 @@ export function useStopStream(options?: {
 }
 export interface StreamProgressParams {
     execution_id: string;
-    "X-Forwarded-Host"?: string | null;
-    "X-Forwarded-Preferred-Username"?: string | null;
-    "X-Forwarded-User"?: string | null;
-    "X-Forwarded-Email"?: string | null;
-    "X-Request-Id"?: string | null;
-    "X-Forwarded-Access-Token"?: string | null;
 }
-export const streamProgress = async (params: StreamProgressParams, options?: RequestInit): Promise<{
+export const streamProgress = async (params: StreamProgressParams, data: StreamProgressRequest, options?: RequestInit): Promise<{
     data: unknown;
 }> =>{
     const res = await fetch(`/api/stream_progress/${params.execution_id}`, {
         ...options,
         method: "POST",
         headers: {
-            ...(params?.["X-Forwarded-Host"] != null && {
-                "X-Forwarded-Host": params["X-Forwarded-Host"]
-            }),
-            ...(params?.["X-Forwarded-Preferred-Username"] != null && {
-                "X-Forwarded-Preferred-Username": params["X-Forwarded-Preferred-Username"]
-            }),
-            ...(params?.["X-Forwarded-User"] != null && {
-                "X-Forwarded-User": params["X-Forwarded-User"]
-            }),
-            ...(params?.["X-Forwarded-Email"] != null && {
-                "X-Forwarded-Email": params["X-Forwarded-Email"]
-            }),
-            ...(params?.["X-Request-Id"] != null && {
-                "X-Request-Id": params["X-Request-Id"]
-            }),
-            ...(params?.["X-Forwarded-Access-Token"] != null && {
-                "X-Forwarded-Access-Token": params["X-Forwarded-Access-Token"]
-            }),
+            "Content-Type": "application/json",
             ...options?.headers
-        }
+        },
+        body: JSON.stringify(data)
     });
     if (!res.ok) {
         const body = await res.text();
@@ -1971,10 +2196,11 @@ export function useStreamProgress(options?: {
         data: unknown;
     }, ApiError, {
         params: StreamProgressParams;
+        data: StreamProgressRequest;
     }>;
 }) {
     return useMutation({
-        mutationFn: (vars)=>streamProgress(vars.params),
+        mutationFn: (vars)=>streamProgress(vars.params, vars.data),
         ...options?.mutation
     });
 }

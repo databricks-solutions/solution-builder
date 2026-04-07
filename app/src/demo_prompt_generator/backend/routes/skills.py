@@ -15,6 +15,7 @@ from ..services.skills_manager import (
     get_skill_files_tree,
     refresh_project_skills,
 )
+from ..services.system_prompt import get_system_prompt, get_workspace_url
 
 router = create_router()
 
@@ -131,3 +132,39 @@ def refresh_skills(
     # Return updated skills list
     skills = get_project_skills_list(project_id)
     return {"success": True, "skills": [SkillInfo(**s) for s in skills]}
+
+
+class SystemPromptResponse(BaseModel):
+    """System prompt response."""
+
+    prompt: str
+
+
+@router.get(
+    "/projects/{project_id}/system-prompt",
+    response_model=SystemPromptResponse,
+    operation_id="getProjectSystemPrompt",
+)
+def get_project_system_prompt(
+    project_id: str,
+    session: Dependencies.Session,
+    headers: Dependencies.Headers,
+):
+    """Get the current system prompt for a project (for debugging)."""
+    user_email = _get_user_email(headers)
+    project = _verify_project_access(session, project_id, user_email)
+
+    # Get skills
+    skills = get_project_skills_list(project_id)
+
+    # Build prompt with project's resources
+    prompt = get_system_prompt(
+        cluster_id=project.cluster_id,
+        warehouse_id=project.warehouse_id,
+        default_catalog=project.default_catalog,
+        default_schema=project.default_schema,
+        workspace_url=get_workspace_url(),
+        skills=skills,
+    )
+
+    return SystemPromptResponse(prompt=prompt)
