@@ -1,3 +1,5 @@
+"""Main router with all API endpoints."""
+
 from databricks.sdk.service.iam import User as UserOut
 
 from .core import Dependencies, create_router
@@ -5,15 +7,13 @@ from .models import VersionOut
 
 router = create_router()
 
-# Import route modules so their decorators register on the singleton router.
-from .routes import generate as _generate  # noqa: E402, F401
-from .routes import generations as _generations  # noqa: E402, F401
-from .routes import inspire as _inspire  # noqa: E402, F401
-from .routes import workspace as _workspace  # noqa: E402, F401
-from .routes import conversations as _conversations  # noqa: E402, F401
-from .routes import library as _library  # noqa: E402, F401
-from .routes import blocks as _blocks  # noqa: E402, F401
-from .routes import collections as _collections_rt  # noqa: E402, F401
+# Import new route modules (project-based architecture)
+from .routes import projects as _projects  # noqa: E402, F401
+from .routes import project_files as _project_files  # noqa: E402, F401
+from .routes import messages as _messages  # noqa: E402, F401
+from .routes import agent as _agent  # noqa: E402, F401
+from .routes import skills as _skills  # noqa: E402, F401
+from .routes import resources as _resources  # noqa: E402, F401
 
 
 @router.get("/version", response_model=VersionOut, operation_id="version")

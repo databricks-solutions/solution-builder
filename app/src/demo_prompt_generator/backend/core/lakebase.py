@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 import os
+import threading
 from collections.abc import Generator
 from contextlib import asynccontextmanager
 from typing import Annotated, Any, AsyncGenerator, TypeAlias
+
+# Global lock for serializing database connections in dev mode (PGLite can't handle concurrency)
+_dev_db_lock: threading.Lock | None = None
 
 from databricks.sdk import WorkspaceClient
 from databricks.sdk.errors import NotFound
@@ -13,6 +17,7 @@ from fastapi import FastAPI, Request
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy import Engine, create_engine, event
+from sqlalchemy.pool import NullPool
 from sqlmodel import Session, SQLModel, text
 
 from ._base import LifespanDependency
@@ -38,14 +43,27 @@ class DatabaseConfig(BaseSettings):
     )
 
 
-
 # --- Engine creation ---
 
 
 def _get_dev_db_port() -> int | None:
-    """Check for APX_DEV_DB_PORT environment variable for local development."""
+    """Check for local development database port.
+
+    Checks APX_DEV_DB_PORT first, then PGPORT as fallback.
+    Returns port if found, None for production mode.
+    """
+    # APX sets this when it manages the dev database
     port = os.environ.get("APX_DEV_DB_PORT")
-    return int(port) if port else None
+    if port:
+        return int(port)
+
+    # Fallback: check PGPORT (APX may set this even without APX_DEV_DB_PORT)
+    pgport = os.environ.get("PGPORT")
+    if pgport:
+        # PGPORT is set - likely local dev mode
+        return int(pgport)
+
+    return None
 
 
 def _build_engine_url(
@@ -53,10 +71,11 @@ def _build_engine_url(
 ) -> str:
     """Build the database engine URL for dev or production mode."""
     if dev_port:
-        logger.info(f"Using local dev database at localhost:{dev_port}")
+        logger.info(f"Using local dev database at 127.0.0.1:{dev_port}")
         username = "postgres"
         password = os.environ.get("APX_DEV_DB_PWD", "postgres")
-        return f"postgresql+psycopg://{username}:{password}@localhost:{dev_port}/postgres?sslmode=disable"
+        # Use 127.0.0.1 explicitly to avoid IPv6 resolution issues with PGLite
+        return f"postgresql+psycopg://{username}:{password}@127.0.0.1:{dev_port}/postgres?sslmode=disable"
 
     # Production mode: use Databricks Database
     logger.info(f"Using Databricks database instance: {db_config.instance_name}")
@@ -75,15 +94,24 @@ def create_db_engine(db_config: DatabaseConfig, ws: WorkspaceClient) -> Engine:
     """
     Create a SQLAlchemy engine.
 
-    In dev mode: no SSL, no password callback.
+    In dev mode: no SSL, no password callback, smaller pool.
     In production: require SSL and use Databricks credential callback.
     """
     dev_port = _get_dev_db_port()
     engine_url = _build_engine_url(db_config, ws, dev_port)
 
-    engine_kwargs: dict[str, Any] = {"pool_size": 4, "pool_recycle": 45 * 60, "pool_pre_ping": True}
-
-    if not dev_port:
+    global _dev_db_lock
+    if dev_port:
+        # Dev mode: use NullPool and serialized access - PGLite can't handle concurrency
+        engine_kwargs: dict[str, Any] = {
+            "poolclass": NullPool,
+        }
+        # Initialize the lock for serializing database access
+        _dev_db_lock = threading.Lock()
+        logger.info("Dev mode: database access will be serialized via lock")
+    else:
+        # Production mode: larger pool with standard settings
+        engine_kwargs = {"pool_size": 4, "pool_recycle": 45 * 60, "pool_pre_ping": True}
         engine_kwargs["connect_args"] = {"sslmode": "require"}
 
     engine = create_engine(engine_url, **engine_kwargs)
@@ -105,7 +133,7 @@ def validate_db(engine: Engine, db_config: DatabaseConfig) -> None:
     dev_port = _get_dev_db_port()
 
     if dev_port:
-        logger.info(f"Validating local dev database connection at localhost:{dev_port}")
+        logger.info(f"Validating local dev database connection at 127.0.0.1:{dev_port}")
     else:
         logger.info(
             f"Validating database connection to instance {db_config.instance_name}"
@@ -138,81 +166,83 @@ def initialize_models(engine: Engine) -> None:
     logger.info("Initializing database models")
     SQLModel.metadata.create_all(engine)
 
-    # Migrate: add columns that may be missing from older schema versions
+    # Migrations for the new project-based schema
     _migrations = [
-        ("stage", "ALTER TABLE generation ADD COLUMN IF NOT EXISTS stage TEXT DEFAULT 'package'"),
-        ("proposal_md", "ALTER TABLE generation ADD COLUMN IF NOT EXISTS proposal_md TEXT"),
-        ("skill_files", "ALTER TABLE generation ADD COLUMN IF NOT EXISTS skill_files TEXT"),
-        ("conversation_table", """
-            CREATE TABLE IF NOT EXISTS conversation (
-                id SERIAL PRIMARY KEY,
-                generation_id INTEGER NOT NULL,
-                title TEXT NOT NULL DEFAULT '',
-                created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-                updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+        # Projects table
+        ("projects_table", """
+            CREATE TABLE IF NOT EXISTS projects (
+                id VARCHAR(50) PRIMARY KEY,
+                user_email VARCHAR(255) NOT NULL,
+                name VARCHAR(255) NOT NULL,
+                description TEXT,
+                project_type VARCHAR(50) DEFAULT 'DATABRICKS_DEMO',
+                skills TEXT DEFAULT '[]',
+                session_id VARCHAR(100),
+                cluster_id VARCHAR(100),
+                warehouse_id VARCHAR(100),
+                created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+                updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
             )
         """),
-        ("conversation_gen_idx", "CREATE INDEX IF NOT EXISTS ix_conversation_generation_id ON conversation (generation_id)"),
-        ("chat_message_table", """
-            CREATE TABLE IF NOT EXISTS chat_message (
+        ("projects_user_email_idx", "CREATE INDEX IF NOT EXISTS ix_projects_user_email ON projects (user_email)"),
+        ("projects_user_created_idx", "CREATE INDEX IF NOT EXISTS ix_projects_user_created ON projects (user_email, created_at)"),
+
+        # Project files table
+        ("project_files_table", """
+            CREATE TABLE IF NOT EXISTS project_files (
                 id SERIAL PRIMARY KEY,
-                conversation_id INTEGER NOT NULL,
-                role TEXT NOT NULL,
+                project_id VARCHAR(50) NOT NULL,
+                relative_path VARCHAR(500) NOT NULL,
+                content_compressed BYTEA NOT NULL,
+                content_hash VARCHAR(64) NOT NULL,
+                file_size INTEGER DEFAULT 0,
+                last_modified TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+                synced_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+            )
+        """),
+        ("project_files_project_idx", "CREATE INDEX IF NOT EXISTS ix_project_files_project_id ON project_files (project_id)"),
+        ("project_files_unique_path", "CREATE UNIQUE INDEX IF NOT EXISTS ix_project_files_project_path ON project_files (project_id, relative_path)"),
+
+        # Messages table
+        ("messages_table", """
+            CREATE TABLE IF NOT EXISTS messages (
+                id SERIAL PRIMARY KEY,
+                project_id VARCHAR(50) NOT NULL,
+                role VARCHAR(20) NOT NULL,
                 content TEXT NOT NULL,
-                created_at TIMESTAMP NOT NULL DEFAULT NOW()
+                is_error BOOLEAN DEFAULT FALSE,
+                created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
             )
         """),
-        ("chat_message_conv_idx", "CREATE INDEX IF NOT EXISTS ix_chat_message_conversation_id ON chat_message (conversation_id)"),
-        ("is_starred", "ALTER TABLE generation ADD COLUMN IF NOT EXISTS is_starred BOOLEAN DEFAULT FALSE"),
-        ("is_library", "ALTER TABLE generation ADD COLUMN IF NOT EXISTS is_library BOOLEAN DEFAULT FALSE"),
-        ("library_tags", "ALTER TABLE generation ADD COLUMN IF NOT EXISTS library_tags TEXT"),
-        ("user_id", "ALTER TABLE generation ADD COLUMN IF NOT EXISTS user_id TEXT"),
-        ("user_id_idx", "CREATE INDEX IF NOT EXISTS ix_generation_user_id ON generation (user_id)"),
-        ("collection_json", "ALTER TABLE generation ADD COLUMN IF NOT EXISTS collection_json TEXT"),
-        ("block_table", """
-            CREATE TABLE IF NOT EXISTS block (
-                id SERIAL PRIMARY KEY,
-                slug TEXT UNIQUE NOT NULL,
-                name TEXT NOT NULL,
-                category TEXT NOT NULL,
-                tags TEXT NOT NULL DEFAULT '[]',
-                description TEXT NOT NULL DEFAULT '',
-                content TEXT NOT NULL DEFAULT '',
-                related TEXT NOT NULL DEFAULT '[]',
-                created_by TEXT,
-                is_seed BOOLEAN NOT NULL DEFAULT FALSE,
-                created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-                updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+        ("messages_project_idx", "CREATE INDEX IF NOT EXISTS ix_messages_project_id ON messages (project_id)"),
+        ("messages_project_created_idx", "CREATE INDEX IF NOT EXISTS ix_messages_project_created ON messages (project_id, created_at)"),
+
+        # Executions table
+        ("executions_table", """
+            CREATE TABLE IF NOT EXISTS executions (
+                id VARCHAR(50) PRIMARY KEY,
+                project_id VARCHAR(50) NOT NULL,
+                status VARCHAR(20) NOT NULL DEFAULT 'running',
+                events_json TEXT DEFAULT '[]',
+                error TEXT,
+                created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+                updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
             )
         """),
-        ("block_slug_idx", "CREATE UNIQUE INDEX IF NOT EXISTS ix_block_slug ON block (slug)"),
-        ("collection_table", """
-            CREATE TABLE IF NOT EXISTS collection (
-                id SERIAL PRIMARY KEY,
-                slug TEXT UNIQUE NOT NULL,
-                name TEXT NOT NULL,
-                description TEXT NOT NULL DEFAULT '',
-                industry TEXT NOT NULL DEFAULT '',
-                block_slugs TEXT NOT NULL DEFAULT '[]',
-                output_files TEXT NOT NULL DEFAULT '[]',
-                created_by TEXT,
-                is_seed BOOLEAN NOT NULL DEFAULT FALSE,
-                created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-                updated_at TIMESTAMP NOT NULL DEFAULT NOW()
-            )
-        """),
-        ("collection_slug_idx", "CREATE UNIQUE INDEX IF NOT EXISTS ix_collection_slug ON collection (slug)"),
-        ("conversation_user_id", "ALTER TABLE conversation ADD COLUMN IF NOT EXISTS user_id TEXT"),
-        ("conversation_user_id_idx", "CREATE INDEX IF NOT EXISTS ix_conversation_user_id ON conversation (user_id)"),
+        ("executions_project_idx", "CREATE INDEX IF NOT EXISTS ix_executions_project_id ON executions (project_id)"),
+        ("executions_project_status_idx", "CREATE INDEX IF NOT EXISTS ix_executions_project_status ON executions (project_id, status)"),
+        ("executions_project_created_idx", "CREATE INDEX IF NOT EXISTS ix_executions_project_created ON executions (project_id, created_at)"),
     ]
+
     with Session(engine) as session:
-        for col_name, ddl in _migrations:
+        for migration_name, ddl in _migrations:
             try:
                 session.connection().execute(text(ddl))
                 session.commit()
-            except Exception:
+                logger.debug(f"Migration {migration_name} applied successfully")
+            except Exception as e:
                 session.rollback()
-                logger.debug(f"Column {col_name} migration skipped (may already exist)")
+                logger.debug(f"Migration {migration_name} skipped: {e}")
 
     logger.info("Database models initialized successfully")
 
@@ -230,28 +260,52 @@ class _LakebaseDependency(LifespanDependency):
         validate_db(engine, db_config)
         initialize_models(engine)
 
-        from ..services.seed_library import seed_library
-        seed_library(engine)
+        # Initialize skills manager (clone/pull ai-dev-kit on startup)
+        from ..services.skills_manager import clone_or_pull_ai_dev_kit
+        try:
+            clone_or_pull_ai_dev_kit()
+        except Exception as e:
+            logger.warning(f"Failed to initialize skills: {e}")
 
-        # Load block registry and collection service (with DB persistence)
-        from ..services.block_registry import registry as block_registry
-        block_registry.set_engine(engine)
-        block_registry.load()
-        block_registry.seed_to_db()
+        # Initialize file sync service
+        from ..services.file_sync import FileSyncService
+        file_sync = FileSyncService(engine)
+        app.state.file_sync = file_sync
 
-        from ..services.collection_service import collection_service
-        collection_service.set_engine(engine)
-        collection_service.load()
-        collection_service.seed_to_db()
+        # Initialize and start file watcher
+        import asyncio
+        from ..services.file_watcher import init_watcher
+
+        async def sync_callback(project_id: str, paths: list[str]):
+            await file_sync.sync_files_to_db(project_id, paths)
+
+        try:
+            watcher = init_watcher(sync_callback)
+            watcher.start(asyncio.get_event_loop())
+            app.state.file_watcher = watcher
+            logger.info("File watcher started successfully")
+        except Exception as e:
+            logger.warning(f"Failed to start file watcher: {e}")
+            app.state.file_watcher = None
 
         app.state.engine = engine
         yield
+
+        # Cleanup
+        if app.state.file_watcher:
+            app.state.file_watcher.stop()
         engine.dispose()
 
     @staticmethod
     def __call__(request: Request) -> Generator[Session, None, None]:
-        with Session(bind=request.app.state.engine) as session:
-            yield session
+        # In dev mode, serialize database access to avoid PGLite concurrency issues
+        if _dev_db_lock is not None:
+            with _dev_db_lock:
+                with Session(bind=request.app.state.engine) as session:
+                    yield session
+        else:
+            with Session(bind=request.app.state.engine) as session:
+                yield session
 
 
 LakebaseDependency: TypeAlias = Annotated[Session, _LakebaseDependency.depends()]

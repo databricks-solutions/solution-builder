@@ -39,3 +39,9 @@ node_modules/
 
 # UI dist folder
 src/demo_prompt_generator/__dist__/
+
+# Project local storage
+projects/
+
+# Cloned ai-dev-kit repository
+ai_dev_kit/

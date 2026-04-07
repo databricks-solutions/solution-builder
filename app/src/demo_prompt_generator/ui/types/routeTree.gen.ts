@@ -9,167 +9,48 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './../routes/__root'
-import { Route as WorkspaceRouteImport } from './../routes/workspace'
-import { Route as BuildRouteImport } from './../routes/build'
-import { Route as SidebarRouteRouteImport } from './../routes/_sidebar/route'
 import { Route as IndexRouteImport } from './../routes/index'
-import { Route as SidebarProfileRouteImport } from './../routes/_sidebar/profile'
-import { Route as SidebarPlanRouteImport } from './../routes/_sidebar/plan'
-import { Route as SidebarLibraryRouteImport } from './../routes/_sidebar/library'
-import { Route as SidebarGenerationsRouteImport } from './../routes/_sidebar/generations'
-import { Route as SidebarGenerationsIndexRouteImport } from './../routes/_sidebar/generations.index'
-import { Route as SidebarGenerationsIdRouteImport } from './../routes/_sidebar/generations.$id'
+import { Route as ProjectProjectIdRouteImport } from './../routes/project.$projectId'
 
-const WorkspaceRoute = WorkspaceRouteImport.update({
-  id: '/workspace',
-  path: '/workspace',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const BuildRoute = BuildRouteImport.update({
-  id: '/build',
-  path: '/build',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const SidebarRouteRoute = SidebarRouteRouteImport.update({
-  id: '/_sidebar',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
-const SidebarProfileRoute = SidebarProfileRouteImport.update({
-  id: '/profile',
-  path: '/profile',
-  getParentRoute: () => SidebarRouteRoute,
-} as any)
-const SidebarPlanRoute = SidebarPlanRouteImport.update({
-  id: '/plan',
-  path: '/plan',
-  getParentRoute: () => SidebarRouteRoute,
-} as any)
-const SidebarLibraryRoute = SidebarLibraryRouteImport.update({
-  id: '/library',
-  path: '/library',
-  getParentRoute: () => SidebarRouteRoute,
-} as any)
-const SidebarGenerationsRoute = SidebarGenerationsRouteImport.update({
-  id: '/generations',
-  path: '/generations',
-  getParentRoute: () => SidebarRouteRoute,
-} as any)
-const SidebarGenerationsIndexRoute = SidebarGenerationsIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => SidebarGenerationsRoute,
-} as any)
-const SidebarGenerationsIdRoute = SidebarGenerationsIdRouteImport.update({
-  id: '/$id',
-  path: '/$id',
-  getParentRoute: () => SidebarGenerationsRoute,
+const ProjectProjectIdRoute = ProjectProjectIdRouteImport.update({
+  id: '/project/$projectId',
+  path: '/project/$projectId',
+  getParentRoute: () => rootRouteImport,
 } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
-  '/build': typeof BuildRoute
-  '/workspace': typeof WorkspaceRoute
-  '/generations': typeof SidebarGenerationsRouteWithChildren
-  '/library': typeof SidebarLibraryRoute
-  '/plan': typeof SidebarPlanRoute
-  '/profile': typeof SidebarProfileRoute
-  '/generations/$id': typeof SidebarGenerationsIdRoute
-  '/generations/': typeof SidebarGenerationsIndexRoute
+  '/project/$projectId': typeof ProjectProjectIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/build': typeof BuildRoute
-  '/workspace': typeof WorkspaceRoute
-  '/library': typeof SidebarLibraryRoute
-  '/plan': typeof SidebarPlanRoute
-  '/profile': typeof SidebarProfileRoute
-  '/generations/$id': typeof SidebarGenerationsIdRoute
-  '/generations': typeof SidebarGenerationsIndexRoute
+  '/project/$projectId': typeof ProjectProjectIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
-  '/_sidebar': typeof SidebarRouteRouteWithChildren
-  '/build': typeof BuildRoute
-  '/workspace': typeof WorkspaceRoute
-  '/_sidebar/generations': typeof SidebarGenerationsRouteWithChildren
-  '/_sidebar/library': typeof SidebarLibraryRoute
-  '/_sidebar/plan': typeof SidebarPlanRoute
-  '/_sidebar/profile': typeof SidebarProfileRoute
-  '/_sidebar/generations/$id': typeof SidebarGenerationsIdRoute
-  '/_sidebar/generations/': typeof SidebarGenerationsIndexRoute
+  '/project/$projectId': typeof ProjectProjectIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths:
-    | '/'
-    | '/build'
-    | '/workspace'
-    | '/generations'
-    | '/library'
-    | '/plan'
-    | '/profile'
-    | '/generations/$id'
-    | '/generations/'
+  fullPaths: '/' | '/project/$projectId'
   fileRoutesByTo: FileRoutesByTo
-  to:
-    | '/'
-    | '/build'
-    | '/workspace'
-    | '/library'
-    | '/plan'
-    | '/profile'
-    | '/generations/$id'
-    | '/generations'
-  id:
-    | '__root__'
-    | '/'
-    | '/_sidebar'
-    | '/build'
-    | '/workspace'
-    | '/_sidebar/generations'
-    | '/_sidebar/library'
-    | '/_sidebar/plan'
-    | '/_sidebar/profile'
-    | '/_sidebar/generations/$id'
-    | '/_sidebar/generations/'
+  to: '/' | '/project/$projectId'
+  id: '__root__' | '/' | '/project/$projectId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
-  SidebarRouteRoute: typeof SidebarRouteRouteWithChildren
-  BuildRoute: typeof BuildRoute
-  WorkspaceRoute: typeof WorkspaceRoute
+  ProjectProjectIdRoute: typeof ProjectProjectIdRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/workspace': {
-      id: '/workspace'
-      path: '/workspace'
-      fullPath: '/workspace'
-      preLoaderRoute: typeof WorkspaceRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/build': {
-      id: '/build'
-      path: '/build'
-      fullPath: '/build'
-      preLoaderRoute: typeof BuildRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/_sidebar': {
-      id: '/_sidebar'
-      path: ''
-      fullPath: '/'
-      preLoaderRoute: typeof SidebarRouteRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/': {
       id: '/'
       path: '/'
@@ -177,87 +58,19 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/_sidebar/profile': {
-      id: '/_sidebar/profile'
-      path: '/profile'
-      fullPath: '/profile'
-      preLoaderRoute: typeof SidebarProfileRouteImport
-      parentRoute: typeof SidebarRouteRoute
-    }
-    '/_sidebar/plan': {
-      id: '/_sidebar/plan'
-      path: '/plan'
-      fullPath: '/plan'
-      preLoaderRoute: typeof SidebarPlanRouteImport
-      parentRoute: typeof SidebarRouteRoute
-    }
-    '/_sidebar/library': {
-      id: '/_sidebar/library'
-      path: '/library'
-      fullPath: '/library'
-      preLoaderRoute: typeof SidebarLibraryRouteImport
-      parentRoute: typeof SidebarRouteRoute
-    }
-    '/_sidebar/generations': {
-      id: '/_sidebar/generations'
-      path: '/generations'
-      fullPath: '/generations'
-      preLoaderRoute: typeof SidebarGenerationsRouteImport
-      parentRoute: typeof SidebarRouteRoute
-    }
-    '/_sidebar/generations/': {
-      id: '/_sidebar/generations/'
-      path: '/'
-      fullPath: '/generations/'
-      preLoaderRoute: typeof SidebarGenerationsIndexRouteImport
-      parentRoute: typeof SidebarGenerationsRoute
-    }
-    '/_sidebar/generations/$id': {
-      id: '/_sidebar/generations/$id'
-      path: '/$id'
-      fullPath: '/generations/$id'
-      preLoaderRoute: typeof SidebarGenerationsIdRouteImport
-      parentRoute: typeof SidebarGenerationsRoute
+    '/project/$projectId': {
+      id: '/project/$projectId'
+      path: '/project/$projectId'
+      fullPath: '/project/$projectId'
+      preLoaderRoute: typeof ProjectProjectIdRouteImport
+      parentRoute: typeof rootRouteImport
     }
   }
 }
 
-interface SidebarGenerationsRouteChildren {
-  SidebarGenerationsIdRoute: typeof SidebarGenerationsIdRoute
-  SidebarGenerationsIndexRoute: typeof SidebarGenerationsIndexRoute
-}
-
-const SidebarGenerationsRouteChildren: SidebarGenerationsRouteChildren = {
-  SidebarGenerationsIdRoute: SidebarGenerationsIdRoute,
-  SidebarGenerationsIndexRoute: SidebarGenerationsIndexRoute,
-}
-
-const SidebarGenerationsRouteWithChildren =
-  SidebarGenerationsRoute._addFileChildren(SidebarGenerationsRouteChildren)
-
-interface SidebarRouteRouteChildren {
-  SidebarGenerationsRoute: typeof SidebarGenerationsRouteWithChildren
-  SidebarLibraryRoute: typeof SidebarLibraryRoute
-  SidebarPlanRoute: typeof SidebarPlanRoute
-  SidebarProfileRoute: typeof SidebarProfileRoute
-}
-
-const SidebarRouteRouteChildren: SidebarRouteRouteChildren = {
-  SidebarGenerationsRoute: SidebarGenerationsRouteWithChildren,
-  SidebarLibraryRoute: SidebarLibraryRoute,
-  SidebarPlanRoute: SidebarPlanRoute,
-  SidebarProfileRoute: SidebarProfileRoute,
-}
-
-const SidebarRouteRouteWithChildren = SidebarRouteRoute._addFileChildren(
-  SidebarRouteRouteChildren,
-)
-
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  SidebarRouteRoute: SidebarRouteRouteWithChildren,
-  BuildRoute: BuildRoute,
-  WorkspaceRoute: WorkspaceRoute,
+  ProjectProjectIdRoute: ProjectProjectIdRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

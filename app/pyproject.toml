@@ -16,6 +16,7 @@ dependencies = [
     "python-multipart>=0.0.22",
     "claude-agent-sdk>=0.1.50",
     "pyyaml>=6.0",
+    "watchdog>=4.0.0",
 ]
 
 [dependency-groups]
@@ -29,6 +30,10 @@ app-slug = "demo_prompt_generator"
 app-entrypoint = "demo_prompt_generator.backend.app:app"
 api-prefix = "/api"
 metadata-path = "src/demo_prompt_generator/_metadata.py"
+
+[tool.apx.database]
+type = "pglite"
+path = "./.data/pglite"
 
 [tool.apx.ui]
 root = "src/demo_prompt_generator/ui"
