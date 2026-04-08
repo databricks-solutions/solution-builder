@@ -17,6 +17,11 @@ export interface ActiveExecutionOut {
     is_running: boolean;
     project_id: string;
 }
+export interface Capability {
+    category: string;
+    id: string;
+    name: string;
+}
 export interface ClusterInfo {
     id: string;
     name: string;
@@ -29,6 +34,9 @@ export interface ComplexValue {
     ref?: string | null;
     type?: string | null;
     value?: string | null;
+}
+export interface CreateProjectFromTemplateRequest {
+    name: string;
 }
 export interface HTTPValidationError {
     detail?: ValidationError[];
@@ -60,8 +68,7 @@ export interface Name {
     given_name?: string | null;
 }
 export interface ProjectCreateRequest {
-    description?: string | null;
-    name: string;
+    description: string;
 }
 export interface ProjectFileContent {
     content: string;
@@ -118,6 +125,10 @@ export interface ResourceDefaults {
     catalog?: string;
     schema_prefix?: string;
 }
+export interface SearchTemplatesRequest {
+    limit?: number;
+    query: string;
+}
 export interface SkillFileContent {
     content: string;
     path: string;
@@ -132,6 +143,57 @@ export interface StreamProgressRequest {
 }
 export interface SystemPromptResponse {
     prompt: string;
+}
+export interface TemplateAdminStatus {
+    is_admin: boolean;
+}
+export interface TemplateDetail {
+    capabilities?: string[] | null;
+    description: string | null;
+    file_count?: number;
+    full_description: string | null;
+    id: string;
+    industry: string | null;
+    name: string;
+    owner_email: string;
+    reviewed_at?: string | null;
+    reviewed_by?: string | null;
+    source_project_id?: string | null;
+    status: string;
+    submitted_at: string;
+}
+export interface TemplateFile {
+    is_dir?: boolean;
+    name: string;
+    path: string;
+    size: number;
+}
+export interface TemplateFileContent {
+    content: string;
+    path: string;
+    size: number;
+}
+export interface TemplateListItem {
+    capabilities?: string[] | null;
+    description: string | null;
+    id: string;
+    industry: string | null;
+    name: string;
+    owner_email: string;
+    reviewed_at?: string | null;
+    status: string;
+    submitted_at: string;
+}
+export interface TemplateSearchResult {
+    capabilities?: string[] | null;
+    description: string | null;
+    id: string;
+    industry: string | null;
+    name: string;
+    similarity: number;
+}
+export interface TemplateStatusUpdateRequest {
+    status: string;
 }
 export interface User {
     active?: boolean | null;
@@ -166,6 +228,194 @@ export interface WarehouseInfo {
     name: string;
     size?: string | null;
     state?: string | null;
+}
+export const getCapabilities = async (options?: RequestInit): Promise<{
+    data: Capability[];
+}> =>{
+    const res = await fetch("/api/constants/capabilities", {
+        ...options,
+        method: "GET"
+    });
+    if (!res.ok) {
+        const body = await res.text();
+        let parsed: unknown;
+        try {
+            parsed = JSON.parse(body);
+        } catch  {
+            parsed = body;
+        }
+        throw new ApiError(res.status, res.statusText, parsed);
+    }
+    return {
+        data: await res.json()
+    };
+};
+export const getCapabilitiesKey = ()=>{
+    return [
+        "/api/constants/capabilities"
+    ] as const;
+};
+export function useGetCapabilities<TData = {
+    data: Capability[];
+}>(options?: {
+    query?: Omit<UseQueryOptions<{
+        data: Capability[];
+    }, ApiError, TData>, "queryKey" | "queryFn">;
+}) {
+    return useQuery({
+        queryKey: getCapabilitiesKey(),
+        queryFn: ()=>getCapabilities(),
+        ...options?.query
+    });
+}
+export function useGetCapabilitiesSuspense<TData = {
+    data: Capability[];
+}>(options?: {
+    query?: Omit<UseSuspenseQueryOptions<{
+        data: Capability[];
+    }, ApiError, TData>, "queryKey" | "queryFn">;
+}) {
+    return useSuspenseQuery({
+        queryKey: getCapabilitiesKey(),
+        queryFn: ()=>getCapabilities(),
+        ...options?.query
+    });
+}
+export const getIndustries = async (options?: RequestInit): Promise<{
+    data: string[];
+}> =>{
+    const res = await fetch("/api/constants/industries", {
+        ...options,
+        method: "GET"
+    });
+    if (!res.ok) {
+        const body = await res.text();
+        let parsed: unknown;
+        try {
+            parsed = JSON.parse(body);
+        } catch  {
+            parsed = body;
+        }
+        throw new ApiError(res.status, res.statusText, parsed);
+    }
+    return {
+        data: await res.json()
+    };
+};
+export const getIndustriesKey = ()=>{
+    return [
+        "/api/constants/industries"
+    ] as const;
+};
+export function useGetIndustries<TData = {
+    data: string[];
+}>(options?: {
+    query?: Omit<UseQueryOptions<{
+        data: string[];
+    }, ApiError, TData>, "queryKey" | "queryFn">;
+}) {
+    return useQuery({
+        queryKey: getIndustriesKey(),
+        queryFn: ()=>getIndustries(),
+        ...options?.query
+    });
+}
+export function useGetIndustriesSuspense<TData = {
+    data: string[];
+}>(options?: {
+    query?: Omit<UseSuspenseQueryOptions<{
+        data: string[];
+    }, ApiError, TData>, "queryKey" | "queryFn">;
+}) {
+    return useSuspenseQuery({
+        queryKey: getIndustriesKey(),
+        queryFn: ()=>getIndustries(),
+        ...options?.query
+    });
+}
+export interface GetTemplateAdminStatusParams {
+    "X-Forwarded-Host"?: string | null;
+    "X-Forwarded-Preferred-Username"?: string | null;
+    "X-Forwarded-User"?: string | null;
+    "X-Forwarded-Email"?: string | null;
+    "X-Request-Id"?: string | null;
+    "X-Forwarded-Access-Token"?: string | null;
+}
+export const getTemplateAdminStatus = async (params?: GetTemplateAdminStatusParams, options?: RequestInit): Promise<{
+    data: TemplateAdminStatus;
+}> =>{
+    const res = await fetch("/api/constants/template-admin-status", {
+        ...options,
+        method: "GET",
+        headers: {
+            ...(params?.["X-Forwarded-Host"] != null && {
+                "X-Forwarded-Host": params["X-Forwarded-Host"]
+            }),
+            ...(params?.["X-Forwarded-Preferred-Username"] != null && {
+                "X-Forwarded-Preferred-Username": params["X-Forwarded-Preferred-Username"]
+            }),
+            ...(params?.["X-Forwarded-User"] != null && {
+                "X-Forwarded-User": params["X-Forwarded-User"]
+            }),
+            ...(params?.["X-Forwarded-Email"] != null && {
+                "X-Forwarded-Email": params["X-Forwarded-Email"]
+            }),
+            ...(params?.["X-Request-Id"] != null && {
+                "X-Request-Id": params["X-Request-Id"]
+            }),
+            ...(params?.["X-Forwarded-Access-Token"] != null && {
+                "X-Forwarded-Access-Token": params["X-Forwarded-Access-Token"]
+            }),
+            ...options?.headers
+        }
+    });
+    if (!res.ok) {
+        const body = await res.text();
+        let parsed: unknown;
+        try {
+            parsed = JSON.parse(body);
+        } catch  {
+            parsed = body;
+        }
+        throw new ApiError(res.status, res.statusText, parsed);
+    }
+    return {
+        data: await res.json()
+    };
+};
+export const getTemplateAdminStatusKey = (params?: GetTemplateAdminStatusParams)=>{
+    return [
+        "/api/constants/template-admin-status",
+        params
+    ] as const;
+};
+export function useGetTemplateAdminStatus<TData = {
+    data: TemplateAdminStatus;
+}>(options?: {
+    params?: GetTemplateAdminStatusParams;
+    query?: Omit<UseQueryOptions<{
+        data: TemplateAdminStatus;
+    }, ApiError, TData>, "queryKey" | "queryFn">;
+}) {
+    return useQuery({
+        queryKey: getTemplateAdminStatusKey(options?.params),
+        queryFn: ()=>getTemplateAdminStatus(options?.params),
+        ...options?.query
+    });
+}
+export function useGetTemplateAdminStatusSuspense<TData = {
+    data: TemplateAdminStatus;
+}>(options?: {
+    params?: GetTemplateAdminStatusParams;
+    query?: Omit<UseSuspenseQueryOptions<{
+        data: TemplateAdminStatus;
+    }, ApiError, TData>, "queryKey" | "queryFn">;
+}) {
+    return useSuspenseQuery({
+        queryKey: getTemplateAdminStatusKey(options?.params),
+        queryFn: ()=>getTemplateAdminStatus(options?.params),
+        ...options?.query
+    });
 }
 export interface CurrentUserParams {
     "X-Forwarded-Host"?: string | null;
@@ -1215,6 +1465,69 @@ export function useUpdateProjectResources(options?: {
         ...options?.mutation
     });
 }
+export interface ClearProjectSessionParams {
+    project_id: string;
+    "X-Forwarded-Host"?: string | null;
+    "X-Forwarded-Preferred-Username"?: string | null;
+    "X-Forwarded-User"?: string | null;
+    "X-Forwarded-Email"?: string | null;
+    "X-Request-Id"?: string | null;
+    "X-Forwarded-Access-Token"?: string | null;
+}
+export const clearProjectSession = async (params: ClearProjectSessionParams, options?: RequestInit): Promise<{
+    data: unknown;
+}> =>{
+    const res = await fetch(`/api/projects/${params.project_id}/session/clear`, {
+        ...options,
+        method: "POST",
+        headers: {
+            ...(params?.["X-Forwarded-Host"] != null && {
+                "X-Forwarded-Host": params["X-Forwarded-Host"]
+            }),
+            ...(params?.["X-Forwarded-Preferred-Username"] != null && {
+                "X-Forwarded-Preferred-Username": params["X-Forwarded-Preferred-Username"]
+            }),
+            ...(params?.["X-Forwarded-User"] != null && {
+                "X-Forwarded-User": params["X-Forwarded-User"]
+            }),
+            ...(params?.["X-Forwarded-Email"] != null && {
+                "X-Forwarded-Email": params["X-Forwarded-Email"]
+            }),
+            ...(params?.["X-Request-Id"] != null && {
+                "X-Request-Id": params["X-Request-Id"]
+            }),
+            ...(params?.["X-Forwarded-Access-Token"] != null && {
+                "X-Forwarded-Access-Token": params["X-Forwarded-Access-Token"]
+            }),
+            ...options?.headers
+        }
+    });
+    if (!res.ok) {
+        const body = await res.text();
+        let parsed: unknown;
+        try {
+            parsed = JSON.parse(body);
+        } catch  {
+            parsed = body;
+        }
+        throw new ApiError(res.status, res.statusText, parsed);
+    }
+    return {
+        data: await res.json()
+    };
+};
+export function useClearProjectSession(options?: {
+    mutation?: UseMutationOptions<{
+        data: unknown;
+    }, ApiError, {
+        params: ClearProjectSessionParams;
+    }>;
+}) {
+    return useMutation({
+        mutationFn: (vars)=>clearProjectSession(vars.params),
+        ...options?.mutation
+    });
+}
 export interface GetProjectSkillsParams {
     project_id: string;
     "X-Forwarded-Host"?: string | null;
@@ -2201,6 +2514,676 @@ export function useStreamProgress(options?: {
 }) {
     return useMutation({
         mutationFn: (vars)=>streamProgress(vars.params, vars.data),
+        ...options?.mutation
+    });
+}
+export interface ListTemplatesParams {
+    status?: string | null;
+    industry?: string | null;
+    "X-Forwarded-Host"?: string | null;
+    "X-Forwarded-Preferred-Username"?: string | null;
+    "X-Forwarded-User"?: string | null;
+    "X-Forwarded-Email"?: string | null;
+    "X-Request-Id"?: string | null;
+    "X-Forwarded-Access-Token"?: string | null;
+}
+export const listTemplates = async (params?: ListTemplatesParams, options?: RequestInit): Promise<{
+    data: TemplateListItem[];
+}> =>{
+    const searchParams = new URLSearchParams();
+    if (params?.status != null) searchParams.set("status", String(params?.status));
+    if (params?.industry != null) searchParams.set("industry", String(params?.industry));
+    const queryString = searchParams.toString();
+    const url = queryString ? `/api/templates?${queryString}` : "/api/templates";
+    const res = await fetch(url, {
+        ...options,
+        method: "GET",
+        headers: {
+            ...(params?.["X-Forwarded-Host"] != null && {
+                "X-Forwarded-Host": params["X-Forwarded-Host"]
+            }),
+            ...(params?.["X-Forwarded-Preferred-Username"] != null && {
+                "X-Forwarded-Preferred-Username": params["X-Forwarded-Preferred-Username"]
+            }),
+            ...(params?.["X-Forwarded-User"] != null && {
+                "X-Forwarded-User": params["X-Forwarded-User"]
+            }),
+            ...(params?.["X-Forwarded-Email"] != null && {
+                "X-Forwarded-Email": params["X-Forwarded-Email"]
+            }),
+            ...(params?.["X-Request-Id"] != null && {
+                "X-Request-Id": params["X-Request-Id"]
+            }),
+            ...(params?.["X-Forwarded-Access-Token"] != null && {
+                "X-Forwarded-Access-Token": params["X-Forwarded-Access-Token"]
+            }),
+            ...options?.headers
+        }
+    });
+    if (!res.ok) {
+        const body = await res.text();
+        let parsed: unknown;
+        try {
+            parsed = JSON.parse(body);
+        } catch  {
+            parsed = body;
+        }
+        throw new ApiError(res.status, res.statusText, parsed);
+    }
+    return {
+        data: await res.json()
+    };
+};
+export const listTemplatesKey = (params?: ListTemplatesParams)=>{
+    return [
+        "/api/templates",
+        params
+    ] as const;
+};
+export function useListTemplates<TData = {
+    data: TemplateListItem[];
+}>(options?: {
+    params?: ListTemplatesParams;
+    query?: Omit<UseQueryOptions<{
+        data: TemplateListItem[];
+    }, ApiError, TData>, "queryKey" | "queryFn">;
+}) {
+    return useQuery({
+        queryKey: listTemplatesKey(options?.params),
+        queryFn: ()=>listTemplates(options?.params),
+        ...options?.query
+    });
+}
+export function useListTemplatesSuspense<TData = {
+    data: TemplateListItem[];
+}>(options?: {
+    params?: ListTemplatesParams;
+    query?: Omit<UseSuspenseQueryOptions<{
+        data: TemplateListItem[];
+    }, ApiError, TData>, "queryKey" | "queryFn">;
+}) {
+    return useSuspenseQuery({
+        queryKey: listTemplatesKey(options?.params),
+        queryFn: ()=>listTemplates(options?.params),
+        ...options?.query
+    });
+}
+export interface SubmitTemplateFromProjectParams {
+    project_id: string;
+    "X-Forwarded-Host"?: string | null;
+    "X-Forwarded-Preferred-Username"?: string | null;
+    "X-Forwarded-User"?: string | null;
+    "X-Forwarded-Email"?: string | null;
+    "X-Request-Id"?: string | null;
+    "X-Forwarded-Access-Token"?: string | null;
+}
+export const submitTemplateFromProject = async (params: SubmitTemplateFromProjectParams, options?: RequestInit): Promise<{
+    data: TemplateListItem;
+}> =>{
+    const res = await fetch(`/api/templates/from-project/${params.project_id}`, {
+        ...options,
+        method: "POST",
+        headers: {
+            ...(params?.["X-Forwarded-Host"] != null && {
+                "X-Forwarded-Host": params["X-Forwarded-Host"]
+            }),
+            ...(params?.["X-Forwarded-Preferred-Username"] != null && {
+                "X-Forwarded-Preferred-Username": params["X-Forwarded-Preferred-Username"]
+            }),
+            ...(params?.["X-Forwarded-User"] != null && {
+                "X-Forwarded-User": params["X-Forwarded-User"]
+            }),
+            ...(params?.["X-Forwarded-Email"] != null && {
+                "X-Forwarded-Email": params["X-Forwarded-Email"]
+            }),
+            ...(params?.["X-Request-Id"] != null && {
+                "X-Request-Id": params["X-Request-Id"]
+            }),
+            ...(params?.["X-Forwarded-Access-Token"] != null && {
+                "X-Forwarded-Access-Token": params["X-Forwarded-Access-Token"]
+            }),
+            ...options?.headers
+        }
+    });
+    if (!res.ok) {
+        const body = await res.text();
+        let parsed: unknown;
+        try {
+            parsed = JSON.parse(body);
+        } catch  {
+            parsed = body;
+        }
+        throw new ApiError(res.status, res.statusText, parsed);
+    }
+    return {
+        data: await res.json()
+    };
+};
+export function useSubmitTemplateFromProject(options?: {
+    mutation?: UseMutationOptions<{
+        data: TemplateListItem;
+    }, ApiError, {
+        params: SubmitTemplateFromProjectParams;
+    }>;
+}) {
+    return useMutation({
+        mutationFn: (vars)=>submitTemplateFromProject(vars.params),
+        ...options?.mutation
+    });
+}
+export interface SearchTemplatesParams {
+    "X-Forwarded-Host"?: string | null;
+    "X-Forwarded-Preferred-Username"?: string | null;
+    "X-Forwarded-User"?: string | null;
+    "X-Forwarded-Email"?: string | null;
+    "X-Request-Id"?: string | null;
+    "X-Forwarded-Access-Token"?: string | null;
+}
+export const searchTemplates = async (data: SearchTemplatesRequest, params?: SearchTemplatesParams, options?: RequestInit): Promise<{
+    data: TemplateSearchResult[];
+}> =>{
+    const res = await fetch("/api/templates/search", {
+        ...options,
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+            ...(params?.["X-Forwarded-Host"] != null && {
+                "X-Forwarded-Host": params["X-Forwarded-Host"]
+            }),
+            ...(params?.["X-Forwarded-Preferred-Username"] != null && {
+                "X-Forwarded-Preferred-Username": params["X-Forwarded-Preferred-Username"]
+            }),
+            ...(params?.["X-Forwarded-User"] != null && {
+                "X-Forwarded-User": params["X-Forwarded-User"]
+            }),
+            ...(params?.["X-Forwarded-Email"] != null && {
+                "X-Forwarded-Email": params["X-Forwarded-Email"]
+            }),
+            ...(params?.["X-Request-Id"] != null && {
+                "X-Request-Id": params["X-Request-Id"]
+            }),
+            ...(params?.["X-Forwarded-Access-Token"] != null && {
+                "X-Forwarded-Access-Token": params["X-Forwarded-Access-Token"]
+            }),
+            ...options?.headers
+        },
+        body: JSON.stringify(data)
+    });
+    if (!res.ok) {
+        const body = await res.text();
+        let parsed: unknown;
+        try {
+            parsed = JSON.parse(body);
+        } catch  {
+            parsed = body;
+        }
+        throw new ApiError(res.status, res.statusText, parsed);
+    }
+    return {
+        data: await res.json()
+    };
+};
+export function useSearchTemplates(options?: {
+    mutation?: UseMutationOptions<{
+        data: TemplateSearchResult[];
+    }, ApiError, {
+        params: SearchTemplatesParams;
+        data: SearchTemplatesRequest;
+    }>;
+}) {
+    return useMutation({
+        mutationFn: (vars)=>searchTemplates(vars.data, vars.params),
+        ...options?.mutation
+    });
+}
+export interface GetTemplateParams {
+    template_id: string;
+    "X-Forwarded-Host"?: string | null;
+    "X-Forwarded-Preferred-Username"?: string | null;
+    "X-Forwarded-User"?: string | null;
+    "X-Forwarded-Email"?: string | null;
+    "X-Request-Id"?: string | null;
+    "X-Forwarded-Access-Token"?: string | null;
+}
+export const getTemplate = async (params: GetTemplateParams, options?: RequestInit): Promise<{
+    data: TemplateDetail;
+}> =>{
+    const res = await fetch(`/api/templates/${params.template_id}`, {
+        ...options,
+        method: "GET",
+        headers: {
+            ...(params?.["X-Forwarded-Host"] != null && {
+                "X-Forwarded-Host": params["X-Forwarded-Host"]
+            }),
+            ...(params?.["X-Forwarded-Preferred-Username"] != null && {
+                "X-Forwarded-Preferred-Username": params["X-Forwarded-Preferred-Username"]
+            }),
+            ...(params?.["X-Forwarded-User"] != null && {
+                "X-Forwarded-User": params["X-Forwarded-User"]
+            }),
+            ...(params?.["X-Forwarded-Email"] != null && {
+                "X-Forwarded-Email": params["X-Forwarded-Email"]
+            }),
+            ...(params?.["X-Request-Id"] != null && {
+                "X-Request-Id": params["X-Request-Id"]
+            }),
+            ...(params?.["X-Forwarded-Access-Token"] != null && {
+                "X-Forwarded-Access-Token": params["X-Forwarded-Access-Token"]
+            }),
+            ...options?.headers
+        }
+    });
+    if (!res.ok) {
+        const body = await res.text();
+        let parsed: unknown;
+        try {
+            parsed = JSON.parse(body);
+        } catch  {
+            parsed = body;
+        }
+        throw new ApiError(res.status, res.statusText, parsed);
+    }
+    return {
+        data: await res.json()
+    };
+};
+export const getTemplateKey = (params?: GetTemplateParams)=>{
+    return [
+        "/api/templates/{template_id}",
+        params
+    ] as const;
+};
+export function useGetTemplate<TData = {
+    data: TemplateDetail;
+}>(options: {
+    params: GetTemplateParams;
+    query?: Omit<UseQueryOptions<{
+        data: TemplateDetail;
+    }, ApiError, TData>, "queryKey" | "queryFn">;
+}) {
+    return useQuery({
+        queryKey: getTemplateKey(options.params),
+        queryFn: ()=>getTemplate(options.params),
+        ...options?.query
+    });
+}
+export function useGetTemplateSuspense<TData = {
+    data: TemplateDetail;
+}>(options: {
+    params: GetTemplateParams;
+    query?: Omit<UseSuspenseQueryOptions<{
+        data: TemplateDetail;
+    }, ApiError, TData>, "queryKey" | "queryFn">;
+}) {
+    return useSuspenseQuery({
+        queryKey: getTemplateKey(options.params),
+        queryFn: ()=>getTemplate(options.params),
+        ...options?.query
+    });
+}
+export interface DeleteTemplateParams {
+    template_id: string;
+    "X-Forwarded-Host"?: string | null;
+    "X-Forwarded-Preferred-Username"?: string | null;
+    "X-Forwarded-User"?: string | null;
+    "X-Forwarded-Email"?: string | null;
+    "X-Request-Id"?: string | null;
+    "X-Forwarded-Access-Token"?: string | null;
+}
+export const deleteTemplate = async (params: DeleteTemplateParams, options?: RequestInit): Promise<{
+    data: unknown;
+}> =>{
+    const res = await fetch(`/api/templates/${params.template_id}`, {
+        ...options,
+        method: "DELETE",
+        headers: {
+            ...(params?.["X-Forwarded-Host"] != null && {
+                "X-Forwarded-Host": params["X-Forwarded-Host"]
+            }),
+            ...(params?.["X-Forwarded-Preferred-Username"] != null && {
+                "X-Forwarded-Preferred-Username": params["X-Forwarded-Preferred-Username"]
+            }),
+            ...(params?.["X-Forwarded-User"] != null && {
+                "X-Forwarded-User": params["X-Forwarded-User"]
+            }),
+            ...(params?.["X-Forwarded-Email"] != null && {
+                "X-Forwarded-Email": params["X-Forwarded-Email"]
+            }),
+            ...(params?.["X-Request-Id"] != null && {
+                "X-Request-Id": params["X-Request-Id"]
+            }),
+            ...(params?.["X-Forwarded-Access-Token"] != null && {
+                "X-Forwarded-Access-Token": params["X-Forwarded-Access-Token"]
+            }),
+            ...options?.headers
+        }
+    });
+    if (!res.ok) {
+        const body = await res.text();
+        let parsed: unknown;
+        try {
+            parsed = JSON.parse(body);
+        } catch  {
+            parsed = body;
+        }
+        throw new ApiError(res.status, res.statusText, parsed);
+    }
+    return {
+        data: await res.json()
+    };
+};
+export function useDeleteTemplate(options?: {
+    mutation?: UseMutationOptions<{
+        data: unknown;
+    }, ApiError, {
+        params: DeleteTemplateParams;
+    }>;
+}) {
+    return useMutation({
+        mutationFn: (vars)=>deleteTemplate(vars.params),
+        ...options?.mutation
+    });
+}
+export interface CreateProjectFromTemplateParams {
+    template_id: string;
+    "X-Forwarded-Host"?: string | null;
+    "X-Forwarded-Preferred-Username"?: string | null;
+    "X-Forwarded-User"?: string | null;
+    "X-Forwarded-Email"?: string | null;
+    "X-Request-Id"?: string | null;
+    "X-Forwarded-Access-Token"?: string | null;
+}
+export const createProjectFromTemplate = async (params: CreateProjectFromTemplateParams, data: CreateProjectFromTemplateRequest, options?: RequestInit): Promise<{
+    data: ProjectOut;
+}> =>{
+    const res = await fetch(`/api/templates/${params.template_id}/create-project`, {
+        ...options,
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+            ...(params?.["X-Forwarded-Host"] != null && {
+                "X-Forwarded-Host": params["X-Forwarded-Host"]
+            }),
+            ...(params?.["X-Forwarded-Preferred-Username"] != null && {
+                "X-Forwarded-Preferred-Username": params["X-Forwarded-Preferred-Username"]
+            }),
+            ...(params?.["X-Forwarded-User"] != null && {
+                "X-Forwarded-User": params["X-Forwarded-User"]
+            }),
+            ...(params?.["X-Forwarded-Email"] != null && {
+                "X-Forwarded-Email": params["X-Forwarded-Email"]
+            }),
+            ...(params?.["X-Request-Id"] != null && {
+                "X-Request-Id": params["X-Request-Id"]
+            }),
+            ...(params?.["X-Forwarded-Access-Token"] != null && {
+                "X-Forwarded-Access-Token": params["X-Forwarded-Access-Token"]
+            }),
+            ...options?.headers
+        },
+        body: JSON.stringify(data)
+    });
+    if (!res.ok) {
+        const body = await res.text();
+        let parsed: unknown;
+        try {
+            parsed = JSON.parse(body);
+        } catch  {
+            parsed = body;
+        }
+        throw new ApiError(res.status, res.statusText, parsed);
+    }
+    return {
+        data: await res.json()
+    };
+};
+export function useCreateProjectFromTemplate(options?: {
+    mutation?: UseMutationOptions<{
+        data: ProjectOut;
+    }, ApiError, {
+        params: CreateProjectFromTemplateParams;
+        data: CreateProjectFromTemplateRequest;
+    }>;
+}) {
+    return useMutation({
+        mutationFn: (vars)=>createProjectFromTemplate(vars.params, vars.data),
+        ...options?.mutation
+    });
+}
+export interface ListTemplateFilesParams {
+    template_id: string;
+    "X-Forwarded-Host"?: string | null;
+    "X-Forwarded-Preferred-Username"?: string | null;
+    "X-Forwarded-User"?: string | null;
+    "X-Forwarded-Email"?: string | null;
+    "X-Request-Id"?: string | null;
+    "X-Forwarded-Access-Token"?: string | null;
+}
+export const listTemplateFiles = async (params: ListTemplateFilesParams, options?: RequestInit): Promise<{
+    data: TemplateFile[];
+}> =>{
+    const res = await fetch(`/api/templates/${params.template_id}/files`, {
+        ...options,
+        method: "GET",
+        headers: {
+            ...(params?.["X-Forwarded-Host"] != null && {
+                "X-Forwarded-Host": params["X-Forwarded-Host"]
+            }),
+            ...(params?.["X-Forwarded-Preferred-Username"] != null && {
+                "X-Forwarded-Preferred-Username": params["X-Forwarded-Preferred-Username"]
+            }),
+            ...(params?.["X-Forwarded-User"] != null && {
+                "X-Forwarded-User": params["X-Forwarded-User"]
+            }),
+            ...(params?.["X-Forwarded-Email"] != null && {
+                "X-Forwarded-Email": params["X-Forwarded-Email"]
+            }),
+            ...(params?.["X-Request-Id"] != null && {
+                "X-Request-Id": params["X-Request-Id"]
+            }),
+            ...(params?.["X-Forwarded-Access-Token"] != null && {
+                "X-Forwarded-Access-Token": params["X-Forwarded-Access-Token"]
+            }),
+            ...options?.headers
+        }
+    });
+    if (!res.ok) {
+        const body = await res.text();
+        let parsed: unknown;
+        try {
+            parsed = JSON.parse(body);
+        } catch  {
+            parsed = body;
+        }
+        throw new ApiError(res.status, res.statusText, parsed);
+    }
+    return {
+        data: await res.json()
+    };
+};
+export const listTemplateFilesKey = (params?: ListTemplateFilesParams)=>{
+    return [
+        "/api/templates/{template_id}/files",
+        params
+    ] as const;
+};
+export function useListTemplateFiles<TData = {
+    data: TemplateFile[];
+}>(options: {
+    params: ListTemplateFilesParams;
+    query?: Omit<UseQueryOptions<{
+        data: TemplateFile[];
+    }, ApiError, TData>, "queryKey" | "queryFn">;
+}) {
+    return useQuery({
+        queryKey: listTemplateFilesKey(options.params),
+        queryFn: ()=>listTemplateFiles(options.params),
+        ...options?.query
+    });
+}
+export function useListTemplateFilesSuspense<TData = {
+    data: TemplateFile[];
+}>(options: {
+    params: ListTemplateFilesParams;
+    query?: Omit<UseSuspenseQueryOptions<{
+        data: TemplateFile[];
+    }, ApiError, TData>, "queryKey" | "queryFn">;
+}) {
+    return useSuspenseQuery({
+        queryKey: listTemplateFilesKey(options.params),
+        queryFn: ()=>listTemplateFiles(options.params),
+        ...options?.query
+    });
+}
+export interface GetTemplateFileContentParams {
+    template_id: string;
+    file_path: string;
+    "X-Forwarded-Host"?: string | null;
+    "X-Forwarded-Preferred-Username"?: string | null;
+    "X-Forwarded-User"?: string | null;
+    "X-Forwarded-Email"?: string | null;
+    "X-Request-Id"?: string | null;
+    "X-Forwarded-Access-Token"?: string | null;
+}
+export const getTemplateFileContent = async (params: GetTemplateFileContentParams, options?: RequestInit): Promise<{
+    data: TemplateFileContent;
+}> =>{
+    const res = await fetch(`/api/templates/${params.template_id}/files/${params.file_path}`, {
+        ...options,
+        method: "GET",
+        headers: {
+            ...(params?.["X-Forwarded-Host"] != null && {
+                "X-Forwarded-Host": params["X-Forwarded-Host"]
+            }),
+            ...(params?.["X-Forwarded-Preferred-Username"] != null && {
+                "X-Forwarded-Preferred-Username": params["X-Forwarded-Preferred-Username"]
+            }),
+            ...(params?.["X-Forwarded-User"] != null && {
+                "X-Forwarded-User": params["X-Forwarded-User"]
+            }),
+            ...(params?.["X-Forwarded-Email"] != null && {
+                "X-Forwarded-Email": params["X-Forwarded-Email"]
+            }),
+            ...(params?.["X-Request-Id"] != null && {
+                "X-Request-Id": params["X-Request-Id"]
+            }),
+            ...(params?.["X-Forwarded-Access-Token"] != null && {
+                "X-Forwarded-Access-Token": params["X-Forwarded-Access-Token"]
+            }),
+            ...options?.headers
+        }
+    });
+    if (!res.ok) {
+        const body = await res.text();
+        let parsed: unknown;
+        try {
+            parsed = JSON.parse(body);
+        } catch  {
+            parsed = body;
+        }
+        throw new ApiError(res.status, res.statusText, parsed);
+    }
+    return {
+        data: await res.json()
+    };
+};
+export const getTemplateFileContentKey = (params?: GetTemplateFileContentParams)=>{
+    return [
+        "/api/templates/{template_id}/files/{file_path}",
+        params
+    ] as const;
+};
+export function useGetTemplateFileContent<TData = {
+    data: TemplateFileContent;
+}>(options: {
+    params: GetTemplateFileContentParams;
+    query?: Omit<UseQueryOptions<{
+        data: TemplateFileContent;
+    }, ApiError, TData>, "queryKey" | "queryFn">;
+}) {
+    return useQuery({
+        queryKey: getTemplateFileContentKey(options.params),
+        queryFn: ()=>getTemplateFileContent(options.params),
+        ...options?.query
+    });
+}
+export function useGetTemplateFileContentSuspense<TData = {
+    data: TemplateFileContent;
+}>(options: {
+    params: GetTemplateFileContentParams;
+    query?: Omit<UseSuspenseQueryOptions<{
+        data: TemplateFileContent;
+    }, ApiError, TData>, "queryKey" | "queryFn">;
+}) {
+    return useSuspenseQuery({
+        queryKey: getTemplateFileContentKey(options.params),
+        queryFn: ()=>getTemplateFileContent(options.params),
+        ...options?.query
+    });
+}
+export interface UpdateTemplateStatusParams {
+    template_id: string;
+    "X-Forwarded-Host"?: string | null;
+    "X-Forwarded-Preferred-Username"?: string | null;
+    "X-Forwarded-User"?: string | null;
+    "X-Forwarded-Email"?: string | null;
+    "X-Request-Id"?: string | null;
+    "X-Forwarded-Access-Token"?: string | null;
+}
+export const updateTemplateStatus = async (params: UpdateTemplateStatusParams, data: TemplateStatusUpdateRequest, options?: RequestInit): Promise<{
+    data: TemplateListItem;
+}> =>{
+    const res = await fetch(`/api/templates/${params.template_id}/status`, {
+        ...options,
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+            ...(params?.["X-Forwarded-Host"] != null && {
+                "X-Forwarded-Host": params["X-Forwarded-Host"]
+            }),
+            ...(params?.["X-Forwarded-Preferred-Username"] != null && {
+                "X-Forwarded-Preferred-Username": params["X-Forwarded-Preferred-Username"]
+            }),
+            ...(params?.["X-Forwarded-User"] != null && {
+                "X-Forwarded-User": params["X-Forwarded-User"]
+            }),
+            ...(params?.["X-Forwarded-Email"] != null && {
+                "X-Forwarded-Email": params["X-Forwarded-Email"]
+            }),
+            ...(params?.["X-Request-Id"] != null && {
+                "X-Request-Id": params["X-Request-Id"]
+            }),
+            ...(params?.["X-Forwarded-Access-Token"] != null && {
+                "X-Forwarded-Access-Token": params["X-Forwarded-Access-Token"]
+            }),
+            ...options?.headers
+        },
+        body: JSON.stringify(data)
+    });
+    if (!res.ok) {
+        const body = await res.text();
+        let parsed: unknown;
+        try {
+            parsed = JSON.parse(body);
+        } catch  {
+            parsed = body;
+        }
+        throw new ApiError(res.status, res.statusText, parsed);
+    }
+    return {
+        data: await res.json()
+    };
+};
+export function useUpdateTemplateStatus(options?: {
+    mutation?: UseMutationOptions<{
+        data: TemplateListItem;
+    }, ApiError, {
+        params: UpdateTemplateStatusParams;
+        data: TemplateStatusUpdateRequest;
+    }>;
+}) {
+    return useMutation({
+        mutationFn: (vars)=>updateTemplateStatus(vars.params, vars.data),
         ...options?.mutation
     });
 }

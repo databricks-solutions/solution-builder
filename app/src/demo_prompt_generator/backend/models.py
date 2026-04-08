@@ -64,6 +64,12 @@ class ExecutionStatus(str, Enum):
     ERROR = "error"
 
 
+class TemplateStatus(str, Enum):
+    REVIEW_REQUESTED = "REVIEW_REQUESTED"
+    APPROVED = "APPROVED"
+    REJECTED = "REJECTED"
+
+
 # ---------------------------------------------------------------------------
 # SQLModel tables
 # ---------------------------------------------------------------------------
@@ -208,6 +214,68 @@ class Execution(SQLModel, table=True):
     )
 
 
+class Template(SQLModel, table=True):
+    """
+    A reusable template that can be used to create new projects.
+
+    Templates are submitted from projects and go through admin review.
+    Contains pgvector embedding for semantic search.
+    """
+    __tablename__ = "templates"
+
+    id: str = SQLField(
+        default_factory=generate_uuid,
+        primary_key=True,
+        max_length=50,
+    )
+    name: str = SQLField(max_length=255)
+    status: str = SQLField(default=TemplateStatus.REVIEW_REQUESTED.value, max_length=20)
+    owner_email: str = SQLField(max_length=255, index=True)
+    industry: Optional[str] = SQLField(default=None, max_length=100)
+    description: Optional[str] = SQLField(default=None, sa_column=Column(Text))  # Short summary
+    full_description: Optional[str] = SQLField(default=None, sa_column=Column(Text))  # Full README
+    capabilities: Optional[str] = SQLField(default=None, sa_column=Column(Text))  # JSON array
+
+    # Note: embedding column is created via migration (vector type not supported in SQLModel)
+
+    submitted_at: datetime = SQLField(default_factory=utc_now)
+    reviewed_at: Optional[datetime] = SQLField(default=None)
+    reviewed_by: Optional[str] = SQLField(default=None, max_length=255)
+    source_project_id: Optional[str] = SQLField(default=None, max_length=50)
+
+    __table_args__ = (
+        Index("ix_templates_status", "status"),
+        Index("ix_templates_industry", "industry"),
+    )
+
+
+class TemplateContent(SQLModel, table=True):
+    """
+    Individual file stored in a template.
+
+    Files are stored compressed (zlib) like project files.
+    """
+    __tablename__ = "template_content"
+
+    id: Optional[int] = SQLField(default=None, primary_key=True)
+    template_id: str = SQLField(
+        sa_column=Column(
+            String(50),
+            index=True,
+            nullable=False,
+        )
+    )
+    relative_path: str = SQLField(max_length=500)
+    content_compressed: bytes = SQLField(sa_column=Column(LargeBinary, nullable=False))
+    content_hash: str = SQLField(max_length=64)
+    file_size: int = SQLField(default=0)
+    created_at: datetime = SQLField(default_factory=utc_now)
+
+    __table_args__ = (
+        Index("ix_template_content_unique_path", "template_id", "relative_path", unique=True),
+    )
+
+
 # ---------------------------------------------------------------------------
 # Pydantic request/response models
 # ---------------------------------------------------------------------------
@@ -215,8 +283,7 @@ class Execution(SQLModel, table=True):
 
 class ProjectCreateRequest(BaseModel):
     """Request to create a new project."""
-    name: str = Field(..., description="Human-readable project name")
-    description: Optional[str] = Field(None, description="Optional project description")
+    description: str = Field(..., description="Project description - name and schema will be generated from this")
 
 
 class ProjectUpdateRequest(BaseModel):
@@ -322,5 +389,75 @@ class ExecutionOut(BaseModel):
     error: Optional[str]
     created_at: datetime
     updated_at: datetime
+
+
+# ---------------------------------------------------------------------------
+# Template request/response models
+# ---------------------------------------------------------------------------
+
+
+class TemplateListItem(BaseModel):
+    """Template summary for list views."""
+    id: str
+    name: str
+    status: str
+    owner_email: str
+    industry: Optional[str]
+    description: Optional[str]
+    capabilities: Optional[list[str]] = None  # Parsed from JSON
+    submitted_at: datetime
+    reviewed_at: Optional[datetime] = None
+
+
+class TemplateDetail(BaseModel):
+    """Full template details including file info."""
+    id: str
+    name: str
+    status: str
+    owner_email: str
+    industry: Optional[str]
+    description: Optional[str]
+    full_description: Optional[str]
+    capabilities: Optional[list[str]] = None
+    submitted_at: datetime
+    reviewed_at: Optional[datetime] = None
+    reviewed_by: Optional[str] = None
+    source_project_id: Optional[str] = None
+    file_count: int = 0
+
+
+class TemplateFile(BaseModel):
+    """File metadata in a template."""
+    path: str
+    name: str
+    size: int
+    is_dir: bool = False
+
+
+class TemplateFileContent(BaseModel):
+    """File content from a template."""
+    path: str
+    content: str
+    size: int
+
+
+class TemplateSearchResult(BaseModel):
+    """Template search result with similarity score."""
+    id: str
+    name: str
+    description: Optional[str]
+    industry: Optional[str]
+    capabilities: Optional[list[str]] = None
+    similarity: float
+
+
+class TemplateStatusUpdateRequest(BaseModel):
+    """Request to update template status (admin only)."""
+    status: str = Field(..., description="APPROVED or REJECTED")
+
+
+class CreateProjectFromTemplateRequest(BaseModel):
+    """Request to create a project from a template."""
+    name: str = Field(..., description="Name for the new project")
 
 

@@ -37,7 +37,7 @@ function SidebarLayout({ children }: SidebarLayoutProps) {
         <header className="sticky top-0 z-50 bg-background/80 backdrop-blur-sm border-b flex h-14 shrink-0 items-center gap-2 px-4">
           <SidebarTrigger className="-ml-1 cursor-pointer" />
           <div className="h-4 w-px bg-border mx-1" />
-          <span className="text-xs font-medium text-muted-foreground">Databricks Use-Case Generator</span>
+          <span className="text-xs font-medium text-muted-foreground">Databricks Assets Generator</span>
           <div className="flex-1" />
           <ModeToggle />
         </header>

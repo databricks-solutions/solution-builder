@@ -111,17 +111,9 @@ Lakeflow Connect → SDP → DW/SQL Dashboard → Genie → Agents (MAS/KA) → 
 
 This is a starting point. Users may want different products, fewer products, or additional ones. Follow their lead.
 
-### Product Stack in Overview
+### Products Showcased Section
 
-When generating the demo overview, include a **Product Stack** section explaining which products are showcased and why. For each product:
-
-| Field | Description |
-|-------|-------------|
-| **Role in Demo** | What it does in this specific demo |
-| **Pain Solved** | Business problem it addresses (reference `databricks_products.md` for positioning) |
-| **Demo Moment** | Presales talking point - what to say when this product appears |
-
-See `README.md` in the reference example for the format.
+When generating the demo overview, include a **Products Showcased** table - a simple two-column table showing each product and what it does in this specific demo. Keep it brief (one sentence per product). See `README.md` in the reference example for the format.
 
 ### Choosing Products
 
@@ -148,6 +140,10 @@ Start by understanding what the user wants to build. **Help with ideation - don'
 
 When the user gives a domain (e.g., "retail demo"):
 
+#### Skipping Demo Bank Search
+
+If the user says "skip templates", "no template suggestions", or similar — skip Step 1 (don't search the demo bank) and don't show the "Reference Demos" section in Step 2. Still show the AI-generated ideas for ideation. This is useful when template selection already happened upstream (e.g., in a UI workflow).
+
 #### Step 1: Search Reference Demos
 
 First, search the demo reference bank for existing demos that match. Use the `tools/` folder inside this skill's base directory:
@@ -160,25 +156,24 @@ This returns the top 3 matching reference demos (mocked vector search for now).
 
 #### Step 2: Present Options
 
-Show both AI-generated ideas AND reference demos. Example *(all options should follow format of #1 and A - abbreviated here)*:
+Show AI-generated ideas and reference demos. Keep it brief - this is ideation. No product names yet.
+
+**Title format**: "[Domain]'s [problem]" - tells you who and what at a glance.
 
 ```
 **Generated Ideas:**
-**1. Returns spike** - Online beauty retailer. VP Ops sees returns 3x higher this week.
-   → Genie traces to 3 skincare products from same supplier batch.
-   → KA reveals supplier quality incident (texture issues). $180K at risk.
-   Data: orders, returns (Salesforce via Lakeflow Connect) · batches (NetSuite via Lakeflow Connect)
-**2. Sales drop** - ...
-**3. Stockouts** - ...
+1. **Beauty retailer's return crisis** - VP sees returns jump 3x. Traces it to skincare products from a bad supplier batch — internal memo reveals a texture issue. $180K at risk.
 
-**Reference Demos (from demo bank):**
-**A. Manufacturing Quality Defects** - Automotive parts manufacturer sees 4x defect spike.
-   → Traces to CNC machine with worn bearing. ML predicts equipment failures.
-   Components: Full stack + ML Notebook
-**B. Healthcare Patient Readmissions** - ...
-**C. Financial Services Fraud** - ...
+2. **Healthcare SaaS's CSAT collapse** - Support scores tank. All tied to one product module with a known bug agents don't know how to handle.
 
-Pick 1-3 for generated, A-C for reference, or describe something else.
+3. **Logistics company's backlog nightmare** - Resolution time spikes. A carrier API got deprecated and broke tracking lookups.
+
+**Reference Demos:**
+A. **Auto manufacturer's defect mystery** - Defect spike traced to a worn machine bearing.
+B. **Hospital's readmission puzzle** - Readmission rates rise due to a discharge protocol gap.
+C. **Bank's fraud spike** - Card fraud traced to compromised POS terminals.
+
+Pick 1-3 or A-C, or describe something else.
 ```
 
 #### Step 3: If User Picks a Reference Demo
@@ -246,12 +241,13 @@ Ok, or specify different location?
 **First:** Read `{SKILL_BASE_DIR}/references/example-luxebeauty/README.md` to understand the structure and detail level expected.
 
 Generate `./README.md` with:
-- Story overview (hero, disruption, quest, resolution)
-- Product stack and what each product does in the demo
-- Key numbers and dates
-- Complete walkthrough with talk track
+- **The Story** - Summary table (company, hero, problem, investigation, root cause, impact)
+- **Overview** - Short paragraph explaining the demo flow
+- **Key Numbers** - Table of metrics (baseline vs anomaly values)
+- **Products Showcased** - Simple table: product name + what it does in this demo
+- **Demo Walkthrough** - Concise bullet points for each act (not long quoted paragraphs)
 
-This is the "pitch deck" - the human-readable summary of the entire demo.
+Keep it scannable. The walkthrough should be bullet points a presenter can glance at, not a script to read verbatim.
 
 ### Phase 5: User Review Checkpoint
 
@@ -286,6 +282,12 @@ After user approves, generate the remaining files:
 5. **Dashboard (05)** - Layout, KPIs, the visual story (anomaly obvious at a glance)
 6. **KA (06)** - Config, instructions, identifiers matching structured data
 7. **MAS (07)** - Routing logic
+
+#### Parallelization for Speed
+
+**Reading references:** Read all reference template files in parallel at the start — don't read them one at a time.
+
+**Writing instructions:** Write independent files in parallel when they don't depend on each other. For example, Documents (PDFs) can be written in parallel with Pipeline since they don't share dependencies. But Dashboard and Genie depend on the tables defined in Pipeline, so write Pipeline first.
 
 Generate all files, then do coherence review.
 

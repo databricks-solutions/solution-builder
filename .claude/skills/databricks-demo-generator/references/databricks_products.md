@@ -18,62 +18,7 @@ Use this to decide **which products to combine in a demo**, what pain each solve
 
 ---
 
-## Platform & Governance
-
-### Data Intelligence Platform
-
-Unified platform that turns all your data into an **AI-ready lakehouse** with governance and AI built in.
-
-**Pain:** Data lives in 5-10 systems (DWH, lake, ML platform, BI, point AI tools). Every project means copying data, reconciling schemas, re-implementing security. Slow time-to-value, duplicated spend, "which number is right?" fights.
-
-**Position:** Any "end-to-end data + AI" or platform consolidation story. Open with this when positioning Databricks vs "tool zoo".
-
-**URL:** https://www.databricks.com/product/data-intelligence-platform
-
----
-
-### Unity Catalog
-
-**Unified, open governance** for all data, AI models, metrics and dashboards across clouds and formats.
-
-**Pain:** Each warehouse, lake, BI tool and ML platform has its own ACLs and catalog. Answering "who can see this?" or "where did this KPI come from?" takes weeks. Audits (GDPR, SOX, DORA) become multi-month fire drills. Security blocks new use cases because exposure is unclear.
-
-**Key features to highlight:**
-- **Fine-grained access control** - column/row-level security, dynamic data masking
-- **Attribute-based access (ABAC)** - policies based on tags, not just roles
-- **Automated lineage** - trace any metric back to source tables and transformations
-- **Audit logs** - every access, query, and permission change logged
-- **Data quality monitoring** - detect drift, anomalies, freshness issues
-- **Cross-cloud federation** - one catalog across AWS, Azure, GCP
-
-**Position:** Any mention of compliance, sensitive data, regulators, cross-cloud, or "we have 5 warehouses." Always show lineage + fine-grained access at least once.
-
-**URL:** https://www.databricks.com/product/unity-catalog
-
----
-
-## Storage
-
-### Lakehouse Storage (Delta Lake & Iceberg)
-
-Open **ACID tables on cheap cloud storage**, auto-optimized for performance and AI workloads.
-
-**Pain:** Raw object storage is cheap but fragile: schema drift, no ACID, random performance. Traditional warehouses are fast but closed and expensive. Teams end up with separate systems for BI, data science, streaming - all holding copies of the same data.
-
-**Key features:**
-- **Liquid clustering** - automatic data layout optimization
-- **Predictive optimization** - ML-driven compaction and indexing
-- **Time travel** - query any point in history, easy rollback
-- **Schema evolution** - add columns without breaking consumers
-- **Open format** - Delta + Iceberg, no lock-in
-
-**Position:** Modernization / consolidation stories (Snowflake/Teradata → lakehouse). FSI: long-history trade data, risk simulations. Retail: clickstream + transactions in one place.
-
-**URL:** https://www.databricks.com/product/delta-lake-on-databricks
-
----
-
-## Ingestion
+## Data Processing
 
 ### Lakeflow Connect
 
@@ -92,8 +37,6 @@ Fully managed **connectors + pipelines** from SaaS apps, DBs and files into gove
 **URL:** https://www.databricks.com/product/data-engineering/lakeflow-connect
 
 ---
-
-## Processing
 
 ### Spark Declarative Pipelines (SDP)
 
@@ -133,26 +76,7 @@ Native **orchestrator** for all Databricks workloads with retries, conditional l
 
 ---
 
-## Analytics
-
-### Databricks SQL
-
-**Serverless data warehouse** on the lakehouse with AI-assisted SQL and best-in-class price/performance.
-
-**Pain:** Legacy DWHs choke on semi-structured, streaming and AI workloads, and charge heavily for compute and storage. Analysts pull data into "side systems" for ML or GenAI, fragmenting definitions and governance.
-
-**Key features:**
-- **Serverless** - instant startup, auto-scaling, pay per query
-- **Photon engine** - vectorized execution, 10-50x faster
-- **AI-assisted SQL** - natural language to SQL in editor
-- **BI integrations** - native connectors for Tableau, Power BI, Looker
-- **Query federation** - query external sources without moving data
-
-**Position:** BI, reporting, self-service analytics. Especially when they mention Snowflake/Redshift/Synapse. Show fast queries over open tables.
-
-**URL:** https://www.databricks.com/product/databricks-sql
-
----
+## AI/BI
 
 ### AI/BI Dashboards
 
@@ -191,7 +115,45 @@ Native **orchestrator** for all Databricks workloads with retries, conditional l
 
 ---
 
-## Workbench & ML
+### Metric Views
+
+**Centralized semantic layer** for defining metrics once and using them consistently across dashboards, Genie, alerts and external BI tools.
+
+**Pain:** "Revenue" means different things to different teams. Marketing calculates it one way, Finance another, and the CEO dashboard shows a third number. Every new report triggers debates about "which number is right." Complex metrics like ratios or distinct counts break when re-aggregated. Teams create dozens of pre-baked views for every possible slice, yet still can't answer ad-hoc questions.
+
+**Key features:**
+- **Define once, use everywhere** - single source of truth for business metrics
+- **Flexible dimensions** - query any metric across any dimension at runtime
+- **Complex calculations** - ratios, distinct counts, time-over-time that aggregate correctly
+- **Auto-materialization** - pre-compute and incrementally update aggregations for performance
+- **UC governed** - metrics inherit permissions, show in lineage, are auditable
+
+**Position:** When consistency matters: "Your Genie answers and dashboards all draw from the same metric definitions - no more spreadsheet reconciliation." FSI: regulatory metrics that must match across reports. Retail: consistent revenue/margin definitions across regions.
+
+**URL:** https://docs.databricks.com/en/metric-views/
+
+---
+
+### Databricks SQL
+
+**Serverless data warehouse** on the lakehouse with AI-assisted SQL and best-in-class price/performance.
+
+**Pain:** Legacy DWHs choke on semi-structured, streaming and AI workloads, and charge heavily for compute and storage. Analysts pull data into "side systems" for ML or GenAI, fragmenting definitions and governance.
+
+**Key features:**
+- **Serverless** - instant startup, auto-scaling, pay per query
+- **Photon engine** - vectorized execution, 10-50x faster
+- **AI-assisted SQL** - natural language to SQL in editor
+- **BI integrations** - native connectors for Tableau, Power BI, Looker
+- **Query federation** - query external sources without moving data
+
+**Position:** BI, reporting, self-service analytics. Especially when they mention Snowflake/Redshift/Synapse. Show fast queries over open tables.
+
+**URL:** https://www.databricks.com/product/databricks-sql
+
+---
+
+## ML
 
 ### Notebooks + Managed MLflow
 
@@ -230,29 +192,127 @@ Autonomous **AI pair-engineer** for data teams: plans, writes and runs code, fix
 
 ---
 
-## AI / GenAI
+## AI/GenAI
 
-### Mosaic AI (Model Serving, Vector Search, Agents)
+### Model Serving
 
-End-to-end **agent platform**: host any model, add RAG with Vector Search, trace and evaluate agents, govern through Unity Catalog.
+**Serverless endpoints** for any model - foundation models, fine-tuned models, or custom agents - with pay-per-token pricing.
 
-**Pain:** DIY GenAI = separate vector DB, model gateway, tracing, evaluators, governance, each with own ACLs and logs. Hard to move from "cool POC" to production because nobody trusts outputs or can explain them to compliance.
+**Pain:** Self-hosting LLMs means GPU procurement, infra ops, scaling headaches, and no cost visibility. Teams spin up separate endpoints for each model, each with its own auth and logging.
 
 **Key features:**
-- **Model Serving** - serverless endpoints for any model, pay-per-token
-- **Vector Search** - managed embeddings + similarity search for RAG
-- **Agent Framework** - build multi-step agents with tools
-- **Agent Evaluation** - measure quality, detect hallucinations
-- **Tracing** - full observability of agent reasoning
+- **Serverless** - instant startup, auto-scaling, no GPU management
+- **Pay-per-token** - cost transparency, no idle spend
+- **Any model** - foundation models, fine-tuned, external via AI Gateway
 - **Guardrails** - input/output filtering, PII detection
+- **Tracing** - full observability of every call
 
-**Position:** Any RAG / copilot / agent request. Show data → Vector Search → agent → evaluation + tracing. FSI: KYC copilots, policy search, claims triage - emphasize evaluation + governance.
+**Position:** "Host any model with one click, pay only for what you use, and see every call in traces." Foundation for all agent/RAG work.
 
-**URL:** https://www.databricks.com/product/artificial-intelligence
+**URL:** https://www.databricks.com/product/model-serving
 
 ---
 
-## Apps & Delivery
+### Vector Search
+
+**Managed embeddings + similarity search** for RAG applications, fully integrated with Unity Catalog.
+
+**Pain:** DIY vector DBs mean separate infra, syncing nightmares when source data changes, and no governance. Embeddings drift out of sync with tables, and nobody knows which version is live.
+
+**Key features:**
+- **Managed index** - auto-sync with Delta tables
+- **Incremental updates** - embeddings stay fresh as data changes
+- **UC governed** - same permissions as source tables
+- **Hybrid search** - combine semantic + keyword for better recall
+- **Scale** - billions of vectors, low-latency queries
+
+**Position:** Any RAG / copilot scenario. "Your knowledge base stays in sync automatically - no ETL to vector DB. Governed by the same UC permissions as your tables."
+
+**URL:** https://www.databricks.com/product/vector-search
+
+---
+
+### Knowledge Assistant
+
+**Fully managed RAG agent** that turns your documents into accurate, grounded answers with page-level citations.
+
+**Pain:** Building RAG from scratch means chunking strategies, embedding pipelines, retrieval tuning, prompt engineering - months of work before you know if it even helps. Basic similarity search misses context, gives wrong answers, or hallucinates.
+
+**Key features:**
+- **Instructed Retriever** - 70% higher answer quality than basic RAG
+- **Page-level citations** - every answer cites its source, reducing hallucinations
+- **Supported formats** - PDF, DOCX, PPTX, MD, TXT from UC Volumes
+- **Natural language feedback** - improve quality by telling it what's wrong
+- **Managed lifecycle** - ingestion, updates, retrieval, inference all handled
+
+**Position:** "Point it at your policy docs, product manuals, or research papers - get a Q&A bot in minutes, not months." FSI: compliance docs, policy search. Healthcare: clinical guidelines. Legal: contract analysis.
+
+**URL:** https://docs.databricks.com/en/generative-ai/agent-bricks/knowledge-assistant
+
+---
+
+### Supervisor Agent
+
+**Managed orchestration layer** that coordinates multiple agents - Genie Spaces, Knowledge Assistants, UC functions, and MCP servers - to handle complex tasks.
+
+**Pain:** Real business questions span structured and unstructured data: "What's our exposure to this client and what do our contracts say about it?" Single agents can't handle this. DIY orchestration means building routing logic, managing state, handling failures - and no governance.
+
+**Key features:**
+- **Dynamic routing** - analyzes questions, picks the right agent(s)
+- **Multi-agent coordination** - Genie for SQL, KA for docs, functions for actions
+- **On-Behalf-Of auth** - uses the human's UC permissions, not a service account
+- **MCP integration** - connect external tools and systems
+- **Natural language tuning** - improve routing with expert feedback
+
+**Position:** "One agent that knows when to query your data warehouse, when to search your documents, and when to call an external API - all governed by your existing permissions." FSI: RM copilot spanning client data + research + compliance docs.
+
+**URL:** https://docs.databricks.com/en/generative-ai/agent-bricks/multi-agent-supervisor
+
+---
+
+## Governance
+
+### Unity Catalog
+
+**Unified, open governance** for all data, AI models, metrics and dashboards across clouds and formats.
+
+**Pain:** Each warehouse, lake, BI tool and ML platform has its own ACLs and catalog. Answering "who can see this?" or "where did this KPI come from?" takes weeks. Audits (GDPR, SOX, DORA) become multi-month fire drills. Security blocks new use cases because exposure is unclear.
+
+**Key features:**
+- **Fine-grained access control** - column/row-level security, dynamic data masking
+- **Attribute-based access (ABAC)** - policies based on tags, not just roles
+- **Data classification** - automatic tagging of PII, sensitive data
+- **Automated lineage** - trace any metric back to source tables and transformations
+- **Audit logs** - every access, query, and permission change logged
+- **Data quality monitoring** - detect drift, anomalies, freshness issues
+- **Cross-cloud federation** - one catalog across AWS, Azure, GCP
+
+**Position:** Any mention of compliance, sensitive data, regulators, cross-cloud, or "we have 5 warehouses." Always show lineage + fine-grained access at least once.
+
+**URL:** https://www.databricks.com/product/unity-catalog
+
+---
+
+### Delta Sharing
+
+Open protocol for **zero-copy sharing** of live data, views, volumes and models across orgs, platforms and clouds.
+
+**Pain:** B2B data exchange today = S3 buckets, SFTP, CSVs, custom APIs. Feeds break, go stale, and once data leaves, governance is gone. Every new partner is a mini-integration project.
+
+**Key features:**
+- **Zero-copy** - no data movement, query in place
+- **Cross-platform** - works with any Delta/Iceberg client
+- **Live data** - always current, no sync lag
+- **Governed** - access controls, audit logs preserved
+- **Volumes & models** - share files and ML models, not just tables
+
+**Position:** FSI: bureaus, partners, regulators, consortiums. Retail/MFG: supply-chain, joint-venture analytics. "We share this table with a partner → they live-query it in their own tool."
+
+**URL:** https://www.databricks.com/product/delta-sharing
+
+---
+
+## Apps
 
 ### Databricks Apps
 
@@ -289,55 +349,3 @@ Fully managed **Postgres for operational workloads**, integrated with the lakeho
 **Position:** When they need "low-latency transactions / HTAP / agent needs to store state." Show Lakebase powering an app, then same data visible in UC and SQL/AI.
 
 **URL:** https://www.databricks.com/product/lakebase
-
----
-
-### Delta Sharing
-
-Open protocol for **zero-copy sharing** of live data, views, volumes and models across orgs, platforms and clouds.
-
-**Pain:** B2B data exchange today = S3 buckets, SFTP, CSVs, custom APIs. Feeds break, go stale, and once data leaves, governance is gone. Every new partner is a mini-integration project.
-
-**Key features:**
-- **Zero-copy** - no data movement, query in place
-- **Cross-platform** - works with any Delta/Iceberg client
-- **Live data** - always current, no sync lag
-- **Governed** - access controls, audit logs preserved
-- **Volumes & models** - share files and ML models, not just tables
-
-**Position:** FSI: bureaus, partners, regulators, consortiums. Retail/MFG: supply-chain, joint-venture analytics. "We share this table with a partner → they live-query it in their own tool."
-
-**URL:** https://www.databricks.com/product/delta-sharing
-
----
-
-### Marketplace
-
-Open **data & AI marketplace**: subscribe to external datasets, models and notebooks directly into your lakehouse.
-
-**Pain:** Buying external data = S3 drops, custom ingestion, schema wrangling, separate contracts. Most teams under-use purchased data because it's too hard to operationalize.
-
-**Position:** When enriching with market / demographic / alt data strengthens the story. Quick mention: "This dataset could come from Marketplace - one-click subscription, no ETL."
-
-**URL:** https://www.databricks.com/product/marketplace
-
----
-
-## Security
-
-### Lakewatch
-
-Open, **agentic SIEM** on the lakehouse: ingest all security telemetry, run threat-hunting and automation with AI agents at petabyte scale.
-
-**Pain:** Traditional SIEMs charge by ingest; orgs drop logs to save money and fly blind. Rules-only detection can't keep up with evolving threats. SOCs drown in alert fatigue and manual triage.
-
-**Key features:**
-- **Unlimited ingest** - lakehouse economics, no data limits
-- **Detection-as-code** - version-controlled, testable rules
-- **AI agents** - automated triage, investigation, response
-- **Open format** - your data, your lake, full SQL access
-- **UC governed** - same security model as rest of platform
-
-**Position:** Security-focused deals, CISO/SOC in the room. "No data limits, open lake, governance via UC, and you fight agents with agents built on your own telemetry."
-
-**URL:** https://www.databricks.com/product/lakewatch

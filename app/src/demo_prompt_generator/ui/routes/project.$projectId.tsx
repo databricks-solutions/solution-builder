@@ -5,6 +5,7 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   Dialog,
   DialogContent,
@@ -26,6 +27,12 @@ import {
   Trash2,
   AlertTriangle,
   Sparkles,
+  Upload,
+  CheckCircle,
+  Loader2,
+  Pencil,
+  Check,
+  X,
 } from "lucide-react";
 import {
   getProject,
@@ -36,6 +43,9 @@ import {
   streamAgentProgress,
   stopAgentStream,
   deleteProject,
+  clearProjectSession,
+  submitTemplateFromProject,
+  updateProject,
   type Project,
   type ProjectFile,
   type ProjectFileContent,
@@ -44,11 +54,18 @@ import {
 
 export const Route = createFileRoute("/project/$projectId")({
   component: ProjectPage,
+  validateSearch: (search: Record<string, unknown>) => ({
+    prompt: typeof search.prompt === "string" ? search.prompt : undefined,
+  }),
 });
 
 function ProjectPage() {
   const { projectId } = Route.useParams();
+  const { prompt: initialPrompt } = Route.useSearch();
   const navigate = useNavigate();
+
+  // Track if initial prompt has been sent
+  const initialPromptSentRef = useRef(false);
 
   // Project state
   const [project, setProject] = useState<Project | null>(null);
@@ -60,6 +77,7 @@ function ProjectPage() {
   // Chat state
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoadingMessages, setIsLoadingMessages] = useState(true);
+  const [isClearingSession, setIsClearingSession] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamingContent, setStreamingContent] = useState("");
   const [streamingThinking, setStreamingThinking] = useState("");
@@ -74,6 +92,15 @@ function ProjectPage() {
 
   // Skills popup state
   const [isSkillsOpen, setIsSkillsOpen] = useState(false);
+
+  // Template submission state
+  const [isSubmittingTemplate, setIsSubmittingTemplate] = useState(false);
+  const [templateSubmitted, setTemplateSubmitted] = useState(false);
+
+  // Project name editing state
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [editedName, setEditedName] = useState("");
+  const [isSavingName, setIsSavingName] = useState(false);
 
   // Resources popover state
   const [isResourcesOpen, setIsResourcesOpen] = useState(false);
@@ -299,6 +326,28 @@ function ProjectPage() {
     [projectId, selectedFile, isStreaming]
   );
 
+  // Auto-send initial prompt if provided (from project creation)
+  useEffect(() => {
+    if (
+      initialPrompt &&
+      !initialPromptSentRef.current &&
+      !isLoadingMessages &&
+      messages.length === 0 &&
+      project
+    ) {
+      initialPromptSentRef.current = true;
+      // Clear the prompt from URL to prevent re-sending on refresh
+      navigate({
+        to: "/project/$projectId",
+        params: { projectId },
+        search: { prompt: undefined },
+        replace: true,
+      });
+      // Send the message
+      handleSendMessage(initialPrompt);
+    }
+  }, [initialPrompt, isLoadingMessages, messages.length, project, projectId, navigate, handleSendMessage]);
+
   // Handle stopping the stream
   const handleStop = useCallback(async () => {
     if (abortControllerRef.current) {
@@ -342,6 +391,64 @@ function ProjectPage() {
     }
   }, [projectId, navigate]);
 
+  // Handle clear session (delete all messages and reset agent)
+  const handleClearSession = useCallback(async () => {
+    setIsClearingSession(true);
+    try {
+      await clearProjectSession(projectId);
+      // Clear local state
+      setMessages([]);
+      setLastReasoning(null);
+    } catch (error) {
+      console.error("Failed to clear session:", error);
+    } finally {
+      setIsClearingSession(false);
+    }
+  }, [projectId]);
+
+  // Handle submit as template
+  const handleSubmitTemplate = useCallback(async () => {
+    if (isSubmittingTemplate || templateSubmitted) return;
+
+    setIsSubmittingTemplate(true);
+    try {
+      await submitTemplateFromProject(projectId);
+      setTemplateSubmitted(true);
+      // Reset after 3 seconds
+      setTimeout(() => setTemplateSubmitted(false), 3000);
+    } catch (error) {
+      console.error("Failed to submit template:", error);
+    } finally {
+      setIsSubmittingTemplate(false);
+    }
+  }, [projectId, isSubmittingTemplate, templateSubmitted]);
+
+  // Handle project name editing
+  const handleStartEditName = useCallback(() => {
+    setEditedName(project?.name || "");
+    setIsEditingName(true);
+  }, [project?.name]);
+
+  const handleSaveName = useCallback(async () => {
+    if (!editedName.trim() || isSavingName) return;
+
+    setIsSavingName(true);
+    try {
+      const updated = await updateProject(projectId, { name: editedName.trim() });
+      setProject(updated);
+      setIsEditingName(false);
+    } catch (error) {
+      console.error("Failed to update project name:", error);
+    } finally {
+      setIsSavingName(false);
+    }
+  }, [projectId, editedName, isSavingName]);
+
+  const handleCancelEditName = useCallback(() => {
+    setIsEditingName(false);
+    setEditedName("");
+  }, []);
+
   return (
     <div className="flex h-screen flex-col overflow-hidden">
       {/* Header */}
@@ -355,14 +462,56 @@ function ProjectPage() {
               </Button>
             </Link>
             <div className="h-6 w-px bg-border" />
-            <div>
-              <h1 className="font-semibold text-sm">
-                {project?.name || "Loading..."}
-              </h1>
-              {project?.description && (
-                <p className="text-xs text-muted-foreground truncate max-w-md">
-                  {project.description}
-                </p>
+            <div className="flex items-center gap-2">
+              {isEditingName ? (
+                <div className="flex items-center gap-1">
+                  <Input
+                    value={editedName}
+                    onChange={(e) => setEditedName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") handleSaveName();
+                      if (e.key === "Escape") handleCancelEditName();
+                    }}
+                    className="h-7 w-48 text-sm"
+                    autoFocus
+                    disabled={isSavingName}
+                  />
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7"
+                    onClick={handleSaveName}
+                    disabled={isSavingName || !editedName.trim()}
+                  >
+                    {isSavingName ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Check className="h-3.5 w-3.5 text-green-600" />
+                    )}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7"
+                    onClick={handleCancelEditName}
+                    disabled={isSavingName}
+                  >
+                    <X className="h-3.5 w-3.5 text-muted-foreground" />
+                  </Button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-1.5 group">
+                  <h1 className="font-semibold text-sm">
+                    {project?.name || "Loading..."}
+                  </h1>
+                  <button
+                    onClick={handleStartEditName}
+                    className="opacity-0 group-hover:opacity-100 transition-opacity p-1 hover:bg-muted rounded"
+                    title="Edit project name"
+                  >
+                    <Pencil className="h-3 w-3 text-muted-foreground" />
+                  </button>
+                </div>
               )}
             </div>
           </div>
@@ -376,6 +525,30 @@ function ProjectPage() {
             >
               <Sparkles className="h-4 w-4" />
               Skills
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleSubmitTemplate}
+              disabled={isSubmittingTemplate || templateSubmitted || files.length === 0}
+              className={`gap-1.5 ${templateSubmitted ? "text-green-600" : ""}`}
+            >
+              {isSubmittingTemplate ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Submitting...
+                </>
+              ) : templateSubmitted ? (
+                <>
+                  <CheckCircle className="h-4 w-4" />
+                  Submitted
+                </>
+              ) : (
+                <>
+                  <Upload className="h-4 w-4" />
+                  Submit as Template
+                </>
+              )}
             </Button>
             <div className="h-6 w-px bg-border" />
             <Button
@@ -421,12 +594,14 @@ function ProjectPage() {
             onSendMessage={handleSendMessage}
             isStreaming={isStreaming}
             isLoadingMessages={isLoadingMessages}
+            isClearingSession={isClearingSession}
             streamingContent={streamingContent}
             streamingThinking={streamingThinking}
             streamingTools={streamingTools}
             pendingUserMessage={pendingUserMessage}
             lastReasoning={lastReasoning}
             onStop={handleStop}
+            onClearSession={handleClearSession}
             resources={resources}
             onEditResources={() => setIsResourcesOpen(true)}
           />

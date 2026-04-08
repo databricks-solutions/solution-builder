@@ -141,11 +141,11 @@ export async function listProjects(): Promise<ProjectListItem[]> {
   return resp.json();
 }
 
-export async function createProject(name: string, description?: string): Promise<Project> {
+export async function createProject(description: string): Promise<Project> {
   const resp = await fetch("/api/projects", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name, description }),
+    body: JSON.stringify({ description }),
   });
   if (!resp.ok) throw new Error(`Failed to create project: ${resp.status}`);
   return resp.json();
@@ -252,6 +252,14 @@ export async function clearProjectMessages(projectId: string): Promise<void> {
     method: "DELETE",
   });
   if (!resp.ok) throw new Error(`Failed to clear messages: ${resp.status}`);
+}
+
+export async function clearProjectSession(projectId: string): Promise<{ success: boolean; deleted_count: number }> {
+  const resp = await fetch(`/api/projects/${projectId}/session/clear`, {
+    method: "POST",
+  });
+  if (!resp.ok) throw new Error(`Failed to clear session: ${resp.status}`);
+  return resp.json();
 }
 
 // ---------------------------------------------------------------------------
@@ -575,4 +583,170 @@ export async function* streamWorkspaceGenerate(
   });
   if (!resp.ok) throw new Error(`Generation failed: ${resp.status}`);
   yield* parseSSEStream<WorkspaceEvent>(resp, signal);
+}
+
+// ---------------------------------------------------------------------------
+// Templates API
+// ---------------------------------------------------------------------------
+
+export interface TemplateListItem {
+  id: string;
+  name: string;
+  status: string;
+  owner_email: string;
+  industry: string | null;
+  description: string | null;
+  capabilities: string[] | null;
+  submitted_at: string;
+  reviewed_at: string | null;
+}
+
+export interface TemplateDetail extends TemplateListItem {
+  full_description: string | null;
+  reviewed_by: string | null;
+  source_project_id: string | null;
+  file_count: number;
+}
+
+export interface TemplateFile {
+  path: string;
+  name: string;
+  size: number;
+  is_dir: boolean;
+}
+
+export interface TemplateFileContent {
+  path: string;
+  content: string;
+  size: number;
+}
+
+export interface TemplateSearchResult {
+  id: string;
+  name: string;
+  description: string | null;
+  industry: string | null;
+  capabilities: string[] | null;
+  similarity: number;
+}
+
+export async function listTemplates(
+  status?: string,
+  industry?: string
+): Promise<TemplateListItem[]> {
+  const params = new URLSearchParams();
+  if (status) params.set("status", status);
+  if (industry) params.set("industry", industry);
+
+  const url = `/api/templates${params.toString() ? `?${params}` : ""}`;
+  const resp = await fetch(url);
+  if (!resp.ok) throw new Error(`Failed to list templates: ${resp.status}`);
+  return resp.json();
+}
+
+export async function getTemplate(templateId: string): Promise<TemplateDetail> {
+  const resp = await fetch(`/api/templates/${templateId}`);
+  if (!resp.ok) throw new Error(`Failed to get template: ${resp.status}`);
+  return resp.json();
+}
+
+export async function listTemplateFiles(templateId: string): Promise<TemplateFile[]> {
+  const resp = await fetch(`/api/templates/${templateId}/files`);
+  if (!resp.ok) throw new Error(`Failed to list template files: ${resp.status}`);
+  return resp.json();
+}
+
+export async function getTemplateFileContent(
+  templateId: string,
+  filePath: string
+): Promise<TemplateFileContent> {
+  const resp = await fetch(`/api/templates/${templateId}/files/${filePath}`);
+  if (!resp.ok) throw new Error(`Failed to get template file: ${resp.status}`);
+  return resp.json();
+}
+
+export async function searchTemplates(
+  query: string,
+  limit: number = 3
+): Promise<TemplateSearchResult[]> {
+  const resp = await fetch("/api/templates/search", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ query, limit }),
+  });
+  if (!resp.ok) throw new Error(`Failed to search templates: ${resp.status}`);
+  return resp.json();
+}
+
+export async function submitTemplateFromProject(
+  projectId: string
+): Promise<TemplateListItem> {
+  const resp = await fetch(`/api/templates/from-project/${projectId}`, {
+    method: "POST",
+  });
+  if (!resp.ok) throw new Error(`Failed to submit template: ${resp.status}`);
+  return resp.json();
+}
+
+export async function updateTemplateStatus(
+  templateId: string,
+  status: "APPROVED" | "REJECTED"
+): Promise<TemplateListItem> {
+  const resp = await fetch(`/api/templates/${templateId}/status`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ status }),
+  });
+  if (!resp.ok) throw new Error(`Failed to update template status: ${resp.status}`);
+  return resp.json();
+}
+
+export async function createProjectFromTemplate(
+  templateId: string,
+  name: string
+): Promise<Project> {
+  const resp = await fetch(`/api/templates/${templateId}/create-project`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+  if (!resp.ok) throw new Error(`Failed to create project from template: ${resp.status}`);
+  return resp.json();
+}
+
+export async function deleteTemplate(templateId: string): Promise<void> {
+  const resp = await fetch(`/api/templates/${templateId}`, { method: "DELETE" });
+  if (!resp.ok) throw new Error(`Failed to delete template: ${resp.status}`);
+}
+
+// ---------------------------------------------------------------------------
+// Constants API
+// ---------------------------------------------------------------------------
+
+export interface Capability {
+  id: string;
+  name: string;
+  category: string;
+}
+
+export async function getIndustries(): Promise<string[]> {
+  const resp = await fetch("/api/constants/industries");
+  if (!resp.ok) throw new Error(`Failed to get industries: ${resp.status}`);
+  return resp.json();
+}
+
+export async function getCapabilities(): Promise<Capability[]> {
+  const resp = await fetch("/api/constants/capabilities");
+  if (!resp.ok) throw new Error(`Failed to get capabilities: ${resp.status}`);
+  return resp.json();
+}
+
+export interface TemplateAdminStatus {
+  is_admin: boolean;
+}
+
+export async function getTemplateAdminStatus(): Promise<TemplateAdminStatus> {
+  const resp = await fetch("/api/constants/template-admin-status");
+  if (!resp.ok) throw new Error(`Failed to get admin status: ${resp.status}`);
+  return resp.json();
 }

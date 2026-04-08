@@ -14,6 +14,8 @@ from .routes import messages as _messages  # noqa: E402, F401
 from .routes import skills as _skills  # noqa: E402, F401
 from .routes import resources as _resources  # noqa: E402, F401
 from .routes import agent as _agent  # noqa: E402, F401
+from .routes import templates as _templates  # noqa: E402, F401
+from .routes import constants as _constants  # noqa: E402, F401
 
 
 @router.get("/version", response_model=VersionOut, operation_id="version")

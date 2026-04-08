@@ -12,6 +12,7 @@ from ..models import (
     MessageOut,
     Project,
 )
+from ..services.agent import get_client_pool
 
 router = create_router()
 
@@ -126,5 +127,40 @@ def clear_project_messages(
         session.delete(msg)
 
     session.commit()
+
+    return {"success": True, "deleted_count": len(messages)}
+
+
+@router.post(
+    "/projects/{project_id}/session/clear",
+    operation_id="clearProjectSession",
+)
+async def clear_project_session(
+    project_id: str,
+    session: Dependencies.Session,
+    headers: Dependencies.Headers,
+):
+    """Clear project session: delete all messages and reset Claude SDK client.
+
+    This completely resets the conversation state:
+    - Deletes all messages from the database
+    - Removes the Claude SDK client from the pool (clears session memory)
+    """
+    user_email = _get_user_email(headers)
+    _get_user_project(session, project_id, user_email)
+
+    # Delete all messages
+    messages = session.exec(
+        select(Message).where(Message.project_id == project_id)
+    ).all()
+
+    for msg in messages:
+        session.delete(msg)
+
+    session.commit()
+
+    # Remove client from pool (this clears the SDK session)
+    pool = get_client_pool()
+    await pool.remove_client(project_id)
 
     return {"success": True, "deleted_count": len(messages)}

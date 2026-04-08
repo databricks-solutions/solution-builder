@@ -1,22 +1,28 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useState, useEffect } from "react";
+import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent } from "@/components/ui/card";
 import Navbar from "@/components/apx/navbar";
 import { BubbleBackground } from "@/components/backgrounds/bubble";
 import { ProjectTile } from "@/components/project/project-tile";
+import { TemplateTile } from "@/components/template/template-tile";
+import { TemplateDetailPopup } from "@/components/template/template-detail-popup";
+import { ProductSelector, PRODUCT_CATEGORIES } from "@/components/product-selector";
 import {
   Sparkles,
   ArrowRight,
   Search,
   Lightbulb,
-  FolderPlus,
+  Loader2,
+  Library,
 } from "lucide-react";
 import {
   listProjects,
   createProject,
+  searchTemplates,
   type ProjectListItem,
+  type TemplateSearchResult,
 } from "@/lib/custom-api";
 
 export const Route = createFileRoute("/")({
@@ -26,26 +32,112 @@ export const Route = createFileRoute("/")({
 function Index() {
   const [topic, setTopic] = useState("");
   const [projects, setProjects] = useState<ProjectListItem[]>([]);
+  const [isLoadingProjects, setIsLoadingProjects] = useState(true);
   const [isCreating, setIsCreating] = useState(false);
+  const [selectedProducts, setSelectedProducts] = useState<Set<string>>(
+    new Set([
+      "lakeflow-connect",    // Ingestion
+      "sdp",                 // Processing
+      "databricks-sql",      // Analytics
+      "dashboards",          // Analytics
+      "genie",               // NL Queries
+      "supervisor-agent",    // AI Agents (MAS)
+      "knowledge-assistant", // AI Agents (KA)
+    ])
+  );
   const navigate = useNavigate();
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Template search state
+  const [matchingTemplates, setMatchingTemplates] = useState<TemplateSearchResult[]>([]);
+  const [isSearchingTemplates, setIsSearchingTemplates] = useState(false);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
+
+  // Auto-resize textarea
+  const adjustTextareaHeight = useCallback(() => {
+    const textarea = textareaRef.current;
+    if (textarea) {
+      textarea.style.height = "auto";
+      const maxHeight = 200; // Max height in pixels
+      textarea.style.height = `${Math.min(textarea.scrollHeight, maxHeight)}px`;
+    }
+  }, []);
+
+  // Toggle product selection
+  const handleToggleProduct = useCallback((productId: string) => {
+    setSelectedProducts((prev) => {
+      const next = new Set(prev);
+      if (next.has(productId)) {
+        next.delete(productId);
+      } else {
+        next.add(productId);
+      }
+      return next;
+    });
+  }, []);
 
   // Load projects on mount
   useEffect(() => {
     listProjects()
       .then(setProjects)
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => setIsLoadingProjects(false));
   }, []);
+
+  // Debounced template search (500ms)
+  useEffect(() => {
+    if (topic.trim().length < 3) {
+      setMatchingTemplates([]);
+      return;
+    }
+
+    setIsSearchingTemplates(true);
+    const timer = setTimeout(async () => {
+      try {
+        const results = await searchTemplates(topic.trim(), 3);
+        setMatchingTemplates(results);
+      } catch {
+        setMatchingTemplates([]);
+      } finally {
+        setIsSearchingTemplates(false);
+      }
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [topic]);
 
   // Create new project and navigate
   const handleCreateProject = async (e?: React.FormEvent) => {
     e?.preventDefault();
-    const name = topic.trim() || "Untitled Project";
+    const fullTopic = topic.trim() || "Untitled Project";
     if (isCreating) return;
 
     setIsCreating(true);
     try {
-      const project = await createProject(name, `Generated from: ${name}`);
-      navigate({ to: "/project/$projectId", params: { projectId: project.id } });
+      // Build description with full topic and selected products
+      let description = fullTopic;
+      if (selectedProducts.size > 0) {
+        description += `\n\nSelected capabilities: ${Array.from(selectedProducts).join(", ")}`;
+      }
+      // Backend will generate name and schema from description using LLM
+      const project = await createProject(description);
+
+      // Build the initial prompt message with full user description
+      const selectedProductNames = PRODUCT_CATEGORIES
+        .flatMap(cat => cat.products)
+        .filter(p => selectedProducts.has(p.id) && p.id !== "_separator")
+        .map(p => p.name);
+
+      let initialPrompt = `Help me build a databricks demo.\n\nDemo description:\n${fullTopic}\n\nSkip templates.`;
+      if (selectedProductNames.length > 0) {
+        initialPrompt += `\n\nCapabilities to showcase: ${selectedProductNames.join(", ")}`;
+      }
+
+      navigate({
+        to: "/project/$projectId",
+        params: { projectId: project.id },
+        search: { prompt: initialPrompt },
+      });
     } catch (error) {
       console.error("Failed to create project:", error);
       setIsCreating(false);
@@ -54,7 +146,7 @@ function Index() {
 
   // Open existing project
   const handleOpenProject = (projectId: string) => {
-    navigate({ to: "/project/$projectId", params: { projectId } });
+    navigate({ to: "/project/$projectId", params: { projectId }, search: { prompt: undefined } });
   };
 
   return (
@@ -95,15 +187,25 @@ function Index() {
           </div>
 
           {/* Input card */}
-          <Card className="mx-auto w-full max-w-2xl text-left backdrop-blur-md bg-card/80 border-primary/10 shadow-lg shadow-primary/5">
+          <Card className="mx-auto w-full max-w-3xl text-left backdrop-blur-md bg-card/80 border-primary/10 shadow-lg shadow-primary/5">
             <CardContent className="p-4">
               <form onSubmit={handleCreateProject} className="space-y-2.5">
-                <Input
+                <Textarea
+                  ref={textareaRef}
                   placeholder='Describe your project... e.g. "predictive maintenance for wind turbines"'
                   value={topic}
-                  onChange={(e) => setTopic(e.target.value)}
-                  className="h-12 text-base bg-background/60"
+                  onChange={(e) => {
+                    setTopic(e.target.value);
+                    adjustTextareaHeight();
+                  }}
+                  className="min-h-12 text-base bg-background/60 resize-none overflow-hidden"
+                  rows={1}
                   autoFocus
+                />
+                <ProductSelector
+                  selectedProducts={selectedProducts}
+                  onToggleProduct={handleToggleProduct}
+                  expanded={topic.length >= 3}
                 />
                 <div className="flex items-center justify-end">
                   <Button
@@ -126,7 +228,7 @@ function Index() {
           </Card>
 
           {/* Research agent callout */}
-          <div className="mx-auto max-w-2xl">
+          <div className="mx-auto max-w-3xl">
             <div className="rounded-xl border border-primary/10 bg-primary/[0.03] backdrop-blur-sm px-4 py-3 text-left">
               <div className="flex items-start gap-3">
                 <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 mt-0.5">
@@ -153,11 +255,12 @@ function Index() {
                   </span>
                 </span>
                 <button
-                  onClick={() =>
+                  onClick={() => {
                     setTopic(
                       "Build a demo for Acme Corp (Fortune 500 retailer, heavy on Snowflake today, interested in real-time ML). They struggle with demand forecasting accuracy across 2,000+ stores."
-                    )
-                  }
+                    );
+                    setTimeout(adjustTextareaHeight, 0);
+                  }}
                   className="italic hover:text-foreground transition-colors cursor-pointer underline underline-offset-2 decoration-primary/20 hover:decoration-primary/40"
                 >
                   "Build a demo for Acme Corp, a Fortune 500 retailer struggling
@@ -168,27 +271,66 @@ function Index() {
           </div>
         </div>
 
+        {/* Matching templates section */}
+        {topic.trim().length >= 3 && (
+          <div className="relative z-10 mx-auto mt-12 w-full max-w-5xl">
+            <div className="mb-4 flex items-start justify-between">
+              <div>
+                <div className="flex items-center gap-2">
+                  <h2 className="text-lg font-semibold tracking-tight">
+                    Matching Templates
+                  </h2>
+                  {isSearchingTemplates && (
+                    <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                  )}
+                </div>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Templates that match your topic
+                </p>
+              </div>
+              <Link
+                to="/templates"
+                className="text-xs text-muted-foreground hover:text-primary transition-colors flex items-center gap-1"
+              >
+                <Library className="h-3 w-3" />
+                Browse All
+              </Link>
+            </div>
+            {matchingTemplates.length > 0 ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {matchingTemplates.map((template) => (
+                  <TemplateTile
+                    key={template.id}
+                    template={template}
+                    showSimilarity
+                    onClick={() => setSelectedTemplateId(template.id)}
+                  />
+                ))}
+              </div>
+            ) : !isSearchingTemplates && (
+              <div className="text-center py-6 border border-dashed border-border/50 rounded-lg">
+                <p className="text-sm text-muted-foreground">No matching templates found</p>
+                <Link
+                  to="/templates"
+                  className="text-xs text-primary hover:underline mt-1 inline-block"
+                >
+                  Explore all templates
+                </Link>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Projects grid */}
         {projects.length > 0 && (
           <div className="relative z-10 mx-auto mt-12 w-full max-w-5xl">
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <h2 className="text-lg font-semibold tracking-tight">
-                  Your Projects
-                </h2>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  Continue working on existing projects
-                </p>
-              </div>
-              <Button
-                variant="outline"
-                size="sm"
-                className="gap-1.5 text-xs"
-                onClick={() => handleCreateProject()}
-              >
-                <FolderPlus className="h-3 w-3" />
-                New Project
-              </Button>
+            <div className="mb-4">
+              <h2 className="text-lg font-semibold tracking-tight">
+                Your Projects
+              </h2>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Continue working on existing projects
+              </p>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -203,18 +345,31 @@ function Index() {
           </div>
         )}
 
-        {/* Empty state */}
+        {/* Loading / Empty state */}
         {projects.length === 0 && (
           <div className="relative z-10 mx-auto mt-12 text-center">
-            <p className="text-sm text-muted-foreground">
-              No projects yet. Create your first project above!
-            </p>
+            {isLoadingProjects ? (
+              <div className="flex items-center justify-center gap-2">
+                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                <p className="text-sm text-muted-foreground">Loading projects...</p>
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                No projects yet. Create your first project above!
+              </p>
+            )}
           </div>
         )}
 
         <div className="h-12" />
       </main>
       <div className="absolute inset-0 -z-20 h-full w-full bg-background" />
+
+      {/* Template detail popup */}
+      <TemplateDetailPopup
+        templateId={selectedTemplateId}
+        onClose={() => setSelectedTemplateId(null)}
+      />
     </div>
   );
 }

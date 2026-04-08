@@ -2,11 +2,12 @@
  * File viewer component for displaying project files.
  */
 
-import { memo } from "react";
+import { memo, useState, useMemo } from "react";
 import { ScrollArea } from "../ui/scroll-area";
 import { Prose } from "../markdown-prose";
 import { Skeleton } from "../ui/skeleton";
 import { Badge } from "../ui/badge";
+import { ChevronRight, ChevronDown, Folder, FolderOpen } from "lucide-react";
 import type { ProjectFile, ProjectFileContent } from "../../lib/custom-api";
 
 // ---------------------------------------------------------------------------
@@ -22,39 +23,226 @@ interface FileViewerProps {
   projectName?: string;
 }
 
+interface TreeNode {
+  name: string;
+  path: string;
+  isFolder: boolean;
+  file?: ProjectFile;
+  children: Map<string, TreeNode>;
+}
+
 // ---------------------------------------------------------------------------
-// File Tree Item
+// Tree Building
 // ---------------------------------------------------------------------------
 
-interface FileTreeItemProps {
+function buildFileTree(files: ProjectFile[]): TreeNode {
+  const root: TreeNode = {
+    name: "",
+    path: "",
+    isFolder: true,
+    children: new Map(),
+  };
+
+  // Sort files alphabetically
+  const sortedFiles = [...files].sort((a, b) => a.path.localeCompare(b.path));
+
+  for (const file of sortedFiles) {
+    const parts = file.path.split("/");
+    let current = root;
+
+    for (let i = 0; i < parts.length; i++) {
+      const part = parts[i];
+      const isLast = i === parts.length - 1;
+      const currentPath = parts.slice(0, i + 1).join("/");
+
+      if (!current.children.has(part)) {
+        current.children.set(part, {
+          name: part,
+          path: currentPath,
+          isFolder: !isLast,
+          file: isLast ? file : undefined,
+          children: new Map(),
+        });
+      }
+
+      current = current.children.get(part)!;
+    }
+  }
+
+  return root;
+}
+
+// ---------------------------------------------------------------------------
+// File Tree Item (File)
+// ---------------------------------------------------------------------------
+
+interface FileItemProps {
   file: ProjectFile;
   isSelected: boolean;
   onClick: () => void;
+  depth: number;
 }
 
-const FileTreeItem = memo(function FileTreeItem({
+const FileItem = memo(function FileItem({
   file,
   isSelected,
   onClick,
-}: FileTreeItemProps) {
+  depth,
+}: FileItemProps) {
   const extension = file.name.split(".").pop()?.toLowerCase() || "";
   const icon = getFileIcon(extension);
 
   return (
     <button
       onClick={onClick}
-      className={`w-full flex items-center gap-2 px-3 py-2 text-sm text-left rounded-md transition-colors ${
+      className={`w-full flex items-center gap-1.5 px-2 py-1.5 text-sm text-left rounded-md transition-colors cursor-pointer ${
         isSelected
           ? "bg-primary/10 text-primary font-medium"
-          : "hover:bg-muted text-foreground/80"
+          : "hover:bg-muted/80 text-foreground/80"
       }`}
+      style={{ paddingLeft: `${depth * 12 + 8}px` }}
+      title={file.path}
     >
-      <span className="text-muted-foreground">{icon}</span>
-      <span className="truncate flex-1">{file.name}</span>
-      <span className="text-xs text-muted-foreground shrink-0">
-        {formatFileSize(file.size)}
-      </span>
+      <span className="text-muted-foreground shrink-0 text-xs">{icon}</span>
+      <span className="truncate flex-1 text-[13px]">{file.name}</span>
     </button>
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Folder Item
+// ---------------------------------------------------------------------------
+
+interface FolderItemProps {
+  name: string;
+  node: TreeNode;
+  selectedFile: string | null;
+  onSelectFile: (path: string) => void;
+  depth: number;
+  defaultExpanded?: boolean;
+}
+
+const FolderItem = memo(function FolderItem({
+  name,
+  node,
+  selectedFile,
+  onSelectFile,
+  depth,
+  defaultExpanded = true,
+}: FolderItemProps) {
+  const [isExpanded, setIsExpanded] = useState(defaultExpanded);
+
+  // Check if any child is selected (to keep folder expanded)
+  const hasSelectedChild = useMemo(() => {
+    if (!selectedFile) return false;
+    return selectedFile.startsWith(node.path + "/");
+  }, [selectedFile, node.path]);
+
+  const childNodes = Array.from(node.children.values());
+  const folders = childNodes.filter(n => n.isFolder);
+  const files = childNodes.filter(n => !n.isFolder);
+
+  return (
+    <div>
+      <button
+        onClick={() => setIsExpanded(!isExpanded)}
+        className="w-full flex items-center gap-1.5 px-2 py-1.5 text-sm text-left rounded-md transition-colors cursor-pointer hover:bg-muted/80 text-foreground/90"
+        style={{ paddingLeft: `${depth * 12 + 8}px` }}
+      >
+        <span className="shrink-0 text-muted-foreground">
+          {isExpanded ? (
+            <ChevronDown className="h-3.5 w-3.5" />
+          ) : (
+            <ChevronRight className="h-3.5 w-3.5" />
+          )}
+        </span>
+        <span className="shrink-0 text-amber-500/80">
+          {isExpanded ? (
+            <FolderOpen className="h-3.5 w-3.5" />
+          ) : (
+            <Folder className="h-3.5 w-3.5" />
+          )}
+        </span>
+        <span className="truncate flex-1 text-[13px] font-medium">{name}</span>
+        <span className="text-[10px] text-muted-foreground/60 shrink-0">
+          {childNodes.length}
+        </span>
+      </button>
+
+      {(isExpanded || hasSelectedChild) && (
+        <div>
+          {/* Render folders first */}
+          {folders.map((child) => (
+            <FolderItem
+              key={child.path}
+              name={child.name}
+              node={child}
+              selectedFile={selectedFile}
+              onSelectFile={onSelectFile}
+              depth={depth + 1}
+            />
+          ))}
+          {/* Then files */}
+          {files.map((child) => (
+            <FileItem
+              key={child.path}
+              file={child.file!}
+              isSelected={selectedFile === child.path}
+              onClick={() => onSelectFile(child.path)}
+              depth={depth + 1}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+});
+
+// ---------------------------------------------------------------------------
+// File Tree
+// ---------------------------------------------------------------------------
+
+interface FileTreeProps {
+  files: ProjectFile[];
+  selectedFile: string | null;
+  onSelectFile: (path: string) => void;
+}
+
+const FileTree = memo(function FileTree({
+  files,
+  selectedFile,
+  onSelectFile,
+}: FileTreeProps) {
+  const tree = useMemo(() => buildFileTree(files), [files]);
+
+  const childNodes = Array.from(tree.children.values());
+  const folders = childNodes.filter(n => n.isFolder);
+  const rootFiles = childNodes.filter(n => !n.isFolder);
+
+  return (
+    <div className="space-y-0.5">
+      {/* Root files first (like README.md, META-PROMPT.md) */}
+      {rootFiles.map((node) => (
+        <FileItem
+          key={node.path}
+          file={node.file!}
+          isSelected={selectedFile === node.path}
+          onClick={() => onSelectFile(node.path)}
+          depth={0}
+        />
+      ))}
+      {/* Then folders */}
+      {folders.map((node) => (
+        <FolderItem
+          key={node.path}
+          name={node.name}
+          node={node}
+          selectedFile={selectedFile}
+          onSelectFile={onSelectFile}
+          depth={0}
+        />
+      ))}
+    </div>
   );
 });
 
@@ -85,20 +273,17 @@ export const FileViewer = memo(function FileViewer({
           </p>
         </div>
         <ScrollArea className="h-[calc(100%-60px)]">
-          <div className="p-2 space-y-0.5">
+          <div className="p-1.5">
             {files.length === 0 ? (
               <p className="text-sm text-muted-foreground text-center py-4">
                 No files yet
               </p>
             ) : (
-              files.map((file) => (
-                <FileTreeItem
-                  key={file.path}
-                  file={file}
-                  isSelected={selectedFile === file.path}
-                  onClick={() => onSelectFile(file.path)}
-                />
-              ))
+              <FileTree
+                files={files}
+                selectedFile={selectedFile}
+                onSelectFile={onSelectFile}
+              />
             )}
           </div>
         </ScrollArea>
@@ -182,7 +367,7 @@ function getFileIcon(extension: string): string {
     case "txt":
       return "📄";
     default:
-      return "📁";
+      return "📄";
   }
 }
 

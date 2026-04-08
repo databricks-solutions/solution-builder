@@ -223,12 +223,15 @@ async def stream_agent_response(
                 logger.info(f"Added {len(mcp_tool_names)} Databricks MCP tools")
 
             # Configure agent options
+            # IMPORTANT: setting_sources=["project"] is required for the SDK to
+            # discover skills from .claude/skills/ - without it skills won't load
             options = ClaudeAgentOptions(
                 cwd=str(project_dir),
                 allowed_tools=allowed_tools,
                 permission_mode="bypassPermissions",
                 system_prompt=system_prompt,
                 include_partial_messages=True,
+                setting_sources=["project"],  # Enable skill discovery from .claude/skills/
             )
 
             # Add MCP server if loaded

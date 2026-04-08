@@ -297,6 +297,48 @@ def initialize_models(engine: Engine) -> None:
         # Add cluster_name and warehouse_name to projects
         ("projects_add_cluster_name", "ALTER TABLE projects ADD COLUMN IF NOT EXISTS cluster_name VARCHAR(255)"),
         ("projects_add_warehouse_name", "ALTER TABLE projects ADD COLUMN IF NOT EXISTS warehouse_name VARCHAR(255)"),
+
+        # --- Template Library Feature ---
+
+        # Enable pgvector extension (for semantic search)
+        ("pgvector_extension", "CREATE EXTENSION IF NOT EXISTS vector"),
+
+        # Templates table (stores approved/pending templates)
+        ("templates_table", """
+            CREATE TABLE IF NOT EXISTS templates (
+                id VARCHAR(50) PRIMARY KEY,
+                name VARCHAR(255) NOT NULL,
+                status VARCHAR(20) NOT NULL DEFAULT 'REVIEW_REQUESTED',
+                owner_email VARCHAR(255) NOT NULL,
+                industry VARCHAR(100),
+                description TEXT,
+                full_description TEXT,
+                capabilities TEXT,
+                embedding vector(1024),
+                submitted_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                reviewed_at TIMESTAMP WITH TIME ZONE,
+                reviewed_by VARCHAR(255),
+                source_project_id VARCHAR(50)
+            )
+        """),
+        ("templates_status_idx", "CREATE INDEX IF NOT EXISTS ix_templates_status ON templates (status)"),
+        ("templates_industry_idx", "CREATE INDEX IF NOT EXISTS ix_templates_industry ON templates (industry)"),
+        ("templates_owner_idx", "CREATE INDEX IF NOT EXISTS ix_templates_owner ON templates (owner_email)"),
+
+        # Template content table (stores files from templates)
+        ("template_content_table", """
+            CREATE TABLE IF NOT EXISTS template_content (
+                id SERIAL PRIMARY KEY,
+                template_id VARCHAR(50) NOT NULL REFERENCES templates(id) ON DELETE CASCADE,
+                relative_path VARCHAR(500) NOT NULL,
+                content_compressed BYTEA NOT NULL,
+                content_hash VARCHAR(64) NOT NULL,
+                file_size INTEGER DEFAULT 0,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+            )
+        """),
+        ("template_content_template_idx", "CREATE INDEX IF NOT EXISTS ix_template_content_template_id ON template_content (template_id)"),
+        ("template_content_unique_path", "CREATE UNIQUE INDEX IF NOT EXISTS ix_template_content_unique_path ON template_content (template_id, relative_path)"),
     ]
 
     with Session(engine) as session:

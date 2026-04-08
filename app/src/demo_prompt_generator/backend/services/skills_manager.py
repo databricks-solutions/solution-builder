@@ -22,22 +22,18 @@ logger = logging.getLogger(__name__)
 # Configuration
 AI_DEV_KIT_REPO = "https://github.com/databricks-solutions/ai-dev-kit.git"
 AI_DEV_KIT_LOCAL = os.getenv("AI_DEV_KIT_PATH", "./ai_dev_kit")
+AI_DEV_KIT_BRANCH = os.getenv("AI_DEV_KIT_BRANCH", "main")
 PROJECTS_BASE_DIR = os.getenv("PROJECTS_BASE_DIR", "./projects")
 
-# Skills to copy by default
-DEFAULT_SKILLS = [
-    "databricks-spark-declarative-pipelines",
-    "databricks-aibi-dashboards",
-    "databricks-genie",
-    "databricks-agent-bricks",
-    "databricks-unity-catalog",
-    "databricks-model-serving",
-]
+# Skills to copy by default - None means copy ALL available skills
+# Set to a list of skill names to limit which skills are copied
+DEFAULT_SKILLS = None  # Copy all skills from ai-dev-kit
 
 
 def clone_or_pull_ai_dev_kit() -> bool:
     """
     Clone ai-dev-kit repo if not present, or pull latest.
+    Checks out the branch specified by AI_DEV_KIT_BRANCH env var.
 
     Called during app startup.
     """
@@ -45,10 +41,35 @@ def clone_or_pull_ai_dev_kit() -> bool:
 
     try:
         if repo_path.exists() and (repo_path / ".git").exists():
-            # Pull latest
-            logger.info(f"Pulling latest ai-dev-kit from {repo_path}")
+            # Fetch and checkout the target branch
+            logger.info(f"Fetching ai-dev-kit branch '{AI_DEV_KIT_BRANCH}' in {repo_path}")
+
+            # Fetch the branch
             result = subprocess.run(
-                ["git", "pull", "--ff-only"],
+                ["git", "fetch", "origin", AI_DEV_KIT_BRANCH],
+                cwd=repo_path,
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+            if result.returncode != 0:
+                logger.warning(f"Git fetch failed: {result.stderr}")
+
+            # Checkout the branch
+            result = subprocess.run(
+                ["git", "checkout", AI_DEV_KIT_BRANCH],
+                cwd=repo_path,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            if result.returncode != 0:
+                logger.warning(f"Git checkout failed: {result.stderr}")
+                return False
+
+            # Pull latest
+            result = subprocess.run(
+                ["git", "pull", "origin", AI_DEV_KIT_BRANCH],
                 cwd=repo_path,
                 capture_output=True,
                 text=True,
@@ -56,13 +77,13 @@ def clone_or_pull_ai_dev_kit() -> bool:
             )
             if result.returncode != 0:
                 logger.warning(f"Git pull failed: {result.stderr}")
-                return False
+                # Continue anyway - might be ok if we have the branch locally
         else:
-            # Clone fresh
-            logger.info(f"Cloning ai-dev-kit to {repo_path}")
+            # Clone fresh with specific branch
+            logger.info(f"Cloning ai-dev-kit branch '{AI_DEV_KIT_BRANCH}' to {repo_path}")
             repo_path.parent.mkdir(parents=True, exist_ok=True)
             result = subprocess.run(
-                ["git", "clone", "--depth", "1", AI_DEV_KIT_REPO, str(repo_path)],
+                ["git", "clone", "--branch", AI_DEV_KIT_BRANCH, AI_DEV_KIT_REPO, str(repo_path)],
                 capture_output=True,
                 text=True,
                 timeout=120,
@@ -71,7 +92,7 @@ def clone_or_pull_ai_dev_kit() -> bool:
                 logger.error(f"Git clone failed: {result.stderr}")
                 return False
 
-        logger.info("ai-dev-kit repository ready")
+        logger.info(f"ai-dev-kit repository ready (branch: {AI_DEV_KIT_BRANCH})")
         return True
 
     except subprocess.TimeoutExpired:
@@ -179,13 +200,18 @@ def copy_skills_to_project(
     skills_dest = project_dir / ".claude" / "skills"
     skills_dest.mkdir(parents=True, exist_ok=True)
 
-    # Determine which skills to copy
-    if enabled_skills is None:
-        enabled_skills = DEFAULT_SKILLS
-
-    # Map skill names to directory names
+    # Get available skills from ai-dev-kit
     available = get_available_skills()
     name_to_dir = {s["name"]: s["dir_name"] for s in available}
+
+    # Determine which skills to copy
+    # If enabled_skills is None and DEFAULT_SKILLS is None, copy ALL available skills
+    if enabled_skills is None:
+        if DEFAULT_SKILLS is None:
+            # Copy all available skills
+            enabled_skills = [s["dir_name"] for s in available]
+        else:
+            enabled_skills = DEFAULT_SKILLS
 
     copied = 0
 
@@ -202,11 +228,17 @@ def copy_skills_to_project(
     skills_src = Path(AI_DEV_KIT_LOCAL) / "databricks-skills"
     if skills_src.exists():
         for skill_name in enabled_skills:
+            # Handle both skill names and directory names
             dir_name = name_to_dir.get(skill_name, skill_name)
             src = skills_src / dir_name
 
             if not src.exists():
                 logger.warning(f"Skill not found: {skill_name}")
+                continue
+
+            # Skip non-skill directories (TEMPLATE, etc.)
+            if not (src / "SKILL.md").exists():
+                logger.debug(f"Skipping {skill_name} - no SKILL.md")
                 continue
 
             dest = skills_dest / dir_name

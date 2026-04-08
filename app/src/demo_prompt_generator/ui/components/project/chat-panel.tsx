@@ -8,7 +8,8 @@ import { createPortal } from "react-dom";
 import { Button } from "../ui/button";
 import { Textarea } from "../ui/textarea";
 import { Prose } from "../markdown-prose";
-import { Server, Database, Boxes, Pencil, Loader2, Check, X, Brain, Wrench, ChevronDown, ChevronRight } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../ui/tooltip";
+import { Server, Database, Boxes, Pencil, Loader2, Check, X, Brain, Wrench, ChevronDown, ChevronRight, Trash2, Info } from "lucide-react";
 import type { Message, ReasoningEntry } from "../../lib/custom-api";
 
 // ---------------------------------------------------------------------------
@@ -29,6 +30,76 @@ interface ToolInfo {
   isError?: boolean;
 }
 
+// ---------------------------------------------------------------------------
+// Helper Functions
+// ---------------------------------------------------------------------------
+
+/**
+ * Extract a short description from tool input for display.
+ * Removes long project path prefixes for readability.
+ */
+function getToolDescription(name: string, input: unknown): string {
+  if (!input || typeof input !== "object") return "";
+
+  const inp = input as Record<string, unknown>;
+  let description = "";
+
+  switch (name) {
+    case "Bash":
+      description = typeof inp.command === "string" ? inp.command : "";
+      break;
+    case "Write":
+    case "Read":
+    case "Edit":
+    case "Glob":
+      description = typeof inp.file_path === "string"
+        ? inp.file_path
+        : typeof inp.path === "string"
+          ? inp.path
+          : "";
+      break;
+    case "Grep":
+      description = typeof inp.pattern === "string" ? inp.pattern : "";
+      break;
+    case "Skill":
+      description = typeof inp.skill === "string" ? inp.skill : "";
+      break;
+    default:
+      // For other tools, try common field names
+      if (typeof inp.command === "string") description = inp.command;
+      else if (typeof inp.file_path === "string") description = inp.file_path;
+      else if (typeof inp.path === "string") description = inp.path;
+      break;
+  }
+
+  // Remove common project path prefixes for readability
+  // Match patterns like /Users/.../projects/{uuid}/ or ./projects/{uuid}/
+  description = description.replace(/^(\/[^/]+)+\/projects\/[a-f0-9-]+\//, "");
+  description = description.replace(/^\.\/projects\/[a-f0-9-]+\//, "");
+
+  // Truncate long descriptions
+  if (description.length > 60) {
+    description = description.slice(0, 57) + "...";
+  }
+
+  return description;
+}
+
+/**
+ * Format tool data for tooltip display (JSON with truncation).
+ */
+function formatToolJson(tool: { name: string; input: unknown; result?: string; isError?: boolean }): string {
+  const data = {
+    name: tool.name,
+    input: tool.input,
+    ...(tool.result !== undefined && {
+      result: tool.result.length > 500 ? tool.result.slice(0, 500) + "..." : tool.result,
+      isError: tool.isError
+    }),
+  };
+  return JSON.stringify(data, null, 2);
+}
+
 interface ReasoningInfo {
   thinking: string;
   tools: Map<string, ToolInfo>;
@@ -39,12 +110,14 @@ interface ChatPanelProps {
   onSendMessage: (message: string) => Promise<void>;
   isStreaming: boolean;
   isLoadingMessages?: boolean;
+  isClearingSession?: boolean;
   streamingContent: string;
   streamingThinking?: string;
   streamingTools?: Map<string, ToolInfo>;
   pendingUserMessage?: string | null;
   lastReasoning?: ReasoningInfo | null;
   onStop?: () => void;
+  onClearSession?: () => void;
   placeholder?: string;
   title?: string;
   resources?: ResourceInfo;
@@ -91,69 +164,6 @@ const MessageBubble = memo(function MessageBubble({
             )}
           </div>
         )}
-      </div>
-    </div>
-  );
-});
-
-// ---------------------------------------------------------------------------
-// Tool Display
-// ---------------------------------------------------------------------------
-
-interface ToolDisplayProps {
-  toolId: string;
-  tool: ToolInfo;
-}
-
-const ToolDisplay = memo(function ToolDisplay({ tool }: ToolDisplayProps) {
-  const isComplete = tool.result !== undefined;
-  const isError = tool.isError;
-
-  return (
-    <div className="flex items-start gap-2 px-3 py-2 bg-muted/50 rounded-md border border-border/50 text-xs">
-      <div className="shrink-0 mt-0.5">
-        {isComplete ? (
-          isError ? (
-            <X className="h-3.5 w-3.5 text-destructive" />
-          ) : (
-            <Check className="h-3.5 w-3.5 text-green-500" />
-          )
-        ) : (
-          <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
-        )}
-      </div>
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-1.5">
-          <Wrench className="h-3 w-3 text-muted-foreground" />
-          <span className="font-medium text-foreground">{tool.name}</span>
-        </div>
-        {isComplete && tool.result && (
-          <div className={`mt-1 text-[10px] leading-relaxed max-h-20 overflow-y-auto ${isError ? "text-destructive" : "text-muted-foreground"}`}>
-            <pre className="whitespace-pre-wrap break-all font-mono">{tool.result.slice(0, 500)}{tool.result.length > 500 ? "..." : ""}</pre>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-});
-
-// ---------------------------------------------------------------------------
-// Thinking Display
-// ---------------------------------------------------------------------------
-
-interface ThinkingDisplayProps {
-  thinking: string;
-}
-
-const ThinkingDisplay = memo(function ThinkingDisplay({ thinking }: ThinkingDisplayProps) {
-  return (
-    <div className="flex items-start gap-2 px-3 py-2 bg-amber-50 dark:bg-amber-950/30 rounded-md border border-amber-200/50 dark:border-amber-900/50 text-xs">
-      <Brain className="h-3.5 w-3.5 text-amber-600 dark:text-amber-500 shrink-0 mt-0.5" />
-      <div className="flex-1 min-w-0">
-        <span className="text-[10px] font-medium text-amber-700 dark:text-amber-400 uppercase tracking-wide">Thinking</span>
-        <p className="mt-0.5 text-[11px] text-amber-800 dark:text-amber-300/90 leading-relaxed line-clamp-3">
-          {thinking}
-        </p>
       </div>
     </div>
   );
@@ -278,38 +288,52 @@ const LiveReasoningPopup = memo(function LiveReasoningPopup({
 
         {/* Tools */}
         {displayTools.size > 0 && (
-          <div className="space-y-2">
-            <div className="flex items-center gap-1 text-[11px] font-medium text-muted-foreground">
-              <Wrench className="h-3 w-3" />
-              <span>Tools ({displayTools.size})</span>
-            </div>
-            {Array.from(displayTools.entries()).map(([toolId, tool]) => (
-              <div
-                key={toolId}
-                className="flex items-start gap-2 px-2 py-1.5 bg-muted/50 rounded text-[10px]"
-              >
-                <div className="shrink-0 mt-0.5">
-                  {tool.result !== undefined ? (
-                    tool.isError ? (
-                      <X className="h-3 w-3 text-destructive" />
-                    ) : (
-                      <Check className="h-3 w-3 text-green-500" />
-                    )
-                  ) : (
-                    <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
-                  )}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <span className="font-medium">{tool.name}</span>
-                  {tool.result && (
-                    <pre className={`mt-0.5 whitespace-pre-wrap break-all font-mono ${tool.isError ? "text-destructive" : "text-muted-foreground"}`}>
-                      {tool.result.slice(0, 300)}{tool.result.length > 300 ? "..." : ""}
-                    </pre>
-                  )}
-                </div>
+          <TooltipProvider delayDuration={200}>
+            <div className="space-y-2">
+              <div className="flex items-center gap-1 text-[11px] font-medium text-muted-foreground">
+                <Wrench className="h-3 w-3" />
+                <span>Tools ({displayTools.size})</span>
               </div>
-            ))}
-          </div>
+              {Array.from(displayTools.entries()).map(([toolId, tool]) => {
+                const description = getToolDescription(tool.name, tool.input);
+                return (
+                  <Tooltip key={toolId}>
+                    <TooltipTrigger asChild>
+                      <div className="flex items-start gap-2 px-2 py-1.5 bg-muted/50 rounded text-[10px] cursor-help hover:bg-muted/70">
+                        <div className="shrink-0 mt-0.5">
+                          {tool.result !== undefined ? (
+                            tool.isError ? (
+                              <X className="h-3 w-3 text-destructive" />
+                            ) : (
+                              <Check className="h-3 w-3 text-green-500" />
+                            )
+                          ) : (
+                            <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
+                          )}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-medium">{tool.name}</span>
+                            {description && (
+                              <span className="text-muted-foreground font-mono truncate text-[9px]">
+                                {description}
+                              </span>
+                            )}
+                            <Info className="h-2.5 w-2.5 text-muted-foreground/50 shrink-0" />
+                          </div>
+                        </div>
+                      </div>
+                    </TooltipTrigger>
+                    <TooltipContent side="left" align="start" className="max-w-md max-h-60 overflow-auto">
+                      <pre className="text-[10px] font-mono whitespace-pre-wrap break-all">
+                        {formatToolJson(tool)}
+                      </pre>
+                    </TooltipContent>
+                  </Tooltip>
+                );
+              })}
+            </div>
+          </TooltipProvider>
         )}
       </div>
     </div>,
@@ -341,40 +365,57 @@ const CollapsibleReasoning = memo(function CollapsibleReasoning({ reasoning }: C
         <span>See reasoning ({reasoning.tools.size} tool{reasoning.tools.size !== 1 ? "s" : ""})</span>
       </button>
       {isOpen && (
-        <div className="mt-2 space-y-2 pl-4 border-l-2 border-muted">
-          {reasoning.thinking && (
-            <div className="text-[10px] text-muted-foreground">
-              <div className="flex items-center gap-1 font-medium text-amber-600 dark:text-amber-500 mb-1">
-                <Brain className="h-3 w-3" />
-                <span>Thinking</span>
-              </div>
-              <p className="whitespace-pre-wrap line-clamp-10">{reasoning.thinking}</p>
-            </div>
-          )}
-          {reasoning.tools.size > 0 && (
-            <div className="space-y-1">
-              {Array.from(reasoning.tools.entries()).map(([toolId, tool]) => (
-                <div key={toolId} className="flex items-start gap-1.5 text-[10px]">
-                  <div className="shrink-0 mt-0.5">
-                    {tool.isError ? (
-                      <X className="h-3 w-3 text-destructive" />
-                    ) : (
-                      <Check className="h-3 w-3 text-green-500" />
-                    )}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <span className="font-medium">{tool.name}</span>
-                    {tool.result && (
-                      <pre className={`mt-0.5 whitespace-pre-wrap break-all font-mono ${tool.isError ? "text-destructive" : "text-muted-foreground"}`}>
-                        {tool.result.slice(0, 200)}{tool.result.length > 200 ? "..." : ""}
-                      </pre>
-                    )}
-                  </div>
+        <TooltipProvider delayDuration={200}>
+          <div className="mt-2 space-y-2 pl-4 border-l-2 border-muted">
+            {reasoning.thinking && (
+              <div className="text-[10px] text-muted-foreground">
+                <div className="flex items-center gap-1 font-medium text-amber-600 dark:text-amber-500 mb-1">
+                  <Brain className="h-3 w-3" />
+                  <span>Thinking</span>
                 </div>
-              ))}
-            </div>
-          )}
-        </div>
+                <p className="whitespace-pre-wrap line-clamp-10">{reasoning.thinking}</p>
+              </div>
+            )}
+            {reasoning.tools.size > 0 && (
+              <div className="space-y-1">
+                {Array.from(reasoning.tools.entries()).map(([toolId, tool]) => {
+                  const description = getToolDescription(tool.name, tool.input);
+                  return (
+                    <Tooltip key={toolId}>
+                      <TooltipTrigger asChild>
+                        <div className="flex items-start gap-1.5 text-[10px] cursor-help hover:bg-muted/50 rounded px-1 -mx-1 py-0.5">
+                          <div className="shrink-0 mt-0.5">
+                            {tool.isError ? (
+                              <X className="h-3 w-3 text-destructive" />
+                            ) : (
+                              <Check className="h-3 w-3 text-green-500" />
+                            )}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-1.5">
+                              <span className="font-medium">{tool.name}</span>
+                              {description && (
+                                <span className="text-muted-foreground font-mono truncate">
+                                  {description}
+                                </span>
+                              )}
+                              <Info className="h-2.5 w-2.5 text-muted-foreground/50 shrink-0" />
+                            </div>
+                          </div>
+                        </div>
+                      </TooltipTrigger>
+                      <TooltipContent side="left" align="start" className="max-w-md max-h-80 overflow-auto">
+                        <pre className="text-[10px] font-mono whitespace-pre-wrap break-all">
+                          {formatToolJson(tool)}
+                        </pre>
+                      </TooltipContent>
+                    </Tooltip>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </TooltipProvider>
       )}
     </div>
   );
@@ -420,45 +461,62 @@ const CollapsibleReasoningFromMetadata = memo(function CollapsibleReasoningFromM
         <span>See reasoning ({toolCount} tool{toolCount !== 1 ? "s" : ""})</span>
       </button>
       {isOpen && (
-        <div className="mt-2 space-y-2 pl-4 border-l-2 border-muted">
-          {entries.map((entry, idx) => {
-            if (entry.type === "thinking") {
-              return (
-                <div key={`thinking-${idx}`} className="text-[10px] text-muted-foreground">
-                  <div className="flex items-center gap-1 font-medium text-amber-600 dark:text-amber-500 mb-1">
-                    <Brain className="h-3 w-3" />
-                    <span>Thinking</span>
+        <TooltipProvider delayDuration={200}>
+          <div className="mt-2 space-y-2 pl-4 border-l-2 border-muted">
+            {entries.map((entry, idx) => {
+              if (entry.type === "thinking") {
+                return (
+                  <div key={`thinking-${idx}`} className="text-[10px] text-muted-foreground">
+                    <div className="flex items-center gap-1 font-medium text-amber-600 dark:text-amber-500 mb-1">
+                      <Brain className="h-3 w-3" />
+                      <span>Thinking</span>
+                    </div>
+                    <p className="whitespace-pre-wrap line-clamp-10">{entry.content}</p>
                   </div>
-                  <p className="whitespace-pre-wrap line-clamp-10">{entry.content}</p>
-                </div>
-              );
-            }
-            if (entry.type === "tool") {
-              const result = toolResults.get(entry.id);
-              return (
-                <div key={`tool-${entry.id}`} className="flex items-start gap-1.5 text-[10px]">
-                  <div className="shrink-0 mt-0.5">
-                    {result?.isError ? (
-                      <X className="h-3 w-3 text-destructive" />
-                    ) : (
-                      <Check className="h-3 w-3 text-green-500" />
-                    )}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <span className="font-medium">{entry.name}</span>
-                    {result?.result && (
-                      <pre className={`mt-0.5 whitespace-pre-wrap break-all font-mono ${result.isError ? "text-destructive" : "text-muted-foreground"}`}>
-                        {result.result.slice(0, 200)}{result.result.length > 200 ? "..." : ""}
+                );
+              }
+              if (entry.type === "tool") {
+                const result = toolResults.get(entry.id);
+                const description = getToolDescription(entry.name, entry.input);
+                const toolData = result || { name: entry.name, input: entry.input };
+
+                return (
+                  <Tooltip key={`tool-${entry.id}`}>
+                    <TooltipTrigger asChild>
+                      <div className="flex items-start gap-1.5 text-[10px] cursor-help hover:bg-muted/50 rounded px-1 -mx-1 py-0.5">
+                        <div className="shrink-0 mt-0.5">
+                          {result?.isError ? (
+                            <X className="h-3 w-3 text-destructive" />
+                          ) : (
+                            <Check className="h-3 w-3 text-green-500" />
+                          )}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-medium">{entry.name}</span>
+                            {description && (
+                              <span className="text-muted-foreground font-mono truncate">
+                                {description}
+                              </span>
+                            )}
+                            <Info className="h-2.5 w-2.5 text-muted-foreground/50 shrink-0" />
+                          </div>
+                        </div>
+                      </div>
+                    </TooltipTrigger>
+                    <TooltipContent side="left" align="start" className="max-w-md max-h-80 overflow-auto">
+                      <pre className="text-[10px] font-mono whitespace-pre-wrap break-all">
+                        {formatToolJson(toolData)}
                       </pre>
-                    )}
-                  </div>
-                </div>
-              );
-            }
-            // Skip tool_result entries (already merged above)
-            return null;
-          })}
-        </div>
+                    </TooltipContent>
+                  </Tooltip>
+                );
+              }
+              // Skip tool_result entries (already merged above)
+              return null;
+            })}
+          </div>
+        </TooltipProvider>
       )}
     </div>
   );
@@ -473,12 +531,14 @@ export const ChatPanel = memo(function ChatPanel({
   onSendMessage,
   isStreaming,
   isLoadingMessages = false,
+  isClearingSession = false,
   streamingContent,
   streamingThinking,
   streamingTools,
   pendingUserMessage,
   lastReasoning,
   onStop,
+  onClearSession,
   placeholder = "Ask the AI to help build your demo...",
   title = "Your AI Assistant",
   resources,
@@ -553,15 +613,32 @@ export const ChatPanel = memo(function ChatPanel({
               </span>
             </button>
           )}
-          {onEditResources && (
-            <button
-              onClick={onEditResources}
-              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors ml-auto"
-            >
-              <Pencil className="h-3 w-3" />
-              <span>Edit resources</span>
-            </button>
-          )}
+          <div className="flex items-center gap-2 ml-auto">
+            {onClearSession && messages.length > 0 && (
+              <button
+                onClick={onClearSession}
+                disabled={isStreaming || isClearingSession}
+                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-destructive transition-colors disabled:opacity-50"
+                title="Clear session history"
+              >
+                {isClearingSession ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : (
+                  <Trash2 className="h-3 w-3" />
+                )}
+                <span>Clear</span>
+              </button>
+            )}
+            {onEditResources && (
+              <button
+                onClick={onEditResources}
+                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <Pencil className="h-3 w-3" />
+                <span>Edit resources</span>
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
@@ -571,9 +648,14 @@ export const ChatPanel = memo(function ChatPanel({
         className="flex-1 min-h-0 overflow-y-auto p-4"
       >
         <div className="space-y-3">
-          {messages.length === 0 && !isStreaming && (
+          {(messages.length === 0 || isClearingSession) && !isStreaming && (
             <div className="text-center text-muted-foreground text-xs py-8">
-              {isLoadingMessages ? (
+              {isClearingSession ? (
+                <div className="flex flex-col items-center gap-2">
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                  <p>Clearing session...</p>
+                </div>
+              ) : isLoadingMessages ? (
                 <div className="flex flex-col items-center gap-2">
                   <Loader2 className="h-5 w-5 animate-spin" />
                   <p>Loading messages...</p>
@@ -660,14 +742,41 @@ export const ChatPanel = memo(function ChatPanel({
           />
           <div className="flex flex-col gap-2">
             {isStreaming ? (
-              <Button
-                variant="destructive"
-                size="sm"
+              <button
                 onClick={onStop}
-                className="h-full"
+                className="h-full min-h-[50px] w-10 flex items-center justify-center bg-destructive hover:bg-destructive/90 rounded-md transition-colors"
+                title="Stop generation"
               >
-                Stop
-              </Button>
+                {/* Animated shape: square morphs to circle with bounce */}
+                <div
+                  className="w-4 h-4 bg-white"
+                  style={{
+                    animation: "morph 2.5s ease-in-out infinite",
+                  }}
+                />
+                <style>{`
+                  @keyframes morph {
+                    0%, 15% {
+                      border-radius: 2px;
+                      transform: scale(1);
+                    }
+                    20% {
+                      transform: scale(1.15);
+                    }
+                    25%, 45% {
+                      border-radius: 50%;
+                      transform: scale(1);
+                    }
+                    50% {
+                      transform: scale(1.15);
+                    }
+                    55%, 100% {
+                      border-radius: 2px;
+                      transform: scale(1);
+                    }
+                  }
+                `}</style>
+              </button>
             ) : (
               <Button
                 onClick={handleSend}
