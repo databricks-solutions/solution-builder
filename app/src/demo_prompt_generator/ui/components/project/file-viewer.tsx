@@ -1,17 +1,23 @@
 /**
  * File viewer component with collapsible sidebar.
+ * Supports README and Architecture tabs when architecture.md exists.
  */
 
-import { memo, useState, useMemo } from "react";
+import { memo, useState, useMemo, useEffect, lazy, Suspense } from "react";
 import { ScrollArea } from "../ui/scroll-area";
 import { Prose } from "../markdown-prose";
 import { Skeleton } from "../ui/skeleton";
-import { ChevronRight, ChevronDown, ChevronLeft, Folder, FolderOpen, FileText, Sparkles, RefreshCw } from "lucide-react";
+import { ChevronRight, ChevronDown, ChevronLeft, Folder, FolderOpen, FileText, Sparkles, RefreshCw, Network } from "lucide-react";
 import type { ProjectFile, ProjectFileContent } from "../../lib/custom-api";
+
+// Lazy load the architecture diagram to avoid loading ReactFlow on every page
+const ArchitectureDiagram = lazy(() => import("./architecture-diagram"));
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
+
+type ViewTab = "readme" | "architecture" | "files";
 
 interface FileViewerProps {
   files: ProjectFile[];
@@ -22,6 +28,11 @@ interface FileViewerProps {
   onRefresh?: () => void;
   isLoading?: boolean;
   projectName?: string;
+  architectureContent?: string | null;
+  onLoadArchitecture?: () => void;
+  isCreatingArchitecture?: boolean;
+  onCreateArchitecture?: () => void;
+  isStreaming?: boolean; // Whether the agent is currently working
 }
 
 interface TreeNode {
@@ -377,6 +388,66 @@ const ExpandedSidebar = memo(function ExpandedSidebar({
 // File Viewer
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Tab Bar Component
+// ---------------------------------------------------------------------------
+
+interface TabBarProps {
+  activeTab: ViewTab;
+  onTabChange: (tab: ViewTab) => void;
+  projectName?: string;
+}
+
+const TabBar = memo(function TabBar({
+  activeTab,
+  onTabChange,
+  projectName,
+}: TabBarProps) {
+  return (
+    <div className="shrink-0 border-b border-border bg-muted/30">
+      <div className="flex items-center px-4 py-2 gap-1">
+        {/* Project name */}
+        {projectName && (
+          <span className="text-sm font-medium text-foreground/80 mr-4 truncate max-w-[200px]">
+            {projectName}
+          </span>
+        )}
+
+        {/* Tabs */}
+        <div className="flex items-center gap-1 bg-muted/50 rounded-md p-0.5">
+          <button
+            onClick={() => onTabChange("readme")}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium transition-colors cursor-pointer ${
+              activeTab === "readme"
+                ? "bg-background text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            <FileText className="h-3.5 w-3.5" />
+            README
+          </button>
+
+          <button
+            onClick={() => onTabChange("architecture")}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium transition-colors cursor-pointer ${
+              activeTab === "architecture"
+                ? "bg-background text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            <Network className="h-3.5 w-3.5" />
+            Architecture
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+});
+
+// ---------------------------------------------------------------------------
+// File Viewer
+// ---------------------------------------------------------------------------
+
 export const FileViewer = memo(function FileViewer({
   files,
   selectedFile,
@@ -385,25 +456,104 @@ export const FileViewer = memo(function FileViewer({
   onSkillsClick,
   onRefresh,
   isLoading = false,
+  projectName,
+  architectureContent,
+  onLoadArchitecture,
+  isCreatingArchitecture = false,
+  onCreateArchitecture,
+  isStreaming = false,
 }: FileViewerProps) {
   const [isSidebarExpanded, setIsSidebarExpanded] = useState(false);
+  const [activeTab, setActiveTab] = useState<ViewTab>("readme");
+
+  // Check if architecture.md exists
+  const hasArchitecture = useMemo(
+    () => files.some((f) => f.path === "architecture.md"),
+    [files]
+  );
+
+  // Load architecture content when tab changes (if file exists)
+  useEffect(() => {
+    if (activeTab === "architecture" && hasArchitecture && onLoadArchitecture) {
+      onLoadArchitecture();
+    }
+  }, [activeTab, hasArchitecture, onLoadArchitecture]);
+
+  // Trigger architecture creation when tab is selected but file doesn't exist
+  // Only trigger if not already streaming (agent might be working on something else)
+  useEffect(() => {
+    if (activeTab === "architecture" && !hasArchitecture && !isCreatingArchitecture && !isStreaming && onCreateArchitecture) {
+      onCreateArchitecture();
+    }
+  }, [activeTab, hasArchitecture, isCreatingArchitecture, isStreaming, onCreateArchitecture]);
+
+  // Auto-select README.md when switching to readme tab
+  useEffect(() => {
+    if (activeTab === "readme" && selectedFile !== "README.md") {
+      const hasReadme = files.some((f) => f.path === "README.md");
+      if (hasReadme) {
+        onSelectFile("README.md");
+      }
+    }
+  }, [activeTab, files, selectedFile, onSelectFile]);
+
   const isMarkdown = selectedFile?.endsWith(".md");
 
+  // Handle tab change
+  const handleTabChange = (tab: ViewTab) => {
+    setActiveTab(tab);
+    if (tab === "readme") {
+      onSelectFile("README.md");
+    } else if (tab === "architecture") {
+      onSelectFile("architecture.md");
+    } else if (tab === "files") {
+      setIsSidebarExpanded(true);
+    }
+  };
+
   return (
-    <div className="flex h-full">
-      {/* Collapsible sidebar */}
-      <div
-        className="shrink-0 transition-all duration-200 ease-in-out overflow-hidden"
-        style={{ width: isSidebarExpanded ? "224px" : "40px" }}
-      >
-        {isSidebarExpanded ? (
-          <ExpandedSidebar
-            files={files}
-            selectedFile={selectedFile}
-            onSelectFile={onSelectFile}
-            onCollapse={() => setIsSidebarExpanded(false)}
-          />
-        ) : (
+    <div className="flex flex-col h-full">
+      {/* Tab bar */}
+      <TabBar
+        activeTab={activeTab}
+        onTabChange={handleTabChange}
+        projectName={projectName}
+      />
+
+      {/* Content area */}
+      <div className="flex flex-1 min-h-0">
+        {/* Collapsible sidebar - only show in files tab or when explicitly expanded */}
+        {(activeTab === "files" || isSidebarExpanded) && (
+          <div
+            className="shrink-0 transition-all duration-200 ease-in-out overflow-hidden"
+            style={{ width: isSidebarExpanded ? "224px" : "40px" }}
+          >
+            {isSidebarExpanded ? (
+              <ExpandedSidebar
+                files={files}
+                selectedFile={selectedFile}
+                onSelectFile={(path) => {
+                  onSelectFile(path);
+                  // If selecting a file directly, switch to files tab
+                  if (activeTab !== "files") {
+                    setActiveTab("files");
+                  }
+                }}
+                onCollapse={() => setIsSidebarExpanded(false)}
+              />
+            ) : (
+              <CollapsedSidebar
+                fileCount={files.length}
+                onExpand={() => setIsSidebarExpanded(true)}
+                onSkillsClick={onSkillsClick}
+                onRefresh={onRefresh}
+              />
+            )}
+          </div>
+        )}
+
+        {/* Collapsed sidebar for non-files tabs */}
+        {activeTab !== "files" && !isSidebarExpanded && (
           <CollapsedSidebar
             fileCount={files.length}
             onExpand={() => setIsSidebarExpanded(true)}
@@ -411,38 +561,76 @@ export const FileViewer = memo(function FileViewer({
             onRefresh={onRefresh}
           />
         )}
-      </div>
 
-      {/* File content */}
-      <div className="flex-1 flex flex-col min-w-0">
-        {/* Content area */}
-        <ScrollArea className="flex-1">
-          <div className="p-6">
-            {isLoading ? (
-              <div className="space-y-3">
-                <Skeleton className="h-4 w-3/4" />
-                <Skeleton className="h-4 w-1/2" />
-                <Skeleton className="h-4 w-5/6" />
-                <Skeleton className="h-4 w-2/3" />
-              </div>
-            ) : !selectedFile ? (
-              <div className="text-center text-muted-foreground py-12">
-                <FileEmptyIcon className="h-12 w-12 mx-auto mb-3 opacity-50" />
-                <p className="text-sm">Select a file to view its contents</p>
-              </div>
-            ) : !fileContent ? (
-              <div className="text-center text-muted-foreground py-12">
-                <p className="text-sm">File not found</p>
-              </div>
-            ) : isMarkdown ? (
-              <Prose>{fileContent.content}</Prose>
-            ) : (
-              <pre className="text-sm font-mono whitespace-pre-wrap text-foreground/80 bg-muted/30 rounded-lg p-4 overflow-x-auto">
-                {fileContent.content}
-              </pre>
-            )}
-          </div>
-        </ScrollArea>
+        {/* File content */}
+        <div className="flex-1 flex flex-col min-w-0">
+          <ScrollArea className="flex-1">
+            <div className="p-6">
+              {isLoading ? (
+                <div className="space-y-3">
+                  <Skeleton className="h-4 w-3/4" />
+                  <Skeleton className="h-4 w-1/2" />
+                  <Skeleton className="h-4 w-5/6" />
+                  <Skeleton className="h-4 w-2/3" />
+                </div>
+              ) : activeTab === "architecture" && isCreatingArchitecture ? (
+                // Creating architecture - show spinner
+                <div className="flex items-center justify-center h-[600px]">
+                  <div className="text-center text-muted-foreground">
+                    <div className="animate-spin h-8 w-8 border-2 border-primary border-t-transparent rounded-full mx-auto mb-3" />
+                    <p className="text-sm font-medium">Creating your architecture...</p>
+                    <p className="text-xs mt-1">The agent is generating the diagram schema</p>
+                  </div>
+                </div>
+              ) : activeTab === "architecture" && architectureContent ? (
+                // Architecture tab content - visual diagram
+                <Suspense fallback={
+                  <div className="flex items-center justify-center h-[600px]">
+                    <div className="text-center text-muted-foreground">
+                      <div className="animate-spin h-8 w-8 border-2 border-primary border-t-transparent rounded-full mx-auto mb-3" />
+                      <p className="text-sm">Loading architecture diagram...</p>
+                    </div>
+                  </div>
+                }>
+                  <ArchitectureDiagram content={architectureContent} />
+                </Suspense>
+              ) : activeTab === "architecture" && !hasArchitecture && isStreaming ? (
+                // Agent is working on something - wait for it to finish
+                <div className="flex items-center justify-center h-[600px]">
+                  <div className="text-center text-muted-foreground">
+                    <div className="animate-spin h-8 w-8 border-2 border-primary border-t-transparent rounded-full mx-auto mb-3" />
+                    <p className="text-sm font-medium">Please wait while your agent is working...</p>
+                    <p className="text-xs mt-1">The architecture will be generated once the current task completes</p>
+                  </div>
+                </div>
+              ) : activeTab === "architecture" && !hasArchitecture ? (
+                // Architecture file doesn't exist and agent is idle - trigger creation
+                <div className="flex items-center justify-center h-[600px]">
+                  <div className="text-center text-muted-foreground">
+                    <Network className="h-12 w-12 mx-auto mb-3 opacity-50" />
+                    <p className="text-sm">No architecture diagram yet</p>
+                    <p className="text-xs mt-1">Generating automatically...</p>
+                  </div>
+                </div>
+              ) : !selectedFile ? (
+                <div className="text-center text-muted-foreground py-12">
+                  <FileEmptyIcon className="h-12 w-12 mx-auto mb-3 opacity-50" />
+                  <p className="text-sm">Select a file to view its contents</p>
+                </div>
+              ) : !fileContent ? (
+                <div className="text-center text-muted-foreground py-12">
+                  <p className="text-sm">File not found</p>
+                </div>
+              ) : isMarkdown ? (
+                <Prose>{fileContent.content}</Prose>
+              ) : (
+                <pre className="text-sm font-mono whitespace-pre-wrap text-foreground/80 bg-muted/30 rounded-lg p-4 overflow-x-auto">
+                  {fileContent.content}
+                </pre>
+              )}
+            </div>
+          </ScrollArea>
+        </div>
       </div>
     </div>
   );

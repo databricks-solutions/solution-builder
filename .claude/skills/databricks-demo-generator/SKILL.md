@@ -37,12 +37,22 @@ This skill has two parts:
 Each demo project has this structure:
 ```
 ./README.md           # Story overview (hero, disruption, quest, resolution, walkthrough)
+./architecture.md     # Architecture diagram schema (JSON) for visual rendering
 ./META-PROMPT.md      # Build instructions for the AI
 ./instructions/       # Detailed specs (content varies based on demo components)
   resources.json      # Tracks created Databricks resource IDs
 ```
 
 The `./instructions/` folder contains detailed specs for each component in the demo. The exact files depend on what the demo includes (data, pipelines, dashboards, AI components, etc.).
+
+### Architecture Diagram
+
+When the user asks to create or update the demo architecture diagram, **read `{SKILL_BASE_DIR}/references/architecture.md`** for the schema format. This reference explains:
+- Available icons (dashboard, genie, deltaTable, etc.)
+- Available tiers/colors (source, bronze, silver, gold, ai, consumer, etc.)
+- How to structure columns, nodes, edges, groups, and foundation bars
+
+Generate the architecture as a JSON schema in `./architecture.md`. The UI will automatically render it as an interactive diagram.
 
 ---
 

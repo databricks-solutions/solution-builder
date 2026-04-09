@@ -72,6 +72,8 @@ function ProjectPage() {
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [fileContent, setFileContent] = useState<ProjectFileContent | null>(null);
   const [isLoadingFile, setIsLoadingFile] = useState(false);
+  const [architectureContent, setArchitectureContent] = useState<string | null>(null);
+  const [isCreatingArchitecture, setIsCreatingArchitecture] = useState(false);
 
   // Chat state
   const [messages, setMessages] = useState<Message[]>([]);
@@ -376,6 +378,48 @@ function ProjectPage() {
     }
   }, [projectId, selectedFile]);
 
+  // Handle loading architecture content
+  const handleLoadArchitecture = useCallback(async () => {
+    if (architectureContent) return; // Already loaded
+    try {
+      const content = await getProjectFile(projectId, "architecture.md");
+      setArchitectureContent(content.content);
+    } catch (error) {
+      console.error("Failed to load architecture:", error);
+    }
+  }, [projectId, architectureContent]);
+
+  // Handle creating architecture - send message to agent
+  const handleCreateArchitecture = useCallback(() => {
+    if (isCreatingArchitecture || isStreaming) return;
+    setIsCreatingArchitecture(true);
+    handleSendMessage("Create an /architecture.md file at the project root level with the architecture diagram - read the demo generator skill architecture reference");
+  }, [isCreatingArchitecture, isStreaming, handleSendMessage]);
+
+  // After streaming completes when creating architecture, load the content
+  useEffect(() => {
+    if (isCreatingArchitecture && !isStreaming) {
+      // Streaming finished, check if architecture was created
+      const hasArchitecture = files.some((f) => f.path === "architecture.md");
+      if (hasArchitecture) {
+        // Load the architecture content
+        getProjectFile(projectId, "architecture.md")
+          .then((content) => {
+            setArchitectureContent(content.content);
+          })
+          .catch((error) => {
+            console.error("Failed to load architecture:", error);
+          })
+          .finally(() => {
+            setIsCreatingArchitecture(false);
+          });
+      } else {
+        // File wasn't created, reset state
+        setIsCreatingArchitecture(false);
+      }
+    }
+  }, [isCreatingArchitecture, isStreaming, files, projectId]);
+
   // Handle delete project
   const handleDeleteConfirm = useCallback(async () => {
     setIsDeleting(true);
@@ -567,6 +611,11 @@ function ProjectPage() {
             onRefresh={handleRefresh}
             isLoading={isLoadingFile}
             projectName={project?.name}
+            architectureContent={architectureContent}
+            onLoadArchitecture={handleLoadArchitecture}
+            isCreatingArchitecture={isCreatingArchitecture}
+            onCreateArchitecture={handleCreateArchitecture}
+            isStreaming={isStreaming}
           />
         </div>
 
