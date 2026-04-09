@@ -30,5 +30,5 @@
         "@/*": ["./src/demo_prompt_generator/ui/*"]
       }
     },
-    "include": ["src/demo_prompt_generator/ui", "vite.config.ts", ".apx", "src/demo_prompt_generator/ui/types/vite-env.d.ts"]
+    "include": ["src/demo_prompt_generator/ui", "vite.config.ts", "src/demo_prompt_generator/ui/types/vite-env.d.ts"]
   }

@@ -3,13 +3,11 @@
 from __future__ import annotations
 
 import os
-import threading
+import shutil
 from collections.abc import Generator
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Annotated, Any, AsyncGenerator, TypeAlias
-
-# Global lock for serializing database connections in dev mode (PGLite can't handle concurrency)
-_dev_db_lock: threading.Lock | None = None
 
 from databricks.sdk import WorkspaceClient
 from databricks.sdk.errors import NotFound
@@ -17,11 +15,104 @@ from fastapi import FastAPI, Request
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy import Engine, create_engine, event
-from sqlalchemy.pool import NullPool
 from sqlmodel import Session, SQLModel, text
 
 from ._base import LifespanDependency
 from ._config import logger
+
+
+# --- PGLite Configuration ---
+
+PGLITE_DIR = Path.home() / ".pglite"
+"""Directory where PGLite stores its data (~/.pglite/ in home directory)."""
+
+
+def _is_pglite_mode() -> bool:
+    """Check if we should use PGLite (no external DB URL configured)."""
+    return not os.environ.get("LAKEBASE_PG_URL")
+
+
+def _reset_pglite() -> None:
+    """Delete the PGLite directory to reset the database."""
+    if PGLITE_DIR.exists():
+        logger.warning(f"RESET_DB=1 detected - deleting PGLite directory: {PGLITE_DIR}")
+        shutil.rmtree(PGLITE_DIR)
+        logger.info("PGLite directory deleted. Will recreate on startup.")
+
+
+def _create_pglite_engine() -> Engine:
+    """Create a SQLAlchemy engine using PGLite for local development.
+
+    PGLite manages a local PostgreSQL cluster in .pglite/ directory.
+    Requires PostgreSQL to be installed (e.g., via Homebrew: brew install postgresql).
+    """
+    import subprocess
+
+    import pglite
+
+    # Check for reset flag BEFORE creating the database
+    if os.environ.get("RESET_DB") == "1":
+        _reset_pglite()
+
+    # Ensure directory exists
+    PGLITE_DIR.mkdir(parents=True, exist_ok=True)
+
+    # Set the data directory for pglite
+    os.environ["PGLITE_DATA_DIR"] = str(PGLITE_DIR)
+
+    logger.info(f"Using PGLite database at: {PGLITE_DIR}")
+
+    # Find pg_ctl path (for macOS/Linux)
+    pg_ctl_path = None
+    try:
+        result = subprocess.run(["which", "pg_ctl"], capture_output=True, text=True)
+        if result.returncode == 0:
+            pg_ctl_path = result.stdout.strip()
+    except Exception:
+        pass
+
+    if not pg_ctl_path:
+        raise RuntimeError(
+            "PostgreSQL not found. Please install it:\n"
+            "  macOS: brew install postgresql@16\n"
+            "  Ubuntu: sudo apt install postgresql\n"
+            "Or set LAKEBASE_PG_URL to use an external database."
+        )
+
+    # Initialize cluster if needed
+    if not pglite.check_cluster():
+        logger.info("Initializing PGLite cluster...")
+        pglite.init_cluster(pg_ctl_path=pg_ctl_path)
+
+    # Start cluster if not running
+    if not pglite.is_started():
+        logger.info("Starting PGLite cluster...")
+        pglite.start_cluster()
+
+    # Create database if it doesn't exist
+    db_name = "demo_prompt_generator"
+    existing_dbs = pglite.list_db()
+    if db_name not in existing_dbs:
+        logger.info(f"Creating database: {db_name}")
+        pglite.create_db(db_name)
+
+    # Get connection parameters (returns string like "host=localhost port=55432")
+    params_str = pglite.cluster_params()
+    params = dict(item.split("=") for item in params_str.split())
+    host = params.get("host", "localhost")
+    port = params.get("port", "5432")
+    user = os.environ.get("USER", "postgres")  # pglite uses current user
+
+    # Build connection URL
+    engine_url = f"postgresql+psycopg://{user}@{host}:{port}/{db_name}"
+
+    engine = create_engine(
+        engine_url,
+        pool_size=4,
+        pool_pre_ping=True,
+    )
+
+    return engine
 
 
 # --- Database Config ---
@@ -49,7 +140,7 @@ class DatabaseConfig(BaseSettings):
 def _get_static_pg_url() -> str | None:
     """Check for static PostgreSQL URL (e.g., Lakebase connection string).
 
-    If LAKEBASE_PG_URL is set, use it directly instead of APX dev database.
+    If LAKEBASE_PG_URL is set, use it directly for database connection.
     """
     url = os.environ.get("LAKEBASE_PG_URL")
     if url:
@@ -60,46 +151,13 @@ def _get_static_pg_url() -> str | None:
     return None
 
 
-def _get_dev_db_port() -> int | None:
-    """Check for local development database port.
-
-    Checks APX_DEV_DB_PORT first, then PGPORT as fallback.
-    Returns port if found, None for production mode.
-    """
-    # If static URL is configured, don't use APX dev database
-    if _get_static_pg_url():
-        return None
-
-    # APX sets this when it manages the dev database
-    port = os.environ.get("APX_DEV_DB_PORT")
-    if port:
-        return int(port)
-
-    # Fallback: check PGPORT (APX may set this even without APX_DEV_DB_PORT)
-    pgport = os.environ.get("PGPORT")
-    if pgport:
-        # PGPORT is set - likely local dev mode
-        return int(pgport)
-
-    return None
-
-
-def _build_engine_url(
-    db_config: DatabaseConfig, ws: WorkspaceClient, dev_port: int | None
-) -> str:
-    """Build the database engine URL for dev or production mode."""
+def _build_engine_url(db_config: DatabaseConfig, ws: WorkspaceClient) -> str:
+    """Build the database engine URL for static or production mode."""
     # Check for static Lakebase URL first (highest priority)
     static_url = _get_static_pg_url()
     if static_url:
         logger.info("Using static LAKEBASE_PG_URL for database connection")
         return static_url
-
-    if dev_port:
-        logger.info(f"Using local dev database at 127.0.0.1:{dev_port}")
-        username = "postgres"
-        password = os.environ.get("APX_DEV_DB_PWD", "postgres")
-        # Use 127.0.0.1 explicitly to avoid IPv6 resolution issues with PGLite
-        return f"postgresql+psycopg://{username}:{password}@127.0.0.1:{dev_port}/postgres?sslmode=disable"
 
     # Production mode: use Databricks Database
     logger.info(f"Using Databricks database instance: {db_config.instance_name}")
@@ -119,15 +177,16 @@ def create_db_engine(db_config: DatabaseConfig, ws: WorkspaceClient) -> Engine:
     Create a SQLAlchemy engine.
 
     Priority:
-    1. Static LAKEBASE_PG_URL (real Postgres with SSL)
-    2. APX dev database (PGLite, no SSL, serialized access)
+    1. PGLite for local development (if LAKEBASE_PG_URL not set)
+    2. Static LAKEBASE_PG_URL (real Postgres with SSL)
     3. Production Databricks Database (SSL, dynamic OAuth tokens)
     """
-    static_url = _get_static_pg_url()
-    dev_port = _get_dev_db_port()
-    engine_url = _build_engine_url(db_config, ws, dev_port)
+    # Check for PGLite mode first
+    if _is_pglite_mode():
+        return _create_pglite_engine()
 
-    global _dev_db_lock
+    static_url = _get_static_pg_url()
+    engine_url = _build_engine_url(db_config, ws)
 
     if static_url:
         # Static URL mode: real Postgres with connection pool
@@ -137,14 +196,6 @@ def create_db_engine(db_config: DatabaseConfig, ws: WorkspaceClient) -> Engine:
             "pool_pre_ping": True,
         }
         # SSL is specified in the URL itself (sslmode=require)
-    elif dev_port:
-        # Dev mode: use NullPool and serialized access - PGLite can't handle concurrency
-        engine_kwargs = {
-            "poolclass": NullPool,
-        }
-        # Initialize the lock for serializing database access
-        _dev_db_lock = threading.Lock()
-        logger.info("Dev mode: database access will be serialized via lock")
     else:
         # Production mode: larger pool with standard settings
         engine_kwargs = {"pool_size": 4, "pool_recycle": 45 * 60, "pool_pre_ping": True}
@@ -159,7 +210,7 @@ def create_db_engine(db_config: DatabaseConfig, ws: WorkspaceClient) -> Engine:
         cparams["password"] = cred.token
 
     # Only use dynamic token refresh for production Databricks Database
-    if not static_url and not dev_port:
+    if not static_url:
         event.listens_for(engine, "do_connect")(before_connect)
 
     return engine
@@ -167,24 +218,23 @@ def create_db_engine(db_config: DatabaseConfig, ws: WorkspaceClient) -> Engine:
 
 def validate_db(engine: Engine, db_config: DatabaseConfig) -> None:
     """Validate that the database connection works."""
-    static_url = _get_static_pg_url()
-    dev_port = _get_dev_db_port()
-
-    if static_url:
-        logger.info("Validating static LAKEBASE_PG_URL database connection")
-    elif dev_port:
-        logger.info(f"Validating local dev database connection at 127.0.0.1:{dev_port}")
+    if _is_pglite_mode():
+        logger.info("Validating PGLite database connection")
     else:
-        logger.info(
-            f"Validating database connection to instance {db_config.instance_name}"
-        )
-        try:
-            ws = WorkspaceClient()
-            ws.database.get_database_instance(db_config.instance_name)
-        except NotFound:
-            raise ValueError(
-                f"Database instance {db_config.instance_name} does not exist"
+        static_url = _get_static_pg_url()
+        if static_url:
+            logger.info("Validating static LAKEBASE_PG_URL database connection")
+        else:
+            logger.info(
+                f"Validating database connection to instance {db_config.instance_name}"
             )
+            try:
+                ws = WorkspaceClient()
+                ws.database.get_database_instance(db_config.instance_name)
+            except NotFound:
+                raise ValueError(
+                    f"Database instance {db_config.instance_name} does not exist"
+                )
 
     try:
         with Session(engine) as session:
@@ -193,10 +243,10 @@ def validate_db(engine: Engine, db_config: DatabaseConfig) -> None:
     except Exception as e:
         raise ConnectionError(f"Failed to connect to the database: {e}")
 
-    if static_url:
+    if _is_pglite_mode():
+        logger.info("PGLite database connection validated successfully")
+    elif _get_static_pg_url():
         logger.info("Static LAKEBASE_PG_URL database connection validated successfully")
-    elif dev_port:
-        logger.info("Local dev database connection validated successfully")
     else:
         logger.info(
             f"Database connection to instance {db_config.instance_name} validated successfully"
@@ -207,9 +257,12 @@ def initialize_models(engine: Engine) -> None:
     """Create all SQLModel tables and add any missing columns.
 
     Set RESET_DB=1 environment variable to drop all tables and start fresh.
+    For PGLite, this deletes the .pglite directory.
+    For other databases, this drops all tables.
     """
-    # Check for reset flag
-    if os.environ.get("RESET_DB") == "1":
+    # For non-PGLite databases, handle RESET_DB by dropping tables
+    # (PGLite reset is handled earlier in _create_pglite_engine)
+    if not _is_pglite_mode() and os.environ.get("RESET_DB") == "1":
         logger.warning("RESET_DB=1 detected - dropping all tables!")
         SQLModel.metadata.drop_all(engine)
         logger.info("All tables dropped. Recreating...")
@@ -300,7 +353,7 @@ def initialize_models(engine: Engine) -> None:
 
         # --- Template Library Feature ---
 
-        # Enable pgvector extension (for semantic search)
+        # Enable pgvector extension (for semantic search) - skip for PGLite
         ("pgvector_extension", "CREATE EXTENSION IF NOT EXISTS vector"),
 
         # Templates table (stores approved/pending templates)
@@ -344,6 +397,15 @@ def initialize_models(engine: Engine) -> None:
     with Session(engine) as session:
         for migration_name, ddl in _migrations:
             try:
+                # Skip pgvector extension for PGLite (not supported)
+                if _is_pglite_mode() and "vector" in migration_name:
+                    logger.debug(f"Migration {migration_name} skipped (PGLite mode)")
+                    continue
+                # Skip vector column for PGLite
+                if _is_pglite_mode() and "embedding vector" in ddl:
+                    # Replace vector column with TEXT for PGLite
+                    ddl = ddl.replace("embedding vector(1024)", "embedding TEXT")
+
                 session.connection().execute(text(ddl))
                 session.commit()
                 logger.debug(f"Migration {migration_name} applied successfully")
@@ -405,14 +467,8 @@ class _LakebaseDependency(LifespanDependency):
 
     @staticmethod
     def __call__(request: Request) -> Generator[Session, None, None]:
-        # In dev mode, serialize database access to avoid PGLite concurrency issues
-        if _dev_db_lock is not None:
-            with _dev_db_lock:
-                with Session(bind=request.app.state.engine) as session:
-                    yield session
-        else:
-            with Session(bind=request.app.state.engine) as session:
-                yield session
+        with Session(bind=request.app.state.engine) as session:
+            yield session
 
 
 LakebaseDependency: TypeAlias = Annotated[Session, _LakebaseDependency.depends()]

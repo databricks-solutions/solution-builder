@@ -34,8 +34,11 @@ node_modules/
 # DABs 
 .databricks
 
-# apx
+# apx (legacy)
 .apx/
+
+# PGLite local database
+.pglite/
 
 # UI dist folder
 src/demo_prompt_generator/__dist__/

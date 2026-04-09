@@ -1,71 +1,111 @@
-# demo-prompt-generator ✨
+# demo-prompt-generator
 
-> A modern full-stack application built with [`apx`](https://github.com/databricks-solutions/apx) 🚀
+> A modern full-stack application built with Python/FastAPI and React/Vite
 
-## 🛠️ Tech Stack
+## Tech Stack
 
-This application leverages a powerful, modern tech stack:
+- **Backend**: Python + [FastAPI](https://fastapi.tiangolo.com/)
+- **Frontend**: React + [Vite](https://vite.dev/) + [shadcn/ui](https://ui.shadcn.com/)
+- **Database**: PostgreSQL (via Databricks Database in production)
 
-- **Backend** 🐍 Python + [FastAPI](https://fastapi.tiangolo.com/)
-- **Frontend** ⚛️ React + [shadcn/ui](https://ui.shadcn.com/)
-- **API Client** 🔄 Auto-generated TypeScript client from OpenAPI schema
+## Quick Start
 
-## 🚀 Quick Start
+### Prerequisites
 
-### Development Mode
+- [Bun](https://bun.sh/) (for frontend tooling)
+- [uv](https://github.com/astral-sh/uv) (for Python dependency management)
+- PostgreSQL database
+- Databricks CLI configured
 
-Start all development servers (backend, frontend, and OpenAPI watcher) in detached mode:
+### 1. Setup Databricks Authentication
 
+The app uses the [Databricks Python SDK unified authentication](https://docs.databricks.com/en/dev-tools/auth.html).
+
+**Option A: Use a profile (recommended)**
 ```bash
-apx dev start
+# Login and create/update a profile
+databricks auth login --host https://your-workspace.cloud.databricks.com --profile my-profile
+
+# Set the profile to use
+export DATABRICKS_CONFIG_PROFILE=my-profile
 ```
 
-This will start an apx development server, which in it's turn runs backend, frontend and OpenAPI watcher.
-All servers run in the background, with logs kept in-memory of the apx dev server.
+**Option B: Direct token auth**
+```bash
+export DATABRICKS_HOST=https://your-workspace.cloud.databricks.com
+export DATABRICKS_TOKEN=dapi...
+```
 
-### 📊 Monitoring & Logs
+### 2. Setup Database
 
 ```bash
-# View all logs
-apx dev logs
-
-# Stream logs in real-time
-apx dev logs -f
-
-# Check server status
-apx dev status
-
-# Stop all servers
-apx dev stop
+# Set your PostgreSQL connection URL
+export LAKEBASE_PG_URL=postgresql://user:pass@localhost:5432/demo_prompt_generator
 ```
+
+### 3. Start Development Server
+
+```bash
+# Start both backend and frontend with live output
+./scripts/dev.sh
+
+# Or via bun
+bun run dev
+```
+
+This starts:
+- **Backend** (uvicorn): http://127.0.0.1:8000
+- **Frontend** (vite): http://localhost:5173
+- **API Docs**: http://127.0.0.1:8000/docs
+
+The frontend automatically proxies `/api` requests to the backend.
+
+### Environment Variables
+
+Copy `.env.example` to `.env` and configure:
+
+```bash
+cp .env.example .env
+```
+
+Key variables:
+| Variable | Description |
+|----------|-------------|
+| `LAKEBASE_PG_URL` | PostgreSQL connection URL |
+| `DATABRICKS_CONFIG_PROFILE` | Databricks CLI profile name |
+| `DATABRICKS_HOST` | (Alternative) Direct workspace URL |
+| `DATABRICKS_TOKEN` | (Alternative) Direct PAT token |
+| `DEMO_PROMPT_GENERATOR_LLM_MODEL` | LLM endpoint name |
 
 ### Database Reset
 
-To reset the database and start fresh (drops all tables and recreates them):
+To reset the database (drops all tables and recreates them):
 
 ```bash
-RESET_DB=1 apx dev start
+RESET_DB=1 bun run dev:backend
 ```
 
-This is useful during development when the database schema changes.
-
-## ✅ Code Quality
-
-Run type checking and linting for both TypeScript and Python:
+## Code Quality
 
 ```bash
-apx dev check
+# TypeScript type checking
+bun run typecheck
+
+# Python type checking
+uv run mypy src
 ```
 
-## 📦 Build
+## Build
 
-Create a production-ready build:
+Create a production build:
 
 ```bash
-apx build
+bun run build
 ```
 
-## 🚢 Deployment
+This builds the frontend to `src/demo_prompt_generator/ui/__dist__/`.
+
+## Deployment
 
 Deploy to Databricks:
 
@@ -75,4 +115,4 @@ databricks bundle deploy -p <your-profile>
 
 ---
 
-<p align="center">Built with ❤️ using <a href="https://github.com/databricks-solutions/apx">apx</a></p>
+<p align="center">Built with Python/FastAPI and React/Vite</p>

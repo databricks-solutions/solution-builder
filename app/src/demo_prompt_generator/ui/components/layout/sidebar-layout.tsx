@@ -10,9 +10,9 @@ import {
   SidebarRail,
   SidebarTrigger,
 } from "@/components/ui/sidebar";
-import SidebarUserFooter from "@/components/apx/sidebar-user-footer";
-import { ModeToggle } from "@/components/apx/mode-toggle";
-import Logo from "@/components/apx/logo";
+import SidebarUserFooter from "@/components/layout/sidebar-user-footer";
+import { ModeToggle } from "@/components/layout/mode-toggle";
+import Logo from "@/components/layout/logo";
 
 interface SidebarLayoutProps {
   children?: ReactNode;

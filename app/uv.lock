@@ -498,6 +498,7 @@ dependencies = [
     { name = "fastmcp" },
     { name = "httpx" },
     { name = "mcp" },
+    { name = "pglite" },
     { name = "plutoprint" },
     { name = "psycopg", extra = ["binary", "pool"] },
     { name = "pydantic-settings" },
@@ -526,6 +527,7 @@ requires-dist = [
     { name = "fastmcp", specifier = "==3.1.1" },
     { name = "httpx", specifier = ">=0.28.0" },
     { name = "mcp", specifier = ">=1.0.0" },
+    { name = "pglite", specifier = ">=0.2.0" },
     { name = "plutoprint", specifier = "==0.19.0" },
     { name = "psycopg", extras = ["binary", "pool"], specifier = ">=3.2.11" },
     { name = "pydantic-settings", specifier = ">=2.11.0" },
@@ -1461,6 +1463,12 @@ sdist = { url = "https://files.pythonhosted.org/packages/fa/36/e27608899f9b8d4df
 wheels = [
     { url = "https://files.pythonhosted.org/packages/ef/3c/2c197d226f9ea224a9ab8d197933f9da0ae0aac5b6e0f884e2b8d9c8e9f7/pathspec-1.0.4-py3-none-any.whl", hash = "sha256:fb6ae2fd4e7c921a165808a552060e722767cfa526f99ca5156ed2ce45a5c723", size = 55206, upload-time = "2026-01-27T03:59:45.137Z" },
 ]
+
+[[package]]
+name = "pglite"
+version = "1.0.13"
+source = { registry = "https://pypi-proxy.dev.databricks.com/simple/" }
+sdist = { url = "https://files.pythonhosted.org/packages/c6/43/92d252eba8410d44ed9f6e41c8819f37ad68cc76f7436ca1f04e4c7b2467/pglite-1.0.13.tar.gz", hash = "sha256:24b16d1fa054d02e303f29bd3b06d8129670c9bfdc90ef21f70ebc9dea0915e6", size = 6056, upload-time = "2020-09-01T08:16:49.144Z" }
 
 [[package]]
 name = "platformdirs"

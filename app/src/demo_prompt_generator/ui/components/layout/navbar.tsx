@@ -1,5 +1,5 @@
-import { ModeToggle } from "@/components/apx/mode-toggle";
-import Logo from "@/components/apx/logo";
+import { ModeToggle } from "@/components/layout/mode-toggle";
+import Logo from "@/components/layout/logo";
 import { Link } from "@tanstack/react-router";
 import { Library } from "lucide-react";
 import { ReactNode } from "react";

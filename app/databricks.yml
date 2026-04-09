@@ -21,7 +21,7 @@ sync:
 
 artifacts:
   default:
-    build: apx build && rm .build/.gitignore
+    build: bun run build && ./scripts/build.sh
 
 resources:
   database_instances:
