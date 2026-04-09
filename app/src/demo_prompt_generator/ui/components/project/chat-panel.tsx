@@ -9,7 +9,7 @@ import { Button } from "../ui/button";
 import { Textarea } from "../ui/textarea";
 import { Prose } from "../markdown-prose";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../ui/tooltip";
-import { Server, Database, Boxes, Pencil, Loader2, Check, X, Brain, Wrench, ChevronDown, ChevronRight, Trash2, Info } from "lucide-react";
+import { Server, Database, Boxes, Loader2, Check, X, Brain, Wrench, ChevronDown, ChevronRight, Trash2, Info } from "lucide-react";
 import type { Message, ReasoningEntry } from "../../lib/custom-api";
 
 // ---------------------------------------------------------------------------
@@ -581,38 +581,58 @@ export const ChatPanel = memo(function ChatPanel({
         <h2 className="font-semibold text-sm">{title}</h2>
         {/* Resource info row */}
         <div className="flex items-center gap-3 mt-1.5 flex-wrap">
-          {resources?.clusterName && (
-            <button
-              onClick={onEditResources}
-              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
-              title="Cluster"
-            >
-              <Server className="h-3 w-3" />
-              <span className="truncate max-w-[80px]">{resources.clusterName}</span>
-            </button>
-          )}
-          {resources?.warehouseName && (
-            <button
-              onClick={onEditResources}
-              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
-              title="Warehouse"
-            >
-              <Database className="h-3 w-3" />
-              <span className="truncate max-w-[80px]">{resources.warehouseName}</span>
-            </button>
-          )}
-          {(resources?.catalog || resources?.schema) && (
-            <button
-              onClick={onEditResources}
-              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
-              title="Catalog.Schema"
-            >
-              <Boxes className="h-3 w-3" />
-              <span className="truncate max-w-[100px]">
-                {resources?.catalog || "default"}.{resources?.schema || "default"}
-              </span>
-            </button>
-          )}
+          <TooltipProvider delayDuration={200}>
+            {resources?.clusterName && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={onEditResources}
+                    className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                  >
+                    <Server className="h-3 w-3" />
+                    <span className="truncate max-w-[80px]">{resources.clusterName}</span>
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Cluster: {resources.clusterName}</p>
+                </TooltipContent>
+              </Tooltip>
+            )}
+            {resources?.warehouseName && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={onEditResources}
+                    className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                  >
+                    <Database className="h-3 w-3" />
+                    <span className="truncate max-w-[80px]">{resources.warehouseName}</span>
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Warehouse: {resources.warehouseName}</p>
+                </TooltipContent>
+              </Tooltip>
+            )}
+            {(resources?.catalog || resources?.schema) && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={onEditResources}
+                    className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                  >
+                    <Boxes className="h-3 w-3" />
+                    <span className="truncate max-w-[100px]">
+                      {resources?.catalog || "default"}.{resources?.schema || "default"}
+                    </span>
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>{resources?.catalog || "default"}.{resources?.schema || "default"}</p>
+                </TooltipContent>
+              </Tooltip>
+            )}
+          </TooltipProvider>
           <div className="flex items-center gap-2 ml-auto">
             {onClearSession && messages.length > 0 && (
               <button
@@ -627,15 +647,6 @@ export const ChatPanel = memo(function ChatPanel({
                   <Trash2 className="h-3 w-3" />
                 )}
                 <span>Clear</span>
-              </button>
-            )}
-            {onEditResources && (
-              <button
-                onClick={onEditResources}
-                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
-              >
-                <Pencil className="h-3 w-3" />
-                <span>Edit resources</span>
               </button>
             )}
           </div>

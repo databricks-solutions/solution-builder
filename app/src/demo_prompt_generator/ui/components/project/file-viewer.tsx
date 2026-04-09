@@ -1,13 +1,12 @@
 /**
- * File viewer component for displaying project files.
+ * File viewer component with collapsible sidebar.
  */
 
 import { memo, useState, useMemo } from "react";
 import { ScrollArea } from "../ui/scroll-area";
 import { Prose } from "../markdown-prose";
 import { Skeleton } from "../ui/skeleton";
-import { Badge } from "../ui/badge";
-import { ChevronRight, ChevronDown, Folder, FolderOpen } from "lucide-react";
+import { ChevronRight, ChevronDown, ChevronLeft, Folder, FolderOpen, FileText, Sparkles, RefreshCw } from "lucide-react";
 import type { ProjectFile, ProjectFileContent } from "../../lib/custom-api";
 
 // ---------------------------------------------------------------------------
@@ -19,6 +18,8 @@ interface FileViewerProps {
   selectedFile: string | null;
   fileContent: ProjectFileContent | null;
   onSelectFile: (path: string) => void;
+  onSkillsClick?: () => void;
+  onRefresh?: () => void;
   isLoading?: boolean;
   projectName?: string;
 }
@@ -43,7 +44,6 @@ function buildFileTree(files: ProjectFile[]): TreeNode {
     children: new Map(),
   };
 
-  // Sort files alphabetically
   const sortedFiles = [...files].sort((a, b) => a.path.localeCompare(b.path));
 
   for (const file of sortedFiles) {
@@ -132,7 +132,6 @@ const FolderItem = memo(function FolderItem({
 }: FolderItemProps) {
   const [isExpanded, setIsExpanded] = useState(defaultExpanded);
 
-  // Check if any child is selected (to keep folder expanded)
   const hasSelectedChild = useMemo(() => {
     if (!selectedFile) return false;
     return selectedFile.startsWith(node.path + "/");
@@ -171,7 +170,6 @@ const FolderItem = memo(function FolderItem({
 
       {(isExpanded || hasSelectedChild) && (
         <div>
-          {/* Render folders first */}
           {folders.map((child) => (
             <FolderItem
               key={child.path}
@@ -182,7 +180,6 @@ const FolderItem = memo(function FolderItem({
               depth={depth + 1}
             />
           ))}
-          {/* Then files */}
           {files.map((child) => (
             <FileItem
               key={child.path}
@@ -221,7 +218,6 @@ const FileTree = memo(function FileTree({
 
   return (
     <div className="space-y-0.5">
-      {/* Root files first (like README.md, META-PROMPT.md) */}
       {rootFiles.map((node) => (
         <FileItem
           key={node.path}
@@ -231,7 +227,6 @@ const FileTree = memo(function FileTree({
           depth={0}
         />
       ))}
-      {/* Then folders */}
       {folders.map((node) => (
         <FolderItem
           key={node.path}
@@ -247,6 +242,138 @@ const FileTree = memo(function FileTree({
 });
 
 // ---------------------------------------------------------------------------
+// Collapsed Sidebar
+// ---------------------------------------------------------------------------
+
+interface CollapsedSidebarProps {
+  fileCount: number;
+  onExpand: () => void;
+  onSkillsClick?: () => void;
+  onRefresh?: () => void;
+}
+
+const CollapsedSidebar = memo(function CollapsedSidebar({
+  fileCount,
+  onExpand,
+  onSkillsClick,
+  onRefresh,
+}: CollapsedSidebarProps) {
+  return (
+    <div className="w-10 h-full shrink-0 border-r border-border bg-muted/30 flex flex-col items-center pt-2 pb-2">
+      {/* Expand area */}
+      <div
+        className="flex flex-col items-center cursor-pointer hover:bg-muted/50 transition-colors rounded px-1 py-1"
+        onClick={onExpand}
+      >
+        {/* Vertical README.md text */}
+        <div
+          className="text-[10px] font-medium text-muted-foreground tracking-wider"
+          style={{ writingMode: "vertical-rl", textOrientation: "mixed" }}
+        >
+          README.md
+        </div>
+
+        {/* File count */}
+        <div className="flex flex-col items-center gap-0.5 mt-3">
+          <FileText className="h-3.5 w-3.5 text-muted-foreground" />
+          <span className="text-[10px] text-muted-foreground font-medium">
+            {fileCount}
+          </span>
+        </div>
+
+        {/* Expand arrow */}
+        <div className="mt-1">
+          <ChevronRight className="h-4 w-4 text-muted-foreground" />
+        </div>
+      </div>
+
+      {/* Spacer */}
+      <div className="flex-1" />
+
+      {/* Bottom buttons */}
+      <div className="flex flex-col items-center gap-1">
+        {/* Refresh button */}
+        {onRefresh && (
+          <button
+            onClick={onRefresh}
+            className="flex flex-col items-center gap-0.5 p-1.5 rounded hover:bg-muted/50 transition-colors cursor-pointer"
+            title="Refresh files"
+          >
+            <RefreshCw className="h-4 w-4 text-muted-foreground" />
+            <span className="text-[9px] text-muted-foreground font-medium">Refresh</span>
+          </button>
+        )}
+
+        {/* Skills button */}
+        {onSkillsClick && (
+          <button
+            onClick={onSkillsClick}
+            className="flex flex-col items-center gap-0.5 p-1.5 rounded hover:bg-muted/50 transition-colors cursor-pointer"
+            title="Skills"
+          >
+            <Sparkles className="h-4 w-4 text-muted-foreground" />
+            <span className="text-[9px] text-muted-foreground font-medium">Skills</span>
+          </button>
+        )}
+      </div>
+    </div>
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Expanded Sidebar
+// ---------------------------------------------------------------------------
+
+interface ExpandedSidebarProps {
+  files: ProjectFile[];
+  selectedFile: string | null;
+  onSelectFile: (path: string) => void;
+  onCollapse: () => void;
+}
+
+const ExpandedSidebar = memo(function ExpandedSidebar({
+  files,
+  selectedFile,
+  onSelectFile,
+  onCollapse,
+}: ExpandedSidebarProps) {
+  return (
+    <div className="w-56 h-full shrink-0 border-r border-border bg-muted/30 flex flex-col">
+      {/* Header with collapse button */}
+      <div className="p-2 border-b border-border flex items-center justify-between">
+        <span className="text-xs text-muted-foreground font-medium">
+          {files.length} files
+        </span>
+        <button
+          onClick={onCollapse}
+          className="p-1 rounded hover:bg-muted transition-colors cursor-pointer"
+          title="Collapse sidebar"
+        >
+          <ChevronLeft className="h-4 w-4 text-muted-foreground" />
+        </button>
+      </div>
+
+      {/* File tree */}
+      <ScrollArea className="flex-1">
+        <div className="p-1.5">
+          {files.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-4">
+              No files yet
+            </p>
+          ) : (
+            <FileTree
+              files={files}
+              selectedFile={selectedFile}
+              onSelectFile={onSelectFile}
+            />
+          )}
+        </div>
+      </ScrollArea>
+    </div>
+  );
+});
+
+// ---------------------------------------------------------------------------
 // File Viewer
 // ---------------------------------------------------------------------------
 
@@ -255,59 +382,39 @@ export const FileViewer = memo(function FileViewer({
   selectedFile,
   fileContent,
   onSelectFile,
+  onSkillsClick,
+  onRefresh,
   isLoading = false,
-  projectName,
 }: FileViewerProps) {
+  const [isSidebarExpanded, setIsSidebarExpanded] = useState(false);
   const isMarkdown = selectedFile?.endsWith(".md");
 
   return (
     <div className="flex h-full">
-      {/* File tree sidebar */}
-      <div className="w-56 shrink-0 border-r border-border bg-muted/30">
-        <div className="p-3 border-b border-border">
-          <h3 className="font-semibold text-sm truncate">
-            {projectName || "Project Files"}
-          </h3>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            {files.length} files
-          </p>
-        </div>
-        <ScrollArea className="h-[calc(100%-60px)]">
-          <div className="p-1.5">
-            {files.length === 0 ? (
-              <p className="text-sm text-muted-foreground text-center py-4">
-                No files yet
-              </p>
-            ) : (
-              <FileTree
-                files={files}
-                selectedFile={selectedFile}
-                onSelectFile={onSelectFile}
-              />
-            )}
-          </div>
-        </ScrollArea>
+      {/* Collapsible sidebar */}
+      <div
+        className="shrink-0 transition-all duration-200 ease-in-out overflow-hidden"
+        style={{ width: isSidebarExpanded ? "224px" : "40px" }}
+      >
+        {isSidebarExpanded ? (
+          <ExpandedSidebar
+            files={files}
+            selectedFile={selectedFile}
+            onSelectFile={onSelectFile}
+            onCollapse={() => setIsSidebarExpanded(false)}
+          />
+        ) : (
+          <CollapsedSidebar
+            fileCount={files.length}
+            onExpand={() => setIsSidebarExpanded(true)}
+            onSkillsClick={onSkillsClick}
+            onRefresh={onRefresh}
+          />
+        )}
       </div>
 
       {/* File content */}
       <div className="flex-1 flex flex-col min-w-0">
-        {/* File header */}
-        {selectedFile && (
-          <div className="shrink-0 px-4 py-2 border-b border-border flex items-center justify-between gap-2">
-            <div className="flex items-center gap-2 min-w-0">
-              <span className="text-muted-foreground">
-                {getFileIcon(selectedFile.split(".").pop() || "")}
-              </span>
-              <span className="font-medium text-sm truncate">{selectedFile}</span>
-            </div>
-            {fileContent && (
-              <Badge variant="secondary" className="shrink-0 text-xs">
-                {formatFileSize(fileContent.size)}
-              </Badge>
-            )}
-          </div>
-        )}
-
         {/* Content area */}
         <ScrollArea className="flex-1">
           <div className="p-6">
@@ -344,12 +451,6 @@ export const FileViewer = memo(function FileViewer({
 // ---------------------------------------------------------------------------
 // Utilities
 // ---------------------------------------------------------------------------
-
-function formatFileSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
 
 function getFileIcon(extension: string): string {
   switch (extension) {

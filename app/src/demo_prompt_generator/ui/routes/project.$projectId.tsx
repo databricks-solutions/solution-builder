@@ -26,7 +26,6 @@ import {
   RefreshCw,
   Trash2,
   AlertTriangle,
-  Sparkles,
   Upload,
   CheckCircle,
   Loader2,
@@ -520,15 +519,6 @@ function ProjectPage() {
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => setIsSkillsOpen(true)}
-              className="gap-1.5"
-            >
-              <Sparkles className="h-4 w-4" />
-              Skills
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
               onClick={handleSubmitTemplate}
               disabled={isSubmittingTemplate || templateSubmitted || files.length === 0}
               className={`gap-1.5 ${templateSubmitted ? "text-green-600" : ""}`}
@@ -554,15 +544,6 @@ function ProjectPage() {
             <Button
               variant="ghost"
               size="sm"
-              onClick={handleRefresh}
-              className="gap-1.5"
-            >
-              <RefreshCw className="h-4 w-4" />
-              Refresh
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
               onClick={() => setIsDeleteDialogOpen(true)}
               className="gap-1.5 text-destructive hover:text-destructive hover:bg-destructive/10"
             >
@@ -582,6 +563,8 @@ function ProjectPage() {
             selectedFile={selectedFile}
             fileContent={fileContent}
             onSelectFile={setSelectedFile}
+            onSkillsClick={() => setIsSkillsOpen(true)}
+            onRefresh={handleRefresh}
             isLoading={isLoadingFile}
             projectName={project?.name}
           />

@@ -73,7 +73,7 @@ function FileTreeItem({
         <button
           onClick={() => onToggleFolder(folderKey)}
           className={cn(
-            "w-full flex items-center gap-1.5 py-1 px-1 rounded text-left hover:bg-accent/50 transition-colors text-sm"
+            "w-full flex items-center gap-1.5 py-1 px-1 rounded text-left hover:bg-accent/50 transition-colors text-sm cursor-pointer"
           )}
           style={{ paddingLeft: `${depth * 12 + 4}px` }}
         >
@@ -113,7 +113,7 @@ function FileTreeItem({
     <button
       onClick={() => onSelectFile(skillName, item.path)}
       className={cn(
-        "w-full flex items-center gap-1.5 py-1 px-1 rounded text-left hover:bg-accent/50 transition-colors text-sm",
+        "w-full flex items-center gap-1.5 py-1 px-1 rounded text-left hover:bg-accent/50 transition-colors text-sm cursor-pointer",
         isSelected && "bg-accent"
       )}
       style={{ paddingLeft: `${depth * 12 + 4}px` }}
@@ -125,12 +125,11 @@ function FileTreeItem({
   );
 }
 
-type ViewMode = "skills" | "system-prompt";
+// Special marker for system prompt selection
+const SYSTEM_PROMPT_MARKER = "__SYSTEM_PROMPT__";
 
 export function SkillsPopup({ projectId, isOpen, onClose }: SkillsPopupProps) {
-  const [viewMode, setViewMode] = useState<ViewMode>("system-prompt");
   const [skills, setSkills] = useState<Skill[]>([]);
-  const [selectedSkill, setSelectedSkill] = useState<string | null>(null);
   const [expandedSkills, setExpandedSkills] = useState<Set<string>>(new Set());
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(
     new Set()
@@ -148,17 +147,22 @@ export function SkillsPopup({ projectId, isOpen, onClose }: SkillsPopupProps) {
   const [systemPrompt, setSystemPrompt] = useState<string>("");
   const [isLoadingPrompt, setIsLoadingPrompt] = useState(false);
 
+  // Check if system prompt is selected
+  const isSystemPromptSelected = selectedFile?.skill === SYSTEM_PROMPT_MARKER;
+
   // Check if current file is markdown
   const isMarkdownFile = useMemo(() => {
-    if (!selectedFile) return false;
+    if (!selectedFile || isSystemPromptSelected) return false;
     return selectedFile.path.endsWith(".md");
-  }, [selectedFile]);
+  }, [selectedFile, isSystemPromptSelected]);
 
   // Load skills and system prompt when popup opens
   useEffect(() => {
     if (isOpen && projectId) {
       loadSkills();
       loadSystemPrompt();
+      // Default to system prompt selected
+      setSelectedFile({ skill: SYSTEM_PROMPT_MARKER, path: "SYSTEM_PROMPT" });
     }
   }, [isOpen, projectId]);
 
@@ -196,15 +200,16 @@ export function SkillsPopup({ projectId, isOpen, onClose }: SkillsPopupProps) {
       setExpandedSkills(new Set());
       setExpandedFolders(new Set());
       setSkillFiles({});
-      setSelectedSkill(null);
-      setSelectedFile(null);
+      setSelectedFile({ skill: SYSTEM_PROMPT_MARKER, path: "SYSTEM_PROMPT" });
       setFileContent("");
+      // Reload system prompt too
+      loadSystemPrompt();
     } catch (error) {
       console.error("Failed to refresh skills:", error);
     } finally {
       setIsRefreshing(false);
     }
-  }, [projectId]);
+  }, [projectId, loadSystemPrompt]);
 
   const toggleSkillExpansion = useCallback(
     async (skillName: string) => {
@@ -227,7 +232,6 @@ export function SkillsPopup({ projectId, isOpen, onClose }: SkillsPopupProps) {
       }
 
       setExpandedSkills(newExpanded);
-      setSelectedSkill(skillName);
     },
     [projectId, expandedSkills, skillFiles]
   );
@@ -247,6 +251,12 @@ export function SkillsPopup({ projectId, isOpen, onClose }: SkillsPopupProps) {
   const handleFileSelect = useCallback(
     async (skillName: string, filePath: string) => {
       setSelectedFile({ skill: skillName, path: filePath });
+
+      // If selecting system prompt, no need to fetch
+      if (skillName === SYSTEM_PROMPT_MARKER) {
+        return;
+      }
+
       setIsLoadingFile(true);
 
       try {
@@ -261,6 +271,10 @@ export function SkillsPopup({ projectId, isOpen, onClose }: SkillsPopupProps) {
     },
     [projectId]
   );
+
+  const handleSelectSystemPrompt = useCallback(() => {
+    setSelectedFile({ skill: SYSTEM_PROMPT_MARKER, path: "SYSTEM_PROMPT" });
+  }, []);
 
   return (
     <Sheet open={isOpen} onOpenChange={(open) => !open && onClose()}>
@@ -281,7 +295,7 @@ export function SkillsPopup({ projectId, isOpen, onClose }: SkillsPopupProps) {
               size="sm"
               onClick={handleRefresh}
               disabled={isRefreshing}
-              className="gap-1.5"
+              className="gap-1.5 mr-8"
             >
               <RefreshCw
                 className={cn("h-4 w-4", isRefreshing && "animate-spin")}
@@ -291,53 +305,25 @@ export function SkillsPopup({ projectId, isOpen, onClose }: SkillsPopupProps) {
           </div>
         </SheetHeader>
 
-        {/* Tab buttons */}
-        <div className="flex gap-2 mt-4 mb-2">
-          <Button
-            variant={viewMode === "system-prompt" ? "default" : "outline"}
-            size="sm"
-            onClick={() => setViewMode("system-prompt")}
-            className="gap-1.5"
-          >
-            <Terminal className="h-4 w-4" />
-            System Prompt
-          </Button>
-          <Button
-            variant={viewMode === "skills" ? "default" : "outline"}
-            size="sm"
-            onClick={() => setViewMode("skills")}
-            className="gap-1.5"
-          >
-            <Folder className="h-4 w-4" />
-            Skills ({skills.length})
-          </Button>
-        </div>
-
-        <Separator className="my-2" />
-
-        {/* System Prompt View */}
-        {viewMode === "system-prompt" && (
-          <div className="flex-1 min-h-0">
-            <ScrollArea className="h-full">
-              {isLoadingPrompt ? (
-                <div className="flex items-center justify-center py-8">
-                  <RefreshCw className="h-6 w-6 animate-spin text-muted-foreground" />
-                </div>
-              ) : (
-                <pre className="text-xs bg-muted/50 p-4 rounded-md overflow-x-auto whitespace-pre-wrap font-mono">
-                  {systemPrompt}
-                </pre>
-              )}
-            </ScrollArea>
-          </div>
-        )}
-
-        {/* Skills View */}
-        {viewMode === "skills" && (
-        <div className="flex flex-1 gap-4 min-h-0">
-          {/* Skills list (left panel) */}
+        <div className="flex flex-1 gap-4 min-h-0 mt-4">
+          {/* Tree panel (left) */}
           <div className="w-[300px] flex-shrink-0">
             <ScrollArea className="h-full pr-4">
+              {/* System Prompt entry */}
+              <button
+                onClick={handleSelectSystemPrompt}
+                className={cn(
+                  "w-full flex items-center gap-2 p-2 rounded-md text-left hover:bg-accent transition-colors cursor-pointer mb-2",
+                  isSystemPromptSelected && "bg-accent"
+                )}
+              >
+                <Terminal className="h-4 w-4 flex-shrink-0 text-primary" />
+                <span className="text-sm font-medium">SYSTEM_PROMPT</span>
+              </button>
+
+              <Separator className="my-2" />
+
+              {/* Skills list */}
               {isLoading ? (
                 <div className="flex items-center justify-center py-8">
                   <RefreshCw className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -358,8 +344,7 @@ export function SkillsPopup({ projectId, isOpen, onClose }: SkillsPopupProps) {
                       <button
                         onClick={() => toggleSkillExpansion(skill.dir_name)}
                         className={cn(
-                          "w-full flex items-start gap-2 p-2 rounded-md text-left hover:bg-accent transition-colors",
-                          selectedSkill === skill.dir_name && "bg-accent"
+                          "w-full flex items-start gap-2 p-2 rounded-md text-left hover:bg-accent transition-colors cursor-pointer"
                         )}
                       >
                         {expandedSkills.has(skill.dir_name) ? (
@@ -411,13 +396,15 @@ export function SkillsPopup({ projectId, isOpen, onClose }: SkillsPopupProps) {
 
           <Separator orientation="vertical" />
 
-          {/* File content (right panel) */}
+          {/* Content panel (right) */}
           <div className="flex-1 min-w-0 flex flex-col">
-            {/* Header with file path and toggle - always visible */}
+            {/* Header with file path and toggle */}
             {selectedFile && (
               <div className="mb-3 pb-2 border-b flex items-center justify-between flex-shrink-0">
                 <p className="text-sm font-medium truncate">
-                  {selectedFile.skill}/{selectedFile.path}
+                  {isSystemPromptSelected
+                    ? "SYSTEM_PROMPT"
+                    : `${selectedFile.skill}/${selectedFile.path}`}
                 </p>
                 {isMarkdownFile && (
                   <div className="flex items-center gap-1 bg-muted rounded-md p-0.5 flex-shrink-0 ml-2">
@@ -446,7 +433,18 @@ export function SkillsPopup({ projectId, isOpen, onClose }: SkillsPopupProps) {
 
             {/* Scrollable content area */}
             <ScrollArea className="flex-1">
-              {isLoadingFile ? (
+              {isSystemPromptSelected ? (
+                // System prompt content
+                isLoadingPrompt ? (
+                  <div className="flex items-center justify-center py-8">
+                    <RefreshCw className="h-6 w-6 animate-spin text-muted-foreground" />
+                  </div>
+                ) : (
+                  <pre className="text-xs bg-muted/50 p-4 rounded-md overflow-x-auto whitespace-pre-wrap font-mono">
+                    {systemPrompt}
+                  </pre>
+                )
+              ) : isLoadingFile ? (
                 <div className="flex items-center justify-center py-8">
                   <RefreshCw className="h-6 w-6 animate-spin text-muted-foreground" />
                 </div>
@@ -473,7 +471,6 @@ export function SkillsPopup({ projectId, isOpen, onClose }: SkillsPopupProps) {
             </ScrollArea>
           </div>
         </div>
-        )}
       </SheetContent>
     </Sheet>
   );
