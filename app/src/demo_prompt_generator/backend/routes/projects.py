@@ -6,7 +6,7 @@ import re
 from datetime import datetime, timezone
 
 from fastapi import HTTPException, Request
-from sqlmodel import func, select
+from sqlmodel import func, select, text
 
 from ..core import Dependencies, create_router
 from ..core._config import logger
@@ -402,6 +402,12 @@ def delete_project(
     """Delete a project and all associated data."""
     user_email = _get_user_email(headers)
     project = _get_user_project(session, project_id, user_email)
+
+    # Clear source_project_id on any linked templates (don't delete the template)
+    session.execute(
+        text("UPDATE templates SET source_project_id = NULL WHERE source_project_id = :pid"),
+        {"pid": project_id}
+    )
 
     # Delete messages
     messages = session.exec(

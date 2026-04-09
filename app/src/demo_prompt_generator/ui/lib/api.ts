@@ -38,6 +38,11 @@ export interface ComplexValue {
 export interface CreateProjectFromTemplateRequest {
     name: string;
 }
+export interface CurrentUser {
+    email: string;
+    is_template_admin: boolean;
+    user_name?: string | null;
+}
 export interface HTTPValidationError {
     detail?: ValidationError[];
 }
@@ -144,9 +149,6 @@ export interface StreamProgressRequest {
 export interface SystemPromptResponse {
     prompt: string;
 }
-export interface TemplateAdminStatus {
-    is_admin: boolean;
-}
 export interface TemplateDetail {
     capabilities?: string[] | null;
     description: string | null;
@@ -183,6 +185,9 @@ export interface TemplateListItem {
     reviewed_at?: string | null;
     status: string;
     submitted_at: string;
+}
+export interface TemplateOwnerUpdateRequest {
+    owner_email: string;
 }
 export interface TemplateSearchResult {
     capabilities?: string[] | null;
@@ -330,90 +335,6 @@ export function useGetIndustriesSuspense<TData = {
     return useSuspenseQuery({
         queryKey: getIndustriesKey(),
         queryFn: ()=>getIndustries(),
-        ...options?.query
-    });
-}
-export interface GetTemplateAdminStatusParams {
-    "X-Forwarded-Host"?: string | null;
-    "X-Forwarded-Preferred-Username"?: string | null;
-    "X-Forwarded-User"?: string | null;
-    "X-Forwarded-Email"?: string | null;
-    "X-Request-Id"?: string | null;
-    "X-Forwarded-Access-Token"?: string | null;
-}
-export const getTemplateAdminStatus = async (params?: GetTemplateAdminStatusParams, options?: RequestInit): Promise<{
-    data: TemplateAdminStatus;
-}> =>{
-    const res = await fetch("/api/constants/template-admin-status", {
-        ...options,
-        method: "GET",
-        headers: {
-            ...(params?.["X-Forwarded-Host"] != null && {
-                "X-Forwarded-Host": params["X-Forwarded-Host"]
-            }),
-            ...(params?.["X-Forwarded-Preferred-Username"] != null && {
-                "X-Forwarded-Preferred-Username": params["X-Forwarded-Preferred-Username"]
-            }),
-            ...(params?.["X-Forwarded-User"] != null && {
-                "X-Forwarded-User": params["X-Forwarded-User"]
-            }),
-            ...(params?.["X-Forwarded-Email"] != null && {
-                "X-Forwarded-Email": params["X-Forwarded-Email"]
-            }),
-            ...(params?.["X-Request-Id"] != null && {
-                "X-Request-Id": params["X-Request-Id"]
-            }),
-            ...(params?.["X-Forwarded-Access-Token"] != null && {
-                "X-Forwarded-Access-Token": params["X-Forwarded-Access-Token"]
-            }),
-            ...options?.headers
-        }
-    });
-    if (!res.ok) {
-        const body = await res.text();
-        let parsed: unknown;
-        try {
-            parsed = JSON.parse(body);
-        } catch  {
-            parsed = body;
-        }
-        throw new ApiError(res.status, res.statusText, parsed);
-    }
-    return {
-        data: await res.json()
-    };
-};
-export const getTemplateAdminStatusKey = (params?: GetTemplateAdminStatusParams)=>{
-    return [
-        "/api/constants/template-admin-status",
-        params
-    ] as const;
-};
-export function useGetTemplateAdminStatus<TData = {
-    data: TemplateAdminStatus;
-}>(options?: {
-    params?: GetTemplateAdminStatusParams;
-    query?: Omit<UseQueryOptions<{
-        data: TemplateAdminStatus;
-    }, ApiError, TData>, "queryKey" | "queryFn">;
-}) {
-    return useQuery({
-        queryKey: getTemplateAdminStatusKey(options?.params),
-        queryFn: ()=>getTemplateAdminStatus(options?.params),
-        ...options?.query
-    });
-}
-export function useGetTemplateAdminStatusSuspense<TData = {
-    data: TemplateAdminStatus;
-}>(options?: {
-    params?: GetTemplateAdminStatusParams;
-    query?: Omit<UseSuspenseQueryOptions<{
-        data: TemplateAdminStatus;
-    }, ApiError, TData>, "queryKey" | "queryFn">;
-}) {
-    return useSuspenseQuery({
-        queryKey: getTemplateAdminStatusKey(options?.params),
-        queryFn: ()=>getTemplateAdminStatus(options?.params),
         ...options?.query
     });
 }
@@ -2608,6 +2529,91 @@ export function useListTemplatesSuspense<TData = {
         ...options?.query
     });
 }
+export interface GetTemplateByProjectParams {
+    project_id: string;
+    "X-Forwarded-Host"?: string | null;
+    "X-Forwarded-Preferred-Username"?: string | null;
+    "X-Forwarded-User"?: string | null;
+    "X-Forwarded-Email"?: string | null;
+    "X-Request-Id"?: string | null;
+    "X-Forwarded-Access-Token"?: string | null;
+}
+export const getTemplateByProject = async (params: GetTemplateByProjectParams, options?: RequestInit): Promise<{
+    data: TemplateDetail;
+}> =>{
+    const res = await fetch(`/api/templates/by-project/${params.project_id}`, {
+        ...options,
+        method: "GET",
+        headers: {
+            ...(params?.["X-Forwarded-Host"] != null && {
+                "X-Forwarded-Host": params["X-Forwarded-Host"]
+            }),
+            ...(params?.["X-Forwarded-Preferred-Username"] != null && {
+                "X-Forwarded-Preferred-Username": params["X-Forwarded-Preferred-Username"]
+            }),
+            ...(params?.["X-Forwarded-User"] != null && {
+                "X-Forwarded-User": params["X-Forwarded-User"]
+            }),
+            ...(params?.["X-Forwarded-Email"] != null && {
+                "X-Forwarded-Email": params["X-Forwarded-Email"]
+            }),
+            ...(params?.["X-Request-Id"] != null && {
+                "X-Request-Id": params["X-Request-Id"]
+            }),
+            ...(params?.["X-Forwarded-Access-Token"] != null && {
+                "X-Forwarded-Access-Token": params["X-Forwarded-Access-Token"]
+            }),
+            ...options?.headers
+        }
+    });
+    if (!res.ok) {
+        const body = await res.text();
+        let parsed: unknown;
+        try {
+            parsed = JSON.parse(body);
+        } catch  {
+            parsed = body;
+        }
+        throw new ApiError(res.status, res.statusText, parsed);
+    }
+    return {
+        data: await res.json()
+    };
+};
+export const getTemplateByProjectKey = (params?: GetTemplateByProjectParams)=>{
+    return [
+        "/api/templates/by-project/{project_id}",
+        params
+    ] as const;
+};
+export function useGetTemplateByProject<TData = {
+    data: TemplateDetail;
+}>(options: {
+    params: GetTemplateByProjectParams;
+    query?: Omit<UseQueryOptions<{
+        data: TemplateDetail;
+    }, ApiError, TData>, "queryKey" | "queryFn">;
+}) {
+    return useQuery({
+        queryKey: getTemplateByProjectKey(options.params),
+        queryFn: ()=>getTemplateByProject(options.params),
+        ...options?.query
+    });
+}
+export function useGetTemplateByProjectSuspense<TData = {
+    data: TemplateDetail;
+}>(options: {
+    params: GetTemplateByProjectParams;
+    query?: Omit<UseSuspenseQueryOptions<{
+        data: TemplateDetail;
+    }, ApiError, TData>, "queryKey" | "queryFn">;
+}) {
+    return useSuspenseQuery({
+        queryKey: getTemplateByProjectKey(options.params),
+        queryFn: ()=>getTemplateByProject(options.params),
+        ...options?.query
+    });
+}
 export interface SubmitTemplateFromProjectParams {
     project_id: string;
     "X-Forwarded-Host"?: string | null;
@@ -3121,6 +3127,135 @@ export function useGetTemplateFileContentSuspense<TData = {
         ...options?.query
     });
 }
+export interface OpenTemplateProjectParams {
+    template_id: string;
+    "X-Forwarded-Host"?: string | null;
+    "X-Forwarded-Preferred-Username"?: string | null;
+    "X-Forwarded-User"?: string | null;
+    "X-Forwarded-Email"?: string | null;
+    "X-Request-Id"?: string | null;
+    "X-Forwarded-Access-Token"?: string | null;
+}
+export const openTemplateProject = async (params: OpenTemplateProjectParams, options?: RequestInit): Promise<{
+    data: ProjectOut;
+}> =>{
+    const res = await fetch(`/api/templates/${params.template_id}/open-project`, {
+        ...options,
+        method: "POST",
+        headers: {
+            ...(params?.["X-Forwarded-Host"] != null && {
+                "X-Forwarded-Host": params["X-Forwarded-Host"]
+            }),
+            ...(params?.["X-Forwarded-Preferred-Username"] != null && {
+                "X-Forwarded-Preferred-Username": params["X-Forwarded-Preferred-Username"]
+            }),
+            ...(params?.["X-Forwarded-User"] != null && {
+                "X-Forwarded-User": params["X-Forwarded-User"]
+            }),
+            ...(params?.["X-Forwarded-Email"] != null && {
+                "X-Forwarded-Email": params["X-Forwarded-Email"]
+            }),
+            ...(params?.["X-Request-Id"] != null && {
+                "X-Request-Id": params["X-Request-Id"]
+            }),
+            ...(params?.["X-Forwarded-Access-Token"] != null && {
+                "X-Forwarded-Access-Token": params["X-Forwarded-Access-Token"]
+            }),
+            ...options?.headers
+        }
+    });
+    if (!res.ok) {
+        const body = await res.text();
+        let parsed: unknown;
+        try {
+            parsed = JSON.parse(body);
+        } catch  {
+            parsed = body;
+        }
+        throw new ApiError(res.status, res.statusText, parsed);
+    }
+    return {
+        data: await res.json()
+    };
+};
+export function useOpenTemplateProject(options?: {
+    mutation?: UseMutationOptions<{
+        data: ProjectOut;
+    }, ApiError, {
+        params: OpenTemplateProjectParams;
+    }>;
+}) {
+    return useMutation({
+        mutationFn: (vars)=>openTemplateProject(vars.params),
+        ...options?.mutation
+    });
+}
+export interface UpdateTemplateOwnerParams {
+    template_id: string;
+    "X-Forwarded-Host"?: string | null;
+    "X-Forwarded-Preferred-Username"?: string | null;
+    "X-Forwarded-User"?: string | null;
+    "X-Forwarded-Email"?: string | null;
+    "X-Request-Id"?: string | null;
+    "X-Forwarded-Access-Token"?: string | null;
+}
+export const updateTemplateOwner = async (params: UpdateTemplateOwnerParams, data: TemplateOwnerUpdateRequest, options?: RequestInit): Promise<{
+    data: TemplateListItem;
+}> =>{
+    const res = await fetch(`/api/templates/${params.template_id}/owner`, {
+        ...options,
+        method: "PATCH",
+        headers: {
+            "Content-Type": "application/json",
+            ...(params?.["X-Forwarded-Host"] != null && {
+                "X-Forwarded-Host": params["X-Forwarded-Host"]
+            }),
+            ...(params?.["X-Forwarded-Preferred-Username"] != null && {
+                "X-Forwarded-Preferred-Username": params["X-Forwarded-Preferred-Username"]
+            }),
+            ...(params?.["X-Forwarded-User"] != null && {
+                "X-Forwarded-User": params["X-Forwarded-User"]
+            }),
+            ...(params?.["X-Forwarded-Email"] != null && {
+                "X-Forwarded-Email": params["X-Forwarded-Email"]
+            }),
+            ...(params?.["X-Request-Id"] != null && {
+                "X-Request-Id": params["X-Request-Id"]
+            }),
+            ...(params?.["X-Forwarded-Access-Token"] != null && {
+                "X-Forwarded-Access-Token": params["X-Forwarded-Access-Token"]
+            }),
+            ...options?.headers
+        },
+        body: JSON.stringify(data)
+    });
+    if (!res.ok) {
+        const body = await res.text();
+        let parsed: unknown;
+        try {
+            parsed = JSON.parse(body);
+        } catch  {
+            parsed = body;
+        }
+        throw new ApiError(res.status, res.statusText, parsed);
+    }
+    return {
+        data: await res.json()
+    };
+};
+export function useUpdateTemplateOwner(options?: {
+    mutation?: UseMutationOptions<{
+        data: TemplateListItem;
+    }, ApiError, {
+        params: UpdateTemplateOwnerParams;
+        data: TemplateOwnerUpdateRequest;
+    }>;
+}) {
+    return useMutation({
+        mutationFn: (vars)=>updateTemplateOwner(vars.params, vars.data),
+        ...options?.mutation
+    });
+}
 export interface UpdateTemplateStatusParams {
     template_id: string;
     "X-Forwarded-Host"?: string | null;
@@ -3184,6 +3319,70 @@ export function useUpdateTemplateStatus(options?: {
 }) {
     return useMutation({
         mutationFn: (vars)=>updateTemplateStatus(vars.params, vars.data),
+        ...options?.mutation
+    });
+}
+export interface UpdateTemplateFromProjectParams {
+    template_id: string;
+    project_id: string;
+    "X-Forwarded-Host"?: string | null;
+    "X-Forwarded-Preferred-Username"?: string | null;
+    "X-Forwarded-User"?: string | null;
+    "X-Forwarded-Email"?: string | null;
+    "X-Request-Id"?: string | null;
+    "X-Forwarded-Access-Token"?: string | null;
+}
+export const updateTemplateFromProject = async (params: UpdateTemplateFromProjectParams, options?: RequestInit): Promise<{
+    data: TemplateDetail;
+}> =>{
+    const res = await fetch(`/api/templates/${params.template_id}/update-from-project/${params.project_id}`, {
+        ...options,
+        method: "PUT",
+        headers: {
+            ...(params?.["X-Forwarded-Host"] != null && {
+                "X-Forwarded-Host": params["X-Forwarded-Host"]
+            }),
+            ...(params?.["X-Forwarded-Preferred-Username"] != null && {
+                "X-Forwarded-Preferred-Username": params["X-Forwarded-Preferred-Username"]
+            }),
+            ...(params?.["X-Forwarded-User"] != null && {
+                "X-Forwarded-User": params["X-Forwarded-User"]
+            }),
+            ...(params?.["X-Forwarded-Email"] != null && {
+                "X-Forwarded-Email": params["X-Forwarded-Email"]
+            }),
+            ...(params?.["X-Request-Id"] != null && {
+                "X-Request-Id": params["X-Request-Id"]
+            }),
+            ...(params?.["X-Forwarded-Access-Token"] != null && {
+                "X-Forwarded-Access-Token": params["X-Forwarded-Access-Token"]
+            }),
+            ...options?.headers
+        }
+    });
+    if (!res.ok) {
+        const body = await res.text();
+        let parsed: unknown;
+        try {
+            parsed = JSON.parse(body);
+        } catch  {
+            parsed = body;
+        }
+        throw new ApiError(res.status, res.statusText, parsed);
+    }
+    return {
+        data: await res.json()
+    };
+};
+export function useUpdateTemplateFromProject(options?: {
+    mutation?: UseMutationOptions<{
+        data: TemplateDetail;
+    }, ApiError, {
+        params: UpdateTemplateFromProjectParams;
+    }>;
+}) {
+    return useMutation({
+        mutationFn: (vars)=>updateTemplateFromProject(vars.params),
         ...options?.mutation
     });
 }

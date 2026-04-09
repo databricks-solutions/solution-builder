@@ -11,15 +11,19 @@ interface TemplateTileProps {
   template: TemplateListItem | TemplateSearchResult;
   onClick: () => void;
   showSimilarity?: boolean;
+  showStatus?: boolean;
 }
 
 export const TemplateTile = memo(function TemplateTile({
   template,
   onClick,
   showSimilarity = false,
+  showStatus = false,
 }: TemplateTileProps) {
   // Check if it's a search result with similarity
   const similarity = "similarity" in template ? template.similarity : null;
+  // Check if it's a list item with status
+  const status = "status" in template ? template.status : null;
 
   return (
     <Card
@@ -41,24 +45,34 @@ export const TemplateTile = memo(function TemplateTile({
       </CardContent>
 
       <CardFooter className="pt-2 border-t border-border/30 mt-auto">
-        <div className="flex items-center justify-between w-full text-xs text-muted-foreground">
-          <div className="flex items-center gap-2">
-            {showSimilarity && similarity !== null && (
-              <span className="flex items-center gap-1">
-                <MatchIcon className="h-3 w-3" />
-                {Math.round(similarity * 100)}% match
-              </span>
-            )}
-            {template.industry && (
-              <Badge variant="outline" className="text-[10px] px-1.5 py-0.5">
-                {template.industry}
+        <div className="flex items-start justify-between w-full text-xs text-muted-foreground">
+          <div className="flex flex-col gap-1">
+            <div className="flex items-center gap-2">
+              {showSimilarity && similarity !== null && (
+                <span className="flex items-center gap-1">
+                  <MatchIcon className="h-3 w-3" />
+                  {Math.round(similarity * 100)}% match
+                </span>
+              )}
+              {template.industry && (
+                <Badge variant="outline" className="text-[10px] px-1.5 py-0.5">
+                  {template.industry}
+                </Badge>
+              )}
+              {!showSimilarity && !template.industry && (
+                <span>Template</span>
+              )}
+            </div>
+            {showStatus && status && status !== "APPROVED" && (
+              <Badge
+                variant={status === "REVIEW_REQUESTED" ? "secondary" : "destructive"}
+                className="text-[10px] px-1.5 py-0.5 w-fit"
+              >
+                {status === "REVIEW_REQUESTED" ? "Pending Review" : "Rejected"}
               </Badge>
             )}
-            {!showSimilarity && !template.industry && (
-              <span>Template</span>
-            )}
           </div>
-          <span className="opacity-0 group-hover:opacity-100 transition-opacity text-primary font-medium">
+          <span className="opacity-0 group-hover:opacity-100 transition-opacity text-primary font-medium shrink-0">
             View →
           </span>
         </div>

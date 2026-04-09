@@ -127,21 +127,19 @@ class TemplateService:
             {"embedding": str(embedding), "template_id": template_id}
         )
 
-        # Copy project files to template_content
-        for f in project_files:
-            # Skip .claude directory
-            if f.relative_path.startswith(".claude/"):
-                continue
-
-            template_file = TemplateContent(
+        # Bulk copy project files to template_content (skip .claude directory)
+        template_files = [
+            TemplateContent(
                 template_id=template_id,
                 relative_path=f.relative_path,
                 content_compressed=f.content_compressed,
                 content_hash=f.content_hash,
                 file_size=f.file_size,
             )
-            session.add(template_file)
-
+            for f in project_files
+            if not f.relative_path.startswith(".claude/")
+        ]
+        session.add_all(template_files)
         session.commit()
         session.refresh(template)
         return template
@@ -345,17 +343,18 @@ class TemplateService:
         )
         session.add(project)
 
-        # Copy template files to project_files
-        for tf in template_files:
-            pf = ProjectFile(
+        # Bulk create project files from template (more efficient than individual adds)
+        project_files = [
+            ProjectFile(
                 project_id=project_id,
                 relative_path=tf.relative_path,
                 content_compressed=tf.content_compressed,
                 content_hash=tf.content_hash,
                 file_size=tf.file_size,
             )
-            session.add(pf)
-
+            for tf in template_files
+        ]
+        session.add_all(project_files)
         session.commit()
 
         # Copy files to local filesystem
@@ -396,3 +395,174 @@ class TemplateService:
         session.delete(template)
         session.commit()
         return True
+
+    def get_template_by_project(
+        self,
+        project_id: str,
+        session: Session,
+    ) -> Optional[Template]:
+        """
+        Get template linked to a project.
+
+        Args:
+            project_id: Project ID to search for
+            session: Database session
+
+        Returns:
+            Template if found, None otherwise
+        """
+        return session.exec(
+            select(Template).where(Template.source_project_id == project_id)
+        ).first()
+
+    def update_template_from_project(
+        self,
+        template_id: str,
+        project_id: str,
+        session: Session,
+    ) -> Template:
+        """
+        Update template content from project files.
+
+        Replaces all template files with current project files and regenerates embedding.
+
+        Args:
+            template_id: Template to update
+            project_id: Source project ID
+            session: Database session
+
+        Returns:
+            Updated Template
+
+        Raises:
+            ValueError: If template or project not found
+        """
+        # Get template
+        template = session.exec(
+            select(Template).where(Template.id == template_id)
+        ).first()
+        if not template:
+            raise ValueError(f"Template {template_id} not found")
+
+        # Get project
+        project = session.exec(
+            select(Project).where(Project.id == project_id)
+        ).first()
+        if not project:
+            raise ValueError(f"Project {project_id} not found")
+
+        # Get project files
+        project_files = session.exec(
+            select(ProjectFile).where(ProjectFile.project_id == project_id)
+        ).all()
+        if not project_files:
+            raise ValueError(f"Project {project_id} has no files")
+
+        # Delete existing template content
+        for tc in session.exec(
+            select(TemplateContent).where(TemplateContent.template_id == template_id)
+        ).all():
+            session.delete(tc)
+        # Flush deletes before inserting new content to avoid unique constraint violation
+        session.flush()
+
+        # Filter files (skip .claude/) and capture README content
+        readme_content = None
+        filtered_files = []
+        for f in project_files:
+            if f.relative_path.startswith(".claude/"):
+                continue
+            filtered_files.append(f)
+            # Capture README for embedding update
+            if f.relative_path.lower() in ("readme.md", "readme.txt", "readme"):
+                readme_content = decompress_content(f.content_compressed).decode("utf-8")
+
+        # Bulk copy project files to template_content
+        template_files = [
+            TemplateContent(
+                template_id=template_id,
+                relative_path=f.relative_path,
+                content_compressed=f.content_compressed,
+                content_hash=f.content_hash,
+                file_size=f.file_size,
+            )
+            for f in filtered_files
+        ]
+        session.add_all(template_files)
+
+        # Use project name/description if no README
+        if not readme_content:
+            readme_content = f"# {project.name}\n\n{project.description or ''}"
+
+        # Update template metadata from LLM
+        extracted = self.llm.summarize_readme(readme_content)
+        template.name = project.name
+        template.industry = extracted.get("industry")
+        template.description = extracted.get("description")
+        template.full_description = readme_content
+        template.capabilities = json.dumps(extracted.get("capabilities", []))
+        template.source_project_id = project_id
+
+        # Update embedding
+        embedding = self.llm.get_embedding(readme_content)
+        session.execute(
+            text("""
+                UPDATE templates
+                SET embedding = CAST(:embedding AS vector)
+                WHERE id = :template_id
+            """),
+            {"embedding": str(embedding), "template_id": template_id}
+        )
+
+        session.commit()
+        session.refresh(template)
+        return template
+
+    def get_or_create_source_project(
+        self,
+        template_id: str,
+        user_email: str,
+        session: Session,
+    ) -> Project:
+        """
+        Get the source project for a template, or create a new one if it was deleted.
+
+        Args:
+            template_id: Template ID
+            user_email: User email (for creating new project)
+            session: Database session
+
+        Returns:
+            Existing or newly created Project
+
+        Raises:
+            ValueError: If template not found
+        """
+        template = session.exec(
+            select(Template).where(Template.id == template_id)
+        ).first()
+        if not template:
+            raise ValueError(f"Template {template_id} not found")
+
+        # If source project exists, return it
+        if template.source_project_id:
+            project = session.exec(
+                select(Project).where(Project.id == template.source_project_id)
+            ).first()
+            if project:
+                return project
+
+        # Project was deleted or never existed - create a new one from template
+        project = self.create_project_from_template(
+            template_id=template_id,
+            project_name=f"Edit: {template.name}",
+            user_email=user_email,
+            session=session,
+        )
+
+        # Link the new project to the template
+        template.source_project_id = project.id
+        session.commit()
+        session.refresh(template)
+
+        return project

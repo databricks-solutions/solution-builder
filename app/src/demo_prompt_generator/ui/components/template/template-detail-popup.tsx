@@ -9,7 +9,6 @@ import {
   SheetContent,
   SheetHeader,
   SheetTitle,
-  SheetDescription,
   SheetFooter,
 } from "../ui/sheet";
 import { Button } from "../ui/button";
@@ -95,6 +94,13 @@ export function TemplateDetailPopup({ templateId, onClose }: TemplateDetailPopup
       .finally(() => setIsLoadingFile(false));
   }, [templateId, selectedFile]);
 
+  // Customization prompt sent after cloning template
+  const CUSTOMIZATION_PROMPT = `I cloned a demo template locally. Please:
+1. Read the current content (README.md and other files) to understand the demo story
+2. Read the demo-generator skill documentation since this template is built on top of it
+
+I'm going to send you follow-up instructions to customize this demo. Once you've read and understood the content, let me know you're ready to receive my customization requirements.`;
+
   const handleCustomize = async () => {
     if (!template) return;
 
@@ -102,16 +108,43 @@ export function TemplateDetailPopup({ templateId, onClose }: TemplateDetailPopup
     try {
       const project = await createProjectFromTemplate(template.id, template.name);
       onClose();
-      navigate({ to: "/project/$projectId", params: { projectId: project.id }, search: { prompt: undefined } });
+      navigate({
+        to: "/project/$projectId",
+        params: { projectId: project.id },
+        search: { prompt: CUSTOMIZATION_PROMPT },
+      });
     } catch (e) {
       setError((e as Error).message);
-    } finally {
       setIsCreating(false);
     }
+    // Note: Don't reset isCreating on success - let it stay true until navigation completes
   };
 
   // Build file tree structure
   const fileTree = buildFileTree(files);
+
+  // Full-screen cloning overlay
+  if (isCreating) {
+    return (
+      <div className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-background/95 backdrop-blur-sm">
+        <div className="flex flex-col items-center gap-6">
+          <div className="relative">
+            <div className="h-20 w-20 rounded-full border-4 border-primary/20 border-t-primary animate-spin" />
+            <Sparkles className="absolute inset-0 m-auto h-8 w-8 text-primary animate-pulse" />
+          </div>
+          <div className="text-center space-y-2">
+            <h2 className="text-2xl font-semibold">Cloning Template</h2>
+            <p className="text-muted-foreground">
+              Creating your project from "{template?.name}"...
+            </p>
+            <p className="text-sm text-muted-foreground/70">
+              This may take a moment
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <Sheet open={!!templateId} onOpenChange={(open) => !open && onClose()}>
@@ -123,16 +156,16 @@ export function TemplateDetailPopup({ templateId, onClose }: TemplateDetailPopup
                 {template?.name || "Loading..."}
               </SheetTitle>
               {template && (
-                <SheetDescription className="flex items-center gap-2">
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
                   {template.industry && (
                     <Badge variant="outline">{template.industry}</Badge>
                   )}
                   {template.file_count > 0 && (
-                    <span className="text-xs text-muted-foreground">
+                    <span className="text-xs">
                       {template.file_count} files
                     </span>
                   )}
-                </SheetDescription>
+                </div>
               )}
             </div>
           </div>

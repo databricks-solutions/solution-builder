@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import logging
+from functools import lru_cache
 from typing import Annotated, TypeAlias
 from uuid import UUID
 
 from fastapi import Depends, Header
 from pydantic import BaseModel, SecretStr
+
+logger = logging.getLogger(__name__)
 
 
 class DatabricksAppsHeaders(BaseModel):
@@ -21,6 +25,24 @@ class DatabricksAppsHeaders(BaseModel):
     token: SecretStr | None
 
 
+@lru_cache(maxsize=1)
+def _get_dev_user_email() -> str | None:
+    """Get current user email from Databricks SDK (for dev mode fallback).
+
+    Uses lru_cache to avoid repeated API calls.
+    """
+    try:
+        from databricks.sdk import WorkspaceClient
+        ws = WorkspaceClient()
+        me = ws.current_user.me()
+        email = me.user_name  # user_name is typically the email
+        logger.info(f"Dev mode: using Databricks SDK user email: {email}")
+        return email
+    except Exception as e:
+        logger.warning(f"Failed to get user from Databricks SDK: {e}")
+        return None
+
+
 def get_databricks_headers(
     host: Annotated[str | None, Header(alias="X-Forwarded-Host")] = None,
     user_name: Annotated[
@@ -31,7 +53,14 @@ def get_databricks_headers(
     request_id: Annotated[str | None, Header(alias="X-Request-Id")] = None,
     token: Annotated[str | None, Header(alias="X-Forwarded-Access-Token")] = None,
 ) -> DatabricksAppsHeaders:
-    """Extract Databricks Apps headers from the incoming request."""
+    """Extract Databricks Apps headers from the incoming request.
+
+    In dev mode (no headers), falls back to Databricks SDK current user.
+    """
+    # If no user_email from headers, try to get it from Databricks SDK (dev mode)
+    if not user_email:
+        user_email = _get_dev_user_email()
+
     return DatabricksAppsHeaders(
         host=host,
         user_name=user_name,

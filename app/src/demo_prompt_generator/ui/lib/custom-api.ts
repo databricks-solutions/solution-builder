@@ -719,6 +719,31 @@ export async function deleteTemplate(templateId: string): Promise<void> {
   if (!resp.ok) throw new Error(`Failed to delete template: ${resp.status}`);
 }
 
+export async function getTemplateByProject(projectId: string): Promise<TemplateDetail> {
+  const resp = await fetch(`/api/templates/by-project/${projectId}`);
+  if (!resp.ok) throw new Error(`Failed to get template: ${resp.status}`);
+  return resp.json();
+}
+
+export async function updateTemplateFromProject(
+  templateId: string,
+  projectId: string
+): Promise<TemplateDetail> {
+  const resp = await fetch(`/api/templates/${templateId}/update-from-project/${projectId}`, {
+    method: "PUT",
+  });
+  if (!resp.ok) throw new Error(`Failed to update template: ${resp.status}`);
+  return resp.json();
+}
+
+export async function openTemplateProject(templateId: string): Promise<Project> {
+  const resp = await fetch(`/api/templates/${templateId}/open-project`, {
+    method: "POST",
+  });
+  if (!resp.ok) throw new Error(`Failed to open template project: ${resp.status}`);
+  return resp.json();
+}
+
 // ---------------------------------------------------------------------------
 // Constants API
 // ---------------------------------------------------------------------------
@@ -741,12 +766,14 @@ export async function getCapabilities(): Promise<Capability[]> {
   return resp.json();
 }
 
-export interface TemplateAdminStatus {
-  is_admin: boolean;
+export interface CurrentUser {
+  email: string;
+  user_name: string | null;
+  is_template_admin: boolean;
 }
 
-export async function getTemplateAdminStatus(): Promise<TemplateAdminStatus> {
-  const resp = await fetch("/api/constants/template-admin-status");
-  if (!resp.ok) throw new Error(`Failed to get admin status: ${resp.status}`);
+export async function getCurrentUser(): Promise<CurrentUser> {
+  const resp = await fetch("/api/current-user");
+  if (!resp.ok) throw new Error(`Failed to get current user: ${resp.status}`);
   return resp.json();
 }

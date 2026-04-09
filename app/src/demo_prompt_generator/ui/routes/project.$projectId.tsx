@@ -32,7 +32,9 @@ import {
   Pencil,
   Check,
   X,
+  FileEdit,
 } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import {
   getProject,
   listProjectFiles,
@@ -45,10 +47,13 @@ import {
   clearProjectSession,
   submitTemplateFromProject,
   updateProject,
+  getTemplateByProject,
+  updateTemplateFromProject,
   type Project,
   type ProjectFile,
   type ProjectFileContent,
   type Message,
+  type TemplateDetail,
 } from "@/lib/custom-api";
 
 export const Route = createFileRoute("/project/$projectId")({
@@ -68,6 +73,7 @@ function ProjectPage() {
 
   // Project state
   const [project, setProject] = useState<Project | null>(null);
+  const [projectNotFound, setProjectNotFound] = useState(false);
   const [files, setFiles] = useState<ProjectFile[]>([]);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [fileContent, setFileContent] = useState<ProjectFileContent | null>(null);
@@ -97,6 +103,9 @@ function ProjectPage() {
   // Template submission state
   const [isSubmittingTemplate, setIsSubmittingTemplate] = useState(false);
   const [templateSubmitted, setTemplateSubmitted] = useState(false);
+  const [linkedTemplate, setLinkedTemplate] = useState<TemplateDetail | null>(null);
+  const [isUpdateTemplateDialogOpen, setIsUpdateTemplateDialogOpen] = useState(false);
+  const [isUpdatingTemplate, setIsUpdatingTemplate] = useState(false);
 
   // Project name editing state
   const [isEditingName, setIsEditingName] = useState(false);
@@ -127,6 +136,13 @@ function ProjectPage() {
       });
     }
   }, [project]);
+
+  // Check if this project has a linked template
+  useEffect(() => {
+    getTemplateByProject(projectId)
+      .then(setLinkedTemplate)
+      .catch(() => setLinkedTemplate(null));
+  }, [projectId]);
 
   // Abort controller for cancellation
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -160,6 +176,10 @@ function ProjectPage() {
         setMessages(msgs);
       } catch (error) {
         console.error("Failed to load project:", error);
+        // Check if it's a 404 error
+        if (error instanceof Error && error.message.includes("404")) {
+          setProjectNotFound(true);
+        }
       } finally {
         setIsLoadingMessages(false);
       }
@@ -455,7 +475,8 @@ function ProjectPage() {
 
     setIsSubmittingTemplate(true);
     try {
-      await submitTemplateFromProject(projectId);
+      const template = await submitTemplateFromProject(projectId);
+      setLinkedTemplate(template as TemplateDetail);
       setTemplateSubmitted(true);
       // Reset after 3 seconds
       setTimeout(() => setTemplateSubmitted(false), 3000);
@@ -465,6 +486,25 @@ function ProjectPage() {
       setIsSubmittingTemplate(false);
     }
   }, [projectId, isSubmittingTemplate, templateSubmitted]);
+
+  // Handle update template
+  const handleUpdateTemplate = useCallback(async () => {
+    if (isUpdatingTemplate || !linkedTemplate) return;
+
+    setIsUpdatingTemplate(true);
+    try {
+      const updated = await updateTemplateFromProject(linkedTemplate.id, projectId);
+      setLinkedTemplate(updated);
+      setIsUpdateTemplateDialogOpen(false);
+      setTemplateSubmitted(true);
+      // Reset after 3 seconds
+      setTimeout(() => setTemplateSubmitted(false), 3000);
+    } catch (error) {
+      console.error("Failed to update template:", error);
+    } finally {
+      setIsUpdatingTemplate(false);
+    }
+  }, [projectId, linkedTemplate, isUpdatingTemplate]);
 
   // Handle project name editing
   const handleStartEditName = useCallback(() => {
@@ -491,6 +531,32 @@ function ProjectPage() {
     setIsEditingName(false);
     setEditedName("");
   }, []);
+
+  // Show error page if project not found
+  if (projectNotFound) {
+    return (
+      <div className="flex h-screen flex-col items-center justify-center bg-background">
+        <div className="text-center max-w-md mx-auto px-4">
+          <div className="mb-6">
+            <AlertTriangle className="h-16 w-16 text-destructive mx-auto" />
+          </div>
+          <h1 className="text-2xl font-bold mb-2">Project Not Found</h1>
+          <p className="text-muted-foreground mb-6">
+            This project may have been deleted or you don't have access to it.
+          </p>
+          <div className="flex gap-3 justify-center">
+            <Button variant="outline" onClick={() => navigate({ to: "/" })}>
+              <ArrowLeft className="h-4 w-4 mr-2" />
+              Back to Home
+            </Button>
+            <Button onClick={() => navigate({ to: "/templates" })}>
+              Browse Templates
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-screen flex-col overflow-hidden">
@@ -560,30 +626,63 @@ function ProjectPage() {
           </div>
 
           <div className="flex items-center gap-2">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={handleSubmitTemplate}
-              disabled={isSubmittingTemplate || templateSubmitted || files.length === 0}
-              className={`gap-1.5 ${templateSubmitted ? "text-green-600" : ""}`}
-            >
-              {isSubmittingTemplate ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Submitting...
-                </>
-              ) : templateSubmitted ? (
-                <>
-                  <CheckCircle className="h-4 w-4" />
-                  Submitted
-                </>
-              ) : (
-                <>
-                  <Upload className="h-4 w-4" />
-                  Submit as Template
-                </>
-              )}
-            </Button>
+            {linkedTemplate ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setIsUpdateTemplateDialogOpen(true)}
+                disabled={isUpdatingTemplate || templateSubmitted || files.length === 0}
+                className={`gap-1.5 ${templateSubmitted ? "text-green-600" : ""}`}
+              >
+                {isUpdatingTemplate ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Updating...
+                  </>
+                ) : templateSubmitted ? (
+                  <>
+                    <CheckCircle className="h-4 w-4" />
+                    Updated
+                  </>
+                ) : (
+                  <>
+                    <FileEdit className="h-4 w-4" />
+                    Update Template
+                    <Badge
+                      variant={linkedTemplate.status === "APPROVED" ? "default" : "secondary"}
+                      className="ml-1 text-[10px] px-1.5 py-0"
+                    >
+                      {linkedTemplate.status === "REVIEW_REQUESTED" ? "Pending" : linkedTemplate.status.toLowerCase()}
+                    </Badge>
+                  </>
+                )}
+              </Button>
+            ) : (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleSubmitTemplate}
+                disabled={isSubmittingTemplate || templateSubmitted || files.length === 0}
+                className={`gap-1.5 ${templateSubmitted ? "text-green-600" : ""}`}
+              >
+                {isSubmittingTemplate ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Submitting...
+                  </>
+                ) : templateSubmitted ? (
+                  <>
+                    <CheckCircle className="h-4 w-4" />
+                    Submitted
+                  </>
+                ) : (
+                  <>
+                    <Upload className="h-4 w-4" />
+                    Submit as Template
+                  </>
+                )}
+              </Button>
+            )}
             <div className="h-6 w-px bg-border" />
             <Button
               variant="ghost"
@@ -610,7 +709,6 @@ function ProjectPage() {
             onSkillsClick={() => setIsSkillsOpen(true)}
             onRefresh={handleRefresh}
             isLoading={isLoadingFile}
-            projectName={project?.name}
             architectureContent={architectureContent}
             onLoadArchitecture={handleLoadArchitecture}
             isCreatingArchitecture={isCreatingArchitecture}
@@ -710,6 +808,67 @@ function ProjectPage() {
         resources={resources}
         onResourcesChange={setResources}
       />
+
+      {/* Update Template Confirmation Dialog */}
+      <Dialog open={isUpdateTemplateDialogOpen} onOpenChange={setIsUpdateTemplateDialogOpen}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10">
+                <FileEdit className="h-5 w-5 text-primary" />
+              </div>
+              <div>
+                <DialogTitle>Update Template</DialogTitle>
+                <DialogDescription className="mt-1">
+                  Sync template with project files
+                </DialogDescription>
+              </div>
+            </div>
+          </DialogHeader>
+          <div className="py-4">
+            <p className="text-sm text-muted-foreground">
+              The template content will be replaced with the current project files.
+              {linkedTemplate && (
+                <span className="block mt-2">
+                  Status will remain{" "}
+                  <Badge
+                    variant={linkedTemplate.status === "APPROVED" ? "default" : "secondary"}
+                    className="text-[10px] px-1.5 py-0"
+                  >
+                    {linkedTemplate.status === "REVIEW_REQUESTED" ? "pending" : linkedTemplate.status.toLowerCase()}
+                  </Badge>
+                </span>
+              )}
+            </p>
+          </div>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              variant="outline"
+              onClick={() => setIsUpdateTemplateDialogOpen(false)}
+              disabled={isUpdatingTemplate}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleUpdateTemplate}
+              disabled={isUpdatingTemplate}
+              className="gap-2"
+            >
+              {isUpdatingTemplate ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Updating...
+                </>
+              ) : (
+                <>
+                  <FileEdit className="h-4 w-4" />
+                  Update Template
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

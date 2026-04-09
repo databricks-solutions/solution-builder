@@ -2,8 +2,8 @@
  * Templates browsing page for the template library.
  */
 
-import { createFileRoute, Link } from "@tanstack/react-router";
-import { useState, useEffect } from "react";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { useState, useEffect, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -19,9 +19,10 @@ import { TemplateDetailPopup } from "@/components/template/template-detail-popup
 import {
   listTemplates,
   getIndustries,
-  getTemplateAdminStatus,
+  getCurrentUser,
   updateTemplateStatus,
   deleteTemplate,
+  openTemplateProject,
   type TemplateListItem,
 } from "@/lib/custom-api";
 import {
@@ -34,26 +35,30 @@ import {
   Clock,
   CheckCircle,
   XCircle,
+  Edit,
+  User,
 } from "lucide-react";
 
-export const Route = createFileRoute("/templates")(({
+export const Route = createFileRoute("/templates")({
   component: TemplatesPage,
-}));
+});
 
 type StatusFilter = "ALL" | "APPROVED" | "REVIEW_REQUESTED" | "REJECTED";
 
 const STATUS_TABS: { value: StatusFilter; label: string; icon: React.ReactNode }[] = [
   { value: "ALL", label: "All", icon: null },
   { value: "APPROVED", label: "Approved", icon: <CheckCircle className="h-3.5 w-3.5" /> },
-  { value: "REVIEW_REQUESTED", label: "Pending Review", icon: <Clock className="h-3.5 w-3.5" /> },
   { value: "REJECTED", label: "Rejected", icon: <XCircle className="h-3.5 w-3.5" /> },
+  { value: "REVIEW_REQUESTED", label: "Pending Review", icon: <Clock className="h-3.5 w-3.5" /> },
 ];
 
 function TemplatesPage() {
+  const navigate = useNavigate();
   const [templates, setTemplates] = useState<TemplateListItem[]>([]);
   const [industries, setIndustries] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [userEmail, setUserEmail] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("APPROVED");
   const [industryFilter, setIndustryFilter] = useState<string>("ALL");
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
@@ -63,18 +68,39 @@ function TemplatesPage() {
   useEffect(() => {
     Promise.all([
       getIndustries(),
-      getTemplateAdminStatus(),
-    ]).then(([industriesData, adminStatus]) => {
+      getCurrentUser(),
+    ]).then(([industriesData, user]) => {
       setIndustries(industriesData);
-      setIsAdmin(adminStatus.is_admin);
+      setIsAdmin(user.is_template_admin);
+      setUserEmail(user.email);
       // Non-admins default to APPROVED, admins default to ALL
-      if (!adminStatus.is_admin) {
+      if (!user.is_template_admin) {
         setStatusFilter("APPROVED");
       } else {
         setStatusFilter("ALL");
       }
     }).catch(console.error);
   }, []);
+
+  // Compute "My Templates" - templates owned by the current user
+  const myTemplates = useMemo(() => {
+    if (!userEmail) return [];
+    return templates.filter((t) => t.owner_email === userEmail);
+  }, [templates, userEmail]);
+
+  // Edit template handler - opens the source project
+  const handleEditTemplate = async (templateId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setActionLoading(templateId);
+    try {
+      const project = await openTemplateProject(templateId);
+      navigate({ to: "/project/$projectId", params: { projectId: project.id }, search: { prompt: undefined } });
+    } catch (error) {
+      console.error("Failed to open template project:", error);
+    } finally {
+      setActionLoading(null);
+    }
+  };
 
   // Load templates when filters change
   useEffect(() => {
@@ -135,19 +161,6 @@ function TemplatesPage() {
       console.error("Failed to delete template:", error);
     } finally {
       setActionLoading(null);
-    }
-  };
-
-  const getStatusBadge = (status: string) => {
-    switch (status) {
-      case "APPROVED":
-        return <Badge variant="default" className="bg-green-600">Approved</Badge>;
-      case "REVIEW_REQUESTED":
-        return <Badge variant="secondary">Pending Review</Badge>;
-      case "REJECTED":
-        return <Badge variant="destructive">Rejected</Badge>;
-      default:
-        return <Badge variant="outline">{status}</Badge>;
     }
   };
 
@@ -221,6 +234,59 @@ function TemplatesPage() {
             </span>
           </div>
 
+          {/* My Templates section */}
+          {myTemplates.length > 0 && (
+            <div className="mb-8">
+              <div className="flex items-center gap-2 mb-4">
+                <User className="h-5 w-5 text-primary" />
+                <h2 className="text-lg font-semibold">My Templates</h2>
+                <Badge variant="secondary" className="text-xs">
+                  {myTemplates.length}
+                </Badge>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 items-stretch">
+                {myTemplates.map((template) => (
+                  <div key={template.id} className="relative group h-full">
+                    <TemplateTile
+                      template={template}
+                      onClick={() => setSelectedTemplateId(template.id)}
+                      showStatus={true}
+                    />
+
+                    {/* Owner action buttons */}
+                    <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <Button
+                        size="icon"
+                        variant="default"
+                        className="h-7 w-7"
+                        onClick={(e) => handleEditTemplate(template.id, e)}
+                        disabled={actionLoading === template.id}
+                        title="Edit template"
+                      >
+                        {actionLoading === template.id ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Edit className="h-3.5 w-3.5" />
+                        )}
+                      </Button>
+                      <Button
+                        size="icon"
+                        variant="destructive"
+                        className="h-7 w-7"
+                        onClick={(e) => handleDelete(template.id, e)}
+                        disabled={actionLoading === template.id}
+                        title="Delete template"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="border-b border-border mt-8" />
+            </div>
+          )}
+
           {/* Templates grid */}
           {isLoading ? (
             <div className="flex items-center justify-center py-20">
@@ -243,6 +309,7 @@ function TemplatesPage() {
                   <TemplateTile
                     template={template}
                     onClick={() => setSelectedTemplateId(template.id)}
+                    showStatus={isAdmin && statusFilter === "ALL"}
                   />
 
                   {/* Admin actions overlay */}
@@ -283,13 +350,6 @@ function TemplatesPage() {
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                       </Button>
-                    </div>
-                  )}
-
-                  {/* Status badge for admin view */}
-                  {isAdmin && statusFilter === "ALL" && (
-                    <div className="absolute top-2 left-2">
-                      {getStatusBadge(template.status)}
                     </div>
                   )}
                 </div>

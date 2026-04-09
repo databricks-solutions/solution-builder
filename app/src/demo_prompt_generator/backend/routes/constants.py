@@ -1,6 +1,8 @@
-"""Constants API endpoints for industries and capabilities."""
+"""Constants API endpoints for industries, capabilities, and current user."""
 
 from __future__ import annotations
+
+from typing import Optional
 
 from pydantic import BaseModel
 
@@ -10,20 +12,18 @@ from ..core.constants import CAPABILITIES, INDUSTRIES
 router = create_router()
 
 
-def _get_user_email(headers) -> str:
-    """Extract user email from Databricks Apps headers."""
-    if headers and headers.user_email:
-        return headers.user_email
-    if headers and headers.user_id:
-        return headers.user_id
-    return "anonymous@local"
-
-
 class Capability(BaseModel):
     """Capability definition."""
     id: str
     name: str
     category: str
+
+
+class CurrentUser(BaseModel):
+    """Current user information."""
+    email: str
+    user_name: Optional[str] = None
+    is_template_admin: bool
 
 
 @router.get(
@@ -49,21 +49,23 @@ def get_capabilities():
     ]
 
 
-class TemplateAdminStatus(BaseModel):
-    """Response for template admin check."""
-    is_admin: bool
-
-
 @router.get(
-    "/constants/template-admin-status",
-    response_model=TemplateAdminStatus,
-    operation_id="getTemplateAdminStatus",
+    "/current-user",
+    response_model=CurrentUser,
+    operation_id="getCurrentUser",
 )
-def get_template_admin_status(
+def get_current_user(
     headers: Dependencies.Headers,
     config: Dependencies.Config,
 ):
-    """Check if the current user is a template admin."""
-    user_email = _get_user_email(headers)
-    is_admin = user_email in config.template_admin_emails
-    return TemplateAdminStatus(is_admin=is_admin)
+    """Get current user info including admin status."""
+    # Get email from headers (already falls back to Databricks SDK in dev mode)
+    email = headers.user_email or "anonymous@local"
+    user_name = headers.user_name
+    is_admin = email in config.template_admin_emails
+
+    return CurrentUser(
+        email=email,
+        user_name=user_name,
+        is_template_admin=is_admin,
+    )

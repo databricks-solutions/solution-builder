@@ -77,13 +77,24 @@ def list_templates(
 
     query = select(Template)
 
-    if status:
-        query = query.where(Template.status == status)
-    elif not is_admin:
-        # Non-admins see APPROVED or their own submissions
-        query = query.where(
-            (Template.status == "APPROVED") | (Template.owner_email == user_email)
-        )
+    # Always include user's own templates (for "My Templates" section)
+    # Plus filter by status based on admin/non-admin permissions
+    if is_admin:
+        # Admins can filter by any status, but always see their own templates too
+        if status:
+            query = query.where(
+                (Template.status == status) | (Template.owner_email == user_email)
+            )
+    else:
+        # Non-admins see their own submissions + filtered approved templates
+        if status:
+            query = query.where(
+                (Template.status == status) | (Template.owner_email == user_email)
+            )
+        else:
+            query = query.where(
+                (Template.status == "APPROVED") | (Template.owner_email == user_email)
+            )
 
     if industry:
         query = query.where(Template.industry == industry)
@@ -434,6 +445,219 @@ def create_project_from_template(
         updated_at=project.updated_at,
         message_count=0,
         file_count=0,  # Will be counted on next fetch
+    )
+
+
+@router.get(
+    "/templates/by-project/{project_id}",
+    response_model=TemplateDetail,
+    operation_id="getTemplateByProject",
+)
+def get_template_by_project(
+    project_id: str,
+    session: Dependencies.Session,
+    headers: Dependencies.Headers,
+    request: Request,
+    ws: Dependencies.UserClient,
+    config: Dependencies.Config,
+):
+    """Get template linked to a project."""
+    user_email = _get_user_email(headers)
+
+    template_service = _get_template_service(ws, config, request.app.state.engine)
+    template = template_service.get_template_by_project(project_id, session)
+
+    if not template:
+        raise HTTPException(status_code=404, detail="No template linked to this project")
+
+    # Check access: must be owner or admin
+    is_admin = user_email in config.template_admin_emails
+    if not is_admin and template.owner_email != user_email:
+        raise HTTPException(status_code=404, detail="No template linked to this project")
+
+    # Get file count
+    file_count = session.exec(
+        select(func.count())
+        .select_from(TemplateContent)
+        .where(TemplateContent.template_id == template.id)
+    ).one()
+
+    return TemplateDetail(
+        id=template.id,
+        name=template.name,
+        status=template.status,
+        owner_email=template.owner_email,
+        industry=template.industry,
+        description=template.description,
+        full_description=template.full_description,
+        capabilities=_parse_capabilities(template.capabilities),
+        submitted_at=template.submitted_at,
+        reviewed_at=template.reviewed_at,
+        reviewed_by=template.reviewed_by,
+        source_project_id=template.source_project_id,
+        file_count=file_count,
+    )
+
+
+@router.put(
+    "/templates/{template_id}/update-from-project/{project_id}",
+    response_model=TemplateDetail,
+    operation_id="updateTemplateFromProject",
+)
+def update_template_from_project(
+    template_id: str,
+    project_id: str,
+    session: Dependencies.Session,
+    headers: Dependencies.Headers,
+    request: Request,
+    ws: Dependencies.UserClient,
+    config: Dependencies.Config,
+):
+    """Update template content from project files (owner only)."""
+    user_email = _get_user_email(headers)
+
+    # Check template exists and user is owner
+    template = session.exec(
+        select(Template).where(Template.id == template_id)
+    ).first()
+
+    if not template:
+        raise HTTPException(status_code=404, detail="Template not found")
+
+    if template.owner_email != user_email:
+        raise HTTPException(status_code=403, detail="Only the template owner can update it")
+
+    template_service = _get_template_service(ws, config, request.app.state.engine)
+
+    try:
+        updated_template = template_service.update_template_from_project(
+            template_id=template_id,
+            project_id=project_id,
+            session=session,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    # Get file count
+    file_count = session.exec(
+        select(func.count())
+        .select_from(TemplateContent)
+        .where(TemplateContent.template_id == updated_template.id)
+    ).one()
+
+    return TemplateDetail(
+        id=updated_template.id,
+        name=updated_template.name,
+        status=updated_template.status,
+        owner_email=updated_template.owner_email,
+        industry=updated_template.industry,
+        description=updated_template.description,
+        full_description=updated_template.full_description,
+        capabilities=_parse_capabilities(updated_template.capabilities),
+        submitted_at=updated_template.submitted_at,
+        reviewed_at=updated_template.reviewed_at,
+        reviewed_by=updated_template.reviewed_by,
+        source_project_id=updated_template.source_project_id,
+        file_count=file_count,
+    )
+
+
+@router.post(
+    "/templates/{template_id}/open-project",
+    response_model=ProjectOut,
+    operation_id="openTemplateProject",
+)
+def open_template_project(
+    template_id: str,
+    session: Dependencies.Session,
+    headers: Dependencies.Headers,
+    request: Request,
+    ws: Dependencies.UserClient,
+    config: Dependencies.Config,
+):
+    """Get or create the source project for a template (owner only)."""
+    user_email = _get_user_email(headers)
+
+    # Check template exists and user is owner
+    template = session.exec(
+        select(Template).where(Template.id == template_id)
+    ).first()
+
+    if not template:
+        raise HTTPException(status_code=404, detail="Template not found")
+
+    if template.owner_email != user_email:
+        raise HTTPException(status_code=403, detail="Only the template owner can edit it")
+
+    template_service = _get_template_service(ws, config, request.app.state.engine)
+
+    try:
+        project = template_service.get_or_create_source_project(
+            template_id=template_id,
+            user_email=user_email,
+            session=session,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    return ProjectOut(
+        id=project.id,
+        name=project.name,
+        user_email=project.user_email,
+        description=project.description,
+        project_type=project.project_type,
+        created_at=project.created_at,
+        updated_at=project.updated_at,
+        message_count=0,
+        file_count=0,
+    )
+
+
+class TemplateOwnerUpdateRequest(BaseModel):
+    """Request body for updating template owner."""
+    owner_email: str
+
+
+@router.patch(
+    "/templates/{template_id}/owner",
+    response_model=TemplateListItem,
+    operation_id="updateTemplateOwner",
+)
+def update_template_owner(
+    template_id: str,
+    body: TemplateOwnerUpdateRequest,
+    session: Dependencies.Session,
+    headers: Dependencies.Headers,
+    config: Dependencies.Config,
+):
+    """Update template owner (admin only)."""
+    user_email = _get_user_email(headers)
+
+    if user_email not in config.template_admin_emails:
+        raise HTTPException(status_code=403, detail="Not authorized to update template owner")
+
+    template = session.exec(
+        select(Template).where(Template.id == template_id)
+    ).first()
+
+    if not template:
+        raise HTTPException(status_code=404, detail="Template not found")
+
+    template.owner_email = body.owner_email
+    session.add(template)
+    session.commit()
+    session.refresh(template)
+
+    return TemplateListItem(
+        id=template.id,
+        name=template.name,
+        status=template.status,
+        owner_email=template.owner_email,
+        industry=template.industry,
+        description=template.description,
+        capabilities=_parse_capabilities(template.capabilities),
+        submitted_at=template.submitted_at,
+        reviewed_at=template.reviewed_at,
     )
 
 
