@@ -27,7 +27,6 @@ interface FileViewerProps {
   onSkillsClick?: () => void;
   onRefresh?: () => void;
   isLoading?: boolean;
-  projectName?: string;
   architectureContent?: string | null;
   onLoadArchitecture?: () => void;
   isCreatingArchitecture?: boolean;
@@ -261,6 +260,7 @@ interface CollapsedSidebarProps {
   onExpand: () => void;
   onSkillsClick?: () => void;
   onRefresh?: () => void;
+  activeTab: ViewTab;
 }
 
 const CollapsedSidebar = memo(function CollapsedSidebar({
@@ -268,7 +268,11 @@ const CollapsedSidebar = memo(function CollapsedSidebar({
   onExpand,
   onSkillsClick,
   onRefresh,
+  activeTab,
 }: CollapsedSidebarProps) {
+  // Get label based on active tab
+  const tabLabel = activeTab === "readme" ? "README.md" : activeTab === "architecture" ? "architecture.md" : "Files";
+
   return (
     <div className="w-10 h-full shrink-0 border-r border-border bg-muted/30 flex flex-col items-center pt-2 pb-2">
       {/* Expand area */}
@@ -276,12 +280,12 @@ const CollapsedSidebar = memo(function CollapsedSidebar({
         className="flex flex-col items-center cursor-pointer hover:bg-muted/50 transition-colors rounded px-1 py-1"
         onClick={onExpand}
       >
-        {/* Vertical README.md text */}
+        {/* Vertical tab name text */}
         <div
           className="text-[10px] font-medium text-muted-foreground tracking-wider"
           style={{ writingMode: "vertical-rl", textOrientation: "mixed" }}
         >
-          README.md
+          {tabLabel}
         </div>
 
         {/* File count */}
@@ -340,6 +344,8 @@ interface ExpandedSidebarProps {
   selectedFile: string | null;
   onSelectFile: (path: string) => void;
   onCollapse: () => void;
+  onSkillsClick?: () => void;
+  onRefresh?: () => void;
 }
 
 const ExpandedSidebar = memo(function ExpandedSidebar({
@@ -347,21 +353,21 @@ const ExpandedSidebar = memo(function ExpandedSidebar({
   selectedFile,
   onSelectFile,
   onCollapse,
+  onSkillsClick,
+  onRefresh,
 }: ExpandedSidebarProps) {
   return (
     <div className="w-56 h-full shrink-0 border-r border-border bg-muted/30 flex flex-col">
-      {/* Header with collapse button */}
-      <div className="p-2 border-b border-border flex items-center justify-between">
+      {/* Header with collapse button - entire row is clickable */}
+      <div
+        className="p-2 border-b border-border flex items-center justify-between cursor-pointer hover:bg-muted/50 transition-colors"
+        onClick={onCollapse}
+        title="Collapse sidebar"
+      >
         <span className="text-xs text-muted-foreground font-medium">
           {files.length} files
         </span>
-        <button
-          onClick={onCollapse}
-          className="p-1 rounded hover:bg-muted transition-colors cursor-pointer"
-          title="Collapse sidebar"
-        >
-          <ChevronLeft className="h-4 w-4 text-muted-foreground" />
-        </button>
+        <ChevronLeft className="h-4 w-4 text-muted-foreground" />
       </div>
 
       {/* File tree */}
@@ -380,6 +386,30 @@ const ExpandedSidebar = memo(function ExpandedSidebar({
           )}
         </div>
       </ScrollArea>
+
+      {/* Bottom buttons */}
+      <div className="p-2 border-t border-border flex items-center gap-2">
+        {onRefresh && (
+          <button
+            onClick={onRefresh}
+            className="flex items-center gap-1.5 px-2 py-1 rounded hover:bg-muted/50 transition-colors cursor-pointer"
+            title="Refresh files"
+          >
+            <RefreshCw className="h-3.5 w-3.5 text-muted-foreground" />
+            <span className="text-[10px] text-muted-foreground font-medium">Refresh</span>
+          </button>
+        )}
+        {onSkillsClick && (
+          <button
+            onClick={onSkillsClick}
+            className="flex items-center gap-1.5 px-2 py-1 rounded hover:bg-muted/50 transition-colors cursor-pointer"
+            title="Skills"
+          >
+            <Sparkles className="h-3.5 w-3.5 text-muted-foreground" />
+            <span className="text-[10px] text-muted-foreground font-medium">Skills</span>
+          </button>
+        )}
+      </div>
     </div>
   );
 });
@@ -395,23 +425,15 @@ const ExpandedSidebar = memo(function ExpandedSidebar({
 interface TabBarProps {
   activeTab: ViewTab;
   onTabChange: (tab: ViewTab) => void;
-  projectName?: string;
 }
 
 const TabBar = memo(function TabBar({
   activeTab,
   onTabChange,
-  projectName,
 }: TabBarProps) {
   return (
     <div className="shrink-0 border-b border-border bg-muted/30">
       <div className="flex items-center px-4 py-2 gap-1">
-        {/* Project name */}
-        {projectName && (
-          <span className="text-sm font-medium text-foreground/80 mr-4 truncate max-w-[200px]">
-            {projectName}
-          </span>
-        )}
 
         {/* Tabs */}
         <div className="flex items-center gap-1 bg-muted/50 rounded-md p-0.5">
@@ -456,7 +478,6 @@ export const FileViewer = memo(function FileViewer({
   onSkillsClick,
   onRefresh,
   isLoading = false,
-  projectName,
   architectureContent,
   onLoadArchitecture,
   isCreatingArchitecture = false,
@@ -517,7 +538,6 @@ export const FileViewer = memo(function FileViewer({
       <TabBar
         activeTab={activeTab}
         onTabChange={handleTabChange}
-        projectName={projectName}
       />
 
       {/* Content area */}
@@ -540,6 +560,8 @@ export const FileViewer = memo(function FileViewer({
                   }
                 }}
                 onCollapse={() => setIsSidebarExpanded(false)}
+                onSkillsClick={onSkillsClick}
+                onRefresh={onRefresh}
               />
             ) : (
               <CollapsedSidebar
@@ -547,6 +569,7 @@ export const FileViewer = memo(function FileViewer({
                 onExpand={() => setIsSidebarExpanded(true)}
                 onSkillsClick={onSkillsClick}
                 onRefresh={onRefresh}
+                activeTab={activeTab}
               />
             )}
           </div>
@@ -559,6 +582,7 @@ export const FileViewer = memo(function FileViewer({
             onExpand={() => setIsSidebarExpanded(true)}
             onSkillsClick={onSkillsClick}
             onRefresh={onRefresh}
+            activeTab={activeTab}
           />
         )}
 
