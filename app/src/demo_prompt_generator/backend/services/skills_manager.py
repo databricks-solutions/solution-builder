@@ -22,7 +22,9 @@ logger = logging.getLogger(__name__)
 # Configuration
 AI_DEV_KIT_REPO = "https://github.com/databricks-solutions/ai-dev-kit.git"
 AI_DEV_KIT_LOCAL = os.getenv("AI_DEV_KIT_PATH", "./ai_dev_kit")
-AI_DEV_KIT_BRANCH = os.getenv("AI_DEV_KIT_BRANCH", "main")
+# IMPORTANT: Default branch is 'add-aidevkit-cli' which removes MCP in favor of CLI tools
+# TODO: Change back to 'main' once this branch is merged
+AI_DEV_KIT_BRANCH = os.getenv("AI_DEV_KIT_BRANCH", "add-aidevkit-cli")
 PROJECTS_BASE_DIR = os.getenv("PROJECTS_BASE_DIR", "./projects")
 
 # Skills to copy by default - None means copy ALL available skills

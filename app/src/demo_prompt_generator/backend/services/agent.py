@@ -13,7 +13,6 @@ from typing import Any, AsyncIterator, Generator
 
 from ..core._config import logger
 from .active_stream import ActiveStream
-from .databricks_tools import load_databricks_tools
 from .skills_manager import get_project_directory, get_project_skills_list
 from .system_prompt import get_system_prompt, get_workspace_url
 
@@ -213,14 +212,9 @@ async def stream_agent_response(
                 skills=skills,
             )
 
-            # Load Databricks MCP tools
-            mcp_server, mcp_tool_names = load_databricks_tools()
-
             # Build allowed tools list
+            # Note: MCP tools removed - ai-dev-kit now uses CLI tools via skills
             allowed_tools = ["Read", "Write", "Edit", "Glob", "Grep", "Bash", "Skill"]
-            if mcp_tool_names:
-                allowed_tools.extend(mcp_tool_names)
-                logger.info(f"Added {len(mcp_tool_names)} Databricks MCP tools")
 
             # Configure agent options
             # IMPORTANT: setting_sources=["project"] is required for the SDK to
@@ -233,11 +227,6 @@ async def stream_agent_response(
                 include_partial_messages=True,
                 setting_sources=["project"],  # Enable skill discovery from .claude/skills/
             )
-
-            # Add MCP server if loaded
-            if mcp_server:
-                options.mcp_servers = {'databricks': mcp_server}
-                logger.info("Configured Databricks MCP server")
 
             # Resume previous session if provided
             if session_id:
