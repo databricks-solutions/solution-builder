@@ -4,7 +4,6 @@
 
 import { memo } from "react";
 import { Card, CardContent, CardFooter, CardHeader } from "../ui/card";
-import { Badge } from "../ui/badge";
 import type { ProjectListItem } from "../../lib/custom-api";
 
 interface ProjectTileProps {
@@ -13,10 +12,18 @@ interface ProjectTileProps {
 }
 
 function formatDate(dateStr: string): string {
-  const date = new Date(dateStr);
+  // Handle ISO date strings - ensure UTC interpretation if no timezone specified
+  const normalizedDateStr = dateStr.endsWith("Z") || dateStr.includes("+") || dateStr.includes("-", 10)
+    ? dateStr
+    : dateStr + "Z";
+  const date = new Date(normalizedDateStr);
   const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
-  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+  // Compare dates in local timezone (ignore time for day comparison)
+  const dateLocal = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const nowLocal = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const diffMs = nowLocal.getTime() - dateLocal.getTime();
+  const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
 
   if (diffDays === 0) {
     return "Today";
@@ -43,14 +50,9 @@ export const ProjectTile = memo(function ProjectTile({
       onClick={onClick}
     >
       <CardHeader className="pb-2">
-        <div className="flex items-start justify-between gap-2">
-          <h3 className="font-semibold text-base line-clamp-2 group-hover:text-primary transition-colors">
-            {project.name}
-          </h3>
-          <Badge variant="secondary" className="shrink-0 text-xs">
-            {project.project_type.replace("_", " ")}
-          </Badge>
-        </div>
+        <h3 className="font-semibold text-base line-clamp-2 group-hover:text-primary transition-colors">
+          {project.name}
+        </h3>
       </CardHeader>
 
       <CardContent className="pb-2">

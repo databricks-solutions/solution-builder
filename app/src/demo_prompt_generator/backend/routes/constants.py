@@ -7,7 +7,7 @@ from typing import Optional
 from pydantic import BaseModel
 
 from ..core import Dependencies, create_router
-from ..core.constants import CAPABILITIES, INDUSTRIES
+from ..core.constants import INDUSTRIES, get_capabilities as load_capabilities
 
 router = create_router()
 
@@ -17,6 +17,7 @@ class Capability(BaseModel):
     id: str
     name: str
     category: str
+    disabled: bool = False
 
 
 class CurrentUser(BaseModel):
@@ -42,10 +43,15 @@ def get_industries():
     operation_id="getCapabilities",
 )
 def get_capabilities():
-    """Get list of available capabilities."""
+    """Get list of available capabilities loaded from markdown files."""
     return [
-        Capability(id=c["id"], name=c["name"], category=c["category"])
-        for c in CAPABILITIES
+        Capability(
+            id=c["id"],
+            name=c["name"],
+            category=c["category"],
+            disabled=c.get("disabled", False),
+        )
+        for c in load_capabilities()
     ]
 
 

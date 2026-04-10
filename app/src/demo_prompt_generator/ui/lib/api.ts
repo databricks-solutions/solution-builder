@@ -19,6 +19,7 @@ export interface ActiveExecutionOut {
 }
 export interface Capability {
     category: string;
+    disabled: boolean;
     id: string;
     name: string;
 }

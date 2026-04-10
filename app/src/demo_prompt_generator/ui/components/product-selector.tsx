@@ -1,6 +1,7 @@
 /**
  * Product capability selector for demo creation.
  * Shows categories horizontally with toggleable product chips.
+ * Capabilities are loaded from the API.
  */
 
 import { cn } from "@/lib/utils";
@@ -10,6 +11,8 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { Capability } from "@/lib/api";
+import { useMemo } from "react";
 
 export interface ProductCategory {
   id: string;
@@ -24,72 +27,63 @@ export interface Product {
   unavailable?: boolean;
 }
 
-// Product categories and their features
-export const PRODUCT_CATEGORIES: ProductCategory[] = [
-  {
-    id: "data-processing",
-    name: "Data Processing",
-    products: [
-      { id: "lakeflow-connect", name: "Lakeflow Connect", description: "Managed connectors for SaaS, DBs, files" },
-      { id: "sdp", name: "SDP", description: "Spark Declarative Pipelines" },
-      { id: "lakeflow-jobs", name: "Lakeflow Jobs", description: "Workflow orchestration" },
-      { id: "ai-query", name: "AI Query", description: "Natural language to SQL in notebooks — coming soon!", unavailable: true },
-    ],
-  },
-  {
-    id: "ai-bi",
-    name: "AI/BI",
-    products: [
-      { id: "dashboards", name: "Dashboards", description: "AI-assisted dashboards" },
-      { id: "genie", name: "Genie", description: "Natural language BI" },
-      { id: "metric-views", name: "Metric Views", description: "Centralized semantic layer for consistent metrics" },
-      { id: "databricks-sql", name: "Databricks SQL", description: "Serverless data warehouse" },
-    ],
-  },
-  {
-    id: "ai-genai-ml",
-    name: "AI/GenAI and ML",
-    products: [
-      { id: "vector-search", name: "Vector Search", description: "Managed embeddings for RAG — coming soon!", unavailable: true },
-      { id: "knowledge-assistant", name: "Knowledge Assistant", description: "Managed RAG agent for documents" },
-      { id: "supervisor-agent", name: "Supervisor Agent", description: "Multi-agent orchestration" },
-      { id: "_separator", name: "", description: "" }, // Visual separator
-      { id: "model-training-mlflow", name: "Model Training + MLflow", description: "EDA, experiments, model registry" },
-      { id: "model-serving", name: "Model Serving", description: "Serverless model endpoints — coming soon!", unavailable: true },
-    ],
-  },
-  {
-    id: "governance",
-    name: "Governance",
-    products: [
-      { id: "unity-catalog", name: "Unity Catalog", description: "Unified governance" },
-      { id: "delta-sharing", name: "Delta Sharing", description: "Zero-copy data sharing — coming soon!", unavailable: true },
-      { id: "abac", name: "ABAC", description: "Attribute-based access control — coming soon!", unavailable: true },
-      { id: "data-classification", name: "Data Classification", description: "Automatic data tagging — coming soon!", unavailable: true },
-      { id: "data-quality", name: "Data Quality", description: "Quality monitoring — coming soon!", unavailable: true },
-    ],
-  },
-  {
-    id: "apps",
-    name: "Apps",
-    products: [
-      { id: "databricks-apps", name: "Databricks Apps", description: "Serverless app runtime — coming soon!", unavailable: true },
-      { id: "lakebase", name: "Lakebase", description: "Managed Postgres — coming soon!", unavailable: true },
-    ],
-  },
-];
+// Category order for sorting
+const CATEGORY_ORDER = ["Data Processing", "AI/BI", "AI/GenAI and ML", "Governance", "Apps"];
+
+// Convert API capabilities to ProductCategory structure
+function capabilitiesToCategories(capabilities: Capability[]): ProductCategory[] {
+  const categoryMap = new Map<string, Product[]>();
+
+  for (const cap of capabilities) {
+    if (!categoryMap.has(cap.category)) {
+      categoryMap.set(cap.category, []);
+    }
+    categoryMap.get(cap.category)!.push({
+      id: cap.id,
+      name: cap.name,
+      unavailable: cap.disabled,
+    });
+  }
+
+  // Convert to array and sort by category order
+  const categories: ProductCategory[] = [];
+  for (const [categoryName, products] of categoryMap.entries()) {
+    categories.push({
+      id: categoryName.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
+      name: categoryName,
+      products,
+    });
+  }
+
+  // Sort categories by defined order
+  categories.sort((a, b) => {
+    const aIdx = CATEGORY_ORDER.indexOf(a.name);
+    const bIdx = CATEGORY_ORDER.indexOf(b.name);
+    return (aIdx === -1 ? 999 : aIdx) - (bIdx === -1 ? 999 : bIdx);
+  });
+
+  return categories;
+}
 
 interface ProductSelectorProps {
+  capabilities: Capability[];
   selectedProducts: Set<string>;
   onToggleProduct: (productId: string) => void;
   expanded: boolean;
 }
 
 export function ProductSelector({
+  capabilities,
   selectedProducts,
   onToggleProduct,
   expanded,
 }: ProductSelectorProps) {
+  // Memoize the category transformation
+  const categories = useMemo(
+    () => capabilitiesToCategories(capabilities),
+    [capabilities]
+  );
+
   return (
     <TooltipProvider delayDuration={100}>
       <div
@@ -104,7 +98,7 @@ export function ProductSelector({
               Select capabilities to include in your demo:
             </p>
             <div className="flex gap-4 overflow-x-auto">
-              {PRODUCT_CATEGORIES.map((category) => (
+              {categories.map((category) => (
               <div key={category.id} className="shrink-0">
                 <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider mb-1.5">
                   {category.name}

@@ -8,7 +8,7 @@ import { BubbleBackground } from "@/components/backgrounds/bubble";
 import { ProjectTile } from "@/components/project/project-tile";
 import { TemplateTile } from "@/components/template/template-tile";
 import { TemplateDetailPopup } from "@/components/template/template-detail-popup";
-import { ProductSelector, PRODUCT_CATEGORIES } from "@/components/product-selector";
+import { ProductSelector } from "@/components/product-selector";
 import { assetUrl } from "@/lib/config";
 import {
   Sparkles,
@@ -26,6 +26,7 @@ import {
   type ProjectListItem,
   type TemplateSearchResult,
 } from "@/lib/custom-api";
+import { getCapabilities, type Capability } from "@/lib/api";
 
 export const Route = createFileRoute("/")({
   component: Index,
@@ -46,22 +47,26 @@ export const Route = createFileRoute("/")({
   },
 });
 
+// Default selected capabilities
+const DEFAULT_SELECTED_PRODUCTS = [
+  "lakeflow-connect",    // Ingestion
+  "sdp",                 // Processing
+  "databricks-sql",      // Analytics
+  "dashboards",          // Analytics
+  "genie",               // NL Queries
+  "supervisor-agent",    // AI Agents (MAS)
+  "knowledge-assistant", // AI Agents (KA)
+];
+
 function Index() {
   const [topic, setTopic] = useState("");
   const [projects, setProjects] = useState<ProjectListItem[]>([]);
   const [isLoadingProjects, setIsLoadingProjects] = useState(true);
   const [isCreating, setIsCreating] = useState(false);
   const [selectedProducts, setSelectedProducts] = useState<Set<string>>(
-    new Set([
-      "lakeflow-connect",    // Ingestion
-      "sdp",                 // Processing
-      "databricks-sql",      // Analytics
-      "dashboards",          // Analytics
-      "genie",               // NL Queries
-      "supervisor-agent",    // AI Agents (MAS)
-      "knowledge-assistant", // AI Agents (KA)
-    ])
+    new Set(DEFAULT_SELECTED_PRODUCTS)
   );
+  const [capabilities, setCapabilities] = useState<Capability[]>([]);
   const navigate = useNavigate();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -93,12 +98,16 @@ function Index() {
     });
   }, []);
 
-  // Load projects on mount
+  // Load projects and capabilities on mount
   useEffect(() => {
     listProjects()
       .then(setProjects)
       .catch(() => {})
       .finally(() => setIsLoadingProjects(false));
+
+    getCapabilities()
+      .then((result) => setCapabilities(result.data))
+      .catch(() => {});
   }, []);
 
   // Debounced template search (500ms)
@@ -140,10 +149,9 @@ function Index() {
       const project = await createProject(description);
 
       // Build the initial prompt message with full user description
-      const selectedProductNames = PRODUCT_CATEGORIES
-        .flatMap(cat => cat.products)
-        .filter(p => selectedProducts.has(p.id) && p.id !== "_separator")
-        .map(p => p.name);
+      const selectedProductNames = capabilities
+        .filter(cap => selectedProducts.has(cap.id))
+        .map(cap => cap.name);
 
       let initialPrompt = `Help me build a databricks demo.\n\nDemo description:\n${fullTopic}\n\nSkip templates.`;
       if (selectedProductNames.length > 0) {
@@ -220,6 +228,7 @@ function Index() {
                   autoFocus
                 />
                 <ProductSelector
+                  capabilities={capabilities}
                   selectedProducts={selectedProducts}
                   onToggleProduct={handleToggleProduct}
                   expanded={topic.length >= 3}

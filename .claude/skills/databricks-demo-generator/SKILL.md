@@ -109,7 +109,7 @@ The demo follows a classic three-act structure *(default pattern - adapt to user
 
 ## Product Positioning
 
-Demos showcase the Databricks platform. **Read `{SKILL_BASE_DIR}/references/databricks_products.md`** to understand what each product does, what pain it solves, and how to position it.
+Demos showcase the Databricks platform. **Read the capability files in `{SKILL_BASE_DIR}/references/blocks/capabilities/`** to understand what each product does, what pain it solves, and how to position it. Each file covers one capability (e.g., `genie.md`, `lakeflow-connect.md`, `dashboards.md`).
 
 ### Default Demo Stack (adapt to user needs)
 

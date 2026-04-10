@@ -17,7 +17,7 @@ from typing import Any, Literal
 from databricks.sdk import WorkspaceClient
 
 from ..core._config import AppConfig
-from ..core.constants import CAPABILITIES, INDUSTRIES
+from ..core.constants import INDUSTRIES, get_capabilities
 
 logger = logging.getLogger(__name__)
 
@@ -195,7 +195,7 @@ class LLMService:
         Returns:
             dict with description, capabilities, and industry
         """
-        capability_ids = [c["id"] for c in CAPABILITIES]
+        capability_ids = [c["id"] for c in get_capabilities()]
 
         prompt = f"""Analyze this README and return JSON with the following structure:
 {{
