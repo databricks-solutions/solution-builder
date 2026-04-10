@@ -44,11 +44,13 @@ done
 # Clone ai_dev_kit if not present
 # ============================================================================
 AI_DEV_KIT_REPO="https://github.com/databricks-solutions/ai-dev-kit.git"
+NEED_CLI_INSTALL=false
 
 if [ ! -d "ai_dev_kit" ]; then
     echo -e "${CYAN}Cloning ai-dev-kit repository (branch: $AI_DEV_KIT_BRANCH)...${NC}"
     git clone --branch "$AI_DEV_KIT_BRANCH" "$AI_DEV_KIT_REPO" ai_dev_kit
     echo -e "${GREEN}ai-dev-kit cloned successfully${NC}"
+    NEED_CLI_INSTALL=true
 elif [ ! -d "ai_dev_kit/databricks-tools-core" ]; then
     echo -e "${RED}ERROR: ai_dev_kit folder exists but seems incomplete${NC}"
     echo -e "Try: ${CYAN}rm -rf ai_dev_kit && ./scripts/dev.sh${NC}"
@@ -59,7 +61,35 @@ else
     if [ "$CURRENT_BRANCH" != "$AI_DEV_KIT_BRANCH" ] && [ "$AI_DEV_KIT_BRANCH" != "main" ]; then
         echo -e "${YELLOW}Switching ai-dev-kit to branch: $AI_DEV_KIT_BRANCH${NC}"
         (cd ai_dev_kit && git fetch && git checkout "$AI_DEV_KIT_BRANCH" && git pull)
+        NEED_CLI_INSTALL=true
     fi
+fi
+
+# ============================================================================
+# Install aidevkit CLI (required for Claude Code sessions)
+# ============================================================================
+# Check if aidevkit is installed and working
+if ! command -v aidevkit &> /dev/null || [ "$NEED_CLI_INSTALL" = true ]; then
+    echo -e "${CYAN}Installing aidevkit CLI tools...${NC}"
+
+    # Install databricks-tools-core first (dependency)
+    uv pip install -e "$APP_DIR/ai_dev_kit/databricks-tools-core" --quiet 2>/dev/null || \
+        pip install -e "$APP_DIR/ai_dev_kit/databricks-tools-core" --quiet
+
+    # Install the CLI
+    uv pip install -e "$APP_DIR/ai_dev_kit/databricks-aidevkit-cli" --quiet 2>/dev/null || \
+        pip install -e "$APP_DIR/ai_dev_kit/databricks-aidevkit-cli" --quiet
+
+    # Verify installation
+    if command -v aidevkit &> /dev/null; then
+        echo -e "${GREEN}aidevkit CLI installed successfully${NC}"
+        aidevkit --version 2>/dev/null || true
+    else
+        echo -e "${YELLOW}Warning: aidevkit CLI not in PATH after install${NC}"
+        echo -e "  You may need to add your Python bin directory to PATH"
+    fi
+else
+    echo -e "${GREEN}aidevkit CLI:${NC} $(aidevkit --version 2>/dev/null || echo 'installed')"
 fi
 
 # ============================================================================

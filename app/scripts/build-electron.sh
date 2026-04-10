@@ -111,7 +111,7 @@ if [ "$CLEAN" = true ]; then
     echo -e "${YELLOW}Cleaning build artifacts...${NC}"
     rm -rf "$APP_DIR/dist-python" "$APP_DIR/dist-venv" "$APP_DIR/dist-backend" "$APP_DIR/dist-electron" "$APP_DIR/build-pyinstaller"
     rm -rf "$APP_DIR/src/demo_prompt_generator/ui/__dist__"
-    rm -f "$APP_DIR/run_server.py"
+    rm -f "$APP_DIR/run_server.py" "$APP_DIR/run_aidevkit.py"
     echo -e "${GREEN}Clean complete${NC}"
 fi
 
@@ -243,6 +243,11 @@ setup_python_env() {
     echo -e "  ${CYAN}Installing dependencies with uv...${NC}"
     uv pip install -e "$APP_DIR" pyinstaller --python "$VENV_DIR/bin/python"
 
+    # Install aidevkit CLI tools (required for Claude Code sessions)
+    echo -e "  ${CYAN}Installing aidevkit CLI tools...${NC}"
+    uv pip install -e "$APP_DIR/ai_dev_kit/databricks-tools-core" --python "$VENV_DIR/bin/python"
+    uv pip install -e "$APP_DIR/ai_dev_kit/databricks-aidevkit-cli" --python "$VENV_DIR/bin/python"
+
     # Create marker file to track when deps were installed
     touch "$DEPS_MARKER"
 
@@ -336,6 +341,73 @@ EOF
         echo -e "  ${RED}Backend bundling failed${NC}"
         exit 1
     fi
+}
+
+# ==============================================================================
+# Step 3b: Bundle aidevkit CLI with PyInstaller
+# ==============================================================================
+bundle_aidevkit() {
+    echo ""
+    echo -e "${CYAN}Step 3b: Bundling aidevkit CLI with PyInstaller${NC}"
+
+    VENV_DIR="$APP_DIR/dist-venv"
+    BACKEND_DIST="$APP_DIR/dist-backend"
+
+    # Check if aidevkit already bundled and source hasn't changed
+    if [ -f "$BACKEND_DIST/backend/aidevkit" ]; then
+        # Check if any aidevkit source is newer than the bundle
+        NEWEST_SRC=$(find "$APP_DIR/ai_dev_kit/databricks-aidevkit-cli" -name "*.py" -newer "$BACKEND_DIST/backend/aidevkit" 2>/dev/null | head -1)
+        if [ -z "$NEWEST_SRC" ]; then
+            echo -e "  ${GREEN}aidevkit CLI already bundled and up to date, skipping${NC}"
+            echo -e "  ${YELLOW}(Use --rebuild-backend to force rebuild)${NC}"
+            return 0
+        else
+            echo -e "  ${YELLOW}Source files changed, rebuilding aidevkit...${NC}"
+        fi
+    fi
+
+    # Create a wrapper script for PyInstaller
+    cat > "$APP_DIR/run_aidevkit.py" << 'EOF'
+#!/usr/bin/env python3
+"""
+Entry point for the bundled aidevkit CLI.
+Used by PyInstaller to create a standalone executable.
+"""
+import sys
+from aidevkit_cli.main import main
+
+if __name__ == '__main__':
+    main()
+EOF
+
+    # Run PyInstaller for aidevkit
+    echo -e "  ${CYAN}Running PyInstaller for aidevkit...${NC}"
+    cd "$APP_DIR"
+
+    "$VENV_DIR/bin/pyinstaller" \
+        --name aidevkit \
+        --onefile \
+        --noconfirm \
+        --distpath "$BACKEND_DIST/backend" \
+        --workpath "$APP_DIR/build-pyinstaller" \
+        --specpath "$APP_DIR/build-pyinstaller" \
+        --collect-all=aidevkit_cli \
+        --collect-all=databricks_tools_core \
+        --hidden-import=typer \
+        --hidden-import=rich \
+        run_aidevkit.py
+
+    # Verify
+    if [ -f "$BACKEND_DIST/backend/aidevkit" ]; then
+        echo -e "  ${GREEN}aidevkit CLI bundled successfully${NC}"
+        echo -e "  ${GREEN}Size: $(du -sh "$BACKEND_DIST/backend/aidevkit" | cut -f1)${NC}"
+    else
+        echo -e "  ${RED}aidevkit CLI bundling failed${NC}"
+        exit 1
+    fi
+
+    # Clean up
+    rm -f "$APP_DIR/run_aidevkit.py"
 }
 
 # ==============================================================================
@@ -448,6 +520,7 @@ if [ "$SKIP_PYTHON" = false ]; then
     download_python
     setup_python_env
     bundle_backend
+    bundle_aidevkit
 fi
 
 if [ "$SKIP_FRONTEND" = false ]; then
