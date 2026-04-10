@@ -1,13 +1,43 @@
+"""
+Database models and Pydantic schemas for the Databricks Asset Generator.
+
+Clean break from previous generation/block/collection system.
+New project-based architecture with file sync and Claude Code integration.
+"""
+
 from __future__ import annotations
 
-from datetime import datetime
+import uuid
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Optional
 
 from pydantic import BaseModel, Field
-from sqlmodel import Column, Field as SQLField, SQLModel, Text
+from sqlalchemy import Column, Index, LargeBinary, String, Text
+from sqlalchemy.dialects.postgresql import JSON
+from sqlmodel import Field as SQLField, SQLModel
 
 from .. import __version__
+
+
+# ---------------------------------------------------------------------------
+# Utility functions
+# ---------------------------------------------------------------------------
+
+
+def generate_uuid() -> str:
+    """Generate a UUID string for project/execution IDs."""
+    return str(uuid.uuid4())
+
+
+def utc_now() -> datetime:
+    """Get current UTC timestamp."""
+    return datetime.now(timezone.utc)
+
+
+# ---------------------------------------------------------------------------
+# Version endpoint model
+# ---------------------------------------------------------------------------
 
 
 class VersionOut(BaseModel):
@@ -19,301 +49,485 @@ class VersionOut(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Enums matching original_doc.md form fields
+# Enums
 # ---------------------------------------------------------------------------
 
 
-class Urgency(str, Enum):
-    asap = "asap"
-    normal = "normal"
-    planning = "planning"
+class ProjectType(str, Enum):
+    DATABRICKS_DEMO = "DATABRICKS_DEMO"
 
 
-class DataSourceType(str, Enum):
-    synthetic = "synthetic"
-    csv = "csv"
-    public = "public"
-    anonymized = "anonymized"
+class ExecutionStatus(str, Enum):
+    RUNNING = "running"
+    COMPLETED = "completed"
+    CANCELLED = "cancelled"
+    ERROR = "error"
 
 
-class DeliveryFormat(str, Enum):
-    live_walkthrough = "live_walkthrough"
-    self_guided = "self_guided"
-    recorded_video = "recorded_video"
-    embedded_slides = "embedded_slides"
-    hands_on_lab = "hands_on_lab"
-    conference_demo = "conference_demo"
-
-
-class DemoLength(str, Enum):
-    short = "5-10"
-    standard = "15-20"
-    deep_dive = "30-45"
-    workshop = "60+"
-
-
-class Tone(str, Enum):
-    business = "business"
-    technical = "technical"
-    story_driven = "story_driven"
-    conversational = "conversational"
-
-
-class Cloud(str, Enum):
-    aws = "aws"
-    azure = "azure"
-    gcp = "gcp"
+class TemplateStatus(str, Enum):
+    REVIEW_REQUESTED = "REVIEW_REQUESTED"
+    APPROVED = "APPROVED"
+    REJECTED = "REJECTED"
 
 
 # ---------------------------------------------------------------------------
-# Databricks features — checkboxes from Section 3
+# SQLModel tables
 # ---------------------------------------------------------------------------
 
 
-class DatabricksFeatures(BaseModel):
-    delta_lake: bool = False
-    delta_live_tables: bool = False
-    unity_catalog: bool = False
-    databricks_sql: bool = False
-    mlflow: bool = False
-    model_registry: bool = False
-    model_serving: bool = False
-    feature_store: bool = False
-    automl: bool = False
-    mosaic_ai: bool = False
-    vector_search: bool = False
-    structured_streaming: bool = False
-    serverless_compute: bool = False
-    workflows_jobs: bool = False
-    genie: bool = False
-    databricks_apps: bool = False
-    lakehouse_monitoring: bool = False
+class User(SQLModel, table=True):
+    """
+    User configuration for the application.
+
+    Stores the user's email (auto-detected from Databricks CLI) and their
+    preferred Databricks profile for workspace connections.
+    """
+    __tablename__ = "users"
+
+    id: str = SQLField(
+        default_factory=generate_uuid,
+        primary_key=True,
+        max_length=50,
+    )
+    email: str = SQLField(unique=True, index=True, max_length=255)
+    databricks_profile: str = SQLField(default="DEFAULT", max_length=100)
+    created_at: datetime = SQLField(default_factory=utc_now)
+    updated_at: datetime = SQLField(default_factory=utc_now)
 
 
-# ---------------------------------------------------------------------------
-# Request model — all form fields from original_doc.md
-# ---------------------------------------------------------------------------
+class Project(SQLModel, table=True):
+    """
+    A project - top-level container for files, messages, and agent sessions.
 
+    Each project has a local directory at projects/{id}/ with files synced to DB.
+    Single conversation per project (session_id used for Claude Code resumption).
+    """
+    __tablename__ = "projects"
 
-class DemoRequestIn(BaseModel):
-    """All fields from the demo request form (original_doc.md)."""
+    id: str = SQLField(
+        default_factory=generate_uuid,
+        primary_key=True,
+        max_length=50,
+    )
+    user_email: str = SQLField(index=True, max_length=255)
+    name: str = SQLField(max_length=255)
+    description: Optional[str] = SQLField(default=None, sa_column=Column(Text))
+    project_type: str = SQLField(default=ProjectType.DATABRICKS_DEMO.value, max_length=50)
 
-    # Section 1: The Basics
-    demo_name: str = Field(..., description="Snake-case demo identifier")
-    date_needed: Optional[str] = Field(None, description="YYYY-MM-DD")
-    owner_name: str = Field(..., description="Submitter name")
-    owner_team: Optional[str] = Field(None, description="Team or role")
-    primary_audience: str = Field(..., description="Who will be in the room")
-    account_name: Optional[str] = Field(None, description="Company name or 'internal'")
-    urgency: Optional[Urgency] = None
+    # Skills config (JSON array of skill names)
+    skills: str = SQLField(default="[]", sa_column=Column(Text))
 
-    # Section 2: The Story
-    business_problem: str = Field(..., description="Customer pain point")
-    wow_moment: str = Field(..., description="What audience should believe after")
-    talking_points: Optional[list[str]] = Field(default_factory=list)
-    competitor: Optional[str] = None
+    # Claude Code session fields (1:1 conversation per project)
+    session_id: Optional[str] = SQLField(default=None, max_length=100)
+    cluster_id: Optional[str] = SQLField(default=None, max_length=100)
+    cluster_name: Optional[str] = SQLField(default=None, max_length=255)
+    warehouse_id: Optional[str] = SQLField(default=None, max_length=100)
+    warehouse_name: Optional[str] = SQLField(default=None, max_length=255)
 
-    # Section 3: Demo Content
-    solution_summary: str = Field(..., description="Main use-case scenario")
-    features: DatabricksFeatures = Field(default_factory=DatabricksFeatures)
-    data_source_type: DataSourceType = DataSourceType.synthetic
-    industry: str = Field(..., description="Industry or domain for the data")
-    row_count: Optional[str] = Field(None, description="Approximate rows needed")
-    kpis: Optional[list[str]] = Field(default_factory=list, description="Must-have metrics")
+    # Default Unity Catalog context
+    default_catalog: Optional[str] = SQLField(default=None, max_length=255)
+    default_schema: Optional[str] = SQLField(default=None, max_length=255)
 
-    # Section 4: Look & Feel
-    delivery_formats: list[DeliveryFormat] = Field(default_factory=list)
-    demo_length: DemoLength = DemoLength.standard
-    tone: Tone = Tone.business
-    branding: Optional[str] = None
+    # Timestamps
+    created_at: datetime = SQLField(default_factory=utc_now)
+    updated_at: datetime = SQLField(default_factory=utc_now)
 
-    # Section 5: Constraints & Context
-    topics_to_avoid: Optional[str] = None
-    existing_demo: Optional[str] = Field(None, description="Link or name of existing demo")
-    workspace_url: Optional[str] = None
-    cloud: Optional[Cloud] = None
-    additional_context: Optional[str] = None
-
-
-# ---------------------------------------------------------------------------
-# Response models
-# ---------------------------------------------------------------------------
-
-
-class GenerationOut(BaseModel):
-    id: int
-    demo_name: str
-    owner_name: str
-    industry: str
-    skill_md: str
-    stage: str = "package"
-    is_starred: bool = False
-    is_library: bool = False
-    library_tags: Optional[list[str]] = None
-    proposal_md: Optional[str] = None
-    skill_files: Optional[dict[str, str]] = None
-    created_at: datetime
-
-
-class GenerationListItem(BaseModel):
-    id: int
-    demo_name: str
-    industry: str
-    stage: str = "package"
-    is_starred: bool = False
-    is_library: bool = False
-    library_tags: Optional[list[str]] = None
-    created_at: datetime
-
-
-class StarRequest(BaseModel):
-    is_starred: bool
-
-
-class InspireRequest(BaseModel):
-    topic: str = Field(..., description="Industry or topic to generate a use-case for")
-
-
-# ---------------------------------------------------------------------------
-# Workspace (AI-driven) request/response models
-# ---------------------------------------------------------------------------
-
-
-class ChatMessage(BaseModel):
-    role: str = Field(..., description="'user' or 'assistant'")
-    content: str
-
-
-class WorkspaceGenerateRequest(BaseModel):
-    topic: str = Field(..., description="Use-case topic to generate a full SKILL.md from")
-
-
-class WorkspaceRefineRequest(BaseModel):
-    generation_id: int
-    message: str = Field(..., description="User's refinement instruction")
-    history: list[ChatMessage] = Field(default_factory=list)
-    focused_sections: list[str] = Field(
-        default_factory=list,
-        description="Section titles to focus refinement on (from @mentions)",
+    __table_args__ = (
+        Index("ix_projects_user_created", "user_email", "created_at"),
     )
 
 
-class WorkspaceProposeRequest(BaseModel):
-    topic: str = Field(..., description="Use-case topic to generate a proposal from")
+class ProjectFile(SQLModel, table=True):
+    """
+    Individual file tracked in a project.
 
+    Files are stored compressed (zlib) for efficiency.
+    SHA-256 hash used for change detection during sync.
+    """
+    __tablename__ = "project_files"
 
-class WorkspaceApproveRequest(BaseModel):
-    generation_id: int
-
-
-class WorkspaceBuildoutRequest(BaseModel):
-    generation_id: int
-    user_architecture: str | None = Field(default=None, description="User-designed architecture diagram (Mermaid) from the builder")
-    files_payload: str | None = None
-
-
-class WorkspaceBuildoutFileRequest(BaseModel):
-    generation_id: int
-    filename: str = Field(..., description="File to generate (e.g. 'data-schema.md')")
-    generated_files: dict[str, str] = Field(default_factory=dict, description="Previously generated files for context")
-    user_architecture: str | None = Field(default=None)
-
-
-class WorkspaceRefineFileRequest(BaseModel):
-    generation_id: int
-    filename: str = Field(..., description="Target file to refine (e.g. 'storyline.md')")
-    message: str = Field(..., description="User's refinement instruction")
-    history: list[ChatMessage] = Field(default_factory=list)
-
-
-class WorkspaceBuildoutSaveRequest(BaseModel):
-    generation_id: int
-    files: dict[str, str] = Field(..., description="Completed files so far")
-
-
-# ---------------------------------------------------------------------------
-# SQLModel table — persisted in Lakebase
-# ---------------------------------------------------------------------------
-
-PACKAGE_FILES = ["SKILL.md", "storyline.md", "architecture.md", "data-schema.md", "project-structure.md", "walkthrough.md"]
-
-
-class Generation(SQLModel, table=True):
     id: Optional[int] = SQLField(default=None, primary_key=True)
-    demo_name: str
-    owner_name: str
-    user_id: Optional[str] = SQLField(default=None, index=True)
-    industry: str
-    form_json: str = SQLField(sa_column=Column(Text))
-    skill_md: str = SQLField(sa_column=Column(Text))
-    stage: str = SQLField(default="package")
-    proposal_md: Optional[str] = SQLField(default=None, sa_column=Column(Text, nullable=True))
-    skill_files: Optional[str] = SQLField(default=None, sa_column=Column(Text, nullable=True))
-    is_starred: bool = SQLField(default=False)
-    is_library: bool = SQLField(default=False)
-    library_tags: Optional[str] = SQLField(default=None, sa_column=Column(Text, nullable=True))
-    created_at: datetime = SQLField(default_factory=datetime.utcnow)
+    project_id: str = SQLField(
+        sa_column=Column(
+            String(50),
+            index=True,
+            nullable=False,
+        )
+    )
+    relative_path: str = SQLField(max_length=500)
+
+    # Compressed content (zlib)
+    content_compressed: bytes = SQLField(sa_column=Column(LargeBinary, nullable=False))
+    content_hash: str = SQLField(max_length=64)  # SHA-256
+    file_size: int = SQLField(default=0)  # Uncompressed size
+
+    # Timestamps
+    last_modified: datetime = SQLField(default_factory=utc_now)
+    synced_at: datetime = SQLField(default_factory=utc_now)
+
+    __table_args__ = (
+        Index("ix_project_files_project_path", "project_id", "relative_path", unique=True),
+    )
 
 
-class Conversation(SQLModel, table=True):
-    """A chat conversation thread linked to a generation."""
+class Message(SQLModel, table=True):
+    """
+    Chat message within a project's conversation.
+
+    Since each project has exactly one conversation, messages link directly to project.
+    Metadata field stores reasoning (thinking/tools) for assistant messages.
+    """
+    __tablename__ = "messages"
+
     id: Optional[int] = SQLField(default=None, primary_key=True)
-    generation_id: int = SQLField(index=True)
-    title: str = SQLField(default="")
-    created_at: datetime = SQLField(default_factory=datetime.utcnow)
-    updated_at: datetime = SQLField(default_factory=datetime.utcnow)
+    project_id: str = SQLField(
+        sa_column=Column(
+            String(50),
+            index=True,
+            nullable=False,
+        )
+    )
+    role: str = SQLField(max_length=20)  # "user" | "assistant" | "system"
+    content: str = SQLField(sa_column=Column(Text, nullable=False))
+    is_error: bool = SQLField(default=False)
+    # Reasoning data for assistant messages (ordered list of thinking/tool entries)
+    reasoning_data: Optional[dict] = SQLField(default=None, sa_column=Column(JSON, nullable=True))
+    created_at: datetime = SQLField(default_factory=utc_now)
+
+    __table_args__ = (
+        Index("ix_messages_project_created", "project_id", "created_at"),
+    )
 
 
-class ChatMessageRecord(SQLModel, table=True):
-    """An individual chat message within a conversation."""
-    __tablename__ = "chat_message"
+class Execution(SQLModel, table=True):
+    """
+    Stores execution state for Claude Code agent sessions.
+
+    Enables session independence - users can reconnect after page refresh.
+    Events stored as JSON array for replay/streaming continuation.
+    session_id enables conversation resumption across invocations.
+    """
+    __tablename__ = "executions"
+
+    id: str = SQLField(
+        default_factory=generate_uuid,
+        primary_key=True,
+        max_length=50,
+    )
+    project_id: str = SQLField(
+        sa_column=Column(
+            String(50),
+            index=True,
+            nullable=False,
+        )
+    )
+    status: str = SQLField(default=ExecutionStatus.RUNNING.value, max_length=20)
+    session_id: Optional[str] = SQLField(default=None, max_length=100)  # Claude Code session for resumption
+    events_json: str = SQLField(default="[]", sa_column=Column(Text))
+    error: Optional[str] = SQLField(default=None, sa_column=Column(Text))
+    created_at: datetime = SQLField(default_factory=utc_now)
+    updated_at: datetime = SQLField(default_factory=utc_now)
+
+    __table_args__ = (
+        Index("ix_executions_project_status", "project_id", "status"),
+        Index("ix_executions_project_created", "project_id", "created_at"),
+    )
+
+
+class Template(SQLModel, table=True):
+    """
+    A reusable template that can be used to create new projects.
+
+    Templates are submitted from projects and go through admin review.
+    Contains pgvector embedding for semantic search.
+    """
+    __tablename__ = "templates"
+
+    id: str = SQLField(
+        default_factory=generate_uuid,
+        primary_key=True,
+        max_length=50,
+    )
+    name: str = SQLField(max_length=255)
+    status: str = SQLField(default=TemplateStatus.REVIEW_REQUESTED.value, max_length=20)
+    owner_email: str = SQLField(max_length=255, index=True)
+    industry: Optional[str] = SQLField(default=None, max_length=100)
+    description: Optional[str] = SQLField(default=None, sa_column=Column(Text))  # Short summary
+    full_description: Optional[str] = SQLField(default=None, sa_column=Column(Text))  # Full README
+    capabilities: Optional[str] = SQLField(default=None, sa_column=Column(Text))  # JSON array
+
+    # Note: embedding column is created via migration (vector type not supported in SQLModel)
+
+    submitted_at: datetime = SQLField(default_factory=utc_now)
+    reviewed_at: Optional[datetime] = SQLField(default=None)
+    reviewed_by: Optional[str] = SQLField(default=None, max_length=255)
+    source_project_id: Optional[str] = SQLField(default=None, max_length=50)
+
+    __table_args__ = (
+        Index("ix_templates_status", "status"),
+        Index("ix_templates_industry", "industry"),
+    )
+
+
+class TemplateContent(SQLModel, table=True):
+    """
+    Individual file stored in a template.
+
+    Files are stored compressed (zlib) like project files.
+    """
+    __tablename__ = "template_content"
+
     id: Optional[int] = SQLField(default=None, primary_key=True)
-    conversation_id: int = SQLField(index=True)
-    role: str  # "user", "assistant", or "system"
-    content: str = SQLField(sa_column=Column(Text))
-    created_at: datetime = SQLField(default_factory=datetime.utcnow)
+    template_id: str = SQLField(
+        sa_column=Column(
+            String(50),
+            index=True,
+            nullable=False,
+        )
+    )
+    relative_path: str = SQLField(max_length=500)
+    content_compressed: bytes = SQLField(sa_column=Column(LargeBinary, nullable=False))
+    content_hash: str = SQLField(max_length=64)
+    file_size: int = SQLField(default=0)
+    created_at: datetime = SQLField(default_factory=utc_now)
+
+    __table_args__ = (
+        Index("ix_template_content_unique_path", "template_id", "relative_path", unique=True),
+    )
 
 
 # ---------------------------------------------------------------------------
-# Conversation request/response models
+# Pydantic request/response models
 # ---------------------------------------------------------------------------
 
 
-class ConversationOut(BaseModel):
-    id: int
-    generation_id: int
-    title: str
+class ProjectCreateRequest(BaseModel):
+    """Request to create a new project."""
+    description: str = Field(..., description="Project description - name and schema will be generated from this")
+
+
+class ProjectUpdateRequest(BaseModel):
+    """Request to update a project."""
+    name: Optional[str] = None
+    description: Optional[str] = None
+
+
+class ProjectResourcesUpdateRequest(BaseModel):
+    """Request to update project resource settings."""
+    cluster_id: Optional[str] = None
+    cluster_name: Optional[str] = None
+    warehouse_id: Optional[str] = None
+    warehouse_name: Optional[str] = None
+    default_catalog: Optional[str] = None
+    default_schema: Optional[str] = None
+
+
+class ProjectOut(BaseModel):
+    """Project details response."""
+    id: str
+    name: str
+    user_email: str
+    description: Optional[str]
+    project_type: str
     created_at: datetime
     updated_at: datetime
+    message_count: int = 0
+    file_count: int = 0
+    # Resource settings
+    cluster_id: Optional[str] = None
+    cluster_name: Optional[str] = None
+    warehouse_id: Optional[str] = None
+    warehouse_name: Optional[str] = None
+    default_catalog: Optional[str] = None
+    default_schema: Optional[str] = None
 
 
-class ConversationWithMessages(BaseModel):
-    id: int
-    generation_id: int
-    title: str
-    messages: list[ChatMessage]
+class ProjectListItem(BaseModel):
+    """Project summary for list views."""
+    id: str
+    name: str
+    project_type: str
     created_at: datetime
     updated_at: datetime
+    message_count: int = 0
+    file_count: int = 0
 
 
-class ChatMessageOut(BaseModel):
+class ProjectFileOut(BaseModel):
+    """File metadata response."""
+    path: str
+    name: str
+    size: int
+    last_modified: datetime
+    synced_at: datetime
+
+
+class ProjectFileContent(BaseModel):
+    """File content response."""
+    path: str
+    content: str
+    size: int
+    last_modified: Optional[datetime] = None
+
+
+class MessageOut(BaseModel):
+    """Chat message response."""
     id: int
-    conversation_id: int
+    project_id: str
     role: str
     content: str
+    is_error: bool
+    reasoning_data: Optional[dict] = None  # Reasoning entries for assistant messages
     created_at: datetime
 
 
-class SaveMessagesRequest(BaseModel):
-    generation_id: int
-    messages: list[ChatMessage] = Field(..., description="All messages to persist")
+class MessageCreateRequest(BaseModel):
+    """Request to add a message."""
+    role: str = Field(..., description="'user' or 'assistant'")
+    content: str
+    is_error: bool = False
 
 
-class WorkspaceAgentRefineRequest(BaseModel):
-    generation_id: int
-    message: str = Field(..., description="User's instruction for the agent")
-    history: list[ChatMessage] = Field(default_factory=list)
+class InvokeAgentRequest(BaseModel):
+    """Request to invoke Claude Code agent."""
+    project_id: str
+    message: str = Field(..., description="User message to send to agent")
 
 
-class WorkspaceBuildRequest(BaseModel):
-    generation_id: int
+class InvokeAgentResponse(BaseModel):
+    """Response from invoke_agent endpoint."""
+    execution_id: str
+    project_id: str
+
+
+class ExecutionOut(BaseModel):
+    """Execution details response."""
+    id: str
+    project_id: str
+    status: str
+    session_id: Optional[str] = None
+    error: Optional[str]
+    created_at: datetime
+    updated_at: datetime
+
+
+# ---------------------------------------------------------------------------
+# Template request/response models
+# ---------------------------------------------------------------------------
+
+
+class TemplateListItem(BaseModel):
+    """Template summary for list views."""
+    id: str
+    name: str
+    status: str
+    owner_email: str
+    industry: Optional[str]
+    description: Optional[str]
+    capabilities: Optional[list[str]] = None  # Parsed from JSON
+    submitted_at: datetime
+    reviewed_at: Optional[datetime] = None
+
+
+class TemplateDetail(BaseModel):
+    """Full template details including file info."""
+    id: str
+    name: str
+    status: str
+    owner_email: str
+    industry: Optional[str]
+    description: Optional[str]
+    full_description: Optional[str]
+    capabilities: Optional[list[str]] = None
+    submitted_at: datetime
+    reviewed_at: Optional[datetime] = None
+    reviewed_by: Optional[str] = None
+    source_project_id: Optional[str] = None
+    file_count: int = 0
+
+
+class TemplateFile(BaseModel):
+    """File metadata in a template."""
+    path: str
+    name: str
+    size: int
+    is_dir: bool = False
+
+
+class TemplateFileContent(BaseModel):
+    """File content from a template."""
+    path: str
+    content: str
+    size: int
+
+
+class TemplateSearchResult(BaseModel):
+    """Template search result with similarity score."""
+    id: str
+    name: str
+    description: Optional[str]
+    industry: Optional[str]
+    capabilities: Optional[list[str]] = None
+    similarity: float
+
+
+class TemplateStatusUpdateRequest(BaseModel):
+    """Request to update template status (admin only)."""
+    status: str = Field(..., description="APPROVED or REJECTED")
+
+
+class CreateProjectFromTemplateRequest(BaseModel):
+    """Request to create a project from a template."""
+    name: str = Field(..., description="Name for the new project")
+
+
+# ---------------------------------------------------------------------------
+# Configuration/User request/response models
+# ---------------------------------------------------------------------------
+
+
+class DatabaseStatus(BaseModel):
+    """Database connection status."""
+    connected: bool
+    type: str  # "local" (PGLite) or "remote" (Lakebase)
+    error: Optional[str] = None
+
+
+class DatabricksProfile(BaseModel):
+    """A Databricks CLI profile."""
+    name: str
+    host: Optional[str] = None
+    is_default: bool = False
+
+
+class DatabricksConnectionStatus(BaseModel):
+    """Databricks workspace connection status."""
+    connected: bool
+    profile: str
+    host: Optional[str] = None
+    user_email: Optional[str] = None
+    error: Optional[str] = None
+
+
+class ConfigStatus(BaseModel):
+    """Overall configuration status."""
+    database: DatabaseStatus
+    databricks_profiles: list[DatabricksProfile]
+    current_user: Optional["UserOut"] = None
+    is_configured: bool  # True if user exists and databricks is connected
+
+
+class UserOut(BaseModel):
+    """User details response."""
+    id: str
+    email: str
+    databricks_profile: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class UserUpdateRequest(BaseModel):
+    """Request to update user settings."""
+    databricks_profile: str = Field(..., description="Databricks profile name to use")
+
+

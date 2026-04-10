@@ -35,6 +35,15 @@ class AppConfig(BaseSettings):
         default="databricks-claude-sonnet-4-6",
     )
 
+    # LLM endpoints for template library
+    summarization_model: str = Field(default="databricks-gpt-5-4-mini")
+    embedding_model: str = Field(default="databricks-qwen3-embedding-0-6b")
+
+    # Admin emails for template review (comma-separated in env var)
+    template_admin_emails: list[str] = Field(
+        default=["quentin.ambard@gmail.com", "quentin.ambard@databricks.com", "cal.reynold@gmail.com"]
+    )
+
     @property
     def static_assets_path(self) -> Path:
         return Path(str(resources.files(app_slug))).joinpath("__dist__")

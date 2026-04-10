@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from functools import lru_cache
 
 from fastapi import APIRouter, FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from ..._metadata import api_prefix, app_name, dist_dir
 from ._base import LifespanDependency
@@ -63,6 +65,18 @@ def create_app(
             yield
 
     app = FastAPI(title=app_name, lifespan=_composed_lifespan)
+
+    # Add CORS middleware for Electron mode (or local development)
+    # In Electron, the frontend runs on a different origin than the backend
+    if os.environ.get("ELECTRON_RUN") == "1" or os.environ.get("CORS_ENABLED") == "1":
+        logger.info("CORS middleware enabled for Electron/development mode")
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=["*"],  # In trusted Electron environment
+            allow_credentials=True,
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
 
     api_router: APIRouter = create_router()
     for dep in all_deps:

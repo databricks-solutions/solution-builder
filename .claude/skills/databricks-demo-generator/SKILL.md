@@ -24,17 +24,45 @@ This skill has two parts:
 | 1. Capture | Understand request, search demo bank | Selected story direction |
 | 2. Design | Define hero, disruption, quest, resolution | Story spec |
 | 3. Components | Select Databricks products | Component list |
-| 4. Generate | Write instruction files 00-07 | ./instructions/ folder |
-| 5. Review | Coherence check across all files | Verified instructions |
-| 6. Build (opt) | Create Databricks resources | Working demo |
+| 4. Generate README | Write story overview | `./README.md` |
+| 5. **User Review** | User confirms story is good | Approval to continue |
+| 6. Generate Details | Write detailed instruction files | `./instructions/` folder |
+| 7. Review | Coherence check across all files | Verified instructions |
+| 8. Build (opt) | Create Databricks resources | Working demo |
+
+---
+
+## Project Structure
+
+Each demo project has this structure:
+```
+./README.md           # Story overview (hero, disruption, quest, resolution, walkthrough)
+./architecture.md     # Architecture diagram schema (JSON) for visual rendering
+./META-PROMPT.md      # Build instructions for the AI
+./instructions/       # Detailed specs (content varies based on demo components)
+  resources.json      # Tracks created Databricks resource IDs
+```
+
+The `./instructions/` folder contains detailed specs for each component in the demo. The exact files depend on what the demo includes (data, pipelines, dashboards, AI components, etc.).
+
+### Architecture Diagram
+
+When the user asks to create or update the demo architecture diagram, **read `{SKILL_BASE_DIR}/references/architecture.md`** for the schema format. This reference explains:
+- Available icons (dashboard, genie, deltaTable, etc.)
+- Available tiers/colors (source, bronze, silver, gold, ai, consumer, etc.)
+- How to structure columns, nodes, edges, groups, and foundation bars
+
+Generate the architecture as a JSON schema in `./architecture.md`. The UI will automatically render it as an interactive diagram.
 
 ---
 
 ## Workflow Overview
 
-**Part 1:** Capture Intent → Design Story → Select Components → Generate Files → Coherence Review → Output
+**Part 1a:** Capture Intent → Design Story → Select Components → **Generate README.md** → **Ask User to Review**
 
-**Part 2 (optional, requires ai-dev-kit):** Read META-PROMPT → Build each component → Keep instructions in sync
+**Part 1b (after approval):** Generate detailed instructions in `./instructions/` → Coherence Review
+
+**Part 2 (optional):** Read META-PROMPT → Build each component → Keep instructions in sync
 
 **Use TodoWrite to track progress.** Multi-step process - tracking ensures nothing gets forgotten.
 
@@ -81,7 +109,7 @@ The demo follows a classic three-act structure *(default pattern - adapt to user
 
 ## Product Positioning
 
-Demos showcase the Databricks platform. **Read `{SKILL_BASE_DIR}/references/databricks_products.md`** to understand what each product does, what pain it solves, and how to position it.
+Demos showcase the Databricks platform. **Read the capability files in `{SKILL_BASE_DIR}/references/blocks/capabilities/`** to understand what each product does, what pain it solves, and how to position it. Each file covers one capability (e.g., `genie.md`, `lakeflow-connect.md`, `dashboards.md`).
 
 ### Default Demo Stack (adapt to user needs)
 
@@ -93,17 +121,9 @@ Lakeflow Connect → SDP → DW/SQL Dashboard → Genie → Agents (MAS/KA) → 
 
 This is a starting point. Users may want different products, fewer products, or additional ones. Follow their lead.
 
-### Product Stack in Overview
+### Products Showcased Section
 
-When generating the demo overview, include a **Product Stack** section explaining which products are showcased and why. For each product:
-
-| Field | Description |
-|-------|-------------|
-| **Role in Demo** | What it does in this specific demo |
-| **Pain Solved** | Business problem it addresses (reference `databricks_products.md` for positioning) |
-| **Demo Moment** | Presales talking point - what to say when this product appears |
-
-See `00-demo-overview.md` in the reference example for the format.
+When generating the demo overview, include a **Products Showcased** table - a simple two-column table showing each product and what it does in this specific demo. Keep it brief (one sentence per product). See `README.md` in the reference example for the format.
 
 ### Choosing Products
 
@@ -130,6 +150,10 @@ Start by understanding what the user wants to build. **Help with ideation - don'
 
 When the user gives a domain (e.g., "retail demo"):
 
+#### Skipping Demo Bank Search
+
+If the user says "skip templates", "no template suggestions", or similar — skip Step 1 (don't search the demo bank) and don't show the "Reference Demos" section in Step 2. Still show the AI-generated ideas for ideation. This is useful when template selection already happened upstream (e.g., in a UI workflow).
+
 #### Step 1: Search Reference Demos
 
 First, search the demo reference bank for existing demos that match. Use the `tools/` folder inside this skill's base directory:
@@ -142,25 +166,24 @@ This returns the top 3 matching reference demos (mocked vector search for now).
 
 #### Step 2: Present Options
 
-Show both AI-generated ideas AND reference demos. Example *(all options should follow format of #1 and A - abbreviated here)*:
+Show AI-generated ideas and reference demos. Keep it brief - this is ideation. No product names yet.
+
+**Title format**: "[Domain]'s [problem]" - tells you who and what at a glance.
 
 ```
 **Generated Ideas:**
-**1. Returns spike** - Online beauty retailer. VP Ops sees returns 3x higher this week.
-   → Genie traces to 3 skincare products from same supplier batch.
-   → KA reveals supplier quality incident (texture issues). $180K at risk.
-   Data: orders, returns (Salesforce via Lakeflow Connect) · batches (NetSuite via Lakeflow Connect)
-**2. Sales drop** - ...
-**3. Stockouts** - ...
+1. **Beauty retailer's return crisis** - VP sees returns jump 3x. Traces it to skincare products from a bad supplier batch — internal memo reveals a texture issue. $180K at risk.
 
-**Reference Demos (from demo bank):**
-**A. Manufacturing Quality Defects** - Automotive parts manufacturer sees 4x defect spike.
-   → Traces to CNC machine with worn bearing. ML predicts equipment failures.
-   Components: Full stack + ML Notebook
-**B. Healthcare Patient Readmissions** - ...
-**C. Financial Services Fraud** - ...
+2. **Healthcare SaaS's CSAT collapse** - Support scores tank. All tied to one product module with a known bug agents don't know how to handle.
 
-Pick 1-3 for generated, A-C for reference, or describe something else.
+3. **Logistics company's backlog nightmare** - Resolution time spikes. A carrier API got deprecated and broke tracking lookups.
+
+**Reference Demos:**
+A. **Auto manufacturer's defect mystery** - Defect spike traced to a worn machine bearing.
+B. **Hospital's readmission puzzle** - Readmission rates rise due to a discharge protocol gap.
+C. **Bank's fraud spike** - Card fraud traced to compromised POS terminals.
+
+Pick 1-3 or A-C, or describe something else.
 ```
 
 #### Step 3: If User Picks a Reference Demo
@@ -223,22 +246,58 @@ Default: dbdemos_ai_gen.beauty_returns
 Ok, or specify different location?
 ```
 
-### Phase 4: Generate Files
+### Phase 4: Generate README.md
 
-**First:** Read `{SKILL_BASE_DIR}/references/example-luxebeauty/` to calibrate on structure and detail level. Adapt for the current use-case - don't copy blindly.
+**First:** Read `{SKILL_BASE_DIR}/references/example-luxebeauty/README.md` to understand the structure and detail level expected.
 
-**Default output**: `./instructions/` folder (flexible - adapt to user needs).
+Generate `./README.md` with:
+- **The Story** - Summary table (company, hero, problem, investigation, root cause, impact)
+- **Overview** - Short paragraph explaining the demo flow
+- **Key Numbers** - Table of metrics (baseline vs anomaly values)
+- **Products Showcased** - Simple table: product name + what it does in this demo
+- **Demo Walkthrough** - Concise bullet points for each act (not long quoted paragraphs)
 
-**Files to generate:**
-1. **Overview (00)** - Story, product stack, timeline, key numbers, walkthrough with talk track. This is the human-readable "pitch deck" for the demo.
-2. **META-PROMPT** - Build instructions for the AI: local project structure, build order, resource tracking, troubleshooting.
-3. **Data layer (01)** - Table schemas, distributions, relationships, the event encoded
-4. **Documents (02)** - PDF specs (background noise + key document with the "smoking gun")
-5. **Pipeline layer (03)** - Bronze/Silver/Gold definitions, validation
-6. **Genie (04)** - Config with smart instructions, sample questions, domain knowledge
-7. **Dashboard (05)** - Layout, KPIs, the visual story (anomaly obvious at a glance)
-8. **KA (06)** - Config, instructions, identifiers matching structured data
-9. **MAS (07)** - Routing logic
+Keep it scannable. The walkthrough should be bullet points a presenter can glance at, not a script to read verbatim.
+
+### Phase 5: User Review Checkpoint
+
+**IMPORTANT: Stop and ask for user approval before generating detailed instructions.**
+
+After writing README.md, say:
+```
+I've created the demo story in README.md with:
+- [Brief summary of the story]
+- [Key products being showcased]
+- [The investigation flow]
+
+**Should I go ahead and generate the detailed instruction files?**
+
+Reply "yes" to continue, or let me know what to change.
+```
+
+**Wait for user confirmation before proceeding.** This checkpoint lets them review the story before committing to detailed specs.
+
+### Phase 6: Generate Detailed Instructions
+
+After user approves, generate the remaining files:
+
+**At project root:**
+- **META-PROMPT.md** - Build instructions for the AI: local project structure, build order, resource tracking, troubleshooting.
+
+**In `./instructions/` folder:**
+1. **Data layer (01)** - Table schemas, distributions, relationships, the event encoded
+2. **Documents (02)** - PDF specs (background noise + key document with the "smoking gun")
+3. **Pipeline layer (03)** - Bronze/Silver/Gold definitions, validation
+4. **Genie (04)** - Config with smart instructions, sample questions, domain knowledge
+5. **Dashboard (05)** - Layout, KPIs, the visual story (anomaly obvious at a glance)
+6. **KA (06)** - Config, instructions, identifiers matching structured data
+7. **MAS (07)** - Routing logic
+
+#### Parallelization for Speed
+
+**Reading references:** Read all reference template files in parallel at the start — don't read them one at a time.
+
+**Writing instructions:** Write independent files in parallel when they don't depend on each other. For example, Documents (PDFs) can be written in parallel with Pipeline since they don't share dependencies. But Dashboard and Genie depend on the tables defined in Pipeline, so write Pipeline first.
 
 Generate all files, then do coherence review.
 

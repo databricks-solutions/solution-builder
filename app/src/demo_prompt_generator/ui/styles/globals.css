@@ -19,7 +19,7 @@
   --accent: oklch(0.96 0.015 30);
   --accent-foreground: oklch(0.2 0.02 30);
   --destructive: oklch(0.55 0.22 27);
-  --destructive-foreground: oklch(0.55 0.22 27);
+  --destructive-foreground: oklch(0.98 0 0);
   --border: oklch(0.92 0.005 30);
   --input: oklch(0.92 0.005 30);
   --ring: oklch(0.58 0.22 27);
@@ -54,8 +54,8 @@
   --muted-foreground: oklch(0.65 0.02 30);
   --accent: oklch(0.24 0.02 27);
   --accent-foreground: oklch(0.96 0.005 30);
-  --destructive: oklch(0.42 0.16 25);
-  --destructive-foreground: oklch(0.65 0.24 25);
+  --destructive: oklch(0.55 0.22 27);
+  --destructive-foreground: oklch(0.98 0 0);
   --border: oklch(0.28 0.015 30);
   --input: oklch(0.28 0.015 30);
   --ring: oklch(0.62 0.22 27);
@@ -121,4 +121,19 @@
   body {
     @apply bg-background text-foreground;
   }
+}
+
+/* Electron-specific styles for macOS titlebar */
+.electron-drag {
+  -webkit-app-region: drag;
+}
+
+.electron-no-drag {
+  -webkit-app-region: no-drag;
+}
+
+/* Add padding for macOS traffic lights when using hiddenInset titlebar */
+.electron-titlebar-padding {
+  padding-top: env(titlebar-area-height, 28px);
+  padding-left: env(titlebar-area-x, 78px);
 }

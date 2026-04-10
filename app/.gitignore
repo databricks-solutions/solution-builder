@@ -34,8 +34,28 @@ node_modules/
 # DABs 
 .databricks
 
-# apx
+# apx (legacy)
 .apx/
+
+# PGLite local database
+.pglite/
 
 # UI dist folder
 src/demo_prompt_generator/__dist__/
+
+# Project local storage
+projects/
+
+# Cloned ai-dev-kit repository
+ai_dev_kit/
+
+# Electron build artifacts
+dist-electron/
+dist-backend/
+dist-python/
+dist-venv/
+build-pyinstaller/
+run_server.py
+build-resources/*.icns
+*.dmg
+electron/config.json

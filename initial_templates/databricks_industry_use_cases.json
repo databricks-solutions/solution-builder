@@ -1,0 +1,1240 @@
+{
+  "Financial Services": {
+    "Banking & Payments": {
+      "Drive Growth": {
+        "Hyper Personalization": [
+          "Next best offer/action",
+          "Personalized experiences",
+          "Churn prediction/retention",
+          "Pricing precision",
+          "Value added services"
+        ],
+        "Loans & Personal Investment": [
+          "Underwriting optimization",
+          "Personalized investment advice",
+          "Credit line limit & smart refi nudges"
+        ],
+        "Card & Payments Innovation": [
+          "Transaction enrichment",
+          "Authorization optimization",
+          "Modernized acquiring"
+        ],
+        "Marketing & Customer Intelligence": [
+          "Advanced audience segmentation",
+          "AI content creation & approvals",
+          "Multi-touch attribution",
+          "C360 (Identity resolution and CDP)",
+          "Brand & competitive insights",
+          "Reputation management",
+          "Mixed media modeling",
+          "Real-time campaign performance"
+        ]
+      },
+      "Operate More Efficiently": {
+        "CFO & Treasury": [
+          "AI-driven FP&A",
+          "Modern treasury data hub",
+          "Liquidity modeling",
+          "Accelerated month-end close"
+        ],
+        "Back Office Automation": [
+          "Autonomous email response",
+          "Physical asset optimization",
+          "Regulatory reporting",
+          "CECL/CCAR stress testing",
+          "E360/workforce analytics"
+        ],
+        "Contact Center Optimization": [
+          "Smart underwriting triage",
+          "Knowledge support for agents",
+          "Conversational AI & search",
+          "Intelligent IVR/chatbots"
+        ]
+      },
+      "Protect the Firm": {
+        "Credit Risk & Financial Crimes": [
+          "AML monitoring & SAR automation",
+          "Fraud monitoring and case handling",
+          "KYC/KYB",
+          "Recovery & collections"
+        ],
+        "Regulatory Compliance": [
+          "Smart underwriting",
+          "Regulatory risk data management"
+        ],
+        "Cyber & Info Security": [
+          "Threat hunting & advanced detection",
+          "User & entity behavior analytics (UEBA)",
+          "Network analysis & inventory",
+          "Phishing & email security"
+        ]
+      }
+    },
+    "Capital Markets - Buyside": {
+      "Drive Growth": {
+        "Alpha Generation & Research": [
+          "Alternative data integration",
+          "Sentiment & news analytics",
+          "Predictive alpha models",
+          "Research automation"
+        ],
+        "Portfolio Construction": [
+          "Portfolio optimization",
+          "Tax-loss harvesting"
+        ],
+        "Trading & Execution": [
+          "Smart order routing",
+          "TCA & execution analytics",
+          "Best execution monitoring"
+        ],
+        "Client & Distribution": [
+          "Investor analytics & segmentation",
+          "Personalized reporting",
+          "Client portal intelligence"
+        ]
+      },
+      "Operate More Efficiently": {
+        "Treasury & Finance": [
+          "FP&A automation",
+          "Management reporting copilots",
+          "Cash management & forecasting"
+        ],
+        "Middle Office": [
+          "NAV calculation automation",
+          "Reconciliation & breaks",
+          "Performance attribution",
+          "Fee calculation & billing",
+          "Capital call & distribution automation"
+        ],
+        "Fund Operations": [
+          "Investor reporting automation",
+          "Subscription & redemption processing",
+          "Fund accounting automation"
+        ],
+        "Private Markets": [
+          "Investment committee memo",
+          "Deal sourcing & screening",
+          "Due diligence automation",
+          "Portfolio company monitoring"
+        ]
+      },
+      "Protect the Firm": {
+        "Risk Management": [
+          "Factors & risk models",
+          "Portfolio risk analytics",
+          "Stress testing & scenario analysis",
+          "Concentration & liquidity risk"
+        ],
+        "Compliance & Regulatory": [
+          "AML intelligence",
+          "Trade surveillance & best execution",
+          "Investor suitability & KYC",
+          "Regulatory reporting automation"
+        ],
+        "Cyber Security": [
+          "UEBA & threat hunting",
+          "Data loss prevention",
+          "Third-party risk monitoring"
+        ]
+      }
+    },
+    "Capital Markets - Sellside": {
+      "Drive Growth": {
+        "Global Markets Sales & Trading": [
+          "Pricing & spread optimization",
+          "Inventory & balance sheet analytics",
+          "Wallet share & flow analytics"
+        ],
+        "Investment Banking": [
+          "Deal screening & comps",
+          "Pitchbook generation",
+          "Capital introduction matching"
+        ],
+        "Research": [
+          "Research augmentation",
+          "Auto-generated research & commentary",
+          "Alt-data research signals",
+          "Research distribution analytics",
+          "Thought leadership analytics"
+        ],
+        "Client Analytics & Targeting": [
+          "Client analytics & targeting",
+          "Wallet share intelligence",
+          "Event intelligence",
+          "Content approval workflows"
+        ],
+        "Structured Products & Finance": [
+          "Structuring & payoff design",
+          "Client flow & idea analytics",
+          "Pricing & risk analytics"
+        ]
+      },
+      "Operate More Efficiently": {
+        "Treasury & Finance": [
+          "FP&A automation",
+          "Management reporting copilots",
+          "Regulatory reporting"
+        ],
+        "Operations": [
+          "Trade lifecycle automation",
+          "Reconciliation & breaks",
+          "Settlement automation",
+          "Algo & smart routing",
+          "Margin & collateral optimization",
+          "Corporate actions processing",
+          "Client reporting"
+        ]
+      },
+      "Protect the Firm": {
+        "Risk Management": [
+          "Market & credit risk",
+          "Stress testing & VaR",
+          "Counterparty risk monitoring"
+        ],
+        "Compliance & Regulatory": [
+          "Covenant & prospectus intelligence",
+          "KYC/AML intelligence",
+          "Trade surveillance",
+          "Conduct monitoring"
+        ],
+        "Cyber Security": [
+          "UEBA & threat hunting",
+          "Network anomaly detection",
+          "Phishing defense"
+        ]
+      }
+    },
+    "Exchanges": {
+      "Drive Growth": {
+        "Execution Quality Analytics Products": [
+          "Liquidity heatmaps & flow diagnostics for members",
+          "TCA & microstructure analytics as a service"
+        ],
+        "Listings & Participant Acquisition": [
+          "Listing prospect identification",
+          "Participant sentiment analysis",
+          "Member behavior & usage analytics"
+        ],
+        "Market Making & Liquidity Services": [
+          "Liquidity provider incentive design",
+          "Order flow prediction & market depth analysis",
+          "Smart market making programs"
+        ],
+        "New Revenue Streams": [
+          "Issuer analytics & benchmark services",
+          "Market structure research distribution",
+          "Event & webinar intelligence"
+        ]
+      },
+      "Operate More Efficiently": {
+        "Infrastructure & Connectivity": [
+          "Latency & performance anomaly detection",
+          "Capacity planning & load optimization",
+          "Co-location & network optimization",
+          "FIX connectivity health & auto-triage",
+          "Data center efficiency & power management"
+        ],
+        "Operational Resilience": [
+          "Incident detection & response automation",
+          "System health monitoring & predictive maintenance"
+        ],
+        "Venue Operations": [
+          "Dynamic fee/rebate optimization",
+          "Matching engine performance monitoring"
+        ],
+        "Clearing & Settlement": [
+          "Exception handling & break resolution",
+          "Automated margin & collateral calculation",
+          "Corporate action processing automation"
+        ]
+      },
+      "Protect the Firm": {
+        "Market Surveillance & Integrity": [
+          "Real-time manipulation detection (spoofing, layering)",
+          "Cross-venue & cross-asset surveillance",
+          "Market quality metrics for attract liquidity",
+          "Abusive strategy pattern recognition"
+        ],
+        "Risk Management (CCP)": [
+          "Stress testing & scenario generation",
+          "Member credit risk & position monitoring",
+          "Counterparty risk analytics"
+        ]
+      }
+    },
+    "Data & Analytics Providers": {
+      "Drive Growth": {
+        "Analytics Products & Services": [
+          "AI-enhanced sentiment & event signals",
+          "Factor construction & alternative data packages",
+          "Custom index & benchmark creation",
+          "Forecasting (volatility, fundamentals, macro)",
+          "ESG scoring & climate risk analytics",
+          "Liquidity & market microstructure signals",
+          "Embedded risk & portfolio analytics"
+        ],
+        "Derived Datasets & Intelligence": [
+          "AI-driven research & insight automation",
+          "Thought leadership distribution",
+          "Product usage analytics"
+        ],
+        "Client Intelligence": [
+          "Client intelligence & segmentation",
+          "Lead scoring & prospect identification",
+          "Churn prediction"
+        ]
+      },
+      "Operate More Efficiently": {
+        "Platform & Workflow Tools": [
+          "Natural language copilots in terminals",
+          "Support ticket triage & resolution",
+          "Client onboarding & integration automation"
+        ],
+        "Data Operations": [
+          "Automated data cleaning & gap-filling",
+          "Multi-source data reconciliation",
+          "Entity resolution & master data management",
+          "Query optimization & performance tuning"
+        ],
+        "Infrastructure & Delivery": [
+          "Feed latency optimization",
+          "Cloud-native data distribution",
+          "API performance & throttling management"
+        ]
+      },
+      "Protect the Firm": {
+        "Data Quality & Governance": [
+          "Data lineage & provenance tracking",
+          "Real-time data quality checks",
+          "Anomaly detection in data feeds"
+        ],
+        "Compliance & Licensing": [
+          "Usage monitoring & license enforcement",
+          "Data sovereignty & privacy controls",
+          "Audit trail & access logging"
+        ],
+        "Model Risk & Transparency": [
+          "Model explainability & documentation",
+          "Benchmark methodology validation",
+          "AI model monitoring & drift detection"
+        ]
+      }
+    },
+    "Insurance": {
+      "Drive Growth": {
+        "Distribution Optimization": [
+          "Distribution platform accelerator",
+          "Producer analysis",
+          "Client new/loss business",
+          "Carrier market analysis",
+          "Channel optimization"
+        ],
+        "Hyper Personalization & Lead Management": [
+          "Customer segmentation",
+          "Prospecting & campaigns",
+          "Cross-sell & upsell",
+          "Next best action",
+          "Customer journey"
+        ],
+        "Product Innovation": [
+          "Product development lifecycle",
+          "Pricing through analytics",
+          "Dynamic feedback loop",
+          "Filing automation"
+        ]
+      },
+      "Be More Efficient": {
+        "CFO & FP&A": [
+          "Financial projections & reporting",
+          "Operational dashboarding",
+          "Performance reporting and analysis",
+          "Expense and cost management"
+        ],
+        "Back/Middle Office Automation": [
+          "Intelligent document processing",
+          "Customer onboarding",
+          "Workforce analytics",
+          "Branch network optimization",
+          "Complaint management"
+        ],
+        "Contact Center AI": [
+          "Intelligent IVR/chatbots",
+          "Knowledge support for agents"
+        ],
+        "Underwriting & Actuarial": [
+          "Policy/exposure ingestion",
+          "Smart underwriting triage",
+          "Actuarial reporting"
+        ]
+      },
+      "Protect the Organization": {
+        "Regulatory Compliance": [
+          "Data protection and privacy",
+          "Risk management and reporting",
+          "Customer protection and transparency",
+          "Regulatory engagement and updates",
+          "Regulatory risk data management"
+        ],
+        "Risk Management": [
+          "Integrated risk and finance",
+          "Risk modeling & analytics",
+          "Risk & capital planning (LDTI/IFRS 17)",
+          "Frequency/severity of losses"
+        ],
+        "Claims & Fraud Prevention": [
+          "Claims ingestion",
+          "Smart claims triage",
+          "Claims analytics",
+          "Fraud models",
+          "User & entity behavior analytics",
+          "SIEM augmentation"
+        ],
+        "Cybersecurity": [
+          "Threat hunting & advanced detection",
+          "Network analysis & inventory",
+          "Phishing & email security"
+        ]
+      }
+    }
+  },
+  "Healthcare & Life Sciences": {
+    "BioPharma": {
+      "Increase R&D Productivity": {
+        "Accelerate Drug Discovery": [
+          "Genetic target identification",
+          "QSAR modeling (Quantitative Structure Activity Relationship)",
+          "Single cell modeling",
+          "Image classification (e.g., digital pathology)",
+          "Chromatography insights"
+        ],
+        "Streamline Clinical Development": [
+          "Clinical trial protocol design",
+          "Clinical trial site selection",
+          "Automate QA of clinical data",
+          "Modernize clinical data repository",
+          "Drug portfolio optimization"
+        ],
+        "Build a FAIR Data Platform": [
+          "Knowledge graphs for R&D",
+          "Medical image processing & management (Pixels for DICOM)",
+          "Omics data management",
+          "Research assistant",
+          "BioMedical information retrieval"
+        ]
+      },
+      "Generate Real World Evidence": {
+        "Real World Evidence": [
+          "Data standardization with OMOP",
+          "Patient cohorting & propensity score matching",
+          "HEOR acceleration",
+          "Clinical data abstraction",
+          "Pharmacovigilance (drug safety & adverse event detection)"
+        ]
+      },
+      "Optimize Supply Chain & Manufacturing": {
+        "E2E Supply Chain Visibility": [
+          "Automate reporting (e.g., OTIF)",
+          "Inventory management",
+          "Demand forecasting",
+          "Distribution optimization"
+        ],
+        "Smart Manufacturing": [
+          "Digital twins",
+          "Overall equipment effectiveness",
+          "Predictive maintenance"
+        ]
+      },
+      "Improve Commercial Effectiveness": {
+        "Commercial Effectiveness": [
+          "Global customer 360",
+          "Brand analytics (e.g., provider segmentation, sales forecasting)",
+          "Sales rep/medical science assistant",
+          "Next-best-action recommendations/omni-channel optimization"
+        ]
+      },
+      "Personalize Patient Engagement": {
+        "Patient Engagement": [
+          "Deliver digital health applications (e.g., continuous glucose monitoring)",
+          "Support patient services (e.g., scheduling, chatbot)",
+          "Automate adherence reminders",
+          "Implement digital patient 360"
+        ]
+      }
+    },
+    "MedTech": {
+      "Accelerate Product Development": {
+        "Design & Development": [
+          "Real-time product analytics",
+          "Digital twins & simulations",
+          "Rapid prototyping",
+          "Literature analysis & review",
+          "Automated V&V reporting"
+        ],
+        "Trials & Postmarket Studies": [
+          "Clinical trial protocol design & site selection",
+          "Automated QA of clinical data",
+          "Centralized study data hub",
+          "Postmarket safety surveillance"
+        ]
+      },
+      "Innovate with Digital Surgery": {
+        "Digital Surgery": [
+          "AI-powered image analytics",
+          "Surgical workflow optimization",
+          "Surgical video analysis for robotic platforms",
+          "Automated documentation workflows"
+        ]
+      },
+      "Optimize Supply Chain & Manufacturing": {
+        "E2E Supply Chain Visibility": [
+          "Inventory optimization",
+          "Demand forecasting",
+          "Distribution optimization",
+          "Supply risk visibility & disruption early warning"
+        ],
+        "Smart Manufacturing": [
+          "Digital twins",
+          "Overall equipment effectiveness & yield analytics",
+          "Predictive maintenance",
+          "Continued process verification"
+        ]
+      },
+      "Drive Revenue Growth": {
+        "Next-Best-Action": [
+          "Product analytics (e.g., segmentation, forecasting)",
+          "Sales rep/medical next-best-action",
+          "Surgeon training & support",
+          "Recommendation engines (B2B) & marketing mix optimization"
+        ]
+      },
+      "Generate Evidence with Impact": {
+        "Evidence Generation": [
+          "Deliver comparative effectiveness",
+          "Detect safety & performance signals",
+          "Validate outcomes"
+        ]
+      },
+      "Personalize Patient Engagement": {
+        "Patient Engagement": [
+          "Connected devices (e.g., continuous glucose monitoring)",
+          "Patient support services (e.g., scheduling, chatbot)"
+        ]
+      }
+    },
+    "Health Plans": {
+      "Implement Interoperability": {
+        "Clinical Data Pipelines": [
+          "Automate clinical data pipelines with FHIR resources",
+          "Support reporting from HL7V2s (e.g., member hospitalizations)",
+          "Accelerate claim analytics from X12 EDIs",
+          "Identify high-risk patients & support Medicare risk adjustment"
+        ]
+      },
+      "Streamline Operations": {
+        "Benefits & Utilization Optimization": [
+          "Identify trends to improve medical loss ratio (e.g., episode benchmarks)",
+          "Optimize plan benefit design",
+          "Automate prior authorization",
+          "Modernize underwriting & accelerate bids"
+        ],
+        "Payment Integrity": [
+          "Detect fraud, waste & abuse",
+          "Forecast utilization (incl. for payment reserves)",
+          "Improve claim adjudication accuracy",
+          "Automate claim appeal responses"
+        ]
+      },
+      "Enhance Provider Network & Quality": {
+        "Provider Network Optimization": [
+          "Analyze price transparency for network rates",
+          "Optimize referral patterns: nearest neighbor, cost & quality analytics",
+          "Build tiered network offerings"
+        ],
+        "Quality Measures": [
+          "Identify & close gaps in care",
+          "Improve Medicare star ratings",
+          "Improve HEDIS measures",
+          "Benchmark providers against peer cohorts"
+        ],
+        "Value-Based Care": [
+          "Design optimal VBC arrangements",
+          "Align quality improvements to payments",
+          "Coordinate care with providers incl attribution models"
+        ]
+      },
+      "Improve Member Outcomes & Experience": {
+        "Care Management": [
+          "Reduce hospital readmissions",
+          "Predict disease onset & progression",
+          "Identify probability of next clinical event occurring",
+          "Optimize chronic care programs"
+        ],
+        "Personalized Engagement": [
+          "Deliver digital health application (e.g., continuous glucose)",
+          "Support patient services (e.g., scheduling, chat)",
+          "Automate adherence reminders"
+        ],
+        "Member Enrollment & Retention": [
+          "Predict member churn",
+          "Support call center analytics (e.g., sentiment analysis)",
+          "Predict propensity to engage with social determinants"
+        ]
+      }
+    },
+    "Healthcare Providers": {
+      "Implement Interoperability": {
+        "Clinical Data Pipelines": [
+          "Automate clinical data pipelines with FHIR resources",
+          "Support reporting from HL7V2s (e.g., NEDOCS for ED wait times)",
+          "Accelerate claim analytics from X12 EDIs",
+          "Support DICOM for medical images"
+        ]
+      },
+      "Streamline Operations": {
+        "Care Delivery Operations": [
+          "Forecast hospital utilization",
+          "Predict patient throughput and length of stay (e.g., for ICU capacity)",
+          "Optimize scheduling",
+          "Design chronic care pathways"
+        ],
+        "Revenue Cycle": [
+          "Improve medical coding accuracy",
+          "Automate claim denial appeals",
+          "Accelerate accounts receivable follow-ups",
+          "Trend expected payments and volume"
+        ],
+        "Clinical Data Abstraction": [
+          "Automate data curation for patient registries & research",
+          "Summarize clinical notes for transitions of care",
+          "De-identify unstructured data"
+        ]
+      },
+      "Enhance Quality": {
+        "Quality Measures": [
+          "Identify & close gaps in care",
+          "Measure & improve quality scores (eCQM, AHRQ)",
+          "Improve quality with external patient insights"
+        ],
+        "Value-Based Care": [
+          "Optimize referral patterns with nearest neighbor, cost & quality analytics",
+          "Design optimal VBC arrangements & adjudicate outcomes"
+        ]
+      },
+      "Improve Patient Outcomes & Experience": {
+        "Population Health": [
+          "Reduce hospital readmissions & avoidable ER visits",
+          "Predict disease onset & progression",
+          "Identify probability of next clinical event occurring",
+          "Support polygenic risk scoring"
+        ],
+        "Personalized Engagement": [
+          "Deliver digital health application (e.g., continuous glucose)",
+          "Support patient services (e.g., scheduling, chat)",
+          "Automate adherence reminders"
+        ],
+        "Patient Acquisition & Retention": [
+          "Support call center analytics (e.g., sentiment analysis)",
+          "Predict propensity to engage with social determinants",
+          "Reduce network leakage"
+        ]
+      }
+    }
+  },
+  "Manufacturing & Automotive": {
+    "Manufacturing & Automotive": {
+      "Boost Revenue Growth": {
+        "Connected Products": [
+          "Product feature usage analytics",
+          "Warranty cost optimization",
+          "Predictive field service",
+          "Quality event root cause analysis"
+        ],
+        "Customer Experience": [
+          "Next-best commercial offer",
+          "Guided buying assistants",
+          "Service campaign effectiveness",
+          "Lead scoring & prioritization",
+          "Dynamic pricing",
+          "Agentic customer support"
+        ]
+      },
+      "Industrial AI": {
+        "Predictive Maintenance & Quality": [
+          "Predictive maintenance",
+          "Defect detection",
+          "Safety risk identification",
+          "Energy use monitoring",
+          "Production monitoring",
+          "Product & process traceability"
+        ]
+      },
+      "Improve Productivity": {
+        "Engineering & R&D Transformation": [
+          "Pre-competitive IP research",
+          "Design space simulation",
+          "Domain-specific coding assistants",
+          "Engineering bid creation",
+          "Regulatory risk reviews"
+        ]
+      },
+      "Build Resilience": {
+        "Supply Chain Visibility": [
+          "Scenario planning & business simulation",
+          "Inventory optimization",
+          "Order processing automation",
+          "Logistics optimization",
+          "Supply planning",
+          "Demand forecasting"
+        ]
+      },
+      "Finance Transformation": {
+        "Financial Analytics & Reporting": [
+          "Working capital & cash flow optimization",
+          "Automated reporting",
+          "Spend intelligence"
+        ]
+      }
+    }
+  },
+  "Energy, Utilities & Mining": {
+    "Oil & Gas": {
+      "Upstream": {
+        "Exploration & Production": [
+          "Field development",
+          "Drilling and completions",
+          "Well abandonment",
+          "Production optimization",
+          "Subsurface interpretation",
+          "CO2 capture, EOR, storage"
+        ]
+      },
+      "Midstream": {
+        "Pipeline & Transportation": [
+          "Pipeline integrity management",
+          "Incident detection",
+          "Emissions regulation management",
+          "Terminal and storage management",
+          "Routing optimization",
+          "Risk management"
+        ]
+      },
+      "Downstream": {
+        "Refining & Distribution": [
+          "Storage optimization",
+          "Blending specs management",
+          "Throughput optimization",
+          "Chemicals distribution"
+        ]
+      }
+    },
+    "Power & Utilities": {
+      "Generation": {
+        "Power Generation": [
+          "Nuclear safety and optimization",
+          "H2 electrolysis optimization",
+          "Solar/wind optimization"
+        ]
+      },
+      "Transmission & Distribution": {
+        "Grid Management": [
+          "Grid monitoring & forecasting",
+          "Grid management & energy mix",
+          "Design innovation",
+          "Asset end-of-life management"
+        ]
+      }
+    },
+    "Mining": {
+      "Mining Operations": {
+        "Mining": [
+          "Smart mining",
+          "Mineral exploration",
+          "Safety and regulation management",
+          "Remote operations",
+          "Operations optimization",
+          "Waste and emissions management"
+        ]
+      }
+    },
+    "Cross-Industry": {
+      "Optimize Operations": {
+        "Predictive Maintenance": [
+          "Prescriptive maintenance",
+          "Predictive failure insights",
+          "Location and condition of installed base",
+          "Optimized maintenance scheduling",
+          "Field/onsite operations assistant",
+          "Inventory/spare management",
+          "Route planning"
+        ]
+      },
+      "Streamline Business Functions": {
+        "Business Operations": [
+          "Contracts, legal finance, HR, IT",
+          "Sustainability reporting",
+          "Internal and external filings",
+          "Supply chain",
+          "Transaction management",
+          "Risk management",
+          "Regulation and compliance",
+          "Security and control"
+        ]
+      },
+      "Customer Experience": {
+        "Customer Operations": [
+          "Customer 360, segmentation & analytics",
+          "Data sovereignty",
+          "Customer dynamic capacity map",
+          "Contact center automation",
+          "Marketplace/data providers",
+          "Customer service excellence",
+          "Control systems security (edge)"
+        ]
+      },
+      "Strategic Imperative": {
+        "Unified EPC": [
+          "Value engineering & simulation",
+          "Digital project management & collaboration",
+          "HSE incident monitoring",
+          "Progress reporting (planned vs actual)",
+          "Digital document management",
+          "Workforce and suppliers management",
+          "Supply and demand forecast"
+        ]
+      }
+    }
+  },
+  "Retail & Consumer Goods": {
+    "Retail": {
+      "Respond & Predict Customer Behavior": {
+        "Unified Customer View": [
+          "Customer 360",
+          "Identity resolution",
+          "CDP"
+        ],
+        "Actionable Customer Understanding": [
+          "Behavioral segmentation",
+          "Product affinity",
+          "Market analysis",
+          "Customer lifetime value"
+        ],
+        "Agentic Commerce": [
+          "Shopping assistant",
+          "Intent product discovery",
+          "Conversational shopping",
+          "Agent to agent transactions"
+        ],
+        "Intelligent In-Store Experience": [
+          "Connected store signals",
+          "Predictive operations",
+          "AI-assisted store associates",
+          "Smart shelf & RFID tracking",
+          "Foot traffic analysis",
+          "IoT sensor monitoring",
+          "Store performance",
+          "Workforce optimization",
+          "In-store equipment maintenance",
+          "Associates best next actions",
+          "Real-time data access",
+          "Digital assistant selling tools"
+        ]
+      },
+      "Profitable Volume Growth": {
+        "Margin & Volume Balance": [
+          "Dynamic price optimization",
+          "Assortment optimization",
+          "Elasticity modeling"
+        ],
+        "Promote with Purpose": [
+          "Trade promotion",
+          "Location-based offers",
+          "Post-promotion ROI analysis"
+        ],
+        "Commerce Media Networks": [
+          "Sponsored products placement",
+          "In-store digital ads",
+          "Incrementality testing",
+          "Cross-platform retail management",
+          "Category growth"
+        ]
+      },
+      "Collaborative Supply Chain": {
+        "Demand & Inventory": [
+          "Demand & order forecasting",
+          "Inventory optimization",
+          "Out of stocks optimization",
+          "Joint demand planning"
+        ]
+      },
+      "Risk Detection": {
+        "Early Risk Detection": [
+          "Real-time disruption detection",
+          "Supplier score and monitoring",
+          "Procurement risk detection"
+        ]
+      },
+      "Data Monetization": {
+        "Data Products": [
+          "Media measurement",
+          "Retail data marketplace"
+        ]
+      }
+    },
+    "Consumer Goods": {
+      "Consumer at the Center": {
+        "Unified Customer View": [
+          "Customer 360",
+          "Identity resolution",
+          "CDP"
+        ],
+        "Actionable Customer Understanding": [
+          "Behavioral segmentation",
+          "Product affinity",
+          "Market analysis",
+          "Customer lifetime value"
+        ],
+        "Innovate for the Future": [
+          "Intent product discovery",
+          "Conversational shopping",
+          "Agent to agent transactions",
+          "New product enablement"
+        ]
+      },
+      "Profitable Volume Growth": {
+        "Margin & Volume Balance": [
+          "Dynamic price optimization",
+          "Assortment optimization",
+          "Elasticity modeling"
+        ],
+        "Promote with Purpose": [
+          "Trade promotion",
+          "Location-based offers",
+          "Post-promotion ROI analysis"
+        ],
+        "Commerce Media Networks": [
+          "Sponsored products placement",
+          "Incrementality testing",
+          "Cross-platform retail management",
+          "Category growth"
+        ]
+      },
+      "Collaborative Supply Chain": {
+        "Demand & Inventory": [
+          "Demand & order forecasting",
+          "Inventory optimization",
+          "Out of stocks optimization",
+          "Joint demand planning"
+        ]
+      },
+      "Risk Detection": {
+        "Early Risk Detection": [
+          "Real-time disruption detection",
+          "Supplier score and monitoring",
+          "Procurement risk detection"
+        ]
+      },
+      "Workforce & Efficiency": {
+        "Hiring & Retention": [
+          "Candidate screening",
+          "Workforce scheduling",
+          "Employee self-service"
+        ],
+        "Employee AI Efficiency": [
+          "Natural language AI/BI",
+          "Automated content creation",
+          "Internal knowledge agent",
+          "IT augmentation"
+        ]
+      },
+      "Data Monetization": {
+        "Data Products": [
+          "Media measurement",
+          "Consumer insights marketplace"
+        ]
+      }
+    }
+  },
+  "Travel & Hospitality": {
+    "Travel": {
+      "Diversified Revenue Growth": {
+        "Intelligent Offers Management": [
+          "AI-driven revenue management",
+          "Demand-based pricing",
+          "Open pricing",
+          "Personalized ancillaries offering",
+          "Loyalty-based offer customization",
+          "Cross-sell/upsell optimization"
+        ],
+        "Product & Channel Development": [
+          "Omnichannel booking experience",
+          "Partnership & marketplace integration",
+          "Direct booking optimization",
+          "Conversational booking",
+          "Intent booking and discovery",
+          "Voice-activated booking",
+          "New product enablement",
+          "Expedited maintenance optimization"
+        ]
+      },
+      "Consumer at the Center": {
+        "Hyper-Personalized Marketing": [
+          "Customer 360",
+          "Generative content creation",
+          "Next best offer",
+          "Behavioral targeting"
+        ],
+        "Agentic Customer Service": [
+          "24/7 AI-powered assistant",
+          "Multi-agent issue resolution",
+          "Sentiment analysis & escalation"
+        ]
+      },
+      "Autonomous Disruption Response": {
+        "Disruption Management": [
+          "Automated rebooking & accommodation",
+          "Proactive weather notifications",
+          "Delay/cancellation auto-resolution",
+          "Automated voucher/compensation"
+        ]
+      },
+      "Agentic AI Operations": {
+        "Real-Time Operations": [
+          "Unified operations dashboard",
+          "Real-time availability insights",
+          "Window optimization",
+          "Dynamic pricing",
+          "AI-driven booking"
+        ],
+        "Predictive Maintenance": [
+          "Predictive maintenance",
+          "Equipment maintenance optimization",
+          "AOG prevention"
+        ],
+        "Smarter Scheduling": [
+          "Gate assignment optimization",
+          "Flight schedule optimization",
+          "Workforce optimization",
+          "End-to-end supply chain visibility"
+        ]
+      }
+    }
+  },
+  "Communications, Media & Entertainment": {
+    "Telecom": {
+      "Enhance CX to Grow Revenue": {
+        "Consumer Customer Experience": [
+          "Churn prediction and retention",
+          "Issue analysis & first point resolution",
+          "Hyper personalized next best offers (B2B & B2C)",
+          "Call center transcript analysis - real time",
+          "Customer onboarding",
+          "Contract buyout",
+          "Proactive outage updates",
+          "Store performance"
+        ],
+        "SMB/Enterprise Experience": [
+          "Pricing/quoting of new connections",
+          "Processing of moves, adds and changes",
+          "Order tracking",
+          "Proactive offers for SMB customers",
+          "Billing audits",
+          "Revenue assurance & leakage detection",
+          "Network capacity tracking with proactive offer",
+          "Wholesale to retail fiber switching"
+        ],
+        "Data Monetization": [
+          "Identity verification - social media & banking",
+          "Data products - retail, tourist organizations, banking (location services)",
+          "Managed network reports",
+          "Network slicing"
+        ]
+      },
+      "Optimize & Automate Operations": {
+        "Autonomous Network Operations": [
+          "Network monitoring, anomaly detection & triage",
+          "Predictive & proactive maintenance/fault detection",
+          "Energy efficiency optimization",
+          "Demand & traffic forecasting",
+          "SLA/managed network reporting",
+          "Network slicing",
+          "AI-driven fiber footprint migration"
+        ],
+        "Field Operations": [
+          "Pre-visit insights",
+          "Dynamic tech scheduling & dispatch optimization",
+          "Repair & maintenance summaries",
+          "Voice/video updates following site visit"
+        ],
+        "Service Delivery": [
+          "Order entry & validation",
+          "Service activation",
+          "Zero-touch provisioning",
+          "Service assurance",
+          "Inventory & asset visibility",
+          "Order to cash optimization"
+        ]
+      },
+      "Reduce Fraud & Risk": {
+        "Fraud Prevention": [
+          "Real-time fraud detection and SIM swap prevention",
+          "Subscription & identity fraud blocking"
+        ],
+        "Regulatory Compliance": [
+          "Data privacy compliance: GDPR/CCPA",
+          "Anti-money laundering (AML) and know your customer (KYC)",
+          "Employee offboarding"
+        ],
+        "Cybersecurity": [
+          "Advanced threat intelligence",
+          "IoT security monitoring"
+        ]
+      }
+    },
+    "Media Publishers": {
+      "Optimize Content Supply Chain": {
+        "Content Production": [
+          "Content planning & investment",
+          "Automated content metadata generation",
+          "Content enrichment & taxonomy",
+          "Pre-visualization & storyboarding",
+          "Intelligent content repurposing",
+          "Editorial & writers room assistant"
+        ],
+        "Content Distribution": [
+          "Content localization & translation",
+          "Content programming & placement",
+          "Rights & window management",
+          "Closed captioning & accessibility",
+          "Streaming QoE monitoring"
+        ]
+      },
+      "Maximize Monetization": {
+        "Subscriptions & LTV": [
+          "Subscription pricing & packaging",
+          "Upsell/cross-sell & bundles",
+          "Subscriber acquisition cost & payback",
+          "Subscriber LTV & margin optimization"
+        ],
+        "Advertising Sales": [
+          "Ad sales pipeline & deal management",
+          "Inventory forecasting & packaging",
+          "Rate cards, discounts & deal governance",
+          "Direct/programmatic channel mix",
+          "AI agent-assisted media selling"
+        ],
+        "Ad Yield & Optimization": [
+          "Pricing & yield management",
+          "Ad decisioning & pacing",
+          "Contextual & audience targeting",
+          "AI ad creative generation",
+          "Ad experience personalization",
+          "Measurement & attribution",
+          "Incrementality testing & lift measurement",
+          "Brand safety & suitability controls"
+        ],
+        "Licensing & Data Monetization": [
+          "Content licensing & rights revenue optimization",
+          "Rights & window valuation & forecasting",
+          "Royalties calculation & settlements",
+          "Data products & audience insights monetization"
+        ],
+        "Commerce & Merchandising": [
+          "Merch assortment & pricing optimization",
+          "On-site/in-site merchandising & shoppable offers",
+          "Lifecycle next best action offers",
+          "Merch attribution to content & campaigns"
+        ],
+        "Ticketing & Live Experiences": [
+          "Ticket pricing & demand forecasting",
+          "Event attendance & revenue analytics",
+          "Cross-promotion to subscribers & fans",
+          "Venue 360"
+        ]
+      },
+      "Grow Audience & Engagement": {
+        "Know Your Audience": [
+          "Identity and customer 360",
+          "Household & device graph",
+          "Audience profiling",
+          "Audience segmentation"
+        ],
+        "Grow Your Audience": [
+          "Campaign planning & optimization",
+          "Media mix modeling",
+          "Market research & insights",
+          "Lookalike audience creation",
+          "Subscriber lifecycle: churn, win-backs",
+          "Lifecycle marketing",
+          "Next best action"
+        ],
+        "Audience Experience": [
+          "Search & discovery",
+          "Content recommendation",
+          "Real-time personalization",
+          "Audience activation",
+          "Engagement tracking"
+        ]
+      }
+    },
+    "Gaming": {
+      "Player Intelligence": {
+        "Know Your Player": [
+          "Churn detection",
+          "Player metrics (LTV, etc.)",
+          "Player journey analytics",
+          "Segmentation",
+          "Identity resolution",
+          "Cohort analysis",
+          "Feedback analysis"
+        ],
+        "Grow Your Player Base": [
+          "Churn mitigation",
+          "Personalization",
+          "Campaign optimization",
+          "Ads attribution",
+          "Multi-touch attribution",
+          "Ads creative generation",
+          "Ads segmentation"
+        ],
+        "Monetize": [
+          "Next best offer",
+          "Purchase optimization",
+          "Fraud detection"
+        ]
+      },
+      "Game Development": {
+        "Build": [
+          "Game balance",
+          "Localization",
+          "Living NPCs and world",
+          "Game builds",
+          "Content treadmill",
+          "A/B testing experiments",
+          "Impact analysis of content"
+        ],
+        "Run": [
+          "Game health and metrics",
+          "Game server operations",
+          "Toxicity detection",
+          "Anti-cheat"
+        ]
+      },
+      "Operations & Analytics": {
+        "Community & Support": [
+          "Community support",
+          "Toxicity management"
+        ],
+        "Data Democratization": [
+          "Financial reporting",
+          "Cross-publisher data sharing",
+          "Strategic initiatives",
+          "Self-service analytics",
+          "AI-powered analytics",
+          "Data discovery",
+          "Data sharing",
+          "Data governance"
+        ]
+      }
+    }
+  }
+}

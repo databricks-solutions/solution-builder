@@ -39,14 +39,15 @@ def _get_user_ws(
     """
     Returns a Databricks Workspace client with authentication behalf of user.
     If the request contains an X-Forwarded-Access-Token header, on behalf of user authentication is used.
+    In local development (no OBO token), falls back to unified auth (config profile or env vars).
 
     Example usage: `user_ws: Dependencies.UserClient`
     """
 
     if not headers.token:
-        raise ValueError(
-            "OBO token is not provided in the header X-Forwarded-Access-Token"
-        )
+        # Local development mode - use unified auth (config profile, env vars, etc.)
+        logger.debug("No OBO token found, using default unified auth for local development")
+        return WorkspaceClient()
 
     return WorkspaceClient(
         token=headers.token.get_secret_value(), auth_type="pat"

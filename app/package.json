@@ -1,8 +1,36 @@
 {
-    "name": "demo_prompt_generator_ui",
+    "name": "demo-prompt-generator",
     "version": "0.1.0",
+    "description": "Databricks Demo Asset Generator - AI-powered demo creation tool",
     "private": true,
+    "main": "electron/main.js",
+    "author": "Databricks Field Engineering",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/databricks-field-eng/industry-demo-prompts.git"
+    },
+    "scripts": {
+        "dev": "./scripts/dev.sh",
+        "dev:frontend": "vite --config vite.config.ts",
+        "dev:backend": "uv run uvicorn demo_prompt_generator.backend.app:app --host 127.0.0.1 --port 8000 --reload",
+        "build": "vite build --config vite.config.ts",
+        "typecheck": "tsc --noEmit",
+        "electron:dev": "electron .",
+        "electron:build": "./scripts/build-electron.sh",
+        "electron:pack": "electron-builder --dir",
+        "electron:dist": "electron-builder --mac"
+    },
     "dependencies": {
+        "@radix-ui/react-dropdown-menu": "^2.1.16",
+        "electron-updater": "^6.8.3",
+        "fix-path": "^3.0.0",
+        "html-to-image": "^1.11.13"
+    },
+    "devDependencies": {
+        "@opentelemetry/api-logs": "^0.214.0",
+        "@opentelemetry/exporter-logs-otlp-http": "^0.214.0",
+        "@opentelemetry/resources": "^2.6.1",
+        "@opentelemetry/sdk-logs": "^0.214.0",
         "@radix-ui/react-avatar": "^1.1.11",
         "@radix-ui/react-checkbox": "^1.3.3",
         "@radix-ui/react-dialog": "^1.1.15",
@@ -15,12 +43,21 @@
         "@radix-ui/react-slot": "^1.2.4",
         "@radix-ui/react-tabs": "^1.1.13",
         "@radix-ui/react-tooltip": "^1.2.8",
+        "@tailwindcss/vite": "^4.2.2",
         "@tanstack/react-query": "5.90.16",
         "@tanstack/react-router": "1.145.7",
+        "@tanstack/router-generator": "^1.166.24",
+        "@tanstack/router-plugin": "^1.167.12",
+        "@types/node": "25.0.3",
+        "@types/react": "19.2.7",
+        "@types/react-dom": "19.2.3",
+        "@vitejs/plugin-react": "^6.0.1",
         "@xyflow/react": "^12.10.1",
         "axios": "1.13.2",
         "class-variance-authority": "^0.7.1",
         "clsx": "2.1.1",
+        "electron": "^33.2.0",
+        "electron-builder": "^25.1.8",
         "lucide-react": "^0.575.0",
         "mermaid": "^11.13.0",
         "motion": "12.24.10",
@@ -30,25 +67,91 @@
         "react-markdown": "^10.1.0",
         "rehype-raw": "^7.0.0",
         "remark-gfm": "^4.0.1",
+        "smol-toml": "1.6.0",
         "sonner": "2.0.7",
         "tailwind-merge": "3.4.0",
         "tw-animate-css": "1.4.0",
+        "typescript": "5.9.3",
+        "vite": "^8.0.3",
         "zustand": "^5.0.12"
     },
-    "devDependencies": {
-        "@opentelemetry/api-logs": "^0.213.0",
-        "@opentelemetry/exporter-logs-otlp-http": "^0.213.0",
-        "@opentelemetry/resources": "^2.6.0",
-        "@opentelemetry/sdk-logs": "^0.213.0",
-        "@tailwindcss/vite": "^4.2.2",
-        "@tanstack/router-generator": "^1.166.17",
-        "@tanstack/router-plugin": "^1.167.4",
-        "@types/node": "25.0.3",
-        "@types/react": "19.2.7",
-        "@types/react-dom": "19.2.3",
-        "@vitejs/plugin-react": "^6.0.1",
-        "smol-toml": "1.6.0",
-        "typescript": "5.9.3",
-        "vite": "^8.0.2"
+    "build": {
+        "appId": "com.databricks.demo-prompt-generator",
+        "productName": "Demo Prompt Generator",
+        "copyright": "Copyright (C) 2024 Databricks",
+        "asar": true,
+        "asarUnpack": [
+            "node_modules/fix-path/**/*"
+        ],
+        "directories": {
+            "output": "dist-electron",
+            "buildResources": "build-resources"
+        },
+        "files": [
+            "electron/**/*",
+            "node_modules/fix-path/**/*",
+            "node_modules/electron-updater/**/*",
+            "!**/*.{md,ts,map}",
+            "!**/node_modules/**/test/**",
+            "!**/node_modules/**/*.d.ts",
+            "!**/node_modules/.cache/**"
+        ],
+        "extraResources": [
+            {
+                "from": "dist-backend/backend",
+                "to": "backend",
+                "filter": [
+                    "**/*"
+                ]
+            },
+            {
+                "from": "src/demo_prompt_generator/ui/__dist__",
+                "to": "frontend",
+                "filter": [
+                    "**/*"
+                ]
+            }
+        ],
+        "publish": {
+            "provider": "github",
+            "owner": "databricks-field-eng",
+            "repo": "industry-demo-prompts",
+            "releaseType": "release"
+        },
+        "mac": {
+            "target": [
+                {
+                    "target": "dmg",
+                    "arch": [
+                        "arm64"
+                    ]
+                },
+                {
+                    "target": "zip",
+                    "arch": [
+                        "arm64"
+                    ]
+                }
+            ],
+            "category": "public.app-category.developer-tools",
+            "icon": "build-resources/icon.icns",
+            "hardenedRuntime": true,
+            "entitlements": "build-resources/entitlements.mac.plist",
+            "entitlementsInherit": "build-resources/entitlements.mac.plist"
+        },
+        "dmg": {
+            "contents": [
+                {
+                    "x": 130,
+                    "y": 220
+                },
+                {
+                    "x": 410,
+                    "y": 220,
+                    "type": "link",
+                    "path": "/Applications"
+                }
+            ]
+        }
     }
 }

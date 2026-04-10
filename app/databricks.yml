@@ -13,10 +13,15 @@ variables:
 sync:
   include:
     - .build
+    - .build/app.yml
+    - .build/*.whl
+    - .build/requirements.txt
+    - ../blocks/**
+    - ../collections/**
 
 artifacts:
   default:
-    build: apx build
+    build: bun run build && ./scripts/build.sh
 
 resources:
   database_instances:
