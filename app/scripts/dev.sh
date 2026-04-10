@@ -24,7 +24,9 @@ cd "$APP_DIR"
 # ============================================================================
 # Parse arguments
 # ============================================================================
-AI_DEV_KIT_BRANCH="${AI_DEV_KIT_BRANCH:-main}"
+# IMPORTANT: Using 'add-aidevkit-cli' branch which removes MCP in favor of CLI tools
+# TODO: Change back to 'main' once this branch is merged
+AI_DEV_KIT_BRANCH="${AI_DEV_KIT_BRANCH:-add-aidevkit-cli}"
 
 while [[ $# -gt 0 ]]; do
     case $1 in

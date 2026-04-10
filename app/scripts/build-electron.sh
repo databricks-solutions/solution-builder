@@ -21,7 +21,7 @@
 #   --rebuild-frontend          Force rebuild the frontend
 #   --rebuild-backend           Force rebuild the PyInstaller backend
 #   --clean                     Remove all build artifacts and start fresh
-#   --ai-dev-kit-branch BRANCH  Clone/checkout specific ai-dev-kit branch (default: main)
+#   --ai-dev-kit-branch BRANCH  Clone/checkout specific ai-dev-kit branch (default: add-aidevkit-cli)
 #   --lakebase-url URL          Embed Lakebase PostgreSQL connection URL
 #
 # Environment variables:
@@ -59,7 +59,9 @@ SKIP_FRONTEND=false
 REBUILD_FRONTEND=false
 REBUILD_BACKEND=false
 CLEAN=false
-AI_DEV_KIT_BRANCH="${AI_DEV_KIT_BRANCH:-main}"
+# IMPORTANT: Using 'add-aidevkit-cli' branch which removes MCP in favor of CLI tools
+# TODO: Change back to 'main' once this branch is merged
+AI_DEV_KIT_BRANCH="${AI_DEV_KIT_BRANCH:-add-aidevkit-cli}"
 LAKEBASE_URL="${LAKEBASE_PG_URL:-}"
 
 while [[ $# -gt 0 ]]; do
