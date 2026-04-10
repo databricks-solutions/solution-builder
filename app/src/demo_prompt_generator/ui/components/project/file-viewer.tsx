@@ -3,11 +3,11 @@
  * Supports README and Architecture tabs when architecture.md exists.
  */
 
-import { memo, useState, useMemo, useEffect, lazy, Suspense } from "react";
+import React, { memo, useState, useMemo, useEffect, lazy, Suspense } from "react";
 import { ScrollArea } from "../ui/scroll-area";
 import { Prose } from "../markdown-prose";
 import { Skeleton } from "../ui/skeleton";
-import { ChevronRight, ChevronDown, ChevronLeft, Folder, FolderOpen, FileText, Sparkles, RefreshCw, Network } from "lucide-react";
+import { ChevronRight, ChevronDown, ChevronLeft, Folder, FolderOpen, FileText, FileCode, Braces, Settings, File, Sparkles, RefreshCw, Network, Database } from "lucide-react";
 import type { ProjectFile, ProjectFileContent } from "../../lib/custom-api";
 
 // Lazy load the architecture diagram to avoid loading ReactFlow on every page
@@ -31,6 +31,7 @@ interface FileViewerProps {
   onLoadArchitecture?: () => void;
   isCreatingArchitecture?: boolean;
   onCreateArchitecture?: () => void;
+  onArchitectureConnectionCreated?: (from: string, to: string) => void;
   isStreaming?: boolean; // Whether the agent is currently working
 }
 
@@ -105,7 +106,7 @@ const FileItem = memo(function FileItem({
   return (
     <button
       onClick={onClick}
-      className={`w-full flex items-center gap-1.5 px-2 py-1.5 text-sm text-left rounded-md transition-colors cursor-pointer ${
+      className={`w-full flex items-center gap-2 px-2 py-1.5 text-sm text-left rounded-md transition-colors cursor-pointer ${
         isSelected
           ? "bg-primary/10 text-primary font-medium"
           : "hover:bg-muted/80 text-foreground/80"
@@ -113,8 +114,8 @@ const FileItem = memo(function FileItem({
       style={{ paddingLeft: `${depth * 12 + 8}px` }}
       title={file.path}
     >
-      <span className="text-muted-foreground shrink-0 text-xs">{icon}</span>
-      <span className="truncate flex-1 text-[13px]">{file.name}</span>
+      <span className="shrink-0">{icon}</span>
+      <span className="truncate flex-1 text-sm">{file.name}</span>
     </button>
   );
 });
@@ -155,25 +156,25 @@ const FolderItem = memo(function FolderItem({
     <div>
       <button
         onClick={() => setIsExpanded(!isExpanded)}
-        className="w-full flex items-center gap-1.5 px-2 py-1.5 text-sm text-left rounded-md transition-colors cursor-pointer hover:bg-muted/80 text-foreground/90"
+        className="w-full flex items-center gap-2 px-2 py-1.5 text-sm text-left rounded-md transition-colors cursor-pointer hover:bg-muted/80 text-foreground/90"
         style={{ paddingLeft: `${depth * 12 + 8}px` }}
       >
         <span className="shrink-0 text-muted-foreground">
           {isExpanded ? (
-            <ChevronDown className="h-3.5 w-3.5" />
+            <ChevronDown className="h-4 w-4" />
           ) : (
-            <ChevronRight className="h-3.5 w-3.5" />
+            <ChevronRight className="h-4 w-4" />
           )}
         </span>
         <span className="shrink-0 text-amber-500/80">
           {isExpanded ? (
-            <FolderOpen className="h-3.5 w-3.5" />
+            <FolderOpen className="h-4 w-4" />
           ) : (
-            <Folder className="h-3.5 w-3.5" />
+            <Folder className="h-4 w-4" />
           )}
         </span>
-        <span className="truncate flex-1 text-[13px] font-medium">{name}</span>
-        <span className="text-[10px] text-muted-foreground/60 shrink-0">
+        <span className="truncate flex-1 text-sm font-medium">{name}</span>
+        <span className="text-xs text-muted-foreground/60 shrink-0">
           {childNodes.length}
         </span>
       </button>
@@ -271,10 +272,10 @@ const CollapsedSidebar = memo(function CollapsedSidebar({
   activeTab,
 }: CollapsedSidebarProps) {
   // Get label based on active tab
-  const tabLabel = activeTab === "readme" ? "README.md" : activeTab === "architecture" ? "architecture.md" : "Files";
+  const tabLabel = activeTab === "readme" ? "Summary" : activeTab === "architecture" ? "Architecture" : "Files";
 
   return (
-    <div className="w-10 h-full shrink-0 border-r border-border bg-muted/30 flex flex-col items-center pt-2 pb-2">
+    <div className="w-12 h-full shrink-0 border-r border-border bg-muted/30 flex flex-col items-center pt-2 pb-2">
       {/* Expand area */}
       <div
         className="flex flex-col items-center cursor-pointer hover:bg-muted/50 transition-colors rounded px-1 py-1"
@@ -282,7 +283,7 @@ const CollapsedSidebar = memo(function CollapsedSidebar({
       >
         {/* Vertical tab name text */}
         <div
-          className="text-[10px] font-medium text-muted-foreground tracking-wider"
+          className="text-xs font-medium text-muted-foreground tracking-wider"
           style={{ writingMode: "vertical-rl", textOrientation: "mixed" }}
         >
           {tabLabel}
@@ -290,8 +291,8 @@ const CollapsedSidebar = memo(function CollapsedSidebar({
 
         {/* File count */}
         <div className="flex flex-col items-center gap-0.5 mt-3">
-          <FileText className="h-3.5 w-3.5 text-muted-foreground" />
-          <span className="text-[10px] text-muted-foreground font-medium">
+          <FileText className="h-4 w-4 text-muted-foreground" />
+          <span className="text-xs text-muted-foreground font-medium">
             {fileCount}
           </span>
         </div>
@@ -306,7 +307,7 @@ const CollapsedSidebar = memo(function CollapsedSidebar({
       <div className="flex-1" />
 
       {/* Bottom buttons */}
-      <div className="flex flex-col items-center gap-1">
+      <div className="flex flex-col items-center gap-1.5">
         {/* Refresh button */}
         {onRefresh && (
           <button
@@ -314,8 +315,8 @@ const CollapsedSidebar = memo(function CollapsedSidebar({
             className="flex flex-col items-center gap-0.5 p-1.5 rounded hover:bg-muted/50 transition-colors cursor-pointer"
             title="Refresh files"
           >
-            <RefreshCw className="h-4 w-4 text-muted-foreground" />
-            <span className="text-[9px] text-muted-foreground font-medium">Refresh</span>
+            <RefreshCw className="h-4 w-4 text-foreground/70" />
+            <span className="text-xs text-foreground/70 font-medium">Refresh</span>
           </button>
         )}
 
@@ -326,8 +327,8 @@ const CollapsedSidebar = memo(function CollapsedSidebar({
             className="flex flex-col items-center gap-0.5 p-1.5 rounded hover:bg-muted/50 transition-colors cursor-pointer"
             title="Skills"
           >
-            <Sparkles className="h-4 w-4 text-muted-foreground" />
-            <span className="text-[9px] text-muted-foreground font-medium">Skills</span>
+            <Sparkles className="h-4 w-4 text-foreground/70" />
+            <span className="text-xs text-foreground/70 font-medium">Skills</span>
           </button>
         )}
       </div>
@@ -357,16 +358,17 @@ const ExpandedSidebar = memo(function ExpandedSidebar({
   onRefresh,
 }: ExpandedSidebarProps) {
   return (
-    <div className="w-56 h-full shrink-0 border-r border-border bg-muted/30 flex flex-col">
+    <div className="w-64 h-full shrink-0 border-r border-border bg-muted/30 flex flex-col">
       {/* Header with collapse button - entire row is clickable */}
       <div
-        className="p-2 border-b border-border flex items-center justify-between cursor-pointer hover:bg-muted/50 transition-colors"
+        className="p-2.5 border-b border-border flex items-center justify-between cursor-pointer hover:bg-muted/50 transition-colors"
         onClick={onCollapse}
         title="Collapse sidebar"
       >
-        <span className="text-xs text-muted-foreground font-medium">
-          {files.length} files
-        </span>
+        <div>
+          <span className="text-sm font-medium text-foreground/80">Project Files</span>
+          <span className="text-xs text-muted-foreground ml-2">{files.length} files</span>
+        </div>
         <ChevronLeft className="h-4 w-4 text-muted-foreground" />
       </div>
 
@@ -388,25 +390,25 @@ const ExpandedSidebar = memo(function ExpandedSidebar({
       </ScrollArea>
 
       {/* Bottom buttons */}
-      <div className="p-2 border-t border-border flex items-center gap-2">
+      <div className="p-2.5 border-t border-border flex items-center gap-2">
         {onRefresh && (
           <button
             onClick={onRefresh}
-            className="flex items-center gap-1.5 px-2 py-1 rounded hover:bg-muted/50 transition-colors cursor-pointer"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded hover:bg-muted/50 transition-colors cursor-pointer"
             title="Refresh files"
           >
-            <RefreshCw className="h-3.5 w-3.5 text-muted-foreground" />
-            <span className="text-[10px] text-muted-foreground font-medium">Refresh</span>
+            <RefreshCw className="h-4 w-4 text-foreground/70" />
+            <span className="text-xs text-foreground/70 font-medium">Refresh</span>
           </button>
         )}
         {onSkillsClick && (
           <button
             onClick={onSkillsClick}
-            className="flex items-center gap-1.5 px-2 py-1 rounded hover:bg-muted/50 transition-colors cursor-pointer"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded hover:bg-muted/50 transition-colors cursor-pointer"
             title="Skills"
           >
-            <Sparkles className="h-3.5 w-3.5 text-muted-foreground" />
-            <span className="text-[10px] text-muted-foreground font-medium">Skills</span>
+            <Sparkles className="h-4 w-4 text-foreground/70" />
+            <span className="text-xs text-foreground/70 font-medium">Skills</span>
           </button>
         )}
       </div>
@@ -439,25 +441,25 @@ const TabBar = memo(function TabBar({
         <div className="flex items-center gap-1 bg-muted/50 rounded-md p-0.5">
           <button
             onClick={() => onTabChange("readme")}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium transition-colors cursor-pointer ${
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-medium transition-colors cursor-pointer ${
               activeTab === "readme"
                 ? "bg-background text-foreground shadow-sm"
                 : "text-muted-foreground hover:text-foreground"
             }`}
           >
-            <FileText className="h-3.5 w-3.5" />
-            README
+            <FileText className="h-4 w-4" />
+            Summary
           </button>
 
           <button
             onClick={() => onTabChange("architecture")}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium transition-colors cursor-pointer ${
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-medium transition-colors cursor-pointer ${
               activeTab === "architecture"
                 ? "bg-background text-foreground shadow-sm"
                 : "text-muted-foreground hover:text-foreground"
             }`}
           >
-            <Network className="h-3.5 w-3.5" />
+            <Network className="h-4 w-4" />
             Architecture
           </button>
         </div>
@@ -482,6 +484,7 @@ export const FileViewer = memo(function FileViewer({
   onLoadArchitecture,
   isCreatingArchitecture = false,
   onCreateArchitecture,
+  onArchitectureConnectionCreated,
   isStreaming = false,
 }: FileViewerProps) {
   const [isSidebarExpanded, setIsSidebarExpanded] = useState(false);
@@ -546,7 +549,7 @@ export const FileViewer = memo(function FileViewer({
         {(activeTab === "files" || isSidebarExpanded) && (
           <div
             className="shrink-0 transition-all duration-200 ease-in-out overflow-hidden"
-            style={{ width: isSidebarExpanded ? "224px" : "40px" }}
+            style={{ width: isSidebarExpanded ? "256px" : "48px" }}
           >
             {isSidebarExpanded ? (
               <ExpandedSidebar
@@ -588,6 +591,43 @@ export const FileViewer = memo(function FileViewer({
 
         {/* File content */}
         <div className="flex-1 flex flex-col min-w-0">
+          {/* Architecture tab — full-height, no scroll wrapper */}
+          {activeTab === "architecture" && isCreatingArchitecture ? (
+            <div className="flex-1 flex items-center justify-center">
+              <div className="text-center text-muted-foreground">
+                <div className="animate-spin h-8 w-8 border-2 border-primary border-t-transparent rounded-full mx-auto mb-3" />
+                <p className="text-sm font-medium">Creating your architecture...</p>
+                <p className="text-xs mt-1">The agent is generating the diagram schema</p>
+              </div>
+            </div>
+          ) : activeTab === "architecture" && architectureContent ? (
+            <Suspense fallback={
+              <div className="flex-1 flex items-center justify-center">
+                <div className="text-center text-muted-foreground">
+                  <div className="animate-spin h-8 w-8 border-2 border-primary border-t-transparent rounded-full mx-auto mb-3" />
+                  <p className="text-sm">Loading architecture diagram...</p>
+                </div>
+              </div>
+            }>
+              <ArchitectureDiagram content={architectureContent} onConnectionCreated={onArchitectureConnectionCreated} />
+            </Suspense>
+          ) : activeTab === "architecture" && !hasArchitecture && isStreaming ? (
+            <div className="flex-1 flex items-center justify-center">
+              <div className="text-center text-muted-foreground">
+                <div className="animate-spin h-8 w-8 border-2 border-primary border-t-transparent rounded-full mx-auto mb-3" />
+                <p className="text-sm font-medium">Please wait while your agent is working...</p>
+                <p className="text-xs mt-1">The architecture will be generated once the current task completes</p>
+              </div>
+            </div>
+          ) : activeTab === "architecture" && !hasArchitecture ? (
+            <div className="flex-1 flex items-center justify-center">
+              <div className="text-center text-muted-foreground">
+                <Network className="h-12 w-12 mx-auto mb-3 opacity-50" />
+                <p className="text-sm">No architecture diagram yet</p>
+                <p className="text-xs mt-1">Generating automatically...</p>
+              </div>
+            </div>
+          ) : (
           <ScrollArea className="flex-1">
             <div className="p-6">
               {isLoading ? (
@@ -596,45 +636,6 @@ export const FileViewer = memo(function FileViewer({
                   <Skeleton className="h-4 w-1/2" />
                   <Skeleton className="h-4 w-5/6" />
                   <Skeleton className="h-4 w-2/3" />
-                </div>
-              ) : activeTab === "architecture" && isCreatingArchitecture ? (
-                // Creating architecture - show spinner
-                <div className="flex items-center justify-center h-[600px]">
-                  <div className="text-center text-muted-foreground">
-                    <div className="animate-spin h-8 w-8 border-2 border-primary border-t-transparent rounded-full mx-auto mb-3" />
-                    <p className="text-sm font-medium">Creating your architecture...</p>
-                    <p className="text-xs mt-1">The agent is generating the diagram schema</p>
-                  </div>
-                </div>
-              ) : activeTab === "architecture" && architectureContent ? (
-                // Architecture tab content - visual diagram
-                <Suspense fallback={
-                  <div className="flex items-center justify-center h-[600px]">
-                    <div className="text-center text-muted-foreground">
-                      <div className="animate-spin h-8 w-8 border-2 border-primary border-t-transparent rounded-full mx-auto mb-3" />
-                      <p className="text-sm">Loading architecture diagram...</p>
-                    </div>
-                  </div>
-                }>
-                  <ArchitectureDiagram content={architectureContent} />
-                </Suspense>
-              ) : activeTab === "architecture" && !hasArchitecture && isStreaming ? (
-                // Agent is working on something - wait for it to finish
-                <div className="flex items-center justify-center h-[600px]">
-                  <div className="text-center text-muted-foreground">
-                    <div className="animate-spin h-8 w-8 border-2 border-primary border-t-transparent rounded-full mx-auto mb-3" />
-                    <p className="text-sm font-medium">Please wait while your agent is working...</p>
-                    <p className="text-xs mt-1">The architecture will be generated once the current task completes</p>
-                  </div>
-                </div>
-              ) : activeTab === "architecture" && !hasArchitecture ? (
-                // Architecture file doesn't exist and agent is idle - trigger creation
-                <div className="flex items-center justify-center h-[600px]">
-                  <div className="text-center text-muted-foreground">
-                    <Network className="h-12 w-12 mx-auto mb-3 opacity-50" />
-                    <p className="text-sm">No architecture diagram yet</p>
-                    <p className="text-xs mt-1">Generating automatically...</p>
-                  </div>
                 </div>
               ) : !selectedFile ? (
                 <div className="text-center text-muted-foreground py-12">
@@ -654,6 +655,7 @@ export const FileViewer = memo(function FileViewer({
               )}
             </div>
           </ScrollArea>
+          )}
         </div>
       </div>
     </div>
@@ -664,23 +666,23 @@ export const FileViewer = memo(function FileViewer({
 // Utilities
 // ---------------------------------------------------------------------------
 
-function getFileIcon(extension: string): string {
+function getFileIcon(extension: string): React.ReactNode {
   switch (extension) {
     case "md":
-      return "📝";
+      return <FileText className="h-4 w-4 text-blue-500/70" />;
     case "py":
-      return "🐍";
+      return <FileCode className="h-4 w-4 text-green-500/70" />;
     case "sql":
-      return "🗃️";
+      return <Database className="h-4 w-4 text-orange-500/70" />;
     case "json":
-      return "📋";
+      return <Braces className="h-4 w-4 text-yellow-500/70" />;
     case "yaml":
     case "yml":
-      return "⚙️";
+      return <Settings className="h-4 w-4 text-gray-500/70" />;
     case "txt":
-      return "📄";
+      return <File className="h-4 w-4 text-muted-foreground" />;
     default:
-      return "📄";
+      return <File className="h-4 w-4 text-muted-foreground" />;
   }
 }
 

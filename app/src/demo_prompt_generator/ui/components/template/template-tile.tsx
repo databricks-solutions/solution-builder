@@ -3,8 +3,8 @@
  */
 
 import { memo } from "react";
-import { Card, CardContent, CardFooter, CardHeader } from "../ui/card";
 import { Badge } from "../ui/badge";
+import { Layers, ArrowUpRight } from "lucide-react";
 import type { TemplateListItem, TemplateSearchResult } from "../../lib/custom-api";
 
 interface TemplateTileProps {
@@ -20,84 +20,66 @@ export const TemplateTile = memo(function TemplateTile({
   showSimilarity = false,
   showStatus = false,
 }: TemplateTileProps) {
-  // Check if it's a search result with similarity
   const similarity = "similarity" in template ? template.similarity : null;
-  // Check if it's a list item with status
   const status = "status" in template ? template.status : null;
 
   return (
-    <Card
-      className="group cursor-pointer transition-all hover:shadow-lg hover:border-primary/30 hover:-translate-y-0.5 h-full flex flex-col"
+    <button
+      type="button"
       onClick={onClick}
+      className="group relative text-left w-full rounded-xl border border-primary/[0.08] bg-card/60 backdrop-blur-lg shadow-sm shadow-primary/[0.03] overflow-hidden transition-all duration-200 hover:shadow-lg hover:shadow-primary/[0.08] hover:border-primary/20 hover:-translate-y-0.5 h-full flex flex-col focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
-      <CardHeader className="pb-2">
-        <h3 className="font-semibold text-base line-clamp-2 group-hover:text-primary transition-colors">
-          {template.name}
-        </h3>
-      </CardHeader>
+      {/* Gradient accent bar */}
+      <div className="absolute inset-x-0 top-0 h-[2px] bg-gradient-to-r from-primary/40 via-primary/20 to-transparent opacity-60 group-hover:opacity-100 transition-opacity" />
 
-      <CardContent className="pb-2 flex-1">
+      <div className="p-4 pb-3 flex-1">
+        {/* Title row */}
+        <div className="flex items-start justify-between gap-2 mb-2">
+          <h3 className="font-semibold text-sm leading-snug line-clamp-2 group-hover:text-primary transition-colors">
+            {template.name}
+          </h3>
+          <ArrowUpRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground/0 group-hover:text-primary transition-all mt-0.5" />
+        </div>
+
+        {/* Description */}
         {template.description && (
-          <p className="text-sm text-muted-foreground line-clamp-3">
+          <p className="text-xs text-muted-foreground/80 line-clamp-3 leading-relaxed">
             {template.description}
           </p>
         )}
-      </CardContent>
+      </div>
 
-      <CardFooter className="pt-2 border-t border-border/30 mt-auto">
-        <div className="flex items-start justify-between w-full text-xs text-muted-foreground">
-          <div className="flex flex-col gap-1">
-            <div className="flex items-center gap-2">
-              {showSimilarity && similarity !== null && (
-                <span className="flex items-center gap-1">
-                  <MatchIcon className="h-3 w-3" />
-                  {Math.round(similarity * 100)}% match
-                </span>
-              )}
-              {template.industry && (
-                <Badge variant="outline" className="text-[10px] px-1.5 py-0.5">
-                  {template.industry}
-                </Badge>
-              )}
-              {!showSimilarity && !template.industry && (
-                <span>Template</span>
-              )}
-            </div>
-            {showStatus && status && status !== "APPROVED" && (
-              <Badge
-                variant={status === "REVIEW_REQUESTED" ? "secondary" : "destructive"}
-                className="text-[10px] px-1.5 py-0.5 w-fit"
-              >
-                {status === "REVIEW_REQUESTED" ? "Pending Review" : "Rejected"}
+      {/* Footer */}
+      <div className="px-4 py-2.5 border-t border-primary/[0.06] bg-primary/[0.02] mt-auto">
+        <div className="flex items-center justify-between text-[11px] text-muted-foreground/70">
+          <div className="flex items-center gap-2">
+            {showSimilarity && similarity !== null && (
+              <span className="flex items-center gap-1 text-primary/80 font-medium">
+                <Layers className="h-3 w-3" />
+                {Math.round(similarity * 100)}% match
+              </span>
+            )}
+            {template.industry && (
+              <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 border-primary/10 bg-primary/[0.03]">
+                {template.industry}
               </Badge>
             )}
+            {!showSimilarity && !template.industry && (
+              <span>Template</span>
+            )}
           </div>
-          <span className="opacity-0 group-hover:opacity-100 transition-opacity text-primary font-medium shrink-0">
-            View →
-          </span>
+          {showStatus && status && status !== "APPROVED" && (
+            <Badge
+              variant={status === "REVIEW_REQUESTED" ? "secondary" : "destructive"}
+              className="text-[10px] px-1.5 py-0 h-4"
+            >
+              {status === "REVIEW_REQUESTED" ? "Pending" : "Rejected"}
+            </Badge>
+          )}
         </div>
-      </CardFooter>
-    </Card>
+      </div>
+    </button>
   );
 });
-
-function MatchIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      className={className}
-      xmlns="http://www.w3.org/2000/svg"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M12 2L2 7l10 5 10-5-10-5z" />
-      <path d="M2 17l10 5 10-5" />
-      <path d="M2 12l10 5 10-5" />
-    </svg>
-  );
-}
 
 export default TemplateTile;

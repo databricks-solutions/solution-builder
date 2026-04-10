@@ -18,6 +18,8 @@ export type TierType =
   | "bronze"
   | "silver"
   | "gold"
+  | "compute"
+  | "analytics"
   | "ai"
   | "consumer"
   | "governance"
@@ -119,6 +121,20 @@ export const TIER_CONFIG: Record<TierType, {
     accent: "bg-amber-600",
     stripe: "#c9a227",
   },
+  compute: {
+    color: "text-violet-600 dark:text-violet-400",
+    bg: "bg-violet-500/[0.08]",
+    border: "border-violet-500/25",
+    accent: "bg-violet-500",
+    stripe: "#8b5cf6",
+  },
+  analytics: {
+    color: "text-pink-600 dark:text-pink-400",
+    bg: "bg-pink-500/[0.08]",
+    border: "border-pink-500/25",
+    accent: "bg-pink-500",
+    stripe: "#ec4899",
+  },
   ai: {
     color: "text-indigo-600 dark:text-indigo-400",
     bg: "bg-indigo-500/[0.08]",
@@ -168,13 +184,13 @@ export const TIER_CONFIG: Record<TierType, {
 // =============================================================================
 
 const LAYOUT = {
-  columnWidth: 220,      // Horizontal spacing between columns
-  rowHeight: 70,         // Vertical spacing between rows
-  nodeWidth: 160,        // Default node width
-  groupPadding: 20,      // Padding around group contents
-  barHeight: 28,         // Height of horizontal bars
-  verticalBarWidth: 24,  // Width of vertical bars
-  verticalBarHeight: 154, // Height of vertical bars (row * 2.2)
+  columnWidth: 280,      // Horizontal spacing between columns
+  rowHeight: 105,        // Vertical spacing between rows
+  nodeWidth: 210,        // Default node width
+  groupPadding: 28,      // Padding around group contents
+  barHeight: 34,         // Height of horizontal bars
+  verticalBarWidth: 30,  // Width of vertical bars
+  verticalBarHeight: 240, // Height of vertical bars
 };
 
 // =============================================================================
@@ -191,9 +207,19 @@ export function schemaToReactFlow(schema: ArchitectureSchema): { nodes: Node[]; 
   // Calculate row Y position
   const rowY = (row: number) => row * LAYOUT.rowHeight;
 
+  // Pre-compute column X positions — bar-only columns get reduced width
+  const colPositions: number[] = [];
+  let runningX = 0;
+  schema.columns.forEach((column, colIndex) => {
+    colPositions.push(runningX);
+    // Bar-only columns (e.g. "Databricks One" vertical bar) are narrow
+    const isBarOnly = column.bars && column.bars.length > 0 && (!column.nodes || column.nodes.length === 0);
+    runningX += isBarOnly ? LAYOUT.verticalBarWidth + 60 : LAYOUT.columnWidth;
+  });
+
   // Process each column
   schema.columns.forEach((column, colIndex) => {
-    const colX = colIndex * LAYOUT.columnWidth;
+    const colX = colPositions[colIndex];
 
     // Track current row within column for auto-positioning
     let currentRow = 0;
@@ -288,8 +314,9 @@ export function schemaToReactFlow(schema: ArchitectureSchema): { nodes: Node[]; 
       const startCol = bar.startColumn ?? 1; // Default: skip sources (column 0)
       const endCol = bar.endColumn ?? Math.max(0, totalColumns - 3); // Default: stop before interface & consumer
 
-      const barStartX = startCol * LAYOUT.columnWidth - 10;
-      const barWidth = (endCol - startCol + 1) * LAYOUT.columnWidth + LAYOUT.nodeWidth;
+      const barStartX = (colPositions[startCol] ?? startCol * LAYOUT.columnWidth) - 10;
+      const barEndX = (colPositions[endCol] ?? endCol * LAYOUT.columnWidth) + LAYOUT.nodeWidth;
+      const barWidth = barEndX - barStartX + 10;
 
       nodes.push({
         id: `foundation-bar-${barIndex}`,
@@ -336,9 +363,9 @@ export function schemaToReactFlow(schema: ArchitectureSchema): { nodes: Node[]; 
       type: "smoothstep",
       animated: edge.animated,
       label: edge.label,
-      labelStyle: edge.label ? { fontSize: 9, fontWeight: 600, fill: edgeColor } : undefined,
-      labelBgStyle: edge.label ? { fill: "white", fillOpacity: 0.9 } : undefined,
-      labelBgPadding: edge.label ? [4, 2] as [number, number] : undefined,
+      labelStyle: edge.label ? { fontSize: 11, fontWeight: 600, fill: edgeColor } : undefined,
+      labelBgStyle: edge.label ? { fill: "var(--color-background, white)", fillOpacity: 0.9 } : undefined,
+      labelBgPadding: edge.label ? [6, 3] as [number, number] : undefined,
       style: { stroke: edgeColor, strokeWidth: 1.5 },
       markerEnd: { type: MarkerType.ArrowClosed, color: edgeColor },
     });
@@ -376,10 +403,10 @@ export const MERIDIAN_BANK_SCHEMA: ArchitectureSchema = {
       ],
     },
 
-    // Column 2: AI/BI Layer
+    // Column 2: Analytics + AI Layer
     {
       nodes: [
-        { id: "dashboard", label: "AI/BI Dashboard", icon: "dashboard", tier: "ai" },
+        { id: "dashboard", label: "AI/BI Dashboard", icon: "dashboard", tier: "analytics" },
         { id: "genie", label: "AI/BI Genie", icon: "genie", tier: "ai", desc: "Natural Language" },
         { id: "ka", label: "Knowledge Assistant", icon: "knowledgeAssistant", tier: "ai", desc: "Doc Search", row: 2.5 },
       ],
@@ -402,7 +429,7 @@ export const MERIDIAN_BANK_SCHEMA: ArchitectureSchema = {
     // Column 5: Consumer
     {
       nodes: [
-        { id: "user", label: "Sarah Chen", icon: "businessUser", tier: "consumer", desc: "VP Fraud Ops", row: 0.5 },
+        { id: "user", label: "Users", icon: "businessUser", tier: "consumer", desc: "End Users", row: 0.5 },
       ],
     },
   ],

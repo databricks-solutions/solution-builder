@@ -24,7 +24,7 @@ Generate architecture diagrams for Databricks demos using a simple JSON schema. 
 
 ## Columns
 
-Columns are positioned automatically left-to-right (220px apart). Each column can contain nodes, vertical bars, or be wrapped in a group.
+Columns are positioned automatically left-to-right. Each column can contain nodes, vertical bars, or be wrapped in a group.
 
 ```json
 {
@@ -36,13 +36,20 @@ Columns are positioned automatically left-to-right (220px apart). Each column ca
 }
 ```
 
-**Typical column order:**
-1. Sources (external data)
-2. SDP Pipeline (Bronze/Silver/Gold with group)
-3. AI/Analytics (Dashboard, Genie, KA)
-4. Orchestration (Multi-Agent Supervisor)
-5. Interface (Databricks One vertical bar)
-6. Consumer (Business user)
+**IMPORTANT — Column ordering rules:**
+
+Each tier/category belongs in its own column. Do NOT mix tiers in the same column.
+
+**Typical column order (left to right):**
+1. **Sources** — External data (tier: `source`)
+2. **SDP Pipeline** — Bronze/Silver/Gold in a group (tiers: `bronze`, `silver`, `gold`)
+3. **Compute** — SQL Warehouse, Notebooks (tier: `compute`)
+4. **Analytics** — Dashboards, BI reports (tier: `analytics`)
+5. **AI** — Genie, KA, MAS, ML Models (tier: `ai`)
+6. **Interface** — Databricks One vertical bar (tier: `interface`)
+7. **Consumer** — End users (tier: `consumer`)
+
+Columns 3-5 can be reordered or merged depending on the demo, but **never put compute infrastructure (SQL Warehouse) in the same column/tier as AI components (Genie, KA)**.
 
 ---
 
@@ -67,6 +74,8 @@ Columns are positioned automatically left-to-right (220px apart). Each column ca
 | `tier` | Yes | Color scheme (see Available Tiers) |
 | `desc` | No | Short description shown below label |
 | `row` | No | Vertical position (auto-increments if omitted). Use decimals for fine positioning (e.g., `0.5`, `2.5`) |
+
+**Consumer nodes:** Always use `"label": "Users"` with `"desc": "End Users"` -- never use specific people's names.
 
 ---
 
@@ -108,8 +117,8 @@ Horizontal bars at the bottom of the diagram. Use `startColumn` and `endColumn` 
 ```json
 {
   "bars": [
-    { "label": "Databricks Workflows — Orchestration", "tier": "orchestration", "startColumn": 1, "endColumn": 3 },
-    { "label": "Unity Catalog — Governance & Security", "tier": "governance", "startColumn": 0, "endColumn": 5 }
+    { "label": "Databricks Workflows — Orchestration", "tier": "orchestration", "startColumn": 1, "endColumn": 4 },
+    { "label": "Unity Catalog — Governance & Security", "tier": "governance", "startColumn": 0, "endColumn": 6 }
   ]
 }
 ```
@@ -120,10 +129,6 @@ Horizontal bars at the bottom of the diagram. Use `startColumn` and `endColumn` 
 | `tier` | Yes | Color scheme (orchestration, governance) |
 | `startColumn` | No | First column to span (0-indexed, default: 1 to skip sources) |
 | `endColumn` | No | Last column to span (0-indexed, default: stops before interface/consumer) |
-
-**Typical usage**:
-- Workflows: `startColumn: 1, endColumn: 3` — spans SDP to MAS (not sources or consumer)
-- Unity Catalog: `startColumn: 0, endColumn: 5` — full width for governance
 
 ---
 
@@ -151,53 +156,54 @@ Horizontal bars at the bottom of the diagram. Use `startColumn` and `endColumn` 
 
 | Icon | Use For |
 |------|---------|
-| `dashboard` | AI/BI Dashboards, visualizations |
-| `genie` | AI/BI Genie, natural language analytics |
-| `knowledgeAssistant` | Knowledge Assistant, document search |
-| `multiAgentSupervisor` | Multi-Agent Supervisor, routing |
-| `agents` | AI Agents |
+| `inputData` | External data sources, inputs |
+| `unstructuredData` | Documents, PDFs, unstructured data |
+| `lakeflowConnect` | Lakeflow Connect, data ingestion |
 | `deltaTable` | Delta Tables (Bronze/Silver/Gold layers) |
 | `data` | Generic data storage |
-| `unstructuredData` | Documents, PDFs, unstructured data |
-| `inputData` | External data sources, inputs |
-| `businessUser` | Business users, consumers |
-| `lakeflowConnect` | Lakeflow Connect, data ingestion |
-| `sqlWarehouse` | SQL Warehouse, compute |
-| `jobsPipelines` | Jobs, Pipelines, Workflows |
-| `notebooks` | Databricks Notebooks |
-| `sdpPipeline` | SDP Pipelines, streaming |
-| `unityCatalog` | Unity Catalog, governance |
-| `mlModel` | ML Models |
-| `modelServing` | Model serving endpoints |
-| `aiGateway` | AI Gateway |
 | `deltaLake` | Delta Lake |
+| `sdpPipeline` | SDP Pipelines, streaming |
+| `sqlWarehouse` | SQL Warehouse (compute) |
+| `notebooks` | Databricks Notebooks (compute) |
+| `jobsPipelines` | Jobs, Pipelines, Workflows (compute) |
+| `dashboard` | AI/BI Dashboards, visualizations (analytics) |
+| `genie` | AI/BI Genie, natural language analytics (AI) |
+| `knowledgeAssistant` | Knowledge Assistant, document search (AI) |
+| `multiAgentSupervisor` | Multi-Agent Supervisor, routing (AI) |
+| `agents` | AI Agents (AI) |
+| `mlModel` | ML Models (AI) |
+| `modelServing` | Model serving endpoints (compute) |
+| `aiGateway` | AI Gateway (AI) |
+| `unityCatalog` | Unity Catalog, governance |
+| `businessUser` | End users (consumer) |
 
 ---
 
 ## Available Tiers
 
+**CRITICAL -- Use the correct tier for each component:**
+
 | Tier | Color | Use For |
 |------|-------|---------|
-| `source` | Gray | External data sources |
-| `bronze` | Bronze/copper | Bronze layer (raw data) |
-| `silver` | Silver/gray | Silver layer (cleaned data) |
-| `gold` | Gold/amber | Gold layer (analytics ready) |
-| `ai` | Indigo/purple | AI components (Genie, KA, MAS, Dashboard) |
+| `source` | Gray | External data sources (SQL Server, PostgreSQL, S3, APIs) |
+| `bronze` | Bronze/copper | Bronze layer (raw ingested data) |
+| `silver` | Silver/gray | Silver layer (cleaned/joined data) |
+| `gold` | Gold/amber | Gold layer (analytics-ready data) |
+| `compute` | Violet/purple | **SQL Warehouse, Notebooks, Jobs/Pipelines, Model Serving** |
+| `analytics` | Pink | **AI/BI Dashboards, reports, BI visualizations** |
+| `ai` | Indigo | **Genie, Knowledge Assistant, Multi-Agent Supervisor, ML Models, AI Agents** |
 | `consumer` | Emerald green | End users |
-| `sdp` | Teal | SDP Pipeline groups |
+| `sdp` | Teal | SDP Pipeline groups (wraps bronze/silver/gold) |
 | `governance` | Dark slate | Unity Catalog foundation bar |
 | `orchestration` | Sky blue | Databricks Workflows foundation bar |
 | `interface` | Rose/pink | Databricks One vertical bar |
-| `ingest` | Blue | Ingestion layer |
+| `ingest` | Blue | Ingestion layer (if separate from sources) |
 
 ---
 
 ## Complete Example
 
-This is a reference example. **Adapt to match your demo's actual components:**
-- Include only the data sources, pipelines, and AI components your demo uses
-- Match node labels/descriptions to your demo's tables, dashboards, and agents
-- Adjust columns and edges to reflect your data flow
+This is a reference example. **Adapt to match your demo's actual components.**
 
 ```json
 {
@@ -222,8 +228,13 @@ This is a reference example. **Adapt to match your demo's actual components:**
     },
     {
       "nodes": [
-        { "id": "dashboard", "label": "AI/BI Dashboard", "icon": "dashboard", "tier": "ai" },
-        { "id": "genie", "label": "AI/BI Genie", "icon": "genie", "tier": "ai", "desc": "Natural Language" },
+        { "id": "warehouse", "label": "SQL Warehouse", "icon": "sqlWarehouse", "tier": "compute", "desc": "Serverless" }
+      ]
+    },
+    {
+      "nodes": [
+        { "id": "dashboard", "label": "AI/BI Dashboard", "icon": "dashboard", "tier": "analytics" },
+        { "id": "genie", "label": "AI/BI Genie", "icon": "genie", "tier": "ai", "desc": "Natural Language", "row": 1.5 },
         { "id": "ka", "label": "Knowledge Assistant", "icon": "knowledgeAssistant", "tier": "ai", "desc": "Doc Search", "row": 2.5 }
       ]
     },
@@ -239,7 +250,7 @@ This is a reference example. **Adapt to match your demo's actual components:**
     },
     {
       "nodes": [
-        { "id": "user", "label": "Sarah Chen", "icon": "businessUser", "tier": "consumer", "desc": "VP Fraud Ops", "row": 0.5 }
+        { "id": "user", "label": "Users", "icon": "businessUser", "tier": "consumer", "desc": "End Users", "row": 1 }
       ]
     }
   ],
@@ -250,8 +261,9 @@ This is a reference example. **Adapt to match your demo's actual components:**
     { "from": "src-docs", "to": "volume", "label": "Auto Loader", "animated": true },
     { "from": "bronze", "to": "silver", "animated": true },
     { "from": "silver", "to": "gold", "animated": true },
-    { "from": "gold", "to": "dashboard" },
-    { "from": "gold", "to": "genie" },
+    { "from": "gold", "to": "warehouse" },
+    { "from": "warehouse", "to": "dashboard" },
+    { "from": "warehouse", "to": "genie" },
     { "from": "volume", "to": "ka" },
     { "from": "genie", "to": "mas" },
     { "from": "ka", "to": "mas" },
@@ -260,8 +272,8 @@ This is a reference example. **Adapt to match your demo's actual components:**
     { "from": "db-one", "to": "user" }
   ],
   "bars": [
-    { "label": "Databricks Workflows — Orchestration", "tier": "orchestration", "startColumn": 1, "endColumn": 3 },
-    { "label": "Unity Catalog — Governance & Security", "tier": "governance", "startColumn": 0, "endColumn": 5 }
+    { "label": "Databricks Workflows — Orchestration", "tier": "orchestration", "startColumn": 1, "endColumn": 4 },
+    { "label": "Unity Catalog — Governance & Security", "tier": "governance", "startColumn": 0, "endColumn": 6 }
   ]
 }
 ```
@@ -270,11 +282,13 @@ This is a reference example. **Adapt to match your demo's actual components:**
 
 ## Best Practices
 
-1. **Flow left-to-right**: Sources → Processing → AI → Consumer
-2. **SDP Pipeline group**: Always wrap Bronze/Silver/Gold in a group with `"tier": "sdp"`
-3. **Animated edges**: Use `"animated": true` for data ingestion flows
-4. **Edge labels**: Use sparingly (e.g., "Lakeflow Connect", "Auto Loader")
-5. **Foundation bars**: Include Unity Catalog and Databricks Workflows at bottom
-6. **Databricks One**: Use vertical bar between AI and consumer
-7. **Node descriptions**: Keep short (1-2 words)
-8. **Row positioning**: Use decimals (e.g., `0.5`) to center single nodes vertically
+1. **Flow left-to-right**: Sources -> SDP -> Compute -> Analytics -> AI -> Consumer
+2. **One tier per column**: Don't mix compute, analytics, and AI in the same column
+3. **SDP Pipeline group**: Always wrap Bronze/Silver/Gold in a group with `"tier": "sdp"`
+4. **Animated edges**: Use `"animated": true` for data ingestion flows
+5. **Edge labels**: Use sparingly (e.g., "Lakeflow Connect", "Auto Loader")
+6. **Foundation bars**: Include Unity Catalog and Databricks Workflows at bottom
+7. **Databricks One**: Use vertical bar between AI and consumer
+8. **Node descriptions**: Keep short (1-2 words)
+9. **Consumer nodes**: Always use "Users" -- never use specific people's names
+10. **Row positioning**: Use decimals (e.g., `0.5`) to center single nodes vertically

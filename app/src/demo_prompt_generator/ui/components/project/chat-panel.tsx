@@ -5,23 +5,29 @@
 
 import { memo, useRef, useEffect, useState, useCallback } from "react";
 import { createPortal } from "react-dom";
-import { Button } from "../ui/button";
 import { Textarea } from "../ui/textarea";
 import { Prose } from "../markdown-prose";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../ui/tooltip";
-import { Server, Database, Boxes, Loader2, Check, X, Brain, Wrench, ChevronDown, ChevronRight, Trash2, Info } from "lucide-react";
+import {
+  Loader2,
+  Check,
+  X,
+  Brain,
+  Wrench,
+  ChevronDown,
+  ChevronRight,
+  Trash2,
+  Info,
+  ArrowUp,
+  MessageSquare,
+  Sparkles,
+  Square,
+} from "lucide-react";
 import type { Message, ReasoningEntry } from "../../lib/custom-api";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
-
-interface ResourceInfo {
-  clusterName?: string | null;
-  warehouseName?: string | null;
-  catalog?: string | null;
-  schema?: string | null;
-}
 
 interface ToolInfo {
   name: string;
@@ -73,7 +79,6 @@ function getToolDescription(name: string, input: unknown): string {
   }
 
   // Remove common project path prefixes for readability
-  // Match patterns like /Users/.../projects/{uuid}/ or ./projects/{uuid}/
   description = description.replace(/^(\/[^/]+)+\/projects\/[a-f0-9-]+\//, "");
   description = description.replace(/^\.\/projects\/[a-f0-9-]+\//, "");
 
@@ -120,8 +125,6 @@ interface ChatPanelProps {
   onClearSession?: () => void;
   placeholder?: string;
   title?: string;
-  resources?: ResourceInfo;
-  onEditResources?: () => void;
 }
 
 interface MessageBubbleProps {
@@ -140,30 +143,31 @@ const MessageBubble = memo(function MessageBubble({
   const isUser = message.role === "user";
   const isError = "is_error" in message && message.is_error;
 
+  if (isUser) {
+    return (
+      <div className="flex justify-end">
+        <div className="max-w-[85%] rounded-2xl rounded-br-md px-3.5 py-2 bg-primary text-primary-foreground shadow-sm">
+          <p className="text-sm whitespace-pre-wrap leading-relaxed">{message.content}</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div
-      className={`flex ${isUser ? "justify-end" : "justify-start"}`}
-    >
-      {/* Message content */}
+    <div className="flex justify-start">
       <div
-        className={`max-w-[90%] rounded-lg ${
-          isUser
-            ? "px-3 py-2 bg-primary text-primary-foreground"
-            : isError
-            ? "px-3 py-2 bg-destructive/10 border border-destructive/30"
-            : "px-3 py-2 bg-muted"
+        className={`max-w-[92%] rounded-2xl rounded-bl-md px-3.5 py-2.5 ${
+          isError
+            ? "bg-destructive/5 border border-destructive/20 text-destructive"
+            : "bg-muted/60"
         }`}
       >
-        {isUser ? (
-          <p className="text-sm whitespace-pre-wrap">{message.content}</p>
-        ) : (
-          <div className="text-xs">
-            <Prose className="text-inherit prose-xs">{message.content}</Prose>
-            {isStreaming && (
-              <span className="inline-block w-1.5 h-3 ml-1 bg-current animate-pulse" />
-            )}
-          </div>
-        )}
+        <div className="text-sm">
+          <Prose compact className="text-inherit text-sm">{message.content}</Prose>
+          {isStreaming && (
+            <span className="inline-block w-0.5 h-4 ml-0.5 bg-foreground/70 animate-pulse rounded-full align-text-bottom" />
+          )}
+        </div>
       </div>
     </div>
   );
@@ -213,7 +217,6 @@ const LiveReasoningPopup = memo(function LiveReasoningPopup({
     if (!isStreaming && isVisible && !isFadingOut) {
       const fadeTimer = setTimeout(() => {
         setIsFadingOut(true);
-        // Actually hide after fade animation (500ms)
         setTimeout(() => {
           setIsVisible(false);
           setIsFadingOut(false);
@@ -250,33 +253,35 @@ const LiveReasoningPopup = memo(function LiveReasoningPopup({
 
   return createPortal(
     <div
-      className={`fixed top-20 right-4 w-96 max-h-80 bg-background border border-border rounded-lg shadow-lg z-50 flex flex-col overflow-hidden transition-all duration-500 ${
-        isFadingOut ? "opacity-0 translate-x-4" : "opacity-100 translate-x-0"
+      className={`fixed top-20 right-4 w-96 max-h-80 bg-background/95 backdrop-blur-xl border border-border/60 rounded-xl shadow-xl z-50 flex flex-col overflow-hidden transition-all duration-500 ${
+        isFadingOut ? "opacity-0 translate-x-4 scale-95" : "opacity-100 translate-x-0 scale-100"
       }`}
     >
       {/* Header */}
-      <div className="shrink-0 flex items-center justify-between px-3 py-2 border-b border-border bg-muted/30">
+      <div className="shrink-0 flex items-center justify-between px-3.5 py-2.5 border-b border-border/50">
         <div className="flex items-center gap-2">
-          <Brain className="h-4 w-4 text-amber-500" />
-          <span className="text-xs font-medium">Live Reasoning</span>
+          <div className="flex items-center justify-center w-5 h-5 rounded-md bg-amber-500/10">
+            <Brain className="h-3 w-3 text-amber-500" />
+          </div>
+          <span className="text-xs font-semibold tracking-wide uppercase text-muted-foreground">Live Reasoning</span>
           {isStreaming && (
             <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
           )}
         </div>
         <button
           onClick={handleClose}
-          className="text-muted-foreground hover:text-foreground transition-colors"
+          className="text-muted-foreground/50 hover:text-foreground transition-colors rounded-md p-0.5 hover:bg-muted"
         >
-          <X className="h-4 w-4" />
+          <X className="h-3.5 w-3.5" />
         </button>
       </div>
 
       {/* Content */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto p-3 space-y-3">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto p-3.5 space-y-3">
         {/* Thinking */}
         {displayThinking && (
-          <div className="text-[11px]">
-            <div className="flex items-center gap-1 font-medium text-amber-600 dark:text-amber-500 mb-1">
+          <div className="text-xs">
+            <div className="flex items-center gap-1.5 font-medium text-amber-600 dark:text-amber-400 mb-1.5">
               <Brain className="h-3 w-3" />
               <span>Thinking</span>
             </div>
@@ -289,8 +294,8 @@ const LiveReasoningPopup = memo(function LiveReasoningPopup({
         {/* Tools */}
         {displayTools.size > 0 && (
           <TooltipProvider delayDuration={200}>
-            <div className="space-y-2">
-              <div className="flex items-center gap-1 text-[11px] font-medium text-muted-foreground">
+            <div className="space-y-1.5">
+              <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
                 <Wrench className="h-3 w-3" />
                 <span>Tools ({displayTools.size})</span>
               </div>
@@ -299,7 +304,7 @@ const LiveReasoningPopup = memo(function LiveReasoningPopup({
                 return (
                   <Tooltip key={toolId}>
                     <TooltipTrigger asChild>
-                      <div className="flex items-start gap-2 px-2 py-1.5 bg-muted/50 rounded text-[10px] cursor-help hover:bg-muted/70">
+                      <div className="flex items-start gap-2 px-2.5 py-1.5 bg-muted/40 rounded-lg text-xs cursor-help hover:bg-muted/60 transition-colors">
                         <div className="shrink-0 mt-0.5">
                           {tool.result !== undefined ? (
                             tool.isError ? (
@@ -315,11 +320,11 @@ const LiveReasoningPopup = memo(function LiveReasoningPopup({
                           <div className="flex items-center gap-1.5">
                             <span className="font-medium">{tool.name}</span>
                             {description && (
-                              <span className="text-muted-foreground font-mono truncate text-[9px]">
+                              <span className="text-muted-foreground font-mono truncate text-[10px]">
                                 {description}
                               </span>
                             )}
-                            <Info className="h-2.5 w-2.5 text-muted-foreground/50 shrink-0" />
+                            <Info className="h-2.5 w-2.5 text-muted-foreground/40 shrink-0" />
                           </div>
                         </div>
                       </div>
@@ -359,17 +364,17 @@ const CollapsibleReasoning = memo(function CollapsibleReasoning({ reasoning }: C
     <div className="mt-1">
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+        className="flex items-center gap-1 text-xs text-muted-foreground/70 hover:text-muted-foreground transition-colors"
       >
         {isOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-        <span>See reasoning ({reasoning.tools.size} tool{reasoning.tools.size !== 1 ? "s" : ""})</span>
+        <span>Reasoning ({reasoning.tools.size} tool{reasoning.tools.size !== 1 ? "s" : ""})</span>
       </button>
       {isOpen && (
         <TooltipProvider delayDuration={200}>
-          <div className="mt-2 space-y-2 pl-4 border-l-2 border-muted">
+          <div className="mt-2 space-y-2 pl-3 border-l-2 border-border/50">
             {reasoning.thinking && (
-              <div className="text-[10px] text-muted-foreground">
-                <div className="flex items-center gap-1 font-medium text-amber-600 dark:text-amber-500 mb-1">
+              <div className="text-xs text-muted-foreground">
+                <div className="flex items-center gap-1 font-medium text-amber-600 dark:text-amber-400 mb-1">
                   <Brain className="h-3 w-3" />
                   <span>Thinking</span>
                 </div>
@@ -377,13 +382,13 @@ const CollapsibleReasoning = memo(function CollapsibleReasoning({ reasoning }: C
               </div>
             )}
             {reasoning.tools.size > 0 && (
-              <div className="space-y-1">
+              <div className="space-y-0.5">
                 {Array.from(reasoning.tools.entries()).map(([toolId, tool]) => {
                   const description = getToolDescription(tool.name, tool.input);
                   return (
                     <Tooltip key={toolId}>
                       <TooltipTrigger asChild>
-                        <div className="flex items-start gap-1.5 text-[10px] cursor-help hover:bg-muted/50 rounded px-1 -mx-1 py-0.5">
+                        <div className="flex items-start gap-1.5 text-xs cursor-help hover:bg-muted/50 rounded-md px-1.5 -mx-1 py-0.5 transition-colors">
                           <div className="shrink-0 mt-0.5">
                             {tool.isError ? (
                               <X className="h-3 w-3 text-destructive" />
@@ -399,7 +404,7 @@ const CollapsibleReasoning = memo(function CollapsibleReasoning({ reasoning }: C
                                   {description}
                                 </span>
                               )}
-                              <Info className="h-2.5 w-2.5 text-muted-foreground/50 shrink-0" />
+                              <Info className="h-2.5 w-2.5 text-muted-foreground/40 shrink-0" />
                             </div>
                           </div>
                         </div>
@@ -434,7 +439,6 @@ const CollapsibleReasoningFromMetadata = memo(function CollapsibleReasoningFromM
 
   if (!entries || entries.length === 0) return null;
 
-  // Count tools for the summary
   const toolCount = entries.filter(e => e.type === "tool").length;
 
   // Merge tool and tool_result entries for display
@@ -455,19 +459,19 @@ const CollapsibleReasoningFromMetadata = memo(function CollapsibleReasoningFromM
     <div className="mt-1">
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+        className="flex items-center gap-1 text-xs text-muted-foreground/70 hover:text-muted-foreground transition-colors"
       >
         {isOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-        <span>See reasoning ({toolCount} tool{toolCount !== 1 ? "s" : ""})</span>
+        <span>Reasoning ({toolCount} tool{toolCount !== 1 ? "s" : ""})</span>
       </button>
       {isOpen && (
         <TooltipProvider delayDuration={200}>
-          <div className="mt-2 space-y-2 pl-4 border-l-2 border-muted">
+          <div className="mt-2 space-y-2 pl-3 border-l-2 border-border/50">
             {entries.map((entry, idx) => {
               if (entry.type === "thinking") {
                 return (
-                  <div key={`thinking-${idx}`} className="text-[10px] text-muted-foreground">
-                    <div className="flex items-center gap-1 font-medium text-amber-600 dark:text-amber-500 mb-1">
+                  <div key={`thinking-${idx}`} className="text-xs text-muted-foreground">
+                    <div className="flex items-center gap-1 font-medium text-amber-600 dark:text-amber-400 mb-1">
                       <Brain className="h-3 w-3" />
                       <span>Thinking</span>
                     </div>
@@ -483,7 +487,7 @@ const CollapsibleReasoningFromMetadata = memo(function CollapsibleReasoningFromM
                 return (
                   <Tooltip key={`tool-${entry.id}`}>
                     <TooltipTrigger asChild>
-                      <div className="flex items-start gap-1.5 text-[10px] cursor-help hover:bg-muted/50 rounded px-1 -mx-1 py-0.5">
+                      <div className="flex items-start gap-1.5 text-xs cursor-help hover:bg-muted/50 rounded-md px-1.5 -mx-1 py-0.5 transition-colors">
                         <div className="shrink-0 mt-0.5">
                           {result?.isError ? (
                             <X className="h-3 w-3 text-destructive" />
@@ -499,7 +503,7 @@ const CollapsibleReasoningFromMetadata = memo(function CollapsibleReasoningFromM
                                 {description}
                               </span>
                             )}
-                            <Info className="h-2.5 w-2.5 text-muted-foreground/50 shrink-0" />
+                            <Info className="h-2.5 w-2.5 text-muted-foreground/40 shrink-0" />
                           </div>
                         </div>
                       </div>
@@ -512,7 +516,6 @@ const CollapsibleReasoningFromMetadata = memo(function CollapsibleReasoningFromM
                   </Tooltip>
                 );
               }
-              // Skip tool_result entries (already merged above)
               return null;
             })}
           </div>
@@ -541,8 +544,6 @@ export const ChatPanel = memo(function ChatPanel({
   onClearSession,
   placeholder = "Ask the AI to help build your demo...",
   title = "Your AI Assistant",
-  resources,
-  onEditResources,
 }: ChatPanelProps) {
   const [input, setInput] = useState("");
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -553,6 +554,14 @@ export const ChatPanel = memo(function ChatPanel({
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, streamingContent, streamingThinking, streamingTools]);
+
+  // Auto-resize textarea
+  useEffect(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    textarea.style.height = "0";
+    textarea.style.height = Math.min(textarea.scrollHeight, 160) + "px";
+  }, [input]);
 
   // Handle send
   const handleSend = useCallback(async () => {
@@ -574,111 +583,70 @@ export const ChatPanel = memo(function ChatPanel({
     [handleSend]
   );
 
+  const hasMessages = messages.length > 0 || isStreaming || pendingUserMessage;
+
   return (
-    <div className="flex flex-col h-full bg-background border-l border-border">
+    <div className="flex flex-col h-full bg-background">
       {/* Header */}
-      <div className="shrink-0 px-4 py-3 border-b border-border">
-        <h2 className="font-semibold text-sm">{title}</h2>
-        {/* Resource info row */}
-        <div className="flex items-center gap-3 mt-1.5 flex-wrap">
-          <TooltipProvider delayDuration={200}>
-            {resources?.clusterName && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    onClick={onEditResources}
-                    className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
-                  >
-                    <Server className="h-3 w-3" />
-                    <span className="truncate max-w-[80px]">{resources.clusterName}</span>
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>Cluster: {resources.clusterName}</p>
-                </TooltipContent>
-              </Tooltip>
-            )}
-            {resources?.warehouseName && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    onClick={onEditResources}
-                    className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
-                  >
-                    <Database className="h-3 w-3" />
-                    <span className="truncate max-w-[80px]">{resources.warehouseName}</span>
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>Warehouse: {resources.warehouseName}</p>
-                </TooltipContent>
-              </Tooltip>
-            )}
-            {(resources?.catalog || resources?.schema) && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    onClick={onEditResources}
-                    className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
-                  >
-                    <Boxes className="h-3 w-3" />
-                    <span className="truncate max-w-[100px]">
-                      {resources?.catalog || "default"}.{resources?.schema || "default"}
-                    </span>
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>{resources?.catalog || "default"}.{resources?.schema || "default"}</p>
-                </TooltipContent>
-              </Tooltip>
-            )}
-          </TooltipProvider>
-          <div className="flex items-center gap-2 ml-auto">
-            {onClearSession && messages.length > 0 && (
-              <button
-                onClick={onClearSession}
-                disabled={isStreaming || isClearingSession}
-                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-destructive transition-colors disabled:opacity-50"
-                title="Clear session history"
-              >
-                {isClearingSession ? (
-                  <Loader2 className="h-3 w-3 animate-spin" />
-                ) : (
-                  <Trash2 className="h-3 w-3" />
-                )}
-                <span>Clear</span>
-              </button>
-            )}
+      <div className="shrink-0 px-4 py-2.5 border-b border-border/50 flex items-center justify-between bg-background">
+        <div className="flex items-center gap-2">
+          <div className="flex items-center justify-center w-6 h-6 rounded-lg bg-primary/10">
+            <Sparkles className="h-3.5 w-3.5 text-primary" />
           </div>
+          <h2 className="font-semibold text-sm">{title}</h2>
+        </div>
+        <div className="flex items-center gap-1">
+          {onClearSession && messages.length > 0 && (
+            <button
+              onClick={onClearSession}
+              disabled={isStreaming || isClearingSession}
+              className="flex items-center gap-1.5 text-xs text-muted-foreground/70 hover:text-destructive px-2 py-1.5 rounded-md hover:bg-destructive/5 transition-all disabled:opacity-40 disabled:pointer-events-none"
+              title="Clear session history"
+            >
+              {isClearingSession ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                <Trash2 className="h-3 w-3" />
+              )}
+              <span>Clear</span>
+            </button>
+          )}
         </div>
       </div>
 
       {/* Messages */}
       <div
         ref={scrollContainerRef}
-        className="flex-1 min-h-0 overflow-y-auto p-4"
+        className="flex-1 min-h-0 overflow-y-auto"
       >
-        <div className="space-y-3">
-          {(messages.length === 0 || isClearingSession) && !isStreaming && (
-            <div className="text-center text-muted-foreground text-xs py-8">
-              {isClearingSession ? (
-                <div className="flex flex-col items-center gap-2">
-                  <Loader2 className="h-5 w-5 animate-spin" />
-                  <p>Clearing session...</p>
-                </div>
-              ) : isLoadingMessages ? (
-                <div className="flex flex-col items-center gap-2">
-                  <Loader2 className="h-5 w-5 animate-spin" />
-                  <p>Loading messages...</p>
+        <div className="p-4 space-y-4">
+          {!hasMessages && !isClearingSession && (
+            <div className="flex flex-col items-center justify-center py-16 px-4">
+              {isLoadingMessages ? (
+                <div className="flex flex-col items-center gap-3">
+                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground/50" />
+                  <p className="text-sm text-muted-foreground/60">Loading messages...</p>
                 </div>
               ) : (
-                <>
-                  <p>No messages yet.</p>
-                  <p className="mt-1">
-                    Ask me to help you build your demo!
-                  </p>
-                </>
+                <div className="flex flex-col items-center gap-4 max-w-[260px] text-center">
+                  <div className="flex items-center justify-center w-12 h-12 rounded-2xl bg-muted/60">
+                    <MessageSquare className="h-6 w-6 text-muted-foreground/40" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground/70 mb-1">Start a conversation</p>
+                    <p className="text-xs text-muted-foreground/50 leading-relaxed">
+                      Ask the AI to help you design and build your demo
+                    </p>
+                  </div>
+                </div>
               )}
+            </div>
+          )}
+
+          {isClearingSession && (
+            <div className="flex flex-col items-center justify-center py-16">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground/50 mb-3" />
+              <p className="text-sm text-muted-foreground/60">Clearing session...</p>
             </div>
           )}
 
@@ -691,13 +659,13 @@ export const ChatPanel = memo(function ChatPanel({
               <div key={msg.id}>
                 {/* Show reasoning from reasoning_data (saved in DB) */}
                 {hasReasoningData && (
-                  <div className="mb-1 ml-0">
+                  <div className="mb-1.5 ml-0">
                     <CollapsibleReasoningFromMetadata entries={msg.reasoning_data!.reasoning!} />
                   </div>
                 )}
                 {/* Fallback: show lastReasoning for the last assistant message if no reasoning_data */}
                 {!hasReasoningData && !isStreaming && lastReasoning && isLastAssistant && (
-                  <div className="mb-1">
+                  <div className="mb-1.5">
                     <CollapsibleReasoning reasoning={lastReasoning} />
                   </div>
                 )}
@@ -706,41 +674,42 @@ export const ChatPanel = memo(function ChatPanel({
             );
           })}
 
-          {/* Pending user message (shown immediately while waiting for agent) */}
+          {/* Pending user message */}
           {pendingUserMessage && (
             <MessageBubble
               message={{ role: "user", content: pendingUserMessage }}
             />
           )}
 
-          {/* Streaming AI response bubble - shows loading dots until content arrives */}
+          {/* Streaming AI response */}
           {isStreaming && (
             <div className="flex justify-start">
-              <div className="max-w-[90%] rounded-lg px-3 py-2 bg-muted">
+              <div className="max-w-[92%] rounded-2xl rounded-bl-md px-3.5 py-2.5 bg-muted/60">
                 {streamingContent ? (
-                  <div className="text-xs">
-                    <Prose className="text-inherit prose-xs">{streamingContent}</Prose>
-                    <span className="inline-block w-1.5 h-3 ml-1 bg-current animate-pulse" />
+                  <div className="text-sm">
+                    <Prose compact className="text-inherit text-sm">{streamingContent}</Prose>
+                    <span className="inline-block w-0.5 h-4 ml-0.5 bg-foreground/70 animate-pulse rounded-full align-text-bottom" />
                   </div>
                 ) : (
-                  <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                    <span className="animate-bounce" style={{ animationDelay: "0ms" }}>.</span>
-                    <span className="animate-bounce" style={{ animationDelay: "150ms" }}>.</span>
-                    <span className="animate-bounce" style={{ animationDelay: "300ms" }}>.</span>
+                  <div className="flex items-center gap-1 py-0.5">
+                    <div className="flex gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/40 animate-bounce" style={{ animationDelay: "0ms", animationDuration: "1.2s" }} />
+                      <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/40 animate-bounce" style={{ animationDelay: "200ms", animationDuration: "1.2s" }} />
+                      <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/40 animate-bounce" style={{ animationDelay: "400ms", animationDuration: "1.2s" }} />
+                    </div>
                   </div>
                 )}
               </div>
             </div>
           )}
 
-          {/* Anchor for auto-scroll to bottom */}
           <div ref={bottomRef} />
         </div>
       </div>
 
-      {/* Input */}
-      <div className="shrink-0 p-3 border-t border-border">
-        <div className="flex gap-2">
+      {/* Input area */}
+      <div className="shrink-0 p-3 pt-2">
+        <div className="rounded-xl border border-border/60 bg-muted/20 shadow-sm focus-within:border-border focus-within:shadow-md transition-all">
           <Textarea
             ref={textareaRef}
             value={input}
@@ -748,64 +717,36 @@ export const ChatPanel = memo(function ChatPanel({
             onKeyDown={handleKeyDown}
             placeholder={placeholder}
             disabled={isStreaming}
-            className="min-h-[50px] max-h-[150px] resize-none text-xs"
-            rows={2}
+            className="min-h-[44px] max-h-[160px] resize-none text-sm border-0 shadow-none bg-transparent focus-visible:ring-0 rounded-xl rounded-b-none px-3.5 py-3"
+            rows={1}
           />
-          <div className="flex flex-col gap-2">
+          <div className="flex items-center justify-between px-2 pb-2">
+            <span className="text-[10px] text-muted-foreground/40 select-none pl-1.5">
+              {isStreaming ? "Generating..." : "Enter to send"}
+            </span>
             {isStreaming ? (
               <button
                 onClick={onStop}
-                className="h-full min-h-[50px] w-10 flex items-center justify-center bg-destructive hover:bg-destructive/90 rounded-md transition-colors"
+                className="flex items-center justify-center h-7 w-7 rounded-lg bg-destructive text-white hover:bg-destructive/90 transition-colors"
                 title="Stop generation"
               >
-                {/* Animated shape: square morphs to circle with bounce */}
-                <div
-                  className="w-4 h-4 bg-white"
-                  style={{
-                    animation: "morph 2.5s ease-in-out infinite",
-                  }}
-                />
-                <style>{`
-                  @keyframes morph {
-                    0%, 15% {
-                      border-radius: 2px;
-                      transform: scale(1);
-                    }
-                    20% {
-                      transform: scale(1.15);
-                    }
-                    25%, 45% {
-                      border-radius: 50%;
-                      transform: scale(1);
-                    }
-                    50% {
-                      transform: scale(1.15);
-                    }
-                    55%, 100% {
-                      border-radius: 2px;
-                      transform: scale(1);
-                    }
-                  }
-                `}</style>
+                <Square className="h-3 w-3 fill-current" />
               </button>
             ) : (
-              <Button
+              <button
                 onClick={handleSend}
                 disabled={!input.trim()}
-                size="sm"
-                className="h-full"
+                className="flex items-center justify-center h-7 w-7 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-all disabled:opacity-30 disabled:pointer-events-none"
+                title="Send message"
               >
-                Send
-              </Button>
+                <ArrowUp className="h-3.5 w-3.5" strokeWidth={2.5} />
+              </button>
             )}
           </div>
         </div>
-        <p className="text-xs text-muted-foreground mt-2">
-          Press Enter to send, Shift+Enter for new line
-        </p>
       </div>
 
-      {/* Live reasoning popup - floats on top-right of page */}
+      {/* Live reasoning popup */}
       <LiveReasoningPopup
         isStreaming={isStreaming}
         thinking={streamingThinking || ""}

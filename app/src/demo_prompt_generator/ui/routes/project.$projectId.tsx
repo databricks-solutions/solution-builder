@@ -17,6 +17,7 @@ import {
 import { FileViewer } from "@/components/project/file-viewer";
 import { ChatPanel } from "@/components/project/chat-panel";
 import { SkillsPopup } from "@/components/project/skills-popup";
+import { TemplatePublishDialog } from "@/components/project/template-publish-dialog";
 import {
   ResourcesPopover,
   type ProjectResources,
@@ -27,12 +28,14 @@ import {
   Trash2,
   AlertTriangle,
   Upload,
-  CheckCircle,
   Loader2,
   Pencil,
   Check,
   X,
   FileEdit,
+  Server,
+  Database,
+  Boxes,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -45,10 +48,8 @@ import {
   stopAgentStream,
   deleteProject,
   clearProjectSession,
-  submitTemplateFromProject,
   updateProject,
   getTemplateByProject,
-  updateTemplateFromProject,
   type Project,
   type ProjectFile,
   type ProjectFileContent,
@@ -100,17 +101,19 @@ function ProjectPage() {
   // Skills popup state
   const [isSkillsOpen, setIsSkillsOpen] = useState(false);
 
-  // Template submission state
-  const [isSubmittingTemplate, setIsSubmittingTemplate] = useState(false);
-  const [templateSubmitted, setTemplateSubmitted] = useState(false);
+  // Template state
   const [linkedTemplate, setLinkedTemplate] = useState<TemplateDetail | null>(null);
-  const [isUpdateTemplateDialogOpen, setIsUpdateTemplateDialogOpen] = useState(false);
-  const [isUpdatingTemplate, setIsUpdatingTemplate] = useState(false);
+  const [isTemplateDialogOpen, setIsTemplateDialogOpen] = useState(false);
 
   // Project name editing state
   const [isEditingName, setIsEditingName] = useState(false);
   const [editedName, setEditedName] = useState("");
   const [isSavingName, setIsSavingName] = useState(false);
+
+  // Project description editing state
+  const [isEditingDescription, setIsEditingDescription] = useState(false);
+  const [editedDescription, setEditedDescription] = useState("");
+  const [isSavingDescription, setIsSavingDescription] = useState(false);
 
   // Resources popover state
   const [isResourcesOpen, setIsResourcesOpen] = useState(false);
@@ -122,6 +125,38 @@ function ProjectPage() {
     catalog: null,
     schema: null,
   });
+
+  // Chat panel resize state
+  const [chatWidth, setChatWidth] = useState(520);
+  const isResizingRef = useRef(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const MIN_CHAT_WIDTH = 360;
+  const MAX_CHAT_WIDTH = 800;
+
+  const handleResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    isResizingRef.current = true;
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      if (!isResizingRef.current || !containerRef.current) return;
+      const containerRect = containerRef.current.getBoundingClientRect();
+      const newWidth = containerRect.right - moveEvent.clientX;
+      setChatWidth(Math.max(MIN_CHAT_WIDTH, Math.min(MAX_CHAT_WIDTH, newWidth)));
+    };
+
+    const handleMouseUp = () => {
+      isResizingRef.current = false;
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+    };
+
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
+  }, []);
 
   // Load resources from project when it loads (names now come from project directly)
   useEffect(() => {
@@ -420,6 +455,19 @@ function ProjectPage() {
     handleSendMessage("Create an /architecture.md file at the project root level with the architecture diagram - read the demo generator skill architecture reference");
   }, [isCreatingArchitecture, isStreaming, handleSendMessage]);
 
+  // Handle manual connection in architecture diagram — ask LLM to update the schema
+  const handleArchitectureConnection = useCallback(
+    (from: string, to: string) => {
+      if (isStreaming) return;
+      handleSendMessage(
+        `The user just connected node "${from}" to node "${to}" in the architecture diagram. ` +
+        `Update the architecture.md file to add this new edge: { "from": "${from}", "to": "${to}" }. ` +
+        `Keep all existing nodes and edges. Only add the new edge to the edges array.`
+      );
+    },
+    [isStreaming, handleSendMessage]
+  );
+
   // After streaming completes when creating architecture, load the content
   useEffect(() => {
     if (isCreatingArchitecture && !isStreaming) {
@@ -473,43 +521,6 @@ function ProjectPage() {
     }
   }, [projectId]);
 
-  // Handle submit as template
-  const handleSubmitTemplate = useCallback(async () => {
-    if (isSubmittingTemplate || templateSubmitted) return;
-
-    setIsSubmittingTemplate(true);
-    try {
-      const template = await submitTemplateFromProject(projectId);
-      setLinkedTemplate(template as TemplateDetail);
-      setTemplateSubmitted(true);
-      // Reset after 3 seconds
-      setTimeout(() => setTemplateSubmitted(false), 3000);
-    } catch (error) {
-      console.error("Failed to submit template:", error);
-    } finally {
-      setIsSubmittingTemplate(false);
-    }
-  }, [projectId, isSubmittingTemplate, templateSubmitted]);
-
-  // Handle update template
-  const handleUpdateTemplate = useCallback(async () => {
-    if (isUpdatingTemplate || !linkedTemplate) return;
-
-    setIsUpdatingTemplate(true);
-    try {
-      const updated = await updateTemplateFromProject(linkedTemplate.id, projectId);
-      setLinkedTemplate(updated);
-      setIsUpdateTemplateDialogOpen(false);
-      setTemplateSubmitted(true);
-      // Reset after 3 seconds
-      setTimeout(() => setTemplateSubmitted(false), 3000);
-    } catch (error) {
-      console.error("Failed to update template:", error);
-    } finally {
-      setIsUpdatingTemplate(false);
-    }
-  }, [projectId, linkedTemplate, isUpdatingTemplate]);
-
   // Handle project name editing
   const handleStartEditName = useCallback(() => {
     setEditedName(project?.name || "");
@@ -534,6 +545,32 @@ function ProjectPage() {
   const handleCancelEditName = useCallback(() => {
     setIsEditingName(false);
     setEditedName("");
+  }, []);
+
+  // Handle project description editing
+  const handleStartEditDescription = useCallback(() => {
+    setEditedDescription(project?.description || "");
+    setIsEditingDescription(true);
+  }, [project?.description]);
+
+  const handleSaveDescription = useCallback(async () => {
+    if (isSavingDescription) return;
+
+    setIsSavingDescription(true);
+    try {
+      const updated = await updateProject(projectId, { description: editedDescription.trim() });
+      setProject(updated);
+      setIsEditingDescription(false);
+    } catch (error) {
+      console.error("Failed to update project description:", error);
+    } finally {
+      setIsSavingDescription(false);
+    }
+  }, [projectId, editedDescription, isSavingDescription]);
+
+  const handleCancelEditDescription = useCallback(() => {
+    setIsEditingDescription(false);
+    setEditedDescription("");
   }, []);
 
   // Show error page if project not found
@@ -577,144 +614,201 @@ function ProjectPage() {
   return (
     <div className="flex h-screen flex-col overflow-hidden">
       {/* Header */}
-      <div className="shrink-0 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-        <div className="flex h-14 items-center justify-between px-4">
-          <div className="flex items-center gap-3">
+      <div className="shrink-0 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+        <div className="px-5 py-4 border-b border-border">
+          {/* Top line: back + actions */}
+          <div className="flex items-center justify-between mb-2">
             <Link to="/">
-              <Button variant="ghost" size="sm" className="gap-1.5">
+              <Button variant="ghost" size="sm" className="gap-1.5 -ml-2">
                 <ArrowLeft className="h-4 w-4" />
                 Back
               </Button>
             </Link>
-            <div className="h-6 w-px bg-border" />
-            <div className="flex items-center gap-2">
-              {isEditingName ? (
-                <div className="flex items-center gap-1">
-                  <Input
-                    value={editedName}
-                    onChange={(e) => setEditedName(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") handleSaveName();
-                      if (e.key === "Escape") handleCancelEditName();
-                    }}
-                    className="h-7 w-48 text-sm"
-                    autoFocus
-                    disabled={isSavingName}
-                  />
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7"
-                    onClick={handleSaveName}
-                    disabled={isSavingName || !editedName.trim()}
-                  >
-                    {isSavingName ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      <Check className="h-3.5 w-3.5 text-green-600" />
-                    )}
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7"
-                    onClick={handleCancelEditName}
-                    disabled={isSavingName}
-                  >
-                    <X className="h-3.5 w-3.5 text-muted-foreground" />
-                  </Button>
-                </div>
-              ) : (
-                <div className="flex items-center gap-1.5 group">
-                  <h1 className="font-semibold text-sm">
-                    {project?.name || "Loading..."}
-                  </h1>
-                  <button
-                    onClick={handleStartEditName}
-                    className="opacity-0 group-hover:opacity-100 transition-opacity p-1 hover:bg-muted rounded"
-                    title="Edit project name"
-                  >
-                    <Pencil className="h-3 w-3 text-muted-foreground" />
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2">
-            {linkedTemplate ? (
+            <div className="flex items-center gap-3">
               <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setIsUpdateTemplateDialogOpen(true)}
-                disabled={isUpdatingTemplate || templateSubmitted || files.length === 0}
-                className={`gap-1.5 ${templateSubmitted ? "text-green-600" : ""}`}
+                variant="outline"
+                size="default"
+                onClick={() => setIsTemplateDialogOpen(true)}
+                disabled={files.length === 0}
+                className="gap-2"
               >
-                {isUpdatingTemplate ? (
-                  <>
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    Updating...
-                  </>
-                ) : templateSubmitted ? (
-                  <>
-                    <CheckCircle className="h-4 w-4" />
-                    Updated
-                  </>
-                ) : (
+                {linkedTemplate ? (
                   <>
                     <FileEdit className="h-4 w-4" />
                     Update Template
-                    <Badge
-                      variant={linkedTemplate.status === "APPROVED" ? "default" : "secondary"}
-                      className="ml-1 text-[10px] px-1.5 py-0"
-                    >
-                      {linkedTemplate.status === "REVIEW_REQUESTED" ? "Pending" : linkedTemplate.status.toLowerCase()}
-                    </Badge>
-                  </>
-                )}
-              </Button>
-            ) : (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={handleSubmitTemplate}
-                disabled={isSubmittingTemplate || templateSubmitted || files.length === 0}
-                className={`gap-1.5 ${templateSubmitted ? "text-green-600" : ""}`}
-              >
-                {isSubmittingTemplate ? (
-                  <>
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    Submitting...
-                  </>
-                ) : templateSubmitted ? (
-                  <>
-                    <CheckCircle className="h-4 w-4" />
-                    Submitted
                   </>
                 ) : (
                   <>
                     <Upload className="h-4 w-4" />
-                    Submit as Template
+                    Save as Template
                   </>
                 )}
               </Button>
+              <Button
+                variant="outline"
+                size="default"
+                onClick={() => setIsDeleteDialogOpen(true)}
+                className="gap-2 text-destructive border-destructive/30 hover:text-destructive hover:bg-destructive/10"
+              >
+                <Trash2 className="h-4 w-4" />
+                Delete
+              </Button>
+            </div>
+          </div>
+
+          {/* Project name — large and prominent */}
+          <div className="flex items-center gap-2">
+            {isEditingName ? (
+              <div className="flex items-center gap-1.5">
+                <Input
+                  value={editedName}
+                  onChange={(e) => setEditedName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") handleSaveName();
+                    if (e.key === "Escape") handleCancelEditName();
+                  }}
+                  className="h-10 w-96 text-2xl font-bold"
+                  autoFocus
+                  disabled={isSavingName}
+                />
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-9 w-9"
+                  onClick={handleSaveName}
+                  disabled={isSavingName || !editedName.trim()}
+                >
+                  {isSavingName ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Check className="h-4 w-4 text-green-600" />
+                  )}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-9 w-9"
+                  onClick={handleCancelEditName}
+                  disabled={isSavingName}
+                >
+                  <X className="h-4 w-4 text-muted-foreground" />
+                </Button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2">
+                <h1 className="font-bold text-2xl tracking-tight">
+                  {project?.name || "Loading..."}
+                </h1>
+                <button
+                  onClick={handleStartEditName}
+                  className="opacity-50 hover:opacity-100 transition-opacity p-1.5 hover:bg-muted rounded"
+                  title="Edit project name"
+                >
+                  <Pencil className="h-4 w-4 text-muted-foreground" />
+                </button>
+                {linkedTemplate && (
+                  <Badge
+                    variant={linkedTemplate.status === "APPROVED" ? "default" : "secondary"}
+                    className="text-xs px-2 py-0.5 ml-1"
+                  >
+                    Template: {linkedTemplate.status === "REVIEW_REQUESTED" ? "Pending" : linkedTemplate.status.toLowerCase()}
+                  </Badge>
+                )}
+              </div>
             )}
-            <div className="h-6 w-px bg-border" />
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setIsDeleteDialogOpen(true)}
-              className="gap-1.5 text-destructive hover:text-destructive hover:bg-destructive/10"
-            >
-              <Trash2 className="h-4 w-4" />
-              Delete
-            </Button>
+          </div>
+
+          {/* Metadata row */}
+          <div className="flex items-center gap-3 mt-2 flex-wrap">
+            {/* Description */}
+            {isEditingDescription ? (
+              <div className="flex items-center gap-1.5">
+                <Input
+                  value={editedDescription}
+                  onChange={(e) => setEditedDescription(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") handleSaveDescription();
+                    if (e.key === "Escape") handleCancelEditDescription();
+                  }}
+                  className="h-8 w-80 text-sm"
+                  placeholder="Enter a description"
+                  autoFocus
+                  disabled={isSavingDescription}
+                />
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8"
+                  onClick={handleSaveDescription}
+                  disabled={isSavingDescription}
+                >
+                  {isSavingDescription ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Check className="h-4 w-4 text-green-600" />
+                  )}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8"
+                  onClick={handleCancelEditDescription}
+                  disabled={isSavingDescription}
+                >
+                  <X className="h-4 w-4 text-muted-foreground" />
+                </Button>
+              </div>
+            ) : project?.description ? (
+              <button
+                onClick={handleStartEditDescription}
+                className="text-sm text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                title="Click to edit description"
+              >
+                {project.description}
+              </button>
+            ) : null}
+
+            {(project?.description || isEditingDescription) && <div className="h-4 w-px bg-border" />}
+
+            {/* Resource pills */}
+            {resources.clusterName && (
+              <button
+                onClick={() => setIsResourcesOpen(true)}
+                className="flex items-center gap-1.5 text-sm bg-muted hover:bg-muted/80 rounded-md px-2.5 py-1 transition-colors cursor-pointer"
+                title={`Cluster: ${resources.clusterName}`}
+              >
+                <Server className="h-3.5 w-3.5 text-muted-foreground" />
+                <span className="truncate max-w-[150px]">{resources.clusterName}</span>
+              </button>
+            )}
+            {resources.warehouseName && (
+              <button
+                onClick={() => setIsResourcesOpen(true)}
+                className="flex items-center gap-1.5 text-sm bg-muted hover:bg-muted/80 rounded-md px-2.5 py-1 transition-colors cursor-pointer"
+                title={`Warehouse: ${resources.warehouseName}`}
+              >
+                <Database className="h-3.5 w-3.5 text-muted-foreground" />
+                <span className="truncate max-w-[150px]">{resources.warehouseName}</span>
+              </button>
+            )}
+            {(resources.catalog || resources.schema) && (
+              <button
+                onClick={() => setIsResourcesOpen(true)}
+                className="flex items-center gap-1.5 text-sm bg-muted hover:bg-muted/80 rounded-md px-2.5 py-1 transition-colors cursor-pointer"
+                title={`${resources.catalog || "default"}.${resources.schema || "default"}`}
+              >
+                <Boxes className="h-3.5 w-3.5 text-muted-foreground" />
+                <span className="truncate max-w-[180px]">
+                  {resources.catalog || "default"}.{resources.schema || "default"}
+                </span>
+              </button>
+            )}
           </div>
         </div>
       </div>
 
       {/* Main content */}
-      <div className="flex flex-1 min-h-0">
+      <div ref={containerRef} className="flex flex-1 min-h-0">
         {/* File viewer (left side) */}
         <div className="flex-1 min-w-0 overflow-hidden">
           <FileViewer
@@ -729,12 +823,22 @@ function ProjectPage() {
             onLoadArchitecture={handleLoadArchitecture}
             isCreatingArchitecture={isCreatingArchitecture}
             onCreateArchitecture={handleCreateArchitecture}
+            onArchitectureConnectionCreated={handleArchitectureConnection}
             isStreaming={isStreaming}
           />
         </div>
 
+        {/* Resize handle */}
+        <div
+          onMouseDown={handleResizeStart}
+          className="shrink-0 w-1 cursor-col-resize relative group hover:bg-primary/20 active:bg-primary/30 transition-colors"
+        >
+          <div className="absolute inset-y-0 -left-1 -right-1" />
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-1 h-8 rounded-full bg-border group-hover:bg-primary/40 group-active:bg-primary/60 transition-colors" />
+        </div>
+
         {/* Chat panel (right side) */}
-        <div className="w-[600px] shrink-0 h-full">
+        <div className="shrink-0 h-full" style={{ width: chatWidth }}>
           <ChatPanel
             messages={messages}
             onSendMessage={handleSendMessage}
@@ -748,8 +852,6 @@ function ProjectPage() {
             lastReasoning={lastReasoning}
             onStop={handleStop}
             onClearSession={handleClearSession}
-            resources={resources}
-            onEditResources={() => setIsResourcesOpen(true)}
           />
         </div>
       </div>
@@ -825,66 +927,19 @@ function ProjectPage() {
         onResourcesChange={setResources}
       />
 
-      {/* Update Template Confirmation Dialog */}
-      <Dialog open={isUpdateTemplateDialogOpen} onOpenChange={setIsUpdateTemplateDialogOpen}>
-        <DialogContent className="sm:max-w-[425px]">
-          <DialogHeader>
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10">
-                <FileEdit className="h-5 w-5 text-primary" />
-              </div>
-              <div>
-                <DialogTitle>Update Template</DialogTitle>
-                <DialogDescription className="mt-1">
-                  Sync template with project files
-                </DialogDescription>
-              </div>
-            </div>
-          </DialogHeader>
-          <div className="py-4">
-            <p className="text-sm text-muted-foreground">
-              The template content will be replaced with the current project files.
-              {linkedTemplate && (
-                <span className="block mt-2">
-                  Status will remain{" "}
-                  <Badge
-                    variant={linkedTemplate.status === "APPROVED" ? "default" : "secondary"}
-                    className="text-[10px] px-1.5 py-0"
-                  >
-                    {linkedTemplate.status === "REVIEW_REQUESTED" ? "pending" : linkedTemplate.status.toLowerCase()}
-                  </Badge>
-                </span>
-              )}
-            </p>
-          </div>
-          <DialogFooter className="gap-2 sm:gap-0">
-            <Button
-              variant="outline"
-              onClick={() => setIsUpdateTemplateDialogOpen(false)}
-              disabled={isUpdatingTemplate}
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={handleUpdateTemplate}
-              disabled={isUpdatingTemplate}
-              className="gap-2"
-            >
-              {isUpdatingTemplate ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Updating...
-                </>
-              ) : (
-                <>
-                  <FileEdit className="h-4 w-4" />
-                  Update Template
-                </>
-              )}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {/* Template Publish Dialog */}
+      <TemplatePublishDialog
+        projectId={projectId}
+        projectName={project?.name || ""}
+        projectDescription={project?.description || null}
+        fileCount={files.length}
+        linkedTemplate={linkedTemplate}
+        isOpen={isTemplateDialogOpen}
+        onClose={() => setIsTemplateDialogOpen(false)}
+        onSubmitted={(template) => {
+          setLinkedTemplate(template);
+        }}
+      />
     </div>
   );
 }

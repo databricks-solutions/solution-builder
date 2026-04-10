@@ -75,8 +75,8 @@ export const Prose = memo(function Prose({
   if (!children) return null;
 
   const base = compact
-    ? "prose-compact text-sm leading-relaxed"
-    : "prose prose-sm dark:prose-invert max-w-none";
+    ? "leading-relaxed"
+    : "prose prose-base dark:prose-invert max-w-none";
 
   return (
     <div className={`${base} ${className}`}>
@@ -93,7 +93,7 @@ export const Prose = memo(function Prose({
             // Inline code (no className = no language = inline)
             if (!codeClass) {
               return (
-                <code className="rounded bg-muted px-1.5 py-0.5 text-xs font-mono text-primary/80">
+                <code className="rounded bg-muted px-1.5 py-0.5 text-sm font-mono text-primary/80">
                   {codeChildren}
                 </code>
               );
@@ -103,23 +103,23 @@ export const Prose = memo(function Prose({
           // Override pre for code blocks
           pre({ children: preChildren }) {
             return (
-              <pre className="overflow-x-auto rounded-lg bg-muted/60 p-3 text-xs leading-relaxed">
+              <pre className="overflow-x-auto rounded-lg bg-muted/60 p-3 text-sm leading-relaxed">
                 {preChildren}
               </pre>
             );
           },
           // Headings
-          h1: ({ children: h }) => <h1 className="text-base font-bold mt-4 mb-1.5">{h}</h1>,
-          h2: ({ children: h }) => <h2 className="text-sm font-bold mt-3 mb-1.5 border-b border-border/30 pb-1">{h}</h2>,
-          h3: ({ children: h }) => <h3 className="text-xs font-semibold mt-3 mb-1">{h}</h3>,
-          h4: ({ children: h }) => <h4 className="text-xs font-semibold mt-2 mb-1 text-muted-foreground">{h}</h4>,
+          h1: ({ children: h }) => <h1 className="text-xl font-bold mt-4 mb-1.5">{h}</h1>,
+          h2: ({ children: h }) => <h2 className="text-lg font-bold mt-3 mb-1.5 border-b border-border/30 pb-1">{h}</h2>,
+          h3: ({ children: h }) => <h3 className="text-base font-semibold mt-3 mb-1">{h}</h3>,
+          h4: ({ children: h }) => <h4 className="text-sm font-semibold mt-2 mb-1 text-muted-foreground">{h}</h4>,
           // Paragraphs
-          p: ({ children: p }) => <p className="my-1 text-xs leading-relaxed">{p}</p>,
+          p: ({ children: p }) => <p className="my-1 text-sm leading-relaxed">{p}</p>,
           // Lists
           ul: ({ children: u }) => <ul className="my-1.5 ml-1 space-y-0.5 list-none">{u}</ul>,
           ol: ({ children: o }) => <ol className="my-1.5 ml-1 space-y-0.5 list-none counter-reset-item">{o}</ol>,
           li: ({ children: l }) => (
-            <li className="flex gap-1.5 text-xs leading-relaxed">
+            <li className="flex gap-1.5 text-sm leading-relaxed">
               <span className="shrink-0 mt-0.5 text-primary/40">{"\u2022"}</span>
               <span className="flex-1">{l}</span>
             </li>
@@ -127,7 +127,7 @@ export const Prose = memo(function Prose({
           // Tables
           table: ({ children: t }) => (
             <div className="my-3 overflow-x-auto rounded-lg border border-border/40">
-              <table className="w-full text-xs">{t}</table>
+              <table className="w-full text-sm">{t}</table>
             </div>
           ),
           thead: ({ children: th }) => <thead className="bg-muted/40 text-left">{th}</thead>,

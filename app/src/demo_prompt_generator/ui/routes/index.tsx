@@ -17,6 +17,7 @@ import {
   Lightbulb,
   Loader2,
   Library,
+  FolderOpen,
 } from "lucide-react";
 import {
   listProjects,
@@ -347,26 +348,49 @@ function Index() {
           </div>
         )}
 
-        {/* Projects grid */}
+        {/* Recent projects */}
         {projects.length > 0 && (
           <div className="relative z-10 mx-auto mt-12 w-full max-w-5xl">
-            <div className="mb-4">
-              <h2 className="text-lg font-semibold tracking-tight">
-                Your Projects
-              </h2>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                Continue working on existing projects
-              </p>
+            <div className="mb-4 flex items-end justify-between">
+              <div>
+                <h2 className="text-lg font-semibold tracking-tight">
+                  Recent Projects
+                </h2>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Continue working on recent projects
+                </p>
+              </div>
+              {projects.length > 3 && (
+                <Link
+                  to={"/projects"}
+                  className="text-xs text-muted-foreground hover:text-primary transition-colors flex items-center gap-1"
+                >
+                  View all ({projects.length})
+                  <ArrowRight className="h-3 w-3" />
+                </Link>
+              )}
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {projects.map((project) => (
+              {projects.slice(0, 3).map((project) => (
                 <ProjectTile
                   key={project.id}
                   project={project}
                   onClick={() => handleOpenProject(project.id)}
                 />
               ))}
+            </div>
+
+            <div className="mt-6 flex justify-center">
+              <Button
+                variant="outline"
+                className="gap-2"
+                onClick={() => navigate({ to: "/projects" })}
+              >
+                <FolderOpen className="h-4 w-4" />
+                View All Projects
+                <ArrowRight className="h-4 w-4" />
+              </Button>
             </div>
           </div>
         )}
