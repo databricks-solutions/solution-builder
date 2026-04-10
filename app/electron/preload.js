@@ -20,9 +20,22 @@ contextBridge.exposeInMainWorld('electronAPI', {
     chrome: process.versions.chrome,
   },
 
-  // Future: Add IPC methods as needed
-  // send: (channel, data) => ipcRenderer.send(channel, data),
-  // receive: (channel, callback) => ipcRenderer.on(channel, callback),
+  // App version
+  getAppVersion: () => ipcRenderer.invoke('get-app-version'),
+
+  // Auto-update methods
+  getUpdateStatus: () => ipcRenderer.invoke('get-update-status'),
+  checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
+  downloadUpdate: () => ipcRenderer.invoke('download-update'),
+  installUpdate: () => ipcRenderer.invoke('install-update'),
+
+  // Listen for update status changes
+  onUpdateStatus: (callback) => {
+    const handler = (_event, status) => callback(status);
+    ipcRenderer.on('update-status', handler);
+    // Return cleanup function
+    return () => ipcRenderer.removeListener('update-status', handler);
+  },
 });
 
 console.log('Preload script loaded');

@@ -172,6 +172,42 @@ Demo Prompt Generator.app/
 └── ...
 ```
 
+### Auto-Updates
+
+The app includes automatic update detection via GitHub Releases. When a new version is available:
+1. Users see an update notification in the Configuration panel
+2. They can download the update with one click
+3. Restart the app to apply the update
+
+### Releasing a New Version
+
+To release a new version of the Electron app:
+
+```bash
+# Prerequisites: GitHub CLI authenticated
+gh auth login
+
+# Release a new version
+./scripts/release.sh patch
+```
+
+**Version bump types:**
+| Command | Example | When to use |
+|---------|---------|-------------|
+| `./scripts/release.sh patch` | 0.1.0 → 0.1.1 | Bug fixes, small changes |
+| `./scripts/release.sh minor` | 0.1.0 → 0.2.0 | New features, backwards compatible |
+| `./scripts/release.sh major` | 0.1.0 → 1.0.0 | Breaking changes |
+| `./scripts/release.sh 1.2.3` | → 1.2.3 | Set explicit version |
+
+**What the script does:**
+1. Bumps the version in `package.json`
+2. Builds the Electron app (backend + frontend + packaging)
+3. Creates a git tag (e.g., `v1.0.0`)
+4. Pushes the tag to GitHub
+5. Publishes DMG and ZIP to GitHub Releases
+
+Once published, all users will see the update notification in the app's Configuration panel.
+
 ## Deployment (Databricks Apps)
 
 Deploy to Databricks:

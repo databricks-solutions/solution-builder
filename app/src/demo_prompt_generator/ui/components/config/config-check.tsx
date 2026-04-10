@@ -12,6 +12,7 @@
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Progress } from "@/components/ui/progress";
 import {
   Select,
   SelectContent,
@@ -29,6 +30,9 @@ import {
   RefreshCw,
   User,
   Settings2,
+  Download,
+  Sparkles,
+  ArrowRight,
 } from "lucide-react";
 import {
   getConfigStatus,
@@ -37,6 +41,7 @@ import {
   type ConfigStatus,
   type DatabricksConnectionStatus,
 } from "@/lib/custom-api";
+import type { UpdateStatus } from "@/types/electron";
 
 interface ConfigCheckProps {
   /** Whether this is the initial setup (full screen) or settings view */
@@ -56,10 +61,54 @@ export function ConfigCheck({ isInitialSetup = false, onComplete }: ConfigCheckP
   const [testing, setTesting] = useState(false);
   const [saving, setSaving] = useState(false);
 
+  // Update state (Electron only)
+  const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null);
+  const isElectron = typeof window !== "undefined" && window.electronAPI?.isElectron;
+
   // Load config status on mount
   useEffect(() => {
     loadConfigStatus();
   }, []);
+
+  // Set up update status listener (Electron only)
+  useEffect(() => {
+    if (!isElectron) return;
+
+    // Get initial update status
+    window.electronAPI?.getUpdateStatus().then(setUpdateStatus);
+
+    // Listen for update status changes
+    const cleanup = window.electronAPI?.onUpdateStatus(setUpdateStatus);
+    return cleanup;
+  }, [isElectron]);
+
+  async function checkForUpdates() {
+    if (!isElectron) return;
+    try {
+      const status = await window.electronAPI?.checkForUpdates();
+      if (status) setUpdateStatus(status);
+    } catch (err) {
+      console.error("Failed to check for updates:", err);
+    }
+  }
+
+  async function downloadUpdate() {
+    if (!isElectron) return;
+    try {
+      await window.electronAPI?.downloadUpdate();
+    } catch (err) {
+      console.error("Failed to download update:", err);
+    }
+  }
+
+  async function installUpdate() {
+    if (!isElectron) return;
+    try {
+      await window.electronAPI?.installUpdate();
+    } catch (err) {
+      console.error("Failed to install update:", err);
+    }
+  }
 
   async function loadConfigStatus() {
     setLoading(true);
@@ -162,6 +211,117 @@ export function ConfigCheck({ isInitialSetup = false, onComplete }: ConfigCheckP
               Let's verify your connection to get started
             </p>
           </div>
+        )}
+
+        {/* Update Status (Electron only) */}
+        {isElectron && updateStatus && (
+          <Card className={updateStatus.available ? "border-primary" : ""}>
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-lg">
+                <Sparkles className="h-5 w-5" />
+                App Updates
+              </CardTitle>
+              {updateStatus.currentVersion && (
+                <CardDescription>
+                  Current version: {updateStatus.currentVersion}
+                </CardDescription>
+              )}
+            </CardHeader>
+            <CardContent>
+              {/* Checking for updates */}
+              {updateStatus.checking && (
+                <div className="flex items-center gap-3 text-muted-foreground">
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                  <span>Checking for updates...</span>
+                </div>
+              )}
+
+              {/* Update available */}
+              {updateStatus.available && !updateStatus.downloaded && !updateStatus.downloading && (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between p-3 rounded-lg bg-primary/10 border border-primary/20">
+                    <div>
+                      <p className="font-medium text-primary">
+                        New version available: {updateStatus.newVersion}
+                      </p>
+                      <p className="text-sm text-muted-foreground">
+                        Click download to get the latest features
+                      </p>
+                    </div>
+                    <Button onClick={downloadUpdate} size="sm">
+                      <Download className="h-4 w-4 mr-2" />
+                      Download
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {/* Downloading */}
+              {updateStatus.downloading && updateStatus.progress && (
+                <div className="space-y-3">
+                  <div className="flex items-center gap-3">
+                    <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                    <span>Downloading update...</span>
+                  </div>
+                  <Progress value={updateStatus.progress.percent} className="h-2" />
+                  <p className="text-sm text-muted-foreground text-right">
+                    {updateStatus.progress.percent.toFixed(0)}%
+                  </p>
+                </div>
+              )}
+
+              {/* Downloaded, ready to install */}
+              {updateStatus.downloaded && (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between p-3 rounded-lg bg-green-50 border border-green-200 dark:bg-green-950/20 dark:border-green-800">
+                    <div className="flex items-center gap-3">
+                      <CheckCircle2 className="h-5 w-5 text-green-600" />
+                      <div>
+                        <p className="font-medium text-green-800 dark:text-green-200">
+                          Update ready to install
+                        </p>
+                        <p className="text-sm text-green-600 dark:text-green-400">
+                          Restart the app to apply the update
+                        </p>
+                      </div>
+                    </div>
+                    <Button onClick={installUpdate} size="sm" variant="default">
+                      Restart
+                      <ArrowRight className="h-4 w-4 ml-2" />
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {/* No update available */}
+              {!updateStatus.checking && !updateStatus.available && !updateStatus.error && (
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3 text-muted-foreground">
+                    <CheckCircle2 className="h-5 w-5 text-green-500" />
+                    <span>You're on the latest version</span>
+                  </div>
+                  <Button onClick={checkForUpdates} variant="ghost" size="sm">
+                    <RefreshCw className="h-4 w-4 mr-2" />
+                    Check
+                  </Button>
+                </div>
+              )}
+
+              {/* Error */}
+              {updateStatus.error && (
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3 text-destructive">
+                    <XCircle className="h-5 w-5" />
+                    <span className="text-sm">{updateStatus.error}</span>
+                  </div>
+                  <Button onClick={checkForUpdates} variant="ghost" size="sm">
+                    <RefreshCw className="h-4 w-4 mr-2" />
+                    Retry
+                  </Button>
+                </div>
+              )}
+            </CardContent>
+          </Card>
         )}
 
         {/* Database Status */}

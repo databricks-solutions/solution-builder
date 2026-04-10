@@ -5,12 +5,13 @@
  * Designed for macOS distribution with bundled Python runtime.
  */
 
-const { app, BrowserWindow, dialog, shell, Menu, Tray } = require('electron');
+const { app, BrowserWindow, dialog, shell, Menu, ipcMain } = require('electron');
 const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 const http = require('http');
 const os = require('os');
+const { autoUpdater } = require('electron-updater');
 
 // Restore full $PATH for GUI apps on macOS
 // Without this, GUI apps launched from Finder/Dock lose PATH to Homebrew, pyenv, etc.
@@ -34,6 +35,19 @@ const HEALTH_CHECK_INTERVAL = 300; // ms between health checks
 let mainWindow = null;
 let pythonProcess = null;
 let isQuitting = false;
+
+// Update state
+let updateStatus = {
+  available: false,
+  checking: false,
+  downloading: false,
+  downloaded: false,
+  error: null,
+  currentVersion: null,
+  newVersion: null,
+  releaseNotes: null,
+  progress: null,
+};
 
 // ---------------------------------------------------------------------------
 // Path Resolution
@@ -376,6 +390,154 @@ function createMenu() {
 }
 
 // ---------------------------------------------------------------------------
+// Auto-Updater
+// ---------------------------------------------------------------------------
+
+/**
+ * Configure and set up auto-updater.
+ * Only runs in packaged mode (production).
+ */
+function setupAutoUpdater() {
+  if (!app.isPackaged) {
+    console.log('Skipping auto-updater in dev mode');
+    updateStatus.currentVersion = app.getVersion();
+    return;
+  }
+
+  // Configure auto-updater
+  autoUpdater.autoDownload = false; // Don't auto-download, let user decide
+  autoUpdater.autoInstallOnAppQuit = true;
+
+  updateStatus.currentVersion = app.getVersion();
+
+  // Event handlers
+  autoUpdater.on('checking-for-update', () => {
+    console.log('Checking for update...');
+    updateStatus.checking = true;
+    updateStatus.error = null;
+    sendUpdateStatus();
+  });
+
+  autoUpdater.on('update-available', (info) => {
+    console.log('Update available:', info.version);
+    updateStatus.checking = false;
+    updateStatus.available = true;
+    updateStatus.newVersion = info.version;
+    updateStatus.releaseNotes = info.releaseNotes;
+    sendUpdateStatus();
+  });
+
+  autoUpdater.on('update-not-available', (info) => {
+    console.log('No update available');
+    updateStatus.checking = false;
+    updateStatus.available = false;
+    sendUpdateStatus();
+  });
+
+  autoUpdater.on('error', (err) => {
+    console.error('Update error:', err);
+    updateStatus.checking = false;
+    updateStatus.downloading = false;
+    updateStatus.error = err.message;
+    sendUpdateStatus();
+  });
+
+  autoUpdater.on('download-progress', (progress) => {
+    console.log('Download progress:', progress.percent.toFixed(1) + '%');
+    updateStatus.progress = {
+      percent: progress.percent,
+      transferred: progress.transferred,
+      total: progress.total,
+      bytesPerSecond: progress.bytesPerSecond,
+    };
+    sendUpdateStatus();
+  });
+
+  autoUpdater.on('update-downloaded', (info) => {
+    console.log('Update downloaded:', info.version);
+    updateStatus.downloading = false;
+    updateStatus.downloaded = true;
+    updateStatus.progress = null;
+    sendUpdateStatus();
+  });
+
+  // Check for updates on startup (after a delay)
+  setTimeout(() => {
+    autoUpdater.checkForUpdates().catch((err) => {
+      console.error('Failed to check for updates:', err);
+    });
+  }, 3000);
+}
+
+/**
+ * Send update status to renderer process.
+ */
+function sendUpdateStatus() {
+  if (mainWindow && mainWindow.webContents) {
+    mainWindow.webContents.send('update-status', updateStatus);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// IPC Handlers (Update-related)
+// ---------------------------------------------------------------------------
+
+function setupIpcHandlers() {
+  // Get current update status
+  ipcMain.handle('get-update-status', () => {
+    return updateStatus;
+  });
+
+  // Check for updates manually
+  ipcMain.handle('check-for-updates', async () => {
+    if (!app.isPackaged) {
+      return { ...updateStatus, error: 'Updates not available in dev mode' };
+    }
+    try {
+      await autoUpdater.checkForUpdates();
+      return updateStatus;
+    } catch (err) {
+      updateStatus.error = err.message;
+      return updateStatus;
+    }
+  });
+
+  // Download the update
+  ipcMain.handle('download-update', async () => {
+    if (!updateStatus.available) {
+      return { error: 'No update available' };
+    }
+    try {
+      updateStatus.downloading = true;
+      sendUpdateStatus();
+      await autoUpdater.downloadUpdate();
+      return updateStatus;
+    } catch (err) {
+      updateStatus.downloading = false;
+      updateStatus.error = err.message;
+      sendUpdateStatus();
+      return updateStatus;
+    }
+  });
+
+  // Install the update (quit and install)
+  ipcMain.handle('install-update', () => {
+    if (!updateStatus.downloaded) {
+      return { error: 'Update not downloaded' };
+    }
+    setImmediate(() => {
+      autoUpdater.quitAndInstall(false, true);
+    });
+    return { installing: true };
+  });
+
+  // Get app version
+  ipcMain.handle('get-app-version', () => {
+    return app.getVersion();
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Application Lifecycle
 // ---------------------------------------------------------------------------
 
@@ -386,10 +548,12 @@ app.whenReady().then(async () => {
   console.log('__dirname:', __dirname);
 
   createMenu();
+  setupIpcHandlers();
 
   try {
     await startBackend();
     createWindow();
+    setupAutoUpdater();
   } catch (err) {
     console.error('Failed to start:', err);
     dialog.showErrorBox(
