@@ -122,3 +122,18 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* Electron-specific styles for macOS titlebar */
+.electron-drag {
+  -webkit-app-region: drag;
+}
+
+.electron-no-drag {
+  -webkit-app-region: no-drag;
+}
+
+/* Add padding for macOS traffic lights when using hiddenInset titlebar */
+.electron-titlebar-padding {
+  padding-top: env(titlebar-area-height, 28px);
+  padding-left: env(titlebar-area-x, 78px);
+}

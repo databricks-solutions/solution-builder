@@ -1,4 +1,4 @@
-import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
+import { createFileRoute, useNavigate, Link, redirect } from "@tanstack/react-router";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -9,6 +9,7 @@ import { ProjectTile } from "@/components/project/project-tile";
 import { TemplateTile } from "@/components/template/template-tile";
 import { TemplateDetailPopup } from "@/components/template/template-detail-popup";
 import { ProductSelector, PRODUCT_CATEGORIES } from "@/components/product-selector";
+import { assetUrl } from "@/lib/config";
 import {
   Sparkles,
   ArrowRight,
@@ -21,12 +22,28 @@ import {
   listProjects,
   createProject,
   searchTemplates,
+  getConfigStatus,
   type ProjectListItem,
   type TemplateSearchResult,
 } from "@/lib/custom-api";
 
 export const Route = createFileRoute("/")({
   component: Index,
+  beforeLoad: async () => {
+    try {
+      const status = await getConfigStatus();
+      if (!status.is_configured) {
+        throw redirect({ to: "/setup" });
+      }
+    } catch (error) {
+      // If it's a redirect, re-throw it
+      if (error instanceof Error && "to" in error) {
+        throw error;
+      }
+      // On error (e.g., backend down), don't redirect - let the page handle it
+      console.warn("Failed to check config status:", error);
+    }
+  },
 });
 
 function Index() {
@@ -170,7 +187,7 @@ function Index() {
         <div className="relative z-10 mx-auto max-w-4xl space-y-6 text-center">
           <div className="space-y-4">
             <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/10 backdrop-blur-sm border border-primary/20">
-              <img src="/logo.svg" alt="Databricks" className="h-10 w-10" />
+              <img src={assetUrl("/logo.svg")} alt="Databricks" className="h-10 w-10" />
             </div>
             <div className="space-y-1.5">
               <p className="text-xs font-semibold uppercase tracking-[0.2em] text-primary">

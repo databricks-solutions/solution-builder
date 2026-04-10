@@ -16,6 +16,13 @@ from .routes import resources as _resources  # noqa: E402, F401
 from .routes import agent as _agent  # noqa: E402, F401
 from .routes import templates as _templates  # noqa: E402, F401
 from .routes import constants as _constants  # noqa: E402, F401
+from .routes import config as _config  # noqa: E402, F401
+
+
+@router.get("/health", operation_id="health")
+async def health():
+    """Health check endpoint for Electron app startup."""
+    return {"status": "ok"}
 
 
 @router.get("/version", response_model=VersionOut, operation_id="version")

@@ -150,18 +150,25 @@ function ProjectPage() {
   // Ref to capture reasoning during streaming (for saving in finally)
   const reasoningRef = useRef<{ thinking: string; tools: Map<string, { name: string; input: unknown; result?: string; isError?: boolean }> } | null>(null);
 
-  // Load project data
+  // Loading state for the entire page
+  const [isLoadingProject, setIsLoadingProject] = useState(true);
+
+  // Load project data - all calls in parallel
   useEffect(() => {
     async function loadProject() {
+      setIsLoadingProject(true);
       setIsLoadingMessages(true);
       try {
-        // Load project details (also restores files from DB if needed)
-        const proj = await getProject(projectId);
-        setProject(proj);
+        // Load all data in parallel
+        const [proj, fileList, msgs] = await Promise.all([
+          getProject(projectId),
+          listProjectFiles(projectId),
+          listProjectMessages(projectId),
+        ]);
 
-        // Load files
-        const fileList = await listProjectFiles(projectId);
+        setProject(proj);
         setFiles(fileList);
+        setMessages(msgs);
 
         // Select README.md by default if it exists
         const readme = fileList.find((f) => f.path === "README.md");
@@ -170,10 +177,6 @@ function ProjectPage() {
         } else if (fileList.length > 0) {
           setSelectedFile(fileList[0].path);
         }
-
-        // Load messages
-        const msgs = await listProjectMessages(projectId);
-        setMessages(msgs);
       } catch (error) {
         console.error("Failed to load project:", error);
         // Check if it's a 404 error
@@ -181,6 +184,7 @@ function ProjectPage() {
           setProjectNotFound(true);
         }
       } finally {
+        setIsLoadingProject(false);
         setIsLoadingMessages(false);
       }
     }
@@ -553,6 +557,18 @@ function ProjectPage() {
               Browse Templates
             </Button>
           </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Show loading state while project data is being fetched
+  if (isLoadingProject) {
+    return (
+      <div className="flex h-screen flex-col items-center justify-center bg-background">
+        <div className="text-center">
+          <Loader2 className="h-10 w-10 animate-spin text-primary mx-auto mb-4" />
+          <p className="text-muted-foreground">Loading project...</p>
         </div>
       </div>
     );

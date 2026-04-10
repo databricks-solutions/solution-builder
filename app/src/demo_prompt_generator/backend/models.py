@@ -75,6 +75,26 @@ class TemplateStatus(str, Enum):
 # ---------------------------------------------------------------------------
 
 
+class User(SQLModel, table=True):
+    """
+    User configuration for the application.
+
+    Stores the user's email (auto-detected from Databricks CLI) and their
+    preferred Databricks profile for workspace connections.
+    """
+    __tablename__ = "users"
+
+    id: str = SQLField(
+        default_factory=generate_uuid,
+        primary_key=True,
+        max_length=50,
+    )
+    email: str = SQLField(unique=True, index=True, max_length=255)
+    databricks_profile: str = SQLField(default="DEFAULT", max_length=100)
+    created_at: datetime = SQLField(default_factory=utc_now)
+    updated_at: datetime = SQLField(default_factory=utc_now)
+
+
 class Project(SQLModel, table=True):
     """
     A project - top-level container for files, messages, and agent sessions.
@@ -459,5 +479,55 @@ class TemplateStatusUpdateRequest(BaseModel):
 class CreateProjectFromTemplateRequest(BaseModel):
     """Request to create a project from a template."""
     name: str = Field(..., description="Name for the new project")
+
+
+# ---------------------------------------------------------------------------
+# Configuration/User request/response models
+# ---------------------------------------------------------------------------
+
+
+class DatabaseStatus(BaseModel):
+    """Database connection status."""
+    connected: bool
+    type: str  # "local" (PGLite) or "remote" (Lakebase)
+    error: Optional[str] = None
+
+
+class DatabricksProfile(BaseModel):
+    """A Databricks CLI profile."""
+    name: str
+    host: Optional[str] = None
+    is_default: bool = False
+
+
+class DatabricksConnectionStatus(BaseModel):
+    """Databricks workspace connection status."""
+    connected: bool
+    profile: str
+    host: Optional[str] = None
+    user_email: Optional[str] = None
+    error: Optional[str] = None
+
+
+class ConfigStatus(BaseModel):
+    """Overall configuration status."""
+    database: DatabaseStatus
+    databricks_profiles: list[DatabricksProfile]
+    current_user: Optional["UserOut"] = None
+    is_configured: bool  # True if user exists and databricks is connected
+
+
+class UserOut(BaseModel):
+    """User details response."""
+    id: str
+    email: str
+    databricks_profile: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class UserUpdateRequest(BaseModel):
+    """Request to update user settings."""
+    databricks_profile: str = Field(..., description="Databricks profile name to use")
 
 

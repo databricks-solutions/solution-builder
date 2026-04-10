@@ -48,3 +48,14 @@ projects/
 
 # Cloned ai-dev-kit repository
 ai_dev_kit/
+
+# Electron build artifacts
+dist-electron/
+dist-backend/
+dist-python/
+dist-venv/
+build-pyinstaller/
+run_server.py
+build-resources/*.icns
+*.dmg
+electron/config.json

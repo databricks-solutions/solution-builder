@@ -1,4 +1,5 @@
 import { Link } from "@tanstack/react-router";
+import { assetUrl } from "@/lib/config";
 
 interface LogoProps {
   to?: string;
@@ -10,7 +11,7 @@ export function Logo({ to = "/", className = "", showText = true }: LogoProps) {
   const content = (
     <div className={`flex items-center gap-2.5 ${className}`}>
       <img
-        src="/logo.svg"
+        src={assetUrl("/logo.svg")}
         alt="Databricks"
         className="h-7 w-7"
       />

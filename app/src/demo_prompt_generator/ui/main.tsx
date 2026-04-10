@@ -4,14 +4,24 @@ import { createRoot } from "react-dom/client";
 import "@/styles/globals.css";
 import { routeTree } from "@/types/routeTree.gen";
 
-import { RouterProvider, createRouter } from "@tanstack/react-router";
+import {
+  RouterProvider,
+  createRouter,
+  createHashHistory,
+} from "@tanstack/react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 // Create a new query client instance
 const queryClient = new QueryClient();
 
+// Use hash history for Electron (file:// protocol doesn't support browser history)
+// @ts-expect-error __IS_ELECTRON__ is defined by Vite
+const isElectron = typeof __IS_ELECTRON__ !== "undefined" && __IS_ELECTRON__;
+const history = isElectron ? createHashHistory() : undefined;
+
 const router = createRouter({
   routeTree,
+  history,
   context: {
     queryClient,
   },

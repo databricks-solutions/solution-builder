@@ -4,6 +4,8 @@
  * Project-based architecture with file sync and Claude Code integration.
  */
 
+import { apiUrl } from "./config";
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -136,13 +138,13 @@ export type AgentEvent =
 // ---------------------------------------------------------------------------
 
 export async function listProjects(): Promise<ProjectListItem[]> {
-  const resp = await fetch("/api/projects");
+  const resp = await fetch(apiUrl("/api/projects"));
   if (!resp.ok) throw new Error(`Failed to list projects: ${resp.status}`);
   return resp.json();
 }
 
 export async function createProject(description: string): Promise<Project> {
-  const resp = await fetch("/api/projects", {
+  const resp = await fetch(apiUrl("/api/projects"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ description }),
@@ -152,7 +154,7 @@ export async function createProject(description: string): Promise<Project> {
 }
 
 export async function getProject(projectId: string): Promise<Project> {
-  const resp = await fetch(`/api/projects/${projectId}`);
+  const resp = await fetch(apiUrl(`/api/projects/${projectId}`));
   if (!resp.ok) throw new Error(`Failed to get project: ${resp.status}`);
   return resp.json();
 }
@@ -161,7 +163,7 @@ export async function updateProject(
   projectId: string,
   updates: { name?: string; description?: string }
 ): Promise<Project> {
-  const resp = await fetch(`/api/projects/${projectId}`, {
+  const resp = await fetch(apiUrl(`/api/projects/${projectId}`), {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(updates),
@@ -171,12 +173,12 @@ export async function updateProject(
 }
 
 export async function deleteProject(projectId: string): Promise<void> {
-  const resp = await fetch(`/api/projects/${projectId}`, { method: "DELETE" });
+  const resp = await fetch(apiUrl(`/api/projects/${projectId}`), { method: "DELETE" });
   if (!resp.ok) throw new Error(`Failed to delete project: ${resp.status}`);
 }
 
 export async function syncProject(projectId: string): Promise<SyncStats> {
-  const resp = await fetch(`/api/projects/${projectId}/sync`, {
+  const resp = await fetch(apiUrl(`/api/projects/${projectId}/sync`), {
     method: "POST",
   });
   if (!resp.ok) throw new Error(`Failed to sync project: ${resp.status}`);
@@ -196,7 +198,7 @@ export async function updateProjectResources(
   projectId: string,
   resources: ProjectResourcesUpdate
 ): Promise<Project> {
-  const resp = await fetch(`/api/projects/${projectId}/resources`, {
+  const resp = await fetch(apiUrl(`/api/projects/${projectId}/resources`), {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(resources),
@@ -210,7 +212,7 @@ export async function updateProjectResources(
 // ---------------------------------------------------------------------------
 
 export async function listProjectFiles(projectId: string): Promise<ProjectFile[]> {
-  const resp = await fetch(`/api/projects/${projectId}/files`);
+  const resp = await fetch(apiUrl(`/api/projects/${projectId}/files`));
   if (!resp.ok) throw new Error(`Failed to list files: ${resp.status}`);
   return resp.json();
 }
@@ -219,7 +221,7 @@ export async function getProjectFile(
   projectId: string,
   filePath: string
 ): Promise<ProjectFileContent> {
-  const resp = await fetch(`/api/projects/${projectId}/files/${filePath}`);
+  const resp = await fetch(apiUrl(`/api/projects/${projectId}/files/${filePath}`));
   if (!resp.ok) throw new Error(`Failed to get file: ${resp.status}`);
   return resp.json();
 }
@@ -229,7 +231,7 @@ export async function getProjectFile(
 // ---------------------------------------------------------------------------
 
 export async function listProjectMessages(projectId: string): Promise<Message[]> {
-  const resp = await fetch(`/api/projects/${projectId}/messages`);
+  const resp = await fetch(apiUrl(`/api/projects/${projectId}/messages`));
   if (!resp.ok) throw new Error(`Failed to list messages: ${resp.status}`);
   return resp.json();
 }
@@ -238,7 +240,7 @@ export async function addProjectMessage(
   projectId: string,
   message: { role: string; content: string; is_error?: boolean }
 ): Promise<Message> {
-  const resp = await fetch(`/api/projects/${projectId}/messages`, {
+  const resp = await fetch(apiUrl(`/api/projects/${projectId}/messages`), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(message),
@@ -248,14 +250,14 @@ export async function addProjectMessage(
 }
 
 export async function clearProjectMessages(projectId: string): Promise<void> {
-  const resp = await fetch(`/api/projects/${projectId}/messages`, {
+  const resp = await fetch(apiUrl(`/api/projects/${projectId}/messages`), {
     method: "DELETE",
   });
   if (!resp.ok) throw new Error(`Failed to clear messages: ${resp.status}`);
 }
 
 export async function clearProjectSession(projectId: string): Promise<{ success: boolean; deleted_count: number }> {
-  const resp = await fetch(`/api/projects/${projectId}/session/clear`, {
+  const resp = await fetch(apiUrl(`/api/projects/${projectId}/session/clear`), {
     method: "POST",
   });
   if (!resp.ok) throw new Error(`Failed to clear session: ${resp.status}`);
@@ -270,7 +272,7 @@ export async function invokeAgent(
   projectId: string,
   message: string
 ): Promise<InvokeAgentResponse> {
-  const resp = await fetch("/api/invoke_agent", {
+  const resp = await fetch(apiUrl("/api/invoke_agent"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ project_id: projectId, message }),
@@ -289,7 +291,7 @@ export async function* streamAgentProgress(
 
   while (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
     try {
-      const resp = await fetch(`/api/stream_progress/${executionId}`, {
+      const resp = await fetch(apiUrl(`/api/stream_progress/${executionId}`), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ last_timestamp: cursor }),
@@ -369,14 +371,14 @@ export async function* streamAgentProgress(
 }
 
 export async function stopAgentStream(executionId: string): Promise<void> {
-  const resp = await fetch(`/api/stop_stream/${executionId}`, {
+  const resp = await fetch(apiUrl(`/api/stop_stream/${executionId}`), {
     method: "POST",
   });
   if (!resp.ok) throw new Error(`Failed to stop stream: ${resp.status}`);
 }
 
 export async function getActiveExecution(projectId: string): Promise<Execution | null> {
-  const resp = await fetch(`/api/projects/${projectId}/execution`);
+  const resp = await fetch(apiUrl(`/api/projects/${projectId}/execution`));
   if (!resp.ok) throw new Error(`Failed to get execution: ${resp.status}`);
   const data = await resp.json();
   return data || null;
@@ -405,13 +407,13 @@ export interface SkillFileContent {
 }
 
 export async function getProjectSkills(projectId: string): Promise<Skill[]> {
-  const resp = await fetch(`/api/projects/${projectId}/skills`);
+  const resp = await fetch(apiUrl(`/api/projects/${projectId}/skills`));
   if (!resp.ok) throw new Error(`Failed to get skills: ${resp.status}`);
   return resp.json();
 }
 
 export async function getSkillFiles(projectId: string, skillName: string): Promise<SkillFile[]> {
-  const resp = await fetch(`/api/projects/${projectId}/skills/${skillName}/files`);
+  const resp = await fetch(apiUrl(`/api/projects/${projectId}/skills/${skillName}/files`));
   if (!resp.ok) throw new Error(`Failed to get skill files: ${resp.status}`);
   return resp.json();
 }
@@ -421,13 +423,13 @@ export async function getSkillFileContent(
   skillName: string,
   filePath: string
 ): Promise<SkillFileContent> {
-  const resp = await fetch(`/api/projects/${projectId}/skills/${skillName}/files/${filePath}`);
+  const resp = await fetch(apiUrl(`/api/projects/${projectId}/skills/${skillName}/files/${filePath}`));
   if (!resp.ok) throw new Error(`Failed to get skill file: ${resp.status}`);
   return resp.json();
 }
 
 export async function refreshProjectSkills(projectId: string): Promise<{ success: boolean; skills: Skill[] }> {
-  const resp = await fetch(`/api/projects/${projectId}/skills/refresh`, {
+  const resp = await fetch(apiUrl(`/api/projects/${projectId}/skills/refresh`), {
     method: "POST",
   });
   if (!resp.ok) throw new Error(`Failed to refresh skills: ${resp.status}`);
@@ -435,7 +437,7 @@ export async function refreshProjectSkills(projectId: string): Promise<{ success
 }
 
 export async function getProjectSystemPrompt(projectId: string): Promise<string> {
-  const resp = await fetch(`/api/projects/${projectId}/system-prompt`);
+  const resp = await fetch(apiUrl(`/api/projects/${projectId}/system-prompt`));
   if (!resp.ok) throw new Error(`Failed to get system prompt: ${resp.status}`);
   const data = await resp.json();
   return data.prompt;
@@ -460,20 +462,20 @@ export interface Warehouse {
 }
 
 export async function listClusters(): Promise<Cluster[]> {
-  const resp = await fetch("/api/resources/clusters");
+  const resp = await fetch(apiUrl("/api/resources/clusters"));
   if (!resp.ok) throw new Error(`Failed to list clusters: ${resp.status}`);
   return resp.json();
 }
 
 export async function listWarehouses(): Promise<Warehouse[]> {
-  const resp = await fetch("/api/resources/warehouses");
+  const resp = await fetch(apiUrl("/api/resources/warehouses"));
   if (!resp.ok) throw new Error(`Failed to list warehouses: ${resp.status}`);
   return resp.json();
 }
 
 export async function listCatalogs(query?: string): Promise<string[]> {
   const params = query ? `?q=${encodeURIComponent(query)}` : "";
-  const resp = await fetch(`/api/resources/catalogs${params}`);
+  const resp = await fetch(apiUrl(`/api/resources/catalogs${params}`));
   if (!resp.ok) throw new Error(`Failed to list catalogs: ${resp.status}`);
   return resp.json();
 }
@@ -481,7 +483,7 @@ export async function listCatalogs(query?: string): Promise<string[]> {
 export async function listSchemas(catalog: string, query?: string): Promise<string[]> {
   const params = new URLSearchParams({ catalog });
   if (query) params.set("q", query);
-  const resp = await fetch(`/api/resources/schemas?${params}`);
+  const resp = await fetch(apiUrl(`/api/resources/schemas?${params}`));
   if (!resp.ok) throw new Error(`Failed to list schemas: ${resp.status}`);
   return resp.json();
 }
@@ -492,7 +494,7 @@ export interface ResourceDefaults {
 }
 
 export async function getResourceDefaults(): Promise<ResourceDefaults> {
-  const resp = await fetch("/api/resources/defaults");
+  const resp = await fetch(apiUrl("/api/resources/defaults"));
   if (!resp.ok) throw new Error(`Failed to get resource defaults: ${resp.status}`);
   return resp.json();
 }
@@ -505,7 +507,7 @@ export async function refreshResources(
   if (resourceType) params.set("resource_type", resourceType);
   if (catalog) params.set("catalog", catalog);
 
-  const url = `/api/resources/refresh${params.toString() ? `?${params}` : ""}`;
+  const url = apiUrl(`/api/resources/refresh${params.toString() ? `?${params}` : ""}`);
   const resp = await fetch(url, { method: "POST" });
   if (!resp.ok) throw new Error(`Failed to refresh resources: ${resp.status}`);
 }
@@ -575,7 +577,7 @@ export async function* streamWorkspaceGenerate(
   topic: string,
   signal?: AbortSignal
 ): AsyncGenerator<WorkspaceEvent> {
-  const resp = await fetch("/api/workspace/generate", {
+  const resp = await fetch(apiUrl("/api/workspace/generate"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ topic }),
@@ -638,20 +640,20 @@ export async function listTemplates(
   if (status) params.set("status", status);
   if (industry) params.set("industry", industry);
 
-  const url = `/api/templates${params.toString() ? `?${params}` : ""}`;
+  const url = apiUrl(`/api/templates${params.toString() ? `?${params}` : ""}`);
   const resp = await fetch(url);
   if (!resp.ok) throw new Error(`Failed to list templates: ${resp.status}`);
   return resp.json();
 }
 
 export async function getTemplate(templateId: string): Promise<TemplateDetail> {
-  const resp = await fetch(`/api/templates/${templateId}`);
+  const resp = await fetch(apiUrl(`/api/templates/${templateId}`));
   if (!resp.ok) throw new Error(`Failed to get template: ${resp.status}`);
   return resp.json();
 }
 
 export async function listTemplateFiles(templateId: string): Promise<TemplateFile[]> {
-  const resp = await fetch(`/api/templates/${templateId}/files`);
+  const resp = await fetch(apiUrl(`/api/templates/${templateId}/files`));
   if (!resp.ok) throw new Error(`Failed to list template files: ${resp.status}`);
   return resp.json();
 }
@@ -660,7 +662,7 @@ export async function getTemplateFileContent(
   templateId: string,
   filePath: string
 ): Promise<TemplateFileContent> {
-  const resp = await fetch(`/api/templates/${templateId}/files/${filePath}`);
+  const resp = await fetch(apiUrl(`/api/templates/${templateId}/files/${filePath}`));
   if (!resp.ok) throw new Error(`Failed to get template file: ${resp.status}`);
   return resp.json();
 }
@@ -669,7 +671,7 @@ export async function searchTemplates(
   query: string,
   limit: number = 3
 ): Promise<TemplateSearchResult[]> {
-  const resp = await fetch("/api/templates/search", {
+  const resp = await fetch(apiUrl("/api/templates/search"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ query, limit }),
@@ -681,7 +683,7 @@ export async function searchTemplates(
 export async function submitTemplateFromProject(
   projectId: string
 ): Promise<TemplateListItem> {
-  const resp = await fetch(`/api/templates/from-project/${projectId}`, {
+  const resp = await fetch(apiUrl(`/api/templates/from-project/${projectId}`), {
     method: "POST",
   });
   if (!resp.ok) throw new Error(`Failed to submit template: ${resp.status}`);
@@ -692,7 +694,7 @@ export async function updateTemplateStatus(
   templateId: string,
   status: "APPROVED" | "REJECTED"
 ): Promise<TemplateListItem> {
-  const resp = await fetch(`/api/templates/${templateId}/status`, {
+  const resp = await fetch(apiUrl(`/api/templates/${templateId}/status`), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ status }),
@@ -705,7 +707,7 @@ export async function createProjectFromTemplate(
   templateId: string,
   name: string
 ): Promise<Project> {
-  const resp = await fetch(`/api/templates/${templateId}/create-project`, {
+  const resp = await fetch(apiUrl(`/api/templates/${templateId}/create-project`), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ name }),
@@ -715,12 +717,12 @@ export async function createProjectFromTemplate(
 }
 
 export async function deleteTemplate(templateId: string): Promise<void> {
-  const resp = await fetch(`/api/templates/${templateId}`, { method: "DELETE" });
+  const resp = await fetch(apiUrl(`/api/templates/${templateId}`), { method: "DELETE" });
   if (!resp.ok) throw new Error(`Failed to delete template: ${resp.status}`);
 }
 
 export async function getTemplateByProject(projectId: string): Promise<TemplateDetail> {
-  const resp = await fetch(`/api/templates/by-project/${projectId}`);
+  const resp = await fetch(apiUrl(`/api/templates/by-project/${projectId}`));
   if (!resp.ok) throw new Error(`Failed to get template: ${resp.status}`);
   return resp.json();
 }
@@ -729,7 +731,7 @@ export async function updateTemplateFromProject(
   templateId: string,
   projectId: string
 ): Promise<TemplateDetail> {
-  const resp = await fetch(`/api/templates/${templateId}/update-from-project/${projectId}`, {
+  const resp = await fetch(apiUrl(`/api/templates/${templateId}/update-from-project/${projectId}`), {
     method: "PUT",
   });
   if (!resp.ok) throw new Error(`Failed to update template: ${resp.status}`);
@@ -737,7 +739,7 @@ export async function updateTemplateFromProject(
 }
 
 export async function openTemplateProject(templateId: string): Promise<Project> {
-  const resp = await fetch(`/api/templates/${templateId}/open-project`, {
+  const resp = await fetch(apiUrl(`/api/templates/${templateId}/open-project`), {
     method: "POST",
   });
   if (!resp.ok) throw new Error(`Failed to open template project: ${resp.status}`);
@@ -755,13 +757,13 @@ export interface Capability {
 }
 
 export async function getIndustries(): Promise<string[]> {
-  const resp = await fetch("/api/constants/industries");
+  const resp = await fetch(apiUrl("/api/constants/industries"));
   if (!resp.ok) throw new Error(`Failed to get industries: ${resp.status}`);
   return resp.json();
 }
 
 export async function getCapabilities(): Promise<Capability[]> {
-  const resp = await fetch("/api/constants/capabilities");
+  const resp = await fetch(apiUrl("/api/constants/capabilities"));
   if (!resp.ok) throw new Error(`Failed to get capabilities: ${resp.status}`);
   return resp.json();
 }
@@ -773,7 +775,87 @@ export interface CurrentUser {
 }
 
 export async function getCurrentUser(): Promise<CurrentUser> {
-  const resp = await fetch("/api/current-user");
+  const resp = await fetch(apiUrl("/api/current-user"));
   if (!resp.ok) throw new Error(`Failed to get current user: ${resp.status}`);
+  return resp.json();
+}
+
+// ---------------------------------------------------------------------------
+// Configuration API
+// ---------------------------------------------------------------------------
+
+export interface DatabaseStatus {
+  connected: boolean;
+  type: "local" | "remote";
+  error: string | null;
+}
+
+export interface DatabricksProfile {
+  name: string;
+  host: string | null;
+  is_default: boolean;
+}
+
+export interface DatabricksConnectionStatus {
+  connected: boolean;
+  profile: string;
+  host: string | null;
+  user_email: string | null;
+  error: string | null;
+}
+
+export interface ConfigUser {
+  id: string;
+  email: string;
+  databricks_profile: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ConfigStatus {
+  database: DatabaseStatus;
+  databricks_profiles: DatabricksProfile[];
+  current_user: ConfigUser | null;
+  is_configured: boolean;
+}
+
+export async function getConfigStatus(): Promise<ConfigStatus> {
+  const resp = await fetch(apiUrl("/api/config/status"));
+  if (!resp.ok) throw new Error(`Failed to get config status: ${resp.status}`);
+  return resp.json();
+}
+
+export async function getDatabricksProfiles(): Promise<DatabricksProfile[]> {
+  const resp = await fetch(apiUrl("/api/config/databricks/profiles"));
+  if (!resp.ok) throw new Error(`Failed to get Databricks profiles: ${resp.status}`);
+  return resp.json();
+}
+
+export async function testDatabricksConnection(
+  profile: string
+): Promise<DatabricksConnectionStatus> {
+  const resp = await fetch(apiUrl(`/api/config/databricks/test?profile=${encodeURIComponent(profile)}`), {
+    method: "POST",
+  });
+  if (!resp.ok) throw new Error(`Failed to test Databricks connection: ${resp.status}`);
+  return resp.json();
+}
+
+export async function saveUserConfig(databricksProfile: string): Promise<ConfigUser> {
+  const resp = await fetch(apiUrl("/api/config/user"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ databricks_profile: databricksProfile }),
+  });
+  if (!resp.ok) {
+    const error = await resp.json().catch(() => ({ detail: `HTTP ${resp.status}` }));
+    throw new Error(error.detail || `Failed to save user config: ${resp.status}`);
+  }
+  return resp.json();
+}
+
+export async function getConfigUser(): Promise<ConfigUser> {
+  const resp = await fetch(apiUrl("/api/config/user"));
+  if (!resp.ok) throw new Error(`Failed to get config user: ${resp.status}`);
   return resp.json();
 }

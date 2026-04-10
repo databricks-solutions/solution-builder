@@ -22,6 +22,45 @@ echo ""
 cd "$APP_DIR"
 
 # ============================================================================
+# Parse arguments
+# ============================================================================
+AI_DEV_KIT_BRANCH="${AI_DEV_KIT_BRANCH:-main}"
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --ai-dev-kit-branch)
+            AI_DEV_KIT_BRANCH="$2"
+            shift 2
+            ;;
+        *)
+            shift
+            ;;
+    esac
+done
+
+# ============================================================================
+# Clone ai_dev_kit if not present
+# ============================================================================
+AI_DEV_KIT_REPO="https://github.com/databricks-solutions/ai-dev-kit.git"
+
+if [ ! -d "ai_dev_kit" ]; then
+    echo -e "${CYAN}Cloning ai-dev-kit repository (branch: $AI_DEV_KIT_BRANCH)...${NC}"
+    git clone --branch "$AI_DEV_KIT_BRANCH" "$AI_DEV_KIT_REPO" ai_dev_kit
+    echo -e "${GREEN}ai-dev-kit cloned successfully${NC}"
+elif [ ! -d "ai_dev_kit/databricks-tools-core" ]; then
+    echo -e "${RED}ERROR: ai_dev_kit folder exists but seems incomplete${NC}"
+    echo -e "Try: ${CYAN}rm -rf ai_dev_kit && ./scripts/dev.sh${NC}"
+    exit 1
+else
+    # Check if we need to switch branches
+    CURRENT_BRANCH=$(cd ai_dev_kit && git branch --show-current)
+    if [ "$CURRENT_BRANCH" != "$AI_DEV_KIT_BRANCH" ] && [ "$AI_DEV_KIT_BRANCH" != "main" ]; then
+        echo -e "${YELLOW}Switching ai-dev-kit to branch: $AI_DEV_KIT_BRANCH${NC}"
+        (cd ai_dev_kit && git fetch && git checkout "$AI_DEV_KIT_BRANCH" && git pull)
+    fi
+fi
+
+# ============================================================================
 # Check for .env file
 # ============================================================================
 if [ ! -f .env ]; then
