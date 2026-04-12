@@ -40,8 +40,8 @@ node_modules/
 # PGLite local database
 .pglite/
 
-# UI dist folder
-src/demo_prompt_generator/__dist__/
+# UI dist folder (built frontend assets)
+**/__dist__/
 
 # Project local storage
 projects/
