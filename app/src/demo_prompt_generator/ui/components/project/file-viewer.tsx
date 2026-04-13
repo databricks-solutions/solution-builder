@@ -583,6 +583,7 @@ export const FileViewer = memo(function FileViewer({
     return codeFiles.length >= 2; // At least 2 code files
   }, [files]);
 
+
   // Load architecture content when tab changes (if file exists)
   useEffect(() => {
     if (activeTab === "architecture" && hasArchitecture && onLoadArchitecture) {

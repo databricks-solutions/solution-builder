@@ -466,6 +466,7 @@ function ProjectPage() {
     })();
   }, [projectId, isLoadingProject, isStreaming, initialPrompt]);
 
+
   // Auto-send initial prompt if provided (from project creation)
   useEffect(() => {
     if (
@@ -577,6 +578,7 @@ function ProjectPage() {
     }
   }, [projectId]);
 
+
   // After streaming completes when creating architecture, load the content
   useEffect(() => {
     if (isCreatingArchitecture && !isStreaming) {
@@ -617,6 +619,7 @@ function ProjectPage() {
       setDabInstructions(null);
     }
   }, [files, projectId]);
+
 
   // Handle delete project
   const handleDeleteConfirm = useCallback(async () => {

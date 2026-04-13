@@ -259,6 +259,7 @@ setup_python_env() {
     echo -e "  ${CYAN}Installing dependencies with uv...${NC}"
     uv pip install -e "$APP_DIR" pyinstaller --python "$VENV_DIR/bin/python"
 
+
     # Create marker file to track when deps were installed
     touch "$DEPS_MARKER"
 
@@ -352,6 +353,7 @@ EOF
     fi
 }
 
+# ==============================================================================
 # ==============================================================================
 # Step 4: Build Frontend
 # ==============================================================================

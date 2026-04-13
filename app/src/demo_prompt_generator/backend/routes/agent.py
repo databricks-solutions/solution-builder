@@ -107,6 +107,7 @@ async def invoke_agent(
     # will be closed by the time run_agent's completion code executes)
     engine = request.app.state.engine
 
+
     # Start agent in background
     async def run_agent():
         collected_events = []
