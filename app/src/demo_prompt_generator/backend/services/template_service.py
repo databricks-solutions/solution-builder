@@ -37,6 +37,22 @@ logger = logging.getLogger(__name__)
 PROJECTS_BASE_DIR = os.getenv("PROJECTS_BASE_DIR", "./projects")
 
 
+def _store_embedding(session: Session, template_id: str, embedding: list[float]) -> None:
+    """Store an embedding vector, gracefully skipping if pgvector is unavailable (PGLite)."""
+    # PGLite doesn't support the vector type — skip embedding storage
+    if not os.environ.get("LAKEBASE_PG_URL"):
+        logger.debug("Skipping embedding storage (PGLite mode, no pgvector)")
+        return
+    session.execute(
+        text("""
+            UPDATE templates
+            SET embedding = CAST(:embedding AS vector)
+            WHERE id = :template_id
+        """),
+        {"embedding": str(embedding), "template_id": template_id}
+    )
+
+
 class TemplateService:
     """
     Service for template CRUD operations and semantic search.
@@ -116,16 +132,8 @@ class TemplateService:
         )
         session.add(template)
 
-        # Store embedding using raw SQL (pgvector)
-        # Use CAST() instead of :: to avoid SQLAlchemy param binding conflict
-        session.execute(
-            text("""
-                UPDATE templates
-                SET embedding = CAST(:embedding AS vector)
-                WHERE id = :template_id
-            """),
-            {"embedding": str(embedding), "template_id": template_id}
-        )
+        # Store embedding (gracefully skips on PGLite where pgvector is unavailable)
+        _store_embedding(session, template_id, embedding)
 
         # Bulk copy project files to template_content (skip .claude directory)
         template_files = [
@@ -525,16 +533,9 @@ class TemplateService:
         template.capabilities = json.dumps(extracted.get("capabilities", []))
         template.source_project_id = project_id
 
-        # Update embedding
+        # Update embedding (gracefully skips on PGLite)
         embedding = self.llm.get_embedding(readme_content)
-        session.execute(
-            text("""
-                UPDATE templates
-                SET embedding = CAST(:embedding AS vector)
-                WHERE id = :template_id
-            """),
-            {"embedding": str(embedding), "template_id": template_id}
-        )
+        _store_embedding(session, template_id, embedding)
 
         session.commit()
         session.refresh(template)

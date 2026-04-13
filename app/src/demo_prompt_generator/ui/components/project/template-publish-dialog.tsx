@@ -13,7 +13,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "../ui/dialog";
-import { Upload, FileEdit, Loader2, CheckCircle, FileText } from "lucide-react";
+import { Upload, FileEdit, Loader2, CheckCircle, FileText, AlertCircle } from "lucide-react";
 import {
   submitTemplateFromProject,
   updateTemplateFromProject,
@@ -43,20 +43,23 @@ export const TemplatePublishDialog = memo(function TemplatePublishDialog({
 }: TemplatePublishDialogProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const handleSubmitNew = useCallback(async () => {
     if (isSubmitting) return;
     setIsSubmitting(true);
+    setError(null);
     try {
       const template = await submitTemplateFromProject(projectId);
       setSubmitted(true);
-      onSubmitted(template as TemplateDetail);
+      onSubmitted(template);
       setTimeout(() => {
         setSubmitted(false);
         onClose();
-      }, 1500);
-    } catch (error) {
-      console.error("Failed to submit template:", error);
+      }, 2500);
+    } catch (err) {
+      console.error("Failed to submit template:", err);
+      setError(err instanceof Error ? err.message : "Failed to submit template");
     } finally {
       setIsSubmitting(false);
     }
@@ -65,6 +68,7 @@ export const TemplatePublishDialog = memo(function TemplatePublishDialog({
   const handleUpdate = useCallback(async () => {
     if (isSubmitting || !linkedTemplate) return;
     setIsSubmitting(true);
+    setError(null);
     try {
       const updated = await updateTemplateFromProject(linkedTemplate.id, projectId);
       setSubmitted(true);
@@ -72,9 +76,10 @@ export const TemplatePublishDialog = memo(function TemplatePublishDialog({
       setTimeout(() => {
         setSubmitted(false);
         onClose();
-      }, 1500);
-    } catch (error) {
-      console.error("Failed to update template:", error);
+      }, 2500);
+    } catch (err) {
+      console.error("Failed to update template:", err);
+      setError(err instanceof Error ? err.message : "Failed to update template");
     } finally {
       setIsSubmitting(false);
     }
@@ -154,7 +159,19 @@ export const TemplatePublishDialog = memo(function TemplatePublishDialog({
           </div>
         </div>
 
+        {error && (
+          <div className="flex items-start gap-2 rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
+            <span>{error}</span>
+          </div>
+        )}
+
         <DialogFooter className="gap-2 sm:gap-0">
+          {isSubmitting && (
+            <p className="text-xs text-muted-foreground mr-auto self-center">
+              Analyzing content and generating summary...
+            </p>
+          )}
           <Button variant="outline" onClick={onClose} disabled={isSubmitting}>
             Cancel
           </Button>
@@ -166,12 +183,12 @@ export const TemplatePublishDialog = memo(function TemplatePublishDialog({
             {isSubmitting ? (
               <>
                 <Loader2 className="h-4 w-4 animate-spin" />
-                {isUpdate ? "Updating..." : "Submitting..."}
+                Generating template...
               </>
             ) : submitted ? (
               <>
-                <CheckCircle className="h-4 w-4" />
-                {isUpdate ? "Updated" : "Submitted"}
+                <CheckCircle className="h-4 w-4 text-green-500" />
+                <span className="font-medium">{isUpdate ? "Updated!" : "Submitted!"}</span>
               </>
             ) : (
               <>

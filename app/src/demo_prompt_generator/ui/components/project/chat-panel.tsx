@@ -271,6 +271,7 @@ const LiveReasoningPopup = memo(function LiveReasoningPopup({
         <button
           onClick={handleClose}
           className="text-muted-foreground/50 hover:text-foreground transition-colors rounded-md p-0.5 hover:bg-muted"
+          aria-label="Close reasoning panel"
         >
           <X className="h-3.5 w-3.5" />
         </button>
@@ -602,6 +603,7 @@ export const ChatPanel = memo(function ChatPanel({
               disabled={isStreaming || isClearingSession}
               className="flex items-center gap-1.5 text-xs text-muted-foreground/70 hover:text-destructive px-2 py-1.5 rounded-md hover:bg-destructive/5 transition-all disabled:opacity-40 disabled:pointer-events-none"
               title="Clear session history"
+              aria-label="Clear session history"
             >
               {isClearingSession ? (
                 <Loader2 className="h-3 w-3 animate-spin" />
@@ -729,6 +731,7 @@ export const ChatPanel = memo(function ChatPanel({
                 onClick={onStop}
                 className="flex items-center justify-center h-7 w-7 rounded-lg bg-destructive text-white hover:bg-destructive/90 transition-colors"
                 title="Stop generation"
+                aria-label="Stop generation"
               >
                 <Square className="h-3 w-3 fill-current" />
               </button>
@@ -738,6 +741,7 @@ export const ChatPanel = memo(function ChatPanel({
                 disabled={!input.trim()}
                 className="flex items-center justify-center h-7 w-7 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-all disabled:opacity-30 disabled:pointer-events-none"
                 title="Send message"
+                aria-label="Send message"
               >
                 <ArrowUp className="h-3.5 w-3.5" strokeWidth={2.5} />
               </button>

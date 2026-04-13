@@ -7,14 +7,15 @@ import {
   Sparkles,
   Database,
   GitBranch,
-  BarChart3,
-  Bot,
-  FileText,
-  Rocket,
   Layers,
-  Users,
   Lightbulb,
   ArrowRight,
+  Puzzle,
+  FolderTree,
+  Shuffle,
+  Eye,
+  Blocks,
+  Network,
 } from "lucide-react";
 
 function DocsWithLayout() {
@@ -26,50 +27,32 @@ export const Route = createFileRoute("/docs")({
 });
 
 /* ------------------------------------------------------------------ */
-/*  Asset type cards for "What Gets Generated"                        */
+/*  Block type cards for "The Building Blocks"                        */
 /* ------------------------------------------------------------------ */
-const assetTypes = [
+const blockTypes = [
   {
     icon: Database,
-    title: "Datasets",
+    title: "Domains",
     description:
-      "Synthetic data tailored to your industry and use case, ready to load into Unity Catalog.",
-    badge: "Data",
+      "Industry verticals like retail, healthcare, financial services, and manufacturing. Each block captures terminology, KPIs, personas, data entities, and common pain points.",
+    badge: "Context",
+    examples: "retail, healthcare, financial-services",
   },
   {
-    icon: GitBranch,
-    title: "Pipelines",
+    icon: Sparkles,
+    title: "Capabilities",
     description:
-      "End-to-end ingestion (Lakeflow Connect, Auto Loader) and processing (Spark Declarative Pipelines).",
-    badge: "ETL",
+      "Platform features and tools that can be composed into a solution — pipelines, dashboards, model serving, vector search, and more. Each block describes when to use a capability and how it connects to others.",
+    badge: "Tools",
+    examples: "declarative-pipeline, aibi-dashboards, genie-space",
   },
   {
-    icon: BarChart3,
-    title: "Dashboards",
+    icon: Shuffle,
+    title: "Patterns",
     description:
-      "SQL analytics queries and AI/BI dashboard definitions for immediate visual impact.",
-    badge: "Analytics",
-  },
-  {
-    icon: Bot,
-    title: "AI Components",
-    description:
-      "Knowledge Assistants, Genie Spaces, and Supervisor Agents configured for your scenario.",
-    badge: "AI / ML",
-  },
-  {
-    icon: FileText,
-    title: "Architecture",
-    description:
-      "Architecture diagrams and technical documentation that explain how every piece fits together.",
-    badge: "Docs",
-  },
-  {
-    icon: Rocket,
-    title: "Build Steps",
-    description:
-      "A step-by-step deployment guide so anyone on the team can stand up the demo in a live workspace.",
-    badge: "Deploy",
+      "Reusable analytical patterns that apply across industries — anomaly detection, customer segmentation, predictive maintenance. Each block defines a narrative arc, data shape, and the moment that makes the output compelling.",
+    badge: "Strategy",
+    examples: "customer-segmentation, anomaly-detection, compliance-audit",
   },
 ];
 
@@ -78,28 +61,28 @@ const assetTypes = [
 /* ------------------------------------------------------------------ */
 const keyConcepts = [
   {
+    icon: Blocks,
+    title: "Blocks",
+    description:
+      "The atomic unit of context. Each block is a Markdown file with YAML frontmatter — human-readable, version-controllable, and composable. Blocks declare relationships and tags so the system knows how they connect.",
+  },
+  {
+    icon: FolderTree,
+    title: "Collections",
+    description:
+      "Curated groups of blocks plus an output file dependency graph (DAG). A collection defines which blocks to assemble and what order to generate output files, ensuring each file can reference what came before it.",
+  },
+  {
     icon: Layers,
     title: "Projects",
     description:
-      "Self-contained demo packages that bundle every generated asset — data, pipelines, dashboards, AI components, and build instructions — into a single deliverable.",
+      "A workspace where blocks and collections come together. Each project has a chat session with an AI agent that assembles context blocks into tailored output files, which you can review, edit, and iterate on.",
   },
   {
-    icon: Users,
+    icon: Network,
     title: "Templates",
     description:
-      "Reusable starting points shared across the team. Save a proven demo structure as a template so colleagues can spin up similar engagements in seconds.",
-  },
-  {
-    icon: Sparkles,
-    title: "Capabilities",
-    description:
-      "The Databricks products and features that can be composed into a demo — Lakeflow Connect, SDP, Genie, Knowledge Assistants, and more. Select only what matters for your story.",
-  },
-  {
-    icon: Bot,
-    title: "AI Architect",
-    description:
-      "The Claude-powered agent that orchestrates the entire generation pipeline. It understands how to compose Databricks products together for any vertical or use case.",
+      "Published project snapshots that capture a proven block combination and output structure. Anyone can fork a template to get a head start, then customize it for their specific scenario.",
   },
 ];
 
@@ -109,7 +92,7 @@ const keyConcepts = [
 function DocsPage() {
   return (
     <div className="max-w-4xl mx-auto p-8 space-y-16">
-      {/* ── Hero / Overview ─────────────────────────────────────── */}
+      {/* -- Hero / Overview ---------------------------------------- */}
       <section className="space-y-4">
         <div className="flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
@@ -121,30 +104,96 @@ function DocsPage() {
         </div>
 
         <h1 className="text-3xl font-bold tracking-tight">
-          What is the Asset Generator?
+          Asset Builder
         </h1>
 
         <p className="text-base leading-relaxed text-muted-foreground max-w-3xl">
-          The Databricks Asset Generator helps field engineers and solution
-          architects rapidly create complete demo packages for customer
-          engagements. Describe a use case in plain language, and an AI architect
-          agent produces datasets, pipelines, dashboards, AI components,
-          architecture diagrams, and step-by-step build instructions — all
-          tailored to the industry and scenario you specify.
+          This application is a context management framework built on a simple
+          idea: <span className="font-medium text-foreground">prompts are
+          easier to work with than project configurations</span>. Instead of
+          maintaining complex templates, code scaffolds, or static
+          repositories, you capture best practices and domain knowledge as
+          composable blocks of structured context — plain Markdown files with
+          YAML frontmatter. An LLM reads these blocks and assembles them into
+          tailored output packages for any scenario.
         </p>
 
         <p className="text-sm leading-relaxed text-muted-foreground/80 max-w-3xl">
-          At its core this is a{" "}
-          <span className="font-medium text-foreground">
-            general framework for encapsulating context to build demos
-          </span>
-          . It captures industry knowledge, Databricks product capabilities, and
-          best practices into a structured generation pipeline so any vertical
-          can be addressed quickly and consistently.
+          The underlying pattern is generalizable: define context as blocks,
+          group blocks into collections, and let an AI agent assemble them into
+          coherent output. The current deployment targets Databricks demos, but
+          the framework applies wherever you need to combine domain knowledge,
+          tool capabilities, and analytical patterns into structured
+          deliverables.
         </p>
       </section>
 
-      {/* ── How It Works ────────────────────────────────────────── */}
+      {/* -- Why Prompts-as-Config ---------------------------------- */}
+      <section className="space-y-6">
+        <h2 className="text-xl font-semibold tracking-tight">
+          Why Prompts Instead of Config Files?
+        </h2>
+
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="flex gap-4 rounded-xl border bg-card p-5">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10">
+              <Eye className="h-5 w-5 text-primary" />
+            </div>
+            <div className="space-y-1">
+              <h3 className="text-sm font-semibold">Human-readable</h3>
+              <p className="text-xs leading-relaxed text-muted-foreground">
+                Blocks are Markdown. Anyone can read, understand, and
+                contribute to them without learning a framework or config
+                language.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex gap-4 rounded-xl border bg-card p-5">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10">
+              <Puzzle className="h-5 w-5 text-primary" />
+            </div>
+            <div className="space-y-1">
+              <h3 className="text-sm font-semibold">Composable</h3>
+              <p className="text-xs leading-relaxed text-muted-foreground">
+                Blocks are designed to be mixed and matched. Combine a domain,
+                a pattern, and a set of capabilities — the LLM handles the
+                integration.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex gap-4 rounded-xl border bg-card p-5">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10">
+              <Sparkles className="h-5 w-5 text-primary" />
+            </div>
+            <div className="space-y-1">
+              <h3 className="text-sm font-semibold">Generalizable</h3>
+              <p className="text-xs leading-relaxed text-muted-foreground">
+                The pattern — blocks of context, LLM assembly, structured
+                output — is not specific to any one tool or industry. Add new
+                blocks to cover new domains.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex gap-4 rounded-xl border bg-card p-5">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10">
+              <GitBranch className="h-5 w-5 text-primary" />
+            </div>
+            <div className="space-y-1">
+              <h3 className="text-sm font-semibold">Version-controlled</h3>
+              <p className="text-xs leading-relaxed text-muted-foreground">
+                Blocks are files. They live in git, support pull requests, diffs,
+                and branching — your context library evolves with standard
+                workflows.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* -- How It Works ------------------------------------------- */}
       <section className="space-y-6">
         <h2 className="text-xl font-semibold tracking-tight">How It Works</h2>
 
@@ -155,14 +204,13 @@ function DocsPage() {
               <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground text-sm font-bold">
                 1
               </span>
-              <h3 className="font-medium">Describe your use case</h3>
+              <h3 className="font-medium">Select your context</h3>
             </div>
             <p className="text-sm text-muted-foreground leading-relaxed">
-              Enter a plain-language description of the demo you need — industry,
-              scenario, customer context, and which Databricks capabilities to
-              showcase.
+              Choose a collection or pick individual blocks — a domain for
+              industry context, capabilities for the tools you want, and a
+              pattern for the analytical approach.
             </p>
-            {/* Connector arrow (visible on md+) */}
             <div className="hidden md:flex absolute -right-4 top-1/2 -translate-y-1/2 z-10 text-muted-foreground/40">
               <ArrowRight className="h-5 w-5" />
             </div>
@@ -174,12 +222,12 @@ function DocsPage() {
               <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground text-sm font-bold">
                 2
               </span>
-              <h3 className="font-medium">AI architect generates the package</h3>
+              <h3 className="font-medium">AI assembles the output</h3>
             </div>
             <p className="text-sm text-muted-foreground leading-relaxed">
-              The Claude-powered agent composes the right Databricks products,
-              generates synthetic data, writes pipeline code, and produces a
-              complete demo blueprint.
+              The agent reads your selected blocks, resolves the output DAG
+              from the collection, and generates each file in dependency order
+              — so every file can reference what came before it.
             </p>
             <div className="hidden md:flex absolute -right-4 top-1/2 -translate-y-1/2 z-10 text-muted-foreground/40">
               <ArrowRight className="h-5 w-5" />
@@ -192,47 +240,50 @@ function DocsPage() {
               <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground text-sm font-bold">
                 3
               </span>
-              <h3 className="font-medium">Review, customize, and deploy</h3>
+              <h3 className="font-medium">Review and iterate</h3>
             </div>
             <p className="text-sm text-muted-foreground leading-relaxed">
-              Walk through every generated asset, refine what you need, and
-              follow the build steps to deploy the demo into a live Databricks
-              workspace.
+              Walk through the generated files, refine through conversation
+              with the agent, and export the package. Use it directly or
+              publish it as a template for others to fork.
             </p>
           </div>
         </div>
       </section>
 
-      {/* ── What Gets Generated ─────────────────────────────────── */}
+      {/* -- The Building Blocks ------------------------------------ */}
       <section className="space-y-6">
         <h2 className="text-xl font-semibold tracking-tight">
-          What Gets Generated
+          The Building Blocks
         </h2>
         <p className="text-sm text-muted-foreground max-w-2xl">
-          Every demo package can include the following asset types. Select only
-          the capabilities you need — the AI architect will tailor the output
-          accordingly.
+          Every block is a Markdown file with YAML frontmatter that declares
+          its name, category, tags, and relationships. The three block
+          categories cover different dimensions of context.
         </p>
 
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {assetTypes.map((asset) => (
-            <Card key={asset.title} className="relative overflow-hidden">
+        <div className="grid gap-4 sm:grid-cols-1 lg:grid-cols-3">
+          {blockTypes.map((block) => (
+            <Card key={block.title} className="relative overflow-hidden">
               <CardHeader className="pb-2">
                 <div className="flex items-center justify-between">
                   <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10">
-                    <asset.icon className="h-4.5 w-4.5 text-primary" />
+                    <block.icon className="h-4.5 w-4.5 text-primary" />
                   </div>
                   <Badge variant="outline" className="text-[10px]">
-                    {asset.badge}
+                    {block.badge}
                   </Badge>
                 </div>
                 <CardTitle className="text-sm font-semibold mt-2">
-                  {asset.title}
+                  {block.title}
                 </CardTitle>
               </CardHeader>
-              <CardContent>
+              <CardContent className="space-y-2">
                 <p className="text-xs leading-relaxed text-muted-foreground">
-                  {asset.description}
+                  {block.description}
+                </p>
+                <p className="text-[10px] font-mono text-muted-foreground/70">
+                  {block.examples}
                 </p>
               </CardContent>
             </Card>
@@ -240,7 +291,47 @@ function DocsPage() {
         </div>
       </section>
 
-      {/* ── Key Concepts ────────────────────────────────────────── */}
+      {/* -- Block anatomy ------------------------------------------ */}
+      <section className="space-y-4">
+        <h2 className="text-xl font-semibold tracking-tight">
+          Anatomy of a Block
+        </h2>
+        <p className="text-sm text-muted-foreground max-w-2xl">
+          Blocks follow a consistent structure. The YAML frontmatter provides
+          machine-readable metadata, while the Markdown body contains the
+          context that gets fed to the LLM during assembly.
+        </p>
+        <div className="rounded-xl border bg-card p-5">
+          <pre className="text-xs leading-relaxed text-muted-foreground overflow-x-auto">
+            <code>{`---
+name: Customer Segmentation & Predictive Targeting
+slug: customer-segmentation
+category: pattern
+tags: [segmentation, clustering, personalization, scoring]
+description: >
+  Segment entities by behavior or attributes, deploy prediction
+  models, and serve insights through interactive applications.
+suggested_capabilities: [aibi-dashboards, genie-space, declarative-pipeline]
+---
+
+## Narrative Arc
+1. **Flat world** -- The organization treats all entities uniformly...
+2. **Segmentation reveal** -- Analysis exposes distinct behavioral clusters...
+3. **Prediction layer** -- A model scores each entity for likelihood...
+4. **Activation** -- Segments and scores are surfaced through dashboards...
+
+## Data Shape
+| Layer          | Abstract Entity     | Role                        |
+|----------------|--------------------|-----------------------------|
+| Fact table     | Interactions       | Behavioral signals over time|
+| Dimension      | Entities           | The subjects being segmented|
+| Feature store  | Engineered features| Aggregated behavioral metrics|
+...`}</code>
+          </pre>
+        </div>
+      </section>
+
+      {/* -- Key Concepts ------------------------------------------- */}
       <section className="space-y-6">
         <h2 className="text-xl font-semibold tracking-tight">Key Concepts</h2>
 
@@ -264,7 +355,7 @@ function DocsPage() {
         </div>
       </section>
 
-      {/* ── Quick Tips ──────────────────────────────────────────── */}
+      {/* -- Quick Tips --------------------------------------------- */}
       <section className="space-y-4 pb-8">
         <div className="flex items-center gap-2">
           <Lightbulb className="h-5 w-5 text-primary" />
@@ -276,40 +367,54 @@ function DocsPage() {
             <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-primary/60" />
             <span>
               <span className="font-medium text-foreground">
-                Paste customer context
+                Start with a collection
               </span>{" "}
-              — include industry details, tech stack, and pain points for a demo
-              that speaks directly to their world.
+              — collections are pre-curated block combinations with a tested
+              output DAG. They are the fastest path to a complete package.
             </span>
           </li>
           <li className="flex items-start gap-3">
             <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-primary/60" />
             <span>
               <span className="font-medium text-foreground">
-                Start from a template
+                Write your own blocks
               </span>{" "}
-              — browse the Template Gallery for proven starting points that
-              accelerate generation.
+              — if the built-in blocks do not cover your domain or toolset,
+              add a new Markdown file. The YAML frontmatter schema is
+              lightweight and the system picks up new blocks automatically.
             </span>
           </li>
           <li className="flex items-start gap-3">
             <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-primary/60" />
             <span>
               <span className="font-medium text-foreground">
-                Select only relevant capabilities
+                Fewer blocks, tighter output
               </span>{" "}
-              — fewer, focused capabilities produce tighter, more compelling
-              demos.
+              — selecting only the blocks relevant to your scenario produces
+              more focused and coherent results than loading everything at
+              once.
             </span>
           </li>
           <li className="flex items-start gap-3">
             <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-primary/60" />
             <span>
               <span className="font-medium text-foreground">
-                Review before deploying
+                Iterate with the agent
               </span>{" "}
-              — always walk through generated assets and customize them to match
-              your narrative before standing up the demo.
+              — generation is a starting point. Use the chat interface to
+              refine files, adjust the narrative, or add detail. The agent
+              retains full context of what was generated and why.
+            </span>
+          </li>
+          <li className="flex items-start gap-3">
+            <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-primary/60" />
+            <span>
+              <span className="font-medium text-foreground">
+                Publish templates for reuse
+              </span>{" "}
+              — when you have a project that works well, publish it as a
+              template. Others can fork it and adapt the output without
+              rebuilding from scratch.
             </span>
           </li>
         </ul>

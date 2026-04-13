@@ -2,7 +2,7 @@
  * Templates browsing page for the template library.
  */
 
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState, useEffect, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -13,7 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import Navbar from "@/components/layout/navbar";
+import { AppLayout } from "@/components/layout/app-layout";
 import { TemplateTile } from "@/components/template/template-tile";
 import { TemplateDetailPopup } from "@/components/template/template-detail-popup";
 import {
@@ -28,7 +28,6 @@ import {
 import {
   Library,
   Loader2,
-  ArrowLeft,
   Check,
   X,
   Trash2,
@@ -39,8 +38,12 @@ import {
   User,
 } from "lucide-react";
 
+function TemplatesWithLayout() {
+  return <AppLayout><TemplatesPage /></AppLayout>;
+}
+
 export const Route = createFileRoute("/templates")({
-  component: TemplatesPage,
+  component: TemplatesWithLayout,
 });
 
 type StatusFilter = "ALL" | "APPROVED" | "REVIEW_REQUESTED" | "REJECTED";
@@ -120,7 +123,6 @@ function TemplatesPage() {
     setActionLoading(templateId);
     try {
       await updateTemplateStatus(templateId, "APPROVED");
-      // Refresh templates
       const status = statusFilter === "ALL" ? undefined : statusFilter;
       const industry = industryFilter === "ALL" ? undefined : industryFilter;
       const updated = await listTemplates(status, industry);
@@ -137,7 +139,6 @@ function TemplatesPage() {
     setActionLoading(templateId);
     try {
       await updateTemplateStatus(templateId, "REJECTED");
-      // Refresh templates
       const status = statusFilter === "ALL" ? undefined : statusFilter;
       const industry = industryFilter === "ALL" ? undefined : industryFilter;
       const updated = await listTemplates(status, industry);
@@ -170,194 +171,193 @@ function TemplatesPage() {
     : STATUS_TABS.filter((t) => t.value === "APPROVED");
 
   return (
-    <div className="flex min-h-screen flex-col">
-      <Navbar />
-      <main className="flex-1 px-6 py-8">
-        <div className="mx-auto max-w-7xl">
-          {/* Header */}
-          <div className="mb-8">
-            <Link to="/" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground mb-4">
-              <ArrowLeft className="h-4 w-4" />
-              Back to Home
-            </Link>
-            <div className="flex items-center gap-3">
-              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10">
-                <Library className="h-6 w-6 text-primary" />
-              </div>
-              <div>
-                <h1 className="text-2xl font-bold">Template Library</h1>
-                <p className="text-sm text-muted-foreground">
-                  Browse and use pre-built demo templates
-                </p>
-              </div>
-            </div>
+    <div className="p-6 lg:p-8 space-y-6 max-w-7xl">
+      {/* Header */}
+      <div className="flex items-center gap-3">
+        <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10">
+          <Library className="h-6 w-6 text-primary" />
+        </div>
+        <div>
+          <h1 className="text-2xl font-bold">Template Library</h1>
+          <p className="text-sm text-muted-foreground">
+            Browse and use pre-built demo templates
+          </p>
+        </div>
+      </div>
+
+      {/* Filters */}
+      <div className="flex flex-wrap items-center gap-4">
+        {/* Status tabs (hidden when only one tab visible) */}
+        {visibleTabs.length > 1 && (
+          <div className="flex items-center gap-1 rounded-lg border bg-muted/30 p-1" role="tablist" aria-label="Template status filter">
+            {visibleTabs.map((tab) => (
+              <button
+                key={tab.value}
+                role="tab"
+                aria-selected={statusFilter === tab.value}
+                onClick={() => setStatusFilter(tab.value)}
+                className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+                  statusFilter === tab.value
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {tab.icon}
+                {tab.label}
+              </button>
+            ))}
           </div>
+        )}
 
-          {/* Filters */}
-          <div className="mb-6 flex flex-wrap items-center gap-4">
-            {/* Status tabs */}
-            <div className="flex items-center gap-1 rounded-lg border bg-muted/30 p-1">
-              {visibleTabs.map((tab) => (
-                <button
-                  key={tab.value}
-                  onClick={() => setStatusFilter(tab.value)}
-                  className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
-                    statusFilter === tab.value
-                      ? "bg-background text-foreground shadow-sm"
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  {tab.icon}
-                  {tab.label}
-                </button>
-              ))}
-            </div>
+        {/* Industry filter */}
+        <Select value={industryFilter} onValueChange={setIndustryFilter}>
+          <SelectTrigger className="w-[180px]">
+            <SelectValue placeholder="All Industries" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="ALL">All Industries</SelectItem>
+            {industries.map((industry) => (
+              <SelectItem key={industry} value={industry}>
+                {industry}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
 
-            {/* Industry filter */}
-            <Select value={industryFilter} onValueChange={setIndustryFilter}>
-              <SelectTrigger className="w-[180px]">
-                <SelectValue placeholder="All Industries" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="ALL">All Industries</SelectItem>
-                {industries.map((industry) => (
-                  <SelectItem key={industry} value={industry}>
-                    {industry}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+        {/* Results count */}
+        <span className="text-sm text-muted-foreground ml-auto">
+          {templates.length} template{templates.length !== 1 ? "s" : ""}
+        </span>
+      </div>
 
-            {/* Results count */}
-            <span className="text-sm text-muted-foreground ml-auto">
-              {templates.length} template{templates.length !== 1 ? "s" : ""}
-            </span>
+      {/* My Templates section */}
+      {myTemplates.length > 0 && (
+        <div>
+          <div className="flex items-center gap-2 mb-4">
+            <User className="h-5 w-5 text-primary" />
+            <h2 className="text-lg font-semibold">My Templates</h2>
+            <Badge variant="secondary" className="text-xs">
+              {myTemplates.length}
+            </Badge>
           </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 items-stretch">
+            {myTemplates.map((template) => (
+              <div key={template.id} className="relative group h-full">
+                <TemplateTile
+                  template={template}
+                  onClick={() => setSelectedTemplateId(template.id)}
+                  showStatus={true}
+                />
 
-          {/* My Templates section */}
-          {myTemplates.length > 0 && (
-            <div className="mb-8">
-              <div className="flex items-center gap-2 mb-4">
-                <User className="h-5 w-5 text-primary" />
-                <h2 className="text-lg font-semibold">My Templates</h2>
-                <Badge variant="secondary" className="text-xs">
-                  {myTemplates.length}
-                </Badge>
+                {/* Owner action buttons */}
+                <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <Button
+                    size="icon"
+                    variant="default"
+                    className="h-7 w-7"
+                    onClick={(e) => handleEditTemplate(template.id, e)}
+                    disabled={actionLoading === template.id}
+                    title="Edit template"
+                  >
+                    {actionLoading === template.id ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Edit className="h-3.5 w-3.5" />
+                    )}
+                  </Button>
+                  <Button
+                    size="icon"
+                    variant="destructive"
+                    className="h-7 w-7"
+                    onClick={(e) => handleDelete(template.id, e)}
+                    disabled={actionLoading === template.id}
+                    title="Delete template"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 items-stretch">
-                {myTemplates.map((template) => (
-                  <div key={template.id} className="relative group h-full">
-                    <TemplateTile
-                      template={template}
-                      onClick={() => setSelectedTemplateId(template.id)}
-                      showStatus={true}
-                    />
+            ))}
+          </div>
+          <div className="border-b border-border mt-8" />
+        </div>
+      )}
 
-                    {/* Owner action buttons */}
-                    <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+      {/* Templates grid */}
+      {isLoading ? (
+        <div className="flex items-center justify-center py-20">
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        </div>
+      ) : templates.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-20 text-center">
+          <Library className="h-12 w-12 text-muted-foreground/50 mb-4" />
+          <h3 className="text-lg font-medium">No templates found</h3>
+          <p className="text-sm text-muted-foreground mt-1">
+            {statusFilter === "APPROVED"
+              ? "No approved templates match your filters."
+              : "No templates match your current filters."}
+          </p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 items-stretch">
+          {templates.map((template) => (
+            <div key={template.id} className="relative group h-full">
+              <TemplateTile
+                template={template}
+                onClick={() => setSelectedTemplateId(template.id)}
+                showStatus={isAdmin && statusFilter === "ALL"}
+              />
+
+              {/* Admin actions overlay */}
+              {isAdmin && template.status !== "APPROVED" && (
+                <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                  {template.status === "REVIEW_REQUESTED" && (
+                    <>
                       <Button
                         size="icon"
                         variant="default"
-                        className="h-7 w-7"
-                        onClick={(e) => handleEditTemplate(template.id, e)}
+                        className="h-7 w-7 bg-green-600 hover:bg-green-700"
+                        onClick={(e) => handleApprove(template.id, e)}
                         disabled={actionLoading === template.id}
-                        title="Edit template"
+                        aria-label="Approve template"
+                        title="Approve template"
                       >
                         {actionLoading === template.id ? (
                           <Loader2 className="h-3.5 w-3.5 animate-spin" />
                         ) : (
-                          <Edit className="h-3.5 w-3.5" />
+                          <Check className="h-3.5 w-3.5" />
                         )}
                       </Button>
                       <Button
                         size="icon"
                         variant="destructive"
                         className="h-7 w-7"
-                        onClick={(e) => handleDelete(template.id, e)}
+                        onClick={(e) => handleReject(template.id, e)}
                         disabled={actionLoading === template.id}
-                        title="Delete template"
+                        aria-label="Reject template"
+                        title="Reject template"
                       >
-                        <Trash2 className="h-3.5 w-3.5" />
+                        <X className="h-3.5 w-3.5" />
                       </Button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-              <div className="border-b border-border mt-8" />
-            </div>
-          )}
-
-          {/* Templates grid */}
-          {isLoading ? (
-            <div className="flex items-center justify-center py-20">
-              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-            </div>
-          ) : templates.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-20 text-center">
-              <Library className="h-12 w-12 text-muted-foreground/50 mb-4" />
-              <h3 className="text-lg font-medium">No templates found</h3>
-              <p className="text-sm text-muted-foreground mt-1">
-                {statusFilter === "APPROVED"
-                  ? "No approved templates match your filters."
-                  : "No templates match your current filters."}
-              </p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 items-stretch">
-              {templates.map((template) => (
-                <div key={template.id} className="relative group h-full">
-                  <TemplateTile
-                    template={template}
-                    onClick={() => setSelectedTemplateId(template.id)}
-                    showStatus={isAdmin && statusFilter === "ALL"}
-                  />
-
-                  {/* Admin actions overlay */}
-                  {isAdmin && template.status !== "APPROVED" && (
-                    <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                      {template.status === "REVIEW_REQUESTED" && (
-                        <>
-                          <Button
-                            size="icon"
-                            variant="default"
-                            className="h-7 w-7 bg-green-600 hover:bg-green-700"
-                            onClick={(e) => handleApprove(template.id, e)}
-                            disabled={actionLoading === template.id}
-                          >
-                            {actionLoading === template.id ? (
-                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                            ) : (
-                              <Check className="h-3.5 w-3.5" />
-                            )}
-                          </Button>
-                          <Button
-                            size="icon"
-                            variant="destructive"
-                            className="h-7 w-7"
-                            onClick={(e) => handleReject(template.id, e)}
-                            disabled={actionLoading === template.id}
-                          >
-                            <X className="h-3.5 w-3.5" />
-                          </Button>
-                        </>
-                      )}
-                      <Button
-                        size="icon"
-                        variant="outline"
-                        className="h-7 w-7"
-                        onClick={(e) => handleDelete(template.id, e)}
-                        disabled={actionLoading === template.id}
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
-                    </div>
+                    </>
                   )}
+                  <Button
+                    size="icon"
+                    variant="outline"
+                    className="h-7 w-7"
+                    onClick={(e) => handleDelete(template.id, e)}
+                    disabled={actionLoading === template.id}
+                    aria-label="Delete template"
+                    title="Delete template"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
                 </div>
-              ))}
+              )}
             </div>
-          )}
+          ))}
         </div>
-      </main>
+      )}
 
       {/* Template detail popup */}
       <TemplateDetailPopup
