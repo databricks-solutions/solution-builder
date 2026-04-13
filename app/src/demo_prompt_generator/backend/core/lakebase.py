@@ -392,6 +392,10 @@ def initialize_models(engine: Engine) -> None:
         """),
         ("template_content_template_idx", "CREATE INDEX IF NOT EXISTS ix_template_content_template_id ON template_content (template_id)"),
         ("template_content_unique_path", "CREATE UNIQUE INDEX IF NOT EXISTS ix_template_content_unique_path ON template_content (template_id, relative_path)"),
+
+        # Add embedding column if missing (handles case where table was created by SQLModel without it)
+        # PGLite uses TEXT, production uses vector(1024) — the migration loop handles the swap
+        ("templates_add_embedding", "ALTER TABLE templates ADD COLUMN IF NOT EXISTS embedding vector(1024)"),
     ]
 
     with Session(engine) as session:

@@ -152,7 +152,7 @@ class TemplateService:
         status: str = "APPROVED",
     ) -> list[dict]:
         """
-        Semantic search for templates using pgvector.
+        Semantic search for templates using pgvector, with text fallback for PGLite.
 
         Args:
             query: Search query text
@@ -163,28 +163,50 @@ class TemplateService:
         Returns:
             List of template dicts with similarity scores
         """
-        # Get embedding for query
-        query_embedding = self.llm.get_embedding(query)
+        try:
+            # Try pgvector semantic search first
+            query_embedding = self.llm.get_embedding(query)
 
-        # pgvector similarity search using cosine distance
-        # Use CAST() instead of :: to avoid SQLAlchemy param binding conflict
-        results = session.execute(
-            text("""
-                SELECT
-                    id, name, description, industry, capabilities,
-                    1 - (embedding <=> CAST(:query_embedding AS vector)) AS similarity
-                FROM templates
-                WHERE status = :status
-                AND embedding IS NOT NULL
-                ORDER BY embedding <=> CAST(:query_embedding AS vector)
-                LIMIT :limit
-            """),
-            {
-                "query_embedding": str(query_embedding),
-                "status": status,
-                "limit": limit,
-            }
-        ).fetchall()
+            results = session.execute(
+                text("""
+                    SELECT
+                        id, name, description, industry, capabilities,
+                        1 - (embedding <=> CAST(:query_embedding AS vector)) AS similarity
+                    FROM templates
+                    WHERE status = :status
+                    AND embedding IS NOT NULL
+                    ORDER BY embedding <=> CAST(:query_embedding AS vector)
+                    LIMIT :limit
+                """),
+                {
+                    "query_embedding": str(query_embedding),
+                    "status": status,
+                    "limit": limit,
+                }
+            ).fetchall()
+        except Exception as e:
+            logger.debug(f"pgvector search unavailable, falling back to text search: {e}")
+            session.rollback()
+            # Fallback: simple ILIKE text search on name and description
+            results = session.execute(
+                text("""
+                    SELECT
+                        id, name, description, industry, capabilities,
+                        0.5 AS similarity
+                    FROM templates
+                    WHERE status = :status
+                    AND (
+                        name ILIKE '%' || :query || '%'
+                        OR description ILIKE '%' || :query || '%'
+                    )
+                    LIMIT :limit
+                """),
+                {
+                    "query": query,
+                    "status": status,
+                    "limit": limit,
+                }
+            ).fetchall()
 
         return [
             {

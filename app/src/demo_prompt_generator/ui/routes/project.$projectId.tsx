@@ -46,6 +46,7 @@ import {
   invokeAgent,
   streamAgentProgress,
   stopAgentStream,
+  getActiveExecution,
   deleteProject,
   clearProjectSession,
   updateProject,
@@ -387,6 +388,83 @@ function ProjectPage() {
     },
     [projectId, selectedFile, isStreaming]
   );
+
+  // Reconnect to an in-flight agent execution on mount (e.g. after page
+  // refresh or navigating back). The agent task runs server-side regardless
+  // of client connection, so we just need to resume the SSE consumer.
+  const reconnectAttemptedRef = useRef(false);
+  useEffect(() => {
+    if (
+      reconnectAttemptedRef.current ||
+      isLoadingProject ||
+      isStreaming ||
+      initialPrompt // Let the initial-prompt effect handle this case
+    ) return;
+    reconnectAttemptedRef.current = true;
+
+    (async () => {
+      try {
+        const execution = await getActiveExecution(projectId) as { execution_id: string; project_id: string; is_running: boolean } | null;
+        if (!execution || !execution.is_running) return;
+
+        // There's an active execution — resume streaming
+        setIsStreaming(true);
+        setExecutionId(execution.execution_id);
+        abortControllerRef.current = new AbortController();
+
+        let fullContent = "";
+        let fullThinking = "";
+        const toolsMap = new Map<string, { name: string; input: unknown; result?: string; isError?: boolean }>();
+
+        for await (const event of streamAgentProgress(
+          execution.execution_id,
+          abortControllerRef.current.signal
+        )) {
+          if (event.type === "text_delta") {
+            fullContent += event.text;
+            setStreamingContent(fullContent);
+          } else if (event.type === "thinking_delta") {
+            fullThinking += event.thinking;
+            setStreamingThinking(fullThinking);
+            reasoningRef.current = { thinking: fullThinking, tools: new Map(toolsMap) };
+          } else if (event.type === "tool_use") {
+            toolsMap.set(event.tool_id, { name: event.tool_name, input: event.tool_input });
+            setStreamingTools(new Map(toolsMap));
+            reasoningRef.current = { thinking: fullThinking, tools: new Map(toolsMap) };
+          } else if (event.type === "tool_result") {
+            const existing = toolsMap.get(event.tool_use_id);
+            if (existing) {
+              toolsMap.set(event.tool_use_id, { ...existing, result: event.content, isError: event.is_error ?? false });
+              setStreamingTools(new Map(toolsMap));
+              reasoningRef.current = { thinking: fullThinking, tools: new Map(toolsMap) };
+            }
+          } else if (event.type === "stream.completed") {
+            break;
+          }
+        }
+
+        // Refresh messages and files from DB after agent completion
+        const [msgs, fileList] = await Promise.all([
+          listProjectMessages(projectId),
+          listProjectFiles(projectId),
+        ]);
+        setMessages(msgs);
+        setFiles(fileList);
+      } catch (error) {
+        if ((error as Error).name !== "AbortError") {
+          console.error("Failed to reconnect to agent:", error);
+        }
+      } finally {
+        if (reasoningRef.current) setLastReasoning(reasoningRef.current);
+        setIsStreaming(false);
+        setStreamingContent("");
+        setStreamingThinking("");
+        setStreamingTools(new Map());
+        setExecutionId(null);
+        abortControllerRef.current = null;
+      }
+    })();
+  }, [projectId, isLoadingProject, isStreaming, initialPrompt]);
 
   // Auto-send initial prompt if provided (from project creation)
   useEffect(() => {
