@@ -416,26 +416,6 @@ wheels = [
 ]
 
 [[package]]
-name = "databricks-mcp-server"
-version = "0.1.0"
-source = { editable = "ai_dev_kit/databricks-mcp-server" }
-dependencies = [
-    { name = "databricks-tools-core" },
-    { name = "fastmcp" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "black", marker = "extra == 'dev'", specifier = ">=23.0.0" },
-    { name = "databricks-tools-core" },
-    { name = "fastmcp", specifier = "==3.1.1" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0.0" },
-    { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=1.0.0" },
-    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.1.0" },
-]
-provides-extras = ["dev"]
-
-[[package]]
 name = "databricks-sdk"
 version = "0.93.0"
 source = { registry = "https://pypi-proxy.dev.databricks.com/simple/" }
@@ -457,43 +437,11 @@ openai = [
 ]
 
 [[package]]
-name = "databricks-tools-core"
-version = "0.1.0"
-source = { editable = "ai_dev_kit/databricks-tools-core" }
-dependencies = [
-    { name = "databricks-sdk" },
-    { name = "plutoprint" },
-    { name = "pydantic" },
-    { name = "pyyaml" },
-    { name = "requests" },
-    { name = "sqlfluff" },
-    { name = "sqlglot" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "black", marker = "extra == 'dev'", specifier = ">=23.0.0" },
-    { name = "databricks-sdk", specifier = ">=0.81.0" },
-    { name = "plutoprint", specifier = "==0.19.0" },
-    { name = "pydantic", specifier = ">=2.0.0" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0.0" },
-    { name = "pytest-timeout", marker = "extra == 'dev'", specifier = ">=2.0.0" },
-    { name = "pyyaml", specifier = ">=6.0" },
-    { name = "requests", specifier = ">=2.31.0" },
-    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.1.0" },
-    { name = "sqlfluff", specifier = ">=3.0.0" },
-    { name = "sqlglot", specifier = ">=20.0.0" },
-]
-provides-extras = ["dev"]
-
-[[package]]
 name = "demo-prompt-generator"
 source = { editable = "." }
 dependencies = [
     { name = "claude-agent-sdk" },
-    { name = "databricks-mcp-server" },
     { name = "databricks-sdk", extra = ["openai"] },
-    { name = "databricks-tools-core" },
     { name = "fastapi" },
     { name = "fastmcp" },
     { name = "httpx" },
@@ -520,9 +468,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "claude-agent-sdk", specifier = ">=0.1.50" },
-    { name = "databricks-mcp-server", editable = "ai_dev_kit/databricks-mcp-server" },
     { name = "databricks-sdk", extras = ["openai"], specifier = ">=0.74.0" },
-    { name = "databricks-tools-core", editable = "ai_dev_kit/databricks-tools-core" },
     { name = "fastapi", specifier = ">=0.119.0" },
     { name = "fastmcp", specifier = "==3.1.1" },
     { name = "httpx", specifier = ">=0.28.0" },

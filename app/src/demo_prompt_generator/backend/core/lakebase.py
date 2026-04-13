@@ -392,6 +392,10 @@ def initialize_models(engine: Engine) -> None:
         """),
         ("template_content_template_idx", "CREATE INDEX IF NOT EXISTS ix_template_content_template_id ON template_content (template_id)"),
         ("template_content_unique_path", "CREATE UNIQUE INDEX IF NOT EXISTS ix_template_content_unique_path ON template_content (template_id, relative_path)"),
+
+        # Add embedding column if missing (handles case where table was created by SQLModel without it)
+        # PGLite uses TEXT, production uses vector(1024) — the migration loop handles the swap
+        ("templates_add_embedding", "ALTER TABLE templates ADD COLUMN IF NOT EXISTS embedding vector(1024)"),
     ]
 
     with Session(engine) as session:
@@ -429,12 +433,8 @@ class _LakebaseDependency(LifespanDependency):
         validate_db(engine, db_config)
         initialize_models(engine)
 
-        # Initialize skills manager (clone/pull ai-dev-kit on startup)
-        from ..services.skills_manager import clone_or_pull_ai_dev_kit
-        try:
-            clone_or_pull_ai_dev_kit()
-        except Exception as e:
-            logger.warning(f"Failed to initialize skills: {e}")
+        # Note: ai-dev-kit is managed by dev.sh/build-electron.sh startup scripts
+        # No clone/pull here - the scripts handle branch checkout and cleanup
 
         # Initialize file sync service
         from ..services.file_sync import FileSyncService

@@ -46,10 +46,12 @@ import {
   invokeAgent,
   streamAgentProgress,
   stopAgentStream,
+  getActiveExecution,
   deleteProject,
   clearProjectSession,
   updateProject,
   getTemplateByProject,
+  downloadProjectAsZip,
   type Project,
   type ProjectFile,
   type ProjectFileContent,
@@ -81,6 +83,7 @@ function ProjectPage() {
   const [isLoadingFile, setIsLoadingFile] = useState(false);
   const [architectureContent, setArchitectureContent] = useState<string | null>(null);
   const [isCreatingArchitecture, setIsCreatingArchitecture] = useState(false);
+  const [dabInstructions, setDabInstructions] = useState<string | null>(null);
 
   // Chat state
   const [messages, setMessages] = useState<Message[]>([]);
@@ -386,6 +389,84 @@ function ProjectPage() {
     [projectId, selectedFile, isStreaming]
   );
 
+  // Reconnect to an in-flight agent execution on mount (e.g. after page
+  // refresh or navigating back). The agent task runs server-side regardless
+  // of client connection, so we just need to resume the SSE consumer.
+  const reconnectAttemptedRef = useRef(false);
+  useEffect(() => {
+    if (
+      reconnectAttemptedRef.current ||
+      isLoadingProject ||
+      isStreaming ||
+      initialPrompt // Let the initial-prompt effect handle this case
+    ) return;
+    reconnectAttemptedRef.current = true;
+
+    (async () => {
+      try {
+        const execution = await getActiveExecution(projectId) as { execution_id: string; project_id: string; is_running: boolean } | null;
+        if (!execution || !execution.is_running) return;
+
+        // There's an active execution — resume streaming
+        setIsStreaming(true);
+        setExecutionId(execution.execution_id);
+        abortControllerRef.current = new AbortController();
+
+        let fullContent = "";
+        let fullThinking = "";
+        const toolsMap = new Map<string, { name: string; input: unknown; result?: string; isError?: boolean }>();
+
+        for await (const event of streamAgentProgress(
+          execution.execution_id,
+          abortControllerRef.current.signal
+        )) {
+          if (event.type === "text_delta") {
+            fullContent += event.text;
+            setStreamingContent(fullContent);
+          } else if (event.type === "thinking_delta") {
+            fullThinking += event.thinking;
+            setStreamingThinking(fullThinking);
+            reasoningRef.current = { thinking: fullThinking, tools: new Map(toolsMap) };
+          } else if (event.type === "tool_use") {
+            toolsMap.set(event.tool_id, { name: event.tool_name, input: event.tool_input });
+            setStreamingTools(new Map(toolsMap));
+            reasoningRef.current = { thinking: fullThinking, tools: new Map(toolsMap) };
+          } else if (event.type === "tool_result") {
+            const existing = toolsMap.get(event.tool_use_id);
+            if (existing) {
+              toolsMap.set(event.tool_use_id, { ...existing, result: event.content, isError: event.is_error ?? false });
+              setStreamingTools(new Map(toolsMap));
+              reasoningRef.current = { thinking: fullThinking, tools: new Map(toolsMap) };
+            }
+          } else if (event.type === "stream.completed") {
+            break;
+          }
+        }
+
+        // Refresh messages and files from DB after agent completion
+        const [msgs, fileList] = await Promise.all([
+          listProjectMessages(projectId),
+          listProjectFiles(projectId),
+        ]);
+        setMessages(msgs);
+        setFiles(fileList);
+      } catch (error) {
+        if ((error as Error).name !== "AbortError") {
+          console.error("Failed to reconnect to agent:", error);
+        }
+      } finally {
+        if (reasoningRef.current) setLastReasoning(reasoningRef.current);
+        setIsStreaming(false);
+        setStreamingContent("");
+        setStreamingThinking("");
+        setStreamingTools(new Map());
+        setExecutionId(null);
+        abortControllerRef.current = null;
+      }
+    })();
+  }, [projectId, isLoadingProject, isStreaming, initialPrompt]);
+
+
   // Auto-send initial prompt if provided (from project creation)
   useEffect(() => {
     if (
@@ -468,6 +549,36 @@ function ProjectPage() {
     [isStreaming, handleSendMessage]
   );
 
+  // Handle Package as DAB button click - sends message to agent
+  const handlePackageAsDAB = useCallback(() => {
+    if (isStreaming) return;
+    handleSendMessage(
+      "Analyze the files and components available, and create a Databricks Asset Bundle. " +
+      "Read the dab.md reference file for guidance. You must create both:\n" +
+      "1. `databricks.yml` - the bundle configuration with parameterized variables (catalog, schema, warehouse_name, workspace_path)\n" +
+      "2. `dab_instructions.md` - deployment instructions for the user following the template in dab.md"
+    );
+  }, [isStreaming, handleSendMessage]);
+
+  // Handle Update DAB button click - sends message to agent to review and update
+  const handleUpdateDAB = useCallback(() => {
+    if (isStreaming) return;
+    handleSendMessage(
+      "Review the instructions in reference/dab.md, and make sure the current DAB has all the assets created in this demo. " +
+      "If not the case, update the databricks.yml and dab_instructions.md accordingly."
+    );
+  }, [isStreaming, handleSendMessage]);
+
+  // Handle download DAB as zip
+  const handleDownloadDAB = useCallback(async () => {
+    try {
+      await downloadProjectAsZip(projectId);
+    } catch (error) {
+      console.error("Failed to download project:", error);
+    }
+  }, [projectId]);
+
+
   // After streaming completes when creating architecture, load the content
   useEffect(() => {
     if (isCreatingArchitecture && !isStreaming) {
@@ -491,6 +602,24 @@ function ProjectPage() {
       }
     }
   }, [isCreatingArchitecture, isStreaming, files, projectId]);
+
+  // Load dab_instructions.md when it exists in files
+  useEffect(() => {
+    const hasDabInstructions = files.some((f) => f.path === "dab_instructions.md");
+    if (hasDabInstructions) {
+      getProjectFile(projectId, "dab_instructions.md")
+        .then((content) => {
+          setDabInstructions(content.content);
+        })
+        .catch((error) => {
+          console.error("Failed to load DAB instructions:", error);
+          setDabInstructions(null);
+        });
+    } else {
+      setDabInstructions(null);
+    }
+  }, [files, projectId]);
+
 
   // Handle delete project
   const handleDeleteConfirm = useCallback(async () => {
@@ -825,6 +954,10 @@ function ProjectPage() {
             onCreateArchitecture={handleCreateArchitecture}
             onArchitectureConnectionCreated={handleArchitectureConnection}
             isStreaming={isStreaming}
+            onPackageAsDAB={handlePackageAsDAB}
+            onUpdateDAB={handleUpdateDAB}
+            dabInstructions={dabInstructions}
+            onDownloadDAB={handleDownloadDAB}
           />
         </div>
 

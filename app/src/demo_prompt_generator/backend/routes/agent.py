@@ -13,7 +13,7 @@ import asyncio
 import json
 import time
 
-from fastapi import HTTPException, Query
+from fastapi import HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from ..core import Dependencies, create_router
@@ -64,6 +64,7 @@ async def invoke_agent(
     body: InvokeAgentRequest,
     session: Dependencies.Session,
     headers: Dependencies.Headers,
+    request: Request,
 ):
     """
     Start Claude Code agent execution.
@@ -102,6 +103,11 @@ async def invoke_agent(
     # Create stream
     stream = manager.create_stream(execution_id, body.project_id)
 
+    # Capture engine reference for use in background task (request session
+    # will be closed by the time run_agent's completion code executes)
+    engine = request.app.state.engine
+
+
     # Start agent in background
     async def run_agent():
         collected_events = []
@@ -117,15 +123,19 @@ async def invoke_agent(
                 session_id=session_id,
             ):
                 collected_events.append(event)
+        except Exception as e:
+            logger.exception(f"Agent execution failed: {e}")
+            return
 
-            # Save assistant response and session_id after completion
+        # Save assistant response and session_id after completion.
+        # This runs even if the browser disconnected — the task is decoupled
+        # from the SSE consumer.
+        try:
             full_response = collect_text_response(collected_events)
             reasoning = collect_reasoning(collected_events)
             if full_response:
                 from sqlmodel import Session as SQLSession
-                engine = session.get_bind()
                 with SQLSession(engine) as db:
-                    # Save assistant message with reasoning data
                     reasoning_data = {"reasoning": reasoning} if reasoning else None
                     assistant_msg = Message(
                         project_id=body.project_id,
@@ -135,19 +145,19 @@ async def invoke_agent(
                     )
                     db.add(assistant_msg)
 
-                    # Update project session_id for next resumption
                     if stream.session_id:
                         proj = db.get(Project, body.project_id)
                         if proj:
                             proj.session_id = stream.session_id
                             proj.updated_at = utc_now()
                             db.add(proj)
-                            logger.info(f"Saved session_id to project {body.project_id}: {stream.session_id}")
 
                     db.commit()
-
+                    logger.info(f"Saved assistant message for project {body.project_id} ({len(full_response)} chars)")
+            else:
+                logger.warning(f"Agent returned empty response for project {body.project_id}")
         except Exception as e:
-            logger.exception(f"Agent execution failed: {e}")
+            logger.exception(f"Failed to save agent response for project {body.project_id}: {e}")
 
     await manager.start_stream(stream, run_agent)
 

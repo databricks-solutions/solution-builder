@@ -21,7 +21,7 @@
 #   --rebuild-frontend          Force rebuild the frontend
 #   --rebuild-backend           Force rebuild the PyInstaller backend
 #   --clean                     Remove all build artifacts and start fresh
-#   --ai-dev-kit-branch BRANCH  Clone/checkout specific ai-dev-kit branch (default: add-aidevkit-cli)
+#   --ai-dev-kit-branch BRANCH  Clone/checkout specific ai-dev-kit branch (default: simplify-skills-remove-mcp)
 #   --lakebase-url URL          Embed Lakebase PostgreSQL connection URL
 #
 # Environment variables:
@@ -59,9 +59,9 @@ SKIP_FRONTEND=false
 REBUILD_FRONTEND=false
 REBUILD_BACKEND=false
 CLEAN=false
-# IMPORTANT: Using 'add-aidevkit-cli' branch which removes MCP in favor of CLI tools
+# IMPORTANT: Using 'simplify-skills-remove-mcp' branch which is pure skills (no Python packages)
 # TODO: Change back to 'main' once this branch is merged
-AI_DEV_KIT_BRANCH="${AI_DEV_KIT_BRANCH:-add-aidevkit-cli}"
+AI_DEV_KIT_BRANCH="${AI_DEV_KIT_BRANCH:-simplify-skills-remove-mcp}"
 LAKEBASE_URL="${LAKEBASE_PG_URL:-}"
 
 while [[ $# -gt 0 ]]; do
@@ -132,16 +132,32 @@ if [ ! -d "$APP_DIR/ai_dev_kit" ]; then
     echo -e "${CYAN}Cloning ai-dev-kit repository (branch: $AI_DEV_KIT_BRANCH)...${NC}"
     git clone --branch "$AI_DEV_KIT_BRANCH" "$AI_DEV_KIT_REPO" "$APP_DIR/ai_dev_kit"
     echo -e "${GREEN}ai-dev-kit cloned successfully${NC}"
-elif [ ! -d "$APP_DIR/ai_dev_kit/databricks-tools-core" ]; then
-    echo -e "${RED}ERROR: ai_dev_kit folder exists but seems incomplete${NC}"
-    echo -e "Try: ${CYAN}rm -rf ai_dev_kit && ./scripts/build-electron.sh${NC}"
-    exit 1
+elif [ ! -d "$APP_DIR/ai_dev_kit/databricks-skills" ]; then
+    # Incomplete or wrong structure - remove and re-clone
+    echo -e "${YELLOW}ai_dev_kit folder has wrong structure, re-cloning...${NC}"
+    rm -rf "$APP_DIR/ai_dev_kit"
+    git clone --branch "$AI_DEV_KIT_BRANCH" "$AI_DEV_KIT_REPO" "$APP_DIR/ai_dev_kit"
+    echo -e "${GREEN}ai-dev-kit cloned successfully${NC}"
 else
-    # Check if we need to switch branches
+    # Check if we need to switch branches or update
     CURRENT_BRANCH=$(cd "$APP_DIR/ai_dev_kit" && git branch --show-current)
-    if [ "$CURRENT_BRANCH" != "$AI_DEV_KIT_BRANCH" ] && [ "$AI_DEV_KIT_BRANCH" != "main" ]; then
-        echo -e "${YELLOW}Switching ai-dev-kit to branch: $AI_DEV_KIT_BRANCH${NC}"
-        (cd "$APP_DIR/ai_dev_kit" && git fetch && git checkout "$AI_DEV_KIT_BRANCH" && git pull)
+    if [ "$CURRENT_BRANCH" != "$AI_DEV_KIT_BRANCH" ]; then
+        # Different branch - do a complete reset to avoid stale files
+        echo -e "${YELLOW}Switching ai-dev-kit to branch: $AI_DEV_KIT_BRANCH (full reset)${NC}"
+        (cd "$APP_DIR/ai_dev_kit" && \
+            git fetch origin && \
+            git checkout "$AI_DEV_KIT_BRANCH" && \
+            git reset --hard "origin/$AI_DEV_KIT_BRANCH" && \
+            git clean -fdx)
+        echo -e "${GREEN}ai-dev-kit switched and reset${NC}"
+    else
+        # Same branch - hard reset to origin to ensure clean state
+        echo -e "${CYAN}Updating ai-dev-kit (branch: $AI_DEV_KIT_BRANCH)...${NC}"
+        (cd "$APP_DIR/ai_dev_kit" && \
+            git fetch origin && \
+            git reset --hard "origin/$AI_DEV_KIT_BRANCH" && \
+            git clean -fdx) && \
+        echo -e "${GREEN}ai-dev-kit updated${NC}" || echo -e "${YELLOW}ai-dev-kit update failed${NC}"
     fi
 fi
 
@@ -239,14 +255,10 @@ setup_python_env() {
         uv venv "$VENV_DIR" --python "$PYTHON_DIR/bin/python3"
     fi
 
-    # Install dependencies with uv (understands [tool.uv.sources] natively)
+    # Install dependencies with uv
     echo -e "  ${CYAN}Installing dependencies with uv...${NC}"
     uv pip install -e "$APP_DIR" pyinstaller --python "$VENV_DIR/bin/python"
 
-    # Install aidevkit CLI tools (required for Claude Code sessions)
-    echo -e "  ${CYAN}Installing aidevkit CLI tools...${NC}"
-    uv pip install -e "$APP_DIR/ai_dev_kit/databricks-tools-core" --python "$VENV_DIR/bin/python"
-    uv pip install -e "$APP_DIR/ai_dev_kit/databricks-aidevkit-cli" --python "$VENV_DIR/bin/python"
 
     # Create marker file to track when deps were installed
     touch "$DEPS_MARKER"
@@ -326,8 +338,6 @@ EOF
         --workpath "$APP_DIR/build-pyinstaller" \
         --specpath "$APP_DIR/build-pyinstaller" \
         --collect-all=demo_prompt_generator \
-        --collect-all=databricks_tools_core \
-        --collect-all=databricks_mcp_server \
         --collect-submodules=uvicorn \
         --collect-submodules=fastapi \
         --collect-submodules=starlette \
@@ -344,72 +354,6 @@ EOF
 }
 
 # ==============================================================================
-# Step 3b: Bundle aidevkit CLI with PyInstaller
-# ==============================================================================
-bundle_aidevkit() {
-    echo ""
-    echo -e "${CYAN}Step 3b: Bundling aidevkit CLI with PyInstaller${NC}"
-
-    VENV_DIR="$APP_DIR/dist-venv"
-    BACKEND_DIST="$APP_DIR/dist-backend"
-
-    # Check if aidevkit already bundled and source hasn't changed
-    if [ -f "$BACKEND_DIST/backend/aidevkit" ]; then
-        # Check if any aidevkit source is newer than the bundle
-        NEWEST_SRC=$(find "$APP_DIR/ai_dev_kit/databricks-aidevkit-cli" -name "*.py" -newer "$BACKEND_DIST/backend/aidevkit" 2>/dev/null | head -1)
-        if [ -z "$NEWEST_SRC" ]; then
-            echo -e "  ${GREEN}aidevkit CLI already bundled and up to date, skipping${NC}"
-            echo -e "  ${YELLOW}(Use --rebuild-backend to force rebuild)${NC}"
-            return 0
-        else
-            echo -e "  ${YELLOW}Source files changed, rebuilding aidevkit...${NC}"
-        fi
-    fi
-
-    # Create a wrapper script for PyInstaller
-    cat > "$APP_DIR/run_aidevkit.py" << 'EOF'
-#!/usr/bin/env python3
-"""
-Entry point for the bundled aidevkit CLI.
-Used by PyInstaller to create a standalone executable.
-"""
-import sys
-from aidevkit_cli.main import main
-
-if __name__ == '__main__':
-    main()
-EOF
-
-    # Run PyInstaller for aidevkit
-    echo -e "  ${CYAN}Running PyInstaller for aidevkit...${NC}"
-    cd "$APP_DIR"
-
-    "$VENV_DIR/bin/pyinstaller" \
-        --name aidevkit \
-        --onefile \
-        --noconfirm \
-        --distpath "$BACKEND_DIST/backend" \
-        --workpath "$APP_DIR/build-pyinstaller" \
-        --specpath "$APP_DIR/build-pyinstaller" \
-        --collect-all=aidevkit_cli \
-        --collect-all=databricks_tools_core \
-        --hidden-import=typer \
-        --hidden-import=rich \
-        run_aidevkit.py
-
-    # Verify
-    if [ -f "$BACKEND_DIST/backend/aidevkit" ]; then
-        echo -e "  ${GREEN}aidevkit CLI bundled successfully${NC}"
-        echo -e "  ${GREEN}Size: $(du -sh "$BACKEND_DIST/backend/aidevkit" | cut -f1)${NC}"
-    else
-        echo -e "  ${RED}aidevkit CLI bundling failed${NC}"
-        exit 1
-    fi
-
-    # Clean up
-    rm -f "$APP_DIR/run_aidevkit.py"
-}
-
 # ==============================================================================
 # Step 4: Build Frontend
 # ==============================================================================
@@ -520,7 +464,6 @@ if [ "$SKIP_PYTHON" = false ]; then
     download_python
     setup_python_env
     bundle_backend
-    bundle_aidevkit
 fi
 
 if [ "$SKIP_FRONTEND" = false ]; then

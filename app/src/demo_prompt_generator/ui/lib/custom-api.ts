@@ -226,6 +226,31 @@ export async function getProjectFile(
   return resp.json();
 }
 
+export async function downloadProjectAsZip(projectId: string): Promise<void> {
+  const resp = await fetch(apiUrl(`/api/projects/${projectId}/download`));
+  if (!resp.ok) throw new Error(`Failed to download project: ${resp.status}`);
+
+  // Get the filename from Content-Disposition header or use default
+  const contentDisposition = resp.headers.get("Content-Disposition");
+  let filename = "project.zip";
+  if (contentDisposition) {
+    const match = contentDisposition.match(/filename="(.+)"/);
+    if (match) filename = match[1];
+  }
+
+  // Download the blob
+  const blob = await resp.blob();
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  window.URL.revokeObjectURL(url);
+  document.body.removeChild(a);
+}
+
+
 // ---------------------------------------------------------------------------
 // Messages API
 // ---------------------------------------------------------------------------
