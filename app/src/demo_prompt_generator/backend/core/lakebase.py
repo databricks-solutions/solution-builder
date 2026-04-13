@@ -429,12 +429,8 @@ class _LakebaseDependency(LifespanDependency):
         validate_db(engine, db_config)
         initialize_models(engine)
 
-        # Initialize skills manager (clone/pull ai-dev-kit on startup)
-        from ..services.skills_manager import clone_or_pull_ai_dev_kit
-        try:
-            clone_or_pull_ai_dev_kit()
-        except Exception as e:
-            logger.warning(f"Failed to initialize skills: {e}")
+        # Note: ai-dev-kit is managed by dev.sh/build-electron.sh startup scripts
+        # No clone/pull here - the scripts handle branch checkout and cleanup
 
         # Initialize file sync service
         from ..services.file_sync import FileSyncService

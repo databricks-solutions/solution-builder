@@ -1,108 +1,31 @@
 """
-Skills manager for cloning ai-dev-kit and managing skills in projects.
+Skills manager for managing skills in projects.
 
 Workflow:
-1. On app startup: Clone/pull ai-dev-kit repo
+1. On app startup: ai-dev-kit is cloned/updated by dev.sh or build-electron.sh
 2. On project creation: Copy demo-generator + default skills to .claude/skills/
 3. Skills folder is IGNORED from watchdog sync (managed here only)
 """
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 import shutil
-import subprocess
 from pathlib import Path
 from typing import Optional
 
 logger = logging.getLogger(__name__)
 
 # Configuration
-AI_DEV_KIT_REPO = "https://github.com/databricks-solutions/ai-dev-kit.git"
+# Note: ai-dev-kit cloning/pulling is handled by dev.sh and build-electron.sh
+# These scripts manage branch checkout with proper git clean to avoid stale files
 AI_DEV_KIT_LOCAL = os.getenv("AI_DEV_KIT_PATH", "./ai_dev_kit")
-# IMPORTANT: Default branch is 'add-aidevkit-cli' which removes MCP in favor of CLI tools
-# TODO: Change back to 'main' once this branch is merged
-AI_DEV_KIT_BRANCH = os.getenv("AI_DEV_KIT_BRANCH", "add-aidevkit-cli")
 PROJECTS_BASE_DIR = os.getenv("PROJECTS_BASE_DIR", "./projects")
 
 # Skills to copy by default - None means copy ALL available skills
 # Set to a list of skill names to limit which skills are copied
 DEFAULT_SKILLS = None  # Copy all skills from ai-dev-kit
-
-
-def clone_or_pull_ai_dev_kit() -> bool:
-    """
-    Clone ai-dev-kit repo if not present, or pull latest.
-    Checks out the branch specified by AI_DEV_KIT_BRANCH env var.
-
-    Called during app startup.
-    """
-    repo_path = Path(AI_DEV_KIT_LOCAL)
-
-    try:
-        if repo_path.exists() and (repo_path / ".git").exists():
-            # Fetch and checkout the target branch
-            logger.info(f"Fetching ai-dev-kit branch '{AI_DEV_KIT_BRANCH}' in {repo_path}")
-
-            # Fetch the branch
-            result = subprocess.run(
-                ["git", "fetch", "origin", AI_DEV_KIT_BRANCH],
-                cwd=repo_path,
-                capture_output=True,
-                text=True,
-                timeout=60,
-            )
-            if result.returncode != 0:
-                logger.warning(f"Git fetch failed: {result.stderr}")
-
-            # Checkout the branch
-            result = subprocess.run(
-                ["git", "checkout", AI_DEV_KIT_BRANCH],
-                cwd=repo_path,
-                capture_output=True,
-                text=True,
-                timeout=30,
-            )
-            if result.returncode != 0:
-                logger.warning(f"Git checkout failed: {result.stderr}")
-                return False
-
-            # Pull latest
-            result = subprocess.run(
-                ["git", "pull", "origin", AI_DEV_KIT_BRANCH],
-                cwd=repo_path,
-                capture_output=True,
-                text=True,
-                timeout=60,
-            )
-            if result.returncode != 0:
-                logger.warning(f"Git pull failed: {result.stderr}")
-                # Continue anyway - might be ok if we have the branch locally
-        else:
-            # Clone fresh with specific branch
-            logger.info(f"Cloning ai-dev-kit branch '{AI_DEV_KIT_BRANCH}' to {repo_path}")
-            repo_path.parent.mkdir(parents=True, exist_ok=True)
-            result = subprocess.run(
-                ["git", "clone", "--branch", AI_DEV_KIT_BRANCH, AI_DEV_KIT_REPO, str(repo_path)],
-                capture_output=True,
-                text=True,
-                timeout=120,
-            )
-            if result.returncode != 0:
-                logger.error(f"Git clone failed: {result.stderr}")
-                return False
-
-        logger.info(f"ai-dev-kit repository ready (branch: {AI_DEV_KIT_BRANCH})")
-        return True
-
-    except subprocess.TimeoutExpired:
-        logger.error("Git operation timed out")
-        return False
-    except Exception as e:
-        logger.error(f"Failed to manage ai-dev-kit repo: {e}")
-        return False
 
 
 def get_available_skills() -> list[dict]:

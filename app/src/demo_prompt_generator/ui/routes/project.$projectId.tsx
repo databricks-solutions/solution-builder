@@ -50,6 +50,7 @@ import {
   clearProjectSession,
   updateProject,
   getTemplateByProject,
+  downloadProjectAsZip,
   type Project,
   type ProjectFile,
   type ProjectFileContent,
@@ -81,6 +82,7 @@ function ProjectPage() {
   const [isLoadingFile, setIsLoadingFile] = useState(false);
   const [architectureContent, setArchitectureContent] = useState<string | null>(null);
   const [isCreatingArchitecture, setIsCreatingArchitecture] = useState(false);
+  const [dabInstructions, setDabInstructions] = useState<string | null>(null);
 
   // Chat state
   const [messages, setMessages] = useState<Message[]>([]);
@@ -468,6 +470,35 @@ function ProjectPage() {
     [isStreaming, handleSendMessage]
   );
 
+  // Handle Package as DAB button click - sends message to agent
+  const handlePackageAsDAB = useCallback(() => {
+    if (isStreaming) return;
+    handleSendMessage(
+      "Analyze the files and components available, and create a Databricks Asset Bundle. " +
+      "Read the dab.md reference file for guidance. You must create both:\n" +
+      "1. `databricks.yml` - the bundle configuration with parameterized variables (catalog, schema, warehouse_name, workspace_path)\n" +
+      "2. `dab_instructions.md` - deployment instructions for the user following the template in dab.md"
+    );
+  }, [isStreaming, handleSendMessage]);
+
+  // Handle Update DAB button click - sends message to agent to review and update
+  const handleUpdateDAB = useCallback(() => {
+    if (isStreaming) return;
+    handleSendMessage(
+      "Review the instructions in reference/dab.md, and make sure the current DAB has all the assets created in this demo. " +
+      "If not the case, update the databricks.yml and dab_instructions.md accordingly."
+    );
+  }, [isStreaming, handleSendMessage]);
+
+  // Handle download DAB as zip
+  const handleDownloadDAB = useCallback(async () => {
+    try {
+      await downloadProjectAsZip(projectId);
+    } catch (error) {
+      console.error("Failed to download project:", error);
+    }
+  }, [projectId]);
+
   // After streaming completes when creating architecture, load the content
   useEffect(() => {
     if (isCreatingArchitecture && !isStreaming) {
@@ -491,6 +522,23 @@ function ProjectPage() {
       }
     }
   }, [isCreatingArchitecture, isStreaming, files, projectId]);
+
+  // Load dab_instructions.md when it exists in files
+  useEffect(() => {
+    const hasDabInstructions = files.some((f) => f.path === "dab_instructions.md");
+    if (hasDabInstructions) {
+      getProjectFile(projectId, "dab_instructions.md")
+        .then((content) => {
+          setDabInstructions(content.content);
+        })
+        .catch((error) => {
+          console.error("Failed to load DAB instructions:", error);
+          setDabInstructions(null);
+        });
+    } else {
+      setDabInstructions(null);
+    }
+  }, [files, projectId]);
 
   // Handle delete project
   const handleDeleteConfirm = useCallback(async () => {
@@ -825,6 +873,10 @@ function ProjectPage() {
             onCreateArchitecture={handleCreateArchitecture}
             onArchitectureConnectionCreated={handleArchitectureConnection}
             isStreaming={isStreaming}
+            onPackageAsDAB={handlePackageAsDAB}
+            onUpdateDAB={handleUpdateDAB}
+            dabInstructions={dabInstructions}
+            onDownloadDAB={handleDownloadDAB}
           />
         </div>
 

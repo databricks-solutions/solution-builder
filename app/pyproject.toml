@@ -24,15 +24,7 @@ dependencies = [
     "sqlglot>=20.0.0",
     "sqlfluff>=3.0.0",
     "plutoprint==0.19.0",
-    # Local packages from ai_dev_kit
-    "databricks-tools-core",
-    "databricks-mcp-server",
 ]
-
-# Local path dependencies for Databricks MCP tools
-[tool.uv.sources]
-databricks-tools-core = { path = "ai_dev_kit/databricks-tools-core", editable = true }
-databricks-mcp-server = { path = "ai_dev_kit/databricks-mcp-server", editable = true }
 
 [dependency-groups]
 dev = [

@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import io
 import logging
 import os
 import traceback
+import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import HTTPException, Request
+from fastapi.responses import StreamingResponse
 from sqlmodel import select
 
 from ..core import Dependencies, create_router
@@ -161,4 +164,60 @@ def get_project_file(
         content=content,
         size=file_record.file_size if file_record else len(content),
         last_modified=file_record.last_modified if file_record else None,
+    )
+
+
+@router.get(
+    "/projects/{project_id}/download",
+    operation_id="downloadProjectAsZip",
+)
+def download_project_as_zip(
+    project_id: str,
+    session: Dependencies.Session,
+    headers: Dependencies.Headers,
+    request: Request,
+):
+    """Download all project files as a zip archive."""
+    user_email = _get_user_email(headers)
+    project = _get_user_project(session, project_id, user_email)
+
+    project_dir = Path(PROJECTS_BASE_DIR).resolve() / project_id
+
+    # If folder doesn't exist, restore from DB first
+    if not project_dir.exists():
+        logger.info(f"Project folder missing, restoring from DB: {project_id}")
+        file_sync: FileSyncService = request.app.state.file_sync
+        file_sync.restore_project_from_db(project_id, session=session)
+
+    if not project_dir.exists():
+        raise HTTPException(status_code=404, detail="Project directory not found")
+
+    # Create zip in memory
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
+        for file_path in project_dir.rglob("*"):
+            # Skip directories
+            if file_path.is_dir():
+                continue
+
+            # Skip excluded patterns
+            rel_path = file_path.relative_to(project_dir)
+            if any(part in EXCLUDED_PATTERNS for part in rel_path.parts):
+                continue
+
+            # Add file to zip
+            zip_file.write(file_path, rel_path)
+
+    zip_buffer.seek(0)
+
+    # Generate a clean filename from project name
+    safe_name = "".join(c if c.isalnum() or c in "._- " else "_" for c in project.name)
+    filename = f"{safe_name}.zip"
+
+    return StreamingResponse(
+        zip_buffer,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+        },
     )

@@ -7,7 +7,16 @@ import React, { memo, useState, useMemo, useEffect, lazy, Suspense } from "react
 import { ScrollArea } from "../ui/scroll-area";
 import { Prose } from "../markdown-prose";
 import { Skeleton } from "../ui/skeleton";
-import { ChevronRight, ChevronDown, ChevronLeft, Folder, FolderOpen, FileText, FileCode, Braces, Settings, File, Sparkles, RefreshCw, Network, Database } from "lucide-react";
+import { Button } from "../ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "../ui/dialog";
+import { ChevronRight, ChevronDown, ChevronLeft, Folder, FolderOpen, FileText, FileCode, Braces, Settings, File, Sparkles, RefreshCw, Network, Database, Package, Download, AlertCircle } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../ui/tooltip";
 import type { ProjectFile, ProjectFileContent } from "../../lib/custom-api";
 
 // Lazy load the architecture diagram to avoid loading ReactFlow on every page
@@ -33,6 +42,10 @@ interface FileViewerProps {
   onCreateArchitecture?: () => void;
   onArchitectureConnectionCreated?: (from: string, to: string) => void;
   isStreaming?: boolean; // Whether the agent is currently working
+  onPackageAsDAB?: () => void; // Callback to trigger DAB packaging
+  onUpdateDAB?: () => void; // Callback to update existing DAB
+  dabInstructions?: string | null; // Content of dab_instructions.md
+  onDownloadDAB?: () => void; // Callback to download DAB as zip
 }
 
 interface TreeNode {
@@ -427,17 +440,29 @@ const ExpandedSidebar = memo(function ExpandedSidebar({
 interface TabBarProps {
   activeTab: ViewTab;
   onTabChange: (tab: ViewTab) => void;
+  canPackageAsDAB: boolean;
+  hasDAB: boolean;
+  onPackageAsDAB?: () => void;
+  onDownloadDABClick?: () => void;
+  isStreaming?: boolean;
 }
 
 const TabBar = memo(function TabBar({
   activeTab,
   onTabChange,
+  canPackageAsDAB,
+  hasDAB,
+  onPackageAsDAB,
+  onDownloadDABClick,
+  isStreaming = false,
 }: TabBarProps) {
+  const isPackageDisabled = !canPackageAsDAB || isStreaming;
+  const isDownloadDisabled = isStreaming;
+
   return (
     <div className="shrink-0 border-b border-border bg-muted/30">
-      <div className="flex items-center px-4 py-2 gap-1">
-
-        {/* Tabs */}
+      <div className="flex items-center justify-between px-4 py-2">
+        {/* Left side: Tabs */}
         <div className="flex items-center gap-1 bg-muted/50 rounded-md p-0.5">
           <button
             onClick={() => onTabChange("readme")}
@@ -463,6 +488,49 @@ const TabBar = memo(function TabBar({
             Architecture
           </button>
         </div>
+
+        {/* Right side: DAB button - changes based on whether databricks.yml exists */}
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              {hasDAB ? (
+                <button
+                  onClick={isDownloadDisabled ? undefined : onDownloadDABClick}
+                  disabled={isDownloadDisabled}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-medium transition-colors ${
+                    isDownloadDisabled
+                      ? "text-muted-foreground/50 cursor-not-allowed"
+                      : "bg-green-500/10 text-green-600 hover:bg-green-500/20 cursor-pointer"
+                  }`}
+                >
+                  <Download className="h-4 w-4" />
+                  Download the DAB
+                </button>
+              ) : (
+                <button
+                  onClick={isPackageDisabled ? undefined : onPackageAsDAB}
+                  disabled={isPackageDisabled}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-medium transition-colors ${
+                    isPackageDisabled
+                      ? "text-muted-foreground/50 cursor-not-allowed"
+                      : "bg-primary/10 text-primary hover:bg-primary/20 cursor-pointer"
+                  }`}
+                >
+                  <Package className="h-4 w-4" />
+                  Package as DAB
+                </button>
+              )}
+            </TooltipTrigger>
+            {(hasDAB ? isDownloadDisabled : isPackageDisabled) && (
+              <TooltipContent side="bottom">
+                <p>{isStreaming
+                  ? "Wait for the agent to finish working"
+                  : "Ask the assistant to build the demo before being able to package it as a DAB"
+                }</p>
+              </TooltipContent>
+            )}
+          </Tooltip>
+        </TooltipProvider>
       </div>
     </div>
   );
@@ -486,15 +554,34 @@ export const FileViewer = memo(function FileViewer({
   onCreateArchitecture,
   onArchitectureConnectionCreated,
   isStreaming = false,
+  onPackageAsDAB,
+  onUpdateDAB,
+  dabInstructions,
+  onDownloadDAB,
 }: FileViewerProps) {
   const [isSidebarExpanded, setIsSidebarExpanded] = useState(false);
   const [activeTab, setActiveTab] = useState<ViewTab>("readme");
+  const [isDABDialogOpen, setIsDABDialogOpen] = useState(false);
 
   // Check if architecture.md exists
   const hasArchitecture = useMemo(
     () => files.some((f) => f.path === "architecture.md"),
     [files]
   );
+
+  // Check if databricks.yml exists (DAB has been created)
+  const hasDAB = useMemo(
+    () => files.some((f) => f.path === "databricks.yml"),
+    [files]
+  );
+
+  // Check if project has enough .sql or .py files to be packaged as DAB
+  const canPackageAsDAB = useMemo(() => {
+    const codeFiles = files.filter(
+      (f) => f.path.endsWith(".sql") || f.path.endsWith(".py")
+    );
+    return codeFiles.length >= 2; // At least 2 code files
+  }, [files]);
 
   // Load architecture content when tab changes (if file exists)
   useEffect(() => {
@@ -541,6 +628,11 @@ export const FileViewer = memo(function FileViewer({
       <TabBar
         activeTab={activeTab}
         onTabChange={handleTabChange}
+        canPackageAsDAB={canPackageAsDAB}
+        hasDAB={hasDAB}
+        onPackageAsDAB={onPackageAsDAB}
+        onDownloadDABClick={() => setIsDABDialogOpen(true)}
+        isStreaming={isStreaming}
       />
 
       {/* Content area */}
@@ -658,6 +750,71 @@ export const FileViewer = memo(function FileViewer({
           )}
         </div>
       </div>
+
+      {/* DAB Download Dialog */}
+      <Dialog open={isDABDialogOpen} onOpenChange={setIsDABDialogOpen}>
+        <DialogContent className="sm:max-w-2xl max-h-[80vh] overflow-hidden flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Download className="h-5 w-5" />
+              Download DAB Bundle
+            </DialogTitle>
+            <DialogDescription>
+              Download your Databricks Asset Bundle to deploy on any workspace.
+            </DialogDescription>
+          </DialogHeader>
+
+          {/* Update notice */}
+          <div className="bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg p-3 flex items-start gap-3">
+            <AlertCircle className="h-5 w-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm text-amber-800 dark:text-amber-200">
+                If you added new assets since the last DAB generation, ask the Assistant to update your DAB.
+              </p>
+              <Button
+                variant="outline"
+                size="sm"
+                className="mt-2 text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-700 hover:bg-amber-100 dark:hover:bg-amber-900/50"
+                onClick={() => {
+                  setIsDABDialogOpen(false);
+                  onUpdateDAB?.();
+                }}
+                disabled={isStreaming}
+              >
+                Update DAB
+              </Button>
+            </div>
+          </div>
+
+          {/* Instructions content */}
+          <ScrollArea className="flex-1 min-h-0 -mx-6 px-6">
+            <div className="py-4">
+              {dabInstructions ? (
+                <Prose>{dabInstructions}</Prose>
+              ) : (
+                <div className="text-center text-muted-foreground py-8">
+                  <p className="text-sm">No deployment instructions available.</p>
+                  <p className="text-xs mt-1">Ask the assistant to create dab_instructions.md</p>
+                </div>
+              )}
+            </div>
+          </ScrollArea>
+
+          {/* Download button */}
+          <div className="pt-4 border-t border-border">
+            <Button
+              onClick={() => {
+                onDownloadDAB?.();
+                setIsDABDialogOpen(false);
+              }}
+              className="w-full gap-2"
+            >
+              <Download className="h-4 w-4" />
+              Download the DAB
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 });
