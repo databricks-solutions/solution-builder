@@ -63,7 +63,9 @@ function Index() {
   const [topic, setTopic] = useState("");
   const [projects, setProjects] = useState<ProjectListItem[]>([]);
   const [isLoadingProjects, setIsLoadingProjects] = useState(true);
+  const [projectsError, setProjectsError] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
   const [selectedProducts, setSelectedProducts] = useState<Set<string>>(
     new Set(DEFAULT_SELECTED_PRODUCTS)
   );
@@ -103,7 +105,7 @@ function Index() {
   useEffect(() => {
     listProjects()
       .then(setProjects)
-      .catch(() => {})
+      .catch((err) => setProjectsError(err.message || "Failed to load projects"))
       .finally(() => setIsLoadingProjects(false));
 
     getCapabilities()
@@ -115,6 +117,7 @@ function Index() {
   useEffect(() => {
     if (topic.trim().length < 3) {
       setMatchingTemplates([]);
+      setIsSearchingTemplates(false);
       return;
     }
 
@@ -136,10 +139,11 @@ function Index() {
   // Create new project and navigate
   const handleCreateProject = async (e?: React.FormEvent) => {
     e?.preventDefault();
-    const fullTopic = topic.trim() || "Untitled Project";
-    if (isCreating) return;
+    if (isCreating || !topic.trim()) return;
+    const fullTopic = topic.trim();
 
     setIsCreating(true);
+    setCreateError(null);
     try {
       // Build description with full topic and selected products
       let description = fullTopic;
@@ -166,6 +170,7 @@ function Index() {
       });
     } catch (error) {
       console.error("Failed to create project:", error);
+      setCreateError(error instanceof Error ? error.message : "Failed to create project. Please try again.");
       setIsCreating(false);
     }
   };
@@ -203,12 +208,13 @@ function Index() {
                 Databricks
               </p>
               <h1 className="text-4xl font-bold tracking-tight md:text-5xl">
-                Asset Generator
+                Asset Builder
               </h1>
             </div>
             <p className="mx-auto max-w-xl text-base text-muted-foreground leading-relaxed">
-              Describe a use-case and the AI architect builds a complete demo
-              package with datasets, pipelines, dashboards, and build steps.
+              Describe a use-case and the AI agent assembles a complete package
+              from composable context blocks — datasets, pipelines, dashboards,
+              and build steps.
             </p>
           </div>
 
@@ -234,21 +240,29 @@ function Index() {
                   onToggleProduct={handleToggleProduct}
                   expanded={topic.length >= 3}
                 />
-                <div className="flex items-center justify-end">
-                  <Button
-                    type="submit"
-                    disabled={isCreating}
-                    className="gap-2 px-5"
-                  >
-                    {isCreating ? (
-                      <>Creating...</>
-                    ) : (
-                      <>
-                        <Sparkles className="h-4 w-4" /> Build Asset
-                        <ArrowRight className="h-4 w-4" />
-                      </>
-                    )}
-                  </Button>
+                <div className="flex items-center justify-between">
+                  {createError && (
+                    <p className="text-sm text-destructive">{createError}</p>
+                  )}
+                  <div className="ml-auto">
+                    <Button
+                      type="submit"
+                      disabled={isCreating || !topic.trim()}
+                      className="gap-2 px-5"
+                    >
+                      {isCreating ? (
+                        <>
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                          Creating...
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles className="h-4 w-4" /> Build Asset
+                          <ArrowRight className="h-4 w-4" />
+                        </>
+                      )}
+                    </Button>
+                  </div>
                 </div>
               </form>
             </CardContent>
@@ -289,6 +303,7 @@ function Index() {
                     setTimeout(adjustTextareaHeight, 0);
                   }}
                   className="italic hover:text-foreground transition-colors cursor-pointer underline underline-offset-2 decoration-primary/20 hover:decoration-primary/40"
+                  aria-label="Use example prompt: Build a demo for Acme Corp"
                 >
                   "Build a demo for Acme Corp, a Fortune 500 retailer struggling
                   with demand forecasting across 2,000+ stores..."
@@ -395,13 +410,18 @@ function Index() {
           </div>
         )}
 
-        {/* Loading / Empty state */}
+        {/* Loading / Empty / Error state */}
         {projects.length === 0 && (
           <div className="relative z-10 mx-auto mt-12 text-center">
             {isLoadingProjects ? (
               <div className="flex items-center justify-center gap-2">
                 <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
                 <p className="text-sm text-muted-foreground">Loading projects...</p>
+              </div>
+            ) : projectsError ? (
+              <div className="space-y-2">
+                <p className="text-sm text-destructive">Failed to load projects</p>
+                <p className="text-xs text-muted-foreground">{projectsError}</p>
               </div>
             ) : (
               <p className="text-sm text-muted-foreground">

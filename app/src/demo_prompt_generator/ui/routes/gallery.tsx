@@ -6,7 +6,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useEffect } from "react";
 import { Card, CardContent } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -29,7 +28,6 @@ import {
 } from "@/lib/custom-api";
 import {
   Library,
-  Search,
   Filter,
   Loader2,
   Check,
@@ -193,10 +191,12 @@ function GalleryPage() {
         {/* Filter bar */}
         <div className="mb-6 flex flex-wrap items-center gap-4">
           {/* Status filter tabs */}
-          <div className="flex items-center gap-1 rounded-lg border bg-muted/30 p-1">
+          <div className="flex items-center gap-1 rounded-lg border bg-muted/30 p-1" role="tablist" aria-label="Template status filter">
             {visibleTabs.map((tab) => (
               <button
                 key={tab.value}
+                role="tab"
+                aria-selected={statusFilter === tab.value}
                 onClick={() => setStatusFilter(tab.value)}
                 className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
                   statusFilter === tab.value
@@ -275,6 +275,7 @@ function GalleryPage() {
                           className="h-7 w-7 bg-green-600 hover:bg-green-700"
                           onClick={(e) => handleApprove(template.id, e)}
                           disabled={actionLoading === template.id}
+                          aria-label="Approve template"
                           title="Approve template"
                         >
                           {actionLoading === template.id ? (
@@ -289,6 +290,7 @@ function GalleryPage() {
                           className="h-7 w-7"
                           onClick={(e) => handleReject(template.id, e)}
                           disabled={actionLoading === template.id}
+                          aria-label="Reject template"
                           title="Reject template"
                         >
                           <X className="h-3.5 w-3.5" />
@@ -301,6 +303,7 @@ function GalleryPage() {
                       className="h-7 w-7"
                       onClick={(e) => handleDelete(template.id, e)}
                       disabled={actionLoading === template.id}
+                      aria-label="Delete template"
                       title="Delete template"
                     >
                       <Trash2 className="h-3.5 w-3.5" />

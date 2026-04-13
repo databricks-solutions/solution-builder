@@ -57,6 +57,19 @@ class ProjectType(str, Enum):
     DATABRICKS_DEMO = "DATABRICKS_DEMO"
 
 
+class ProjectStage(str, Enum):
+    """Lifecycle stages for a project build pipeline.
+
+    DRAFTING → SUMMARIZED → ARCHITECTED → BUILDING → PACKAGED → BUNDLED
+    """
+    DRAFTING = "DRAFTING"
+    SUMMARIZED = "SUMMARIZED"
+    ARCHITECTED = "ARCHITECTED"
+    BUILDING = "BUILDING"
+    PACKAGED = "PACKAGED"
+    BUNDLED = "BUNDLED"
+
+
 class ExecutionStatus(str, Enum):
     RUNNING = "running"
     COMPLETED = "completed"
@@ -113,6 +126,7 @@ class Project(SQLModel, table=True):
     name: str = SQLField(max_length=255)
     description: Optional[str] = SQLField(default=None, sa_column=Column(Text))
     project_type: str = SQLField(default=ProjectType.DATABRICKS_DEMO.value, max_length=50)
+    stage: str = SQLField(default=ProjectStage.DRAFTING.value, max_length=20)
 
     # Skills config (JSON array of skill names)
     skills: str = SQLField(default="[]", sa_column=Column(Text))
@@ -134,6 +148,48 @@ class Project(SQLModel, table=True):
 
     __table_args__ = (
         Index("ix_projects_user_created", "user_email", "created_at"),
+    )
+
+
+class ProjectStar(SQLModel, table=True):
+    """
+    Tracks which projects a user has starred/favorited.
+
+    Composite unique constraint on (user_email, project_id).
+    """
+    __tablename__ = "project_stars"
+
+    id: Optional[int] = SQLField(default=None, primary_key=True)
+    user_email: str = SQLField(max_length=255)
+    project_id: str = SQLField(max_length=50)
+    created_at: datetime = SQLField(default_factory=utc_now)
+
+    __table_args__ = (
+        Index("ix_project_stars_user_project", "user_email", "project_id", unique=True),
+        Index("ix_project_stars_user", "user_email"),
+    )
+
+
+class ProjectShare(SQLModel, table=True):
+    """
+    Tracks project sharing between users.
+
+    The owner shares a project with another user via email.
+    Shared users get read-only access to view and fork the project.
+    """
+    __tablename__ = "project_shares"
+
+    id: Optional[int] = SQLField(default=None, primary_key=True)
+    project_id: str = SQLField(max_length=50)
+    owner_email: str = SQLField(max_length=255)
+    shared_with_email: str = SQLField(max_length=255)
+    message: Optional[str] = SQLField(default=None, sa_column=Column(Text))
+    created_at: datetime = SQLField(default_factory=utc_now)
+
+    __table_args__ = (
+        Index("ix_project_shares_unique", "project_id", "shared_with_email", unique=True),
+        Index("ix_project_shares_recipient", "shared_with_email"),
+        Index("ix_project_shares_project", "project_id"),
     )
 
 
@@ -329,6 +385,7 @@ class ProjectOut(BaseModel):
     user_email: str
     description: Optional[str]
     project_type: str
+    stage: str = ProjectStage.DRAFTING.value
     created_at: datetime
     updated_at: datetime
     message_count: int = 0
@@ -347,10 +404,32 @@ class ProjectListItem(BaseModel):
     id: str
     name: str
     project_type: str
+    stage: str = ProjectStage.DRAFTING.value
     created_at: datetime
     updated_at: datetime
     message_count: int = 0
     file_count: int = 0
+    is_starred: bool = False
+    # Populated only for "shared with me" views
+    shared_by: Optional[str] = None
+    shared_message: Optional[str] = None
+    owner_email: Optional[str] = None
+
+
+class ProjectShareRequest(BaseModel):
+    """Request to share a project with another user."""
+    email: str = Field(..., description="Email of the user to share with")
+    message: Optional[str] = Field(None, description="Optional message to include")
+
+
+class ProjectShareOut(BaseModel):
+    """Share record response."""
+    id: int
+    project_id: str
+    owner_email: str
+    shared_with_email: str
+    message: Optional[str]
+    created_at: datetime
 
 
 class ProjectFileOut(BaseModel):
@@ -479,6 +558,26 @@ class TemplateStatusUpdateRequest(BaseModel):
 class CreateProjectFromTemplateRequest(BaseModel):
     """Request to create a project from a template."""
     name: str = Field(..., description="Name for the new project")
+
+
+# ---------------------------------------------------------------------------
+# Stage validation models
+# ---------------------------------------------------------------------------
+
+
+class StageCheck(BaseModel):
+    """A single validation check for a stage gate."""
+    label: str
+    passed: bool
+    detail: Optional[str] = None
+
+
+class ProjectStageStatus(BaseModel):
+    """Current stage status with validation details for the next gate."""
+    current_stage: str
+    checks: list[StageCheck] = Field(default_factory=list)
+    can_advance: bool = False
+    next_stage: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------

@@ -396,6 +396,35 @@ def initialize_models(engine: Engine) -> None:
         # Add embedding column if missing (handles case where table was created by SQLModel without it)
         # PGLite uses TEXT, production uses vector(1024) — the migration loop handles the swap
         ("templates_add_embedding", "ALTER TABLE templates ADD COLUMN IF NOT EXISTS embedding vector(1024)"),
+
+        # --- Stage pipeline ---
+        ("projects_add_stage", "ALTER TABLE projects ADD COLUMN IF NOT EXISTS stage VARCHAR(20) DEFAULT 'DRAFTING'"),
+
+        # --- Starring & sharing ---
+        ("project_stars_table", """
+            CREATE TABLE IF NOT EXISTS project_stars (
+                id SERIAL PRIMARY KEY,
+                user_email VARCHAR(255) NOT NULL,
+                project_id VARCHAR(50) NOT NULL,
+                created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+            )
+        """),
+        ("project_stars_user_project_idx", "CREATE UNIQUE INDEX IF NOT EXISTS ix_project_stars_user_project ON project_stars (user_email, project_id)"),
+        ("project_stars_user_idx", "CREATE INDEX IF NOT EXISTS ix_project_stars_user ON project_stars (user_email)"),
+
+        ("project_shares_table", """
+            CREATE TABLE IF NOT EXISTS project_shares (
+                id SERIAL PRIMARY KEY,
+                project_id VARCHAR(50) NOT NULL,
+                owner_email VARCHAR(255) NOT NULL,
+                shared_with_email VARCHAR(255) NOT NULL,
+                message TEXT,
+                created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+            )
+        """),
+        ("project_shares_unique_idx", "CREATE UNIQUE INDEX IF NOT EXISTS ix_project_shares_unique ON project_shares (project_id, shared_with_email)"),
+        ("project_shares_recipient_idx", "CREATE INDEX IF NOT EXISTS ix_project_shares_recipient ON project_shares (shared_with_email)"),
+        ("project_shares_project_idx", "CREATE INDEX IF NOT EXISTS ix_project_shares_project ON project_shares (project_id)"),
     ]
 
     with Session(engine) as session:

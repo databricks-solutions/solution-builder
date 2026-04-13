@@ -15,7 +15,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "../ui/dialog";
-import { ChevronRight, ChevronDown, ChevronLeft, Folder, FolderOpen, FileText, FileCode, Braces, Settings, File, Sparkles, RefreshCw, Network, Database, Package, Download, AlertCircle } from "lucide-react";
+import { ChevronRight, ChevronDown, ChevronLeft, Folder, FolderOpen, FileText, FileCode, Braces, Settings, File, Sparkles, RefreshCw, Network, Database, Package, Download, AlertCircle, CheckCircle } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../ui/tooltip";
 import type { ProjectFile, ProjectFileContent } from "../../lib/custom-api";
 
@@ -46,6 +46,8 @@ interface FileViewerProps {
   onUpdateDAB?: () => void; // Callback to update existing DAB
   dabInstructions?: string | null; // Content of dab_instructions.md
   onDownloadDAB?: () => void; // Callback to download DAB as zip
+  isPackagingDAB?: boolean; // Whether the agent is currently packaging DAB
+  dabValidationError?: string | null; // Validation error if DAB is invalid
 }
 
 interface TreeNode {
@@ -445,6 +447,8 @@ interface TabBarProps {
   onPackageAsDAB?: () => void;
   onDownloadDABClick?: () => void;
   isStreaming?: boolean;
+  isPackagingDAB?: boolean;
+  dabValidationError?: string | null;
 }
 
 const TabBar = memo(function TabBar({
@@ -455,16 +459,21 @@ const TabBar = memo(function TabBar({
   onPackageAsDAB,
   onDownloadDABClick,
   isStreaming = false,
+  isPackagingDAB = false,
+  dabValidationError,
 }: TabBarProps) {
-  const isPackageDisabled = !canPackageAsDAB || isStreaming;
-  const isDownloadDisabled = isStreaming;
+  const isPackageDisabled = !canPackageAsDAB || isStreaming || isPackagingDAB;
+  const isDownloadDisabled = isStreaming || isPackagingDAB;
+  const hasValidDAB = hasDAB && !dabValidationError;
 
   return (
     <div className="shrink-0 border-b border-border bg-muted/30">
       <div className="flex items-center justify-between px-4 py-2">
         {/* Left side: Tabs */}
-        <div className="flex items-center gap-1 bg-muted/50 rounded-md p-0.5">
+        <div className="flex items-center gap-1 bg-muted/50 rounded-md p-0.5" role="tablist" aria-label="File viewer tabs">
           <button
+            role="tab"
+            aria-selected={activeTab === "readme"}
             onClick={() => onTabChange("readme")}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-medium transition-colors cursor-pointer ${
               activeTab === "readme"
@@ -477,6 +486,8 @@ const TabBar = memo(function TabBar({
           </button>
 
           <button
+            role="tab"
+            aria-selected={activeTab === "architecture"}
             onClick={() => onTabChange("architecture")}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-medium transition-colors cursor-pointer ${
               activeTab === "architecture"
@@ -489,11 +500,19 @@ const TabBar = memo(function TabBar({
           </button>
         </div>
 
-        {/* Right side: DAB button - changes based on whether databricks.yml exists */}
+        {/* Right side: DAB button - changes based on state */}
         <TooltipProvider>
           <Tooltip>
             <TooltipTrigger asChild>
-              {hasDAB ? (
+              {isPackagingDAB ? (
+                <button
+                  disabled
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-medium text-muted-foreground/50 cursor-not-allowed"
+                >
+                  <div className="animate-spin h-4 w-4 border-2 border-primary border-t-transparent rounded-full" />
+                  Packaging DAB...
+                </button>
+              ) : hasValidDAB ? (
                 <button
                   onClick={isDownloadDisabled ? undefined : onDownloadDABClick}
                   disabled={isDownloadDisabled}
@@ -505,6 +524,19 @@ const TabBar = memo(function TabBar({
                 >
                   <Download className="h-4 w-4" />
                   Download the DAB
+                </button>
+              ) : hasDAB && dabValidationError ? (
+                <button
+                  onClick={isPackageDisabled ? undefined : onPackageAsDAB}
+                  disabled={isPackageDisabled}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-medium transition-colors ${
+                    isPackageDisabled
+                      ? "text-muted-foreground/50 cursor-not-allowed"
+                      : "bg-red-500/10 text-red-600 hover:bg-red-500/20 cursor-pointer"
+                  }`}
+                >
+                  <AlertCircle className="h-4 w-4" />
+                  Repackage DAB
                 </button>
               ) : (
                 <button
@@ -521,14 +553,22 @@ const TabBar = memo(function TabBar({
                 </button>
               )}
             </TooltipTrigger>
-            {(hasDAB ? isDownloadDisabled : isPackageDisabled) && (
+            {isPackagingDAB ? (
+              <TooltipContent side="bottom">
+                <p>The agent is creating your Databricks Asset Bundle...</p>
+              </TooltipContent>
+            ) : dabValidationError ? (
+              <TooltipContent side="bottom">
+                <p>{dabValidationError}</p>
+              </TooltipContent>
+            ) : (hasValidDAB ? isDownloadDisabled : isPackageDisabled) ? (
               <TooltipContent side="bottom">
                 <p>{isStreaming
                   ? "Wait for the agent to finish working"
                   : "Ask the assistant to build the demo before being able to package it as a DAB"
                 }</p>
               </TooltipContent>
-            )}
+            ) : null}
           </Tooltip>
         </TooltipProvider>
       </div>
@@ -558,6 +598,8 @@ export const FileViewer = memo(function FileViewer({
   onUpdateDAB,
   dabInstructions,
   onDownloadDAB,
+  isPackagingDAB = false,
+  dabValidationError,
 }: FileViewerProps) {
   const [isSidebarExpanded, setIsSidebarExpanded] = useState(false);
   const [activeTab, setActiveTab] = useState<ViewTab>("readme");
@@ -634,6 +676,8 @@ export const FileViewer = memo(function FileViewer({
         onPackageAsDAB={onPackageAsDAB}
         onDownloadDABClick={() => setIsDABDialogOpen(true)}
         isStreaming={isStreaming}
+        isPackagingDAB={isPackagingDAB}
+        dabValidationError={dabValidationError}
       />
 
       {/* Content area */}
@@ -765,6 +809,42 @@ export const FileViewer = memo(function FileViewer({
             </DialogDescription>
           </DialogHeader>
 
+          {/* Validation status */}
+          {dabValidationError ? (
+            <div className="bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-lg p-3 flex items-start gap-3">
+              <AlertCircle className="h-5 w-5 text-red-600 dark:text-red-400 shrink-0 mt-0.5" />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-red-800 dark:text-red-200">
+                  DAB validation failed
+                </p>
+                <p className="text-xs text-red-700 dark:text-red-300 mt-1">
+                  {dabValidationError}
+                </p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="mt-2 text-red-700 dark:text-red-300 border-red-300 dark:border-red-700 hover:bg-red-100 dark:hover:bg-red-900/50"
+                  onClick={() => {
+                    setIsDABDialogOpen(false);
+                    onPackageAsDAB?.();
+                  }}
+                  disabled={isStreaming}
+                >
+                  Repackage DAB
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-800 rounded-lg p-3 flex items-start gap-3">
+              <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 shrink-0 mt-0.5" />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm text-green-800 dark:text-green-200">
+                  DAB validated successfully — ready to download.
+                </p>
+              </div>
+            </div>
+          )}
+
           {/* Update notice */}
           <div className="bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg p-3 flex items-start gap-3">
             <AlertCircle className="h-5 w-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
@@ -808,6 +888,7 @@ export const FileViewer = memo(function FileViewer({
                 onDownloadDAB?.();
                 setIsDABDialogOpen(false);
               }}
+              disabled={!!dabValidationError}
               className="w-full gap-2"
             >
               <Download className="h-4 w-4" />

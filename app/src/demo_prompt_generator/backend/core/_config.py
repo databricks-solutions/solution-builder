@@ -41,7 +41,7 @@ class AppConfig(BaseSettings):
 
     # Admin emails for template review (comma-separated in env var)
     template_admin_emails: list[str] = Field(
-        default=["quentin.ambard@gmail.com", "quentin.ambard@databricks.com", "cal.reynold@gmail.com"]
+        default=["quentin.ambard@databricks.com", "cal.reynold@gmail.com"]
     )
 
     @property

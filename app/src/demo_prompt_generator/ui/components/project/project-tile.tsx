@@ -1,14 +1,18 @@
 /**
- * Project tile component for displaying projects on the home page.
+ * Project tile component for displaying projects in grid views.
+ * Supports starring, sharing indicators, and owner display.
  */
 
 import { memo } from "react";
-import { FileText, MessageSquare, ArrowUpRight } from "lucide-react";
-import type { ProjectListItem } from "../../lib/custom-api";
+import { FileText, MessageSquare, ArrowUpRight, Star, Share2, User } from "lucide-react";
+import type { ProjectListItem, ProjectStage } from "../../lib/custom-api";
 
 interface ProjectTileProps {
   project: ProjectListItem;
   onClick: () => void;
+  onToggleStar?: (e: React.MouseEvent) => void;
+  onShare?: (e: React.MouseEvent) => void;
+  showOwner?: boolean;
 }
 
 function formatDate(dateStr: string): string {
@@ -38,9 +42,19 @@ function formatDate(dateStr: string): string {
   }
 }
 
+function formatEmail(email: string): string {
+  const name = email.split("@")[0];
+  return name
+    .replace(/[._-]/g, " ")
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
 export const ProjectTile = memo(function ProjectTile({
   project,
   onClick,
+  onToggleStar,
+  onShare,
+  showOwner = false,
 }: ProjectTileProps) {
   return (
     <button
@@ -52,16 +66,78 @@ export const ProjectTile = memo(function ProjectTile({
       <div className="absolute inset-x-0 top-0 h-[2px] bg-gradient-to-r from-primary/40 via-primary/20 to-transparent opacity-60 group-hover:opacity-100 transition-opacity" />
 
       <div className="p-4 pb-3">
-        {/* Title row */}
-        <div className="flex items-start justify-between gap-2 mb-3">
-          <h3 className="font-semibold text-sm leading-snug line-clamp-2 group-hover:text-primary transition-colors">
+        {/* Title row with star */}
+        <div className="flex items-start justify-between gap-2 mb-2">
+          <h3 className="font-semibold text-sm leading-snug line-clamp-2 group-hover:text-primary transition-colors flex-1">
             {project.name}
           </h3>
-          <ArrowUpRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground/0 group-hover:text-primary transition-all mt-0.5" />
+          <div className="flex items-center gap-1 shrink-0">
+            {onToggleStar && (
+              <span
+                role="button"
+                tabIndex={0}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onToggleStar(e);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.stopPropagation();
+                    onToggleStar(e as unknown as React.MouseEvent);
+                  }
+                }}
+                className={`p-1 rounded-md transition-colors ${
+                  project.is_starred
+                    ? "text-amber-500"
+                    : "text-muted-foreground/0 group-hover:text-muted-foreground/40 hover:text-amber-500"
+                }`}
+                aria-label={project.is_starred ? "Unstar project" : "Star project"}
+              >
+                <Star
+                  className="h-3.5 w-3.5"
+                  fill={project.is_starred ? "currentColor" : "none"}
+                />
+              </span>
+            )}
+            {onShare && (
+              <span
+                role="button"
+                tabIndex={0}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onShare(e);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.stopPropagation();
+                    onShare(e as unknown as React.MouseEvent);
+                  }
+                }}
+                className="p-1 rounded-md text-muted-foreground/0 group-hover:text-muted-foreground/40 hover:text-primary transition-colors"
+                aria-label="Share project"
+              >
+                <Share2 className="h-3.5 w-3.5" />
+              </span>
+            )}
+            <ArrowUpRight className="h-3.5 w-3.5 text-muted-foreground/0 group-hover:text-primary transition-all mt-0.5" />
+          </div>
         </div>
 
-        {/* Stats */}
+        {/* Owner (for shared projects) */}
+        {showOwner && project.shared_by && (
+          <div className="flex items-center gap-1.5 mb-2">
+            <User className="h-3 w-3 text-muted-foreground/50" />
+            <span className="text-xs text-muted-foreground">
+              Shared by {formatEmail(project.shared_by)}
+            </span>
+          </div>
+        )}
+
+        {/* Stage badge + stats */}
         <div className="flex items-center gap-3 text-xs text-muted-foreground">
+          {project.stage && project.stage !== "DRAFTING" && (
+            <StageBadge stage={project.stage} />
+          )}
           <span className="flex items-center gap-1">
             <FileText className="h-3 w-3 opacity-50" />
             {project.file_count}
@@ -82,5 +158,29 @@ export const ProjectTile = memo(function ProjectTile({
     </button>
   );
 });
+
+const STAGE_LABELS: Record<ProjectStage, string> = {
+  DRAFTING: "Draft",
+  SUMMARIZED: "Summary",
+  ARCHITECTED: "Architected",
+  BUILDING: "Building",
+  PACKAGED: "Packaged",
+  BUNDLED: "Bundled",
+};
+
+function StageBadge({ stage }: { stage: ProjectStage }) {
+  const colors =
+    stage === "BUNDLED"
+      ? "bg-green-500/10 text-green-600 dark:text-green-400"
+      : stage === "BUILDING"
+        ? "bg-amber-500/10 text-amber-600 dark:text-amber-400"
+        : "bg-primary/10 text-primary";
+
+  return (
+    <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium ${colors}`}>
+      {STAGE_LABELS[stage] ?? stage}
+    </span>
+  );
+}
 
 export default ProjectTile;

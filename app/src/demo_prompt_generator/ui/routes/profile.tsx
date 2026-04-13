@@ -14,7 +14,6 @@ import {
   type DatabricksProfile,
 } from "@/lib/custom-api";
 import {
-  User,
   Shield,
   Database,
   Globe,

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import shutil
 from datetime import datetime, timezone
 
 from fastapi import HTTPException, Request
@@ -19,13 +20,21 @@ from ..models import (
     ProjectListItem,
     ProjectOut,
     ProjectResourcesUpdateRequest,
+    ProjectShare,
+    ProjectShareOut,
+    ProjectShareRequest,
+    ProjectStage,
+    ProjectStageStatus,
+    ProjectStar,
     ProjectUpdateRequest,
 )
 from ..services.file_sync import FileSyncService
 from ..services.skills_manager import (
     create_project_directory,
     ensure_project_skills,
+    get_project_directory,
 )
+from ..services.stage_service import auto_detect_stage, get_stage_status, next_stage
 from .resources import list_clusters, list_warehouses
 
 router = create_router()
@@ -108,6 +117,13 @@ def list_projects(session: Dependencies.Session, headers: Dependencies.Headers):
     """Return the current user's projects, newest first."""
     user_email = _get_user_email(headers)
 
+    # Get user's starred project IDs
+    starred_ids = set(
+        session.exec(
+            select(ProjectStar.project_id).where(ProjectStar.user_email == user_email)
+        ).all()
+    )
+
     # Get projects with counts
     stmt = (
         select(Project)
@@ -135,10 +151,13 @@ def list_projects(session: Dependencies.Session, headers: Dependencies.Headers):
                 id=p.id,
                 name=p.name,
                 project_type=p.project_type,
+                stage=p.stage,
                 created_at=p.created_at,
                 updated_at=p.updated_at,
                 message_count=msg_count,
                 file_count=file_count,
+                is_starred=p.id in starred_ids,
+                owner_email=p.user_email,
             )
         )
 
@@ -207,6 +226,7 @@ def create_project(
         user_email=project.user_email,
         description=project.description,
         project_type=project.project_type,
+        stage=project.stage,
         created_at=project.created_at,
         updated_at=project.updated_at,
         message_count=0,
@@ -240,6 +260,15 @@ def get_project(
     file_sync.restore_project_from_db(project_id, session=session)
     ensure_project_skills(project_id)
 
+    # Auto-detect stage for legacy projects still in DRAFTING
+    if project.stage == ProjectStage.DRAFTING.value:
+        detected = auto_detect_stage(project_id, session)
+        if detected != ProjectStage.DRAFTING.value:
+            project.stage = detected
+            session.add(project)
+            session.commit()
+            session.refresh(project)
+
     # Get counts
     msg_count = session.exec(
         select(func.count()).select_from(Message).where(Message.project_id == project.id)
@@ -257,6 +286,7 @@ def get_project(
         user_email=project.user_email,
         description=project.description,
         project_type=project.project_type,
+        stage=project.stage,
         created_at=project.created_at,
         updated_at=project.updated_at,
         message_count=msg_count,
@@ -312,6 +342,7 @@ def update_project(
         user_email=project.user_email,
         description=project.description,
         project_type=project.project_type,
+        stage=project.stage,
         created_at=project.created_at,
         updated_at=project.updated_at,
         message_count=msg_count,
@@ -376,6 +407,7 @@ def update_project_resources(
         user_email=project.user_email,
         description=project.description,
         project_type=project.project_type,
+        stage=project.stage,
         created_at=project.created_at,
         updated_at=project.updated_at,
         message_count=msg_count,
@@ -424,11 +456,12 @@ def delete_project(
     session.delete(project)
     session.commit()
 
-    # Optionally: remove local directory (be careful with this!)
-    # import shutil
-    # project_dir = get_project_directory(project_id)
-    # if project_dir.exists():
-    #     shutil.rmtree(project_dir)
+    try:
+        project_dir = get_project_directory(project_id)
+        if project_dir.exists():
+            shutil.rmtree(project_dir)
+    except Exception as e:
+        logger.warning(f"Failed to remove project directory for {project_id}: {e}")
 
     return {"success": True, "deleted_project_id": project_id}
 
@@ -452,3 +485,294 @@ def sync_project(
     stats = file_sync.full_sync_project(project_id, session=session)
 
     return stats
+
+
+# ---------------------------------------------------------------------------
+# Stage pipeline
+# ---------------------------------------------------------------------------
+
+
+@router.get(
+    "/projects/{project_id}/stage-status",
+    response_model=ProjectStageStatus,
+    operation_id="getProjectStageStatus",
+)
+def get_project_stage_status(
+    project_id: str,
+    session: Dependencies.Session,
+    headers: Dependencies.Headers,
+    request: Request,
+):
+    """Return the current stage and gate-check details for the next transition."""
+    user_email = _get_user_email(headers)
+    project = _get_user_project(session, project_id, user_email)
+
+    # Sync files first so checks see latest state
+    file_sync: FileSyncService = request.app.state.file_sync
+    file_sync.full_sync_project(project_id, session=session)
+
+    return get_stage_status(project_id, project.stage, session)
+
+
+@router.post(
+    "/projects/{project_id}/advance-stage",
+    response_model=ProjectStageStatus,
+    operation_id="advanceProjectStage",
+)
+def advance_project_stage(
+    project_id: str,
+    session: Dependencies.Session,
+    headers: Dependencies.Headers,
+    request: Request,
+):
+    """Validate the current gate and advance to the next stage if checks pass."""
+    user_email = _get_user_email(headers)
+    project = _get_user_project(session, project_id, user_email)
+
+    # Sync first
+    file_sync: FileSyncService = request.app.state.file_sync
+    file_sync.full_sync_project(project_id, session=session)
+
+    status = get_stage_status(project_id, project.stage, session)
+    if not status.can_advance:
+        raise HTTPException(
+            status_code=422,
+            detail="Stage gate checks have not all passed",
+        )
+
+    nxt = next_stage(project.stage)
+    if not nxt:
+        raise HTTPException(status_code=422, detail="Already at final stage")
+
+    project.stage = nxt
+    project.updated_at = datetime.now(timezone.utc)
+    session.add(project)
+    session.commit()
+    session.refresh(project)
+
+    # Return the NEW stage's status
+    return get_stage_status(project_id, project.stage, session)
+
+
+# ---------------------------------------------------------------------------
+# Starring
+# ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/projects/{project_id}/star",
+    operation_id="toggleProjectStar",
+)
+def toggle_project_star(
+    project_id: str,
+    session: Dependencies.Session,
+    headers: Dependencies.Headers,
+):
+    """Toggle the starred status of a project. Returns the new state."""
+    user_email = _get_user_email(headers)
+    # Verify the user owns the project OR it's shared with them
+    _get_accessible_project(session, project_id, user_email)
+
+    existing = session.exec(
+        select(ProjectStar)
+        .where(ProjectStar.user_email == user_email, ProjectStar.project_id == project_id)
+    ).first()
+
+    if existing:
+        session.delete(existing)
+        session.commit()
+        return {"starred": False, "project_id": project_id}
+    else:
+        star = ProjectStar(user_email=user_email, project_id=project_id)
+        session.add(star)
+        session.commit()
+        return {"starred": True, "project_id": project_id}
+
+
+# ---------------------------------------------------------------------------
+# Sharing
+# ---------------------------------------------------------------------------
+
+
+def _get_accessible_project(session, project_id: str, user_email: str) -> Project:
+    """Fetch a project the user can access — either owned or shared with them."""
+    project = session.get(Project, project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    if project.user_email == user_email:
+        return project
+    # Check if shared with user
+    share = session.exec(
+        select(ProjectShare).where(
+            ProjectShare.project_id == project_id,
+            ProjectShare.shared_with_email == user_email,
+        )
+    ).first()
+    if share:
+        return project
+    raise HTTPException(status_code=404, detail="Project not found")
+
+
+@router.post(
+    "/projects/{project_id}/share",
+    response_model=ProjectShareOut,
+    operation_id="shareProject",
+)
+def share_project(
+    project_id: str,
+    body: ProjectShareRequest,
+    session: Dependencies.Session,
+    headers: Dependencies.Headers,
+):
+    """Share a project with another user via email."""
+    user_email = _get_user_email(headers)
+    project = _get_user_project(session, project_id, user_email)
+
+    if body.email.lower() == user_email.lower():
+        raise HTTPException(status_code=400, detail="Cannot share a project with yourself")
+
+    # Check if already shared
+    existing = session.exec(
+        select(ProjectShare).where(
+            ProjectShare.project_id == project_id,
+            ProjectShare.shared_with_email == body.email,
+        )
+    ).first()
+    if existing:
+        raise HTTPException(status_code=409, detail="Project already shared with this user")
+
+    share = ProjectShare(
+        project_id=project_id,
+        owner_email=user_email,
+        shared_with_email=body.email,
+        message=body.message,
+    )
+    session.add(share)
+    session.commit()
+    session.refresh(share)
+
+    return ProjectShareOut(
+        id=share.id,
+        project_id=share.project_id,
+        owner_email=share.owner_email,
+        shared_with_email=share.shared_with_email,
+        message=share.message,
+        created_at=share.created_at,
+    )
+
+
+@router.get(
+    "/projects/{project_id}/shares",
+    response_model=list[ProjectShareOut],
+    operation_id="listProjectShares",
+)
+def list_project_shares(
+    project_id: str,
+    session: Dependencies.Session,
+    headers: Dependencies.Headers,
+):
+    """List all users a project is shared with (owner only)."""
+    user_email = _get_user_email(headers)
+    _get_user_project(session, project_id, user_email)
+
+    shares = session.exec(
+        select(ProjectShare).where(ProjectShare.project_id == project_id)
+    ).all()
+
+    return [
+        ProjectShareOut(
+            id=s.id,
+            project_id=s.project_id,
+            owner_email=s.owner_email,
+            shared_with_email=s.shared_with_email,
+            message=s.message,
+            created_at=s.created_at,
+        )
+        for s in shares
+    ]
+
+
+@router.delete(
+    "/projects/{project_id}/share/{share_id}",
+    operation_id="unshareProject",
+)
+def unshare_project(
+    project_id: str,
+    share_id: int,
+    session: Dependencies.Session,
+    headers: Dependencies.Headers,
+):
+    """Remove a share (owner only)."""
+    user_email = _get_user_email(headers)
+    _get_user_project(session, project_id, user_email)
+
+    share = session.exec(
+        select(ProjectShare).where(
+            ProjectShare.id == share_id,
+            ProjectShare.project_id == project_id,
+        )
+    ).first()
+    if not share:
+        raise HTTPException(status_code=404, detail="Share not found")
+
+    session.delete(share)
+    session.commit()
+    return {"success": True}
+
+
+@router.get(
+    "/shared-projects",
+    response_model=list[ProjectListItem],
+    operation_id="listSharedProjects",
+)
+def list_shared_projects(session: Dependencies.Session, headers: Dependencies.Headers):
+    """Return projects shared with the current user by others."""
+    user_email = _get_user_email(headers)
+
+    # Get user's starred project IDs
+    starred_ids = set(
+        session.exec(
+            select(ProjectStar.project_id).where(ProjectStar.user_email == user_email)
+        ).all()
+    )
+
+    shares = session.exec(
+        select(ProjectShare)
+        .where(ProjectShare.shared_with_email == user_email)
+        .order_by(ProjectShare.created_at.desc())
+    ).all()
+
+    result = []
+    for share in shares:
+        project = session.get(Project, share.project_id)
+        if not project:
+            continue
+
+        msg_count = session.exec(
+            select(func.count()).select_from(Message).where(Message.project_id == project.id)
+        ).one()
+
+        file_count = session.exec(
+            select(func.count())
+            .select_from(ProjectFile)
+            .where(ProjectFile.project_id == project.id)
+        ).one()
+
+        result.append(
+            ProjectListItem(
+                id=project.id,
+                name=project.name,
+                project_type=project.project_type,
+                stage=project.stage,
+                created_at=project.created_at,
+                updated_at=project.updated_at,
+                message_count=msg_count,
+                file_count=file_count,
+                is_starred=project.id in starred_ids,
+                shared_by=share.owner_email,
+                shared_message=share.message,
+                owner_email=project.user_email,
+            )
+        )
+
+    return result

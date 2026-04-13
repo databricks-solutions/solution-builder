@@ -15,6 +15,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { FileViewer } from "@/components/project/file-viewer";
+import { BuildStepper } from "@/components/project/build-stepper";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { ChatPanel } from "@/components/project/chat-panel";
 import { SkillsPopup } from "@/components/project/skills-popup";
 import { TemplatePublishDialog } from "@/components/project/template-publish-dialog";
@@ -36,6 +38,8 @@ import {
   Server,
   Database,
   Boxes,
+  MessageSquare,
+  PanelLeft,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -55,6 +59,7 @@ import {
   type Project,
   type ProjectFile,
   type ProjectFileContent,
+  type ProjectStage,
   type Message,
   type TemplateDetail,
 } from "@/lib/custom-api";
@@ -84,6 +89,12 @@ function ProjectPage() {
   const [architectureContent, setArchitectureContent] = useState<string | null>(null);
   const [isCreatingArchitecture, setIsCreatingArchitecture] = useState(false);
   const [dabInstructions, setDabInstructions] = useState<string | null>(null);
+  const [isPackagingDAB, setIsPackagingDAB] = useState(false);
+  const [dabValidationError, setDabValidationError] = useState<string | null>(null);
+
+  // Stage pipeline state
+  const [projectStage, setProjectStage] = useState<ProjectStage>("DRAFTING");
+  const [stageRefreshTrigger, setStageRefreshTrigger] = useState(0);
 
   // Chat state
   const [messages, setMessages] = useState<Message[]>([]);
@@ -100,6 +111,8 @@ function ProjectPage() {
   // Delete dialog state
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [isDeleteComplete, setIsDeleteComplete] = useState(false);
 
   // Skills popup state
   const [isSkillsOpen, setIsSkillsOpen] = useState(false);
@@ -128,6 +141,10 @@ function ProjectPage() {
     catalog: null,
     schema: null,
   });
+
+  // Mobile panel toggle (files vs chat)
+  const isMobile = useIsMobile();
+  const [mobilePanel, setMobilePanel] = useState<"files" | "chat">("chat");
 
   // Chat panel resize state
   const [chatWidth, setChatWidth] = useState(520);
@@ -161,6 +178,13 @@ function ProjectPage() {
     window.addEventListener("mouseup", handleMouseUp);
   }, []);
 
+  // Sync stage and resources from project when it loads
+  useEffect(() => {
+    if (project?.stage) {
+      setProjectStage(project.stage);
+    }
+  }, [project?.stage]);
+
   // Load resources from project when it loads (names now come from project directly)
   useEffect(() => {
     if (project) {
@@ -181,6 +205,10 @@ function ProjectPage() {
       .then(setLinkedTemplate)
       .catch(() => setLinkedTemplate(null));
   }, [projectId]);
+
+  // Ref to track selectedFile without causing handleSendMessage to recreate
+  const selectedFileRef = useRef(selectedFile);
+  selectedFileRef.current = selectedFile;
 
   // Abort controller for cancellation
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -358,11 +386,13 @@ function ProjectPage() {
         // Refresh files (agent may have created new files)
         const fileList = await listProjectFiles(projectId);
         setFiles(fileList);
+        setStageRefreshTrigger((n) => n + 1);
 
         // Refresh current file content
-        if (selectedFile) {
+        const currentFile = selectedFileRef.current;
+        if (currentFile) {
           try {
-            const content = await getProjectFile(projectId, selectedFile);
+            const content = await getProjectFile(projectId, currentFile);
             setFileContent(content);
           } catch {
             // File may have been deleted
@@ -386,7 +416,7 @@ function ProjectPage() {
         abortControllerRef.current = null;
       }
     },
-    [projectId, selectedFile, isStreaming]
+    [projectId, isStreaming]
   );
 
   // Reconnect to an in-flight agent execution on mount (e.g. after page
@@ -450,6 +480,7 @@ function ProjectPage() {
         ]);
         setMessages(msgs);
         setFiles(fileList);
+        setStageRefreshTrigger((n) => n + 1);
       } catch (error) {
         if ((error as Error).name !== "AbortError") {
           console.error("Failed to reconnect to agent:", error);
@@ -551,21 +582,40 @@ function ProjectPage() {
 
   // Handle Package as DAB button click - sends message to agent
   const handlePackageAsDAB = useCallback(() => {
-    if (isStreaming) return;
+    if (isPackagingDAB || isStreaming) return;
+    setIsPackagingDAB(true);
+    setDabValidationError(null);
     handleSendMessage(
-      "Analyze the files and components available, and create a Databricks Asset Bundle. " +
-      "Read the dab.md reference file for guidance. You must create both:\n" +
-      "1. `databricks.yml` - the bundle configuration with parameterized variables (catalog, schema, warehouse_name, workspace_path)\n" +
-      "2. `dab_instructions.md` - deployment instructions for the user following the template in dab.md"
+      "Package this project as a Databricks Asset Bundle (DAB). Follow these steps:\n\n" +
+      "1. **Load the `databricks-bundles` skill** for DAB syntax, resource types, and best practices.\n" +
+      "2. **Read the dab.md reference** at `.claude/skills/databricks-demo-generator/references/dab.md` for the demo-specific DAB workflow.\n" +
+      "3. **Analyze all project files** to identify components (SQL files, Python scripts, notebooks, dashboards, pipelines, Genie spaces, KAs, etc.).\n" +
+      "4. **Restructure into DAB layout** with proper `resources/*.yml` files and `src/` directory structure as described in the skill.\n" +
+      "5. **Create `databricks.yml`** at the project root with:\n" +
+      "   - `bundle.name` derived from the project\n" +
+      "   - `include: [resources/*.yml]`\n" +
+      "   - Variables for `catalog`, `schema`, and `warehouse_id` (using lookup)\n" +
+      "   - `dev` and `prod` targets\n" +
+      "6. **Create resource YAML files** in `resources/` (jobs.yml, pipelines.yml, dashboards.yml, etc.) mapping each project component to the correct DAB resource type.\n" +
+      "7. **Create deployment scripts** in `src/deploy/` for components not natively supported by DAB (Genie Spaces, Knowledge Assistants, Multi-Agent Supervisors) using the patterns from dab.md.\n" +
+      "8. **Validate the bundle** by reading back the `databricks.yml` and all `resources/*.yml` files to confirm they have valid YAML syntax and correct path references (`../src/` from resources/).\n" +
+      "9. **Create `dab_instructions.md`** with deployment commands, variable descriptions, and a list of resources created.\n\n" +
+      "Do NOT skip the validation step — confirm the DAB is structurally correct before finishing."
     );
-  }, [isStreaming, handleSendMessage]);
+  }, [isPackagingDAB, isStreaming, handleSendMessage]);
 
   // Handle Update DAB button click - sends message to agent to review and update
   const handleUpdateDAB = useCallback(() => {
     if (isStreaming) return;
+    setDabValidationError(null);
     handleSendMessage(
-      "Review the instructions in reference/dab.md, and make sure the current DAB has all the assets created in this demo. " +
-      "If not the case, update the databricks.yml and dab_instructions.md accordingly."
+      "Update the existing DAB to include any new or changed project assets:\n\n" +
+      "1. **Load the `databricks-bundles` skill** for current DAB syntax and resource types.\n" +
+      "2. **Read the dab.md reference** at `.claude/skills/databricks-demo-generator/references/dab.md`.\n" +
+      "3. **Compare project files against `databricks.yml` and `resources/*.yml`** — identify any components not yet included in the bundle.\n" +
+      "4. **Update resource YAML files** and add any missing deployment scripts.\n" +
+      "5. **Validate** by reading back all YAML files to confirm valid syntax and correct path references.\n" +
+      "6. **Update `dab_instructions.md`** to reflect any changes."
     );
   }, [isStreaming, handleSendMessage]);
 
@@ -603,6 +653,43 @@ function ProjectPage() {
     }
   }, [isCreatingArchitecture, isStreaming, files, projectId]);
 
+  // After DAB packaging streaming completes, validate the output
+  useEffect(() => {
+    if (isPackagingDAB && !isStreaming) {
+      const hasDAB = files.some((f) => f.path === "databricks.yml");
+      if (hasDAB) {
+        // Validate the DAB by reading and checking databricks.yml
+        getProjectFile(projectId, "databricks.yml")
+          .then((content) => {
+            const yml = content.content;
+            // Basic structural validation
+            const hasBundle = /^bundle:/m.test(yml);
+            const hasVariables = /^variables:/m.test(yml);
+            const hasTargets = /^targets:/m.test(yml);
+            if (!hasBundle) {
+              setDabValidationError("databricks.yml is missing the 'bundle:' section");
+            } else if (!hasVariables) {
+              setDabValidationError("databricks.yml is missing the 'variables:' section");
+            } else if (!hasTargets) {
+              setDabValidationError("databricks.yml is missing the 'targets:' section");
+            } else {
+              setDabValidationError(null);
+            }
+          })
+          .catch((error) => {
+            console.error("Failed to validate DAB:", error);
+            setDabValidationError("Could not read databricks.yml for validation");
+          })
+          .finally(() => {
+            setIsPackagingDAB(false);
+          });
+      } else {
+        setDabValidationError("Agent did not create databricks.yml");
+        setIsPackagingDAB(false);
+      }
+    }
+  }, [isPackagingDAB, isStreaming, files, projectId]);
+
   // Load dab_instructions.md when it exists in files
   useEffect(() => {
     const hasDabInstructions = files.some((f) => f.path === "dab_instructions.md");
@@ -624,16 +711,33 @@ function ProjectPage() {
   // Handle delete project
   const handleDeleteConfirm = useCallback(async () => {
     setIsDeleting(true);
+    setDeleteError(null);
     try {
+      if (isStreaming) {
+        try {
+          if (abortControllerRef.current) {
+            abortControllerRef.current.abort();
+          }
+          if (executionId) {
+            await stopAgentStream(executionId);
+          }
+        } catch {
+          // Stream stop failure should not block deletion
+        }
+      }
       await deleteProject(projectId);
       setIsDeleteDialogOpen(false);
-      navigate({ to: "/" });
+      setIsDeleteComplete(true);
+      setTimeout(() => {
+        navigate({ to: "/" });
+      }, 1200);
     } catch (error) {
       console.error("Failed to delete project:", error);
+      setDeleteError(error instanceof Error ? error.message : "Failed to delete project");
     } finally {
       setIsDeleting(false);
     }
-  }, [projectId, navigate]);
+  }, [projectId, navigate, isStreaming, executionId]);
 
   // Handle clear session (delete all messages and reset agent)
   const handleClearSession = useCallback(async () => {
@@ -740,6 +844,24 @@ function ProjectPage() {
     );
   }
 
+  if (isDeleteComplete) {
+    return (
+      <div className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-background/95 backdrop-blur-sm">
+        <div className="flex flex-col items-center gap-6">
+          <div className="flex h-20 w-20 items-center justify-center rounded-full bg-green-500/10">
+            <Check className="h-10 w-10 text-green-500" />
+          </div>
+          <div className="text-center space-y-2">
+            <h2 className="text-2xl font-semibold">Project Deleted</h2>
+            <p className="text-muted-foreground">
+              Redirecting to home...
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex h-screen flex-col overflow-hidden">
       {/* Header */}
@@ -753,23 +875,24 @@ function ProjectPage() {
                 Back
               </Button>
             </Link>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2 sm:gap-3">
               <Button
                 variant="outline"
                 size="default"
                 onClick={() => setIsTemplateDialogOpen(true)}
                 disabled={files.length === 0}
                 className="gap-2"
+                title={linkedTemplate ? "Update Template" : "Save as Template"}
               >
                 {linkedTemplate ? (
                   <>
                     <FileEdit className="h-4 w-4" />
-                    Update Template
+                    <span className="hidden sm:inline">Update Template</span>
                   </>
                 ) : (
                   <>
                     <Upload className="h-4 w-4" />
-                    Save as Template
+                    <span className="hidden sm:inline">Save as Template</span>
                   </>
                 )}
               </Button>
@@ -778,9 +901,10 @@ function ProjectPage() {
                 size="default"
                 onClick={() => setIsDeleteDialogOpen(true)}
                 className="gap-2 text-destructive border-destructive/30 hover:text-destructive hover:bg-destructive/10"
+                title="Delete project"
               >
                 <Trash2 className="h-4 w-4" />
-                Delete
+                <span className="hidden sm:inline">Delete</span>
               </Button>
             </div>
           </div>
@@ -796,7 +920,7 @@ function ProjectPage() {
                     if (e.key === "Enter") handleSaveName();
                     if (e.key === "Escape") handleCancelEditName();
                   }}
-                  className="h-10 w-96 text-2xl font-bold"
+                  className="h-10 w-full max-w-96 text-2xl font-bold"
                   autoFocus
                   disabled={isSavingName}
                 />
@@ -859,7 +983,7 @@ function ProjectPage() {
                     if (e.key === "Enter") handleSaveDescription();
                     if (e.key === "Escape") handleCancelEditDescription();
                   }}
-                  className="h-8 w-80 text-sm"
+                  className="h-8 w-full max-w-80 text-sm"
                   placeholder="Enter a description"
                   autoFocus
                   disabled={isSavingDescription}
@@ -895,7 +1019,15 @@ function ProjectPage() {
               >
                 {project.description}
               </button>
-            ) : null}
+            ) : (
+              <button
+                onClick={handleStartEditDescription}
+                className="text-xs text-muted-foreground/60 hover:text-muted-foreground transition-colors cursor-pointer italic"
+                title="Add a description"
+              >
+                Add description...
+              </button>
+            )}
 
             {(project?.description || isEditingDescription) && <div className="h-4 w-px bg-border" />}
 
@@ -936,10 +1068,54 @@ function ProjectPage() {
         </div>
       </div>
 
+      {/* Build pipeline stepper */}
+      <BuildStepper
+        projectId={projectId}
+        currentStage={projectStage}
+        isStreaming={isStreaming}
+        onStageChange={(newStage) => {
+          setProjectStage(newStage);
+          // Re-fetch project to get updated stage from backend
+          getProject(projectId).then(setProject).catch(() => {});
+        }}
+        onSendMessage={handleSendMessage}
+        onDownloadDAB={handleDownloadDAB}
+        onPublishTemplate={() => setIsTemplateDialogOpen(true)}
+        refreshTrigger={stageRefreshTrigger}
+      />
+
+      {/* Mobile panel toggle */}
+      <div className="md:hidden shrink-0 flex border-b border-border bg-muted/30">
+        <button
+          onClick={() => setMobilePanel("files")}
+          className={`flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-medium transition-colors ${
+            mobilePanel === "files"
+              ? "bg-background text-foreground border-b-2 border-primary"
+              : "text-muted-foreground"
+          }`}
+          aria-label="Show files panel"
+        >
+          <PanelLeft className="h-4 w-4" />
+          Files
+        </button>
+        <button
+          onClick={() => setMobilePanel("chat")}
+          className={`flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-medium transition-colors ${
+            mobilePanel === "chat"
+              ? "bg-background text-foreground border-b-2 border-primary"
+              : "text-muted-foreground"
+          }`}
+          aria-label="Show chat panel"
+        >
+          <MessageSquare className="h-4 w-4" />
+          Chat
+        </button>
+      </div>
+
       {/* Main content */}
       <div ref={containerRef} className="flex flex-1 min-h-0">
         {/* File viewer (left side) */}
-        <div className="flex-1 min-w-0 overflow-hidden">
+        <div className={`flex-1 min-w-0 overflow-hidden ${mobilePanel === "chat" ? "hidden md:flex" : "flex"} flex-col`}>
           <FileViewer
             files={files}
             selectedFile={selectedFile}
@@ -958,20 +1134,32 @@ function ProjectPage() {
             onUpdateDAB={handleUpdateDAB}
             dabInstructions={dabInstructions}
             onDownloadDAB={handleDownloadDAB}
+            isPackagingDAB={isPackagingDAB}
+            dabValidationError={dabValidationError}
           />
         </div>
 
-        {/* Resize handle */}
+        {/* Resize handle (desktop only) */}
         <div
           onMouseDown={handleResizeStart}
-          className="shrink-0 w-1 cursor-col-resize relative group hover:bg-primary/20 active:bg-primary/30 transition-colors"
+          className="hidden md:block shrink-0 w-1 cursor-col-resize relative group hover:bg-primary/20 active:bg-primary/30 transition-colors"
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize panels"
         >
           <div className="absolute inset-y-0 -left-1 -right-1" />
           <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-1 h-8 rounded-full bg-border group-hover:bg-primary/40 group-active:bg-primary/60 transition-colors" />
         </div>
 
-        {/* Chat panel (right side) */}
-        <div className="shrink-0 h-full" style={{ width: chatWidth }}>
+        {/* Chat panel (right side, full-width on mobile when active) */}
+        <div
+          className={`h-full ${
+            mobilePanel === "files"
+              ? "hidden md:block md:shrink-0"
+              : "w-full md:w-auto md:shrink-0"
+          }`}
+          style={isMobile && mobilePanel === "chat" ? undefined : { width: chatWidth }}
+        >
           <ChatPanel
             messages={messages}
             onSendMessage={handleSendMessage}
@@ -990,7 +1178,7 @@ function ProjectPage() {
       </div>
 
       {/* Delete Confirmation Dialog */}
-      <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+      <Dialog open={isDeleteDialogOpen} onOpenChange={(open) => { setIsDeleteDialogOpen(open); if (open) setDeleteError(null); }}>
         <DialogContent className="sm:max-w-[425px]">
           <DialogHeader>
             <div className="flex items-center gap-3">
@@ -1005,7 +1193,7 @@ function ProjectPage() {
               </div>
             </div>
           </DialogHeader>
-          <div className="py-4">
+          <div className="py-4 space-y-3">
             <p className="text-sm text-muted-foreground">
               Are you sure you want to delete{" "}
               <span className="font-medium text-foreground">
@@ -1013,6 +1201,14 @@ function ProjectPage() {
               </span>
               ? All files, messages, and project data will be permanently removed.
             </p>
+            {linkedTemplate && (
+              <p className="text-sm text-amber-600 dark:text-amber-400">
+                This project is linked to template "{linkedTemplate.name}". The template will not be deleted, but it will no longer be linked to this project.
+              </p>
+            )}
+            {deleteError && (
+              <p className="text-sm text-destructive">{deleteError}</p>
+            )}
           </div>
           <DialogFooter className="gap-2 sm:gap-0">
             <Button

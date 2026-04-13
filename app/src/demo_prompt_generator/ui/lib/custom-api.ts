@@ -10,12 +10,43 @@ import { apiUrl } from "./config";
 // Types
 // ---------------------------------------------------------------------------
 
+export type ProjectStage =
+  | "DRAFTING"
+  | "SUMMARIZED"
+  | "ARCHITECTED"
+  | "BUILDING"
+  | "PACKAGED"
+  | "BUNDLED";
+
+export const PROJECT_STAGES: ProjectStage[] = [
+  "DRAFTING",
+  "SUMMARIZED",
+  "ARCHITECTED",
+  "BUILDING",
+  "PACKAGED",
+  "BUNDLED",
+];
+
+export interface StageCheck {
+  label: string;
+  passed: boolean;
+  detail: string | null;
+}
+
+export interface ProjectStageStatus {
+  current_stage: ProjectStage;
+  checks: StageCheck[];
+  can_advance: boolean;
+  next_stage: ProjectStage | null;
+}
+
 export interface Project {
   id: string;
   name: string;
   user_email: string;
   description: string | null;
   project_type: string;
+  stage: ProjectStage;
   created_at: string;
   updated_at: string;
   message_count: number;
@@ -33,10 +64,24 @@ export interface ProjectListItem {
   id: string;
   name: string;
   project_type: string;
+  stage: ProjectStage;
   created_at: string;
   updated_at: string;
   message_count: number;
   file_count: number;
+  is_starred: boolean;
+  shared_by?: string | null;
+  shared_message?: string | null;
+  owner_email?: string | null;
+}
+
+export interface ProjectShareOut {
+  id: number;
+  project_id: string;
+  owner_email: string;
+  shared_with_email: string;
+  message: string | null;
+  created_at: string;
 }
 
 export interface ProjectFile {
@@ -182,6 +227,91 @@ export async function syncProject(projectId: string): Promise<SyncStats> {
     method: "POST",
   });
   if (!resp.ok) throw new Error(`Failed to sync project: ${resp.status}`);
+  return resp.json();
+}
+
+// ---------------------------------------------------------------------------
+// Stage Pipeline API
+// ---------------------------------------------------------------------------
+
+export async function getProjectStageStatus(
+  projectId: string
+): Promise<ProjectStageStatus> {
+  const resp = await fetch(apiUrl(`/api/projects/${projectId}/stage-status`));
+  if (!resp.ok) throw new Error(`Failed to get stage status: ${resp.status}`);
+  return resp.json();
+}
+
+export async function advanceProjectStage(
+  projectId: string
+): Promise<ProjectStageStatus> {
+  const resp = await fetch(apiUrl(`/api/projects/${projectId}/advance-stage`), {
+    method: "POST",
+  });
+  if (!resp.ok) {
+    const body = await resp.json().catch(() => ({}));
+    throw new Error(body.detail || `Failed to advance stage: ${resp.status}`);
+  }
+  return resp.json();
+}
+
+// ---------------------------------------------------------------------------
+// Starring
+// ---------------------------------------------------------------------------
+
+export async function toggleProjectStar(
+  projectId: string
+): Promise<{ starred: boolean; project_id: string }> {
+  const resp = await fetch(apiUrl(`/api/projects/${projectId}/star`), {
+    method: "POST",
+  });
+  if (!resp.ok) throw new Error(`Failed to toggle star: ${resp.status}`);
+  return resp.json();
+}
+
+// ---------------------------------------------------------------------------
+// Sharing
+// ---------------------------------------------------------------------------
+
+export async function shareProject(
+  projectId: string,
+  email: string,
+  message?: string
+): Promise<ProjectShareOut> {
+  const resp = await fetch(apiUrl(`/api/projects/${projectId}/share`), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, message }),
+  });
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({}));
+    throw new Error(err.detail || `Failed to share project: ${resp.status}`);
+  }
+  return resp.json();
+}
+
+export async function listProjectShares(
+  projectId: string
+): Promise<ProjectShareOut[]> {
+  const resp = await fetch(apiUrl(`/api/projects/${projectId}/shares`));
+  if (!resp.ok) throw new Error(`Failed to list shares: ${resp.status}`);
+  return resp.json();
+}
+
+export async function unshareProject(
+  projectId: string,
+  shareId: number
+): Promise<void> {
+  const resp = await fetch(
+    apiUrl(`/api/projects/${projectId}/share/${shareId}`),
+    { method: "DELETE" }
+  );
+  if (!resp.ok) throw new Error(`Failed to unshare: ${resp.status}`);
+}
+
+export async function listSharedProjects(): Promise<ProjectListItem[]> {
+  const resp = await fetch(apiUrl("/api/shared-projects"));
+  if (!resp.ok) throw new Error(`Failed to list shared projects: ${resp.status}`);
   return resp.json();
 }
 
@@ -707,11 +837,14 @@ export async function searchTemplates(
 
 export async function submitTemplateFromProject(
   projectId: string
-): Promise<TemplateListItem> {
+): Promise<TemplateDetail> {
   const resp = await fetch(apiUrl(`/api/templates/from-project/${projectId}`), {
     method: "POST",
   });
-  if (!resp.ok) throw new Error(`Failed to submit template: ${resp.status}`);
+  if (!resp.ok) {
+    const body = await resp.json().catch(() => null);
+    throw new Error(body?.detail || `Failed to submit template: ${resp.status}`);
+  }
   return resp.json();
 }
 
@@ -759,7 +892,10 @@ export async function updateTemplateFromProject(
   const resp = await fetch(apiUrl(`/api/templates/${templateId}/update-from-project/${projectId}`), {
     method: "PUT",
   });
-  if (!resp.ok) throw new Error(`Failed to update template: ${resp.status}`);
+  if (!resp.ok) {
+    const body = await resp.json().catch(() => null);
+    throw new Error(body?.detail || `Failed to update template: ${resp.status}`);
+  }
   return resp.json();
 }
 

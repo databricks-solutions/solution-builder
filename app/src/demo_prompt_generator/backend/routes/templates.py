@@ -309,7 +309,7 @@ def search_templates(
 
 @router.post(
     "/templates/from-project/{project_id}",
-    response_model=TemplateListItem,
+    response_model=TemplateDetail,
     operation_id="submitTemplateFromProject",
 )
 def submit_template_from_project(
@@ -334,16 +334,26 @@ def submit_template_from_project(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    return TemplateListItem(
+    file_count = session.exec(
+        select(func.count())
+        .select_from(TemplateContent)
+        .where(TemplateContent.template_id == template.id)
+    ).one()
+
+    return TemplateDetail(
         id=template.id,
         name=template.name,
         status=template.status,
         owner_email=template.owner_email,
         industry=template.industry,
         description=template.description,
+        full_description=template.full_description,
         capabilities=_parse_capabilities(template.capabilities),
         submitted_at=template.submitted_at,
         reviewed_at=template.reviewed_at,
+        reviewed_by=template.reviewed_by,
+        source_project_id=template.source_project_id,
+        file_count=file_count,
     )
 
 
@@ -441,6 +451,7 @@ def create_project_from_template(
         user_email=project.user_email,
         description=project.description,
         project_type=project.project_type,
+        stage=project.stage,
         created_at=project.created_at,
         updated_at=project.updated_at,
         message_count=0,
@@ -606,6 +617,7 @@ def open_template_project(
         user_email=project.user_email,
         description=project.description,
         project_type=project.project_type,
+        stage=project.stage,
         created_at=project.created_at,
         updated_at=project.updated_at,
         message_count=0,

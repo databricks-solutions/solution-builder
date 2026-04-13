@@ -1,14 +1,15 @@
 import { Link, useMatchRoute } from "@tanstack/react-router";
 import Navbar from "@/components/layout/navbar";
-import { FolderOpen, User, Library, BookOpen } from "lucide-react";
+import { FolderOpen, User, Library, BookOpen, Home } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ReactNode } from "react";
 
 const sidebarLinks = [
+  { to: "/" as const, label: "Home", icon: Home },
   { to: "/projects" as const, label: "My Projects", icon: FolderOpen },
+  { to: "/templates" as const, label: "Templates", icon: Library },
+  { to: "/docs" as const, label: "Docs", icon: BookOpen },
   { to: "/profile" as const, label: "Profile", icon: User },
-  { to: "/gallery" as const, label: "Template Gallery", icon: Library },
-  { to: "/docs" as const, label: "Documentation", icon: BookOpen },
 ];
 
 export function AppLayout({ children }: { children: ReactNode }) {
@@ -16,13 +17,15 @@ export function AppLayout({ children }: { children: ReactNode }) {
 
   return (
     <div className="flex min-h-screen flex-col bg-background">
-      <Navbar />
+      <Navbar hideNav />
       <div className="flex flex-1">
-        {/* Sidebar */}
-        <aside className="w-60 shrink-0 border-r border-border/80 bg-muted/30">
-          <nav className="sticky top-0 space-y-1 p-4">
+        {/* Sidebar (hidden on mobile, shown on md+) */}
+        <aside className="hidden md:block w-60 shrink-0 border-r border-border/80 bg-muted/30">
+          <nav className="sticky top-0 space-y-1 p-4" aria-label="Main navigation">
             {sidebarLinks.map((link) => {
-              const isActive = !!matchRoute({ to: link.to, fuzzy: true });
+              const isActive = link.to === "/"
+                ? !!matchRoute({ to: "/", fuzzy: false })
+                : !!matchRoute({ to: link.to, fuzzy: true });
               return (
                 <Link
                   key={link.to}
