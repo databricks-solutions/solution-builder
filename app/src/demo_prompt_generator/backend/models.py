@@ -60,14 +60,14 @@ class ProjectType(str, Enum):
 class ProjectStage(str, Enum):
     """Lifecycle stages for a project build pipeline.
 
-    DRAFTING → SUMMARIZED → ARCHITECTED → BUILDING → PACKAGED → BUNDLED
+    DRAFTING → SUMMARIZED → ARCHITECTED (optional) → SPECIFICATION → BUILT → BUNDLED
     """
     DRAFTING = "DRAFTING"
-    SUMMARIZED = "SUMMARIZED"
-    ARCHITECTED = "ARCHITECTED"
-    BUILDING = "BUILDING"
-    PACKAGED = "PACKAGED"
-    BUNDLED = "BUNDLED"
+    SUMMARIZED = "SUMMARIZED"        # README.md exists
+    ARCHITECTED = "ARCHITECTED"      # architecture.md exists (optional)
+    SPECIFICATION = "SPECIFICATION"  # instructions/*.md files exist
+    BUILT = "BUILT"                  # .py/.sql files + resources.json with IDs
+    BUNDLED = "BUNDLED"              # databricks.yml exists (DAB)
 
 
 class ExecutionStatus(str, Enum):

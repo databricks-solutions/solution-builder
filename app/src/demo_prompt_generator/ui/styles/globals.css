@@ -137,3 +137,23 @@
   padding-top: env(titlebar-area-height, 28px);
   padding-left: env(titlebar-area-x, 78px);
 }
+
+/* Progress pulse animation for build stepper "next step" indicator */
+@keyframes progress-pulse {
+  0% {
+    width: 0%;
+    opacity: 0.8;
+  }
+  50% {
+    width: 100%;
+    opacity: 1;
+  }
+  100% {
+    width: 100%;
+    opacity: 0.3;
+  }
+}
+
+.animate-progress-pulse {
+  animation: progress-pulse 1.5s ease-in-out infinite;
+}

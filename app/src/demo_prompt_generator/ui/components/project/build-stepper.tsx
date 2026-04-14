@@ -1,13 +1,22 @@
 /**
- * Build pipeline stepper — guides users through the project lifecycle.
+ * Build pipeline stepper — visual indicator of project progress.
  *
- * Shows a horizontal progress indicator with stage-aware actions:
- * DRAFTING → SUMMARIZED → ARCHITECTED → BUILDING → PACKAGED → BUNDLED
+ * Auto-detects the current stage from files:
+ * DRAFTING → SUMMARIZED → ARCHITECTED → SPECIFICATION → BUILT → BUNDLED
+ *
+ * Includes an action dropdown for stage-specific operations.
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useMemo } from "react";
 import { Button } from "../ui/button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../ui/tooltip";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "../ui/dropdown-menu";
 import {
   Check,
   Circle,
@@ -15,20 +24,18 @@ import {
   FileText,
   Network,
   Hammer,
-  Package,
   Rocket,
-  ChevronRight,
-  AlertCircle,
-  CheckCircle,
   Download,
   Upload,
+  CheckCircle2,
+  XCircle,
+  ChevronDown,
+  Play,
+  RefreshCw,
 } from "lucide-react";
 import {
-  getProjectStageStatus,
-  advanceProjectStage,
   type ProjectStage,
-  type ProjectStageStatus,
-  type StageCheck,
+  type ProjectFile,
   PROJECT_STAGES,
 } from "../../lib/custom-api";
 
@@ -43,6 +50,11 @@ interface StageMeta {
   description: string;
 }
 
+interface StageCheck {
+  label: string;
+  passed: boolean;
+}
+
 const STAGE_META: Record<ProjectStage, StageMeta> = {
   DRAFTING: {
     label: "Draft",
@@ -54,48 +66,124 @@ const STAGE_META: Record<ProjectStage, StageMeta> = {
     label: "Summary",
     shortLabel: "Summary",
     icon: FileText,
-    description: "README verified with demo narrative",
+    description: "README.md with demo narrative",
   },
   ARCHITECTED: {
     label: "Architecture",
     shortLabel: "Arch",
     icon: Network,
-    description: "Architecture diagram created",
+    description: "architecture.md diagram",
   },
-  BUILDING: {
-    label: "Build",
-    shortLabel: "Build",
+  SPECIFICATION: {
+    label: "Specification",
+    shortLabel: "Spec",
+    icon: FileText,
+    description: "instructions/*.md files",
+  },
+  BUILT: {
+    label: "Built",
+    shortLabel: "Built",
     icon: Hammer,
-    description: "Generating full demo package",
-  },
-  PACKAGED: {
-    label: "Package",
-    shortLabel: "Pkg",
-    icon: Package,
-    description: "Demo instruction files generated",
+    description: ".py/.sql code files",
   },
   BUNDLED: {
     label: "Bundle",
     shortLabel: "DAB",
     icon: Rocket,
-    description: "Packaged as Databricks Asset Bundle",
+    description: "databricks.yml bundle",
   },
 };
+
+// ---------------------------------------------------------------------------
+// Stage detection from files
+// ---------------------------------------------------------------------------
+
+const MIN_README_CHARS = 200;
+
+export interface StageInfo {
+  stage: ProjectStage;
+  checks: Record<ProjectStage, StageCheck[]>;
+  hasReadme: boolean;
+  hasArch: boolean;
+  hasInstructions: boolean;
+  hasCode: boolean;
+  hasDab: boolean;
+}
+
+export function detectStageFromFiles(files: ProjectFile[]): StageInfo {
+  const paths = files.map((f) => f.path);
+  const fileMap = new Map(files.map((f) => [f.path, f]));
+
+  // Compute all checks
+  const readme = fileMap.get("README.md");
+  const hasReadme = !!readme && readme.size >= MIN_README_CHARS;
+  const hasArch = fileMap.has("architecture.md");
+  const hasInstructions = paths.some((p) => p.startsWith("instructions/"));
+  const hasCode = paths.some(
+    (p) => (p.endsWith(".py") || p.endsWith(".sql")) && !p.startsWith("src/deploy/")
+  );
+  const hasDab = fileMap.has("databricks.yml");
+
+  const checks: Record<ProjectStage, StageCheck[]> = {
+    DRAFTING: [],
+    SUMMARIZED: [
+      { label: "README.md exists (>200 chars)", passed: hasReadme },
+    ],
+    ARCHITECTED: [
+      { label: "README.md exists", passed: hasReadme },
+      { label: "architecture.md exists", passed: hasArch },
+    ],
+    SPECIFICATION: [
+      { label: "README.md exists", passed: hasReadme },
+      { label: "architecture.md exists", passed: hasArch },
+      { label: "instructions/*.md files exist", passed: hasInstructions },
+    ],
+    BUILT: [
+      { label: "instructions/*.md files exist", passed: hasInstructions },
+      { label: "Code files (.py or .sql) exist", passed: hasCode },
+    ],
+    BUNDLED: [
+      { label: "Code files (.py or .sql) exist", passed: hasCode },
+      { label: "databricks.yml exists", passed: hasDab },
+    ],
+  };
+
+  // Determine current stage (most advanced that's reached)
+  let stage: ProjectStage = "DRAFTING";
+  if (hasDab) {
+    stage = "BUNDLED";
+  } else if (hasCode) {
+    stage = "BUILT";
+  } else if (hasInstructions) {
+    stage = "SPECIFICATION";
+  } else if (hasArch) {
+    stage = "ARCHITECTED";
+  } else if (hasReadme) {
+    stage = "SUMMARIZED";
+  }
+
+  return { stage, checks, hasReadme, hasArch, hasInstructions, hasCode, hasDab };
+}
 
 // ---------------------------------------------------------------------------
 // Props
 // ---------------------------------------------------------------------------
 
 export interface BuildStepperProps {
-  projectId: string;
-  currentStage: ProjectStage;
   isStreaming: boolean;
-  onStageChange: (newStage: ProjectStage) => void;
-  onSendMessage: (message: string) => void;
+  /** Project files — used to auto-detect current stage */
+  files: ProjectFile[];
+  /** Callbacks for stage actions */
+  onCreateArchitecture?: () => void;
+  onUpdateArchitecture?: () => void;
+  onCreateSpec?: () => void;
+  onUpdateSpec?: () => void;
+  onBuildResources?: () => void;
+  onUpdateResources?: () => void;
+  onPackageDAB?: () => void;
+  onUpdateDAB?: () => void;
   onDownloadDAB?: () => void;
   onPublishTemplate?: () => void;
-  /** Trigger a refresh of stage status (e.g. after files change) */
-  refreshTrigger?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -103,331 +191,246 @@ export interface BuildStepperProps {
 // ---------------------------------------------------------------------------
 
 export function BuildStepper({
-  projectId,
-  currentStage,
   isStreaming,
-  onStageChange,
-  onSendMessage,
+  files,
+  onCreateArchitecture,
+  onUpdateArchitecture,
+  onCreateSpec,
+  onUpdateSpec,
+  onBuildResources,
+  onUpdateResources,
+  onPackageDAB,
+  onUpdateDAB,
   onDownloadDAB,
   onPublishTemplate,
-  refreshTrigger,
 }: BuildStepperProps) {
-  const [stageStatus, setStageStatus] = useState<ProjectStageStatus | null>(null);
-  const [isAdvancing, setIsAdvancing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
+  // Auto-detect stage from files
+  const stageInfo = useMemo(() => detectStageFromFiles(files), [files]);
+  const { stage: currentStage, checks, hasArch, hasInstructions, hasCode, hasDab } = stageInfo;
   const currentIdx = PROJECT_STAGES.indexOf(currentStage);
 
-  // Fetch stage status on mount and when stage/files change
-  useEffect(() => {
-    let cancelled = false;
-    getProjectStageStatus(projectId)
-      .then((status) => {
-        if (!cancelled) setStageStatus(status);
-      })
-      .catch(() => {
-        // Silently fail — stage status is supplementary
-      });
-    return () => { cancelled = true; };
-  }, [projectId, currentStage, refreshTrigger]);
+  // Build the list of available actions based on current state
+  const actions: Array<{
+    label: string;
+    icon: React.ElementType;
+    onClick: () => void;
+    variant?: "default" | "primary";
+  }> = [];
 
-  // Re-fetch after streaming completes (agent may have created files)
-  useEffect(() => {
-    if (!isStreaming && stageStatus) {
-      getProjectStageStatus(projectId)
-        .then(setStageStatus)
-        .catch(() => {});
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isStreaming, projectId]);
+  // Architecture actions
+  if (!hasArch && onCreateArchitecture) {
+    actions.push({
+      label: "Create Architecture Diagram",
+      icon: Network,
+      onClick: onCreateArchitecture,
+      variant: "primary",
+    });
+  } else if (hasArch && onUpdateArchitecture) {
+    actions.push({
+      label: "Update Architecture Diagram",
+      icon: Network,
+      onClick: onUpdateArchitecture,
+    });
+  }
 
-  const handleAdvance = useCallback(async () => {
-    setIsAdvancing(true);
-    setError(null);
-    try {
-      const newStatus = await advanceProjectStage(projectId);
-      setStageStatus(newStatus);
-      onStageChange(newStatus.current_stage);
-      return true;
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to advance");
-      return false;
-    } finally {
-      setIsAdvancing(false);
-    }
-  }, [projectId, onStageChange]);
+  // Specification actions
+  if (!hasInstructions && onCreateSpec) {
+    actions.push({
+      label: "Create Specifications",
+      icon: FileText,
+      onClick: onCreateSpec,
+      variant: !hasArch ? undefined : "primary",
+    });
+  } else if (hasInstructions && onUpdateSpec) {
+    actions.push({
+      label: "Update Specifications",
+      icon: FileText,
+      onClick: onUpdateSpec,
+    });
+  }
 
-  const handleBuildDemoPackage = useCallback(async () => {
-    // First advance stage to BUILDING, then send the build prompt
-    const ok = await handleAdvance();
-    if (!ok) return;
-    onSendMessage(
-        "Build the full demo package. Follow these steps:\n\n" +
-        "1. **Load the `databricks-demo-generator` skill** for the complete workflow and file structure.\n" +
-        "2. **Read the existing README.md and architecture.md** to understand the demo design.\n" +
-        "3. **Create `META-PROMPT.md`** at the project root with comprehensive build instructions that another AI agent can follow.\n" +
-        "4. **Create instruction files** in `instructions/` for each demo component:\n" +
-        "   - Data generation specs (schemas, volumes, relationships, realistic patterns)\n" +
-        "   - Pipeline definitions (streaming tables, materialized views, CDC patterns)\n" +
-        "   - Dashboard specs (datasets, visualizations, filters, layout)\n" +
-        "   - Genie Space definitions (tables, example questions, instructions)\n" +
-        "   - Knowledge Assistant configs (endpoints, tool definitions, instructions)\n" +
-        "   - Any additional component specs from the architecture\n" +
-        "5. **Create `instructions/resources.json`** to track resource IDs (initially empty placeholders).\n" +
-        "6. **Validate completeness** — ensure every component in architecture.md has a corresponding instruction file.\n\n" +
-        "Generate detailed, actionable instruction files that the AI Dev Kit can execute to build real Databricks resources."
-    );
-  }, [handleAdvance, onSendMessage]);
+  // Build actions
+  if (!hasCode && onBuildResources) {
+    actions.push({
+      label: "Build Databricks Resources",
+      icon: Hammer,
+      onClick: onBuildResources,
+      variant: !hasInstructions ? undefined : "primary",
+    });
+  } else if (hasCode && onUpdateResources) {
+    actions.push({
+      label: "Update Resources",
+      icon: Hammer,
+      onClick: onUpdateResources,
+    });
+  }
 
-  const handlePackageAsDAB = useCallback(() => {
-    onSendMessage(
-      "Package this project as a Databricks Asset Bundle (DAB). Follow these steps:\n\n" +
-      "1. **Load the `databricks-bundles` skill** for DAB syntax, resource types, and best practices.\n" +
-      "2. **Read the dab.md reference** at `.claude/skills/databricks-demo-generator/references/dab.md` for the demo-specific DAB workflow.\n" +
-      "3. **Analyze all project files** to identify components (SQL files, Python scripts, notebooks, dashboards, pipelines, Genie spaces, KAs, etc.).\n" +
-      "4. **Restructure into DAB layout** with proper `resources/*.yml` files and `src/` directory structure as described in the skill.\n" +
-      "5. **Create `databricks.yml`** at the project root with:\n" +
-      "   - `bundle.name` derived from the project\n" +
-      "   - `include: [resources/*.yml]`\n" +
-      "   - Variables for `catalog`, `schema`, and `warehouse_id` (using lookup)\n" +
-      "   - `dev` and `prod` targets\n" +
-      "6. **Create resource YAML files** in `resources/` (jobs.yml, pipelines.yml, dashboards.yml, etc.) mapping each project component to the correct DAB resource type.\n" +
-      "7. **Create deployment scripts** in `src/deploy/` for components not natively supported by DAB (Genie Spaces, Knowledge Assistants, Multi-Agent Supervisors) using the patterns from dab.md.\n" +
-      "8. **Validate the bundle** by reading back the `databricks.yml` and all `resources/*.yml` files to confirm they have valid YAML syntax and correct path references (`../src/` from resources/).\n" +
-      "9. **Create `dab_instructions.md`** with deployment commands, variable descriptions, and a list of resources created.\n\n" +
-      "Do NOT skip the validation step — confirm the DAB is structurally correct before finishing."
-    );
-  }, [onSendMessage]);
+  // DAB actions
+  if (!hasDab && onPackageDAB) {
+    actions.push({
+      label: "Package as DAB",
+      icon: Rocket,
+      onClick: onPackageDAB,
+      variant: !hasCode ? undefined : "primary",
+    });
+  } else if (hasDab && onUpdateDAB) {
+    actions.push({
+      label: "Update DAB",
+      icon: Rocket,
+      onClick: onUpdateDAB,
+    });
+  }
 
-  // Build the CTA for the current stage
-  const renderAction = () => {
-    if (isStreaming) {
-      return (
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Loader2 className="h-4 w-4 animate-spin" />
-          Agent working...
-        </div>
-      );
-    }
-
-    const canAdvance = stageStatus?.can_advance ?? false;
-
-    switch (currentStage) {
-      case "DRAFTING":
-        return (
-          <Button
-            size="sm"
-            onClick={handleAdvance}
-            disabled={!canAdvance || isAdvancing}
-            className="gap-2"
-          >
-            {isAdvancing ? <Loader2 className="h-4 w-4 animate-spin" /> : <ChevronRight className="h-4 w-4" />}
-            Confirm Summary
-          </Button>
-        );
-
-      case "SUMMARIZED":
-        return (
-          <Button
-            size="sm"
-            onClick={handleAdvance}
-            disabled={!canAdvance || isAdvancing}
-            className="gap-2"
-          >
-            {isAdvancing ? <Loader2 className="h-4 w-4 animate-spin" /> : <ChevronRight className="h-4 w-4" />}
-            Confirm Architecture
-          </Button>
-        );
-
-      case "ARCHITECTED":
-        return (
-          <Button
-            size="sm"
-            onClick={handleBuildDemoPackage}
-            disabled={isAdvancing}
-            className="gap-2 bg-primary"
-          >
-            {isAdvancing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Hammer className="h-4 w-4" />}
-            Build Demo Package
-          </Button>
-        );
-
-      case "BUILDING":
-        return (
-          <Button
-            size="sm"
-            onClick={handleAdvance}
-            disabled={!canAdvance || isAdvancing}
-            className="gap-2"
-          >
-            {isAdvancing ? <Loader2 className="h-4 w-4 animate-spin" /> : <ChevronRight className="h-4 w-4" />}
-            Confirm Package
-          </Button>
-        );
-
-      case "PACKAGED":
-        return (
-          <Button
-            size="sm"
-            onClick={async () => {
-              const ok = await handleAdvance();
-              if (ok) handlePackageAsDAB();
-            }}
-            disabled={isAdvancing}
-            className="gap-2"
-          >
-            {isAdvancing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Package className="h-4 w-4" />}
-            Package as DAB
-          </Button>
-        );
-
-      case "BUNDLED":
-        return (
-          <div className="flex items-center gap-2">
-            {onDownloadDAB && (
-              <Button size="sm" variant="outline" onClick={onDownloadDAB} className="gap-2">
-                <Download className="h-4 w-4" />
-                Download
-              </Button>
-            )}
-            {onPublishTemplate && (
-              <Button size="sm" onClick={onPublishTemplate} className="gap-2">
-                <Upload className="h-4 w-4" />
-                Publish
-              </Button>
-            )}
-          </div>
-        );
-
-      default:
-        return null;
-    }
-  };
+  // Find the primary action (next step to do)
+  const primaryAction = actions.find((a) => a.variant === "primary") || actions[0];
 
   return (
-    <div className="border-b border-border bg-muted/20">
-      <div className="px-5 py-3">
-        {/* Stepper dots */}
-        <div className="flex items-center gap-1 mb-2">
-          <TooltipProvider delayDuration={200}>
-            {PROJECT_STAGES.map((stage, idx) => {
-              const meta = STAGE_META[stage];
-              const Icon = meta.icon;
+    <div className="flex items-center gap-3">
+      {/* Stepper dots */}
+      <div className="flex items-center gap-1">
+        <TooltipProvider delayDuration={200}>
+          {PROJECT_STAGES.map((stage, idx) => {
+            const meta = STAGE_META[stage];
+            const Icon = meta.icon;
 
-              // Backend stages are achievements (SUMMARIZED = summary done).
-              // The stepper should show achieved stages as completed and
-              // highlight the NEXT action — not the achievement itself.
-              //
-              // "Action" stages (DRAFTING, BUILDING) are in-progress work,
-              // so they show as the current focus. "Milestone" stages
-              // (SUMMARIZED, ARCHITECTED, PACKAGED, BUNDLED) mean the work
-              // is done, so the dot is checked and the next dot is active.
-              const isActionStage =
-                currentStage === "DRAFTING" || currentStage === "BUILDING";
-              const isTerminal = currentStage === "BUNDLED";
+            const isCompleted = idx < currentIdx;
+            const isCurrent = idx === currentIdx;
+            const isNext = idx === currentIdx + 1;
 
-              const isCompleted = isActionStage
-                ? idx < currentIdx
-                : idx <= currentIdx;
-
-              const isCurrent = isTerminal
-                ? false
-                : isActionStage
-                  ? idx === currentIdx
-                  : idx === currentIdx + 1 && idx < PROJECT_STAGES.length;
-
-              return (
-                <div key={stage} className="flex items-center">
-                  {idx > 0 && (
-                    <div
-                      className={`h-px w-4 sm:w-8 mx-0.5 transition-colors ${
-                        isCompleted ? "bg-primary" : "bg-border"
-                      }`}
-                    />
-                  )}
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <div
-                        className={`flex items-center gap-1.5 px-2 py-1 rounded-full text-xs font-medium transition-colors ${
-                          isCompleted
-                            ? "bg-primary/10 text-primary"
-                            : isCurrent
-                              ? "bg-primary text-primary-foreground"
-                              : "bg-muted text-muted-foreground/50"
-                        }`}
-                      >
-                        {isCompleted ? (
-                          <Check className="h-3 w-3" />
-                        ) : isCurrent ? (
-                          <Icon className="h-3 w-3" />
-                        ) : (
-                          <Circle className="h-3 w-3" />
-                        )}
-                        <span className="hidden sm:inline">{meta.shortLabel}</span>
+            return (
+              <div key={stage} className="flex items-center">
+                {idx > 0 && (
+                  <div className="relative h-px w-3 sm:w-6 mx-0.5">
+                    <div className={`absolute inset-0 ${
+                      isCompleted || isCurrent ? "bg-primary" : "bg-border"
+                    }`} />
+                    {isNext && (
+                      <div className="absolute inset-0 overflow-hidden">
+                        <div className="absolute inset-y-0 left-0 bg-primary animate-progress-pulse" />
                       </div>
-                    </TooltipTrigger>
-                    <TooltipContent side="bottom">
-                      <p className="font-medium">{meta.label}</p>
-                      <p className="text-xs text-muted-foreground">{meta.description}</p>
-                    </TooltipContent>
-                  </Tooltip>
-                </div>
-              );
-            })}
-          </TooltipProvider>
-        </div>
-
-        {/* Action row: checks + CTA */}
-        <div className="flex items-center justify-between gap-4">
-          {/* Gate checks */}
-          <div className="flex items-center gap-3 text-xs overflow-x-auto">
-            {stageStatus?.checks.map((check, i) => (
-              <CheckPill key={i} check={check} />
-            ))}
-          </div>
-
-          {/* CTA */}
-          <div className="shrink-0">
-            {renderAction()}
-          </div>
-        </div>
-
-        {error && (
-          <p className="text-xs text-destructive mt-1">{error}</p>
-        )}
+                    )}
+                  </div>
+                )}
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <div
+                      className={`flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[11px] font-medium transition-colors ${
+                        isCompleted
+                          ? "bg-primary/10 text-primary"
+                          : isCurrent
+                            ? "bg-primary text-primary-foreground"
+                            : "bg-muted text-muted-foreground/50"
+                      }`}
+                    >
+                      {isCompleted ? (
+                        <Check className="h-2.5 w-2.5" />
+                      ) : isCurrent ? (
+                        <Icon className="h-2.5 w-2.5" />
+                      ) : (
+                        <Circle className="h-2.5 w-2.5" />
+                      )}
+                      <span className="hidden sm:inline">{meta.shortLabel}</span>
+                    </div>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom" className="p-3 bg-slate-900 border-slate-700">
+                    <p className="font-semibold text-white mb-1">{meta.label}</p>
+                    {checks[stage].length > 0 ? (
+                      <ul className="space-y-1">
+                        {checks[stage].map((check, i) => (
+                          <li key={i} className="flex items-center gap-2 text-sm">
+                            {check.passed ? (
+                              <CheckCircle2 className="h-3.5 w-3.5 text-green-400 shrink-0" />
+                            ) : (
+                              <XCircle className="h-3.5 w-3.5 text-red-400 shrink-0" />
+                            )}
+                            <span className="text-white">{check.label}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="text-sm text-white/80">{meta.description}</p>
+                    )}
+                  </TooltipContent>
+                </Tooltip>
+              </div>
+            );
+          })}
+        </TooltipProvider>
       </div>
+
+      {/* Action button group: main button + dropdown for more options */}
+      {isStreaming ? (
+        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          <span className="hidden sm:inline">Working...</span>
+        </div>
+      ) : actions.length > 0 ? (
+        <div className="flex items-center">
+          {/* Main action button - clicking executes primary action directly */}
+          {primaryAction && (
+            <Button
+              variant={primaryAction.variant === "primary" ? "default" : "outline"}
+              className="h-9 gap-2 px-4 text-sm rounded-r-none border-r-0 cursor-pointer whitespace-nowrap"
+              onClick={primaryAction.onClick}
+            >
+              {primaryAction.variant === "primary" ? (
+                <Play className="h-4 w-4" />
+              ) : (
+                <RefreshCw className="h-4 w-4" />
+              )}
+              {primaryAction.label}
+            </Button>
+          )}
+          {/* Dropdown trigger for additional actions */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant={primaryAction?.variant === "primary" ? "default" : "outline"}
+                className="h-9 px-2 rounded-l-none cursor-pointer"
+              >
+                <ChevronDown className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-64">
+              {actions.map((action, idx) => {
+                const ActionIcon = action.icon;
+                return (
+                  <DropdownMenuItem
+                    key={idx}
+                    onClick={action.onClick}
+                    className={`cursor-pointer ${action.variant === "primary" ? "font-medium" : ""}`}
+                  >
+                    <ActionIcon className="h-4 w-4 mr-2" />
+                    {action.label}
+                    {action.variant === "primary" && (
+                      <span className="ml-auto text-[10px] text-muted-foreground">Next</span>
+                    )}
+                  </DropdownMenuItem>
+                );
+              })}
+
+              {/* Download/Publish when bundled */}
+              {hasDab && (onDownloadDAB || onPublishTemplate) && (
+                <>
+                  <DropdownMenuSeparator />
+                  {onDownloadDAB && (
+                    <DropdownMenuItem onClick={onDownloadDAB} className="cursor-pointer">
+                      <Download className="h-4 w-4 mr-2" />
+                      Download ZIP
+                    </DropdownMenuItem>
+                  )}
+                  {onPublishTemplate && (
+                    <DropdownMenuItem onClick={onPublishTemplate} className="cursor-pointer">
+                      <Upload className="h-4 w-4 mr-2" />
+                      Publish as Template
+                    </DropdownMenuItem>
+                  )}
+                </>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      ) : null}
     </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Check pill — small indicator for each gate check
-// ---------------------------------------------------------------------------
-
-function CheckPill({ check }: { check: StageCheck }) {
-  return (
-    <TooltipProvider delayDuration={200}>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <div
-            className={`flex items-center gap-1 whitespace-nowrap ${
-              check.passed ? "text-green-600 dark:text-green-400" : "text-muted-foreground"
-            }`}
-          >
-            {check.passed ? (
-              <CheckCircle className="h-3 w-3 shrink-0" />
-            ) : (
-              <AlertCircle className="h-3 w-3 shrink-0" />
-            )}
-            <span>{check.label}</span>
-          </div>
-        </TooltipTrigger>
-        {check.detail && (
-          <TooltipContent side="bottom">
-            <p className="text-xs">{check.detail}</p>
-          </TooltipContent>
-        )}
-      </Tooltip>
-    </TooltipProvider>
   );
 }

@@ -26,6 +26,7 @@ from ..models import (
 )
 from ..services.llm_service import LLMService
 from ..services.template_service import TemplateService
+from .projects import _find_shared_warehouse, _generate_schema_name, DEFAULT_CATALOG
 
 router = create_router()
 
@@ -433,6 +434,10 @@ def create_project_from_template(
     if template.status != "APPROVED":
         raise HTTPException(status_code=400, detail="Template is not approved")
 
+    # Find default resources (same as regular project creation)
+    warehouse_id, warehouse_name = _find_shared_warehouse(ws)
+    default_schema = _generate_schema_name(body.name)
+
     template_service = _get_template_service(ws, config, request.app.state.engine)
 
     try:
@@ -441,6 +446,10 @@ def create_project_from_template(
             project_name=body.name,
             user_email=user_email,
             session=session,
+            warehouse_id=warehouse_id,
+            warehouse_name=warehouse_name,
+            default_catalog=DEFAULT_CATALOG,
+            default_schema=default_schema,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -600,6 +609,10 @@ def open_template_project(
     if template.owner_email != user_email:
         raise HTTPException(status_code=403, detail="Only the template owner can edit it")
 
+    # Find default resources (same as regular project creation)
+    warehouse_id, warehouse_name = _find_shared_warehouse(ws)
+    default_schema = _generate_schema_name(template.name)
+
     template_service = _get_template_service(ws, config, request.app.state.engine)
 
     try:
@@ -607,6 +620,10 @@ def open_template_project(
             template_id=template_id,
             user_email=user_email,
             session=session,
+            warehouse_id=warehouse_id,
+            warehouse_name=warehouse_name,
+            default_catalog=DEFAULT_CATALOG,
+            default_schema=default_schema,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

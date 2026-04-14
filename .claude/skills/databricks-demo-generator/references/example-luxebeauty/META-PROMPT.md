@@ -14,11 +14,17 @@ I have a set of instruction files in the `instructions/` folder that describe a 
 
 **Phase 3 - Implement**: Work through the task list one by one:
 - **IMPORTANT - Check skills first**: Before starting each task, list your available skills and check if any are relevant (e.g., data generation, pipelines, dashboards, Genie, agents). If a relevant skill exists, read it first for patterns and best practices.
-- Create all files locally first (Python scripts, SQL files, configs)
+- **IMPORTANT - Write all files to the project folder first** (Python scripts, SQL files, configs). This keeps everything tracked, backed up, and exportable. The folder structure below shows where each file type goes.
 - Upload to Databricks (volumes for data, workspace for code)
 - Create Databricks resources via APIs (not DAB)
 - Validate after each step that creates data or tables
 - If validation fails, fix the issue before moving to the next task
+
+**Why write locally first?**
+- All files are automatically tracked and backed up to the database
+- You can iterate on code locally before deploying
+- Later you can export everything as a DAB (Databricks Asset Bundle) or push to git
+- Clean state for reproducibility - rebuild from source at any time
 
 **Phase 4 - Test End-to-End**: Test the full demo flow as described in the walkthrough. Verify all components interact correctly. Fix any issues.
 
@@ -57,25 +63,34 @@ Before starting, verify:
 
 ## Local Project Structure
 
-Create this folder structure locally, then deploy to Databricks:
+**Write all files to this project folder** (the folder containing this META-PROMPT.md). This structure is automatically tracked and backed up:
 
 ```
-luxebeauty_demo/
-├── data_generation/
-│   └── generate_data.py              # Script to generate synthetic parquet files
-├── documents/
-│   └── generate_incident_pdf.py      # Script to generate the incident report PDF
-├── pipeline/
-│   ├── transformations/
-│   │   ├── 01_bronze_ingestion.sql   # Bronze layer: raw parquet ingestion
-│   │   ├── 02_silver_transformation.sql # Silver layer: joins and enrichment
-│   │   └── 03_gold_aggregation.sql   # Gold layer: aggregations for analytics
-│   └── exploration/
-│       └── exploration_notebook.py   # Notebook to verify raw data
-└── instructions/                     # These instruction files (for reference)
+./                                    # Project root (this folder)
+├── README.md                         # Demo story and walkthrough
+├── architecture.md                   # Architecture diagram schema (JSON)
+├── META-PROMPT.md                    # This file - build instructions
+├── instructions/                     # Detailed specs for each component
+│   ├── resources.json                # Tracks created Databricks resource IDs
+│   └── *.md                          # Component-specific instructions
+├── src/
+│   ├── data_generation/
+│   │   └── generate_data.py          # Script to generate synthetic parquet files
+│   ├── documents/
+│   │   └── generate_docs.py          # Script to generate PDFs/documents
+│   └── pipeline/
+│       ├── 01_bronze_ingestion.sql   # Bronze layer: raw parquet ingestion
+│       ├── 02_silver_transformation.sql # Silver layer: joins and enrichment
+│       └── 03_gold_aggregation.sql   # Gold layer: aggregations for analytics
+└── databricks.yml                    # (Optional) DAB bundle config for deployment
 ```
 
-**Workflow**: Write code locally → Upload to Databricks → Create resources via APIs → Validate.
+**Workflow**: Write code to project folder → Upload to Databricks → Create resources via APIs → Validate.
+
+Files written here are:
+1. **Tracked** - Automatically synced to the database as you write them
+2. **Versioned** - Changes are preserved, enabling iteration
+3. **Exportable** - Download as ZIP, create a DAB bundle, or push to git
 
 ---
 

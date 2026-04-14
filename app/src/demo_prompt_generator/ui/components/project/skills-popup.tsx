@@ -2,7 +2,7 @@
  * Skills popup component - displays available skills in a sheet panel.
  */
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, lazy, Suspense } from "react";
 import {
   Sheet,
   SheetContent,
@@ -24,8 +24,7 @@ import {
   Eye,
   Terminal,
 } from "lucide-react";
-import Markdown from "react-markdown";
-import remarkGfm from "remark-gfm";
+import { Prose } from "@/components/markdown-prose";
 import {
   getProjectSkills,
   getSkillFiles,
@@ -36,6 +35,9 @@ import {
   type SkillFile,
 } from "@/lib/custom-api";
 import { cn } from "@/lib/utils";
+
+// Lazy load Monaco editor for code files
+const CodeViewer = lazy(() => import("./code-viewer").then(m => ({ default: m.CodeViewer })));
 
 interface SkillsPopupProps {
   projectId: string;
@@ -150,9 +152,11 @@ export function SkillsPopup({ projectId, isOpen, onClose }: SkillsPopupProps) {
   // Check if system prompt is selected
   const isSystemPromptSelected = selectedFile?.skill === SYSTEM_PROMPT_MARKER;
 
-  // Check if current file is markdown
+  // Check if current file is markdown (including system prompt which is markdown)
   const isMarkdownFile = useMemo(() => {
-    if (!selectedFile || isSystemPromptSelected) return false;
+    if (!selectedFile) return false;
+    // System prompt is always markdown
+    if (isSystemPromptSelected) return true;
     return selectedFile.path.endsWith(".md");
   }, [selectedFile, isSystemPromptSelected]);
 
@@ -406,6 +410,7 @@ export function SkillsPopup({ projectId, isOpen, onClose }: SkillsPopupProps) {
                     ? "SYSTEM_PROMPT"
                     : `${selectedFile.skill}/${selectedFile.path}`}
                 </p>
+                {/* Show toggle for all markdown files including system prompt */}
                 {isMarkdownFile && (
                   <div className="flex items-center gap-1 bg-muted rounded-md p-0.5 flex-shrink-0 ml-2">
                     <Button
@@ -434,15 +439,21 @@ export function SkillsPopup({ projectId, isOpen, onClose }: SkillsPopupProps) {
             {/* Scrollable content area */}
             <ScrollArea className="flex-1">
               {isSystemPromptSelected ? (
-                // System prompt content
+                // System prompt content - supports Preview/Raw toggle
                 isLoadingPrompt ? (
                   <div className="flex items-center justify-center py-8">
                     <RefreshCw className="h-6 w-6 animate-spin text-muted-foreground" />
                   </div>
+                ) : !showRaw ? (
+                  <Prose>{systemPrompt}</Prose>
                 ) : (
-                  <pre className="text-xs bg-muted/50 p-4 rounded-md overflow-x-auto whitespace-pre-wrap font-mono">
-                    {systemPrompt}
-                  </pre>
+                  <Suspense fallback={
+                    <div className="flex items-center justify-center h-32 bg-muted/30 rounded-lg">
+                      <div className="animate-spin h-5 w-5 border-2 border-primary border-t-transparent rounded-full" />
+                    </div>
+                  }>
+                    <CodeViewer content={systemPrompt} filename="SYSTEM_PROMPT.md" />
+                  </Suspense>
                 )
               ) : isLoadingFile ? (
                 <div className="flex items-center justify-center py-8">
@@ -451,13 +462,15 @@ export function SkillsPopup({ projectId, isOpen, onClose }: SkillsPopupProps) {
               ) : selectedFile ? (
                 <div>
                   {isMarkdownFile && !showRaw ? (
-                    <div className="prose prose-sm dark:prose-invert max-w-none prose-headings:mt-4 prose-headings:mb-2 prose-p:my-2 prose-pre:bg-muted prose-pre:text-xs prose-code:text-xs prose-code:bg-muted prose-code:px-1 prose-code:py-0.5 prose-code:rounded">
-                      <Markdown remarkPlugins={[remarkGfm]}>{fileContent}</Markdown>
-                    </div>
+                    <Prose>{fileContent}</Prose>
                   ) : (
-                    <pre className="text-xs bg-muted/50 p-4 rounded-md overflow-x-auto whitespace-pre-wrap font-mono">
-                      {fileContent}
-                    </pre>
+                    <Suspense fallback={
+                      <div className="flex items-center justify-center h-32 bg-muted/30 rounded-lg">
+                        <div className="animate-spin h-5 w-5 border-2 border-primary border-t-transparent rounded-full" />
+                      </div>
+                    }>
+                      <CodeViewer content={fileContent} filename={selectedFile.path} />
+                    </Suspense>
                   )}
                 </div>
               ) : (

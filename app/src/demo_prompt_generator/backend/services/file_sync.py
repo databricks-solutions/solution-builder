@@ -256,6 +256,10 @@ class FileSyncService:
         if file_path.exists():
             try:
                 return file_path.read_text()
+            except UnicodeDecodeError:
+                # Binary file - return base64 encoded
+                import base64
+                return base64.b64encode(file_path.read_bytes()).decode("ascii")
             except Exception as e:
                 logger.warning(f"Failed to read local file {relative_path}: {e}")
 
@@ -271,6 +275,10 @@ class FileSyncService:
                 try:
                     content = decompress_content(file_record.content_compressed)
                     return content.decode("utf-8")
+                except UnicodeDecodeError:
+                    # Binary file - return base64 encoded
+                    import base64
+                    return base64.b64encode(content).decode("ascii")
                 except Exception as e:
                     logger.error(f"Failed to decompress {relative_path}: {e}")
             return None

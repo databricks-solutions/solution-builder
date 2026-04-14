@@ -14,31 +14,18 @@ export type ProjectStage =
   | "DRAFTING"
   | "SUMMARIZED"
   | "ARCHITECTED"
-  | "BUILDING"
-  | "PACKAGED"
+  | "SPECIFICATION"
+  | "BUILT"
   | "BUNDLED";
 
 export const PROJECT_STAGES: ProjectStage[] = [
   "DRAFTING",
   "SUMMARIZED",
   "ARCHITECTED",
-  "BUILDING",
-  "PACKAGED",
+  "SPECIFICATION",
+  "BUILT",
   "BUNDLED",
 ];
-
-export interface StageCheck {
-  label: string;
-  passed: boolean;
-  detail: string | null;
-}
-
-export interface ProjectStageStatus {
-  current_stage: ProjectStage;
-  checks: StageCheck[];
-  can_advance: boolean;
-  next_stage: ProjectStage | null;
-}
 
 export interface Project {
   id: string;
@@ -227,31 +214,6 @@ export async function syncProject(projectId: string): Promise<SyncStats> {
     method: "POST",
   });
   if (!resp.ok) throw new Error(`Failed to sync project: ${resp.status}`);
-  return resp.json();
-}
-
-// ---------------------------------------------------------------------------
-// Stage Pipeline API
-// ---------------------------------------------------------------------------
-
-export async function getProjectStageStatus(
-  projectId: string
-): Promise<ProjectStageStatus> {
-  const resp = await fetch(apiUrl(`/api/projects/${projectId}/stage-status`));
-  if (!resp.ok) throw new Error(`Failed to get stage status: ${resp.status}`);
-  return resp.json();
-}
-
-export async function advanceProjectStage(
-  projectId: string
-): Promise<ProjectStageStatus> {
-  const resp = await fetch(apiUrl(`/api/projects/${projectId}/advance-stage`), {
-    method: "POST",
-  });
-  if (!resp.ok) {
-    const body = await resp.json().catch(() => ({}));
-    throw new Error(body.detail || `Failed to advance stage: ${resp.status}`);
-  }
   return resp.json();
 }
 

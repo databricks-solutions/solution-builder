@@ -7,26 +7,27 @@ import React, { memo, useState, useMemo, useEffect, lazy, Suspense } from "react
 import { ScrollArea } from "../ui/scroll-area";
 import { Prose } from "../markdown-prose";
 import { Skeleton } from "../ui/skeleton";
+import { ChevronRight, ChevronDown, ChevronLeft, Folder, FolderOpen, FileText, FileCode, Braces, Settings, File, Sparkles, RefreshCw, Network, Database, Eye, Code, Server, Boxes } from "lucide-react";
 import { Button } from "../ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "../ui/dialog";
-import { ChevronRight, ChevronDown, ChevronLeft, Folder, FolderOpen, FileText, FileCode, Braces, Settings, File, Sparkles, RefreshCw, Network, Database, Package, Download, AlertCircle, CheckCircle } from "lucide-react";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../ui/tooltip";
 import type { ProjectFile, ProjectFileContent } from "../../lib/custom-api";
 
 // Lazy load the architecture diagram to avoid loading ReactFlow on every page
 const ArchitectureDiagram = lazy(() => import("./architecture-diagram"));
+
+// Lazy load Monaco editor for code files
+const CodeViewer = lazy(() => import("./code-viewer").then(m => ({ default: m.CodeViewer })));
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
 type ViewTab = "readme" | "architecture" | "files";
+
+interface ResourcesInfo {
+  warehouseName?: string | null;
+  catalog?: string | null;
+  schema?: string | null;
+}
 
 interface FileViewerProps {
   files: ProjectFile[];
@@ -42,12 +43,8 @@ interface FileViewerProps {
   onCreateArchitecture?: () => void;
   onArchitectureConnectionCreated?: (from: string, to: string) => void;
   isStreaming?: boolean; // Whether the agent is currently working
-  onPackageAsDAB?: () => void; // Callback to trigger DAB packaging
-  onUpdateDAB?: () => void; // Callback to update existing DAB
-  dabInstructions?: string | null; // Content of dab_instructions.md
-  onDownloadDAB?: () => void; // Callback to download DAB as zip
-  isPackagingDAB?: boolean; // Whether the agent is currently packaging DAB
-  dabValidationError?: string | null; // Validation error if DAB is invalid
+  resources?: ResourcesInfo;
+  onResourcesClick?: () => void;
 }
 
 interface TreeNode {
@@ -118,19 +115,22 @@ const FileItem = memo(function FileItem({
   const extension = file.name.split(".").pop()?.toLowerCase() || "";
   const icon = getFileIcon(extension);
 
+  // Extra padding to align with folder icon (accounts for missing chevron: 14px icon + 6px gap)
+  const chevronOffset = depth > 0 ? 20 : 0;
+
   return (
     <button
       onClick={onClick}
-      className={`w-full flex items-center gap-2 px-2 py-1.5 text-sm text-left rounded-md transition-colors cursor-pointer ${
+      className={`w-full flex items-center gap-1.5 px-1.5 py-1 text-sm text-left rounded transition-colors cursor-pointer ${
         isSelected
           ? "bg-primary/10 text-primary font-medium"
           : "hover:bg-muted/80 text-foreground/80"
       }`}
-      style={{ paddingLeft: `${depth * 12 + 8}px` }}
+      style={{ paddingLeft: `${depth * 10 + 6 + chevronOffset}px` }}
       title={file.path}
     >
       <span className="shrink-0">{icon}</span>
-      <span className="truncate flex-1 text-sm">{file.name}</span>
+      <span className="truncate flex-1">{file.name}</span>
     </button>
   );
 });
@@ -171,24 +171,24 @@ const FolderItem = memo(function FolderItem({
     <div>
       <button
         onClick={() => setIsExpanded(!isExpanded)}
-        className="w-full flex items-center gap-2 px-2 py-1.5 text-sm text-left rounded-md transition-colors cursor-pointer hover:bg-muted/80 text-foreground/90"
-        style={{ paddingLeft: `${depth * 12 + 8}px` }}
+        className="w-full flex items-center gap-1.5 px-1.5 py-1 text-sm text-left rounded transition-colors cursor-pointer hover:bg-muted/80 text-foreground/90"
+        style={{ paddingLeft: `${depth * 10 + 6}px` }}
       >
         <span className="shrink-0 text-muted-foreground">
           {isExpanded ? (
-            <ChevronDown className="h-4 w-4" />
+            <ChevronDown className="h-3.5 w-3.5" />
           ) : (
-            <ChevronRight className="h-4 w-4" />
+            <ChevronRight className="h-3.5 w-3.5" />
           )}
         </span>
         <span className="shrink-0 text-amber-500/80">
           {isExpanded ? (
-            <FolderOpen className="h-4 w-4" />
+            <FolderOpen className="h-3.5 w-3.5" />
           ) : (
-            <Folder className="h-4 w-4" />
+            <Folder className="h-3.5 w-3.5" />
           )}
         </span>
-        <span className="truncate flex-1 text-sm font-medium">{name}</span>
+        <span className="truncate flex-1 font-medium">{name}</span>
         <span className="text-xs text-muted-foreground/60 shrink-0">
           {childNodes.length}
         </span>
@@ -442,30 +442,16 @@ const ExpandedSidebar = memo(function ExpandedSidebar({
 interface TabBarProps {
   activeTab: ViewTab;
   onTabChange: (tab: ViewTab) => void;
-  canPackageAsDAB: boolean;
-  hasDAB: boolean;
-  onPackageAsDAB?: () => void;
-  onDownloadDABClick?: () => void;
-  isStreaming?: boolean;
-  isPackagingDAB?: boolean;
-  dabValidationError?: string | null;
+  resources?: ResourcesInfo;
+  onResourcesClick?: () => void;
 }
 
 const TabBar = memo(function TabBar({
   activeTab,
   onTabChange,
-  canPackageAsDAB,
-  hasDAB,
-  onPackageAsDAB,
-  onDownloadDABClick,
-  isStreaming = false,
-  isPackagingDAB = false,
-  dabValidationError,
+  resources,
+  onResourcesClick,
 }: TabBarProps) {
-  const isPackageDisabled = !canPackageAsDAB || isStreaming || isPackagingDAB;
-  const isDownloadDisabled = isStreaming || isPackagingDAB;
-  const hasValidDAB = hasDAB && !dabValidationError;
-
   return (
     <div className="shrink-0 border-b border-border bg-muted/30">
       <div className="flex items-center justify-between px-4 py-2">
@@ -500,77 +486,33 @@ const TabBar = memo(function TabBar({
           </button>
         </div>
 
-        {/* Right side: DAB button - changes based on state */}
-        <TooltipProvider>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              {isPackagingDAB ? (
-                <button
-                  disabled
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-medium text-muted-foreground/50 cursor-not-allowed"
-                >
-                  <div className="animate-spin h-4 w-4 border-2 border-primary border-t-transparent rounded-full" />
-                  Packaging DAB...
-                </button>
-              ) : hasValidDAB ? (
-                <button
-                  onClick={isDownloadDisabled ? undefined : onDownloadDABClick}
-                  disabled={isDownloadDisabled}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-medium transition-colors ${
-                    isDownloadDisabled
-                      ? "text-muted-foreground/50 cursor-not-allowed"
-                      : "bg-green-500/10 text-green-600 hover:bg-green-500/20 cursor-pointer"
-                  }`}
-                >
-                  <Download className="h-4 w-4" />
-                  Download the DAB
-                </button>
-              ) : hasDAB && dabValidationError ? (
-                <button
-                  onClick={isPackageDisabled ? undefined : onPackageAsDAB}
-                  disabled={isPackageDisabled}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-medium transition-colors ${
-                    isPackageDisabled
-                      ? "text-muted-foreground/50 cursor-not-allowed"
-                      : "bg-red-500/10 text-red-600 hover:bg-red-500/20 cursor-pointer"
-                  }`}
-                >
-                  <AlertCircle className="h-4 w-4" />
-                  Repackage DAB
-                </button>
-              ) : (
-                <button
-                  onClick={isPackageDisabled ? undefined : onPackageAsDAB}
-                  disabled={isPackageDisabled}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-medium transition-colors ${
-                    isPackageDisabled
-                      ? "text-muted-foreground/50 cursor-not-allowed"
-                      : "bg-primary/10 text-primary hover:bg-primary/20 cursor-pointer"
-                  }`}
-                >
-                  <Package className="h-4 w-4" />
-                  Package as DAB
-                </button>
-              )}
-            </TooltipTrigger>
-            {isPackagingDAB ? (
-              <TooltipContent side="bottom">
-                <p>The agent is creating your Databricks Asset Bundle...</p>
-              </TooltipContent>
-            ) : dabValidationError ? (
-              <TooltipContent side="bottom">
-                <p>{dabValidationError}</p>
-              </TooltipContent>
-            ) : (hasValidDAB ? isDownloadDisabled : isPackageDisabled) ? (
-              <TooltipContent side="bottom">
-                <p>{isStreaming
-                  ? "Wait for the agent to finish working"
-                  : "Ask the assistant to build the demo before being able to package it as a DAB"
-                }</p>
-              </TooltipContent>
-            ) : null}
-          </Tooltip>
-        </TooltipProvider>
+        {/* Right side: Resource pills */}
+        {resources && (
+          <div className="flex items-center gap-2">
+            {resources.warehouseName && (
+              <button
+                onClick={onResourcesClick}
+                className="flex items-center gap-1.5 text-sm bg-muted hover:bg-muted/80 rounded-md px-2.5 py-1 transition-colors cursor-pointer"
+                title={`Warehouse: ${resources.warehouseName}`}
+              >
+                <Server className="h-3.5 w-3.5 text-muted-foreground" />
+                <span className="truncate max-w-[150px]">{resources.warehouseName}</span>
+              </button>
+            )}
+            {(resources.catalog || resources.schema) && (
+              <button
+                onClick={onResourcesClick}
+                className="flex items-center gap-1.5 text-sm bg-muted hover:bg-muted/80 rounded-md px-2.5 py-1 transition-colors cursor-pointer"
+                title={`${resources.catalog || "default"}.${resources.schema || "default"}`}
+              >
+                <Boxes className="h-3.5 w-3.5 text-muted-foreground" />
+                <span className="truncate max-w-[200px]">
+                  {resources.catalog || "default"}.{resources.schema || "default"}
+                </span>
+              </button>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -594,37 +536,18 @@ export const FileViewer = memo(function FileViewer({
   onCreateArchitecture,
   onArchitectureConnectionCreated,
   isStreaming = false,
-  onPackageAsDAB,
-  onUpdateDAB,
-  dabInstructions,
-  onDownloadDAB,
-  isPackagingDAB = false,
-  dabValidationError,
+  resources,
+  onResourcesClick,
 }: FileViewerProps) {
   const [isSidebarExpanded, setIsSidebarExpanded] = useState(false);
   const [activeTab, setActiveTab] = useState<ViewTab>("readme");
-  const [isDABDialogOpen, setIsDABDialogOpen] = useState(false);
+  const [showRaw, setShowRaw] = useState(false);
 
   // Check if architecture.md exists
   const hasArchitecture = useMemo(
     () => files.some((f) => f.path === "architecture.md"),
     [files]
   );
-
-  // Check if databricks.yml exists (DAB has been created)
-  const hasDAB = useMemo(
-    () => files.some((f) => f.path === "databricks.yml"),
-    [files]
-  );
-
-  // Check if project has enough .sql or .py files to be packaged as DAB
-  const canPackageAsDAB = useMemo(() => {
-    const codeFiles = files.filter(
-      (f) => f.path.endsWith(".sql") || f.path.endsWith(".py")
-    );
-    return codeFiles.length >= 2; // At least 2 code files
-  }, [files]);
-
 
   // Load architecture content when tab changes (if file exists)
   useEffect(() => {
@@ -651,7 +574,16 @@ export const FileViewer = memo(function FileViewer({
     }
   }, [activeTab, files, selectedFile, onSelectFile]);
 
+  // Check if file is renderable (markdown, HTML, or PDF)
   const isMarkdown = selectedFile?.endsWith(".md");
+  const isHtml = selectedFile?.endsWith(".html") || selectedFile?.endsWith(".htm");
+  const isPdf = selectedFile?.endsWith(".pdf");
+  const isRenderable = isMarkdown || isHtml || isPdf;
+
+  // Reset showRaw when changing files (default to preview mode)
+  useEffect(() => {
+    setShowRaw(false);
+  }, [selectedFile]);
 
   // Handle tab change
   const handleTabChange = (tab: ViewTab) => {
@@ -671,13 +603,8 @@ export const FileViewer = memo(function FileViewer({
       <TabBar
         activeTab={activeTab}
         onTabChange={handleTabChange}
-        canPackageAsDAB={canPackageAsDAB}
-        hasDAB={hasDAB}
-        onPackageAsDAB={onPackageAsDAB}
-        onDownloadDABClick={() => setIsDABDialogOpen(true)}
-        isStreaming={isStreaming}
-        isPackagingDAB={isPackagingDAB}
-        dabValidationError={dabValidationError}
+        resources={resources}
+        onResourcesClick={onResourcesClick}
       />
 
       {/* Content area */}
@@ -764,139 +691,94 @@ export const FileViewer = memo(function FileViewer({
                 <p className="text-xs mt-1">Generating automatically...</p>
               </div>
             </div>
+          ) : isLoading ? (
+            <div className="flex-1 p-6">
+              <div className="space-y-3">
+                <Skeleton className="h-4 w-3/4" />
+                <Skeleton className="h-4 w-1/2" />
+                <Skeleton className="h-4 w-5/6" />
+                <Skeleton className="h-4 w-2/3" />
+              </div>
+            </div>
+          ) : !selectedFile ? (
+            <div className="flex-1 flex items-center justify-center">
+              <div className="text-center text-muted-foreground py-12">
+                <FileEmptyIcon className="h-12 w-12 mx-auto mb-3 opacity-50" />
+                <p className="text-sm">Select a file to view its contents</p>
+              </div>
+            </div>
+          ) : !fileContent ? (
+            <div className="flex-1 flex items-center justify-center">
+              <div className="text-center text-muted-foreground py-12">
+                <p className="text-sm">File not found</p>
+              </div>
+            </div>
           ) : (
-          <ScrollArea className="flex-1">
-            <div className="p-6">
-              {isLoading ? (
-                <div className="space-y-3">
-                  <Skeleton className="h-4 w-3/4" />
-                  <Skeleton className="h-4 w-1/2" />
-                  <Skeleton className="h-4 w-5/6" />
-                  <Skeleton className="h-4 w-2/3" />
+            <div className="flex-1 flex flex-col min-h-0">
+              {/* Header with Preview/Raw toggle for renderable files (not PDF) */}
+              {isRenderable && !isPdf && (
+                <div className="shrink-0 px-4 py-2 border-b border-border flex items-center justify-between bg-muted/20">
+                  <span className="text-sm text-muted-foreground truncate">{selectedFile}</span>
+                  <div className="flex items-center gap-1 bg-muted rounded-md p-0.5 flex-shrink-0 ml-2">
+                    <Button
+                      variant={!showRaw ? "secondary" : "ghost"}
+                      size="sm"
+                      onClick={() => setShowRaw(false)}
+                      className="h-7 px-2 gap-1"
+                    >
+                      <Eye className="h-3.5 w-3.5" />
+                      <span className="text-xs">Preview</span>
+                    </Button>
+                    <Button
+                      variant={showRaw ? "secondary" : "ghost"}
+                      size="sm"
+                      onClick={() => setShowRaw(true)}
+                      className="h-7 px-2 gap-1"
+                    >
+                      <Code className="h-3.5 w-3.5" />
+                      <span className="text-xs">Raw</span>
+                    </Button>
+                  </div>
                 </div>
-              ) : !selectedFile ? (
-                <div className="text-center text-muted-foreground py-12">
-                  <FileEmptyIcon className="h-12 w-12 mx-auto mb-3 opacity-50" />
-                  <p className="text-sm">Select a file to view its contents</p>
-                </div>
-              ) : !fileContent ? (
-                <div className="text-center text-muted-foreground py-12">
-                  <p className="text-sm">File not found</p>
-                </div>
-              ) : isMarkdown ? (
-                <Prose>{fileContent.content}</Prose>
+              )}
+
+              {/* Content area */}
+              {isRenderable && !showRaw ? (
+                isPdf ? (
+                  <iframe
+                    src={`data:application/pdf;base64,${fileContent.content}`}
+                    className="flex-1 w-full border-0"
+                    title={selectedFile || "PDF Preview"}
+                  />
+                ) : isHtml ? (
+                  <iframe
+                    srcDoc={fileContent.content}
+                    className="flex-1 w-full border-0 bg-white"
+                    title={selectedFile || "HTML Preview"}
+                    sandbox="allow-scripts allow-same-origin"
+                  />
+                ) : (
+                  <ScrollArea className="flex-1">
+                    <div className="p-6">
+                      <Prose>{fileContent.content}</Prose>
+                    </div>
+                  </ScrollArea>
+                )
               ) : (
-                <pre className="text-sm font-mono whitespace-pre-wrap text-foreground/80 bg-muted/30 rounded-lg p-4 overflow-x-auto">
-                  {fileContent.content}
-                </pre>
+                <div className="flex-1 flex flex-col p-4 min-h-0">
+                  <Suspense fallback={
+                    <div className="flex-1 flex items-center justify-center bg-muted/30 rounded-lg">
+                      <div className="animate-spin h-5 w-5 border-2 border-primary border-t-transparent rounded-full" />
+                    </div>
+                  }>
+                    <CodeViewer content={fileContent.content} filename={selectedFile || "file.txt"} fullHeight />
+                  </Suspense>
+                </div>
               )}
             </div>
-          </ScrollArea>
           )}
         </div>
       </div>
-
-      {/* DAB Download Dialog */}
-      <Dialog open={isDABDialogOpen} onOpenChange={setIsDABDialogOpen}>
-        <DialogContent className="sm:max-w-2xl max-h-[80vh] overflow-hidden flex flex-col">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Download className="h-5 w-5" />
-              Download DAB Bundle
-            </DialogTitle>
-            <DialogDescription>
-              Download your Databricks Asset Bundle to deploy on any workspace.
-            </DialogDescription>
-          </DialogHeader>
-
-          {/* Validation status */}
-          {dabValidationError ? (
-            <div className="bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-lg p-3 flex items-start gap-3">
-              <AlertCircle className="h-5 w-5 text-red-600 dark:text-red-400 shrink-0 mt-0.5" />
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-red-800 dark:text-red-200">
-                  DAB validation failed
-                </p>
-                <p className="text-xs text-red-700 dark:text-red-300 mt-1">
-                  {dabValidationError}
-                </p>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="mt-2 text-red-700 dark:text-red-300 border-red-300 dark:border-red-700 hover:bg-red-100 dark:hover:bg-red-900/50"
-                  onClick={() => {
-                    setIsDABDialogOpen(false);
-                    onPackageAsDAB?.();
-                  }}
-                  disabled={isStreaming}
-                >
-                  Repackage DAB
-                </Button>
-              </div>
-            </div>
-          ) : (
-            <div className="bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-800 rounded-lg p-3 flex items-start gap-3">
-              <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 shrink-0 mt-0.5" />
-              <div className="flex-1 min-w-0">
-                <p className="text-sm text-green-800 dark:text-green-200">
-                  DAB validated successfully — ready to download.
-                </p>
-              </div>
-            </div>
-          )}
-
-          {/* Update notice */}
-          <div className="bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg p-3 flex items-start gap-3">
-            <AlertCircle className="h-5 w-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
-            <div className="flex-1 min-w-0">
-              <p className="text-sm text-amber-800 dark:text-amber-200">
-                If you added new assets since the last DAB generation, ask the Assistant to update your DAB.
-              </p>
-              <Button
-                variant="outline"
-                size="sm"
-                className="mt-2 text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-700 hover:bg-amber-100 dark:hover:bg-amber-900/50"
-                onClick={() => {
-                  setIsDABDialogOpen(false);
-                  onUpdateDAB?.();
-                }}
-                disabled={isStreaming}
-              >
-                Update DAB
-              </Button>
-            </div>
-          </div>
-
-          {/* Instructions content */}
-          <ScrollArea className="flex-1 min-h-0 -mx-6 px-6">
-            <div className="py-4">
-              {dabInstructions ? (
-                <Prose>{dabInstructions}</Prose>
-              ) : (
-                <div className="text-center text-muted-foreground py-8">
-                  <p className="text-sm">No deployment instructions available.</p>
-                  <p className="text-xs mt-1">Ask the assistant to create dab_instructions.md</p>
-                </div>
-              )}
-            </div>
-          </ScrollArea>
-
-          {/* Download button */}
-          <div className="pt-4 border-t border-border">
-            <Button
-              onClick={() => {
-                onDownloadDAB?.();
-                setIsDABDialogOpen(false);
-              }}
-              disabled={!!dabValidationError}
-              className="w-full gap-2"
-            >
-              <Download className="h-4 w-4" />
-              Download the DAB
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 });
@@ -908,20 +790,20 @@ export const FileViewer = memo(function FileViewer({
 function getFileIcon(extension: string): React.ReactNode {
   switch (extension) {
     case "md":
-      return <FileText className="h-4 w-4 text-blue-500/70" />;
+      return <FileText className="h-3.5 w-3.5 text-blue-500/70" />;
     case "py":
-      return <FileCode className="h-4 w-4 text-green-500/70" />;
+      return <FileCode className="h-3.5 w-3.5 text-green-500/70" />;
     case "sql":
-      return <Database className="h-4 w-4 text-orange-500/70" />;
+      return <Database className="h-3.5 w-3.5 text-orange-500/70" />;
     case "json":
-      return <Braces className="h-4 w-4 text-yellow-500/70" />;
+      return <Braces className="h-3.5 w-3.5 text-yellow-500/70" />;
     case "yaml":
     case "yml":
-      return <Settings className="h-4 w-4 text-gray-500/70" />;
+      return <Settings className="h-3.5 w-3.5 text-gray-500/70" />;
     case "txt":
-      return <File className="h-4 w-4 text-muted-foreground" />;
+      return <File className="h-3.5 w-3.5 text-muted-foreground" />;
     default:
-      return <File className="h-4 w-4 text-muted-foreground" />;
+      return <File className="h-3.5 w-3.5 text-muted-foreground" />;
   }
 }
 

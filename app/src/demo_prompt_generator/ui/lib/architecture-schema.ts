@@ -210,7 +210,7 @@ export function schemaToReactFlow(schema: ArchitectureSchema): { nodes: Node[]; 
   // Pre-compute column X positions — bar-only columns get reduced width
   const colPositions: number[] = [];
   let runningX = 0;
-  schema.columns.forEach((column, colIndex) => {
+  schema.columns.forEach((column) => {
     colPositions.push(runningX);
     // Bar-only columns (e.g. "Databricks One" vertical bar) are narrow
     const isBarOnly = column.bars && column.bars.length > 0 && (!column.nodes || column.nodes.length === 0);

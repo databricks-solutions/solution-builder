@@ -36,6 +36,23 @@ logger = logging.getLogger(__name__)
 
 PROJECTS_BASE_DIR = os.getenv("PROJECTS_BASE_DIR", "./projects")
 
+# Files to exclude from templates (dynamic/environment-specific content)
+TEMPLATE_EXCLUDED_FILES = {
+    "resources.json",               # Contains created Databricks resource IDs (root)
+    "instructions/resources.json",  # Contains created Databricks resource IDs (instructions/)
+}
+
+
+def _should_include_in_template(relative_path: str) -> bool:
+    """Check if a file should be included in a template."""
+    # Skip .claude directory
+    if relative_path.startswith(".claude/"):
+        return False
+    # Skip explicitly excluded files
+    if relative_path in TEMPLATE_EXCLUDED_FILES:
+        return False
+    return True
+
 
 def _store_embedding(session: Session, template_id: str, embedding: list[float]) -> None:
     """Store an embedding vector, gracefully skipping if pgvector is unavailable (PGLite)."""
@@ -135,7 +152,7 @@ class TemplateService:
         # Store embedding (gracefully skips on PGLite where pgvector is unavailable)
         _store_embedding(session, template_id, embedding)
 
-        # Bulk copy project files to template_content (skip .claude directory)
+        # Bulk copy project files to template_content (skip excluded files)
         template_files = [
             TemplateContent(
                 template_id=template_id,
@@ -145,7 +162,7 @@ class TemplateService:
                 file_size=f.file_size,
             )
             for f in project_files
-            if not f.relative_path.startswith(".claude/")
+            if _should_include_in_template(f.relative_path)
         ]
         session.add_all(template_files)
         session.commit()
@@ -334,6 +351,10 @@ class TemplateService:
         project_name: str,
         user_email: str,
         session: Session,
+        warehouse_id: Optional[str] = None,
+        warehouse_name: Optional[str] = None,
+        default_catalog: Optional[str] = None,
+        default_schema: Optional[str] = None,
     ) -> Project:
         """
         Create a new project from a template.
@@ -347,6 +368,10 @@ class TemplateService:
             project_name: Name for the new project
             user_email: Email of the user creating the project
             session: Database session
+            warehouse_id: Default warehouse ID
+            warehouse_name: Default warehouse name
+            default_catalog: Default catalog name
+            default_schema: Default schema name
 
         Returns:
             Created Project object
@@ -363,13 +388,17 @@ class TemplateService:
             select(TemplateContent).where(TemplateContent.template_id == template_id)
         ).all()
 
-        # Create new project
+        # Create new project with default resources
         project_id = generate_uuid()
         project = Project(
             id=project_id,
             user_email=user_email,
             name=project_name,
             description=f"Created from template: {template.name}",
+            warehouse_id=warehouse_id,
+            warehouse_name=warehouse_name,
+            default_catalog=default_catalog,
+            default_schema=default_schema,
         )
         session.add(project)
 
@@ -496,11 +525,11 @@ class TemplateService:
         # Flush deletes before inserting new content to avoid unique constraint violation
         session.flush()
 
-        # Filter files (skip .claude/) and capture README content
+        # Filter files (skip excluded) and capture README content
         readme_content = None
         filtered_files = []
         for f in project_files:
-            if f.relative_path.startswith(".claude/"):
+            if not _should_include_in_template(f.relative_path):
                 continue
             filtered_files.append(f)
             # Capture README for embedding update
@@ -546,6 +575,10 @@ class TemplateService:
         template_id: str,
         user_email: str,
         session: Session,
+        warehouse_id: Optional[str] = None,
+        warehouse_name: Optional[str] = None,
+        default_catalog: Optional[str] = None,
+        default_schema: Optional[str] = None,
     ) -> Project:
         """
         Get the source project for a template, or create a new one if it was deleted.
@@ -554,6 +587,10 @@ class TemplateService:
             template_id: Template ID
             user_email: User email (for creating new project)
             session: Database session
+            warehouse_id: Default warehouse ID (for new project)
+            warehouse_name: Default warehouse name (for new project)
+            default_catalog: Default catalog name (for new project)
+            default_schema: Default schema name (for new project)
 
         Returns:
             Existing or newly created Project
@@ -581,6 +618,10 @@ class TemplateService:
             project_name=f"Edit: {template.name}",
             user_email=user_email,
             session=session,
+            warehouse_id=warehouse_id,
+            warehouse_name=warehouse_name,
+            default_catalog=default_catalog,
+            default_schema=default_schema,
         )
 
         # Link the new project to the template

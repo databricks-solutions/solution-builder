@@ -35,9 +35,6 @@ import {
   Check,
   X,
   FileEdit,
-  Server,
-  Database,
-  Boxes,
   MessageSquare,
   PanelLeft,
 } from "lucide-react";
@@ -59,7 +56,6 @@ import {
   type Project,
   type ProjectFile,
   type ProjectFileContent,
-  type ProjectStage,
   type Message,
   type TemplateDetail,
 } from "@/lib/custom-api";
@@ -88,13 +84,7 @@ function ProjectPage() {
   const [isLoadingFile, setIsLoadingFile] = useState(false);
   const [architectureContent, setArchitectureContent] = useState<string | null>(null);
   const [isCreatingArchitecture, setIsCreatingArchitecture] = useState(false);
-  const [dabInstructions, setDabInstructions] = useState<string | null>(null);
   const [isPackagingDAB, setIsPackagingDAB] = useState(false);
-  const [dabValidationError, setDabValidationError] = useState<string | null>(null);
-
-  // Stage pipeline state
-  const [projectStage, setProjectStage] = useState<ProjectStage>("DRAFTING");
-  const [stageRefreshTrigger, setStageRefreshTrigger] = useState(0);
 
   // Chat state
   const [messages, setMessages] = useState<Message[]>([]);
@@ -179,12 +169,6 @@ function ProjectPage() {
   }, []);
 
   // Sync stage and resources from project when it loads
-  useEffect(() => {
-    if (project?.stage) {
-      setProjectStage(project.stage);
-    }
-  }, [project?.stage]);
-
   // Load resources from project when it loads (names now come from project directly)
   useEffect(() => {
     if (project) {
@@ -386,7 +370,6 @@ function ProjectPage() {
         // Refresh files (agent may have created new files)
         const fileList = await listProjectFiles(projectId);
         setFiles(fileList);
-        setStageRefreshTrigger((n) => n + 1);
 
         // Refresh current file content
         const currentFile = selectedFileRef.current;
@@ -480,7 +463,6 @@ function ProjectPage() {
         ]);
         setMessages(msgs);
         setFiles(fileList);
-        setStageRefreshTrigger((n) => n + 1);
       } catch (error) {
         if ((error as Error).name !== "AbortError") {
           console.error("Failed to reconnect to agent:", error);
@@ -584,7 +566,6 @@ function ProjectPage() {
   const handlePackageAsDAB = useCallback(() => {
     if (isPackagingDAB || isStreaming) return;
     setIsPackagingDAB(true);
-    setDabValidationError(null);
     handleSendMessage(
       "Package this project as a Databricks Asset Bundle (DAB). Follow these steps:\n\n" +
       "1. **Load the `databricks-bundles` skill** for DAB syntax, resource types, and best practices.\n" +
@@ -607,7 +588,6 @@ function ProjectPage() {
   // Handle Update DAB button click - sends message to agent to review and update
   const handleUpdateDAB = useCallback(() => {
     if (isStreaming) return;
-    setDabValidationError(null);
     handleSendMessage(
       "Update the existing DAB to include any new or changed project assets:\n\n" +
       "1. **Load the `databricks-bundles` skill** for current DAB syntax and resource types.\n" +
@@ -628,6 +608,51 @@ function ProjectPage() {
     }
   }, [projectId]);
 
+  // Handle update architecture - send message to agent
+  const handleUpdateArchitecture = useCallback(() => {
+    if (isStreaming) return;
+    handleSendMessage(
+      "Review and update the architecture.md file based on the current project state and recent discussions. " +
+      "Read the demo generator skill architecture reference for proper formatting."
+    );
+  }, [isStreaming, handleSendMessage]);
+
+  // Handle create specifications - send message to agent
+  const handleCreateSpec = useCallback(() => {
+    if (isStreaming) return;
+    handleSendMessage(
+      "Create detailed specification files in the instructions/ folder. For each major component in the architecture:\n\n" +
+      "1. Create an `instructions/<component-name>.md` file\n" +
+      "2. Include the component's purpose, inputs, outputs, and implementation details\n" +
+      "3. Reference the architecture diagram for context\n" +
+      "4. Use the demo generator skill references for proper formatting"
+    );
+  }, [isStreaming, handleSendMessage]);
+
+  // Handle update specifications - send message to agent
+  const handleUpdateSpec = useCallback(() => {
+    if (isStreaming) return;
+    handleSendMessage(
+      "Review and update the specification files in the instructions/ folder based on the current project state and recent discussions."
+    );
+  }, [isStreaming, handleSendMessage]);
+
+  // Handle build resources - send message to agent
+  const handleBuildResources = useCallback(() => {
+    if (isStreaming) return;
+    handleSendMessage(
+      "Read META-PROMPT.md and create the Databricks resources. Build all the components defined in the instructions."
+    );
+  }, [isStreaming, handleSendMessage]);
+
+  // Handle update resources - send message to agent
+  const handleUpdateResources = useCallback(() => {
+    if (isStreaming) return;
+    handleSendMessage(
+      "Review and update the Databricks resources based on the latest discussions and any specification changes. " +
+      "Ensure all code files are consistent with the current architecture and specifications."
+    );
+  }, [isStreaming, handleSendMessage]);
 
   // After streaming completes when creating architecture, load the content
   useEffect(() => {
@@ -653,60 +678,12 @@ function ProjectPage() {
     }
   }, [isCreatingArchitecture, isStreaming, files, projectId]);
 
-  // After DAB packaging streaming completes, validate the output
+  // Reset DAB packaging state when streaming completes
   useEffect(() => {
     if (isPackagingDAB && !isStreaming) {
-      const hasDAB = files.some((f) => f.path === "databricks.yml");
-      if (hasDAB) {
-        // Validate the DAB by reading and checking databricks.yml
-        getProjectFile(projectId, "databricks.yml")
-          .then((content) => {
-            const yml = content.content;
-            // Basic structural validation
-            const hasBundle = /^bundle:/m.test(yml);
-            const hasVariables = /^variables:/m.test(yml);
-            const hasTargets = /^targets:/m.test(yml);
-            if (!hasBundle) {
-              setDabValidationError("databricks.yml is missing the 'bundle:' section");
-            } else if (!hasVariables) {
-              setDabValidationError("databricks.yml is missing the 'variables:' section");
-            } else if (!hasTargets) {
-              setDabValidationError("databricks.yml is missing the 'targets:' section");
-            } else {
-              setDabValidationError(null);
-            }
-          })
-          .catch((error) => {
-            console.error("Failed to validate DAB:", error);
-            setDabValidationError("Could not read databricks.yml for validation");
-          })
-          .finally(() => {
-            setIsPackagingDAB(false);
-          });
-      } else {
-        setDabValidationError("Agent did not create databricks.yml");
-        setIsPackagingDAB(false);
-      }
+      setIsPackagingDAB(false);
     }
-  }, [isPackagingDAB, isStreaming, files, projectId]);
-
-  // Load dab_instructions.md when it exists in files
-  useEffect(() => {
-    const hasDabInstructions = files.some((f) => f.path === "dab_instructions.md");
-    if (hasDabInstructions) {
-      getProjectFile(projectId, "dab_instructions.md")
-        .then((content) => {
-          setDabInstructions(content.content);
-        })
-        .catch((error) => {
-          console.error("Failed to load DAB instructions:", error);
-          setDabInstructions(null);
-        });
-    } else {
-      setDabInstructions(null);
-    }
-  }, [files, projectId]);
-
+  }, [isPackagingDAB, isStreaming]);
 
   // Handle delete project
   const handleDeleteConfirm = useCallback(async () => {
@@ -864,111 +841,127 @@ function ProjectPage() {
 
   return (
     <div className="flex h-screen flex-col overflow-hidden">
-      {/* Header */}
+      {/* Header — single dense row */}
       <div className="shrink-0 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-        <div className="px-5 py-4 border-b border-border">
-          {/* Top line: back + actions */}
-          <div className="flex items-center justify-between mb-2">
+        <div className="px-5 py-3 border-b border-border">
+          <div className="flex items-center gap-3">
+            {/* Back button */}
             <Link to="/">
-              <Button variant="ghost" size="sm" className="gap-1.5 -ml-2">
+              <Button variant="ghost" size="sm" className="gap-1 -ml-2 h-8 px-2">
                 <ArrowLeft className="h-4 w-4" />
-                Back
+                <span className="hidden sm:inline">Back</span>
               </Button>
             </Link>
-            <div className="flex items-center gap-2 sm:gap-3">
+
+            <div className="h-5 w-px bg-border" />
+
+            {/* Project name */}
+            <div className="flex items-center gap-2 min-w-0 flex-1">
+              {isEditingName ? (
+                <div className="flex items-center gap-1.5">
+                  <Input
+                    value={editedName}
+                    onChange={(e) => setEditedName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") handleSaveName();
+                      if (e.key === "Escape") handleCancelEditName();
+                    }}
+                    className="h-8 w-full max-w-64 text-lg font-bold"
+                    autoFocus
+                    disabled={isSavingName}
+                  />
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7"
+                    onClick={handleSaveName}
+                    disabled={isSavingName || !editedName.trim()}
+                  >
+                    {isSavingName ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Check className="h-3.5 w-3.5 text-green-600" />
+                    )}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7"
+                    onClick={handleCancelEditName}
+                    disabled={isSavingName}
+                  >
+                    <X className="h-3.5 w-3.5 text-muted-foreground" />
+                  </Button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <h1 className="font-bold text-lg tracking-tight truncate">
+                    {project?.name || "Loading..."}
+                  </h1>
+                  <button
+                    onClick={handleStartEditName}
+                    className="opacity-40 hover:opacity-100 transition-opacity p-1 hover:bg-muted rounded shrink-0"
+                    title="Edit project name"
+                  >
+                    <Pencil className="h-3 w-3 text-muted-foreground" />
+                  </button>
+                  {linkedTemplate && (
+                    <Badge
+                      variant={linkedTemplate.status === "APPROVED" ? "default" : "secondary"}
+                      className="text-[10px] px-1.5 py-0 shrink-0"
+                    >
+                      {linkedTemplate.status === "REVIEW_REQUESTED" ? "Pending" : linkedTemplate.status.toLowerCase()}
+                    </Badge>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Build stepper with action dropdown */}
+            <BuildStepper
+              isStreaming={isStreaming}
+              files={files}
+              onCreateArchitecture={handleCreateArchitecture}
+              onUpdateArchitecture={handleUpdateArchitecture}
+              onCreateSpec={handleCreateSpec}
+              onUpdateSpec={handleUpdateSpec}
+              onBuildResources={handleBuildResources}
+              onUpdateResources={handleUpdateResources}
+              onPackageDAB={handlePackageAsDAB}
+              onUpdateDAB={handleUpdateDAB}
+              onDownloadDAB={handleDownloadDAB}
+              onPublishTemplate={() => setIsTemplateDialogOpen(true)}
+            />
+
+            <div className="h-5 w-px bg-border" />
+
+            {/* Action buttons */}
+            <div className="flex items-center gap-1.5">
               <Button
-                variant="outline"
-                size="default"
+                variant="ghost"
+                size="sm"
                 onClick={() => setIsTemplateDialogOpen(true)}
                 disabled={files.length === 0}
-                className="gap-2"
+                className="h-7 gap-1.5 text-xs"
                 title={linkedTemplate ? "Update Template" : "Save as Template"}
               >
                 {linkedTemplate ? (
-                  <>
-                    <FileEdit className="h-4 w-4" />
-                    <span className="hidden sm:inline">Update Template</span>
-                  </>
+                  <FileEdit className="h-3.5 w-3.5" />
                 ) : (
-                  <>
-                    <Upload className="h-4 w-4" />
-                    <span className="hidden sm:inline">Save as Template</span>
-                  </>
+                  <Upload className="h-3.5 w-3.5" />
                 )}
+                <span className="hidden sm:inline">{linkedTemplate ? "Update Template" : "Save as Template"}</span>
               </Button>
               <Button
-                variant="outline"
-                size="default"
+                variant="ghost"
+                size="sm"
                 onClick={() => setIsDeleteDialogOpen(true)}
-                className="gap-2 text-destructive border-destructive/30 hover:text-destructive hover:bg-destructive/10"
+                className="h-7 gap-1.5 text-xs text-destructive hover:text-destructive hover:bg-destructive/10"
                 title="Delete project"
               >
-                <Trash2 className="h-4 w-4" />
-                <span className="hidden sm:inline">Delete</span>
+                <Trash2 className="h-3.5 w-3.5" />
               </Button>
             </div>
-          </div>
-
-          {/* Project name — large and prominent */}
-          <div className="flex items-center gap-2">
-            {isEditingName ? (
-              <div className="flex items-center gap-1.5">
-                <Input
-                  value={editedName}
-                  onChange={(e) => setEditedName(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") handleSaveName();
-                    if (e.key === "Escape") handleCancelEditName();
-                  }}
-                  className="h-10 w-full max-w-96 text-2xl font-bold"
-                  autoFocus
-                  disabled={isSavingName}
-                />
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-9 w-9"
-                  onClick={handleSaveName}
-                  disabled={isSavingName || !editedName.trim()}
-                >
-                  {isSavingName ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Check className="h-4 w-4 text-green-600" />
-                  )}
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-9 w-9"
-                  onClick={handleCancelEditName}
-                  disabled={isSavingName}
-                >
-                  <X className="h-4 w-4 text-muted-foreground" />
-                </Button>
-              </div>
-            ) : (
-              <div className="flex items-center gap-2">
-                <h1 className="font-bold text-2xl tracking-tight">
-                  {project?.name || "Loading..."}
-                </h1>
-                <button
-                  onClick={handleStartEditName}
-                  className="opacity-50 hover:opacity-100 transition-opacity p-1.5 hover:bg-muted rounded"
-                  title="Edit project name"
-                >
-                  <Pencil className="h-4 w-4 text-muted-foreground" />
-                </button>
-                {linkedTemplate && (
-                  <Badge
-                    variant={linkedTemplate.status === "APPROVED" ? "default" : "secondary"}
-                    className="text-xs px-2 py-0.5 ml-1"
-                  >
-                    Template: {linkedTemplate.status === "REVIEW_REQUESTED" ? "Pending" : linkedTemplate.status.toLowerCase()}
-                  </Badge>
-                )}
-              </div>
-            )}
           </div>
 
           {/* Metadata row */}
@@ -1029,60 +1022,9 @@ function ProjectPage() {
               </button>
             )}
 
-            {(project?.description || isEditingDescription) && <div className="h-4 w-px bg-border" />}
-
-            {/* Resource pills */}
-            {resources.clusterName && (
-              <button
-                onClick={() => setIsResourcesOpen(true)}
-                className="flex items-center gap-1.5 text-sm bg-muted hover:bg-muted/80 rounded-md px-2.5 py-1 transition-colors cursor-pointer"
-                title={`Cluster: ${resources.clusterName}`}
-              >
-                <Server className="h-3.5 w-3.5 text-muted-foreground" />
-                <span className="truncate max-w-[150px]">{resources.clusterName}</span>
-              </button>
-            )}
-            {resources.warehouseName && (
-              <button
-                onClick={() => setIsResourcesOpen(true)}
-                className="flex items-center gap-1.5 text-sm bg-muted hover:bg-muted/80 rounded-md px-2.5 py-1 transition-colors cursor-pointer"
-                title={`Warehouse: ${resources.warehouseName}`}
-              >
-                <Database className="h-3.5 w-3.5 text-muted-foreground" />
-                <span className="truncate max-w-[150px]">{resources.warehouseName}</span>
-              </button>
-            )}
-            {(resources.catalog || resources.schema) && (
-              <button
-                onClick={() => setIsResourcesOpen(true)}
-                className="flex items-center gap-1.5 text-sm bg-muted hover:bg-muted/80 rounded-md px-2.5 py-1 transition-colors cursor-pointer"
-                title={`${resources.catalog || "default"}.${resources.schema || "default"}`}
-              >
-                <Boxes className="h-3.5 w-3.5 text-muted-foreground" />
-                <span className="truncate max-w-[180px]">
-                  {resources.catalog || "default"}.{resources.schema || "default"}
-                </span>
-              </button>
-            )}
           </div>
         </div>
       </div>
-
-      {/* Build pipeline stepper */}
-      <BuildStepper
-        projectId={projectId}
-        currentStage={projectStage}
-        isStreaming={isStreaming}
-        onStageChange={(newStage) => {
-          setProjectStage(newStage);
-          // Re-fetch project to get updated stage from backend
-          getProject(projectId).then(setProject).catch(() => {});
-        }}
-        onSendMessage={handleSendMessage}
-        onDownloadDAB={handleDownloadDAB}
-        onPublishTemplate={() => setIsTemplateDialogOpen(true)}
-        refreshTrigger={stageRefreshTrigger}
-      />
 
       {/* Mobile panel toggle */}
       <div className="md:hidden shrink-0 flex border-b border-border bg-muted/30">
@@ -1130,12 +1072,12 @@ function ProjectPage() {
             onCreateArchitecture={handleCreateArchitecture}
             onArchitectureConnectionCreated={handleArchitectureConnection}
             isStreaming={isStreaming}
-            onPackageAsDAB={handlePackageAsDAB}
-            onUpdateDAB={handleUpdateDAB}
-            dabInstructions={dabInstructions}
-            onDownloadDAB={handleDownloadDAB}
-            isPackagingDAB={isPackagingDAB}
-            dabValidationError={dabValidationError}
+            resources={{
+              warehouseName: resources.warehouseName,
+              catalog: resources.catalog,
+              schema: resources.schema,
+            }}
+            onResourcesClick={() => setIsResourcesOpen(true)}
           />
         </div>
 

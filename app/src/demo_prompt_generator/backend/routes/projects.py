@@ -23,8 +23,6 @@ from ..models import (
     ProjectShare,
     ProjectShareOut,
     ProjectShareRequest,
-    ProjectStage,
-    ProjectStageStatus,
     ProjectStar,
     ProjectUpdateRequest,
 )
@@ -34,7 +32,6 @@ from ..services.skills_manager import (
     ensure_project_skills,
     get_project_directory,
 )
-from ..services.stage_service import auto_detect_stage, get_stage_status, next_stage
 from .resources import list_clusters, list_warehouses
 
 router = create_router()
@@ -260,15 +257,6 @@ def get_project(
     file_sync.restore_project_from_db(project_id, session=session)
     ensure_project_skills(project_id)
 
-    # Auto-detect stage for legacy projects still in DRAFTING
-    if project.stage == ProjectStage.DRAFTING.value:
-        detected = auto_detect_stage(project_id, session)
-        if detected != ProjectStage.DRAFTING.value:
-            project.stage = detected
-            session.add(project)
-            session.commit()
-            session.refresh(project)
-
     # Get counts
     msg_count = session.exec(
         select(func.count()).select_from(Message).where(Message.project_id == project.id)
@@ -485,73 +473,6 @@ def sync_project(
     stats = file_sync.full_sync_project(project_id, session=session)
 
     return stats
-
-
-# ---------------------------------------------------------------------------
-# Stage pipeline
-# ---------------------------------------------------------------------------
-
-
-@router.get(
-    "/projects/{project_id}/stage-status",
-    response_model=ProjectStageStatus,
-    operation_id="getProjectStageStatus",
-)
-def get_project_stage_status(
-    project_id: str,
-    session: Dependencies.Session,
-    headers: Dependencies.Headers,
-    request: Request,
-):
-    """Return the current stage and gate-check details for the next transition."""
-    user_email = _get_user_email(headers)
-    project = _get_user_project(session, project_id, user_email)
-
-    # Sync files first so checks see latest state
-    file_sync: FileSyncService = request.app.state.file_sync
-    file_sync.full_sync_project(project_id, session=session)
-
-    return get_stage_status(project_id, project.stage, session)
-
-
-@router.post(
-    "/projects/{project_id}/advance-stage",
-    response_model=ProjectStageStatus,
-    operation_id="advanceProjectStage",
-)
-def advance_project_stage(
-    project_id: str,
-    session: Dependencies.Session,
-    headers: Dependencies.Headers,
-    request: Request,
-):
-    """Validate the current gate and advance to the next stage if checks pass."""
-    user_email = _get_user_email(headers)
-    project = _get_user_project(session, project_id, user_email)
-
-    # Sync first
-    file_sync: FileSyncService = request.app.state.file_sync
-    file_sync.full_sync_project(project_id, session=session)
-
-    status = get_stage_status(project_id, project.stage, session)
-    if not status.can_advance:
-        raise HTTPException(
-            status_code=422,
-            detail="Stage gate checks have not all passed",
-        )
-
-    nxt = next_stage(project.stage)
-    if not nxt:
-        raise HTTPException(status_code=422, detail="Already at final stage")
-
-    project.stage = nxt
-    project.updated_at = datetime.now(timezone.utc)
-    session.add(project)
-    session.commit()
-    session.refresh(project)
-
-    # Return the NEW stage's status
-    return get_stage_status(project_id, project.stage, session)
 
 
 # ---------------------------------------------------------------------------

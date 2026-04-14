@@ -21,6 +21,7 @@
         "electron:dist": "electron-builder --mac"
     },
     "dependencies": {
+        "@monaco-editor/react": "^4.7.0",
         "@radix-ui/react-dropdown-menu": "^2.1.16",
         "electron-updater": "^6.8.3",
         "fix-path": "^3.0.0",

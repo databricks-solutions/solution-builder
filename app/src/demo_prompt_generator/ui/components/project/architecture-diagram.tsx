@@ -16,6 +16,7 @@ import {
   Position,
   Handle,
   BackgroundVariant,
+  ConnectionLineType,
   addEdge,
   type Connection,
 } from "@xyflow/react";
@@ -288,14 +289,14 @@ const ArchitectureDiagramInner = memo(function ArchitectureDiagramInner({
     [resolvedSchema]
   );
 
-  const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
+  const [nodes, , onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
 
   // Handle manual connection between nodes
   const onConnect = useCallback(
     (params: Connection) => {
       const sourceNode = nodes.find(n => n.id === params.source);
-      const sourceTier = (sourceNode?.data as CustomNodeData)?.tier || "source";
+      const sourceTier = ((sourceNode?.data as unknown) as CustomNodeData)?.tier || "source";
       const edgeColor = TIER_CONFIG[sourceTier]?.stripe || "#64748b";
 
       setEdges((eds) =>
@@ -419,7 +420,7 @@ const ArchitectureDiagramInner = memo(function ArchitectureDiagramInner({
           defaultEdgeOptions={{ type: "smoothstep" }}
           proOptions={{ hideAttribution: true }}
           connectionLineStyle={{ stroke: "hsl(var(--primary))", strokeWidth: 2 }}
-          connectionLineType="smoothstep"
+          connectionLineType={ConnectionLineType.SmoothStep}
         >
           <Background variant={BackgroundVariant.Dots} gap={16} size={1} color="#94a3b8" className="opacity-30" />
           <Controls

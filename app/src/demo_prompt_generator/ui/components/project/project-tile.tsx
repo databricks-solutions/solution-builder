@@ -163,8 +163,8 @@ const STAGE_LABELS: Record<ProjectStage, string> = {
   DRAFTING: "Draft",
   SUMMARIZED: "Summary",
   ARCHITECTED: "Architected",
-  BUILDING: "Building",
-  PACKAGED: "Packaged",
+  SPECIFICATION: "Spec",
+  BUILT: "Built",
   BUNDLED: "Bundled",
 };
 
@@ -172,7 +172,7 @@ function StageBadge({ stage }: { stage: ProjectStage }) {
   const colors =
     stage === "BUNDLED"
       ? "bg-green-500/10 text-green-600 dark:text-green-400"
-      : stage === "BUILDING"
+      : stage === "BUILT"
         ? "bg-amber-500/10 text-amber-600 dark:text-amber-400"
         : "bg-primary/10 text-primary";
 
