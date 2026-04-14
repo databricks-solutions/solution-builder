@@ -151,6 +151,7 @@ async def stream_agent_response(
     warehouse_id: str | None = None,
     default_catalog: str | None = None,
     default_schema: str | None = None,
+    databricks_profile: str | None = None,
     session_id: str | None = None,
 ) -> AsyncIterator[dict]:
     """
@@ -167,6 +168,7 @@ async def stream_agent_response(
         warehouse_id: Optional SQL warehouse ID
         default_catalog: Optional default catalog
         default_schema: Optional default schema
+        databricks_profile: Optional Databricks CLI profile name
         session_id: Optional session ID for conversation resumption
 
     Yields:
@@ -209,6 +211,7 @@ async def stream_agent_response(
                 default_catalog=default_catalog,
                 default_schema=default_schema,
                 workspace_url=get_workspace_url(),
+                databricks_profile=databricks_profile,
                 skills=skills,
             )
 

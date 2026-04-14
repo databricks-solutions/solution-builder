@@ -16,6 +16,7 @@ def get_system_prompt(
     default_catalog: str | None = None,
     default_schema: str | None = None,
     workspace_url: str | None = None,
+    databricks_profile: str | None = None,
     skills: list[dict] | None = None,
 ) -> str:
     """
@@ -27,6 +28,7 @@ def get_system_prompt(
         default_catalog: Default Unity Catalog
         default_schema: Default schema within catalog
         workspace_url: Databricks workspace URL for links
+        databricks_profile: Databricks CLI profile name
         skills: List of available skills with name/description
 
     Returns:
@@ -49,6 +51,7 @@ def get_system_prompt(
         default_catalog=default_catalog,
         default_schema=default_schema,
         workspace_url=workspace_url,
+        databricks_profile=databricks_profile,
     )
     if resources_section:
         sections.append(resources_section)
@@ -65,12 +68,18 @@ def _build_resources_section(
     default_catalog: str | None = None,
     default_schema: str | None = None,
     workspace_url: str | None = None,
+    databricks_profile: str | None = None,
 ) -> str | None:
     """Build the resources configuration section."""
-    if not any([cluster_id, warehouse_id, default_catalog, default_schema]):
+    # Check if we have any resources to show (ignore DEFAULT profile)
+    has_profile = databricks_profile and databricks_profile != "DEFAULT"
+    if not any([cluster_id, warehouse_id, default_catalog, default_schema, has_profile]):
         return None
 
     parts = ["## Databricks Resources\n"]
+
+    if databricks_profile and databricks_profile != "DEFAULT":
+        parts.append(f"- **Databricks CLI Profile:** `{databricks_profile}` (use `--profile {databricks_profile}` with databricks CLI commands)")
 
     if cluster_id:
         if cluster_id in ("serverless", "__serverless__"):

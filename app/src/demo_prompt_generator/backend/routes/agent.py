@@ -16,6 +16,7 @@ import time
 from fastapi import HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+from sqlmodel import select
 from ..core import Dependencies, create_router
 from ..core._config import logger
 from ..models import (
@@ -23,6 +24,7 @@ from ..models import (
     InvokeAgentResponse,
     Message,
     Project,
+    User,
     generate_uuid,
     utc_now,
 )
@@ -75,6 +77,10 @@ async def invoke_agent(
     user_email = _get_user_email(headers)
     project = _get_user_project(session, body.project_id, user_email)
 
+    # Get user's Databricks profile
+    user = session.exec(select(User).where(User.email == user_email)).first()
+    databricks_profile = user.databricks_profile if user else "DEFAULT"
+
     # Check for existing running execution
     manager = get_stream_manager()
     existing_stream = manager.get_project_stream(body.project_id)
@@ -120,6 +126,7 @@ async def invoke_agent(
                 warehouse_id=project.warehouse_id,
                 default_catalog=project.default_catalog,
                 default_schema=project.default_schema,
+                databricks_profile=databricks_profile,
                 session_id=session_id,
             ):
                 collected_events.append(event)
