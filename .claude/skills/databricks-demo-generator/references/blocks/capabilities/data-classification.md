@@ -1,7 +1,7 @@
 ---
 name: Data Classification
 category: governance
-disabled: true
+disabled: false
 ---
 
 # Data Classification

@@ -1,7 +1,7 @@
 ---
 name: Vector Search
-category: ai-genai-ml
-disabled: true
+category: genai-ml
+disabled: false
 ---
 
 # Vector Search

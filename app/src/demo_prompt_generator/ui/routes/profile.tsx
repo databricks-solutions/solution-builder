@@ -8,18 +8,16 @@ import { AppLayout } from "@/components/layout/app-layout";
 import {
   getCurrentUser,
   getConfigStatus,
-  getDatabricksProfiles,
   type CurrentUser,
   type ConfigStatus,
-  type DatabricksProfile,
 } from "@/lib/custom-api";
 import {
   Shield,
   Database,
-  Globe,
   Loader2,
   CheckCircle2,
   XCircle,
+  User,
 } from "lucide-react";
 
 function ProfileWithLayout() {
@@ -43,15 +41,13 @@ function getInitials(email: string): string {
 function ProfilePage() {
   const [user, setUser] = useState<CurrentUser | null>(null);
   const [config, setConfig] = useState<ConfigStatus | null>(null);
-  const [profiles, setProfiles] = useState<DatabricksProfile[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    Promise.all([getCurrentUser(), getConfigStatus(), getDatabricksProfiles()])
-      .then(([userData, configData, profilesData]) => {
+    Promise.all([getCurrentUser(), getConfigStatus()])
+      .then(([userData, configData]) => {
         setUser(userData);
         setConfig(configData);
-        setProfiles(profilesData);
       })
       .catch(console.error)
       .finally(() => setIsLoading(false));
@@ -65,9 +61,6 @@ function ProfilePage() {
     );
   }
 
-  const activeProfile = config?.current_user?.databricks_profile ?? null;
-  const activeHost =
-    profiles.find((p) => p.name === activeProfile)?.host ?? null;
   const memberSince = config?.current_user?.created_at
     ? new Date(config.current_user.created_at).toLocaleDateString(undefined, {
         year: "numeric",
@@ -77,7 +70,20 @@ function ProfilePage() {
     : null;
 
   return (
-    <div className="mx-auto max-w-3xl space-y-6 px-6 py-8">
+    <div className="p-6 lg:p-8 space-y-6 max-w-5xl">
+      {/* Header */}
+      <div className="flex items-center gap-3">
+        <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10">
+          <User className="h-6 w-6 text-primary" />
+        </div>
+        <div>
+          <h1 className="text-2xl font-bold">Profile</h1>
+          <p className="text-sm text-muted-foreground">
+            Your account and connection details
+          </p>
+        </div>
+      </div>
+
       {/* ---------- User Profile Card ---------- */}
       <Card>
         <CardHeader className="flex flex-row items-center gap-4 space-y-0">
@@ -122,82 +128,6 @@ function ProfilePage() {
               </div>
             )}
           </dl>
-        </CardContent>
-      </Card>
-
-      {/* ---------- Workspace Connection Card ---------- */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-base">
-            <Globe className="h-4 w-4 text-muted-foreground" />
-            Workspace Connection
-          </CardTitle>
-        </CardHeader>
-        <Separator />
-        <CardContent className="pt-4 space-y-4">
-          {/* Active connection summary */}
-          <div className="flex items-center justify-between">
-            <div className="space-y-0.5">
-              <p className="text-sm font-medium">
-                {activeProfile ?? "No profile selected"}
-              </p>
-              {activeHost && (
-                <p className="text-xs text-muted-foreground break-all">
-                  {activeHost}
-                </p>
-              )}
-            </div>
-            {activeProfile ? (
-              <span className="flex items-center gap-1.5 text-xs font-medium text-green-600">
-                <span className="inline-block h-2 w-2 rounded-full bg-green-500" />
-                Connected
-              </span>
-            ) : (
-              <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-                <span className="inline-block h-2 w-2 rounded-full bg-muted-foreground/40" />
-                Not connected
-              </span>
-            )}
-          </div>
-
-          {/* Available profiles */}
-          {profiles.length > 0 && (
-            <>
-              <Separator />
-              <div>
-                <p className="mb-2 text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                  Available Profiles
-                </p>
-                <ul className="space-y-2">
-                  {profiles.map((profile) => (
-                    <li
-                      key={profile.name}
-                      className="flex items-center justify-between rounded-lg border px-3 py-2 text-sm"
-                    >
-                      <div className="space-y-0.5">
-                        <span className="font-medium">{profile.name}</span>
-                        {profile.host && (
-                          <p className="text-xs text-muted-foreground break-all">
-                            {profile.host}
-                          </p>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-2">
-                        {profile.is_default && (
-                          <Badge variant="outline" className="text-[10px]">
-                            Default
-                          </Badge>
-                        )}
-                        {profile.name === activeProfile && (
-                          <CheckCircle2 className="h-4 w-4 text-green-500" />
-                        )}
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            </>
-          )}
         </CardContent>
       </Card>
 

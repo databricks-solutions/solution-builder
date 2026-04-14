@@ -1,6 +1,6 @@
 ---
 name: Metric Views
-category: ai-bi
+category: analytics
 disabled: false
 ---
 

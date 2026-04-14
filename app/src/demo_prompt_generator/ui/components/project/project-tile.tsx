@@ -4,7 +4,7 @@
  */
 
 import { memo } from "react";
-import { FileText, MessageSquare, ArrowUpRight, Star, Share2, User } from "lucide-react";
+import { FileText, MessageSquare, ArrowUpRight, Star, Share2, User, LayoutTemplate } from "lucide-react";
 import type { ProjectListItem, ProjectStage } from "../../lib/custom-api";
 
 interface ProjectTileProps {
@@ -129,6 +129,16 @@ export const ProjectTile = memo(function ProjectTile({
             <User className="h-3 w-3 text-muted-foreground/50" />
             <span className="text-xs text-muted-foreground">
               Shared by {formatEmail(project.shared_by)}
+            </span>
+          </div>
+        )}
+
+        {/* Template lineage */}
+        {project.source_template_name && (
+          <div className="flex items-center gap-1.5 mb-2">
+            <LayoutTemplate className="h-3 w-3 text-muted-foreground/50 shrink-0" />
+            <span className="text-xs text-muted-foreground truncate">
+              From: {project.source_template_name}
             </span>
           </div>
         )}

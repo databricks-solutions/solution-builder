@@ -1,7 +1,7 @@
 ---
 name: Data Quality
-category: governance
-disabled: true
+category: data-engineering
+disabled: false
 ---
 
 # Data Quality

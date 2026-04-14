@@ -142,12 +142,16 @@ class Project(SQLModel, table=True):
     default_catalog: Optional[str] = SQLField(default=None, max_length=255)
     default_schema: Optional[str] = SQLField(default=None, max_length=255)
 
+    # Template lineage
+    source_template_id: Optional[str] = SQLField(default=None, max_length=50)
+
     # Timestamps
     created_at: datetime = SQLField(default_factory=utc_now)
     updated_at: datetime = SQLField(default_factory=utc_now)
 
     __table_args__ = (
         Index("ix_projects_user_created", "user_email", "created_at"),
+        Index("ix_projects_source_template", "source_template_id"),
     )
 
 
@@ -360,6 +364,9 @@ class TemplateContent(SQLModel, table=True):
 class ProjectCreateRequest(BaseModel):
     """Request to create a new project."""
     description: str = Field(..., description="Project description - name and schema will be generated from this")
+    context_document: Optional[str] = Field(
+        None, description="Full text of a source document to use as context for generation"
+    )
 
 
 class ProjectUpdateRequest(BaseModel):
@@ -397,6 +404,9 @@ class ProjectOut(BaseModel):
     warehouse_name: Optional[str] = None
     default_catalog: Optional[str] = None
     default_schema: Optional[str] = None
+    # Template lineage
+    source_template_id: Optional[str] = None
+    source_template_name: Optional[str] = None
 
 
 class ProjectListItem(BaseModel):
@@ -414,6 +424,9 @@ class ProjectListItem(BaseModel):
     shared_by: Optional[str] = None
     shared_message: Optional[str] = None
     owner_email: Optional[str] = None
+    # Template lineage
+    source_template_id: Optional[str] = None
+    source_template_name: Optional[str] = None
 
 
 class ProjectShareRequest(BaseModel):
@@ -628,5 +641,50 @@ class UserOut(BaseModel):
 class UserUpdateRequest(BaseModel):
     """Request to update user settings."""
     databricks_profile: str = Field(..., description="Databricks profile name to use")
+
+
+# ---------------------------------------------------------------------------
+# Block factory request/response models
+# ---------------------------------------------------------------------------
+
+
+class BlockCategory(str, Enum):
+    DOMAIN = "domain"
+    CAPABILITY = "capability"
+    PATTERN = "pattern"
+
+
+class BlockSpec(BaseModel):
+    """A proposed block from the decomposition phase."""
+    name: str = Field(..., description="Display name for the block")
+    slug: str = Field(..., description="URL/file-safe identifier")
+    category: BlockCategory
+    description: str = Field(..., description="One-line description of what this block covers")
+    tags: list[str] = Field(default_factory=list)
+    source_section: str = Field("", description="Which part of the source document this maps to")
+
+
+class BlockFactoryRequest(BaseModel):
+    """Request to decompose a document into blocks."""
+    content: str = Field(..., description="Raw document text to decompose")
+    source_name: str = Field("", description="Name/title of the source document for traceability")
+    category_hint: Optional[BlockCategory] = Field(
+        None, description="If set, bias all blocks toward this category"
+    )
+    write: bool = Field(True, description="Write blocks to disk (false for dry-run/preview)")
+
+
+class GeneratedBlock(BaseModel):
+    """A fully generated block ready to write."""
+    spec: BlockSpec
+    markdown: str = Field(..., description="Full block content including frontmatter")
+    file_path: str = Field(..., description="Relative path where this block was/would be written")
+    written: bool = False
+
+
+class BlockFactoryResponse(BaseModel):
+    """Result of the block factory pipeline."""
+    source_name: str
+    blocks: list[GeneratedBlock]
 
 

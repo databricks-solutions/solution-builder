@@ -1,6 +1,6 @@
 ---
 name: Supervisor Agent
-category: ai-genai-ml
+category: genai-ml
 disabled: false
 ---
 

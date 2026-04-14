@@ -1,6 +1,6 @@
 ---
 name: Knowledge Assistant
-category: ai-genai-ml
+category: genai-ml
 disabled: false
 ---
 

@@ -23,15 +23,15 @@ INDUSTRIES = [
 
 # Category display name mapping (from frontmatter slug to display name)
 CATEGORY_DISPLAY_NAMES = {
-    "data-processing": "Data Processing",
-    "ai-bi": "AI/BI",
-    "ai-genai-ml": "AI/GenAI and ML",
+    "data-engineering": "Data Engineering",
+    "analytics": "Analytics",
+    "genai-ml": "GenAI / ML",
     "governance": "Governance",
-    "apps": "Apps",
+    "apps-infra": "Apps & Infra",
 }
 
 # Category sort order
-CATEGORY_ORDER = ["data-processing", "ai-bi", "ai-genai-ml", "governance", "apps"]
+CATEGORY_ORDER = ["data-engineering", "analytics", "genai-ml", "governance", "apps-infra"]
 
 
 def _get_capabilities_folder() -> Optional[Path]:
@@ -124,26 +124,25 @@ def _load_capabilities_from_files() -> list[dict]:
 def _get_fallback_capabilities() -> list[dict]:
     """Fallback capabilities if files can't be loaded."""
     return [
-        {"id": "lakeflow-connect", "name": "Lakeflow Connect", "category": "Data Processing", "disabled": False},
-        {"id": "sdp", "name": "SDP", "category": "Data Processing", "disabled": False},
-        {"id": "lakeflow-jobs", "name": "Lakeflow Jobs", "category": "Data Processing", "disabled": False},
-        {"id": "ai-query", "name": "AI Query", "category": "Data Processing", "disabled": False},
-        {"id": "dashboards", "name": "Dashboards", "category": "AI/BI", "disabled": False},
-        {"id": "genie", "name": "Genie", "category": "AI/BI", "disabled": False},
-        {"id": "metric-views", "name": "Metric Views", "category": "AI/BI", "disabled": False},
-        {"id": "databricks-sql", "name": "Databricks SQL", "category": "AI/BI", "disabled": False},
-        {"id": "vector-search", "name": "Vector Search", "category": "AI/GenAI and ML", "disabled": False},
-        {"id": "knowledge-assistant", "name": "Knowledge Assistant", "category": "AI/GenAI and ML", "disabled": False},
-        {"id": "supervisor-agent", "name": "Supervisor Agent", "category": "AI/GenAI and ML", "disabled": False},
-        {"id": "model-training-mlflow", "name": "Model Training + MLflow", "category": "AI/GenAI and ML", "disabled": False},
-        {"id": "model-serving", "name": "Model Serving", "category": "AI/GenAI and ML", "disabled": False},
+        {"id": "lakeflow-connect", "name": "Lakeflow Connect", "category": "Data Engineering", "disabled": False},
+        {"id": "sdp", "name": "SDP", "category": "Data Engineering", "disabled": False},
+        {"id": "lakeflow-jobs", "name": "Lakeflow Jobs", "category": "Data Engineering", "disabled": False},
+        {"id": "ai-query", "name": "AI Functions", "category": "Data Engineering", "disabled": False},
+        {"id": "data-quality", "name": "Data Quality", "category": "Data Engineering", "disabled": False},
+        {"id": "databricks-sql", "name": "Databricks SQL", "category": "Analytics", "disabled": False},
+        {"id": "dashboards", "name": "Dashboards", "category": "Analytics", "disabled": False},
+        {"id": "genie", "name": "Genie", "category": "Analytics", "disabled": False},
+        {"id": "metric-views", "name": "Metric Views", "category": "Analytics", "disabled": False},
+        {"id": "knowledge-assistant", "name": "Knowledge Assistant", "category": "GenAI / ML", "disabled": False},
+        {"id": "supervisor-agent", "name": "Supervisor Agent", "category": "GenAI / ML", "disabled": False},
+        {"id": "vector-search", "name": "Vector Search", "category": "GenAI / ML", "disabled": False},
+        {"id": "model-training-mlflow", "name": "MLflow", "category": "GenAI / ML", "disabled": False},
         {"id": "unity-catalog", "name": "Unity Catalog", "category": "Governance", "disabled": False},
+        {"id": "abac", "name": "ABAC", "category": "Governance", "disabled": False},
+        {"id": "data-classification", "name": "Data Classification", "category": "Governance", "disabled": False},
         {"id": "delta-sharing", "name": "Delta Sharing", "category": "Governance", "disabled": False},
-        {"id": "abac", "name": "ABAC", "category": "Governance", "disabled": True},
-        {"id": "data-classification", "name": "Data Classification", "category": "Governance", "disabled": True},
-        {"id": "data-quality", "name": "Data Quality", "category": "Governance", "disabled": True},
-        {"id": "databricks-apps", "name": "Databricks Apps", "category": "Apps", "disabled": True},
-        {"id": "lakebase", "name": "Lakebase", "category": "Apps", "disabled": True},
+        {"id": "databricks-apps", "name": "Databricks Apps", "category": "Apps & Infra", "disabled": False},
+        {"id": "lakebase", "name": "Lakebase", "category": "Apps & Infra", "disabled": False},
     ]
 
 

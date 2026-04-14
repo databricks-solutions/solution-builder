@@ -37,6 +37,7 @@ import {
   FileEdit,
   MessageSquare,
   PanelLeft,
+  LayoutTemplate,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -82,6 +83,7 @@ function ProjectPage() {
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [fileContent, setFileContent] = useState<ProjectFileContent | null>(null);
   const [isLoadingFile, setIsLoadingFile] = useState(false);
+  const [fileContentKey, setFileContentKey] = useState(0);
   const [architectureContent, setArchitectureContent] = useState<string | null>(null);
   const [isCreatingArchitecture, setIsCreatingArchitecture] = useState(false);
   const [isPackagingDAB, setIsPackagingDAB] = useState(false);
@@ -242,7 +244,7 @@ function ProjectPage() {
     loadProject();
   }, [projectId]);
 
-  // Load file content when selected file changes
+  // Load file content when selected file changes or after agent completion
   useEffect(() => {
     async function loadFileContent() {
       if (!selectedFile) {
@@ -263,7 +265,7 @@ function ProjectPage() {
     }
 
     loadFileContent();
-  }, [projectId, selectedFile]);
+  }, [projectId, selectedFile, fileContentKey]);
 
   // Handle sending a message to the agent
   const handleSendMessage = useCallback(
@@ -280,6 +282,19 @@ function ProjectPage() {
       setStreamingTools(new Map());
 
       try {
+        // Add user message to local state immediately so it's visible
+        // even if the stream fails or the backend restarts
+        const userMsg: Message = {
+          id: Date.now(),
+          project_id: projectId,
+          role: "user",
+          content: message,
+          is_error: false,
+          created_at: new Date().toISOString(),
+        };
+        setMessages(prev => [...prev, userMsg]);
+        setPendingUserMessage(null);
+
         // Start agent
         const response = await invokeAgent(projectId, message);
         setExecutionId(response.execution_id);
@@ -337,17 +352,7 @@ function ProjectPage() {
           }
         }
 
-        // Add new messages locally (no re-fetch to avoid flash)
-        // The backend saves these, we just add them to local state
-        const now = new Date().toISOString();
-        const userMsg: Message = {
-          id: Date.now(), // Temporary ID, will be replaced on reload
-          project_id: projectId,
-          role: "user",
-          content: message,
-          is_error: false,
-          created_at: now,
-        };
+        // Add assistant message locally (user message already added above)
         const assistantMsg: Message = {
           id: Date.now() + 1,
           project_id: projectId,
@@ -363,16 +368,28 @@ function ProjectPage() {
               ]),
             ],
           } : null,
-          created_at: now,
+          created_at: new Date().toISOString(),
         };
-        setMessages(prev => [...prev, userMsg, assistantMsg]);
+        setMessages(prev => [...prev, assistantMsg]);
 
         // Refresh files (agent may have created new files)
         const fileList = await listProjectFiles(projectId);
         setFiles(fileList);
 
+        // Auto-select README.md if no file is currently selected
+        let currentFile = selectedFileRef.current;
+        if (!currentFile) {
+          const readme = fileList.find((f) => f.path === "README.md");
+          if (readme) {
+            currentFile = "README.md";
+            setSelectedFile("README.md");
+          } else if (fileList.length > 0) {
+            currentFile = fileList[0].path;
+            setSelectedFile(fileList[0].path);
+          }
+        }
+
         // Refresh current file content
-        const currentFile = selectedFileRef.current;
         if (currentFile) {
           try {
             const content = await getProjectFile(projectId, currentFile);
@@ -384,6 +401,37 @@ function ProjectPage() {
       } catch (error) {
         if ((error as Error).name !== "AbortError") {
           console.error("Failed to send message:", error);
+          // Re-fetch messages and files from DB — the agent may still be
+          // running server-side even though our SSE stream dropped
+          try {
+            const [msgs, fileList] = await Promise.all([
+              listProjectMessages(projectId),
+              listProjectFiles(projectId),
+            ]);
+            setMessages(msgs);
+            setFiles(fileList);
+
+            // Auto-select README.md if no file is selected
+            let fileToLoad = selectedFileRef.current;
+            if (!fileToLoad) {
+              const readme = fileList.find((f) => f.path === "README.md");
+              if (readme) {
+                fileToLoad = "README.md";
+                setSelectedFile("README.md");
+              } else if (fileList.length > 0) {
+                fileToLoad = fileList[0].path;
+                setSelectedFile(fileList[0].path);
+              }
+            }
+
+            // Refresh file content — agent may have written files before the stream dropped
+            if (fileToLoad) {
+              try {
+                const content = await getProjectFile(projectId, fileToLoad);
+                setFileContent(content);
+              } catch { /* file may not exist yet */ }
+            }
+          } catch { /* ignore fetch errors during recovery */ }
         }
       } finally {
         // Save reasoning from ref BEFORE clearing streaming state
@@ -397,6 +445,9 @@ function ProjectPage() {
         setPendingUserMessage(null);
         setExecutionId(null);
         abortControllerRef.current = null;
+        // Bump key to force loadFileContent effect to re-fire, ensuring
+        // the file viewer always reflects what the agent wrote to disk.
+        setFileContentKey((k) => k + 1);
       }
     },
     [projectId, isStreaming]
@@ -463,6 +514,27 @@ function ProjectPage() {
         ]);
         setMessages(msgs);
         setFiles(fileList);
+
+        // Auto-select README.md if no file is selected
+        let fileToLoad = selectedFileRef.current;
+        if (!fileToLoad) {
+          const readme = fileList.find((f) => f.path === "README.md");
+          if (readme) {
+            fileToLoad = "README.md";
+            setSelectedFile("README.md");
+          } else if (fileList.length > 0) {
+            fileToLoad = fileList[0].path;
+            setSelectedFile(fileList[0].path);
+          }
+        }
+
+        // Refresh selected file content
+        if (fileToLoad) {
+          try {
+            const content = await getProjectFile(projectId, fileToLoad);
+            setFileContent(content);
+          } catch { /* ignore */ }
+        }
       } catch (error) {
         if ((error as Error).name !== "AbortError") {
           console.error("Failed to reconnect to agent:", error);
@@ -475,6 +547,7 @@ function ProjectPage() {
         setStreamingTools(new Map());
         setExecutionId(null);
         abortControllerRef.current = null;
+        setFileContentKey((k) => k + 1);
       }
     })();
   }, [projectId, isLoadingProject, isStreaming, initialPrompt]);
@@ -911,6 +984,15 @@ function ProjectPage() {
                       className="text-[10px] px-1.5 py-0 shrink-0"
                     >
                       {linkedTemplate.status === "REVIEW_REQUESTED" ? "Pending" : linkedTemplate.status.toLowerCase()}
+                    </Badge>
+                  )}
+                  {project?.source_template_name && (
+                    <Badge
+                      variant="outline"
+                      className="text-[10px] px-1.5 py-0 shrink-0 gap-1 font-normal text-muted-foreground"
+                    >
+                      <LayoutTemplate className="h-2.5 w-2.5" />
+                      Based on: {project.source_template_name}
                     </Badge>
                   )}
                 </div>

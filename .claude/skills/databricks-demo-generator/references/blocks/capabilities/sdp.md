@@ -1,6 +1,6 @@
 ---
 name: SDP
-category: data-processing
+category: data-engineering
 disabled: false
 ---
 

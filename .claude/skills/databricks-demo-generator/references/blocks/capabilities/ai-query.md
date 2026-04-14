@@ -1,6 +1,6 @@
 ---
 name: AI Functions
-category: data-processing
+category: data-engineering
 disabled: false
 ---
 

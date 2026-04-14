@@ -20,11 +20,12 @@ import {
   listTemplateFiles,
   getTemplateFileContent,
   createProjectFromTemplate,
+  exportTemplate,
   type TemplateDetail,
   type TemplateFile,
 } from "../../lib/custom-api";
 import { Prose } from "../markdown-prose";
-import { Code, Eye, FileText, Folder, Loader2, Sparkles } from "lucide-react";
+import { Code, Clock, Download, Eye, FileText, Folder, Loader2, Sparkles } from "lucide-react";
 
 interface TemplateDetailPopupProps {
   templateId: string | null;
@@ -40,6 +41,7 @@ export function TemplateDetailPopup({ templateId, onClose }: TemplateDetailPopup
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingFile, setIsLoadingFile] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showRaw, setShowRaw] = useState(false);
 
@@ -119,6 +121,20 @@ I'm going to send you follow-up instructions to customize this demo. Once you've
     }
     // Note: Don't reset isCreating on success - let it stay true until navigation completes
   };
+
+  const handleExport = async () => {
+    if (!template) return;
+    setIsExporting(true);
+    try {
+      await exportTemplate(template.id);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const isApproved = template?.status === "APPROVED";
 
   // Build file tree structure
   const fileTree = buildFileTree(files);
@@ -268,11 +284,37 @@ I'm going to send you follow-up instructions to customize this demo. Once you've
           <Button variant="outline" onClick={onClose}>
             Close
           </Button>
-          <Button onClick={handleCustomize} disabled={isCreating || !template}>
+          <Button
+            variant="outline"
+            onClick={handleExport}
+            disabled={isExporting || !template}
+          >
+            {isExporting ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Exporting...
+              </>
+            ) : (
+              <>
+                <Download className="mr-2 h-4 w-4" />
+                Export
+              </>
+            )}
+          </Button>
+          <Button
+            onClick={handleCustomize}
+            disabled={isCreating || !template || !isApproved}
+            title={!isApproved && template ? "This template is pending approval and cannot be customized yet" : undefined}
+          >
             {isCreating ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 Creating...
+              </>
+            ) : !isApproved && template ? (
+              <>
+                <Clock className="mr-2 h-4 w-4" />
+                Template pending approval
               </>
             ) : (
               <>

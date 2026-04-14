@@ -1,6 +1,6 @@
 ---
 name: Lakeflow Jobs
-category: data-processing
+category: data-engineering
 disabled: false
 ---
 

@@ -280,13 +280,18 @@ function ProjectsPage() {
   const totalCount = projects.length + sharedProjects.length;
 
   return (
-    <div className="p-6 lg:p-8 space-y-8">
+    <div className="p-6 lg:p-8 space-y-6">
       {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">My Projects</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          {totalCount} {totalCount === 1 ? "project" : "projects"} total
-        </p>
+      <div className="flex items-center gap-3">
+        <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10">
+          <FolderOpen className="h-6 w-6 text-primary" />
+        </div>
+        <div>
+          <h1 className="text-2xl font-bold">My Projects</h1>
+          <p className="text-sm text-muted-foreground">
+            {totalCount} {totalCount === 1 ? "project" : "projects"} total
+          </p>
+        </div>
       </div>
 
       {/* Search and sort controls */}

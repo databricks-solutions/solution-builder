@@ -1,6 +1,6 @@
 ---
 name: Genie
-category: ai-bi
+category: analytics
 disabled: false
 ---
 

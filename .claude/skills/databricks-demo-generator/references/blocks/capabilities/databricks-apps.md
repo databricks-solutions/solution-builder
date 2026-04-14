@@ -1,7 +1,7 @@
 ---
 name: Databricks Apps
-category: apps
-disabled: true
+category: apps-infra
+disabled: false
 ---
 
 # Databricks Apps

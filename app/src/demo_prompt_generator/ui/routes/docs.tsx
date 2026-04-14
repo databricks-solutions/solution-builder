@@ -91,23 +91,22 @@ const keyConcepts = [
 /* ------------------------------------------------------------------ */
 function DocsPage() {
   return (
-    <div className="max-w-4xl mx-auto p-8 space-y-16">
+    <div className="p-6 lg:p-8 space-y-10">
       {/* -- Hero / Overview ---------------------------------------- */}
       <section className="space-y-4">
         <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
-            <BookOpen className="h-5 w-5 text-primary" />
+          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10">
+            <BookOpen className="h-6 w-6 text-primary" />
           </div>
-          <Badge variant="secondary" className="text-xs">
-            Documentation
-          </Badge>
+          <div>
+            <h1 className="text-2xl font-bold">Documentation</h1>
+            <p className="text-sm text-muted-foreground">
+              How Asset Builder works and how to use it
+            </p>
+          </div>
         </div>
 
-        <h1 className="text-3xl font-bold tracking-tight">
-          Asset Builder
-        </h1>
-
-        <p className="text-base leading-relaxed text-muted-foreground max-w-3xl">
+        <p className="text-base leading-relaxed text-muted-foreground max-w-prose">
           This application is a context management framework built on a simple
           idea: <span className="font-medium text-foreground">prompts are
           easier to work with than project configurations</span>. Instead of
@@ -118,7 +117,7 @@ function DocsPage() {
           tailored output packages for any scenario.
         </p>
 
-        <p className="text-sm leading-relaxed text-muted-foreground/80 max-w-3xl">
+        <p className="text-sm leading-relaxed text-muted-foreground/80 max-w-prose">
           The underlying pattern is generalizable: define context as blocks,
           group blocks into collections, and let an AI agent assemble them into
           coherent output. The current deployment targets Databricks demos, but
@@ -256,7 +255,7 @@ function DocsPage() {
         <h2 className="text-xl font-semibold tracking-tight">
           The Building Blocks
         </h2>
-        <p className="text-sm text-muted-foreground max-w-2xl">
+        <p className="text-sm text-muted-foreground max-w-prose">
           Every block is a Markdown file with YAML frontmatter that declares
           its name, category, tags, and relationships. The three block
           categories cover different dimensions of context.
@@ -296,7 +295,7 @@ function DocsPage() {
         <h2 className="text-xl font-semibold tracking-tight">
           Anatomy of a Block
         </h2>
-        <p className="text-sm text-muted-foreground max-w-2xl">
+        <p className="text-sm text-muted-foreground max-w-prose">
           Blocks follow a consistent structure. The YAML frontmatter provides
           machine-readable metadata, while the Markdown body contains the
           context that gets fed to the LLM during assembly.

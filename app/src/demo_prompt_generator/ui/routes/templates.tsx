@@ -91,6 +91,12 @@ function TemplatesPage() {
     return templates.filter((t) => t.owner_email === userEmail);
   }, [templates, userEmail]);
 
+  // Compute "Sponsored Templates" - all templates excluding the user's own
+  const sponsoredTemplates = useMemo(() => {
+    if (!userEmail) return templates;
+    return templates.filter((t) => t.owner_email !== userEmail);
+  }, [templates, userEmail]);
+
   // Edit template handler - opens the source project
   const handleEditTemplate = async (templateId: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -171,7 +177,7 @@ function TemplatesPage() {
     : STATUS_TABS.filter((t) => t.value === "APPROVED");
 
   return (
-    <div className="p-6 lg:p-8 space-y-6 max-w-7xl">
+    <div className="p-6 lg:p-8 space-y-6">
       {/* Header */}
       <div className="flex items-center gap-3">
         <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10">
@@ -226,7 +232,7 @@ function TemplatesPage() {
 
         {/* Results count */}
         <span className="text-sm text-muted-foreground ml-auto">
-          {templates.length} template{templates.length !== 1 ? "s" : ""}
+          {sponsoredTemplates.length} sponsored{myTemplates.length > 0 ? `, ${myTemplates.length} mine` : ""}
         </span>
       </div>
 
@@ -283,12 +289,12 @@ function TemplatesPage() {
         </div>
       )}
 
-      {/* Templates grid */}
+      {/* Sponsored Templates grid */}
       {isLoading ? (
         <div className="flex items-center justify-center py-20">
           <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
         </div>
-      ) : templates.length === 0 ? (
+      ) : sponsoredTemplates.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-20 text-center">
           <Library className="h-12 w-12 text-muted-foreground/50 mb-4" />
           <h3 className="text-lg font-medium">No templates found</h3>
@@ -299,63 +305,72 @@ function TemplatesPage() {
           </p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 items-stretch">
-          {templates.map((template) => (
-            <div key={template.id} className="relative group h-full">
-              <TemplateTile
-                template={template}
-                onClick={() => setSelectedTemplateId(template.id)}
-                showStatus={isAdmin && statusFilter === "ALL"}
-              />
+        <div>
+          <div className="flex items-center gap-2 mb-4">
+            <Library className="h-5 w-5 text-primary" />
+            <h2 className="text-lg font-semibold">Databricks Sponsored Templates</h2>
+            <Badge variant="secondary" className="text-xs">
+              {sponsoredTemplates.length}
+            </Badge>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 items-stretch">
+            {sponsoredTemplates.map((template) => (
+              <div key={template.id} className="relative group h-full">
+                <TemplateTile
+                  template={template}
+                  onClick={() => setSelectedTemplateId(template.id)}
+                  showStatus={isAdmin && statusFilter === "ALL"}
+                />
 
-              {/* Admin actions overlay */}
-              {isAdmin && template.status !== "APPROVED" && (
-                <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                  {template.status === "REVIEW_REQUESTED" && (
-                    <>
-                      <Button
-                        size="icon"
-                        variant="default"
-                        className="h-7 w-7 bg-green-600 hover:bg-green-700"
-                        onClick={(e) => handleApprove(template.id, e)}
-                        disabled={actionLoading === template.id}
-                        aria-label="Approve template"
-                        title="Approve template"
-                      >
-                        {actionLoading === template.id ? (
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        ) : (
-                          <Check className="h-3.5 w-3.5" />
-                        )}
-                      </Button>
-                      <Button
-                        size="icon"
-                        variant="destructive"
-                        className="h-7 w-7"
-                        onClick={(e) => handleReject(template.id, e)}
-                        disabled={actionLoading === template.id}
-                        aria-label="Reject template"
-                        title="Reject template"
-                      >
-                        <X className="h-3.5 w-3.5" />
-                      </Button>
-                    </>
-                  )}
-                  <Button
-                    size="icon"
-                    variant="outline"
-                    className="h-7 w-7"
-                    onClick={(e) => handleDelete(template.id, e)}
-                    disabled={actionLoading === template.id}
-                    aria-label="Delete template"
-                    title="Delete template"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </Button>
-                </div>
-              )}
-            </div>
-          ))}
+                {/* Admin actions overlay */}
+                {isAdmin && template.status !== "APPROVED" && (
+                  <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    {template.status === "REVIEW_REQUESTED" && (
+                      <>
+                        <Button
+                          size="icon"
+                          variant="default"
+                          className="h-7 w-7 bg-green-600 hover:bg-green-700"
+                          onClick={(e) => handleApprove(template.id, e)}
+                          disabled={actionLoading === template.id}
+                          aria-label="Approve template"
+                          title="Approve template"
+                        >
+                          {actionLoading === template.id ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <Check className="h-3.5 w-3.5" />
+                          )}
+                        </Button>
+                        <Button
+                          size="icon"
+                          variant="destructive"
+                          className="h-7 w-7"
+                          onClick={(e) => handleReject(template.id, e)}
+                          disabled={actionLoading === template.id}
+                          aria-label="Reject template"
+                          title="Reject template"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </Button>
+                      </>
+                    )}
+                    <Button
+                      size="icon"
+                      variant="outline"
+                      className="h-7 w-7"
+                      onClick={(e) => handleDelete(template.id, e)}
+                      disabled={actionLoading === template.id}
+                      aria-label="Delete template"
+                      title="Delete template"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
         </div>
       )}
 

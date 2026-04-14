@@ -1,6 +1,6 @@
 ---
 name: Databricks SQL
-category: ai-bi
+category: analytics
 disabled: false
 ---
 

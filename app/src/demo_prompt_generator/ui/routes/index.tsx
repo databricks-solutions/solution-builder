@@ -158,10 +158,18 @@ function Index() {
         .filter(cap => selectedProducts.has(cap.id))
         .map(cap => cap.name);
 
-      let initialPrompt = `Help me build a databricks demo.\n\nDemo description:\n${fullTopic}\n\nSkip templates.`;
+      const unselectedProductNames = capabilities
+        .filter(cap => !selectedProducts.has(cap.id))
+        .map(cap => cap.name);
+
+      let initialPrompt = `Help me build a databricks demo.\n\nDemo description:\n${fullTopic}`;
       if (selectedProductNames.length > 0) {
         initialPrompt += `\n\nCapabilities to showcase: ${selectedProductNames.join(", ")}`;
+        if (unselectedProductNames.length > 0) {
+          initialPrompt += `\n\nOnly include the capabilities listed above in the demo. Do NOT include: ${unselectedProductNames.join(", ")}`;
+        }
       }
+      initialPrompt += `\n\nSkip template search and skip the ideation/confirmation steps. Based on the description above, go ahead and design the story (hero, disruption, quest, resolution), then write the full README.md immediately. Don't ask me to confirm the direction first — just write the best version you can and I'll iterate from there. Stop after writing README.md so I can review.`;
 
       navigate({
         to: "/project/$projectId",

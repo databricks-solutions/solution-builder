@@ -1,16 +1,16 @@
 ---
-name: Model Training + MLflow
-category: ai-genai-ml
+name: MLflow
+category: genai-ml
 disabled: false
 ---
 
-# Notebooks + Managed MLflow
+# ML / MLflow — Training, Registry & Serving
 
-**EDA + experiment + lifecycle workbench**: collaborative notebooks plus MLflow tracking, registry and deployment.
+**End-to-end ML lifecycle**: collaborative notebooks, MLflow experiment tracking, model registry, and serverless model serving endpoints.
 
 ## Pain
 
-EDA happens in local notebooks, BI tools, ad-hoc scripts - no consistent lineage or reproducibility. Model experiments tracked in spreadsheets and filenames. Nobody can say which run is in prod or how it was trained.
+EDA happens in local notebooks with no lineage or reproducibility. Experiments tracked in spreadsheets. Nobody can say which run is in prod or how it was trained. Deploying means GPU procurement, infra ops, scaling headaches, and no cost visibility.
 
 ## Key Features
 
@@ -18,11 +18,14 @@ EDA happens in local notebooks, BI tools, ad-hoc scripts - no consistent lineage
 - **Experiment tracking** - parameters, metrics, artifacts logged automatically
 - **Model registry** - staging, production, archived with approvals
 - **Lineage** - trace model back to training data and code
-- **One-click deployment** - notebook to serving endpoint
+- **Serverless serving** - instant startup, auto-scaling, pay-per-token, no GPU management
+- **Any model** - foundation models, fine-tuned, custom agents via AI Gateway
+- **Guardrails** - input/output filtering, PII detection
+- **Tracing** - full observability of every call
 
 ## Position
 
-"How do your data scientists actually work?" - import data, EDA in notebook, log runs, compare, register best model, deploy. FSI: stress reproducibility + auditability for risk/churn/fraud models.
+"How do your data scientists actually work?" - import data, EDA in notebook, log runs, compare, register best model, deploy to a serverless endpoint. Host any model with one click, pay only for what you use. FSI: stress reproducibility + auditability for risk/churn/fraud models.
 
 ## Demo Tips
 
@@ -32,7 +35,7 @@ EDA happens in local notebooks, BI tools, ad-hoc scripts - no consistent lineage
 - MLflow experiment tracking is visually impressive - show metrics comparison
 - Emphasize **reproducibility**: "we can trace this model back to exact training data"
 - Model registry stages (staging → production) show governance
-- Can deploy to Model Serving with one click
+- Serverless serving: key differentiator is pay-per-token with no GPU management
 
 ## When to Include
 
@@ -45,7 +48,7 @@ Include ML/MLflow when the demo involves:
 ## Workflow
 
 ```
-Data → Notebook (EDA) → Training → MLflow (tracking) → Registry → Serving
+Data → Notebook (EDA) → Training → MLflow (tracking) → Registry → Serving Endpoint
 ```
 
 ## URL

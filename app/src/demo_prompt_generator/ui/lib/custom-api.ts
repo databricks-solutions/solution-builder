@@ -45,6 +45,9 @@ export interface Project {
   warehouse_name: string | null;
   default_catalog: string | null;
   default_schema: string | null;
+  // Template lineage
+  source_template_id?: string | null;
+  source_template_name?: string | null;
 }
 
 export interface ProjectListItem {
@@ -60,6 +63,9 @@ export interface ProjectListItem {
   shared_by?: string | null;
   shared_message?: string | null;
   owner_email?: string | null;
+  // Template lineage
+  source_template_id?: string | null;
+  source_template_name?: string | null;
 }
 
 export interface ProjectShareOut {
@@ -839,6 +845,28 @@ export async function createProjectFromTemplate(
 export async function deleteTemplate(templateId: string): Promise<void> {
   const resp = await fetch(apiUrl(`/api/templates/${templateId}`), { method: "DELETE" });
   if (!resp.ok) throw new Error(`Failed to delete template: ${resp.status}`);
+}
+
+export async function exportTemplate(templateId: string): Promise<void> {
+  const resp = await fetch(apiUrl(`/api/templates/${templateId}/export`));
+  if (!resp.ok) throw new Error(`Failed to export template: ${resp.status}`);
+
+  const contentDisposition = resp.headers.get("Content-Disposition");
+  let filename = "template.zip";
+  if (contentDisposition) {
+    const match = contentDisposition.match(/filename="(.+)"/);
+    if (match) filename = match[1];
+  }
+
+  const blob = await resp.blob();
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  window.URL.revokeObjectURL(url);
+  document.body.removeChild(a);
 }
 
 export async function getTemplateByProject(projectId: string): Promise<TemplateDetail> {

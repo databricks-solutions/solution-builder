@@ -1,6 +1,6 @@
 ---
 name: Dashboards
-category: ai-bi
+category: analytics
 disabled: false
 ---
 

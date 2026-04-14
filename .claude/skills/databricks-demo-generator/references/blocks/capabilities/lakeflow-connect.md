@@ -1,6 +1,6 @@
 ---
 name: Lakeflow Connect
-category: data-processing
+category: data-engineering
 disabled: false
 ---
 

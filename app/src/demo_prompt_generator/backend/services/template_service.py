@@ -399,6 +399,7 @@ class TemplateService:
             warehouse_name=warehouse_name,
             default_catalog=default_catalog,
             default_schema=default_schema,
+            source_template_id=template_id,
         )
         session.add(project)
 

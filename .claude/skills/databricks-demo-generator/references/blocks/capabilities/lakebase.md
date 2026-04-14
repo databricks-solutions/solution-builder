@@ -1,7 +1,7 @@
 ---
 name: Lakebase
-category: apps
-disabled: true
+category: apps-infra
+disabled: false
 ---
 
 # Lakebase (Databricks Postgres)

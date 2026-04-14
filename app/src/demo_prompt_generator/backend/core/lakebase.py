@@ -425,6 +425,10 @@ def initialize_models(engine: Engine) -> None:
         ("project_shares_unique_idx", "CREATE UNIQUE INDEX IF NOT EXISTS ix_project_shares_unique ON project_shares (project_id, shared_with_email)"),
         ("project_shares_recipient_idx", "CREATE INDEX IF NOT EXISTS ix_project_shares_recipient ON project_shares (shared_with_email)"),
         ("project_shares_project_idx", "CREATE INDEX IF NOT EXISTS ix_project_shares_project ON project_shares (project_id)"),
+
+        # --- Template lineage ---
+        ("projects_add_source_template_id", "ALTER TABLE projects ADD COLUMN IF NOT EXISTS source_template_id VARCHAR(50)"),
+        ("projects_source_template_idx", "CREATE INDEX IF NOT EXISTS ix_projects_source_template ON projects (source_template_id)"),
     ]
 
     with Session(engine) as session:

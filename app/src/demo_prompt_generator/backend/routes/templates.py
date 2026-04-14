@@ -465,6 +465,8 @@ def create_project_from_template(
         updated_at=project.updated_at,
         message_count=0,
         file_count=0,  # Will be counted on next fetch
+        source_template_id=project.source_template_id,
+        source_template_name=template.name if template else None,
     )
 
 
@@ -639,6 +641,8 @@ def open_template_project(
         updated_at=project.updated_at,
         message_count=0,
         file_count=0,
+        source_template_id=project.source_template_id,
+        source_template_name=None,
     )
 
 

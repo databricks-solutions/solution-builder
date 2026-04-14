@@ -1,7 +1,7 @@
 ---
 name: Delta Sharing
 category: governance
-disabled: true
+disabled: false
 ---
 
 # Delta Sharing
