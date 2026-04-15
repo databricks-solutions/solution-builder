@@ -206,7 +206,7 @@ export function BuildStepper({
 }: BuildStepperProps) {
   // Auto-detect stage from files
   const stageInfo = useMemo(() => detectStageFromFiles(files), [files]);
-  const { stage: currentStage, checks, hasArch, hasInstructions, hasCode, hasDab } = stageInfo;
+  const { stage: currentStage, checks, hasReadme, hasArch, hasInstructions, hasCode, hasDab } = stageInfo;
   const currentIdx = PROJECT_STAGES.indexOf(currentStage);
 
   // Build the list of available actions based on current state
@@ -278,6 +278,17 @@ export function BuildStepper({
       label: "Update DAB",
       icon: Rocket,
       onClick: onUpdateDAB,
+    });
+  }
+
+  // If all stages are done, make Download ZIP the primary action
+  const allDone = hasReadme && hasArch && hasInstructions && hasCode;
+  if (allDone && onDownloadDAB) {
+    actions.push({
+      label: "Download ZIP",
+      icon: Download,
+      onClick: onDownloadDAB,
+      variant: "primary",
     });
   }
 
@@ -409,11 +420,11 @@ export function BuildStepper({
                 );
               })}
 
-              {/* Download/Publish when bundled */}
-              {hasDab && (onDownloadDAB || onPublishTemplate) && (
+              {/* Download (when not already primary) and Publish */}
+              {((!allDone && onDownloadDAB) || onPublishTemplate) && (
                 <>
                   <DropdownMenuSeparator />
-                  {onDownloadDAB && (
+                  {!allDone && onDownloadDAB && (
                     <DropdownMenuItem onClick={onDownloadDAB} className="cursor-pointer">
                       <Download className="h-4 w-4 mr-2" />
                       Download ZIP

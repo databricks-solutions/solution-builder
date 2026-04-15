@@ -9,6 +9,8 @@ description: >
   terminology, OEE benchmarks, plant-floor personas, and regulatory frameworks for
   generating realistic Industry 4.0 Databricks demos.
 related: [retail, healthcare]
+suggested_patterns: [predictive-maintenance, anomaly-detection, real-time-monitoring, compliance-audit]
+suggested_capabilities: [aibi-dashboards, genie-space, declarative-pipeline, notebooks, model-serving, streaming, knowledge-assistant]
 ---
 
 ## Terminology

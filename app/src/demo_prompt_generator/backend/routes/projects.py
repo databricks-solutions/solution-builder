@@ -223,7 +223,7 @@ def create_project(
     session.refresh(project)
 
     # Create project directory with placeholder README
-    initial_readme = f"# {project_name}\n\n_Generating README — check the chat panel._\n"
+    initial_readme = f"# {project_name}\n\n_README will be generated once the demo story is designed._\n"
     create_project_directory(project.id, initial_readme)
 
     # Save context document as a project file if provided

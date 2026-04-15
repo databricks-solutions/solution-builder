@@ -162,11 +162,13 @@ Horizontal bars at the bottom of the diagram. Use `startColumn` and `endColumn` 
 | `deltaTable` | Delta Tables (Bronze/Silver/Gold layers) |
 | `data` | Generic data storage |
 | `deltaLake` | Delta Lake |
-| `sdpPipeline` | SDP Pipelines, streaming |
+| `sdpPipeline` | SDP Pipelines |
+| `streaming` | Real-time streaming, Structured Streaming |
 | `sqlWarehouse` | SQL Warehouse (compute) |
 | `notebooks` | Databricks Notebooks (compute) |
 | `jobsPipelines` | Jobs, Pipelines, Workflows (compute) |
 | `dashboard` | AI/BI Dashboards, visualizations (analytics) |
+| `metricViews` | Metric Views, governed KPIs (analytics) |
 | `genie` | AI/BI Genie, natural language analytics (AI) |
 | `knowledgeAssistant` | Knowledge Assistant, document search (AI) |
 | `multiAgentSupervisor` | Multi-Agent Supervisor, routing (AI) |
@@ -174,7 +176,12 @@ Horizontal bars at the bottom of the diagram. Use `startColumn` and `endColumn` 
 | `mlModel` | ML Models (AI) |
 | `modelServing` | Model serving endpoints (compute) |
 | `aiGateway` | AI Gateway (AI) |
+| `aiFunctions` | AI Functions — ai_query, ai_classify, ai_extract (AI) |
+| `vectorSearch` | Vector Search, semantic search, RAG (AI) |
 | `unityCatalog` | Unity Catalog, governance |
+| `deltaSharing` | Delta Sharing, cross-org data sharing |
+| `lakebase` | Lakebase (managed PostgreSQL), app backend |
+| `databricksApps` | Databricks Apps, web applications |
 | `businessUser` | End users (consumer) |
 
 ---

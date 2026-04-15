@@ -318,8 +318,15 @@ class FileSyncService:
             # Get local files (excluding ignored patterns)
             local_files = set()
             for root, dirs, files in os.walk(project_dir):
-                # Skip .claude directory (managed separately)
-                dirs[:] = [d for d in dirs if d != ".claude" and not d.startswith("__")]
+                # Skip .claude, venvs, node_modules, and other non-project dirs
+                dirs[:] = [
+                    d for d in dirs
+                    if d != ".claude"
+                    and not d.startswith("__")
+                    and not d.startswith(".venv")
+                    and d != "node_modules"
+                    and d != ".git"
+                ]
 
                 for fname in files:
                     abs_path = Path(root) / fname
