@@ -1,0 +1,229 @@
+# Complete DAB Example - All resources in one file
+# Deploy: databricks bundle deploy --var="catalog=my_catalog" --var="schema=my_schema" --var="warehouse_id=abc123"
+# Run:    databricks bundle run demo_setup
+#
+# KEY PATTERNS DEMONSTRATED:
+# 1. Infrastructure (schemas, volumes) declared in YAML - created by `bundle deploy`
+# 2. Static files (PDFs) synced via sync.include, then copied to volume by workflow task
+# 3. Parallel tasks: tasks without depends_on run simultaneously
+# 4. Task value passing: dbutils.jobs.taskValues.set() + {{tasks.*.values.*}}
+# 5. SDK environments: sdk_latest (>=0.102.0) required for Genie/KA/MAS APIs
+# 6. Dashboard dataset_catalog/dataset_schema: overrides catalog/schema at deploy time
+
+bundle:
+  name: demo-bundle
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PATTERN: Static file upload
+# Files listed here are synced to workspace. Use a workflow task (upload_pdfs.py)
+# to copy them to UC volumes. Workspace files accessible via /Workspace/... FUSE.
+# ══════════════════════════════════════════════════════════════════════════════
+sync:
+  include:
+    - "src/**"
+    - "pipeline/**"
+    - "dashboard/**"
+    - "raw_data/pdf/**"  # PDFs synced to workspace, copied to volume by task
+
+variables:
+  catalog:
+    description: "Unity Catalog for demo resources"
+  schema:
+    description: "Schema within the catalog"
+  warehouse_id:
+    description: "SQL Warehouse ID for Genie Space"
+
+targets:
+  dev:
+    default: true
+    mode: development
+    # Workspace from DATABRICKS_HOST env or ~/.databrickscfg profile
+
+  prod:
+    mode: production
+
+# ============================================================================
+# RESOURCES - All in one file for clarity
+# ============================================================================
+
+resources:
+  # ══════════════════════════════════════════════════════════════════════════
+  # PATTERN: Infrastructure in YAML (not Python)
+  # Schemas and volumes are created by `bundle deploy`, NOT by Python scripts.
+  # This ensures they exist BEFORE workflow tasks run.
+  # ══════════════════════════════════════════════════════════════════════════
+  schemas:
+    demo_schema:
+      name: ${var.schema}
+      catalog_name: ${var.catalog}
+      comment: "Demo schema"
+      grants:
+        - principal: "users"
+          privileges:
+            - USE_SCHEMA
+
+  volumes:
+    raw_data:
+      catalog_name: ${var.catalog}
+      schema_name: ${var.schema}
+      name: "raw_data"
+      volume_type: "MANAGED"
+      comment: "Raw data files for pipeline"
+      grants:
+        - principal: "users"
+          privileges:
+            - READ_VOLUME
+
+    docs:
+      catalog_name: ${var.catalog}
+      schema_name: ${var.schema}
+      name: "docs"
+      volume_type: "MANAGED"
+      comment: "PDF documents for Knowledge Assistant"
+
+  # --------------------------------------------------------------------------
+  # PIPELINE: Spark Declarative Pipeline (SDP/DLT)
+  # --------------------------------------------------------------------------
+  pipelines:
+    demo_pipeline:
+      name: "[${bundle.target}] Demo Pipeline"
+      catalog: ${var.catalog}
+      target: ${var.schema}
+      libraries:
+        - notebook:
+            path: ./pipeline/01_bronze.py
+        - notebook:
+            path: ./pipeline/02_silver.sql
+        - notebook:
+            path: ./pipeline/03_gold.sql
+      # Pass catalog/schema to Python DLT for dynamic volume paths
+      configuration:
+        demo.catalog: ${var.catalog}
+        demo.schema: ${var.schema}
+      serverless: true
+      continuous: false
+      development: true
+      channel: current
+      permissions:
+        - level: CAN_VIEW
+          group_name: "users"
+
+  # --------------------------------------------------------------------------
+  # DASHBOARD: AI/BI Lakeview Dashboard
+  # --------------------------------------------------------------------------
+  dashboards:
+    demo_dashboard:
+      display_name: "[${bundle.target}] Demo Dashboard"
+      file_path: ./dashboard/demo.lvdash.json
+      warehouse_id: ${var.warehouse_id}
+      # IMPORTANT: These override catalog/schema for ALL datasets at deploy time
+      # Requires Databricks CLI v0.283.0+
+      dataset_catalog: ${var.catalog}
+      dataset_schema: ${var.schema}
+      permissions:
+        - level: CAN_RUN
+          group_name: "users"
+
+  # --------------------------------------------------------------------------
+  # WORKFLOW: Main setup job with parallel tasks
+  # --------------------------------------------------------------------------
+  jobs:
+    demo_setup:
+      name: "[${bundle.target}] Demo Setup"
+      description: "Uploads files, generates data, runs pipeline, deploys agents"
+
+      tasks:
+        # ── PARALLEL START: upload_pdfs and generate_data run together ──────
+
+        # Task 1a: Upload PDFs from workspace to UC volume
+        - task_key: upload_pdfs
+          description: "Copy PDFs from synced workspace to UC volume"
+          notebook_task:
+            notebook_path: ./src/deploy/upload_pdfs.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+          environment_key: sdk_only
+
+        # Task 1b: Generate synthetic data (runs in parallel with upload_pdfs)
+        - task_key: generate_data
+          description: "Generate demo tables"
+          notebook_task:
+            notebook_path: ./src/data_generation/generate_data.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+          environment_key: sdk_only
+
+        # ── SEQUENTIAL: Pipeline after data, agents after their dependencies ──
+
+        # Task 2: Run SDP pipeline
+        - task_key: run_pipeline
+          depends_on:
+            - task_key: generate_data
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.demo_pipeline.id}
+
+        # Task 3: Deploy Genie Space (after tables exist)
+        # Outputs: genie_space_id via taskValues
+        - task_key: deploy_genie
+          depends_on:
+            - task_key: run_pipeline
+          notebook_task:
+            notebook_path: ./src/deploy/deploy_genie.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+              warehouse_id: ${var.warehouse_id}
+          environment_key: sdk_latest  # REQUIRED: SDK >= 0.102.0
+
+        # Task 4: Deploy Knowledge Assistant (after PDFs uploaded)
+        # Outputs: ka_tile_id via taskValues
+        - task_key: deploy_ka
+          depends_on:
+            - task_key: upload_pdfs
+          notebook_task:
+            notebook_path: ./src/deploy/deploy_ka.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+          environment_key: sdk_latest  # REQUIRED: SDK >= 0.102.0
+
+        # Task 5: Deploy Multi-Agent Supervisor (after both Genie and KA)
+        # Receives IDs from upstream tasks via task value passing
+        - task_key: deploy_mas
+          depends_on:
+            - task_key: deploy_genie
+            - task_key: deploy_ka
+          notebook_task:
+            notebook_path: ./src/deploy/deploy_mas.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+              genie_space_id: "{{tasks.deploy_genie.values.genie_space_id}}"
+              ka_tile_id: "{{tasks.deploy_ka.values.ka_tile_id}}"
+          environment_key: sdk_latest  # REQUIRED: SDK >= 0.102.0
+
+      # ══════════════════════════════════════════════════════════════════════
+      # ENVIRONMENTS: SDK version matters!
+      # The pre-installed SDK on Databricks serverless is too old for
+      # Genie, Knowledge Assistant, and MAS APIs. Those tasks MUST use
+      # sdk_latest with databricks-sdk>=0.102.0.
+      # ══════════════════════════════════════════════════════════════════════
+      environments:
+        # Use for: data generation, file operations, basic SDK calls
+        - environment_key: sdk_only
+          spec:
+            client: "4"
+
+        # Use for: deploy_genie, deploy_ka, deploy_mas
+        # CRITICAL: w.genie.list_spaces(), w.knowledge_assistants.* require >=0.102.0
+        - environment_key: sdk_latest
+          spec:
+            client: "4"
+            dependencies:
+              - "databricks-sdk>=0.102.0"
+
+      permissions:
+        - level: CAN_VIEW
+          group_name: "users"
