@@ -28,7 +28,6 @@ dependencies = [
 
 # Local path dependencies for Databricks MCP tools
 [tool.uv.sources]
-databricks-tools-core = { path = "ai_dev_kit/databricks-tools-core", editable = true }
 databricks-mcp-server = { path = "ai_dev_kit/databricks-mcp-server", editable = true }
 
 [dependency-groups]

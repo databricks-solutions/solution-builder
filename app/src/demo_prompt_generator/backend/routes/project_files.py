@@ -29,7 +29,7 @@ router = create_router()
 PROJECTS_BASE_DIR = os.getenv("PROJECTS_BASE_DIR", "./projects")
 
 # Files/folders to exclude from listing
-EXCLUDED_PATTERNS = {".claude", "__pycache__", ".git", ".DS_Store", "node_modules"}
+EXCLUDED_PATTERNS = {".claude", ".databricks", "__pycache__", ".git", ".DS_Store", "node_modules"}
 
 
 def _get_user_email(headers) -> str:
