@@ -413,6 +413,7 @@ class ProjectListItem(BaseModel):
     """Project summary for list views."""
     id: str
     name: str
+    description: Optional[str] = None
     project_type: str
     stage: str = ProjectStage.DRAFTING.value
     created_at: datetime

@@ -236,30 +236,36 @@ README:
 
     def generate_project_metadata(self, description: str) -> dict[str, str]:
         """
-        Generate a concise project name and schema name from a description.
+        Generate a concise project name, description, and schema name from a user prompt.
 
         Returns:
-            dict with 'name' (display name, max 100 chars) and 'schema_name' (SQL-safe, max 50 chars)
+            dict with 'name' (display name, max 100 chars), 'description' (1-2 sentences),
+            and 'schema_name' (SQL-safe, max 50 chars)
         """
         prompt = f"""Based on this demo/project description, generate:
 1. A concise demo name (max 100 characters, human-readable title)
-2. A SQL schema name (lowercase, underscores only, no spaces, max 50 characters, start with letter)
+2. A short description (1-2 sentences summarizing the demo, max 200 characters)
+3. A SQL schema name (lowercase, underscores only, no spaces, max 50 characters, start with letter)
 
 Return JSON:
 {{
     "name": "Short Demo Name Here",
+    "description": "Brief summary of what this demo showcases.",
     "schema_name": "short_schema_name"
 }}
 
-Description:
+User prompt:
 {description[:4000]}
 """
 
         try:
-            result = self.chat_json(prompt, size=ModelSize.MINI, max_tokens=200)
+            result = self.chat_json(prompt, size=ModelSize.MINI, max_tokens=300)
 
             # Validate and sanitize name
             name = result.get("name", "Untitled Demo")[:100]
+
+            # Validate and sanitize description
+            short_desc = result.get("description", "")[:200]
 
             # Validate and sanitize schema_name
             schema_name = result.get("schema_name", "demo")
@@ -269,7 +275,7 @@ Description:
                 schema_name = "demo_" + schema_name
             schema_name = schema_name[:50]
 
-            return {"name": name, "schema_name": schema_name}
+            return {"name": name, "description": short_desc, "schema_name": schema_name}
 
         except Exception as e:
             logger.error(f"Failed to generate project metadata: {e}")
@@ -277,5 +283,6 @@ Description:
             first_line = description.split("\n")[0].strip()[:100]
             return {
                 "name": first_line or "Untitled Demo",
+                "description": "",
                 "schema_name": "demo_project",
             }

@@ -1089,10 +1089,10 @@ function ProjectPage() {
             ) : project?.description ? (
               <button
                 onClick={handleStartEditDescription}
-                className="text-sm text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
-                title="Click to edit description"
+                className="text-sm text-muted-foreground hover:text-foreground transition-colors cursor-pointer truncate max-w-md"
+                title={project.description}
               >
-                {project.description}
+                {project.description.length > 150 ? `${project.description.slice(0, 150)}...` : project.description}
               </button>
             ) : (
               <button

@@ -53,6 +53,7 @@ export interface Project {
 export interface ProjectListItem {
   id: string;
   name: string;
+  description?: string | null;
   project_type: string;
   stage: ProjectStage;
   created_at: string;

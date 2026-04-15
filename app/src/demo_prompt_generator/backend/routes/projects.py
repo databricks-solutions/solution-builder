@@ -165,6 +165,7 @@ def list_projects(session: Dependencies.Session, headers: Dependencies.Headers):
             ProjectListItem(
                 id=p.id,
                 name=p.name,
+                description=p.description,
                 project_type=p.project_type,
                 stage=p.stage,
                 created_at=p.created_at,
@@ -197,10 +198,11 @@ def create_project(
     """Create a new project with default resources."""
     user_email = _get_user_email(headers)
 
-    # Use LLM to generate project name and schema from description
+    # Use LLM to generate project name, description, and schema from user prompt
     llm_service = LLMService(ws, config)
     metadata = llm_service.generate_project_metadata(body.description)
     project_name = metadata["name"]
+    project_description = metadata.get("description") or body.description[:200]
     default_schema = f"{DEFAULT_SCHEMA_PREFIX}{metadata['schema_name']}"
 
     # Find default resources (returns tuples of id, name)
@@ -210,7 +212,7 @@ def create_project(
     project = Project(
         user_email=user_email,
         name=project_name,
-        description=body.description,
+        description=project_description,
         warehouse_id=warehouse_id,
         warehouse_name=warehouse_name,
         cluster_id=None,
@@ -718,6 +720,7 @@ def list_shared_projects(session: Dependencies.Session, headers: Dependencies.He
             ProjectListItem(
                 id=project.id,
                 name=project.name,
+                description=project.description,
                 project_type=project.project_type,
                 stage=project.stage,
                 created_at=project.created_at,

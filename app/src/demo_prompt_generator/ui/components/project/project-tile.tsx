@@ -133,6 +133,13 @@ export const ProjectTile = memo(function ProjectTile({
           </div>
         )}
 
+        {/* Description */}
+        {project.description && (
+          <p className="text-xs text-muted-foreground line-clamp-2 mb-2">
+            {project.description}
+          </p>
+        )}
+
         {/* Template lineage */}
         {project.source_template_name && (
           <div className="flex items-center gap-1.5 mb-2">
