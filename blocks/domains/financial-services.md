@@ -8,6 +8,8 @@ description: >
   Covers fraud detection, credit risk, AML compliance, trading analytics, and regulatory reporting
   with realistic KPIs and personas that produce domain-authentic Databricks demos.
 related: [retail, healthcare]
+suggested_patterns: [anomaly-detection, compliance-audit, real-time-monitoring, customer-segmentation]
+suggested_capabilities: [aibi-dashboards, genie-space, knowledge-assistant, multi-agent-supervisor, declarative-pipeline, model-serving, streaming, notebooks]
 ---
 
 ## Terminology

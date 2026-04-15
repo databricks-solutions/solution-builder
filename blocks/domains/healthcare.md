@@ -9,6 +9,8 @@ description: >
   terminology, quality metrics with CMS benchmarks, and regulatory frameworks that
   produce realistic, compliant demo narratives.
 related: [financial-services, manufacturing]
+suggested_patterns: [anomaly-detection, predictive-maintenance, compliance-audit, customer-segmentation]
+suggested_capabilities: [aibi-dashboards, genie-space, knowledge-assistant, multi-agent-supervisor, declarative-pipeline, model-serving, notebooks]
 ---
 
 ## Terminology

@@ -146,12 +146,15 @@ Each demo project has:
 2. **Check existing state**:
    - If `./instructions/` exists → read the files to understand the demo design
    - If `resources.json` exists → read it to see what's already built
-3. **Follow the skill's guidance** for creating or modifying the demo"""
+3. **Browse context blocks** in the skill's `references/blocks/` — capabilities (products), domains (industry context), and patterns (story structures). Read any that are relevant to this demo.
+4. **Follow the skill's guidance** for creating or modifying the demo"""
 
 
 _GUIDELINES = """## Guidelines
 
 - **Always load skill first** - even for modifications or questions about an existing demo
+- **README.md is mandatory** - You MUST write a complete `./README.md` with the story overview (hero, disruption, quest, resolution, products showcased, walkthrough). The placeholder content is not acceptable as a final state. Write the README before generating detailed instruction files.
+- **Build with CLI skills, not MCP** - When building Databricks resources, ALWAYS load the relevant ai-dev-kit skill first (e.g., `databricks-spark-declarative-pipelines` for pipelines, `databricks-aibi-dashboards` for dashboards, `databricks-agent-bricks` for KA/MAS). These skills use the Databricks CLI and Python SDK. Do NOT call MCP tools directly — use `Skill` + `Bash` with `databricks` CLI commands.
 - **Keep instructions in sync** - if you change something, update the instruction file too
 - **Track all resources** - update `resources.json` after creating any Databricks resource
 - **Provide workspace links** - after creating resources, give clickable links"""

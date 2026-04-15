@@ -216,19 +216,21 @@ async def stream_agent_response(
             )
 
             # Build allowed tools list
-            # Note: MCP tools removed - ai-dev-kit now uses CLI tools via skills
+            # ai-dev-kit uses CLI tools via skills, not MCP
             allowed_tools = ["Read", "Write", "Edit", "Glob", "Grep", "Bash", "Skill"]
 
             # Configure agent options
-            # IMPORTANT: setting_sources=["project"] is required for the SDK to
-            # discover skills from .claude/skills/ - without it skills won't load
+            # setting_sources=[] prevents inheriting MCP servers from user/project
+            # settings files. Skills are still discovered from .claude/skills/ in the
+            # project CWD. Building uses Databricks CLI via skills, not MCP.
             options = ClaudeAgentOptions(
                 cwd=str(project_dir),
                 allowed_tools=allowed_tools,
                 permission_mode="bypassPermissions",
                 system_prompt=system_prompt,
                 include_partial_messages=True,
-                setting_sources=["project"],  # Enable skill discovery from .claude/skills/
+                setting_sources=[],
+                mcp_servers={},
             )
 
             # Resume previous session if provided

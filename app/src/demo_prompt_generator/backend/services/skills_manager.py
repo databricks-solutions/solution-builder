@@ -88,17 +88,32 @@ def _parse_skill_frontmatter(content: str) -> tuple[Optional[str], Optional[str]
     return name, description
 
 
+def _find_repo_root() -> Optional[Path]:
+    """Find the repository root by looking for blocks/ directory."""
+    current_file = Path(__file__)
+    # Direct path from this file: services/ -> backend/ -> demo_prompt_generator/ -> src/ -> app/ -> repo root
+    project_root = current_file.parent.parent.parent.parent.parent.parent
+    if (project_root / "blocks").exists():
+        return project_root
+
+    # Fallback: walk up looking for blocks/
+    for parent in current_file.parents:
+        if (parent / "blocks").exists():
+            return parent
+
+    return None
+
+
 def get_demo_generator_skill_path() -> Optional[Path]:
     """Get the path to the demo-generator skill from this project."""
-    # Look in the project's .claude/skills directory
-    current_file = Path(__file__)
-    project_root = current_file.parent.parent.parent.parent.parent.parent
-    demo_skill = project_root / ".claude" / "skills" / "databricks-demo-generator"
-
-    if demo_skill.exists():
-        return demo_skill
+    repo_root = _find_repo_root()
+    if repo_root:
+        demo_skill = repo_root / ".claude" / "skills" / "databricks-demo-generator"
+        if demo_skill.exists():
+            return demo_skill
 
     # Fallback: look in parent directories
+    current_file = Path(__file__)
     for parent in current_file.parents:
         candidate = parent / ".claude" / "skills" / "databricks-demo-generator"
         if candidate.exists():
@@ -148,6 +163,22 @@ def copy_skills_to_project(
             shutil.rmtree(dest)
         shutil.copytree(demo_skill_path, dest)
         copied += 1
+
+        # Copy domain and pattern blocks from blocks/ into the skill's references
+        # so the agent can browse them alongside capability blocks.
+        # blocks/ is the single source of truth — this keeps them fresh on each copy.
+        repo_root = _find_repo_root()
+        if repo_root:
+            blocks_src = repo_root / "blocks"
+            refs_blocks = dest / "references" / "blocks"
+            for block_type in ("domains", "patterns"):
+                src_dir = blocks_src / block_type
+                if src_dir.exists():
+                    dest_dir = refs_blocks / block_type
+                    if dest_dir.exists():
+                        shutil.rmtree(dest_dir)
+                    shutil.copytree(src_dir, dest_dir)
+                    logger.debug(f"Copied {block_type} blocks to project {project_id}")
 
     # Copy skills from ai-dev-kit
     skills_src = Path(AI_DEV_KIT_LOCAL) / "databricks-skills"
@@ -319,6 +350,17 @@ def create_project_directory(project_id: str, initial_readme: str = "") -> Path:
     readme_content = initial_readme or f"# Project {project_id}\n\nThis is a new Databricks Asset Generator project.\n"
     readme_path = project_dir / "README.md"
     readme_path.write_text(readme_content)
+
+    # Create .claude/settings.json that disables MCP inheritance
+    # Building uses ai-dev-kit CLI skills, not MCP tools
+    import json
+    claude_dir = project_dir / ".claude"
+    claude_dir.mkdir(parents=True, exist_ok=True)
+    settings_path = claude_dir / "settings.json"
+    settings_path.write_text(json.dumps({
+        "enableAllProjectMcpServers": False,
+        "mcpServers": {},
+    }, indent=2))
 
     # Copy skills
     copy_skills_to_project(project_id)

@@ -1,17 +1,17 @@
 ---
 name: databricks-demo-generator
-description: Generate comprehensive instruction files for building Databricks demos. Use when users want to create a new demo, design a demo story, or need help structuring demo components (data generation, pipelines, Genie, dashboards, Knowledge Assistant, Multi-Agent Supervisor). This skill creates prompts that another agent will execute to build the actual demo.
+description: Generate comprehensive instruction files for building Databricks demos. Use when users want to create a new demo, design a demo story, or need help structuring demo components. This skill creates prompts that another agent will execute to build the actual demo.
 ---
 
 # Databricks Demo Generator
 
-A skill for creating and building compelling Databricks demos for Solution Architects.
+A skill for creating and building compelling Databricks demos that Technical Solution Architects will show to enterprise customers across any industry.
 
 ## Purpose
 
 This skill has two parts:
 
-1. **Part 1 - Generate Instructions**: Create markdown files describing the demo story, data, pipelines, dashboards, and AI components. These are functional specs (what to do, not how) that guide implementation.
+1. **Part 1 - Generate Instructions**: Create markdown files describing the demo story, architecture, and component specs. These are functional specs (what to do, not how) that guide implementation.
 
 2. **Part 2 - Build Resources**: If the user opts in, build the actual Databricks resources following the instruction files. Keep instructions in sync with any changes made during building.
 
@@ -21,9 +21,9 @@ This skill has two parts:
 
 | Phase | What | Output |
 |-------|------|--------|
-| 1. Capture | Understand request, search demo bank | Selected story direction |
-| 2. Design | Define hero, disruption, quest, resolution | Story spec |
-| 3. Components | Select Databricks products | Component list |
+| 1. Capture | Understand request, browse context blocks, search demo bank | Selected story direction |
+| 2. Design | Define story arc, personas, key moments | Story spec |
+| 3. Components | Select Databricks products that fit the story | Component list |
 | 4. Generate README | Write story overview | `./README.md` |
 | 5. **User Review** | User confirms story is good | Approval to continue |
 | 6. Generate Details | Write detailed instruction files | `./instructions/` folder |
@@ -36,19 +36,19 @@ This skill has two parts:
 
 Each demo project has this structure:
 ```
-./README.md           # Story overview (hero, disruption, quest, resolution, walkthrough)
+./README.md           # Story overview, products showcased, walkthrough
 ./architecture.md     # Architecture diagram schema (JSON) for visual rendering
 ./META-PROMPT.md      # Build instructions for the AI
 ./instructions/       # Detailed specs (content varies based on demo components)
   resources.json      # Tracks created Databricks resource IDs
 ```
 
-The `./instructions/` folder contains detailed specs for each component in the demo. The exact files depend on what the demo includes (data, pipelines, dashboards, AI components, etc.).
+The `./instructions/` folder contains detailed specs for each component in the demo. The exact files depend on what the demo includes — there is no fixed list.
 
 ### Architecture Diagram
 
 When the user asks to create or update the demo architecture diagram, **read `{SKILL_BASE_DIR}/references/architecture.md`** for the schema format. This reference explains:
-- Available icons (dashboard, genie, deltaTable, etc.)
+- Available icons (dashboard, genie, deltaTable, vectorSearch, lakebase, etc.)
 - Available tiers/colors (source, bronze, silver, gold, ai, consumer, etc.)
 - How to structure columns, nodes, edges, groups, and foundation bars
 
@@ -56,15 +56,30 @@ Generate the architecture as a JSON schema in `./architecture.md`. The UI will a
 
 ---
 
-## Workflow Overview
+## Context Blocks — The Knowledge Base
 
-**Part 1a:** Capture Intent → Design Story → Select Components → **Generate README.md** → **Ask User to Review**
+The blocks in `{SKILL_BASE_DIR}/references/blocks/` are the foundation of every demo. Each block encodes the **best way to use Databricks** for that specific capability, industry, or story pattern. The demo generation workflow is: **select blocks → compose them → generate specs**.
 
-**Part 1b (after approval):** Generate detailed instructions in `./instructions/` → Coherence Review
+| Folder | What's Inside | What It Encodes |
+|--------|--------------|-----------------|
+| `domains/` | Industry verticals (retail, healthcare, finance, manufacturing) | Terminology, KPIs with baselines, named personas, data entities, regulations, pain points |
+| `patterns/` | Story structures (anomaly detection, segmentation, predictive, compliance, real-time) | Narrative arc, data shape, wow-moment guidance, investigation flow, suggested capabilities |
+| `capabilities/` | Databricks products (dashboards, Genie, pipelines, KA, model serving, etc.) | How to configure the product for a demo, common pitfalls, positioning guidance, example specs |
 
-**Part 2 (optional):** Read META-PROMPT → Build each component → Keep instructions in sync
+### How Blocks Connect
 
-**Use TodoWrite to track progress.** Multi-step process - tracking ensures nothing gets forgotten.
+Blocks cross-reference each other:
+- **Domain blocks** have `suggested_patterns` and `suggested_capabilities` — telling you which story patterns and products fit that industry
+- **Pattern blocks** have `suggested_capabilities` — telling you which products that story structure needs
+- **Capability blocks** have `related` — telling you which other capabilities they connect to
+
+### Block Composition Workflow
+
+1. **Domain** (if applicable) → Read the matching domain block for industry terminology, KPIs, personas, and data entities. If no domain block matches, rely on general knowledge.
+2. **Pattern** → The domain's `suggested_patterns` narrows the options. Read the pattern block for the story arc, data shape, and wow-moment design.
+3. **Capabilities** → The pattern's `suggested_capabilities` tells you which products to include. Read each capability block for configuration guidance and demo positioning.
+
+This gives the LLM everything it needs: **domain-authentic language** (from the domain block), **a proven story structure** (from the pattern block), and **product-specific best practices** (from the capability blocks).
 
 ---
 
@@ -72,190 +87,153 @@ Generate the architecture as a JSON schema in `./architecture.md`. The UI will a
 
 The demo is a **pitch**. Keep it simple.
 
-### The Story Arc
+### Story Patterns
 
-The demo follows a classic three-act structure *(default pattern - adapt to user requirements)*:
+Different demos call for different story structures. The pattern blocks in `{SKILL_BASE_DIR}/references/blocks/patterns/` describe several, including:
 
-| Act | What Happens | Demo Moment |
-|-----|--------------|-------------|
-| **Setup** (optional) | How data flows in | Mention Lakeflow, SDP, UC |
-| **Act 1: Dashboard** | Baseline + anomaly visible | "Revenue normal... but returns are 3x" |
-| **Act 2: Investigation** | Ask why → get answer | Genie finds lot, KA finds incident |
-| **Act 3: Platform** | Zoom out - what made this possible | Recap products, governance |
-| **Closing** | Value statement | "Days → minutes. That's Databricks." |
+- **Anomaly detection / root cause investigation** — A metric spikes, the hero investigates, traces to a root cause. Classic "what happened and why?"
+- **Customer segmentation / targeting** — The hero discovers hidden patterns in customer behavior and acts on them. "Who should we target and how?"
+- **Predictive maintenance / forecasting** — A model predicts what's about to happen, the hero prevents it. "What's going to break next?"
+- **Compliance / audit** — Regulations require proof. The hero demonstrates governance and traceability. "Can we prove we're compliant?"
+- **Real-time monitoring / alerting** — Something is happening NOW. The hero responds in real time. "What's happening right now?"
 
-**Key rule:** Act 2 is the live demo (interactive). Acts 1, 3, and Closing are mostly narration with visuals.
-
-**Resolution should leverage Databricks agents** - don't just say "now they can act." Focus on what agents can do next:
-- "Claire asks a Databricks agent to generate personalized win-back offers for at-risk customers"
-- "An agent analyzes each customer's history and drafts targeted retention emails"
-
-### Keep It Simple
-
-- **Common domains** - Retail, manufacturing, support. Everyone gets "returns went up."
-- **Business metrics** - Revenue, cost, customers (in $). Not technical jargon.
-- **One clear problem** - Focused narrative, easy to follow.
-
-**The rule**: If you have to explain the business before the demo, pick a simpler domain.
+**Read the matching pattern block** if one fits — it has the narrative arc, data shape, wow-moment guidance, and suggested components. If the user's demo doesn't fit any pattern, design a custom story arc.
 
 ### What Makes a Good Demo Story
 
-- A clear baseline/anomaly pattern
-- A root cause that can be traced
-- Business impact in $ terms
-- A "smoking gun" document for the KA
+Regardless of pattern:
+
+- **A clear protagonist** — A named persona with a business role and a problem to solve
+- **Business metrics** — KPIs in $ (revenue, cost, risk, time saved). A CFO cares about "$500K at risk", not "720 records"
+- **A "wow moment"** — The point where the audience sees the platform do something impressive. This could be: tracing a root cause in 60 seconds, a prediction that prevents downtime, a natural-language question that returns a complete answer, or an agent that takes action autonomously.
+- **A clear value statement** — "Days → minutes", "$2M saved annually", "100% audit coverage"
+
+### Keep It Simple
+
+- **Accessible domains** — Retail, manufacturing, healthcare, finance. Everyone gets "returns went up" or "this machine is about to fail."
+- **Business language** — Revenue, cost, customers (in $). Not technical jargon.
+- **One clear problem** — Focused narrative, easy to follow.
+
+**The rule**: If you have to explain the business domain before the demo, pick a simpler domain.
 
 ---
 
 ## Product Positioning
 
-Demos showcase the Databricks platform. **Read the capability files in `{SKILL_BASE_DIR}/references/blocks/capabilities/`** to understand what each product does, what pain it solves, and how to position it. Each file covers one capability (e.g., `genie.md`, `lakeflow-connect.md`, `dashboards.md`).
-
-### Default Demo Stack (adapt to user needs)
-
-```
-Lakeflow Connect → SDP → DW/SQL Dashboard → Genie → Agents (MAS/KA) → Apps
-                              ↑
-                        Unity Catalog (governance across everything)
-```
-
-This is a starting point. Users may want different products, fewer products, or additional ones. Follow their lead.
-
-### Products Showcased Section
-
-When generating the demo overview, include a **Products Showcased** table - a simple two-column table showing each product and what it does in this specific demo. Keep it brief (one sentence per product). See `README.md` in the reference example for the format.
+**Read the capability files in `{SKILL_BASE_DIR}/references/blocks/capabilities/`** to understand what each product does, what pain it solves, and how to position it.
 
 ### Choosing Products
 
-Products should connect to the story. Ask:
+Products should connect to the story. For each candidate product, ask:
 - Does this product solve a pain in the demo narrative?
 - Does it have a clear "moment" in the walkthrough?
 - How does it connect to other products in the flow?
 
-**Examples of customization:**
-- ML story → add Notebooks + MLflow
-- Document-heavy → emphasize Vector Search + KA
-- Security use case → include Lakewatch
-- Operational app → add Databricks Apps + Lakebase
+### Common Product Combinations
 
-But always follow user input - they know their audience.
+These are starting points — adapt based on what the story needs:
+
+| Demo Pattern | Typical Stack |
+|-------------|---------------|
+| Investigation / root cause | Lakeflow Connect → SDP → Dashboard → Genie → KA → MAS |
+| Segmentation / targeting | SDP → Dashboard → Genie → AI Functions → Notebooks |
+| Predictive / forecasting | SDP → Notebooks → MLflow → Model Serving → Dashboard |
+| Real-time monitoring | Streaming → SDP → Dashboard → Genie → Databricks Apps |
+| Document-heavy / RAG | Vector Search → KA → MAS → Databricks Apps |
+| Operational app | SDP → Lakebase → Databricks Apps → Model Serving |
+
+**Unity Catalog** is a foundation across all patterns (governance, lineage, permissions).
+
+### Products Showcased Section
+
+When generating the README, include a **Products Showcased** table — a simple two-column table showing each product and what it does in *this specific demo*. Keep it brief (one sentence per product).
 
 ---
 
 ## Part 1: Generate Instructions
 
-### Phase 1: Capture Intent
+### Phase 1: Capture Intent & Select Blocks
 
-Start by understanding what the user wants to build. **Help with ideation - don't just ask questions.**
+Start by understanding what the user wants to build. **Help with ideation — don't just ask questions.**
 
-When the user gives a domain (e.g., "retail demo"):
+#### Step 1: Identify the Domain
 
-#### Skipping Demo Bank Search
+When the user gives a domain (e.g., "retail demo"), check `{SKILL_BASE_DIR}/references/blocks/domains/` for a matching domain block. If one exists, read it — it has the terminology, KPIs, personas, and pain points you'll need. Note its `suggested_patterns` and `suggested_capabilities`.
 
-If the user says "skip templates", "no template suggestions", or similar — skip Step 1 (don't search the demo bank) and don't show the "Reference Demos" section in Step 2. Still show the AI-generated ideas for ideation. This is useful when template selection already happened upstream (e.g., in a UI workflow).
+If no domain block matches (e.g., "telecom demo"), proceed with general knowledge.
 
-#### Step 1: Search Reference Demos
+#### Step 2: Select the Story Pattern
 
-First, search the demo reference bank for existing demos that match. Use the `tools/` folder inside this skill's base directory:
+Browse `{SKILL_BASE_DIR}/references/blocks/patterns/` and pick the pattern that best fits the user's scenario. Use the domain's `suggested_patterns` to narrow options. Read the selected pattern block — it defines the narrative arc, data shape, wow moment, and which capabilities to use.
+
+If the user has a specific story in mind that doesn't fit any pattern, design a custom arc.
+
+#### Step 3: Generate Ideas
+
+Using the domain context and pattern structure, generate 3 story ideas. Each idea should combine the domain's terminology/personas with the pattern's narrative arc. Keep it brief — this is ideation, no product names yet.
+
+**Title format**: "[Domain]'s [problem]" — tells you who and what at a glance.
+
+```
+**Ideas:**
+1. **Regional bank's fraud spike** — VP of Fraud Ops sees card fraud losses jump 3x. Traces it to compromised POS terminals at a merchant chain.
+2. **Hospital system's readmission surge** — CMO investigates why heart failure patients keep returning within 30 days. Uncovers a discharge protocol gap.
+3. **Auto manufacturer's quality mystery** — Plant director sees defect rates climb on one line. Traces it to a worn bearing in Station 7.
+
+Pick one, combine ideas, or describe something else.
+```
+
+#### Step 4: (Optional) Check Reference Demos
+
+If the user wants to see pre-built examples, search the demo bank:
 
 ```bash
 python {SKILL_BASE_DIR}/tools/search_demos.py "retail"
 ```
 
-This returns the top 3 matching reference demos (mocked vector search for now).
-
-#### Step 2: Present Options
-
-Show AI-generated ideas and reference demos. Keep it brief - this is ideation. No product names yet.
-
-**Title format**: "[Domain]'s [problem]" - tells you who and what at a glance.
-
-```
-**Generated Ideas:**
-1. **Beauty retailer's return crisis** - VP sees returns jump 3x. Traces it to skincare products from a bad supplier batch — internal memo reveals a texture issue. $180K at risk.
-
-2. **Healthcare SaaS's CSAT collapse** - Support scores tank. All tied to one product module with a known bug agents don't know how to handle.
-
-3. **Logistics company's backlog nightmare** - Resolution time spikes. A carrier API got deprecated and broke tracking lookups.
-
-**Reference Demos:**
-A. **Auto manufacturer's defect mystery** - Defect spike traced to a worn machine bearing.
-B. **Hospital's readmission puzzle** - Readmission rates rise due to a discharge protocol gap.
-C. **Bank's fraud spike** - Card fraud traced to compromised POS terminals.
-
-Pick 1-3 or A-C, or describe something else.
-```
-
-#### Step 3: If User Picks a Reference Demo
-
-If the user selects a reference demo (A, B, or C), fetch the full spec:
+Reference demos can be used as-is or customized. Fetch a full spec with:
 
 ```bash
 python {SKILL_BASE_DIR}/tools/get_demo.py "manufacturing-quality-defects"
 ```
 
-This returns all instruction files concatenated. Use this as your baseline instead of reading `{SKILL_BASE_DIR}/references/example-luxebeauty/`.
-
-Then:
-1. **Ask catalog/schema** (same as normal flow)
-2. **Present the full use-case** - show the complete story, data model, components
-3. **Ask: "Use as-is or customize?"**
-   - As-is: Write instruction files directly from reference
-   - Customize: Adapt company name, industry details, specific numbers, then write
-
-After this, continue to Part 2 (building) if user wants.
-
-#### Lakeflow Connect Requirement
-
-**At least one datasource must be from Lakeflow Connect** to showcase easy ingestion.
-
-**Available sources:**
-- SaaS: Salesforce, NetSuite, HubSpot, ServiceNow, Workday, Zendesk, Dynamics 365, Jira, Confluence, SharePoint, Google Ads/Analytics, Meta Ads, TikTok Ads
-- Databases: MySQL, PostgreSQL, SQL Server
-
-**Two levels:**
-1. **Story/pitch**: Mention data flows from real sources via Lakeflow Connect
-2. **Implementation**: Generate synthetic data (no actual connections - too many dependencies)
-
-The narrative sells Lakeflow Connect; the demo uses generated data that looks like it came from these sources.
-
 ### Phase 2: Design the Story
 
-Once the user picks a direction, nail down the specifics:
+Once the user picks a direction, nail down the specifics. The exact structure depends on the story pattern, but always define:
 
-1. **The Hero** - Company name, industry, executive persona, key metrics they track
-2. **The Disruption** - What happens, when (dates), magnitude (e.g., "3x normal")
-3. **The Quest** - What question do they ask? What does Genie find? What does KA reveal?
-4. **The Resolution** - Root cause, business impact (always in $ terms), action to take
+1. **The Protagonist** — Company name, industry, persona name and role, what they care about
+2. **The Setup** — What's normal, what context the audience needs
+3. **The Catalyst** — What triggers the demo flow (a spike, a question, a prediction, an alert)
+4. **The Journey** — How the protagonist uses the platform to get from question to answer
+5. **The Resolution** — What they learn, the business impact (in $), what action they take
+6. **The Value** — One-sentence "so what" that lands with the audience
 
 ### Phase 3: Component Selection
 
-After story is approved, confirm the building blocks:
+The pattern block's `suggested_capabilities` gives you the starting set. **Read each selected capability block** in `{SKILL_BASE_DIR}/references/blocks/capabilities/` — each one encodes the best way to configure that product for a demo, including common pitfalls and positioning guidance.
 
-**Default flow:** Data Gen → Pipeline → Dashboard → Genie → KA → MAS (the full "ask anything" experience)
+**Match products to story moments** — each product should have a clear "when it shines" moment in the walkthrough. Drop any that don't earn a moment; add any the user requests.
 
-**Optional additions:** ML Notebook, Metric Views, AI Functions, Vector Search, Workflows
+If the demo involves external data sources, **Lakeflow Connect** is a natural fit. At the story level, mention the real sources; at implementation time, use synthetic data.
 
-Ask user to confirm or modify. If unfamiliar with a component, fetch docs from `https://docs.databricks.com/llms.txt`.
-
-Then ask for catalog/schema with a sensible default:
+Then confirm catalog/schema with a sensible default:
 ```
 Where to deploy?
-Default: dbdemos_ai_gen.beauty_returns
+Default: ai_demo_gen.{schema_name}
 
 Ok, or specify different location?
 ```
 
 ### Phase 4: Generate README.md
 
-**First:** Read `{SKILL_BASE_DIR}/references/example-luxebeauty/README.md` to understand the structure and detail level expected.
+**Browse the reference examples** in `{SKILL_BASE_DIR}/references/` to understand the structure and detail level expected. Pick the example closest to your demo's pattern.
 
 Generate `./README.md` with:
-- **The Story** - Summary table (company, hero, problem, investigation, root cause, impact)
-- **Overview** - Short paragraph explaining the demo flow
-- **Key Numbers** - Table of metrics (baseline vs anomaly values)
-- **Products Showcased** - Simple table: product name + what it does in this demo
-- **Demo Walkthrough** - Concise bullet points for each act (not long quoted paragraphs)
+- **The Story** — Summary table (company, protagonist, problem, journey, resolution, impact)
+- **Overview** — Short paragraph explaining the demo flow
+- **Key Numbers** — Table of metrics (relevant baselines and values)
+- **Products Showcased** — Table: product name + what it does in this demo
+- **Demo Walkthrough** — Concise bullet points for each phase of the demo (not long scripts)
 
 Keep it scannable. The walkthrough should be bullet points a presenter can glance at, not a script to read verbatim.
 
@@ -268,95 +246,70 @@ After writing README.md, say:
 I've created the demo story in README.md with:
 - [Brief summary of the story]
 - [Key products being showcased]
-- [The investigation flow]
+- [The demo flow]
 
 **Should I go ahead and generate the detailed instruction files?**
 
 Reply "yes" to continue, or let me know what to change.
 ```
 
-**Wait for user confirmation before proceeding.** This checkpoint lets them review the story before committing to detailed specs.
+**Wait for user confirmation before proceeding.**
 
 ### Phase 6: Generate Detailed Instructions
 
-After user approves, generate the remaining files:
+After user approves, generate the remaining files.
 
 **At project root:**
-- **META-PROMPT.md** - Build instructions for the AI: local project structure, build order, resource tracking, troubleshooting.
+- **META-PROMPT.md** — Build instructions for the AI: project structure, build order, resource tracking, validation steps. Use the reference examples as a structural guide, but customize catalog/schema names, build steps, and validation checks for this specific demo.
 
 **In `./instructions/` folder:**
-1. **Data layer (01)** - Table schemas, distributions, relationships, the event encoded
-2. **Documents (02)** - PDF specs (background noise + key document with the "smoking gun")
-3. **Pipeline layer (03)** - Bronze/Silver/Gold definitions, validation
-4. **Genie (04)** - Config with smart instructions, sample questions, domain knowledge
-5. **Dashboard (05)** - Layout, KPIs, the visual story (anomaly obvious at a glance)
-6. **KA (06)** - Config, instructions, identifiers matching structured data
-7. **MAS (07)** - Routing logic
+Generate one instruction file per component. The exact files depend on what the demo includes — **only generate files for components that are part of this demo**. Number them in build order.
 
-#### Parallelization for Speed
+Common instruction file types (include only what's needed):
 
-**Reading references:** Read all reference template files in parallel at the start — don't read them one at a time.
-
-**Writing instructions:** Write independent files in parallel when they don't depend on each other. For example, Documents (PDFs) can be written in parallel with Pipeline since they don't share dependencies. But Dashboard and Genie depend on the tables defined in Pipeline, so write Pipeline first.
-
-Generate all files, then do coherence review.
+| Component | File | When to Include |
+|-----------|------|-----------------|
+| Data generation | `01-data-generation.md` | Almost always — most demos need synthetic data |
+| Documents / PDFs | `02-unstructured-docs.md` | When the demo has a Knowledge Assistant or document search |
+| Pipeline (SDP) | `03-pipelines.md` | When the demo has Bronze/Silver/Gold data transformation |
+| Pipeline validation | `03b-pipeline-validation.md` | When pipeline is complex enough to warrant dedicated validation |
+| Genie Space | `04-genie-space.md` | When the demo includes natural language data exploration |
+| Dashboard | `05-dashboard.md` | When the demo has visual analytics |
+| Knowledge Assistant | `06-knowledge-assistant.md` | When the demo has document-based Q&A |
+| Multi-Agent Supervisor | `07-multi-agent-supervisor.md` | When the demo orchestrates multiple AI components |
+| ML Notebook | `08-ml-notebook.md` | When the demo includes model training or scoring |
+| Model Serving | `09-model-serving.md` | When the demo deploys a model endpoint |
+| Databricks App | `10-databricks-app.md` | When the demo has a custom web application |
+| Vector Search | `11-vector-search.md` | When the demo needs semantic search / embeddings |
 
 #### Writing Good Instructions
 
-Each file should be clear enough that another agent can execute without ambiguity.
+Each file should be clear enough that another agent can execute without ambiguity. Write **functional specs** (what to build, not how to build it):
 
-**Data Generation:**
-- Schema with column names, types, descriptions
-- Distributions that create realistic patterns (not uniform random)
-- The "event" encoded in the data (the spike, drop, anomaly)
-- Relationships between tables that support tracing from symptom to cause
+- **Data**: Schema with column names, types, descriptions. Distributions that create realistic patterns. The "event" encoded in the data. Relationships between tables.
+- **Dashboard**: Layout that tells the visual story. KPIs in business terms. The key insight must be obvious at a glance (5-second test). Filters for drilling down.
+- **Genie**: Instructions that guide smart analysis. Sample questions that drive the demo narrative. Domain knowledge: baselines, thresholds, what's normal vs abnormal.
+- **KA**: What documents to generate. The key content that explains the "why." Identifiers that match the structured data exactly.
+- **Walkthrough**: Read like a pitch script. Include talk track. Follow the story arc. Short sentences, clear flow, no jargon.
 
-**Dashboard:**
-- Layout that tells the visual story
-- KPIs in business terms ($, customers, %)
-- The anomaly must be obvious at a glance (5-second test)
-- Filters for drilling down
+#### Parallelization for Speed
 
-**Genie Space:**
-- Instructions that guide smart analysis (not just "answer questions")
-- Sample questions that drive the demo narrative
-- Domain knowledge: baselines, thresholds, what's normal vs abnormal
+Read all reference files in parallel at the start. Write independent instruction files in parallel when they don't share dependencies.
 
-**Knowledge Assistant:**
-- What documents to generate (background noise + the key document)
-- The "smoking gun" content that explains root cause
-- Identifiers that match the structured data exactly
+### Phase 7: Coherence Review
 
-**Walkthrough:**
-- Read like a pitch script, not a technical manual
-- Include talk track (actual words to say)
-- Follow the story arc: baseline → disruption → question → answer → value
-- Short sentences, clear flow, no jargon
+**The hardest and most important step.** Check that everything connects:
 
-### Phase 5: Coherence Review
-
-**The hardest and most important step.** This is what makes or breaks the demo.
-
-Check **twice**:
-1. **Incrementally** - after each layer, quick sanity check
-2. **Final review** - load ALL generated files together
-
-**Incremental checks:**
-- After Data: Does data contain everything for the story? Key identifiers defined?
-- After Analytics: Can dashboard show the anomaly? Can Genie answer sample questions?
-- After AI: Does key document have the smoking gun? Identifiers match between data and docs?
-
-**Final coherence review checklist:**
 - [ ] Data supports all dashboard visualizations
 - [ ] Data supports all Genie sample questions
-- [ ] Documents support KA queries (smoking gun present)
+- [ ] Documents (if any) support KA queries — key content is present
 - [ ] Identifiers match across data and documents
 - [ ] Dates align across all components
-- [ ] Key numbers are consistent (same values in data, dashboard, narrative)
-- [ ] Investigation flow works end-to-end
+- [ ] Key numbers are consistent everywhere
+- [ ] The demo flow works end-to-end (each step feeds the next)
 - [ ] Instructions are functional (WHAT to do), not technical (HOW to do it)
 
-**Final review prompt**: "Let me load all instructions and verify: Is this a great, coherent story? Is all data there to support requirements? Did I follow all user instructions?"
+**Final review prompt**: "Is this a great, coherent story? Is all data there to support requirements? Did I follow all user instructions?"
 
 ### Part 1 Output
 
@@ -364,25 +317,21 @@ After coherence review, provide:
 
 **1. Narrative Summary:**
 ```
-**Your Demo: [Company Name] - [Problem]**
+**Your Demo: [Company Name] — [Problem]**
 
-Story: [Hero] sees [anomaly] on dashboard. Asks "[question]".
-→ Genie finds: [what data reveals]
-→ KA reveals: [root cause from documents]
+Story: [Protagonist] sees [catalyst]. Asks "[question]".
+→ [What the platform reveals, step by step]
 → Impact: [$ amount]
-→ Resolution: [agent-powered next step]
+→ Resolution: [action taken]
 
 Location: [catalog.schema]
 ```
 
-**2. README.md** in the instructions folder (see `{SKILL_BASE_DIR}/references/example-luxebeauty/META-PROMPT.md` for format).
-
-**3. Transition prompt:**
+**2. Transition prompt:**
 ```
 Demo instructions are ready in `./instructions/`.
 
 Would you like me to build the demo resources now?
-(Requires ai-dev-kit: https://github.com/databricks-solutions/ai-dev-kit)
 
 Reply "yes" to start building, or "no" to stop here.
 ```
@@ -393,25 +342,38 @@ Reply "yes" to start building, or "no" to stop here.
 
 If the user confirms, build the actual Databricks resources.
 
+### Building with ai-dev-kit Skills
+
+**All building uses ai-dev-kit CLI skills — not MCP tools.** Before each build step, load the relevant skill:
+
+| Building... | Load This Skill |
+|-------------|----------------|
+| Synthetic data | `databricks-synthetic-data-gen` |
+| PDF documents | `databricks-unstructured-pdf-generation` |
+| SDP / DLT pipeline | `databricks-spark-declarative-pipelines` |
+| Genie Space | `databricks-agent-bricks` (Genie section) |
+| AI/BI Dashboard | `databricks-aibi-dashboards` |
+| Knowledge Assistant | `databricks-agent-bricks` (KA section) |
+| Multi-Agent Supervisor | `databricks-agent-bricks` (MAS section) |
+| ML Notebook | `databricks-model-serving` or `databricks-execution-compute` |
+| Model Serving endpoint | `databricks-model-serving` |
+| Databricks App | `databricks-app-python` |
+| Vector Search index | `databricks-vector-search` |
+
+Each skill uses the **Databricks CLI** (`databricks` commands via Bash) and **Python SDK** for resource creation. Do NOT use MCP tools (`mcp__databricks__*`) — use the skills instead.
+
 ### Starting the Build
 
-Read the `README.md` (meta-prompt) in the instructions folder and follow it to build each component in order.
+Read `META-PROMPT.md` for the build order and follow it step by step. For each step:
+1. Load the relevant skill from the table above
+2. Read the corresponding instruction file
+3. Follow the skill's guidance to create the resource
+4. Validate the result per the instruction file's criteria
+5. Update `resources.json` with the created resource ID
 
 ### Critical: Keep Instructions in Sync
 
-**The instruction files are your product requirements.** They must ALWAYS reflect the current state of the demo - including any changes made during building.
-
-**When the user requests changes during building:**
-
-Any change - data tweaks, dashboard layout, new components, story pivots, bug fixes - follows the same rule: **update the instruction file first, then apply to the resource.**
-
-Examples: user says "make data more realistic" → update data markdown → regenerate data. User says "add ML model" → create new component markdown → build it.
-
-**Why this matters:**
-
-If we delete all Databricks resources and ask you to rebuild from the instruction files alone, you must be able to recreate the demo exactly - including every incremental change the user made.
-
-The instruction files are the **single source of truth**. The actual resources are just an implementation of those specs.
+**The instruction files are your product requirements.** They must ALWAYS reflect the current state of the demo — including any changes made during building.
 
 **Sync workflow:** User requests change → Update instruction file FIRST → Apply to resource → Confirm in sync
 
@@ -421,37 +383,31 @@ Never change a resource without updating its instruction file. Never let instruc
 
 ## Reference Materials
 
-**Before generating any instructions, read the files in `{SKILL_BASE_DIR}/references/example-luxebeauty/`** to understand the structure and level of detail expected.
+**Before generating instructions, browse `{SKILL_BASE_DIR}/references/`** to understand the expected structure and level of detail.
 
-### example-luxebeauty/ (Structure Template)
+### Reference Examples
 
-Complete worked example showing file format, level of detail, and how files connect. Use it to understand:
+The `references/` folder contains worked examples showing file format, level of detail, and how files connect. Use the example closest to your demo's pattern to understand:
 - How detailed each file should be
-- How to encode the "event" in data
-- How to write Genie/KA instructions
+- How to encode key events in data
+- How to write component instructions
 - How to structure the walkthrough
 
-### tools/demo_references/ (Story Bank)
+**Adapt — don't copy.** Every demo should be tailored to its story and audience.
 
-Pre-built story templates for different industries. Use `search_demos.py` to find relevant templates, then adapt for your use case.
+### Demo Bank
 
-### Workflow
-
-1. **Always read example-luxebeauty first** for structure
-2. **Optionally search demo_references** for a relevant story
-3. **Combine**: structure from example + story from bank (if applicable)
-
-Adapt for each use-case - don't copy blindly.
+Pre-built story templates for different industries in `tools/demo_references/`. Use `search_demos.py` to find relevant templates, then adapt for your use case.
 
 ---
 
 ## Key Principles
 
-1. **Story first** - Start with "what question does the user ask?" not "what components do we need?"
-2. **5-second test** - Dashboard anomaly must be obvious at a glance
-3. **Business metrics** - KPIs in $ (revenue, cost, impact). A CFO cares about "$500K at risk", not "720 records"
-4. **Connect the dots** - Data shows WHAT happened, documents show WHY, together: WHAT TO DO
-5. **Functional instructions** - Describe outcomes, not implementation. No API calls or code.
+1. **Story first** — Start with "what question does the protagonist ask?" not "what components do we need?"
+2. **5-second test** — The key insight must be obvious at a glance on any dashboard
+3. **Business metrics** — KPIs in $ (revenue, cost, impact). "$500K at risk" lands; "720 records affected" doesn't.
+4. **Match products to moments** — Every showcased product should have a clear "when it shines" beat in the walkthrough
+5. **Functional instructions** — Describe outcomes, not implementation. No API calls or code in instruction files.
 
 ---
 
@@ -459,12 +415,12 @@ Adapt for each use-case - don't copy blindly.
 
 When the user requests a Databricks feature you're not familiar with:
 
-1. Fetch documentation from `https://docs.databricks.com/llms.txt`
-2. Understand what value it adds to the demo
-3. Design how data flows to/from this component
+1. Check if a capability block exists in `{SKILL_BASE_DIR}/references/blocks/capabilities/`
+2. If not, fetch documentation from `https://docs.databricks.com/llms.txt`
+3. Understand what value it adds to the demo
 4. Write functional instructions (what it should do, inputs, outputs)
 
-Don't refuse - learn and adapt.
+Don't refuse — learn and adapt.
 
 ---
 
@@ -473,8 +429,7 @@ Don't refuse - learn and adapt.
 Everything in this skill is a **default**. The user is in control:
 
 - User wants different components? Follow their lead.
-- User wants different file structure? Adapt.
-- User wants a completely different story pattern? Do it.
+- User wants a different story pattern? Do it.
 - User wants to skip the walkthrough? Fine.
 - User has specific requirements that contradict these defaults? User wins.
 
@@ -484,14 +439,7 @@ Everything in this skill is a **default**. The user is in control:
 
 ## Skill Directory Paths
 
-**Important:** All paths in this skill (tools, references) are relative to the skill's base directory, which is provided at the top of the skill prompt as "Base directory for this skill: ...".
-
-When running commands or reading reference files, use the skill base directory:
-- Tools: `{SKILL_BASE_DIR}/tools/search_demos.py`
-- Tools: `{SKILL_BASE_DIR}/tools/get_demo.py`
-- References: `{SKILL_BASE_DIR}/references/example-luxebeauty/`
-
-For example, if the base directory is `/path/to/.claude/skills/databricks-demo-generator`, run:
-```bash
-python /path/to/.claude/skills/databricks-demo-generator/tools/search_demos.py "retail"
-```
+All paths in this skill are relative to the skill's base directory. When running commands or reading files:
+- Tools: `{SKILL_BASE_DIR}/tools/search_demos.py`, `{SKILL_BASE_DIR}/tools/get_demo.py`
+- References: `{SKILL_BASE_DIR}/references/`
+- Context blocks: `{SKILL_BASE_DIR}/references/blocks/`

@@ -225,7 +225,7 @@ trap cleanup SIGINT SIGTERM
 
 # Start backend (uvicorn with reload) - prefix output with [BACKEND]
 echo -e "${GREEN}Starting backend on http://127.0.0.1:8000${NC}"
-(uv run uvicorn demo_prompt_generator.backend.app:app --host 127.0.0.1 --port 8000 --reload --reload-exclude 'projects/*' --reload-exclude '.pglite/*' 2>&1 | sed "s/^/[${BLUE}BACKEND${NC}] /") &
+(uv run uvicorn demo_prompt_generator.backend.app:app --host 127.0.0.1 --port 8000 --reload --reload-exclude 'projects' --reload-exclude '.pglite' --reload-exclude 'ai_dev_kit' 2>&1 | sed "s/^/[${BLUE}BACKEND${NC}] /") &
 BACKEND_PID=$!
 
 # Give backend a moment to start

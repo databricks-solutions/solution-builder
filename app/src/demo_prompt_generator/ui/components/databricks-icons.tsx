@@ -239,6 +239,89 @@ export function MultiAgentSupervisorIcon(props: IconProps) {
   );
 }
 
+// Vector Search icon — magnifying glass with nodes
+export function VectorSearchIcon(props: IconProps) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" {...props}>
+      <circle cx="6.5" cy="6.5" r="4" stroke="currentColor" strokeWidth="1.5" fill="none" />
+      <path d="M10 10l4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+      <circle cx="5.5" cy="5.5" r="0.75" fill="currentColor" />
+      <circle cx="7.5" cy="5" r="0.75" fill="currentColor" />
+      <circle cx="6" cy="7.5" r="0.75" fill="currentColor" />
+      <path d="M5.5 5.5L7.5 5M5.5 5.5L6 7.5M7.5 5L6 7.5" stroke="currentColor" strokeWidth="0.5" />
+    </svg>
+  );
+}
+
+// Lakebase icon — PostgreSQL-style database with connection
+export function LakebaseIcon(props: IconProps) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" {...props}>
+      <ellipse cx="8" cy="3.5" rx="5" ry="1.75" stroke="currentColor" strokeWidth="1.5" fill="none" />
+      <path d="M3 3.5v9c0 .97 2.24 1.75 5 1.75s5-.78 5-1.75v-9" stroke="currentColor" strokeWidth="1.5" fill="none" />
+      <path d="M3 7.5c0 .97 2.24 1.75 5 1.75s5-.78 5-1.75" stroke="currentColor" strokeWidth="1.5" fill="none" />
+      <path d="M13 10.5c0 .97-2.24 1.75-5 1.75S3 11.47 3 10.5" stroke="currentColor" strokeWidth="1" strokeDasharray="2 1.5" fill="none" />
+    </svg>
+  );
+}
+
+// Databricks Apps icon — browser window with Databricks diamond
+export function DatabricksAppsIcon(props: IconProps) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" {...props}>
+      <rect x="1" y="2" width="14" height="12" rx="1.5" stroke="currentColor" strokeWidth="1.5" fill="none" />
+      <path d="M1 5.5h14" stroke="currentColor" strokeWidth="1.5" />
+      <circle cx="3" cy="3.75" r="0.5" fill="currentColor" />
+      <circle cx="4.75" cy="3.75" r="0.5" fill="currentColor" />
+      <circle cx="6.5" cy="3.75" r="0.5" fill="currentColor" />
+      <path d="M8 7.5l-2.5 2.5 2.5 2.5 2.5-2.5L8 7.5z" fill="currentColor" />
+    </svg>
+  );
+}
+
+// Streaming icon — real-time data flow with lightning bolt
+export function StreamingIcon(props: IconProps) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" {...props}>
+      <path d="M2 4h3l2-2h3l2 2h2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+      <path d="M2 4v8l3-1.5L7 12l2-1.5L11 12l3-1.5V4" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" fill="none" />
+      <path d="M8.5 6L7 9h2l-1.5 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+    </svg>
+  );
+}
+
+// Metric Views icon — chart with checkmark (governed metrics)
+export function MetricViewsIcon(props: IconProps) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" {...props}>
+      <path d="M2 13V7l3-2 3 3 3-5 3 2v8H2z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" fill="none" />
+      <path d="M2 13h12" stroke="currentColor" strokeWidth="1.5" />
+      <path d="M10.5 9l1.5 1.5 3-3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+    </svg>
+  );
+}
+
+// AI Functions icon — function symbol with sparkle
+export function AIFunctionsIcon(props: IconProps) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" {...props}>
+      <text x="2" y="12" fontFamily="serif" fontStyle="italic" fontSize="12" fontWeight="bold" fill="currentColor">f</text>
+      <path d="M10.5 2l.5 1 1 .5-1 .5-.5 1-.5-1-1-.5 1-.5.5-1z" fill="currentColor" />
+      <path d="M13 5.5l.35.7.7.35-.7.35-.35.7-.35-.7-.7-.35.7-.35.35-.7z" fill="currentColor" />
+    </svg>
+  );
+}
+
+// Delta Sharing icon — delta with sharing arrows
+export function DeltaSharingIcon(props: IconProps) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" {...props}>
+      <path d="M4 12l4-8 4 8H4z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" fill="none" />
+      <path d="M12 5l2.5-1M12 8l2.5 0M12 11l2.5 1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 // Export an icon map for easy lookup
 export const DATABRICKS_ICONS = {
   dashboard: DashboardIcon,
@@ -261,6 +344,13 @@ export const DATABRICKS_ICONS = {
   inputData: InputDataIcon,
   knowledgeAssistant: KnowledgeAssistantIcon,
   multiAgentSupervisor: MultiAgentSupervisorIcon,
+  vectorSearch: VectorSearchIcon,
+  lakebase: LakebaseIcon,
+  databricksApps: DatabricksAppsIcon,
+  streaming: StreamingIcon,
+  metricViews: MetricViewsIcon,
+  aiFunctions: AIFunctionsIcon,
+  deltaSharing: DeltaSharingIcon,
 } as const;
 
 export type DatabricksIconName = keyof typeof DATABRICKS_ICONS;

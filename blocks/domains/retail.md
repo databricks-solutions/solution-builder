@@ -8,6 +8,8 @@ description: >
   KPIs with realistic baselines, common personas, data entities, regulatory considerations,
   and pain points that an LLM needs to generate convincing retail-focused Databricks demos.
 related: [financial-services, manufacturing]
+suggested_patterns: [anomaly-detection, customer-segmentation, real-time-monitoring, predictive-maintenance]
+suggested_capabilities: [aibi-dashboards, genie-space, declarative-pipeline, knowledge-assistant, multi-agent-supervisor, synthetic-data-gen, notebooks]
 ---
 
 ## Terminology
