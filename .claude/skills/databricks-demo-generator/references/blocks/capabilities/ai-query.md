@@ -1,7 +1,8 @@
 ---
 name: AI Functions
-category: data-engineering
+category: lakeflow
 disabled: false
+buildable: false
 ---
 
 # AI Functions (ai_query)
@@ -25,12 +26,20 @@ Applying AI to production data requires moving data out, building pipelines, man
 
 When they need to enrich data at scale - classify tickets, extract entities, summarize documents, translate content, or apply any AI transformation. "Just add a column with `SELECT ai_classify(text, '["urgent", "normal"]') FROM tickets`."
 
+## How It Works
+
+- **Call from SQL**: `SELECT ai_classify(text, ARRAY('urgent', 'normal')) FROM tickets` — no Python, no notebooks
+- **Task-specific functions**: `ai_extract`, `ai_summarize`, `ai_sentiment`, `ai_translate`, `ai_mask` — purpose-built for common tasks
+- **General function**: `ai_query(model, prompt)` for custom prompts when task-specific functions don't fit
+- **Batch processing**: Handles parallelization, retries, fault tolerance — processes millions of rows
+- **Use in SDP**: Add AI enrichment as a column in your pipeline — runs at scale during transformation
+
 ## Demo Tips
 
 - Perfect for data enrichment use cases: sentiment analysis, classification, entity extraction
 - Show the simplicity: one SQL function call processes entire tables
 - Position it in the SDP pipeline ideally in SQL
-- CAREFULL WITH SIZE, this function can be slow, avoid on big table
+- CAREFUL WITH SIZE, this function can be slow, avoid on big table
 - Use databricks-gpt-5-4-nano for fast answer in the demo
 
 ## URL

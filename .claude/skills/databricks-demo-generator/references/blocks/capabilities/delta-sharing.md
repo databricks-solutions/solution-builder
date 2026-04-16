@@ -1,7 +1,8 @@
 ---
 name: Delta Sharing
-category: governance
+category: uc-governance
 disabled: false
+buildable: false
 ---
 
 # Delta Sharing
@@ -24,9 +25,15 @@ B2B data exchange today = S3 buckets, SFTP, CSVs, custom APIs. Feeds break, go s
 
 FSI: bureaus, partners, regulators, consortiums. Retail/MFG: supply-chain, joint-venture analytics. "We share this table with a partner → they live-query it in their own tool."
 
+## How It Works
+
+- **You create a "share"**: Select tables/views in Unity Catalog, define who can access them
+- **Recipients query your data**: They connect from their tool (Databricks, Spark, pandas, Power BI) and query live — no data copy sent
+- **Always fresh**: Recipients see current data, not a stale export — you control access centrally
+- **Open protocol**: Recipients don't need Databricks — any Delta Sharing client works
+
 ## Demo Tips
 
-- **Coming soon** - not yet available for demos
 - Great for B2B data exchange scenarios
 - Emphasize: zero-copy, no data movement, always fresh
 - Position as the secure way to share data externally

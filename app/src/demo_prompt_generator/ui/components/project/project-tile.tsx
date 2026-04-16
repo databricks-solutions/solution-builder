@@ -89,8 +89,8 @@ export const ProjectTile = memo(function ProjectTile({
 
       <div className="p-4 pb-3">
         {/* Title row with star */}
-        <div className="flex items-start justify-between gap-2 mb-2">
-          <h3 className="font-semibold text-sm leading-snug line-clamp-2 group-hover:text-primary transition-colors flex-1">
+        <div className="flex items-start justify-between gap-2">
+          <h3 className="font-semibold text-sm leading-snug line-clamp-1 group-hover:text-primary transition-colors flex-1">
             {project.name}
           </h3>
           <div className="flex items-center gap-1 shrink-0">
@@ -145,9 +145,14 @@ export const ProjectTile = memo(function ProjectTile({
           </div>
         </div>
 
+        {/* Description */}
+        <p className="text-xs text-muted-foreground line-clamp-2 mt-1">
+          {project.description || "No description"}
+        </p>
+
         {/* Owner (for shared projects) */}
         {showOwner && project.shared_by && (
-          <div className="flex items-center gap-1.5 mb-2">
+          <div className="flex items-center gap-1.5 mt-2">
             <User className="h-3 w-3 text-muted-foreground/50" />
             <span className="text-xs text-muted-foreground">
               Shared by {formatEmail(project.shared_by)}
@@ -155,28 +160,20 @@ export const ProjectTile = memo(function ProjectTile({
           </div>
         )}
 
-        {/* Description */}
-        {project.description && (
-          <p className="text-xs text-muted-foreground line-clamp-2 mb-2">
-            {project.description}
-          </p>
-        )}
-
         {/* Template lineage */}
         {project.source_template_name && (
-          <div className="flex items-center gap-1.5 mb-2">
+          <div className="flex items-center gap-1.5 mt-2">
             <LayoutTemplate className="h-3 w-3 text-muted-foreground/50 shrink-0" />
             <span className="text-xs text-muted-foreground truncate">
               From: {project.source_template_name}
             </span>
           </div>
         )}
+      </div>
 
-        {/* Stage badge + stats */}
-        <div className="flex items-center gap-3 text-xs text-muted-foreground">
-          {project.stage && project.stage !== "DRAFTING" && (
-            <StageBadge stage={project.stage} />
-          )}
+      {/* Stats row */}
+      <div className="px-4 py-2.5 border-t border-primary/[0.06] bg-primary/[0.02] flex items-center justify-between">
+        <div className="flex items-center gap-3 text-[11px] text-muted-foreground/70">
           <span className="flex items-center gap-1">
             <FileText className="h-3 w-3 opacity-50" />
             {project.file_count}
@@ -208,29 +205,5 @@ export const ProjectTile = memo(function ProjectTile({
     </button>
   );
 });
-
-const STAGE_LABELS: Record<ProjectStage, string> = {
-  DRAFTING: "Draft",
-  SUMMARIZED: "Summary",
-  ARCHITECTED: "Architected",
-  SPECIFICATION: "Spec",
-  BUILT: "Built",
-  BUNDLED: "Bundled",
-};
-
-function StageBadge({ stage }: { stage: ProjectStage }) {
-  const colors =
-    stage === "BUNDLED"
-      ? "bg-green-500/10 text-green-600 dark:text-green-400"
-      : stage === "BUILT"
-        ? "bg-amber-500/10 text-amber-600 dark:text-amber-400"
-        : "bg-primary/10 text-primary";
-
-  return (
-    <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium ${colors}`}>
-      {STAGE_LABELS[stage] ?? stage}
-    </span>
-  );
-}
 
 export default ProjectTile;

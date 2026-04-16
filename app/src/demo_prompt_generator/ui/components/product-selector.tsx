@@ -28,7 +28,7 @@ export interface Product {
 }
 
 // Category order for sorting
-const CATEGORY_ORDER = ["Data Engineering", "Analytics", "GenAI / ML", "Governance", "Apps & Infra"];
+const CATEGORY_ORDER = ["Lakeflow", "AI/BI", "Agent Bricks", "UC Governance", "Apps & Infra"];
 
 // Convert API capabilities to ProductCategory structure
 function capabilitiesToCategories(capabilities: Capability[]): ProductCategory[] {

@@ -195,6 +195,7 @@ const LiveReasoningPopup = memo(function LiveReasoningPopup({
   // Store content locally so it persists after streaming ends
   const [storedThinking, setStoredThinking] = useState("");
   const [storedTools, setStoredTools] = useState<Map<string, ToolInfo>>(new Map());
+  const [userHasScrolled, setUserHasScrolled] = useState(false);
 
   const hasContent = thinking || tools.size > 0;
 
@@ -228,12 +229,27 @@ const LiveReasoningPopup = memo(function LiveReasoningPopup({
     }
   }, [isStreaming, isVisible, isFadingOut]);
 
-  // Auto-scroll to bottom
+  // Reset scroll tracking when streaming starts
   useEffect(() => {
-    if (scrollRef.current) {
+    if (isStreaming) {
+      setUserHasScrolled(false);
+    }
+  }, [isStreaming]);
+
+  // Handle scroll - detect if user scrolled away from bottom
+  const handleScroll = useCallback(() => {
+    if (!scrollRef.current) return;
+    const { scrollTop, scrollHeight, clientHeight } = scrollRef.current;
+    const isAtBottom = scrollHeight - scrollTop - clientHeight < 50;
+    setUserHasScrolled(!isAtBottom);
+  }, []);
+
+  // Auto-scroll to bottom (only if user hasn't scrolled up)
+  useEffect(() => {
+    if (scrollRef.current && !userHasScrolled) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [thinking, tools, storedThinking, storedTools]);
+  }, [thinking, tools, storedThinking, storedTools, userHasScrolled]);
 
   // Use live content while streaming, stored content after
   const displayThinking = isStreaming ? thinking : storedThinking;
@@ -278,7 +294,7 @@ const LiveReasoningPopup = memo(function LiveReasoningPopup({
       </div>
 
       {/* Content */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto p-3.5 space-y-3">
+      <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto p-3.5 space-y-3">
         {/* Thinking */}
         {displayThinking && (
           <div className="text-xs">
@@ -547,14 +563,32 @@ export const ChatPanel = memo(function ChatPanel({
   title = "Your AI Assistant",
 }: ChatPanelProps) {
   const [input, setInput] = useState("");
+  const [userHasScrolledChat, setUserHasScrolledChat] = useState(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Auto-scroll to bottom on new messages, thinking, or tools
+  // Reset scroll tracking when user sends a message
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, streamingContent, streamingThinking, streamingTools]);
+    if (isStreaming) {
+      setUserHasScrolledChat(false);
+    }
+  }, [isStreaming]);
+
+  // Handle scroll - detect if user scrolled away from bottom
+  const handleChatScroll = useCallback(() => {
+    if (!scrollContainerRef.current) return;
+    const { scrollTop, scrollHeight, clientHeight } = scrollContainerRef.current;
+    const isAtBottom = scrollHeight - scrollTop - clientHeight < 100;
+    setUserHasScrolledChat(!isAtBottom);
+  }, []);
+
+  // Auto-scroll to bottom on new messages (only if user hasn't scrolled up)
+  useEffect(() => {
+    if (!userHasScrolledChat) {
+      bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [messages, streamingContent, streamingThinking, streamingTools, userHasScrolledChat]);
 
   // Auto-resize textarea
   useEffect(() => {
@@ -619,6 +653,7 @@ export const ChatPanel = memo(function ChatPanel({
       {/* Messages */}
       <div
         ref={scrollContainerRef}
+        onScroll={handleChatScroll}
         className="flex-1 min-h-0 overflow-y-auto"
       >
         <div className="p-4 space-y-4">

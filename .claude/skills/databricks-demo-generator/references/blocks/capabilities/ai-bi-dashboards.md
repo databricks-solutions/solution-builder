@@ -1,7 +1,8 @@
 ---
 name: Dashboards
-category: analytics
+category: ai-bi
 disabled: false
+buildable: true
 ---
 
 # AI/BI Dashboards
@@ -31,7 +32,15 @@ Start with the 5-second test: show a dashboard where the anomaly is obvious at a
 - The anomaly should be visually obvious (red, spike, drop) without explanation
 - Dashboard is where the "investigation" starts before transitioning to Genie
 
-## Layout Principles
+## How It Works
+
+- **Data tab + Canvas tab**: Write SQL queries (or reference tables) in the Data tab, then drag results onto the Canvas to build visuals
+- **AI-assisted**: Describe what you want in natural language — get chart suggestions
+- **Parameters**: Use `:parameter` syntax in queries for dynamic filtering
+- **Embedded Genie**: Every dashboard has a Genie button — users can ask follow-up questions in natural language
+- **No per-seat fees**: Anyone with Databricks access can view and create dashboards
+
+## Design Principles
 
 Organize widgets into four tiers on the 6-column grid (every row must fill exactly 6 columns):
 

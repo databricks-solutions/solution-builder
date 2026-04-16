@@ -1,7 +1,8 @@
 ---
 name: Data Classification
-category: governance
+category: uc-governance
 disabled: false
+buildable: true
 ---
 
 # Data Classification
@@ -22,6 +23,14 @@ Manual data classification doesn't scale. New tables go untagged. PII leaks into
 ## Position
 
 Compliance-heavy scenarios. FSI: PCI, PII tracking. Healthcare: PHI detection. Any "how do you know where your sensitive data is?" conversation.
+
+## How It Works
+
+- **You enable classification on tables/schemas**: Point at a catalog or schema, classification scans the data
+- **Auto-detection finds sensitive patterns**: SSN, email, phone, credit card — built-in patterns match common PII/PHI/PCI formats
+- **Tags get applied automatically**: Detected sensitive columns get UC tags — no manual work
+- **Custom rules for your domain**: Add patterns for your own sensitive data types (e.g., internal account IDs)
+- **Continuous monitoring**: New tables and columns get scanned automatically — classification stays current
 
 ## Demo Tips
 

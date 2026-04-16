@@ -1,7 +1,8 @@
 ---
 name: Vector Search
-category: genai-ml
+category: agent-bricks
 disabled: false
+buildable: true
 ---
 
 # Vector Search
@@ -24,11 +25,18 @@ DIY vector DBs mean separate infra, syncing nightmares when source data changes,
 
 Any RAG / copilot scenario. "Your knowledge base stays in sync automatically - no ETL to vector DB. Governed by the same UC permissions as your tables."
 
+## How It Works
+
+- **Create an index from a Delta table**: Point at a table with text, Databricks computes embeddings and builds the index
+- **Two modes**: Databricks-managed (you provide text, it computes embeddings) or self-managed (you provide pre-computed embeddings)
+- **Auto-sync**: As the source Delta table changes, the index updates automatically — no manual reindexing
+- **Query via REST API**: Send a query, get back the most similar documents with metadata
+- **Scales to billions**: Serverless architecture handles massive indexes without cluster management
+
 ## Demo Tips
 
-- **Coming soon** - not yet available for demos
-- Will be the foundation for custom RAG applications
-- Position as the "plumbing" for Knowledge Assistant and custom agents
+- For custom RAG when you need control over chunking/retrieval
+- Position as the "plumbing" — Knowledge Assistant uses this under the hood but abstracts it away
 - Key differentiator: auto-sync with Delta tables (no manual ETL to vector store)
 
 ## URL

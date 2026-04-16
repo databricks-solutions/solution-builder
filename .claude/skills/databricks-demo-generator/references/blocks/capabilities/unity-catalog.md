@@ -1,7 +1,8 @@
 ---
 name: Unity Catalog
-category: governance
+category: uc-governance
 disabled: false
+buildable: false
 ---
 
 # Unity Catalog
@@ -25,6 +26,14 @@ Each warehouse, lake, BI tool and ML platform has its own ACLs and catalog. Answ
 ## Position
 
 Any mention of compliance, sensitive data, regulators, cross-cloud, or "we have 5 warehouses." Always show lineage + fine-grained access at least once.
+
+## How It Works
+
+- **Everything registers in one catalog**: Tables, views, models, functions, dashboards — all assets get a three-level namespace (`catalog.schema.object`) with metadata and permissions
+- **You grant access at any level**: Grant on a catalog covers everything inside; grant on a table is fine-grained — both work
+- **Lineage is automatic**: UC tracks every read/write — you can trace any dashboard back to source tables without manual documentation
+- **Policies follow the data**: Row filters, column masks, and tags travel with the object — no matter who queries it or from which tool
+- **Audit logs capture everything**: Every query, permission change, and access attempt is logged — export to SIEM or query directly
 
 ## Demo Tips
 

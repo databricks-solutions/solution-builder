@@ -50,13 +50,17 @@ export const Route = createFileRoute("/")({
 
 // Default selected capabilities
 const DEFAULT_SELECTED_PRODUCTS = [
-  "lakeflow-connect",    // Ingestion
+  // Buildable (resources we create)
   "sdp",                 // Processing
-  "databricks-sql",      // Analytics
-  "dashboards",          // Analytics
+  "ai-bi-dashboards",    // Analytics
   "genie",               // NL Queries
-  "supervisor-agent",    // AI Agents (MAS)
   "knowledge-assistant", // AI Agents (KA)
+  "supervisor-agent",    // AI Agents (MAS)
+  // Talking track (narrative/demo selling points)
+  "lakeflow-connect",    // Ingestion story
+  "unity-catalog",       // Governance story
+  "databricks-one",      // Business user experience
+  "genie-code",          // AI coding assistant
 ];
 
 function Index() {
@@ -221,7 +225,7 @@ function Index() {
             </div>
             <p className="mx-auto max-w-xl text-base text-muted-foreground leading-relaxed">
               Describe a use-case and the AI agent assembles a complete package
-              from composable context blocks — datasets, pipelines, dashboards,
+              — datasets, pipelines, dashboards...
               and build steps.
             </p>
           </div>

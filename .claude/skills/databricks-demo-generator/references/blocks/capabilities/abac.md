@@ -1,7 +1,8 @@
 ---
 name: ABAC
-category: governance
+category: uc-governance
 disabled: false
+buildable: true
 ---
 
 # Attribute-Based Access Control (ABAC)
@@ -23,6 +24,14 @@ Traditional RBAC doesn't scale: every new data product means updating role assig
 ## Position
 
 Large enterprises with complex data access requirements. FSI: PII handling, need-to-know access. Healthcare: PHI protection. "Same table, same query, different result based on policies + tags."
+
+## How It Works
+
+- **Tag your sensitive columns**: Apply classification tags (e.g., `pii:ssn`, `pii:address`) to columns in UC
+- **Write filter/mask UDFs**: Simple SQL functions that return masked values or filter conditions
+- **Create policies at catalog level**: A single policy can apply to all columns matching a tag — no per-table configuration
+- **Policies evaluate at query time**: When a user runs a query, UC checks their groups against policies and applies masks/filters dynamically
+- **Same query, different results**: Admins see raw data, restricted users see masked/filtered data — no code changes needed
 
 ## Demo Tips
 

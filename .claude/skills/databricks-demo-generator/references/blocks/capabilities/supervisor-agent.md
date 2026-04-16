@@ -1,7 +1,8 @@
 ---
 name: Supervisor Agent
-category: genai-ml
+category: agent-bricks
 disabled: false
+buildable: true
 ---
 
 # Supervisor Agent (Multi-Agent Supervisor)
@@ -45,6 +46,14 @@ Supervisor Agent (routing)
 │  (structured)  │  (documents)   │   (actions)    │
 └────────────────┴────────────────┴────────────────┘
 ```
+
+## How It Works
+
+- **Add child agents**: Connect Genie Spaces (for data), Knowledge Assistants (for docs), UC functions (for actions), MCP servers (for external tools)
+- **Supervisor routes questions**: Analyzes the question, decides which agent(s) to call, synthesizes results
+- **On-Behalf-Of auth**: Uses the human's UC permissions — no superuser service account with access to everything
+- **Natural language tuning**: Improve routing with feedback ("for pricing questions, always check the KA first")
+- **Single interface**: Users ask one question, get one answer — don't need to know which system to query
 
 ## Configuration
 

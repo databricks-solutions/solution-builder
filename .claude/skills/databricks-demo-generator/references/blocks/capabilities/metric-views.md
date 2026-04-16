@@ -1,7 +1,8 @@
 ---
 name: Metric Views
-category: analytics
+category: ai-bi
 disabled: false
+buildable: true
 ---
 
 # Metric Views
@@ -33,6 +34,14 @@ When consistency matters: "Your Genie answers and dashboards all draw from the s
 - Good for complex metrics: "This ratio aggregates correctly no matter how you slice it"
 - In the architecture diagram, Metric Views sit between gold tables and consumers (Dashboard, Genie)
 - Not always needed - use when there are complex metrics or consistency requirements
+
+## How It Works
+
+- **Define measures and dimensions**: Measures are aggregations (`SUM(revenue)`, `COUNT(DISTINCT customer_id)`), dimensions are how you slice them (region, time, product)
+- **Query any combination**: Ask for `revenue` by `region` or by `month` — same measure definition, flexible dimensions
+- **Auto-materialization**: Databricks pre-computes common aggregations and rewrites queries to use them — fast dashboards without manual tuning
+- **Complex metrics work correctly**: Ratios, distinct counts, period-over-period — aggregate properly regardless of how you slice
+- **Semantic metadata**: Add display names, synonyms, descriptions — helps Genie understand your metrics
 
 ## When to Include
 

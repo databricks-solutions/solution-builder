@@ -261,8 +261,9 @@ async def stream_agent_response(
             )
 
             # Build allowed tools list
-            # ai-dev-kit uses CLI tools via skills, not MCP
-            allowed_tools = ["Read", "Write", "Edit", "Glob", "Grep", "Bash", "Skill"]
+            # Note: "Skill" is a Claude Code CLI feature, not available in the SDK
+            # Skills are referenced in the system prompt and agent reads them directly
+            allowed_tools = ["Read", "Write", "Edit", "Glob", "Grep", "Bash"]
 
             # Configure agent options
             # setting_sources=[] prevents inheriting MCP servers from user/project

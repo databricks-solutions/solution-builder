@@ -129,18 +129,13 @@ Products should connect to the story. For each candidate product, ask:
 - Does it have a clear "moment" in the walkthrough?
 - How does it connect to other products in the flow?
 
-### Common Product Combinations
+### Full Platform Architecture
 
-These are starting points — adapt based on what the story needs:
-
-| Demo Pattern | Typical Stack |
-|-------------|---------------|
-| Investigation / root cause | Lakeflow Connect → SDP → Dashboard → Genie → KA → MAS |
-| Segmentation / targeting | SDP → Dashboard → Genie → AI Functions → Notebooks |
-| Predictive / forecasting | SDP → Notebooks → MLflow → Model Serving → Dashboard |
-| Real-time monitoring | Streaming → SDP → Dashboard → Genie → Databricks Apps |
-| Document-heavy / RAG | Vector Search → KA → MAS → Databricks Apps |
-| Operational app | SDP → Lakebase → Databricks Apps → Model Serving |
+For a comprehensive view of how ALL 19 products work together in a single demo, **read `{SKILL_BASE_DIR}/references/platform_architecture.md`**. It shows:
+- Complete architecture diagram with data flow
+- All products with their IDs and categories
+- Example: "Regional Bank Fraud Investigation" using every capability
+- How Dashboard → Genie → KA → Supervisor Agent → App connect
 
 **Unity Catalog** is a foundation across all patterns (governance, lineage, permissions).
 

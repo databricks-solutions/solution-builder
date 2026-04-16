@@ -1,7 +1,8 @@
 ---
 name: Genie
-category: analytics
+category: ai-bi
 disabled: false
+buildable: true
 ---
 
 # AI/BI Genie
@@ -36,6 +37,15 @@ A VP's "simple question" ("Which segment is driving this spike?") triggers ticke
 - Genie finds the WHAT (data shows the problem) - Knowledge Assistant reveals the WHY (documents explain cause)
 - Let the audience suggest follow-up questions for wow factor
 - Show that Genie cites sources and can show the SQL it generated (trust)
+
+## How It Works
+
+- **Compound AI system**: Uses multiple specialized models — one for SQL generation, one for visualization, one for clarification questions
+- **Text-to-SQL**: Converts natural language to SQL, executes it, returns results as tables/charts
+- **Uses UC metadata**: Table names, column descriptions, PK/FK relationships help Genie understand your data model
+- **Instructions guide behavior**: Domain knowledge ("baseline is $1M/day", "spike means >20% increase") improves accuracy
+- **Learning from feedback**: Thumbs up/down and edited queries teach Genie over time
+- **Shows its work**: Every answer includes the SQL generated — users can verify and trust
 
 ## Configuration
 

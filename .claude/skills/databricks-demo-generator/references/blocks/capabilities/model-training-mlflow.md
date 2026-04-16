@@ -1,7 +1,8 @@
 ---
 name: MLflow
-category: genai-ml
+category: agent-bricks
 disabled: false
+buildable: true
 ---
 
 # ML / MLflow — Training, Registry & Serving

@@ -23,15 +23,15 @@ INDUSTRIES = [
 
 # Category display name mapping (from frontmatter slug to display name)
 CATEGORY_DISPLAY_NAMES = {
-    "data-engineering": "Data Engineering",
-    "analytics": "Analytics",
-    "genai-ml": "GenAI / ML",
-    "governance": "Governance",
+    "lakeflow": "Lakeflow",
+    "ai-bi": "AI/BI",
+    "agent-bricks": "Agent Bricks",
+    "uc-governance": "UC Governance",
     "apps-infra": "Apps & Infra",
 }
 
 # Category sort order
-CATEGORY_ORDER = ["data-engineering", "analytics", "genai-ml", "governance", "apps-infra"]
+CATEGORY_ORDER = ["lakeflow", "ai-bi", "agent-bricks", "uc-governance", "apps-infra"]
 
 
 def _get_capabilities_folder() -> Optional[Path]:
@@ -84,8 +84,8 @@ def _load_capabilities_from_files() -> list[dict]:
     """Load capabilities from markdown files in blocks/capabilities/."""
     capabilities_dir = _get_capabilities_folder()
     if not capabilities_dir:
-        logger.warning("Capabilities folder not found, using fallback")
-        return _get_fallback_capabilities()
+        logger.error("Capabilities folder not found - no capabilities will be available")
+        return []
 
     capabilities = []
 
@@ -119,31 +119,6 @@ def _load_capabilities_from_files() -> list[dict]:
         return (category_idx, cap["name"])
 
     return sorted(capabilities, key=sort_key)
-
-
-def _get_fallback_capabilities() -> list[dict]:
-    """Fallback capabilities if files can't be loaded."""
-    return [
-        {"id": "lakeflow-connect", "name": "Lakeflow Connect", "category": "Data Engineering", "disabled": False},
-        {"id": "sdp", "name": "SDP", "category": "Data Engineering", "disabled": False},
-        {"id": "lakeflow-jobs", "name": "Lakeflow Jobs", "category": "Data Engineering", "disabled": False},
-        {"id": "ai-query", "name": "AI Functions", "category": "Data Engineering", "disabled": False},
-        {"id": "data-quality", "name": "Data Quality", "category": "Data Engineering", "disabled": False},
-        {"id": "databricks-sql", "name": "Databricks SQL", "category": "Analytics", "disabled": False},
-        {"id": "dashboards", "name": "Dashboards", "category": "Analytics", "disabled": False},
-        {"id": "genie", "name": "Genie", "category": "Analytics", "disabled": False},
-        {"id": "metric-views", "name": "Metric Views", "category": "Analytics", "disabled": False},
-        {"id": "knowledge-assistant", "name": "Knowledge Assistant", "category": "GenAI / ML", "disabled": False},
-        {"id": "supervisor-agent", "name": "Supervisor Agent", "category": "GenAI / ML", "disabled": False},
-        {"id": "vector-search", "name": "Vector Search", "category": "GenAI / ML", "disabled": False},
-        {"id": "model-training-mlflow", "name": "MLflow", "category": "GenAI / ML", "disabled": False},
-        {"id": "unity-catalog", "name": "Unity Catalog", "category": "Governance", "disabled": False},
-        {"id": "abac", "name": "ABAC", "category": "Governance", "disabled": False},
-        {"id": "data-classification", "name": "Data Classification", "category": "Governance", "disabled": False},
-        {"id": "delta-sharing", "name": "Delta Sharing", "category": "Governance", "disabled": False},
-        {"id": "databricks-apps", "name": "Databricks Apps", "category": "Apps & Infra", "disabled": False},
-        {"id": "lakebase", "name": "Lakebase", "category": "Apps & Infra", "disabled": False},
-    ]
 
 
 def get_capabilities() -> list[dict]:

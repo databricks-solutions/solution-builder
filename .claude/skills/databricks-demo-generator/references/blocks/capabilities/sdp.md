@@ -1,7 +1,8 @@
 ---
 name: SDP
-category: data-engineering
+category: lakeflow
 disabled: false
+buildable: true
 ---
 
 # Spark Declarative Pipelines (SDP)
@@ -32,6 +33,15 @@ Operational analytics, near-real-time scenarios (fraud, risk monitoring, IoT). A
 - Data quality expectations are a great talking point: "bad data gets quarantined, not propagated"
 - For demos with anomalies, the SDP pipeline creates the aggregated tables where the anomaly becomes visible
 - Pipeline DAG visualization is impressive - show the lineage
+
+## How It Works
+
+- **You write SQL/Python declarations**: Define what tables you want (`CREATE STREAMING TABLE`, `CREATE MATERIALIZED VIEW`) — not how to build them
+- **Engine figures out execution**: Handles ordering, parallelism, incremental processing automatically
+- **Streaming tables** for append-only ingestion (logs, events) — exactly-once, auto-checkpoint
+- **Materialized views** for aggregations — recomputes only when source changes
+- **Expectations** validate data quality inline: `EXPECT (amount > 0) ON VIOLATION DROP ROW`
+- **Runs on serverless**: No cluster config — pipelines auto-scale
 
 ## Medallion Architecture
 

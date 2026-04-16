@@ -1,7 +1,8 @@
 ---
 name: Lakeflow Connect
-category: data-engineering
+category: lakeflow
 disabled: false
+buildable: false
 ---
 
 # Lakeflow Connect
@@ -31,11 +32,22 @@ Any "can you pull from Salesforce / Workday / SQL Server / GA4 / ServiceNow?" mo
 - In the demo story, Lakeflow Connect brings in the raw data that will later reveal the anomaly
 - **Implementation note**: For demos, generate synthetic data that "looks like" it came from these sources - don't actually connect to live systems
 
+## How It Works
+
+- **Pick a source, configure credentials**: Select Salesforce/Workday/SQL Server/etc, enter connection details, choose what to sync
+- **Data lands in UC tables**: Creates managed Delta tables in Unity Catalog — governed, queryable immediately
+- **Incremental by default**: First run pulls everything, subsequent runs pull only changes (CDC for DBs, cursor for SaaS)
+- **Runs on serverless**: No clusters to manage — schedules create Lakeflow Jobs automatically
+- **Self-healing**: Retries on failure, remembers where it left off if credentials expire
+
 ## Available Sources
 
-**SaaS:** Salesforce, NetSuite, HubSpot, ServiceNow, Workday, Zendesk, Dynamics 365, Jira, Confluence, SharePoint, Google Ads/Analytics, Meta Ads, TikTok Ads
+**SaaS (GA):** Salesforce, Workday, SQL Server
+**SaaS (Preview):** ServiceNow, SharePoint, Google Analytics, NetSuite, Dynamics 365, Google Ads
 
-**Databases:** MySQL, PostgreSQL, SQL Server
+**Databases:** MySQL, PostgreSQL, SQL Server (with CDC support)
+
+**Standard Connectors:** Cloud object storage (S3, ADLS, GCS), message buses (Kafka, Kinesis, Pub/Sub, EventHub, Pulsar)
 
 ## URL
 

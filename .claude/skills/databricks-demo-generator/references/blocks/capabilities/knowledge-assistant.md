@@ -1,7 +1,8 @@
 ---
 name: Knowledge Assistant
-category: genai-ml
+category: agent-bricks
 disabled: false
+buildable: true
 ---
 
 # Knowledge Assistant
@@ -40,6 +41,14 @@ For demos, generate:
 1. **Background noise** - 3-5 realistic documents (reports, memos, guides) that are plausible but don't contain the answer
 2. **The smoking gun** - 1 document that contains the root cause explanation
 3. **Matching identifiers** - lot numbers, dates, product codes that exactly match the structured data
+
+## How It Works
+
+- **Point at documents**: Upload PDFs, DOCX, PPTX, MD, TXT to a UC Volume — KA indexes them automatically
+- **Instructed Retriever**: Unlike basic RAG (similarity search), KA understands document structure and query intent — 70% better quality
+- **Page-level citations**: Every answer cites specific pages — reduces hallucinations, lets users verify
+- **Natural language feedback**: Tell it "that's wrong because X" and it learns
+- **No vector search setup**: Fully managed — you don't configure chunking, embeddings, or indexes
 
 ## Configuration
 
