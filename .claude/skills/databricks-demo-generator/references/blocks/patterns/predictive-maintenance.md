@@ -1,16 +1,7 @@
 ---
 name: Predictive Maintenance & Failure Prevention
-slug: predictive-maintenance
 category: pattern
-tags: [iot, sensor, telemetry, time-series, failure, maintenance, prediction]
-description: >
-  Use sensor and telemetry data to predict equipment failures before they happen.
-  The story follows an operations manager who moves from reactive "fix it when it
-  breaks" to proactive "fix it before it breaks" by combining streaming IoT data
-  with historical failure patterns. IoT-heavy and time-series focused. Applicable
-  to equipment failure prediction, infrastructure degradation monitoring, fleet
-  management, and any asset-intensive operation where unplanned downtime is costly.
-suggested_capabilities: [declarative-pipeline, aibi-dashboards, genie-space, notebooks, knowledge-assistant, multi-agent-supervisor]
+suggested_capabilities: [sdp, aibi-dashboards, genie, notebooks-eda, knowledge-assistant, supervisor-agent]
 ---
 
 ## Narrative Arc

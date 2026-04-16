@@ -1,13 +1,7 @@
 ---
 name: Model Serving
-slug: model-serving
-category: capability
-tags: [ml, serving, endpoint, inference, mlflow]
-description: >
-  Context for generating ML model serving specifications, including model training narratives,
-  serving endpoint configuration, feature engineering patterns, and how real-time scoring
-  integrates into demo stories as the "proactive prevention" layer.
-related: [notebooks, declarative-pipeline, multi-agent-supervisor, synthetic-data-gen]
+category: agent-bricks
+disabled: false
 ---
 
 # Model Serving
@@ -74,3 +68,7 @@ model_serving:
     If this model had been running when TechDealz was breached,
     it would have flagged the device clustering within hours.
 ```
+
+## URL
+
+https://docs.databricks.com/aws/en/machine-learning/model-serving/index.html

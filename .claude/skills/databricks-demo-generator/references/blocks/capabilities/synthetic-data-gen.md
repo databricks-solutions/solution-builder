@@ -1,13 +1,7 @@
 ---
 name: Synthetic Data Generation
-slug: synthetic-data-gen
-category: capability
-tags: [data-generation, faker, synthetic, spark, distributions]
-description: >
-  Context for generating synthetic data specifications using Spark and Faker, including
-  realistic distribution design, event injection patterns, referential integrity across
-  tables, and how the generated data must align with every downstream component.
-related: [declarative-pipeline, aibi-dashboards, genie-space, model-serving]
+category: lakeflow
+disabled: false
 ---
 
 # Synthetic Data Generation
@@ -78,3 +72,7 @@ synthetic_data:
       distributions:
         segment: { weighted: { Premium: 0.15, Standard: 0.60, Basic: 0.25 } }
 ```
+
+## URL
+
+https://docs.databricks.com/aws/en/machine-learning/data-generation.html

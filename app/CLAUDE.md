@@ -31,17 +31,23 @@ backend/
 ├── routes/             # One module per resource
 │   ├── agent.py        # POST /invoke_agent, /stream_progress/{id}, /stop_stream/{id}
 │   ├── projects.py     # Project CRUD, creation with auto-provisioning
-│   ├── project_files.py # File listing, read, write (synced to disk)
+│   ├── project_files.py # File listing, read, download, deployed resources
 │   ├── messages.py     # Message history per project
-│   ├── templates.py    # Template publish/list/fork
-│   ├── resources.py    # Cluster/warehouse listing
-│   ├── skills.py       # Skills listing for the agent
-│   └── config.py       # /version, /current-user
+│   ├── templates.py    # Template publish/list/fork/search
+│   ├── resources.py    # Cluster/warehouse/catalog/schema listing
+│   ├── skills.py       # Skills listing and system prompt preview
+│   ├── config.py       # User config, DB status, Databricks profiles
+│   ├── constants.py    # Industries, capabilities, current-user, capability suggestions
+│   └── block_factory.py # Document decomposition into context blocks
 └── services/           # Business logic, decoupled from routes
     ├── agent.py        # Claude Agent SDK integration, streaming
     ├── llm_service.py  # Databricks Foundation Model API calls
     ├── file_sync.py    # Bidirectional sync between DB and disk
+    ├── file_watcher.py # File system watcher for live sync
     ├── skills_manager.py # Project directory setup, skill file management
+    ├── template_service.py # Template operations, pgvector embedding
+    ├── block_factory.py # LLM-powered document → block decomposition
+    ├── system_prompt.py  # Agent system prompt assembly
     └── active_stream.py  # In-memory stream manager for SSE
 ```
 
@@ -125,22 +131,26 @@ class WidgetOut(BaseModel):
 ui/
 ├── main.tsx                # Entry point (React Query + Router setup)
 ├── routeTree.gen.ts        # Auto-generated route tree (DO NOT EDIT)
-├── routes/                 # File-based routing (TanStack Router)
-│   ├── __root.tsx          # Root layout (ThemeProvider, Toaster)
-│   ├── index.tsx           # Home / dashboard
-│   ├── project.$projectId.tsx  # Main project workspace (chat + file viewer)
-│   ├── projects.tsx        # Project list
-│   ├── gallery.tsx         # Template gallery
-│   ├── templates.tsx       # Template management
-│   ├── profile.tsx         # User profile
-│   ├── docs.tsx            # Documentation
-│   └── setup.tsx           # Initial setup / configuration
+├── routes/                     # File-based routing (TanStack Router)
+│   ├── __root.tsx              # Root layout (ThemeProvider, Toaster)
+│   ├── index.tsx               # Home — scenario input, recent projects, templates
+│   ├── project.$projectId.tsx  # Project workspace (chat + file viewer)
+│   ├── projects.tsx            # Project list
+│   ├── gallery.tsx             # Template gallery
+│   ├── templates.tsx           # Template management (admin review)
+│   ├── profile.tsx             # User profile
+│   ├── docs.tsx                # Documentation
+│   └── setup.tsx               # Initial setup / configuration
 ├── components/
 │   ├── ui/                 # shadcn/ui primitives (button, dialog, input, etc.)
 │   ├── project/            # Project workspace components
 │   │   ├── chat-panel.tsx  # Chat interface with streaming + reasoning display
 │   │   ├── file-viewer.tsx # File explorer sidebar with tabs
+│   │   ├── code-viewer.tsx # Syntax-highlighted code display
 │   │   ├── architecture-diagram.tsx  # ReactFlow-based diagram
+│   │   ├── build-stepper.tsx         # Stage pipeline progress indicator
+│   │   ├── deployed-resources-bar.tsx # Links to live Databricks resources
+│   │   ├── project-tile.tsx          # Project card for list views
 │   │   ├── resources-popover.tsx     # Cluster/warehouse selector
 │   │   ├── skills-popup.tsx          # Available skills list
 │   │   └── template-publish-dialog.tsx
@@ -228,7 +238,7 @@ Playwright E2E tests in `tests/` at the repo root:
 # Run all tests (app must be running on :9000)
 npx playwright test
 
-# Run specific test
+# Run specific test file
 npx playwright test tests/e2e-comprehensive.spec.ts
 
 # With UI mode

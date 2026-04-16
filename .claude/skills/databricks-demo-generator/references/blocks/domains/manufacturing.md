@@ -1,16 +1,8 @@
 ---
 name: Manufacturing & Industrial
-slug: manufacturing
 category: domain
-tags: [manufacturing, iot, predictive-maintenance, quality, supply-chain, industry-4-0]
-description: >
-  Industry context for manufacturing and industrial demos covering predictive maintenance,
-  quality control, supply chain optimization, and IoT sensor analytics. Provides domain
-  terminology, OEE benchmarks, plant-floor personas, and regulatory frameworks for
-  generating realistic Industry 4.0 Databricks demos.
-related: [retail, healthcare]
 suggested_patterns: [predictive-maintenance, anomaly-detection, real-time-monitoring, compliance-audit]
-suggested_capabilities: [aibi-dashboards, genie-space, declarative-pipeline, notebooks, model-serving, streaming, knowledge-assistant]
+suggested_capabilities: [aibi-dashboards, genie, sdp, notebooks-eda, model-serving, streaming, knowledge-assistant]
 ---
 
 ## Terminology

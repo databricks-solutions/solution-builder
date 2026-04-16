@@ -1,13 +1,7 @@
 ---
 name: Databricks Apps
-slug: databricks-app
-category: capability
-tags: [app, fastapi, react, apx, full-stack, oauth]
-description: >
-  Context for generating Databricks App specifications, including framework choices
-  (FastAPI/React via apx, Streamlit, Gradio), OAuth configuration, resource bindings,
-  and when a full-stack app adds value over dashboards and Genie alone.
-related: [aibi-dashboards, model-serving, lakebase, genie-space]
+category: apps-infra
+disabled: false
 ---
 
 # Databricks Apps
@@ -65,3 +59,7 @@ databricks_app:
     - "Investigation Detail — transaction timeline, risk factors, documents"
     - "Action Panel — block card, flag merchant, escalate case"
 ```
+
+## URL
+
+https://www.databricks.com/product/databricks-apps

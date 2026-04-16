@@ -9,7 +9,8 @@ import { Prose } from "../markdown-prose";
 import { Skeleton } from "../ui/skeleton";
 import { ChevronRight, ChevronDown, ChevronLeft, Folder, FolderOpen, FileText, FileCode, Braces, Settings, File, Sparkles, RefreshCw, Network, Database, Eye, Code, Server, Boxes } from "lucide-react";
 import { Button } from "../ui/button";
-import type { ProjectFile, ProjectFileContent } from "../../lib/custom-api";
+import type { ProjectFile, ProjectFileContent, DeployedResourceLink } from "../../lib/custom-api";
+import { DeployedResourcesBar } from "./deployed-resources-bar";
 
 // Lazy load the architecture diagram to avoid loading ReactFlow on every page
 const ArchitectureDiagram = lazy(() => import("./architecture-diagram"));
@@ -45,6 +46,8 @@ interface FileViewerProps {
   isStreaming?: boolean; // Whether the agent is currently working
   resources?: ResourcesInfo;
   onResourcesClick?: () => void;
+  deployedResources?: DeployedResourceLink[];
+  deployedAt?: string | null;
 }
 
 interface TreeNode {
@@ -538,6 +541,8 @@ export const FileViewer = memo(function FileViewer({
   isStreaming = false,
   resources,
   onResourcesClick,
+  deployedResources,
+  deployedAt,
 }: FileViewerProps) {
   const [isSidebarExpanded, setIsSidebarExpanded] = useState(false);
   const [activeTab, setActiveTab] = useState<ViewTab>("readme");
@@ -606,6 +611,11 @@ export const FileViewer = memo(function FileViewer({
         resources={resources}
         onResourcesClick={onResourcesClick}
       />
+
+      {/* Deployed resources links */}
+      {deployedResources && deployedResources.length > 0 && (
+        <DeployedResourcesBar resources={deployedResources} deployedAt={deployedAt} />
+      )}
 
       {/* Content area */}
       <div className="flex flex-1 min-h-0">

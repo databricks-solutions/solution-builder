@@ -89,16 +89,16 @@ def _parse_skill_frontmatter(content: str) -> tuple[Optional[str], Optional[str]
 
 
 def _find_repo_root() -> Optional[Path]:
-    """Find the repository root by looking for blocks/ directory."""
+    """Find the repository root by looking for CLAUDE.md."""
     current_file = Path(__file__)
     # Direct path from this file: services/ -> backend/ -> demo_prompt_generator/ -> src/ -> app/ -> repo root
     project_root = current_file.parent.parent.parent.parent.parent.parent
-    if (project_root / "blocks").exists():
+    if (project_root / "CLAUDE.md").exists():
         return project_root
 
-    # Fallback: walk up looking for blocks/
+    # Fallback: walk up looking for CLAUDE.md
     for parent in current_file.parents:
-        if (parent / "blocks").exists():
+        if (parent / "CLAUDE.md").exists():
             return parent
 
     return None
@@ -164,21 +164,8 @@ def copy_skills_to_project(
         shutil.copytree(demo_skill_path, dest)
         copied += 1
 
-        # Copy domain and pattern blocks from blocks/ into the skill's references
-        # so the agent can browse them alongside capability blocks.
-        # blocks/ is the single source of truth — this keeps them fresh on each copy.
-        repo_root = _find_repo_root()
-        if repo_root:
-            blocks_src = repo_root / "blocks"
-            refs_blocks = dest / "references" / "blocks"
-            for block_type in ("domains", "patterns"):
-                src_dir = blocks_src / block_type
-                if src_dir.exists():
-                    dest_dir = refs_blocks / block_type
-                    if dest_dir.exists():
-                        shutil.rmtree(dest_dir)
-                    shutil.copytree(src_dir, dest_dir)
-                    logger.debug(f"Copied {block_type} blocks to project {project_id}")
+        # Domains, patterns, and capabilities all live in the skill's references/blocks/
+        # directory — no separate copy needed.
 
     # Copy skills from ai-dev-kit
     skills_src = Path(AI_DEV_KIT_LOCAL) / "databricks-skills"

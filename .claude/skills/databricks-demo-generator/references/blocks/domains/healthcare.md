@@ -1,16 +1,8 @@
 ---
 name: Healthcare & Life Sciences
-slug: healthcare
 category: domain
-tags: [healthcare, pharma, clinical-trials, claims, readmissions, ehr, life-sciences]
-description: >
-  Industry context for healthcare and life sciences demos covering hospital operations,
-  payer analytics, clinical trials, and pharmaceutical use cases. Includes clinical
-  terminology, quality metrics with CMS benchmarks, and regulatory frameworks that
-  produce realistic, compliant demo narratives.
-related: [financial-services, manufacturing]
 suggested_patterns: [anomaly-detection, predictive-maintenance, compliance-audit, customer-segmentation]
-suggested_capabilities: [aibi-dashboards, genie-space, knowledge-assistant, multi-agent-supervisor, declarative-pipeline, model-serving, notebooks]
+suggested_capabilities: [aibi-dashboards, genie, knowledge-assistant, supervisor-agent, sdp, model-serving, notebooks-eda]
 ---
 
 ## Terminology

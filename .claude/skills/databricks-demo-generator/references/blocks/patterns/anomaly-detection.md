@@ -1,16 +1,7 @@
 ---
 name: Anomaly Detection & Root Cause Investigation
-slug: anomaly-detection
 category: pattern
-tags: [anomaly, investigation, root-cause, spike, outlier, diagnostic]
-description: >
-  The classic "something went wrong, let's find out why" story. A key metric spikes
-  or deviates from baseline, triggering an investigation that drills from high-level
-  dashboards through conversational data queries to document retrieval, ultimately
-  uncovering a root cause and driving corrective action. Applicable to fraud spikes,
-  quality defects, readmission surges, return rate anomalies, and any scenario where
-  a business operator must diagnose and resolve an unexpected change.
-suggested_capabilities: [aibi-dashboards, genie-space, knowledge-assistant, multi-agent-supervisor, declarative-pipeline, notebooks]
+suggested_capabilities: [aibi-dashboards, genie, knowledge-assistant, supervisor-agent, sdp, notebooks-eda]
 ---
 
 ## Narrative Arc

@@ -6,11 +6,11 @@
   "blocks": [
     "retail",
     "anomaly-detection",
-    "declarative-pipeline",
+    "sdp",
     "aibi-dashboards",
-    "genie-space",
+    "genie",
     "knowledge-assistant",
-    "multi-agent-supervisor",
+    "supervisor-agent",
     "synthetic-data-gen"
   ],
   "output_files": [

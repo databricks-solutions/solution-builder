@@ -1,16 +1,7 @@
 ---
 name: Customer Segmentation & Predictive Targeting
-slug: customer-segmentation
 category: pattern
-tags: [segmentation, clustering, personalization, scoring, targeting, cohort]
-description: >
-  Segment entities by behavior or attributes, deploy prediction models, and serve
-  insights through interactive applications or dashboards. The story follows an
-  analyst discovering hidden cohorts in their data, building risk tiers or value
-  segments, and activating those segments through downstream systems. Applicable
-  to marketing targeting, financial risk tiers, patient cohorts, product
-  recommendations, and any scenario where grouping entities unlocks action.
-suggested_capabilities: [aibi-dashboards, genie-space, declarative-pipeline, notebooks, knowledge-assistant, multi-agent-supervisor]
+suggested_capabilities: [aibi-dashboards, genie, sdp, notebooks-eda, knowledge-assistant, supervisor-agent]
 ---
 
 ## Narrative Arc

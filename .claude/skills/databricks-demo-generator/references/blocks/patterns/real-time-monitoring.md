@@ -1,17 +1,7 @@
 ---
 name: Real-Time Monitoring & Automated Response
-slug: real-time-monitoring
 category: pattern
-tags: [streaming, real-time, monitoring, alerts, automation, iot, live]
-description: >
-  Live streaming dashboards with threshold-based alerts and automated response
-  workflows. The story follows an operations center analyst monitoring a continuous
-  data stream, where the system detects a developing situation in real time, fires
-  alerts, and initiates automated responses faster than any human could react
-  manually. Real-time data flow emphasis throughout. Applicable to network
-  monitoring, trading floor surveillance, patient vitals, supply chain tracking,
-  energy grid management, and any domain where seconds matter.
-suggested_capabilities: [declarative-pipeline, aibi-dashboards, genie-space, knowledge-assistant, multi-agent-supervisor, notebooks]
+suggested_capabilities: [sdp, aibi-dashboards, genie, knowledge-assistant, supervisor-agent, notebooks-eda]
 ---
 
 ## Narrative Arc

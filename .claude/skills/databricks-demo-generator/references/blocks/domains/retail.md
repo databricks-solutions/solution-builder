@@ -1,15 +1,8 @@
 ---
 name: Retail & CPG
-slug: retail
 category: domain
-tags: [retail, cpg, ecommerce, inventory, churn, pricing, consumer]
-description: >
-  Industry context for retail and consumer packaged goods demos. Provides terminology,
-  KPIs with realistic baselines, common personas, data entities, regulatory considerations,
-  and pain points that an LLM needs to generate convincing retail-focused Databricks demos.
-related: [financial-services, manufacturing]
 suggested_patterns: [anomaly-detection, customer-segmentation, real-time-monitoring, predictive-maintenance]
-suggested_capabilities: [aibi-dashboards, genie-space, declarative-pipeline, knowledge-assistant, multi-agent-supervisor, synthetic-data-gen, notebooks]
+suggested_capabilities: [aibi-dashboards, genie, sdp, knowledge-assistant, supervisor-agent, synthetic-data-gen, notebooks-eda]
 ---
 
 ## Terminology

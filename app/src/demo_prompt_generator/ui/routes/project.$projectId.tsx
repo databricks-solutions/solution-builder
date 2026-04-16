@@ -54,11 +54,13 @@ import {
   updateProject,
   getTemplateByProject,
   downloadProjectAsZip,
+  getDeployedResources,
   type Project,
   type ProjectFile,
   type ProjectFileContent,
   type Message,
   type TemplateDetail,
+  type DeployedResources,
 } from "@/lib/custom-api";
 
 export const Route = createFileRoute("/project/$projectId")({
@@ -87,6 +89,7 @@ function ProjectPage() {
   const [architectureContent, setArchitectureContent] = useState<string | null>(null);
   const [isCreatingArchitecture, setIsCreatingArchitecture] = useState(false);
   const [isPackagingDAB, setIsPackagingDAB] = useState(false);
+  const [deployedResources, setDeployedResources] = useState<DeployedResources | null>(null);
 
   // Chat state
   const [messages, setMessages] = useState<Message[]>([]);
@@ -212,15 +215,17 @@ function ProjectPage() {
       setIsLoadingMessages(true);
       try {
         // Load all data in parallel
-        const [proj, fileList, msgs] = await Promise.all([
+        const [proj, fileList, msgs, deployed] = await Promise.all([
           getProject(projectId),
           listProjectFiles(projectId),
           listProjectMessages(projectId),
+          getDeployedResources(projectId).catch(() => null),
         ]);
 
         setProject(proj);
         setFiles(fileList);
         setMessages(msgs);
+        setDeployedResources(deployed);
 
         // Select README.md by default if it exists
         const readme = fileList.find((f) => f.path === "README.md");
@@ -372,9 +377,13 @@ function ProjectPage() {
         };
         setMessages(prev => [...prev, assistantMsg]);
 
-        // Refresh files (agent may have created new files)
-        const fileList = await listProjectFiles(projectId);
+        // Refresh files and deployed resources (agent may have created new ones)
+        const [fileList, deployed] = await Promise.all([
+          listProjectFiles(projectId),
+          getDeployedResources(projectId).catch(() => null),
+        ]);
         setFiles(fileList);
+        setDeployedResources(deployed);
 
         // Auto-select README.md if no file is currently selected
         let currentFile = selectedFileRef.current;
@@ -404,12 +413,14 @@ function ProjectPage() {
           // Re-fetch messages and files from DB — the agent may still be
           // running server-side even though our SSE stream dropped
           try {
-            const [msgs, fileList] = await Promise.all([
+            const [msgs, fileList, deployed] = await Promise.all([
               listProjectMessages(projectId),
               listProjectFiles(projectId),
+              getDeployedResources(projectId).catch(() => null),
             ]);
             setMessages(msgs);
             setFiles(fileList);
+            setDeployedResources(deployed);
 
             // Auto-select README.md if no file is selected
             let fileToLoad = selectedFileRef.current;
@@ -507,13 +518,15 @@ function ProjectPage() {
           }
         }
 
-        // Refresh messages and files from DB after agent completion
-        const [msgs, fileList] = await Promise.all([
+        // Refresh messages, files, and deployed resources from DB after agent completion
+        const [msgs, fileList, deployed] = await Promise.all([
           listProjectMessages(projectId),
           listProjectFiles(projectId),
+          getDeployedResources(projectId).catch(() => null),
         ]);
         setMessages(msgs);
         setFiles(fileList);
+        setDeployedResources(deployed);
 
         // Auto-select README.md if no file is selected
         let fileToLoad = selectedFileRef.current;
@@ -592,8 +605,12 @@ function ProjectPage() {
   // Handle refresh
   const handleRefresh = useCallback(async () => {
     try {
-      const fileList = await listProjectFiles(projectId);
+      const [fileList, deployed] = await Promise.all([
+        listProjectFiles(projectId),
+        getDeployedResources(projectId).catch(() => null),
+      ]);
       setFiles(fileList);
+      setDeployedResources(deployed);
 
       if (selectedFile) {
         const content = await getProjectFile(projectId, selectedFile);
@@ -1160,6 +1177,8 @@ function ProjectPage() {
               schema: resources.schema,
             }}
             onResourcesClick={() => setIsResourcesOpen(true)}
+            deployedResources={deployedResources?.resources}
+            deployedAt={deployedResources?.deployed_at}
           />
         </div>
 
