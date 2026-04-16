@@ -1,13 +1,7 @@
 ---
 name: AI/BI Dashboards
-slug: aibi-dashboards
-category: capability
-tags: [visualization, kpi, dashboards, analytics, ai-bi]
-description: >
-  Context for generating AI/BI Dashboard specifications, including layout design on the
-  6-column grid, KPI counter patterns, anomaly visualization techniques, dataset design,
-  and the 5-second test that ensures dashboards tell a clear story at a glance.
-related: [genie-space, declarative-pipeline, notebooks]
+category: ai-bi
+disabled: false
 ---
 
 # AI/BI Dashboards
@@ -148,3 +142,7 @@ dashboard:
       - "CNP channel dominates the breakdown bar"
       - "TechDealz tops the detail table"
 ```
+
+## URL
+
+https://www.databricks.com/product/business-intelligence

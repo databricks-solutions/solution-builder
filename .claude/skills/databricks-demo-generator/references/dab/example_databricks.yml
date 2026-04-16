@@ -110,14 +110,15 @@ resources:
 
   # --------------------------------------------------------------------------
   # DASHBOARD: AI/BI Lakeview Dashboard
+  # IMPORTANT: Requires Databricks CLI v0.283.0+ for dataset_catalog/dataset_schema.
+  # These fields rewrite ALL dataset queries to use ${var.catalog}.${var.schema}
+  # at deploy time, so dashboards work across any target catalog/schema.
   # --------------------------------------------------------------------------
   dashboards:
     demo_dashboard:
       display_name: "[${bundle.target}] Demo Dashboard"
       file_path: ./dashboard/demo.lvdash.json
       warehouse_id: ${var.warehouse_id}
-      # IMPORTANT: These override catalog/schema for ALL datasets at deploy time
-      # Requires Databricks CLI v0.283.0+
       dataset_catalog: ${var.catalog}
       dataset_schema: ${var.schema}
       permissions:

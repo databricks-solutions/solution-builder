@@ -492,6 +492,20 @@ class ProjectFileContent(BaseModel):
     last_modified: Optional[datetime] = None
 
 
+class DeployedResourceLink(BaseModel):
+    """A single deployed Databricks resource with its live URL."""
+    resource_type: str
+    label: str
+    url: Optional[str] = None
+    resource_id: Optional[str] = None
+
+
+class DeployedResourcesOut(BaseModel):
+    """All deployed resources for a project, parsed from resources.json."""
+    resources: list[DeployedResourceLink] = Field(default_factory=list)
+    deployed_at: Optional[datetime] = None
+
+
 class MessageOut(BaseModel):
     """Chat message response."""
     id: int

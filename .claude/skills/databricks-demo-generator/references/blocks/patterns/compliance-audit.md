@@ -1,18 +1,7 @@
 ---
 name: Compliance Audit & Regulatory Monitoring
-slug: compliance-audit
 category: pattern
-tags: [compliance, audit, regulatory, rules, policy, violations, governance]
-description: >
-  Detect regulatory violations or policy non-compliance through systematic data
-  analysis augmented by AI. The story follows a compliance officer who must monitor
-  a large volume of transactions or activities against complex, evolving rules,
-  using a combination of deterministic rule engines and AI-powered document analysis
-  to surface violations that would be impossible to catch manually. Document-heavy
-  and rule-based with AI augmentation. Applicable to AML, HIPAA, SOX, environmental
-  compliance, trade surveillance, and any regulated domain where violations carry
-  material penalties.
-suggested_capabilities: [declarative-pipeline, aibi-dashboards, genie-space, knowledge-assistant, multi-agent-supervisor, notebooks]
+suggested_capabilities: [sdp, aibi-dashboards, genie, knowledge-assistant, supervisor-agent, notebooks-eda]
 ---
 
 ## Narrative Arc

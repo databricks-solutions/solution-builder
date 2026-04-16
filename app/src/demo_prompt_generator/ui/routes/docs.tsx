@@ -152,7 +152,7 @@ function DocsPage() {
               to other products in the stack.
             </p>
             <div className="flex flex-wrap gap-1.5">
-              {["dashboards", "genie-space", "declarative-pipeline", "knowledge-assistant", "model-serving", "databricks-apps"].map((c) => (
+              {["aibi-dashboards", "genie", "sdp", "knowledge-assistant", "model-serving", "app-python"].map((c) => (
                 <span key={c} className="text-[10px] font-mono bg-muted rounded px-2 py-0.5 text-muted-foreground">{c}</span>
               ))}
             </div>

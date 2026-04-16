@@ -1,13 +1,7 @@
 ---
 name: Streaming
-slug: streaming
-category: capability
-tags: [streaming, structured-streaming, kafka, auto-loader, zerobus, real-time]
-description: >
-  Context for generating streaming specifications, including ingestion patterns (Kafka,
-  Auto Loader, Zerobus), trigger modes, watermarking, and how real-time data ingestion
-  fits into demo architectures alongside batch pipelines.
-related: [declarative-pipeline, synthetic-data-gen, databricks-app, lakebase]
+category: lakeflow
+disabled: false
 ---
 
 # Streaming
@@ -82,3 +76,7 @@ streaming:
       starting_offsets: latest
       watermark: "10 minutes"
 ```
+
+## URL
+
+https://docs.databricks.com/aws/en/structured-streaming/index.html

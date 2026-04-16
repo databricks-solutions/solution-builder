@@ -75,7 +75,10 @@ _CATEGORY_SECTIONS: dict[str, str] = {
 ## Example Specification Snippet
 ```yaml
 example: config
-```""",
+```
+
+## URL
+{product url}""",
 
     "pattern": """\
 ## Narrative Arc
@@ -101,17 +104,22 @@ example: config
 
 
 def _blocks_root() -> Path:
-    """Find the blocks/ directory at the repository root.
+    """Find the blocks/ directory in the demo-generator skill.
 
-    Walks up from this file looking for a blocks/ directory that contains
-    the expected subdirectories (capabilities/, domains/, patterns/).
+    Walks up from this file looking for the skill's references/blocks/
+    directory that contains the expected subdirectories.
     """
     current = Path(__file__)
     for parent in current.parents:
-        blocks = parent / "blocks"
+        blocks = (
+            parent / ".claude" / "skills" / "databricks-demo-generator"
+            / "references" / "blocks"
+        )
         if blocks.is_dir() and (blocks / "capabilities").is_dir():
             return blocks
-    raise FileNotFoundError("Cannot locate blocks/ directory")
+    raise FileNotFoundError(
+        "Cannot locate .claude/skills/databricks-demo-generator/references/blocks/"
+    )
 
 
 def _extract_json_array(text: str) -> list[dict]:
@@ -162,7 +170,7 @@ class BlockFactory:
         generated: list[GeneratedBlock] = []
         for spec in specs:
             markdown = self._generate_block(spec, doc_text)
-            rel_path = f"blocks/{_CATEGORY_DIR[spec.category]}/{spec.slug}.md"
+            rel_path = f".claude/skills/databricks-demo-generator/references/blocks/{_CATEGORY_DIR[spec.category]}/{spec.slug}.md"
 
             block = GeneratedBlock(
                 spec=spec,
@@ -287,12 +295,8 @@ The block MUST follow this exact structure for a "{spec.category.value}" block:
 
 YAML frontmatter (between --- delimiters):
 - name: {spec.name}
-- slug: {spec.slug}
 - category: {spec.category.value}
-- tags: [comma, separated, keywords]
-- description: >
-    One to two sentences describing what context this block gives an LLM
-- related: [slugs-of-related-blocks]
+- disabled: false
 
 Then markdown body with these sections:
 {section_template}
@@ -319,11 +323,10 @@ SOURCE DOCUMENT (extract relevant details for this block):
 
         # Ensure frontmatter exists — fallback if the model omitted it
         if not cleaned.startswith("---"):
-            tags_str = ", ".join(spec.tags)
             cleaned = (
-                f"---\nname: {spec.name}\nslug: {spec.slug}\n"
-                f"category: {spec.category.value}\ntags: [{tags_str}]\n"
-                f"description: >\n  {spec.description}\nrelated: []\n"
+                f"---\nname: {spec.name}\n"
+                f"category: {spec.category.value}\n"
+                f"disabled: false\n"
                 f"---\n\n{cleaned}"
             )
 

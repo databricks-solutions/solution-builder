@@ -32,10 +32,8 @@ industry-demo-prompts/
 │   ├── tsconfig.json             # TypeScript config (strict mode)
 │   ├── scripts/                  # dev.sh, build.sh, build-electron.sh, release.sh
 │   └── .env.example              # Environment variable template
-├── blocks/                       # Seed context blocks (auto-loaded into Lakebase on startup)
-│   ├── domains/                  # Industry verticals (retail, healthcare, etc.)
-│   ├── capabilities/             # Databricks feature guidance (pipelines, dashboards, etc.)
-│   └── patterns/                 # Analytical patterns (anomaly detection, segmentation, etc.)
+├── .claude/skills/databricks-demo-generator/
+│   └── references/blocks/        # Context blocks (domains, capabilities, patterns)
 ├── collections/                  # Seed collection manifests (curated block groups + output DAGs)
 ├── tests/                        # Playwright E2E tests
 ├── playwright.config.ts          # Test config (targets localhost:9000)
@@ -44,7 +42,7 @@ industry-demo-prompts/
 
 ## Key concepts
 
-- **Block**: A Markdown file with YAML frontmatter — a reusable chunk of domain/capability/pattern context. Stored in `blocks/` on disk (seed) or Lakebase (user-created).
+- **Block**: A Markdown file with YAML frontmatter — a reusable chunk of domain/capability/pattern context. Stored in `.claude/skills/databricks-demo-generator/references/blocks/`.
 - **Collection**: A curated group of blocks + an output file dependency graph (DAG). Controls what gets generated and in what order.
 - **Project**: A user workspace containing generated files and a chat session with an AI agent for iterative refinement.
 - **Template**: A published project snapshot that can be forked by other users.
@@ -84,7 +82,7 @@ RESET_DB=1 ./scripts/dev.sh
 1. Copy `app/.env.example` to `app/.env` and configure:
    - `DATABRICKS_CONFIG_PROFILE` or `DATABRICKS_HOST`/`DATABRICKS_TOKEN` (required)
    - `LAKEBASE_PG_URL` (optional — omit to use PGLite, a local auto-provisioned PostgreSQL)
-   - `DEMO_PROMPT_GENERATOR_LLM_MODEL` (default: `databricks-claude-sonnet-4`)
+   - `DEMO_PROMPT_GENERATOR_LLM_MODEL` (default: `databricks-claude-sonnet-4-6`)
 2. `bun install` in `app/` for frontend deps
 3. `uv sync` in `app/` for Python deps (creates `.venv`)
 4. The `ai_dev_kit/` directory is cloned automatically by `dev.sh`

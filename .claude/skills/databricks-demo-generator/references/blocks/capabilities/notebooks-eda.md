@@ -2,44 +2,75 @@
 name: Notebooks & EDA
 category: ai-bi
 disabled: false
-buildable: false
 ---
 
-# Notebooks & EDA (Exploratory Data Analysis)
+# Notebooks
 
-**Collaborative notebooks** for interactive data exploration, visualization, and ad-hoc analysis across Python, SQL, R, and Scala.
+## What It Does
 
-## Pain
+Databricks notebooks provide interactive, cell-by-cell execution environments for Python, SQL, Scala, and R. In demos, notebooks serve three roles: ML model training and evaluation, ad-hoc data exploration and validation, and data generation scripting.
 
-Data scientists work in isolated Jupyter environments, can't share state with colleagues, and results don't connect to production pipelines. EDA happens in silos, then gets rewritten for production.
+## When to Use in a Demo
 
-## Key Features
+- **ML training:** When the demo includes a model serving endpoint, a notebook trains and evaluates the model. This is the most common demo notebook.
+- **Data exploration:** When the audience includes data scientists who want to see hands-on analysis beyond dashboards.
+- **Data generation:** The synthetic data generation script typically runs as a notebook.
+- **Validation:** A notebook can verify pipeline outputs, data quality, and end-to-end correctness.
 
-- **Multi-language** - Python, SQL, R, Scala in the same notebook
-- **Built-in profiling** - automatic data summaries, histograms, statistics
-- **Co-editing** - real-time collaboration like Google Docs
-- **Git integration** - version control, code reviews, CI/CD
-- **AI-assisted coding** - Genie Code helps write and explain code
+## Key Configuration Decisions
 
-## Position
+1. **Notebook structure:** Use a clear section flow with markdown headers. ML notebooks: Data Prep → EDA → Feature Engineering → Training → Evaluation → Deployment. Exploration notebooks: Context → Questions → Analysis → Findings.
+2. **Narrative thread:** Every notebook should tell a story. Use markdown cells between code cells to explain what is happening and why. The audience reads the notebook like a document.
+3. **Compute:** Serverless compute for SQL and lightweight Python. ML Runtime clusters for training (GPU if deep learning). Specify the compute requirement in the spec.
+4. **MLflow integration:** For ML notebooks, log experiments, parameters, metrics, and artifacts to MLflow. Register the final model to the MLflow Model Registry.
+5. **Cell output design:** Key cells should produce visualizations or formatted tables — not raw DataFrames. Use `display()`, matplotlib, or plotly for visual outputs.
 
-Any exploratory or ad-hoc analysis. "Before you build a dashboard, you explore in a notebook. Before you train a model, you profile the data here."
+## Common Pitfalls
 
-## How It Works
+- Wall-of-code notebooks with no markdown explanation — the audience loses the thread. Alternate between explanation and code.
+- Notebooks that take too long to run during a demo — pre-run cells and use cached results for training steps that take minutes.
+- ML notebooks that do not connect back to the demo story — always include a "so what" section that ties model results to the business problem.
+- Using `print()` instead of `display()` for DataFrames — `display()` renders interactive tables in Databricks.
+- Forgetting to specify the cluster/compute requirements — a notebook that needs ML Runtime will fail on a SQL warehouse.
 
-- **Create a notebook, pick your language**: Python, SQL, R, or Scala — switch languages between cells
-- **Run on serverless or clusters**: Serverless compute spins up instantly; attach to shared clusters for heavier workloads
-- **Built-in data profiling**: Call `display(df)` and click "Data Profile" — get summary stats, histograms, nulls without writing code
-- **Collaborate in real-time**: Share with colleagues — they see your cursor, can co-edit, add comments
-- **Version with Git**: Connect to GitHub/GitLab/Azure DevOps — commit, branch, pull request from the UI
+## How It Connects to Other Components
 
-## Demo Tips
+- **Model serving:** The notebook trains the model and registers it; model serving deploys it.
+- **Declarative pipeline:** Notebooks can read from pipeline Gold tables for analysis and model training.
+- **Synthetic data gen:** Data generation often runs as a notebook before the pipeline.
+- **Dashboard:** Notebook analysis findings can motivate additional dashboard panels.
 
-- Perfect for the "let me show you the data" moment
-- Show data profiling: quick way to understand a dataset without writing code
-- Mention collaboration: "my colleague can see what I'm doing right now"
-- Position as the starting point before dashboards or models
-- Can transition from notebook exploration → SDP pipeline → dashboard
+## Example Specification Snippet
+
+```yaml
+notebook:
+  name: "Real-Time Fraud Detection Model"
+  language: python
+  compute: ml_runtime_14.3_gpu
+  sections:
+    - title: "Data Preparation"
+      description: "Load 6 months of historical transactions with fraud labels"
+      reads_from: [silver_transactions_enriched, gold_device_analysis]
+    - title: "Exploratory Analysis"
+      description: "Fraud patterns by channel, merchant, time — TechDealz case study"
+      outputs: [fraud_rate_trend_chart, channel_breakdown, merchant_concentration]
+    - title: "Feature Engineering"
+      description: "Build 25 features across transaction, velocity, device, merchant, profile"
+    - title: "Model Training"
+      description: "XGBoost with hyperparameter tuning, class imbalance handling"
+      mlflow: { experiment: "fraud-detection", log: [params, metrics, model] }
+    - title: "Evaluation"
+      description: "AUC, precision-recall, business metric simulation"
+      key_metrics: { auc_roc: ">0.95", recall: ">80%", detection_rate: ">70%" }
+    - title: "Feature Importance"
+      description: "SHAP values — device_card_count and merchant_fraud_rate dominate"
+    - title: "Deployment"
+      description: "Register model, configure serving endpoint"
+      registers_to: "mlflow_model_registry"
+  narrative_hook: >
+    "The model detected the TechDealz pattern within hours because device
+    clustering immediately flagged FP-8821 using 50+ cards."
+```
 
 ## URL
 

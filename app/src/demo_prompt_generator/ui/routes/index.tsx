@@ -61,7 +61,7 @@ export const Route = createFileRoute("/")({
 const DEFAULT_SELECTED_PRODUCTS = [
   // Buildable (resources we create)
   "sdp",                 // Processing
-  "ai-bi-dashboards",    // Analytics
+  "aibi-dashboards",     // Analytics
   "genie",               // NL Queries
   "knowledge-assistant", // AI Agents (KA)
   "supervisor-agent",    // AI Agents (MAS)

@@ -6,10 +6,10 @@
   "blocks": [
     "retail",
     "customer-segmentation",
-    "declarative-pipeline",
+    "sdp",
     "model-serving",
     "aibi-dashboards",
-    "databricks-app",
+    "app-python",
     "lakebase",
     "synthetic-data-gen"
   ],

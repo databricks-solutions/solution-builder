@@ -2,6 +2,10 @@
 
 When asked to package a demo as a DAB, follow this guide to create a `databricks.yml` that enables deployment to any workspace.
 
+## Prerequisites
+
+- **Databricks CLI v0.283.0+** — Required for dashboard `dataset_catalog`/`dataset_schema` fields (which rewrite dataset queries at deploy time). Older CLI versions will fail on dashboard deployment.
+
 ## Important: Read the Complete Example First
 
 **Before creating any DAB, read the complete working example:**
@@ -14,17 +18,6 @@ This example demonstrates:
 - SDK version requirements for Genie/KA/MAS
 - Task value passing between workflow tasks
 - Remember: your job is to make a DAB that works for the current demo/story, it might have many more or less components, you must adapt this example to your story.
-
-## Reference Scripts
-
-Working deployment scripts for components not natively supported by DAB:
-
-| Script | Purpose | SDK Requirement |
-|--------|---------|-----------------|
-| [upload_pdfs.py](scripts/upload_pdfs.py) | Copy PDFs from workspace to UC volume | Pre-installed SDK |
-| [deploy_genie.py](scripts/deploy_genie.py) | Create/update Genie Space | `>=0.102.0` |
-| [deploy_ka.py](scripts/deploy_ka.py) | Create/update Knowledge Assistant | `>=0.102.0` |
-| [deploy_mas.py](scripts/deploy_mas.py) | Create/update Multi-Agent Supervisor | `>=0.102.0` |
 
 ## SDK Version Requirements
 
@@ -69,14 +62,38 @@ Examine the project files to identify:
 
 ## Step 4: Components NOT Directly Supported in DAB
 
-Some Databricks components cannot be declared in DAB YAML and require workflow tasks:
+Some Databricks components cannot be declared in DAB YAML. Deploy them via **SDK notebook tasks** in the workflow. The capability blocks in `blocks/capabilities/` have the API-specific details for each component (serialized_space structure, required fields, SDK patterns). The DAB just wires them into the workflow.
 
-| Component | Workaround | Reference Script |
-|-----------|------------|------------------|
-| **Genie Spaces** | SDK in workflow task | [deploy_genie.py](scripts/deploy_genie.py) |
-| **Knowledge Assistants** | SDK in workflow task | [deploy_ka.py](scripts/deploy_ka.py) |
-| **Multi-Agent Supervisors** | REST API in workflow task | [deploy_mas.py](scripts/deploy_mas.py) |
-| **PDF/File Upload to Volume** | Workflow task | [upload_pdfs.py](scripts/upload_pdfs.py) |
+| Component | Workaround | Capability Block | SDK Requirement |
+|-----------|------------|-----------------|-----------------|
+| **Genie Spaces** | SDK notebook task | `genie.md` | `>=0.102.0` |
+| **Knowledge Assistants** | SDK notebook task | `knowledge-assistant.md` | `>=0.102.0` |
+| **Supervisor Agents** | SDK notebook task | `supervisor-agent.md` | `>=0.102.0` |
+| **PDF/File Upload to Volume** | Notebook task | N/A — use `dbutils.fs.cp` | Pre-installed |
+
+### SDK Deployment Task Pattern
+
+Every SDK deployment notebook follows the same structure:
+
+```python
+# 1. Accept parameters via widgets
+dbutils.widgets.text("catalog", "", "Catalog")
+dbutils.widgets.text("schema", "", "Schema")
+catalog = dbutils.widgets.get("catalog")
+schema = dbutils.widgets.get("schema")
+
+# 2. Initialize SDK client
+from databricks.sdk import WorkspaceClient
+w = WorkspaceClient()
+
+# 3. Idempotent create-or-update (check for existing, update or create)
+# ... component-specific logic from the capability block ...
+
+# 4. Output IDs for downstream tasks
+dbutils.jobs.taskValues.set(key="component_id", value=created_id)
+```
+
+The **capability block** defines steps 2-3 (what API to call, what fields are required). The **DAB** defines how the task is wired in (environment, dependencies, parameter passing).
 
 ## Step 5: Task Value Passing Between Workflow Tasks
 
@@ -128,13 +145,8 @@ project/
 │   └── dashboards.yml         # Dashboard definitions
 ├── src/
 │   ├── data_generation/       # Data generation notebooks
-│   ├── deploy/                # Deployment scripts
-│   │   ├── upload_pdfs.py     # Copy PDFs to volume
-│   │   ├── deploy_genie.py    # Genie Space creation
-│   │   ├── deploy_ka.py       # Knowledge Assistant creation
-│   │   └── deploy_mas.py      # Multi-Agent Supervisor creation
-│   └── pipelines/             # DLT pipeline code
-├── pipeline/                   # Alternative location for DLT code
+│   ├── deploy/                # SDK deployment notebooks (Genie, KA, MAS, file upload)
+│   └── pipeline/              # SDP/DLT pipeline code
 ├── dashboard/                  # .lvdash.json files
 └── raw_data/
     └── pdf/                   # PDFs to upload (synced via sync.include)
@@ -149,10 +161,46 @@ project/
 5. **Use sync.include** for static file upload to workspace
 6. **SDK version matters** - `>=0.102.0` required for Genie/KA/MAS
 7. **Path resolution** - use `../src/` from `resources/*.yml`, `./src/` from `databricks.yml`
+8. **SDP SQL cannot parameterize `read_files` paths** - see Volume Path Parameterization below
+
+## Volume Path Parameterization in SDP
+
+SDP SQL files (`CREATE STREAMING TABLE ... AS SELECT ... FROM STREAM read_files(...)`) **cannot use Spark conf variables** in the `read_files()` path. Even though the pipeline configuration passes `demo.volume_path`, SQL has no syntax to interpolate it.
+
+**Two approaches:**
+
+| Approach | Tradeoff |
+|----------|----------|
+| **Python bronze notebook** (recommended) | Uses `spark.conf.get("demo.volume_path")` to build the path dynamically. Fully parameterized. |
+| **SQL with hardcoded defaults** | Simpler, but the volume path must match `${var.catalog}/${var.schema}`. Only works when deploying with default variable values. |
+
+If using SQL bronze (simpler demos), ensure the hardcoded path uses the **same default values** as the DAB variables, and document in `dab_instructions.md` that changing catalog/schema requires editing the SQL files.
+
+If using Python bronze, the notebook should read the path from Spark conf:
+```python
+volume_path = spark.conf.get("demo.volume_path")
+df = spark.readStream.format("cloudFiles").option("cloudFiles.format", "parquet").load(f"{volume_path}/table_name")
+```
+
+## Common Pitfalls
+
+Mistakes that cause runtime failures after a successful `bundle deploy`:
+
+| Pitfall | Symptom | Fix |
+|---------|---------|-----|
+| `avg()` on a BOOLEAN column in PySpark | `DATATYPE_MISMATCH.UNEXPECTED_INPUT_TYPE` | Cast first: `F.avg(F.col("bool_col").cast("int"))` |
+| Dashboard `dataset_catalog`/`dataset_schema` on old CLI | Deploy fails or fields silently ignored | Require CLI v0.283.0+ |
+| Hardcoded volume paths in SDP SQL | Pipeline fails when deploying to non-default catalog/schema | Use Python bronze or match defaults (see above) |
+
+For component-specific pitfalls (Genie API requirements, KA document formats, etc.), see the relevant capability block.
 
 ## Step 8: Create dab_instructions.md
 
-Create a short `dab_instructions.md` with just the deployment commands. Keep it under 40 lines — no prerequisites, troubleshooting, or detailed explanations.
+Create a short `dab_instructions.md` with deployment commands. Keep it concise. Include:
+- **Prerequisite**: Databricks CLI v0.283.0+ (`databricks --version` to check)
+- Deploy and run commands with variable overrides
+- Variable reference table
+- Resources created list
 
 ## Step 9: Typical Demo Workflow
 

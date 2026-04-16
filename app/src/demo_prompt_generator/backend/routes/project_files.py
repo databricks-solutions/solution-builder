@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import json
 import logging
 import os
 import traceback
@@ -16,6 +17,8 @@ from sqlmodel import select
 
 from ..core import Dependencies, create_router
 from ..models import (
+    DeployedResourceLink,
+    DeployedResourcesOut,
     Project,
     ProjectFile,
     ProjectFileContent,
@@ -222,3 +225,111 @@ def download_project_as_zip(
             "Content-Disposition": f'attachment; filename="{filename}"',
         },
     )
+
+
+# URL patterns for deployed Databricks resources: key -> (url_template, label)
+_RESOURCE_URL_PATTERNS: dict[str, tuple[str, str]] = {
+    "pipeline_id": ("{host}/pipelines/{id}", "Pipeline"),
+    "dashboard_id": ("{host}/sql/dashboards/{id}", "Dashboard"),
+    "genie_space_id": ("{host}/genie/rooms/{id}", "Genie Space"),
+    "sql_warehouse_id": ("{host}/sql/warehouses/{id}", "SQL Warehouse"),
+    "knowledge_assistant_id": ("{host}/genie/rooms/{id}", "Knowledge Assistant"),
+    "multi_agent_supervisor_id": ("{host}/genie/rooms/{id}", "Multi-Agent Supervisor"),
+}
+
+# Keys to skip (metadata, not linkable resources)
+_SKIP_KEYS = {"catalog", "schema", "volume_path", "raw_data_volume"}
+
+
+def _build_deployed_links(
+    data: dict, host: str | None
+) -> list[DeployedResourceLink]:
+    """Build deployed resource links from resources.json data."""
+    links: list[DeployedResourceLink] = []
+    host = (host or "").rstrip("/")
+
+    # Catalog Explorer link (combined catalog + schema)
+    catalog = data.get("catalog")
+    schema = data.get("schema")
+    if catalog and schema and host:
+        links.append(DeployedResourceLink(
+            resource_type="catalog_explorer",
+            label="Catalog Explorer",
+            url=f"{host}/explore/data/{catalog}/{schema}",
+        ))
+
+    # Workspace folder link
+    workspace_folder = data.get("workspace_folder")
+    if workspace_folder and host:
+        links.append(DeployedResourceLink(
+            resource_type="workspace_folder",
+            label="Workspace",
+            url=f"{host}#workspace{workspace_folder}",
+        ))
+
+    # Standard ID-based resources
+    for key, (url_template, label) in _RESOURCE_URL_PATTERNS.items():
+        resource_id = data.get(key)
+        if not resource_id:
+            continue
+        url = url_template.format(host=host, id=resource_id) if host else None
+        links.append(DeployedResourceLink(
+            resource_type=key.removesuffix("_id"),
+            label=label,
+            url=url,
+            resource_id=str(resource_id),
+        ))
+
+    return links
+
+
+@router.get(
+    "/projects/{project_id}/deployed-resources",
+    response_model=DeployedResourcesOut,
+    operation_id="getDeployedResources",
+)
+def get_deployed_resources(
+    project_id: str,
+    session: Dependencies.Session,
+    headers: Dependencies.Headers,
+    ws: Dependencies.Client,
+    request: Request,
+):
+    """Get deployed Databricks resource links parsed from resources.json."""
+    user_email = _get_user_email(headers)
+    _get_user_project(session, project_id, user_email)
+
+    file_sync: FileSyncService = request.app.state.file_sync
+    content = file_sync.get_file_content(
+        project_id, "instructions/resources.json", session=session
+    )
+
+    if content is None:
+        return DeployedResourcesOut()
+
+    try:
+        data = json.loads(content)
+    except (json.JSONDecodeError, TypeError):
+        logger.warning(f"Invalid resources.json for project {project_id}")
+        return DeployedResourcesOut()
+
+    # Get workspace host
+    host = None
+    try:
+        host = str(ws.config.host).rstrip("/") if ws.config.host else None
+    except Exception:
+        logger.warning("Could not resolve workspace host for resource URLs")
+
+    links = _build_deployed_links(data, host)
+
+    # Get deployment timestamp from the file record
+    deployed_at = None
+    file_record = session.exec(
+        select(ProjectFile)
+        .where(ProjectFile.project_id == project_id)
+        .where(ProjectFile.relative_path == "instructions/resources.json")
+    ).first()
+    if file_record:
+        deployed_at = file_record.last_modified
+
+    return DeployedResourcesOut(resources=links, deployed_at=deployed_at)

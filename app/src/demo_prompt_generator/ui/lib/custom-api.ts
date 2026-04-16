@@ -93,6 +93,18 @@ export interface ProjectFileContent {
   last_modified: string;
 }
 
+export interface DeployedResourceLink {
+  resource_type: string;
+  label: string;
+  url: string | null;
+  resource_id: string | null;
+}
+
+export interface DeployedResources {
+  resources: DeployedResourceLink[];
+  deployed_at: string | null;
+}
+
 // Reasoning entry types for ordered thinking/tool display
 export interface ThinkingEntry {
   type: "thinking";
@@ -322,6 +334,15 @@ export async function getProjectFile(
 ): Promise<ProjectFileContent> {
   const resp = await fetch(apiUrl(`/api/projects/${projectId}/files/${filePath}`));
   if (!resp.ok) throw new Error(`Failed to get file: ${resp.status}`);
+  return resp.json();
+}
+
+export async function getDeployedResources(projectId: string): Promise<DeployedResources> {
+  const resp = await fetch(apiUrl(`/api/projects/${projectId}/deployed-resources`));
+  if (!resp.ok) {
+    if (resp.status === 404) return { resources: [], deployed_at: null };
+    throw new Error(`Failed to get deployed resources: ${resp.status}`);
+  }
   return resp.json();
 }
 

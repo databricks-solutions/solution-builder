@@ -2,7 +2,7 @@
 Constants for the template library feature.
 
 Industries are Databricks verticals.
-Capabilities are loaded from markdown files in blocks/capabilities/.
+Capabilities are loaded from markdown files in .claude/skills/databricks-demo-generator/references/blocks/capabilities/.
 """
 
 import logging
