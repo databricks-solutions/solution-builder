@@ -906,6 +906,7 @@ export interface Capability {
   id: string;
   name: string;
   category: string;
+  disabled?: boolean;
 }
 
 export async function getIndustries(): Promise<string[]> {
@@ -917,6 +918,32 @@ export async function getIndustries(): Promise<string[]> {
 export async function getCapabilities(): Promise<Capability[]> {
   const resp = await fetch(apiUrl("/api/constants/capabilities"));
   if (!resp.ok) throw new Error(`Failed to get capabilities: ${resp.status}`);
+  return resp.json();
+}
+
+export interface CapabilityInput {
+  id: string;
+  status: "selected" | "unselected" | null;
+  isDefault?: boolean;
+}
+
+export interface SuggestCapabilitiesResponse {
+  capabilities: string[];
+  reasoning?: string | null;
+}
+
+export async function suggestCapabilities(
+  prompt: string,
+  capabilities: CapabilityInput[],
+  signal?: AbortSignal
+): Promise<SuggestCapabilitiesResponse> {
+  const resp = await fetch(apiUrl("/api/capabilities/suggest"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ prompt, capabilities }),
+    signal,
+  });
+  if (!resp.ok) throw new Error(`Failed to suggest capabilities: ${resp.status}`);
   return resp.json();
 }
 

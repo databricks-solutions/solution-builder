@@ -11,8 +11,9 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { Capability } from "@/lib/api";
+import { Capability } from "@/lib/custom-api";
 import { useMemo } from "react";
+import { Loader2, Check, X } from "lucide-react";
 
 export interface ProductCategory {
   id: string;
@@ -70,6 +71,8 @@ interface ProductSelectorProps {
   selectedProducts: Set<string>;
   onToggleProduct: (productId: string) => void;
   expanded: boolean;
+  isLoading?: boolean;
+  explicitSelections?: Map<string, "selected" | "unselected">;
 }
 
 export function ProductSelector({
@@ -77,6 +80,8 @@ export function ProductSelector({
   selectedProducts,
   onToggleProduct,
   expanded,
+  isLoading = false,
+  explicitSelections = new Map(),
 }: ProductSelectorProps) {
   // Memoize the category transformation
   const categories = useMemo(
@@ -94,54 +99,87 @@ export function ProductSelector({
       >
         <div className="overflow-hidden">
           <div className="border-t border-border/50 pt-3">
-            <p className="text-xs text-muted-foreground mb-2.5">
-              Select capabilities to include in your demo:
-            </p>
-            <div className="flex gap-4 overflow-x-auto">
-              {categories.map((category) => (
-              <div key={category.id} className="shrink-0">
-                <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider mb-1.5">
-                  {category.name}
-                </p>
-                <div className="flex flex-col gap-1">
-                  {category.products.map((product) => {
-                    // Render separator as spacing
-                    if (product.id === "_separator") {
-                      return <div key={product.id} className="h-1.5" />;
-                    }
-                    const isSelected = selectedProducts.has(product.id);
-                    const isUnavailable = product.unavailable;
-                    return (
-                      <Tooltip key={product.id}>
-                        <TooltipTrigger asChild>
-                          <button
-                            type="button"
-                            onClick={() => !isUnavailable && onToggleProduct(product.id)}
-                            disabled={isUnavailable}
-                            className={cn(
-                              "px-2 py-0.5 text-xs rounded-md border transition-all text-left whitespace-nowrap",
-                              isUnavailable
-                                ? "bg-muted/30 border-border/30 text-muted-foreground/50 cursor-not-allowed"
-                                : "cursor-pointer",
-                              !isUnavailable && isSelected
-                                ? "bg-primary/10 border-primary/30 text-primary"
-                                : !isUnavailable && "bg-background/60 border-border/50 text-muted-foreground hover:border-primary/20 hover:text-foreground"
-                            )}
-                          >
-                            {product.name}
-                          </button>
-                        </TooltipTrigger>
-                        {product.description && (
-                          <TooltipContent>
-                            <p>{product.description}</p>
-                          </TooltipContent>
-                        )}
-                      </Tooltip>
-                    );
-                  })}
+            <div className="flex items-center justify-between mb-2.5">
+              <p className="text-xs text-muted-foreground">
+                Select capabilities to include in your demo:
+              </p>
+              {isLoading && (
+                <div className="flex items-center gap-2 text-xs text-muted-foreground/70">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  <span className="italic">AI is helping you pick the key Databricks capabilities...</span>
                 </div>
+              )}
+            </div>
+            <div className="relative">
+              <div className={cn(
+                "flex gap-4 overflow-x-auto transition-opacity duration-200",
+                isLoading && "opacity-50 pointer-events-none"
+              )}>
+                {categories.map((category) => (
+                <div key={category.id} className="shrink-0">
+                  <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider mb-1.5">
+                    {category.name}
+                  </p>
+                  <div className="flex flex-col gap-1">
+                    {category.products.map((product) => {
+                      // Render separator as spacing
+                      if (product.id === "_separator") {
+                        return <div key={product.id} className="h-1.5" />;
+                      }
+                      const isSelected = selectedProducts.has(product.id);
+                      const isUnavailable = product.unavailable || isLoading;
+                      const explicitStatus = explicitSelections.get(product.id);
+                      const isExplicitlySelected = explicitStatus === "selected";
+                      const isExplicitlyUnselected = explicitStatus === "unselected";
+
+                      return (
+                        <Tooltip key={product.id}>
+                          <TooltipTrigger asChild>
+                            <button
+                              type="button"
+                              onClick={() => !isUnavailable && onToggleProduct(product.id)}
+                              disabled={isUnavailable}
+                              className={cn(
+                                "px-2 py-0.5 text-xs rounded-md border transition-all text-left whitespace-nowrap flex items-center gap-1",
+                                isUnavailable
+                                  ? "bg-muted/30 border-border/30 text-muted-foreground/50 cursor-not-allowed"
+                                  : "cursor-pointer",
+                                // Selected states
+                                !isUnavailable && isSelected && isExplicitlySelected
+                                  ? "bg-primary/15 border-primary/40 text-primary font-medium"
+                                  : !isUnavailable && isSelected
+                                    ? "bg-primary/10 border-primary/30 text-primary"
+                                    : null,
+                                // Unselected states
+                                !isUnavailable && !isSelected && isExplicitlyUnselected
+                                  ? "bg-muted/40 border-border/60 text-muted-foreground/70"
+                                  : !isUnavailable && !isSelected
+                                    ? "bg-background/60 border-border/50 text-muted-foreground hover:border-primary/20 hover:text-foreground"
+                                    : null
+                              )}
+                            >
+                              {/* Show icon for explicit user selections */}
+                              {isExplicitlySelected && (
+                                <Check className="h-3 w-3 shrink-0" />
+                              )}
+                              {isExplicitlyUnselected && (
+                                <X className="h-3 w-3 shrink-0" />
+                              )}
+                              {product.name}
+                            </button>
+                          </TooltipTrigger>
+                          {product.description && (
+                            <TooltipContent>
+                              <p>{product.description}</p>
+                            </TooltipContent>
+                          )}
+                        </Tooltip>
+                      );
+                    })}
+                  </div>
+                </div>
+                ))}
               </div>
-              ))}
             </div>
           </div>
         </div>

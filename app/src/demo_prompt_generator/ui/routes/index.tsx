@@ -9,6 +9,12 @@ import { ProjectTile } from "@/components/project/project-tile";
 import { TemplateTile } from "@/components/template/template-tile";
 import { TemplateDetailPopup } from "@/components/template/template-detail-popup";
 import { ProductSelector } from "@/components/product-selector";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { assetUrl } from "@/lib/config";
 import {
   Sparkles,
@@ -24,10 +30,13 @@ import {
   createProject,
   searchTemplates,
   getConfigStatus,
+  getCapabilities,
+  suggestCapabilities,
   type ProjectListItem,
   type TemplateSearchResult,
+  type Capability,
+  type CapabilityInput,
 } from "@/lib/custom-api";
-import { getCapabilities, type Capability } from "@/lib/api";
 
 export const Route = createFileRoute("/")({
   component: Index,
@@ -77,6 +86,12 @@ function Index() {
   const navigate = useNavigate();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
+  // Track explicit user selections (manually toggled by clicking)
+  // null = not explicitly set (LLM decides), "selected" = user added, "unselected" = user removed
+  const [explicitSelections, setExplicitSelections] = useState<Map<string, "selected" | "unselected">>(new Map());
+  const [isSuggestingCapabilities, setIsSuggestingCapabilities] = useState(false);
+  const [capabilityReasoning, setCapabilityReasoning] = useState<string | null>(null);
+
   // Template search state
   const [matchingTemplates, setMatchingTemplates] = useState<TemplateSearchResult[]>([]);
   const [isSearchingTemplates, setIsSearchingTemplates] = useState(false);
@@ -92,15 +107,25 @@ function Index() {
     }
   }, []);
 
-  // Toggle product selection
+  // Toggle product selection and track explicit user choice
   const handleToggleProduct = useCallback((productId: string) => {
     setSelectedProducts((prev) => {
       const next = new Set(prev);
-      if (next.has(productId)) {
+      const isCurrentlySelected = next.has(productId);
+
+      if (isCurrentlySelected) {
         next.delete(productId);
       } else {
         next.add(productId);
       }
+
+      // Track this as an explicit user selection
+      setExplicitSelections((prevExplicit) => {
+        const nextExplicit = new Map(prevExplicit);
+        nextExplicit.set(productId, isCurrentlySelected ? "unselected" : "selected");
+        return nextExplicit;
+      });
+
       return next;
     });
   }, []);
@@ -113,7 +138,7 @@ function Index() {
       .finally(() => setIsLoadingProjects(false));
 
     getCapabilities()
-      .then((result) => setCapabilities(result.data))
+      .then(setCapabilities)
       .catch(() => {});
   }, []);
 
@@ -139,6 +164,94 @@ function Index() {
 
     return () => clearTimeout(timer);
   }, [topic]);
+
+  // Debounced capability suggestion (1000ms) - only triggered by topic changes, not by clicking
+  const lastTopicRef = useRef("");
+  const abortControllerRef = useRef<AbortController | null>(null);
+  useEffect(() => {
+    // Only trigger when topic actually changes (not when explicitSelections changes)
+    if (topic.trim() === lastTopicRef.current) {
+      return;
+    }
+    lastTopicRef.current = topic.trim();
+
+    // Cancel any pending request
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+
+    if (topic.trim().length < 3 || capabilities.length === 0) {
+      setIsSuggestingCapabilities(false);
+      return;
+    }
+
+    // Show spinner immediately when user starts typing
+    setIsSuggestingCapabilities(true);
+
+    // Debounce the actual API call by 1 second
+    const timer = setTimeout(async () => {
+      // Create new abort controller for this request
+      const abortController = new AbortController();
+      abortControllerRef.current = abortController;
+
+      try {
+        // Build capability inputs with explicit selection status and default flag
+        const capabilityInputs: CapabilityInput[] = capabilities.map((cap) => ({
+          id: cap.id,
+          status: explicitSelections.get(cap.id) ?? null,
+          isDefault: DEFAULT_SELECTED_PRODUCTS.includes(cap.id),
+        }));
+
+        const result = await suggestCapabilities(topic.trim(), capabilityInputs, abortController.signal);
+
+        // If aborted, don't update state
+        if (abortController.signal.aborted) return;
+
+        // Update selected products: keep explicit selections, apply LLM suggestions for the rest
+        setSelectedProducts(() => {
+          const next = new Set<string>();
+
+          // Add all LLM-suggested capabilities
+          for (const capId of result.capabilities) {
+            next.add(capId);
+          }
+
+          // Override with explicit user selections
+          for (const [capId, status] of explicitSelections) {
+            if (status === "selected") {
+              next.add(capId);
+            } else if (status === "unselected") {
+              next.delete(capId);
+            }
+          }
+
+          return next;
+        });
+
+        // Store the reasoning
+        setCapabilityReasoning(result.reasoning ?? null);
+      } catch (err) {
+        // Ignore abort errors
+        if (err instanceof Error && err.name === "AbortError") return;
+        console.error("Failed to suggest capabilities:", err);
+        setCapabilityReasoning(null);
+      } finally {
+        // Only clear loading if this request wasn't aborted
+        if (!abortController.signal.aborted) {
+          setIsSuggestingCapabilities(false);
+        }
+      }
+    }, 1000);
+
+    return () => {
+      clearTimeout(timer);
+      // Cancel pending request on cleanup
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
+  }, [topic, capabilities, explicitSelections]);
 
   // Create new project and navigate
   const handleCreateProject = async (e?: React.FormEvent) => {
@@ -250,13 +363,35 @@ function Index() {
                   capabilities={capabilities}
                   selectedProducts={selectedProducts}
                   onToggleProduct={handleToggleProduct}
-                  expanded={topic.length >= 3}
+                  expanded={topic.trim().length >= 3}
+                  isLoading={isSuggestingCapabilities}
+                  explicitSelections={explicitSelections}
                 />
                 <div className="flex items-center justify-between">
-                  {createError && (
-                    <p className="text-sm text-destructive">{createError}</p>
-                  )}
-                  <div className="ml-auto">
+                  <div className="flex items-center gap-2">
+                    {createError && (
+                      <p className="text-sm text-destructive">{createError}</p>
+                    )}
+                    {capabilityReasoning && topic.trim().length >= 3 && (
+                      <TooltipProvider delayDuration={100}>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button
+                              type="button"
+                              className="text-[11px] text-muted-foreground/60 hover:text-muted-foreground transition-colors flex items-center gap-1 group"
+                            >
+                              <span className="italic">View implementation flow</span>
+                              <span className="text-[10px] opacity-0 group-hover:opacity-100 transition-opacity">→</span>
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent side="top" align="start" className="max-w-md">
+                            <p className="text-xs leading-relaxed">{capabilityReasoning}</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    )}
+                  </div>
+                  <div>
                     <Button
                       type="submit"
                       disabled={isCreating || !topic.trim()}
