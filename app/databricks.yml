@@ -16,7 +16,6 @@ sync:
     - .build/app.yml
     - .build/*.whl
     - .build/requirements.txt
-    - ../collections/**
 
 artifacts:
   default:
