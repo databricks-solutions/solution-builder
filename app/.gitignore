@@ -31,8 +31,9 @@ node_modules/
 # mac
 .DS_Store
 
-# DABs 
+# DABs
 .databricks
+.build/
 
 # apx (legacy)
 .apx/

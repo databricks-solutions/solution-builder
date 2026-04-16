@@ -7,11 +7,12 @@ No thread wrapper - runs directly in FastAPI async context.
 from __future__ import annotations
 
 import asyncio
+import os
 import time
 from dataclasses import dataclass, field
 from typing import Any, AsyncIterator, Generator
 
-from ..core._config import logger
+from ..core._config import AppConfig, logger
 from .active_stream import ActiveStream
 from .skills_manager import get_project_directory, get_project_skills_list
 from .system_prompt import get_system_prompt, get_workspace_url
@@ -35,6 +36,50 @@ except ImportError:
 # Constants
 KEEPALIVE_INTERVAL = 15  # seconds between keepalive events
 CLIENT_IDLE_TIMEOUT = 300  # 5 minutes before disconnecting idle clients
+
+
+def _build_claude_env() -> dict[str, str]:
+    """Build environment variables for the Claude Code subprocess.
+
+    When running as a Databricks App (service principal), routes Claude Code
+    through the workspace's Foundation Model API (FMAPI) instead of calling
+    Anthropic directly. Locally, returns an empty dict so Claude Code uses
+    the inherited ANTHROPIC_API_KEY from the shell.
+    """
+    # Not a Databricks App — local dev, let Claude Code use inherited env
+    if not os.environ.get("DATABRICKS_CLIENT_ID"):
+        return {}
+
+    # Deployed as a Databricks App — route through FMAPI
+    from databricks.sdk import WorkspaceClient
+
+    ws = WorkspaceClient()
+    host = (ws.config.host or "").rstrip("/")
+    if not host:
+        logger.warning("DATABRICKS_HOST not set, Claude FMAPI routing disabled")
+        return {}
+
+    # Get an OAuth token from the service principal credentials
+    headers = ws.config.authenticate()
+    token = headers.get("Authorization", "").removeprefix("Bearer ").strip()
+    if not token:
+        logger.warning("Could not obtain Databricks token, Claude FMAPI routing disabled")
+        return {}
+
+    config = AppConfig()
+    anthropic_base_url = f"{host}/serving-endpoints/anthropic"
+
+    env = {
+        "ANTHROPIC_BASE_URL": anthropic_base_url,
+        "ANTHROPIC_API_KEY": token,
+        "ANTHROPIC_AUTH_TOKEN": token,
+        "ANTHROPIC_MODEL": config.llm_model,
+        "ANTHROPIC_CUSTOM_HEADERS": "x-databricks-use-coding-agent-mode: true",
+        "CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS": "1",
+    }
+
+    logger.info(f"Configured FMAPI routing: {anthropic_base_url} (model: {config.llm_model})")
+    return env
 
 
 # ---------------------------------------------------------------------------
@@ -223,6 +268,10 @@ async def stream_agent_response(
             # setting_sources=[] prevents inheriting MCP servers from user/project
             # settings files. Skills are still discovered from .claude/skills/ in the
             # project CWD. Building uses Databricks CLI via skills, not MCP.
+            #
+            # env routes Claude Code through Databricks FMAPI when deployed
+            # (empty dict locally — inherits ANTHROPIC_API_KEY from shell)
+            claude_env = _build_claude_env()
             options = ClaudeAgentOptions(
                 cwd=str(project_dir),
                 allowed_tools=allowed_tools,
@@ -231,6 +280,7 @@ async def stream_agent_response(
                 include_partial_messages=True,
                 setting_sources=[],
                 mcp_servers={},
+                env=claude_env,
             )
 
             # Resume previous session if provided
