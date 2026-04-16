@@ -70,6 +70,35 @@ class ProjectStage(str, Enum):
     BUNDLED = "BUNDLED"              # databricks.yml exists (DAB)
 
 
+def compute_project_stage(file_paths: list[str]) -> str:
+    """Derive the project stage from its file paths.
+
+    Checks from highest stage downward so the first match wins.
+    """
+    path_set = {p.lower() for p in file_paths}
+    names = {p.rsplit("/", 1)[-1] for p in path_set}
+
+    if "databricks.yml" in names:
+        return ProjectStage.BUNDLED.value
+
+    has_code = any(p.endswith(".py") or p.endswith(".sql") for p in path_set)
+    has_resources = "resources.json" in names
+    if has_code and has_resources:
+        return ProjectStage.BUILT.value
+
+    has_instructions = any(p.startswith("instructions/") and p.endswith(".md") for p in path_set)
+    if has_instructions:
+        return ProjectStage.SPECIFICATION.value
+
+    if "architecture.md" in names:
+        return ProjectStage.ARCHITECTED.value
+
+    if "readme.md" in names:
+        return ProjectStage.SUMMARIZED.value
+
+    return ProjectStage.DRAFTING.value
+
+
 class ExecutionStatus(str, Enum):
     RUNNING = "running"
     COMPLETED = "completed"

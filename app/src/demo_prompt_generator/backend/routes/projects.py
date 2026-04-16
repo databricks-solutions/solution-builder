@@ -26,6 +26,7 @@ from ..models import (
     ProjectStar,
     ProjectUpdateRequest,
     Template,
+    compute_project_stage,
 )
 from ..services.file_sync import FileSyncService
 from ..services.skills_manager import (
@@ -147,6 +148,17 @@ def list_projects(session: Dependencies.Session, headers: Dependencies.Headers):
         ).all()
         template_name_map = {t.id: t.name for t in templates}
 
+    # Batch-load file paths and counts for all projects in one query
+    project_ids = [p.id for p in projects]
+    files_by_project: dict[str, list[str]] = {pid: [] for pid in project_ids}
+    if project_ids:
+        rows = session.exec(
+            select(ProjectFile.project_id, ProjectFile.relative_path)
+            .where(ProjectFile.project_id.in_(project_ids))  # type: ignore[attr-defined]
+        ).all()
+        for pid, path in rows:
+            files_by_project[pid].append(path)
+
     result = []
     for p in projects:
         # Get message count
@@ -154,12 +166,13 @@ def list_projects(session: Dependencies.Session, headers: Dependencies.Headers):
             select(func.count()).select_from(Message).where(Message.project_id == p.id)
         ).one()
 
-        # Get file count
-        file_count = session.exec(
-            select(func.count())
-            .select_from(ProjectFile)
-            .where(ProjectFile.project_id == p.id)
-        ).one()
+        file_paths = files_by_project.get(p.id, [])
+        stage = compute_project_stage(file_paths)
+
+        # Persist stage if it changed
+        if stage != p.stage:
+            p.stage = stage
+            session.add(p)
 
         result.append(
             ProjectListItem(
@@ -167,11 +180,11 @@ def list_projects(session: Dependencies.Session, headers: Dependencies.Headers):
                 name=p.name,
                 description=p.description,
                 project_type=p.project_type,
-                stage=p.stage,
+                stage=stage,
                 created_at=p.created_at,
                 updated_at=p.updated_at,
                 message_count=msg_count,
-                file_count=file_count,
+                file_count=len(file_paths),
                 is_starred=p.id in starred_ids,
                 owner_email=p.user_email,
                 source_template_id=p.source_template_id,
@@ -179,6 +192,7 @@ def list_projects(session: Dependencies.Session, headers: Dependencies.Headers):
             )
         )
 
+    session.commit()
     return result
 
 
@@ -288,16 +302,23 @@ def get_project(
     file_sync.restore_project_from_db(project_id, session=session)
     ensure_project_skills(project_id)
 
-    # Get counts
+    # Get counts and recompute stage from files
     msg_count = session.exec(
         select(func.count()).select_from(Message).where(Message.project_id == project.id)
     ).one()
 
-    file_count = session.exec(
-        select(func.count())
-        .select_from(ProjectFile)
-        .where(ProjectFile.project_id == project.id)
-    ).one()
+    file_paths = [
+        row for row in session.exec(
+            select(ProjectFile.relative_path)
+            .where(ProjectFile.project_id == project.id)
+        ).all()
+    ]
+    file_count = len(file_paths)
+    stage = compute_project_stage(file_paths)
+    if stage != project.stage:
+        project.stage = stage
+        session.add(project)
+        session.commit()
 
     return ProjectOut(
         id=project.id,
@@ -305,7 +326,7 @@ def get_project(
         user_email=project.user_email,
         description=project.description,
         project_type=project.project_type,
-        stage=project.stage,
+        stage=stage,
         created_at=project.created_at,
         updated_at=project.updated_at,
         message_count=msg_count,
@@ -319,7 +340,6 @@ def get_project(
         source_template_id=project.source_template_id,
         source_template_name=_resolve_template_name(session, project.source_template_id),
     )
-
 
 @router.patch(
     "/projects/{project_id}",
@@ -503,11 +523,24 @@ def sync_project(
 ):
     """Trigger full bidirectional sync for a project."""
     user_email = _get_user_email(headers)
-    _get_user_project(session, project_id, user_email)
+    project = _get_user_project(session, project_id, user_email)
 
     file_sync: FileSyncService = request.app.state.file_sync
     # Pass session to avoid new connection
     stats = file_sync.full_sync_project(project_id, session=session)
+
+    # Recompute stage after sync
+    file_paths = [
+        row for row in session.exec(
+            select(ProjectFile.relative_path)
+            .where(ProjectFile.project_id == project.id)
+        ).all()
+    ]
+    stage = compute_project_stage(file_paths)
+    if stage != project.stage:
+        project.stage = stage
+        session.add(project)
+        session.commit()
 
     return stats
 
@@ -710,11 +743,13 @@ def list_shared_projects(session: Dependencies.Session, headers: Dependencies.He
             select(func.count()).select_from(Message).where(Message.project_id == project.id)
         ).one()
 
-        file_count = session.exec(
-            select(func.count())
-            .select_from(ProjectFile)
-            .where(ProjectFile.project_id == project.id)
-        ).one()
+        file_paths = [
+            row for row in session.exec(
+                select(ProjectFile.relative_path)
+                .where(ProjectFile.project_id == project.id)
+            ).all()
+        ]
+        stage = compute_project_stage(file_paths)
 
         result.append(
             ProjectListItem(
@@ -722,11 +757,11 @@ def list_shared_projects(session: Dependencies.Session, headers: Dependencies.He
                 name=project.name,
                 description=project.description,
                 project_type=project.project_type,
-                stage=project.stage,
+                stage=stage,
                 created_at=project.created_at,
                 updated_at=project.updated_at,
                 message_count=msg_count,
-                file_count=file_count,
+                file_count=len(file_paths),
                 is_starred=project.id in starred_ids,
                 shared_by=share.owner_email,
                 shared_message=share.message,

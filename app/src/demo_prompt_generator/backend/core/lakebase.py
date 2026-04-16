@@ -28,7 +28,16 @@ PGLITE_DIR = Path.home() / ".pglite"
 
 
 def _is_pglite_mode() -> bool:
-    """Check if we should use PGLite (no external DB URL configured)."""
+    """Check if we should use PGLite (local dev only, no external DB configured).
+
+    PGLite is used ONLY when there's no external database configured AND we're
+    not running as a Databricks App. In a Databricks App, the service principal
+    credentials (DATABRICKS_CLIENT_ID) are set by the runtime, and the Lakebase
+    database resource is accessed via the Databricks SDK.
+    """
+    # Databricks App runtime sets client credentials for the service principal
+    if os.environ.get("DATABRICKS_CLIENT_ID"):
+        return False
     return not os.environ.get("LAKEBASE_PG_URL")
 
 
@@ -129,7 +138,7 @@ class DatabaseConfig(BaseSettings):
     )
     instance_name: str = Field(
         description="The name of the database instance (override via DB_INSTANCE_NAME env var)",
-        default="demo-prompt-gen-db",
+        default="demo-prompt-gen-lakebase",
         validation_alias="DB_INSTANCE_NAME",
     )
 
@@ -201,6 +210,15 @@ def create_db_engine(db_config: DatabaseConfig, ws: WorkspaceClient) -> Engine:
         engine_kwargs = {"pool_size": 4, "pool_recycle": 45 * 60, "pool_pre_ping": True}
         engine_kwargs["connect_args"] = {"sslmode": "require"}
 
+    # In Lakebase, the SP's CAN_CONNECT_AND_CREATE permission does NOT
+    # grant CREATE on the public schema. The SP must use its own schema.
+    # We create the schema on first connect, then redirect all table ops there.
+    sp_schema = ws.config.client_id if not static_url else None
+    if sp_schema:
+        engine_kwargs.setdefault("execution_options", {})
+        engine_kwargs["execution_options"]["schema_translate_map"] = {None: sp_schema}
+        logger.info(f"Using Lakebase SP schema: {sp_schema}")
+
     engine = create_engine(engine_url, **engine_kwargs)
 
     def before_connect(dialect, conn_rec, cargs, cparams):
@@ -209,9 +227,20 @@ def create_db_engine(db_config: DatabaseConfig, ws: WorkspaceClient) -> Engine:
         )
         cparams["password"] = cred.token
 
+    def after_connect(dbapi_connection, connection_record):
+        """Create the SP schema if needed and set search_path for raw SQL."""
+        if sp_schema:
+            dbapi_connection.autocommit = True
+            cursor = dbapi_connection.cursor()
+            cursor.execute(f'CREATE SCHEMA IF NOT EXISTS "{sp_schema}"')
+            cursor.execute(f'SET search_path TO "{sp_schema}", public')
+            cursor.close()
+            dbapi_connection.autocommit = False
+
     # Only use dynamic token refresh for production Databricks Database
     if not static_url:
         event.listens_for(engine, "do_connect")(before_connect)
+        event.listen(engine, "connect", after_connect)
 
     return engine
 
@@ -256,6 +285,9 @@ def validate_db(engine: Engine, db_config: DatabaseConfig) -> None:
 def initialize_models(engine: Engine) -> None:
     """Create all SQLModel tables and add any missing columns.
 
+    Uses a PostgreSQL advisory lock to prevent race conditions when multiple
+    uvicorn workers start simultaneously.
+
     Set RESET_DB=1 environment variable to drop all tables and start fresh.
     For PGLite, this deletes the .pglite directory.
     For other databases, this drops all tables.
@@ -268,9 +300,8 @@ def initialize_models(engine: Engine) -> None:
         logger.info("All tables dropped. Recreating...")
 
     logger.info("Initializing database models")
-    SQLModel.metadata.create_all(engine)
 
-    # Migrations for the new project-based schema
+    # Idempotent migrations — safe for concurrent workers and repeat deploys
     _migrations = [
         # Projects table
         ("projects_table", """
@@ -431,24 +462,36 @@ def initialize_models(engine: Engine) -> None:
         ("projects_source_template_idx", "CREATE INDEX IF NOT EXISTS ix_projects_source_template ON projects (source_template_id)"),
     ]
 
-    with Session(engine) as session:
-        for migration_name, ddl in _migrations:
+    # Use a PostgreSQL advisory lock so only one worker initializes the schema.
+    # Both create_all() and migrations run inside the lock.
+    _MIGRATION_LOCK_ID = 8675309  # arbitrary fixed int
+    with engine.connect() as lock_conn:
+        lock_conn.execute(text(f"SELECT pg_advisory_lock({_MIGRATION_LOCK_ID})"))
+        try:
+            # create_all() with checkfirst=True skips existing tables
             try:
-                # Skip pgvector extension for PGLite (not supported)
-                if _is_pglite_mode() and "vector" in migration_name:
-                    logger.debug(f"Migration {migration_name} skipped (PGLite mode)")
-                    continue
-                # Skip vector column for PGLite
-                if _is_pglite_mode() and "embedding vector" in ddl:
-                    # Replace vector column with TEXT for PGLite
-                    ddl = ddl.replace("embedding vector(1024)", "embedding TEXT")
-
-                session.connection().execute(text(ddl))
-                session.commit()
-                logger.debug(f"Migration {migration_name} applied successfully")
+                SQLModel.metadata.create_all(engine)
+                logger.info("create_all completed successfully")
             except Exception as e:
-                session.rollback()
-                logger.debug(f"Migration {migration_name} skipped: {e}")
+                logger.warning(f"create_all failed: {e}", exc_info=True)
+
+            # Run idempotent migrations to fill in any schema gaps
+            with Session(engine) as session:
+                for migration_name, ddl in _migrations:
+                    try:
+                        if _is_pglite_mode() and "vector" in migration_name:
+                            continue
+                        if _is_pglite_mode() and "embedding vector" in ddl:
+                            ddl = ddl.replace("embedding vector(1024)", "embedding TEXT")
+
+                        session.connection().execute(text(ddl))
+                        session.commit()
+                    except Exception as e:
+                        session.rollback()
+                        logger.warning(f"Migration {migration_name} FAILED: {e}")
+        finally:
+            lock_conn.execute(text(f"SELECT pg_advisory_unlock({_MIGRATION_LOCK_ID})"))
+            lock_conn.commit()
 
     logger.info("Database models initialized successfully")
 

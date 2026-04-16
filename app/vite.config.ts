@@ -44,7 +44,7 @@ export default defineConfig(({ mode }) => {
       },
     },
     build: {
-      outDir: path.resolve(uiRoot, "__dist__"),
+      outDir: path.resolve(uiRoot, "..", "__dist__"),
       emptyOutDir: true,
     },
   };

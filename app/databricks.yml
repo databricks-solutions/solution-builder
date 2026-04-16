@@ -21,17 +21,17 @@ sync:
 
 artifacts:
   default:
-    build: bun run build && ./scripts/build.sh
+    build: ./scripts/build.sh
 
 resources:
   database_instances:
     demo-prompt-generator-db:
-      name: "demo-prompt-gen-db"
+      name: "demo-prompt-gen-lakebase"
       capacity: "CU_1"
 
   apps:
     demo-prompt-generator-app:
-      name: "demo-prompt-gen"
+      name: "demo-asset-builder"
       description: "Demo Prompt Generator — generates Databricks demo skill packages"
       source_code_path: ./.build
       resources:
@@ -49,14 +49,17 @@ resources:
           group_name: "users"
 
 # ---------------------------------------------------------------------------
-# Deploy to any workspace:
+# Deploy:
 #   1. databricks auth login --host <workspace-url> --profile <name>
 #   2. cd app && databricks bundle deploy -t dev --profile <name>
-#   3. databricks bundle run demo-prompt-generator-app -t dev --profile <name>
+#
+# The app uses Databricks Foundation Model API (FMAPI) to run Claude Code —
+# no Anthropic API key needed. The service principal authenticates via OAuth
+# and routes through /serving-endpoints/anthropic on the workspace.
 #
 # Prerequisites:
-#   - A serving endpoint matching the llm_endpoint variable (default: databricks-claude-sonnet-4)
-#   - Databricks CLI v0.239.0+ (for Apps resource support)
+#   - Databricks CLI v0.239.0+
+#   - A Foundation Model endpoint matching llm_endpoint (default: databricks-claude-sonnet-4-6)
 # ---------------------------------------------------------------------------
 targets:
   dev:
