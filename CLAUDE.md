@@ -34,7 +34,6 @@ industry-demo-prompts/
 │   └── .env.example              # Environment variable template
 ├── .claude/skills/databricks-demo-generator/
 │   └── references/blocks/        # Context blocks (domains, capabilities, patterns)
-├── collections/                  # Seed collection manifests (curated block groups + output DAGs)
 ├── tests/                        # Playwright E2E tests
 ├── playwright.config.ts          # Test config (targets localhost:9000)
 └── docs/                         # Screenshots for README
@@ -43,7 +42,6 @@ industry-demo-prompts/
 ## Key concepts
 
 - **Block**: A Markdown file with YAML frontmatter — a reusable chunk of domain/capability/pattern context. Stored in `.claude/skills/databricks-demo-generator/references/blocks/`.
-- **Collection**: A curated group of blocks + an output file dependency graph (DAG). Controls what gets generated and in what order.
 - **Project**: A user workspace containing generated files and a chat session with an AI agent for iterative refinement.
 - **Template**: A published project snapshot that can be forked by other users.
 

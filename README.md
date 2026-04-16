@@ -260,7 +260,6 @@ industry-demo-prompts/
 │       ├── capabilities/         #   27 Databricks feature blocks
 │       ├── domains/              #   4 industry verticals
 │       └── patterns/             #   5 analytical patterns
-├── collections/                  # Seed collection manifests (4 collections)
 ├── tests/                        # Playwright E2E tests
 ├── install_demo_generator_skill.sh  # Standalone skill installer
 └── playwright.config.ts          # Test config (targets localhost:9000)
@@ -287,21 +286,3 @@ Block content goes here — terminology, best practices, configuration guidance,
 
 Blocks on disk are automatically available to the agent's system prompt for all new projects.
 
-### Adding a collection
-
-Collections are seed manifests that define curated block combinations with output file dependency graphs. Create a `manifest.json` in `collections/<slug>/`:
-
-```json
-{
-  "name": "My Collection",
-  "slug": "my-collection",
-  "description": "What this collection builds",
-  "industry": "Retail & CPG",
-  "blocks": ["retail", "anomaly-detection", "sdp"],
-  "output_files": [
-    { "filename": "01-story-and-data.md", "purpose": "Narrative and schemas", "depends_on": [] },
-    { "filename": "02-pipeline.md", "purpose": "Data pipeline", "depends_on": ["01-story-and-data.md"] },
-    { "filename": "03-walkthrough.md", "purpose": "Demo script", "depends_on": ["*"] }
-  ]
-}
-```
