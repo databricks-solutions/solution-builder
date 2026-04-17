@@ -9,7 +9,7 @@ skill: databricks-app-python
 
 ## What It Does
 
-Databricks Apps deploy full-stack web applications (FastAPI backend + React frontend via apx, or Streamlit/Gradio) directly on the Databricks platform with built-in OAuth, SQL warehouse connectivity, and resource bindings. They provide custom UI experiences beyond what dashboards and Genie offer.
+Databricks Apps deploy full-stack web applications (FastAPI + React, Streamlit, or Gradio) directly on the Databricks platform with built-in OAuth, SQL warehouse connectivity, and resource bindings. They provide custom UI experiences beyond what dashboards and Genie offer.
 
 ## When to Use in a Demo
 
@@ -19,7 +19,7 @@ Databricks Apps deploy full-stack web applications (FastAPI backend + React fron
 
 ## Key Configuration Decisions
 
-1. **Framework choice:** Use `apx` (FastAPI + React) for full-stack apps with custom UI. Use Streamlit or Gradio for quick prototypes or data-science-focused audiences.
+1. **Framework choice:** Use FastAPI + React for full-stack apps with custom UI. Use Streamlit or Gradio for quick prototypes or data-science-focused audiences.
 2. **OAuth model:** Choose between app-level auth (service principal — app acts as itself) and user-level auth (passthrough — app acts as the logged-in user). User-level is more secure for demos with row-level access control.
 3. **Resource bindings:** Declare SQL warehouses, serving endpoints, Lakebase databases as app resources — never hardcode connection strings. The ai-dev-kit skill handles `app.yaml` configuration.
 4. **Backend routes:** Keep the API surface small — 3-5 endpoints for a demo.
@@ -45,7 +45,7 @@ Databricks Apps deploy full-stack web applications (FastAPI backend + React fron
 ```yaml
 databricks_app:
   name: "fraud-investigation-console"
-  framework: apx  # FastAPI + React
+  framework: fastapi-react
   auth: user_passthrough
   resources:
     - sql_warehouse: "fraud-demo-warehouse"

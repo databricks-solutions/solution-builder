@@ -88,12 +88,12 @@ def get_engine():
         print(f"Using static LAKEBASE_PG_URL")
         return create_engine(url, pool_size=4, pool_recycle=45 * 60, pool_pre_ping=True)
 
-    # Check for APX dev database
-    dev_port = os.environ.get("APX_DEV_DB_PORT") or os.environ.get("PGPORT")
+    # Check for local dev database (PGLite or manual)
+    dev_port = os.environ.get("PGPORT")
     if dev_port:
-        password = os.environ.get("APX_DEV_DB_PWD", "postgres")
+        password = os.environ.get("PGPASSWORD", "postgres")
         url = f"postgresql+psycopg://postgres:{password}@127.0.0.1:{dev_port}/postgres?sslmode=disable"
-        print(f"Using APX dev database at 127.0.0.1:{dev_port}")
+        print(f"Using local dev database at 127.0.0.1:{dev_port}")
         return create_engine(url, poolclass=NullPool)
 
     # Production: use Databricks Database
