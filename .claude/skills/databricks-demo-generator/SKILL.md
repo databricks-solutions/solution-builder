@@ -1,6 +1,6 @@
 ---
 name: databricks-demo-generator
-description: Generate comprehensive instruction files for building Databricks demos. Use when users want to create a new demo, design a demo story, or need help structuring demo components. This skill creates prompts that another agent will execute to build the actual demo.
+description: Generate comprehensive instruction files / specifications for building Databricks assets, demos or end 2 end projects. Use when users want to create a new demo, design a demo story, or need help structuring demo components, create an entire project. This skill creates prompts that another agent will execute to build the actual demo.
 ---
 
 # Databricks Demo Generator
@@ -39,11 +39,34 @@ Each demo project has this structure:
 ./README.md           # Story overview, products showcased, walkthrough
 ./architecture.md     # Architecture diagram schema (JSON) for visual rendering
 ./META-PROMPT.md      # Build instructions for the AI
+./resources.json      # Selected capabilities + created resource IDs
 ./instructions/       # Detailed specs (content varies based on demo components)
-  resources.json      # Tracks created Databricks resource IDs
 ```
 
 The `./instructions/` folder contains detailed specs for each component in the demo. The exact files depend on what the demo includes — there is no fixed list.
+
+### resources.json
+
+This file is the **source of truth** for what capabilities the demo includes. Create it at the start with the selected capabilities, then update it during build with created resource IDs.
+
+**Structure:**
+```json
+{
+  "capabilities": {
+    "buildable": ["sdp", "ai-bi-dashboards", "genie", "knowledge-assistant", "supervisor-agent"],
+    "talking_track": ["lakeflow-connect", "unity-catalog", "databricks-one", "genie-code"]
+  },
+  "created_resources": {}
+}
+```
+
+- **buildable**: Capabilities that require actual Databricks resources (pipelines, dashboards, agents, etc.)
+- **talking_track**: Capabilities mentioned in the demo narrative but don't require resource creation
+- **created_resources**: Filled during build phase with resource IDs (dashboard IDs, pipeline IDs, etc.)
+
+**Capability IDs** come from `{SKILL_BASE_DIR}/references/platform_architecture.md` which lists all available capabilities with their IDs, descriptions, and whether they're buildable.
+
+When the user provides exact capabilities (e.g., `We want the exact capabilities: sdp, genie, databricks-apps`), use those directly — don't override with pattern suggestions.
 
 ### Architecture Diagram
 
@@ -219,15 +242,26 @@ Default: ai_demo_gen.{schema_name}
 Ok, or specify different location?
 ```
 
-### Phase 4: Generate README.md
+### Phase 4: Generate README.md and resources.json
 
 **Browse the reference examples** in `{SKILL_BASE_DIR}/references/` to understand the structure and detail level expected. Pick the example closest to your demo's pattern.
 
-Generate `./README.md` with:
+**First, create `./resources.json`** with the selected capabilities:
+```json
+{
+  "capabilities": {
+    "buildable": ["sdp", "ai-bi-dashboards", "genie", ...],
+    "talking_track": ["lakeflow-connect", "unity-catalog", "databricks-one", "genie-code"]
+  },
+  "created_resources": {}
+}
+```
+
+**Then generate `./README.md`** with:
 - **The Story** — Summary table (company, protagonist, problem, journey, resolution, impact)
 - **Overview** — Short paragraph explaining the demo flow
 - **Key Numbers** — Table of metrics (relevant baselines and values)
-- **Products Showcased** — Table: product name + what it does in this demo
+- **Products Showcased** — Table: product name + what it does in this demo (must match capabilities in resources.json)
 - **Demo Walkthrough** — Concise bullet points for each phase of the demo (not long scripts)
 
 Keep it scannable. The walkthrough should be bullet points a presenter can glance at, not a script to read verbatim.
@@ -359,12 +393,14 @@ Each skill uses the **Databricks CLI** (`databricks` commands via Bash) and **Py
 
 ### Starting the Build
 
-Read `META-PROMPT.md` for the build order and follow it step by step. For each step:
+**First, read `resources.json`** to see which capabilities need to be built (the `buildable` list). Then read `META-PROMPT.md` for the build order.
+
+For each buildable capability:
 1. Load the relevant skill from the table above
 2. Read the corresponding instruction file
 3. Follow the skill's guidance to create the resource
 4. Validate the result per the instruction file's criteria
-5. Update `resources.json` with the created resource ID
+5. Update `resources.json` `created_resources` with the resource ID
 
 ### Critical: Keep Instructions in Sync
 

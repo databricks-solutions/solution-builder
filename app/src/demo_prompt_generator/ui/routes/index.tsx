@@ -266,20 +266,11 @@ function Index() {
       const project = await createProject(description);
 
       // Build the initial prompt message with full user description
-      const selectedProductNames = capabilities
-        .filter(cap => selectedProducts.has(cap.id))
-        .map(cap => cap.name);
-
-      const unselectedProductNames = capabilities
-        .filter(cap => !selectedProducts.has(cap.id))
-        .map(cap => cap.name);
+      const selectedCapabilityIds = Array.from(selectedProducts);
 
       let initialPrompt = `Help me build a databricks demo.\n\nDemo description:\n${fullTopic}`;
-      if (selectedProductNames.length > 0) {
-        initialPrompt += `\n\nCapabilities to showcase: ${selectedProductNames.join(", ")}`;
-        if (unselectedProductNames.length > 0) {
-          initialPrompt += `\n\nOnly include the capabilities listed above in the demo. Do NOT include: ${unselectedProductNames.join(", ")}`;
-        }
+      if (selectedCapabilityIds.length > 0) {
+        initialPrompt += `\n\nWe want the exact capabilities: ${selectedCapabilityIds.join(", ")}`;
       }
       initialPrompt += `\n\nSkip template search and skip the ideation/confirmation steps. Based on the description above, go ahead and design the story (hero, disruption, quest, resolution), then write the full README.md immediately. Don't ask me to confirm the direction first — just write the best version you can and I'll iterate from there. Stop after writing README.md so I can review.`;
 

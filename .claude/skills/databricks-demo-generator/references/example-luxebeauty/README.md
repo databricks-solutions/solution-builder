@@ -48,6 +48,8 @@ The platform traces it through structured data (returns → products → lot) an
 | **Knowledge Assistant** | Finds the incident report explaining the homogenizer issue |
 | **Multi-Agent Supervisor** | Routes Claire's questions to the right tool (Genie for data, KA for docs) |
 | **Unity Catalog** | Governance across everything — same permissions from raw data to AI |
+| **Databricks One** | Claire's single place to talk to her data — dashboards, Genie, and apps unified |
+| **Genie Code** | AI assistant that helped Claire build her dashboard and refine queries |
 
 ---
 
@@ -90,9 +92,10 @@ The platform traces it through structured data (returns → products → lot) an
 
 Zoom out — what made this possible:
 
+- **Databricks One** — Claire's single place to talk to her data
 - **Lakeflow Connect** — data ingestion in clicks
 - **SDP** — pipelines by describing what you need
-- **Dashboard** — built by Claire, no BI team
+- **Dashboard** — built by Claire with **Genie Code** assistance, no BI team needed
 - **Genie** — analytics for business users
 - **KA** — connects data (WHAT) to documents (WHY)
 - **Unity Catalog** — governance across everything
