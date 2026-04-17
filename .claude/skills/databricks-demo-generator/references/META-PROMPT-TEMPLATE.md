@@ -8,37 +8,31 @@ Use this prompt to start a new session and implement the demo.
 
 I have a set of instruction files in the `instructions/` folder that describe a demo I want to build on Databricks.
 
-**Phase 1 - Understand**: Read all instruction files to understand the full demo scope, story, and technical requirements.
+**Phase 1 - Understand**: Read `README.md` and `resources.json` to understand the demo story, scope, and infrastructure. Then read all instruction files (numbered `*.md` in `instructions/`).
 
-**Phase 2 - Plan**: Create a task list based on the build order below. Each task should be a concrete implementation step. For each task, identify which skill to use (check `/skills` for available skills).
+**Phase 2 - Plan**: Create a task list based on instruction file order. Each task should be a concrete implementation step. For each task, identify which skill to use (check `/skills` for available skills).
 
 **Phase 3 - Implement**: Work through the task list one by one:
-- **IMPORTANT - Use ai-dev-kit skills**: Before each task, load the relevant ai-dev-kit skill (e.g., `databricks-synthetic-data-gen`, `databricks-spark-declarative-pipelines`, `databricks-aibi-dashboards`, `databricks-agent-bricks`). Skills use the **Databricks CLI** and **Python SDK** — do NOT use MCP tools.
-- **IMPORTANT - Write all files to the project folder first** (Python scripts, SQL files, configs). This keeps everything tracked, backed up, and exportable.
+- **Check skills first**: Before starting each task, list your available skills and check if any are relevant (e.g., data generation, pipelines, dashboards, Genie, agents). If a relevant skill exists, read it first for patterns and best practices.
+- **Write all files to the project folder first** (Python scripts, SQL files, configs). This keeps everything tracked, backed up, and exportable.
 - Upload to Databricks (volumes for data, workspace for code)
-- Create Databricks resources via CLI/SDK (not MCP, not DAB)
+- Create Databricks resources via APIs (not DAB)
 - Validate after each step that creates data or tables
 - If validation fails, fix the issue before moving to the next task
 
-**Phase 4 - Test End-to-End**: Test the full demo flow as described in the walkthrough. Verify all components interact correctly. Fix any issues.
+**Phase 4 - Test End-to-End**: Test the full demo flow as described in the README walkthrough. Verify all components interact correctly.
 
-**Before starting**: Run the pre-flight check to ensure required infrastructure exists. Ask me if any resources already contain data.
+**Before starting**: Run the pre-flight check. Ask me if any resources already contain data.
 
 ---
 
 ## Databricks Infrastructure
 
-### Resource Names
-
-| Resource | Name |
-|----------|------|
-| **Catalog** | `{CATALOG}` |
-| **Schema** | `{SCHEMA}` |
-| **Workspace Folder** | `/Workspace/Users/{user}/ai_demos/{DEMO_NAME}/` |
+All project-specific names (catalog, schema, workspace folder) are in `resources.json` at the project root.
 
 Derived paths:
-- **Raw Data Volume**: `/Volumes/{CATALOG}/{SCHEMA}/raw_data/`
-- **Documents Volume**: `/Volumes/{CATALOG}/{SCHEMA}/raw_data/documents/` (if demo includes documents)
+- **Raw Data Volume**: `/Volumes/{catalog}/{schema}/raw_data/`
+- **Documents Volume**: `/Volumes/{catalog}/{schema}/raw_data/{doc_folder}/` (if demo includes documents)
 
 ### Pre-flight Check
 
@@ -57,16 +51,16 @@ Before starting, verify:
 
 ## Local Project Structure
 
-**Write all files to this project folder** (the folder containing this META-PROMPT.md). This structure is automatically tracked and backed up:
+**Write all files to this project folder** (the folder containing this META-PROMPT.md):
 
 ```
 ./                                    # Project root (this folder)
 ├── README.md                         # Demo story and walkthrough
 ├── architecture.md                   # Architecture diagram schema (JSON)
 ├── META-PROMPT.md                    # This file - build instructions
+├── resources.json                    # Capabilities + created resource IDs
 ├── instructions/                     # Detailed specs for each component
-│   ├── resources.json                # Tracks created Databricks resource IDs
-│   └── *.md                          # Component-specific instructions
+│   └── NN-*.md                       # Numbered instruction files
 ├── src/                              # Implementation files
 │   ├── data_generation/              # Data generation scripts
 │   ├── documents/                    # Document generation scripts (if applicable)
@@ -76,37 +70,32 @@ Before starting, verify:
 
 **Workflow**: Write code to project folder → Upload to Databricks → Create resources via APIs → Validate.
 
+Files written here are:
+1. **Tracked** - Automatically synced to the database as you write them
+2. **Versioned** - Changes are preserved, enabling iteration
+3. **Exportable** - Download as ZIP, create a DAB bundle, or push to git
+
 ---
 
 ## Build Order
 
-Follow the sequence defined by the numbered instruction files in `./instructions/`. Each file specifies what to build and how to validate it.
+Follow the numbered instruction files in `./instructions/`. Each file specifies what to build and how to validate it.
 
 General ordering principle: **data first, then transformations, then consumption layers** (dashboards, Genie, AI components).
+
+**Not all demos have all components.** Only build what's in the instruction files.
 
 ---
 
 ## Resource Tracking
 
-**IMPORTANT**: Maintain a `resources.json` file in the instructions folder to track all created Databricks resources.
-
-Create this file at the start of Phase 3 and update it after each resource is created:
-
-```json
-{
-  "catalog": "{CATALOG}",
-  "schema": "{SCHEMA}",
-  "volume_path": "/Volumes/{CATALOG}/{SCHEMA}/raw_data"
-}
-```
-
-Add resource IDs as you create them (e.g., `"pipeline_id"`, `"dashboard_id"`, `"genie_space_id"`, etc.).
+Update `resources.json` after each resource is created. Add resource IDs to the `created_resources` object (e.g., `"pipeline_id"`, `"dashboard_id"`, `"genie_space_id"`, etc.).
 
 ---
 
 ## Validation After Each Step
 
-After each step that creates tables or data, validate before moving to the next. Each instruction file specifies its own validation criteria. General checks:
+After each step that creates tables or data, validate before moving to the next. **Each instruction file has its own validation section** — follow those specific checks.
 
 | After Step | What to Check |
 |------------|---------------|
@@ -132,4 +121,4 @@ After each step that creates tables or data, validate before moving to the next.
 
 ## Begin
 
-Start with Phase 1 — read all the instruction files to understand the full demo scope.
+Start with Phase 1 - read `README.md`, `resources.json`, and all instruction files.

@@ -223,18 +223,16 @@ trap cleanup SIGINT SIGTERM
 # Start servers
 # ============================================================================
 
-# Start backend (uvicorn with reload) - prefix output with [BACKEND]
-echo -e "${GREEN}Starting backend on http://127.0.0.1:8000${NC}"
-(uv run uvicorn demo_prompt_generator.backend.app:app --host 127.0.0.1 --port 8000 --reload --reload-exclude 'projects' --reload-exclude '.pglite' --reload-exclude 'ai_dev_kit' 2>&1 | sed "s/^/[${BLUE}BACKEND${NC}] /") &
-BACKEND_PID=$!
-
-# Give backend a moment to start
-sleep 2
-
-# Start frontend (vite dev server) - prefix output with [FRONTEND]
+# Start frontend first (it's faster)
 echo -e "${GREEN}Starting frontend on http://localhost:5173${NC}"
-(bun run --cwd "$APP_DIR" vite --config vite.config.ts 2>&1 | sed "s/^/[${CYAN}FRONTEND${NC}] /") &
+(bun run --cwd "$APP_DIR" vite --config vite.config.ts 2>&1 | while IFS= read -r line; do echo -e "[$(date +%H:%M:%S)] [${CYAN}FRONTEND${NC}] $line"; done) &
 FRONTEND_PID=$!
+
+# Start backend (uvicorn with reload) - prefix output with [BACKEND]
+# Use --reload-dir to only watch src/ (much faster than excluding everything else)
+echo -e "${GREEN}Starting backend on http://127.0.0.1:8000${NC}"
+(.venv/bin/python -u -m uvicorn demo_prompt_generator.backend.app:app --host 127.0.0.1 --port 8000 --reload --reload-dir src 2>&1 | while IFS= read -r line; do echo -e "[$(date +%H:%M:%S)] [${BLUE}BACKEND${NC}] $line"; done) &
+BACKEND_PID=$!
 
 echo ""
 echo -e "${BLUE}════════════════════════════════════════════════════════════════${NC}"

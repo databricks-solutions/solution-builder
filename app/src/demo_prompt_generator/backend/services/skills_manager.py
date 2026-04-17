@@ -319,13 +319,13 @@ def get_project_directory(project_id: str) -> Path:
     return Path(PROJECTS_BASE_DIR).resolve() / project_id
 
 
-def create_project_directory(project_id: str, initial_readme: str = "") -> Path:
+def create_project_directory(project_id: str, initial_readme: str | None = None) -> Path:
     """
     Create a new project directory with initial structure.
 
     Args:
         project_id: Project UUID
-        initial_readme: Initial content for README.md
+        initial_readme: Optional initial content for README.md (None = no README created)
 
     Returns:
         Path to the created project directory
@@ -333,10 +333,10 @@ def create_project_directory(project_id: str, initial_readme: str = "") -> Path:
     project_dir = Path(PROJECTS_BASE_DIR) / project_id
     project_dir.mkdir(parents=True, exist_ok=True)
 
-    # Create initial README.md
-    readme_content = initial_readme or f"# Project {project_id}\n\nThis is a new Databricks Asset Generator project.\n"
-    readme_path = project_dir / "README.md"
-    readme_path.write_text(readme_content)
+    # Create initial README.md only if content is provided
+    if initial_readme is not None:
+        readme_path = project_dir / "README.md"
+        readme_path.write_text(initial_readme)
 
     # Create .claude/settings.json that disables MCP inheritance
     # Building uses ai-dev-kit CLI skills, not MCP tools

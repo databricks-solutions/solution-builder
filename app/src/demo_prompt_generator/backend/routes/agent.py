@@ -25,6 +25,7 @@ from ..models import (
     Message,
     Project,
     User,
+    compress_reasoning,
     generate_uuid,
     utc_now,
 )
@@ -143,7 +144,9 @@ async def invoke_agent(
             if full_response:
                 from sqlmodel import Session as SQLSession
                 with SQLSession(engine) as db:
-                    reasoning_data = {"reasoning": reasoning} if reasoning else None
+                    # Compress reasoning data to save space (can be large with tool inputs/outputs)
+                    raw_reasoning = {"reasoning": reasoning} if reasoning else None
+                    reasoning_data = compress_reasoning(raw_reasoning)
                     assistant_msg = Message(
                         project_id=body.project_id,
                         role="assistant",

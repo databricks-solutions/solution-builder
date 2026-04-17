@@ -111,13 +111,13 @@ def _build_skills_section(skills: list[dict] | None) -> str | None:
         return None
 
     parts = ["## Available Skills\n"]
-    parts.append("Skills are located in `.claude/skills/`. Read the `SKILL.md` file in each skill folder for usage instructions.\n")
+    parts.append("Skills are located in `./.claude/skills/` (relative to the project directory). Read the `SKILL.md` file in each skill folder for usage instructions.\n")
 
     for skill in skills:
         name = skill.get("name", "unknown")
         dir_name = skill.get("dir_name", name)
         description = skill.get("description", "No description")
-        parts.append(f"- **{name}** (`.claude/skills/{dir_name}/`): {description}")
+        parts.append(f"- **{name}** (`./.claude/skills/{dir_name}/`): {description}")
 
     return "\n".join(parts)
 
@@ -130,7 +130,9 @@ _HEADER = """# Databricks Demo Generator
 
 You help Databricks Solution Architects create compelling, working demos.
 
-**ALWAYS start by reading `.claude/skills/databricks-demo-generator/SKILL.md`** - whether creating a new demo or continuing an existing one. The skill contains the complete workflow.
+**IMPORTANT: Your working directory is the project folder.** All paths are relative to this project directory, NOT your home directory or any other location.
+
+**ALWAYS start by reading `./` `.claude/skills/databricks-demo-generator/SKILL.md`** (in the current project directory) - whether creating a new demo or continuing an existing one. The skill contains the complete workflow.
 
 ## Project Structure
 
@@ -142,19 +144,19 @@ Each demo project has:
 
 ## Workflow
 
-1. **Read the skill file first**: `.claude/skills/databricks-demo-generator/SKILL.md`
+1. **Read the skill file first**: `./.claude/skills/databricks-demo-generator/SKILL.md` (use this exact relative path from the project directory)
 2. **Check existing state**:
    - If `./instructions/` exists → read the files to understand the demo design
    - If `resources.json` exists → read it to see what's already built
-3. **Browse context blocks** in `.claude/skills/databricks-demo-generator/references/blocks/` — capabilities (products), domains (industry context), and patterns (story structures). Read any that are relevant to this demo.
+3. **Browse context blocks** in `./.claude/skills/databricks-demo-generator/references/blocks/` — capabilities (products), domains (industry context), and patterns (story structures). Read any that are relevant to this demo.
 4. **Follow the skill's guidance** for creating or modifying the demo"""
 
 
 _GUIDELINES = """## Guidelines
 
-- **Always read the skill file first** - even for modifications or questions about an existing demo
+- **Always read the skill file first** - even for modifications or questions about an existing demo. Use `./.claude/skills/databricks-demo-generator/SKILL.md` (relative to project directory).
 - **README.md is mandatory** - You MUST write a complete `./README.md` with the story overview (hero, disruption, quest, resolution, products showcased, walkthrough). The placeholder content is not acceptable as a final state. Write the README before generating detailed instruction files.
-- **Build with CLI skills, not MCP** - When building Databricks resources, read the relevant ai-dev-kit skill first from `.claude/skills/` (e.g., `databricks-spark-declarative-pipelines` for pipelines, `databricks-aibi-dashboards` for dashboards, `databricks-agent-bricks` for KA/MAS). These skills use the Databricks CLI and Python SDK.
+- **Build with CLI skills, not MCP** - When building Databricks resources, read the relevant ai-dev-kit skill first from `./.claude/skills/` (e.g., `databricks-spark-declarative-pipelines` for pipelines, `databricks-aibi-dashboards` for dashboards, `databricks-agent-bricks` for KA/MAS). These skills use the Databricks CLI and Python SDK.
 - **Keep instructions in sync** - if you change something, update the instruction file too
 - **Track all resources** - update `resources.json` after creating any Databricks resource
 - **Provide workspace links** - after creating resources, give clickable links"""

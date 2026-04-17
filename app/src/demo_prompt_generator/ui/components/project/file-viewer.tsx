@@ -548,6 +548,12 @@ export const FileViewer = memo(function FileViewer({
   const [activeTab, setActiveTab] = useState<ViewTab>("readme");
   const [showRaw, setShowRaw] = useState(false);
 
+  // Check if README.md exists
+  const hasReadme = useMemo(
+    () => files.some((f) => f.path === "README.md"),
+    [files]
+  );
+
   // Check if architecture.md exists
   const hasArchitecture = useMemo(
     () => files.some((f) => f.path === "architecture.md"),
@@ -699,6 +705,16 @@ export const FileViewer = memo(function FileViewer({
                 <Network className="h-12 w-12 mx-auto mb-3 opacity-50" />
                 <p className="text-sm">No architecture diagram yet</p>
                 <p className="text-xs mt-1">Generating automatically...</p>
+              </div>
+            </div>
+          ) : activeTab === "readme" && !hasReadme ? (
+            <div className="flex-1 flex items-center justify-center">
+              <div className="text-center text-muted-foreground max-w-md px-4">
+                <div className="animate-spin h-8 w-8 border-2 border-primary border-t-transparent rounded-full mx-auto mb-4" />
+                <p className="text-sm font-medium">The assistant is working on your demo specification...</p>
+                <p className="text-xs mt-2 text-muted-foreground/80">
+                  Please follow along in the chat panel and answer any questions the assistant may have.
+                </p>
               </div>
             </div>
           ) : isLoading ? (

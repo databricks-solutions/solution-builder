@@ -10,6 +10,7 @@ import asyncio
 import os
 import time
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Any, AsyncIterator, Generator
 
 from ..core._config import AppConfig, logger
@@ -389,9 +390,12 @@ def _convert_sdk_message(msg: Any) -> Generator[dict, None, None]:
                     "tool_id": block.id,
                     "tool_name": block.name,
                     "tool_input": block.input,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
                 }
             elif isinstance(block, ToolResultBlock):
-                yield _process_tool_result(block)
+                result = _process_tool_result(block)
+                result["timestamp"] = datetime.now(timezone.utc).isoformat()
+                yield result
 
     elif isinstance(msg, ResultMessage):
         yield {
@@ -488,8 +492,8 @@ def collect_reasoning(events: list[dict]) -> list[dict]:
 
     Returns list of entries preserving the exact order they occurred:
     - {"type": "thinking", "content": "..."}
-    - {"type": "tool", "id": "...", "name": "...", "input": {...}}
-    - {"type": "tool_result", "tool_id": "...", "content": "...", "is_error": bool}
+    - {"type": "tool", "id": "...", "name": "...", "input": {...}, "started_at": "..."}
+    - {"type": "tool_result", "tool_id": "...", "content": "...", "is_error": bool, "completed_at": "..."}
     """
     reasoning = []
     current_thinking = []
@@ -513,20 +517,26 @@ def collect_reasoning(events: list[dict]) -> list[dict]:
                     reasoning.append({"type": "thinking", "content": thinking_text})
                 current_thinking = []
 
-            reasoning.append({
+            entry = {
                 "type": "tool",
                 "id": event.get("tool_id"),
                 "name": event.get("tool_name"),
                 "input": event.get("tool_input"),
-            })
+            }
+            if event.get("timestamp"):
+                entry["started_at"] = event["timestamp"]
+            reasoning.append(entry)
 
         elif event_type == "tool_result":
-            reasoning.append({
+            entry = {
                 "type": "tool_result",
                 "tool_id": event.get("tool_use_id"),
                 "content": event.get("content", ""),
                 "is_error": event.get("is_error", False),
-            })
+            }
+            if event.get("timestamp"):
+                entry["completed_at"] = event["timestamp"]
+            reasoning.append(entry)
 
     if current_thinking:
         thinking_text = "".join(current_thinking)

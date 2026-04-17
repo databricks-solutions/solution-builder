@@ -12,8 +12,8 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { Capability } from "@/lib/custom-api";
-import { useMemo } from "react";
-import { Loader2, Check, X } from "lucide-react";
+import { useMemo, useState } from "react";
+import { Loader2, Check, X, Plus, Minus } from "lucide-react";
 
 export interface ProductCategory {
   id: string;
@@ -31,11 +31,55 @@ export interface Product {
 // Category order for sorting
 const CATEGORY_ORDER = ["Lakeflow", "AI/BI", "Agent Bricks", "UC Governance", "Apps & Infra"];
 
+// Capability order within categories (hardcoded for now — upgrade to backend config if needed)
+// Lower numbers = higher priority (shown first). Capabilities not listed default to 50.
+const CAPABILITY_ORDER: Record<string, number> = {
+  // UC Governance: Unity Catalog first
+  "unity-catalog": 1,
+  "data-quality": 10,
+  "abac": 20,
+  "data-classification": 30,
+  // Agent Bricks: ML + MLflow and Model Serving last
+  "knowledge-assistant": 10,
+  "supervisor-agent": 20,
+  "information-extraction": 30,
+  "vector-search": 40,
+  "ai-gateway": 50,
+  "model-training-mlflow": 90,
+  "model-serving": 91,
+};
+
+// Capabilities hidden by default (less commonly used)
+const HIDDEN_CAPABILITY_IDS = [
+  "synthetic-data-gen",
+  "ai-gateway",
+  "marketplace",
+  "ai-functions",
+  "notebooks-eda",
+  "vector-search",
+  "zerobus-ingest",
+  "lakeflow-connect",
+  "delta-sharing",
+  "genie-code",
+  "databricks-one",
+];
+
+// Check if a capability should be hidden
+function isHiddenCapability(cap: Capability): boolean {
+  // Hide if in the static list or if disabled/unavailable
+  return HIDDEN_CAPABILITY_IDS.includes(cap.id) || cap.disabled === true;
+}
+
 // Convert API capabilities to ProductCategory structure
-function capabilitiesToCategories(capabilities: Capability[]): ProductCategory[] {
+function capabilitiesToCategories(capabilities: Capability[], showHidden: boolean): ProductCategory[] {
   const categoryMap = new Map<string, Product[]>();
 
   for (const cap of capabilities) {
+    // Skip hidden capabilities unless showHidden is true
+    if (!showHidden && isHiddenCapability(cap)) {
+      continue;
+    }
+
     if (!categoryMap.has(cap.category)) {
       categoryMap.set(cap.category, []);
     }
@@ -49,6 +93,14 @@ function capabilitiesToCategories(capabilities: Capability[]): ProductCategory[]
   // Convert to array and sort by category order
   const categories: ProductCategory[] = [];
   for (const [categoryName, products] of categoryMap.entries()) {
+    // Skip empty categories
+    if (products.length === 0) continue;
+    // Sort products within category by CAPABILITY_ORDER (lower = first, default = 50)
+    products.sort((a, b) => {
+      const aOrder = CAPABILITY_ORDER[a.id] ?? 50;
+      const bOrder = CAPABILITY_ORDER[b.id] ?? 50;
+      return aOrder - bOrder;
+    });
     categories.push({
       id: categoryName.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
       name: categoryName,
@@ -83,10 +135,18 @@ export function ProductSelector({
   isLoading = false,
   explicitSelections = new Map(),
 }: ProductSelectorProps) {
+  const [showHidden, setShowHidden] = useState(false);
+
+  // Count hidden capabilities dynamically
+  const hiddenCount = useMemo(
+    () => capabilities.filter(isHiddenCapability).length,
+    [capabilities]
+  );
+
   // Memoize the category transformation
   const categories = useMemo(
-    () => capabilitiesToCategories(capabilities),
-    [capabilities]
+    () => capabilitiesToCategories(capabilities, showHidden),
+    [capabilities, showHidden]
   );
 
   return (
@@ -99,10 +159,36 @@ export function ProductSelector({
       >
         <div className="overflow-hidden">
           <div className="border-t border-border/50 pt-3">
-            <div className="flex items-center justify-between mb-2.5">
-              <p className="text-xs text-muted-foreground">
-                Select capabilities to include in your demo:
-              </p>
+            <div className="flex items-center justify-center mb-2.5">
+              <div className="flex items-center gap-2">
+                <p className="text-xs text-muted-foreground">
+                  Select capabilities to include in your demo:
+                </p>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={() => setShowHidden(!showHidden)}
+                      className={cn(
+                        "flex items-center gap-0.5 px-1.5 py-0.5 text-[10px] rounded border transition-all cursor-pointer",
+                        showHidden
+                          ? "bg-primary/10 border-primary/30 text-primary"
+                          : "bg-muted/30 border-border/50 text-muted-foreground hover:border-primary/20 hover:text-foreground"
+                      )}
+                    >
+                      {showHidden ? (
+                        <Minus className="h-3 w-3" />
+                      ) : (
+                        <Plus className="h-3 w-3" />
+                      )}
+                      <span>{hiddenCount}</span>
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>{showHidden ? "Hide" : "Show"} {hiddenCount} advanced capabilities</p>
+                  </TooltipContent>
+                </Tooltip>
+              </div>
               {isLoading && (
                 <div className="flex items-center gap-2 text-xs text-muted-foreground/70">
                   <Loader2 className="h-3 w-3 animate-spin" />
@@ -112,7 +198,7 @@ export function ProductSelector({
             </div>
             <div className="relative">
               <div className={cn(
-                "flex gap-4 overflow-x-auto transition-opacity duration-200",
+                "flex gap-4 overflow-x-auto justify-center transition-opacity duration-200",
                 isLoading && "opacity-50 pointer-events-none"
               )}>
                 {categories.map((category) => (

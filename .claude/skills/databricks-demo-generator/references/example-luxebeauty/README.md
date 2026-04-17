@@ -7,7 +7,7 @@
 | **Company** | LuxeBeauty Co. — D2C cosmetics e-commerce |
 | **Hero** | Claire Dubois, VP of Operations (non-technical) |
 | **Problem** | Returns spike to $180K this week (3x normal) |
-| **Investigation** | Claire asks "Why so many returns?" — traces to 3 skincare products from lot LOT-2025-0212 |
+| **Investigation** | Claire asks "Why so many returns?" — traces to 3 skincare products from one production lot |
 | **Root cause** | Homogenizer pressure issue during production caused texture problems in 5,000 units |
 | **Impact** | $180K in returns, ~30% return rate vs 8% normal |
 
@@ -31,7 +31,7 @@ The platform traces it through structured data (returns → products → lot) an
 |--------|-------|
 | Normal weekly returns | ~$60K |
 | This week's returns | ~$180K (3x) |
-| Affected lot | LOT-2025-0212 |
+| Affected lot | (dynamic — LOT-{YYYY}-{MMDD} at runtime) |
 | Affected SKUs | SKU-1001, SKU-1002, SKU-1003 |
 | Return rate for affected products | ~30% vs 8% normal |
 
@@ -76,11 +76,11 @@ The platform traces it through structured data (returns → products → lot) an
 
 **Open MAS → Type:** `Why do I have so many returns?`
 
-- Genie investigates: 3x normal, three products, all from **lot LOT-2025-0212**
+- Genie investigates: 3x normal, three products, all from **one production lot**
 - Customer comments: "grainy texture", "product separated"
 - Suggests checking for an incident report
 
-**Type:** `Was there an incident for lot LOT-2025-0212?`
+**Type:** `Was there an incident for that lot?`
 
 - KA finds it: Feb 12 — homogenizer had pressure fluctuations
 - QC noted "minor texture variations" but released the lot

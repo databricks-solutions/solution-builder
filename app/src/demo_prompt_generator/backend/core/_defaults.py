@@ -25,12 +25,17 @@ class _ConfigDependency(LifespanDependency):
 class _WorkspaceClientDependency(LifespanDependency):
     @asynccontextmanager
     async def lifespan(self, app: FastAPI) -> AsyncGenerator[None, None]:
-        app.state.workspace_client = WorkspaceClient()
+        # Lazy initialization - don't create WorkspaceClient at startup
+        # (Databricks CLI auth is slow, ~20-30 seconds)
+        app.state._workspace_client = None
         yield
 
     @staticmethod
     def __call__(request: Request) -> WorkspaceClient:
-        return request.app.state.workspace_client
+        # Lazy create on first access
+        if request.app.state._workspace_client is None:
+            request.app.state._workspace_client = WorkspaceClient()
+        return request.app.state._workspace_client
 
 
 def _get_user_ws(

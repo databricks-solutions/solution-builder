@@ -5,7 +5,7 @@
 
 import { memo } from "react";
 import { FileText, MessageSquare, ArrowUpRight, Star, Share2, User, LayoutTemplate, CheckCircle2 } from "lucide-react";
-import type { ProjectListItem, ProjectStage } from "../../lib/custom-api";
+import type { ProjectListItem } from "../../lib/custom-api";
 
 interface ProjectTileProps {
   project: ProjectListItem;
@@ -72,21 +72,12 @@ export const ProjectTile = memo(function ProjectTile({
     <button
       type="button"
       onClick={onClick}
-      className={`group relative text-left w-full rounded-xl border bg-card/60 backdrop-blur-lg shadow-sm overflow-hidden transition-all duration-200 hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+      className={`group relative text-left w-full rounded-xl border bg-card/60 backdrop-blur-lg shadow-sm overflow-hidden transition-all duration-200 hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring cursor-pointer ${
         project.stage === "BUNDLED"
           ? "border-green-500/20 shadow-green-500/[0.03] hover:shadow-lg hover:shadow-green-500/[0.08] hover:border-green-500/30"
           : "border-primary/[0.08] shadow-primary/[0.03] hover:shadow-lg hover:shadow-primary/[0.08] hover:border-primary/20"
       }`}
     >
-      {/* Gradient accent bar — colored by stage */}
-      <div className={`absolute inset-x-0 top-0 h-[2px] bg-gradient-to-r opacity-60 group-hover:opacity-100 transition-opacity ${
-        project.stage === "BUNDLED"
-          ? "from-green-500/60 via-green-400/30 to-transparent"
-          : project.stage === "BUILT"
-            ? "from-amber-500/60 via-amber-400/30 to-transparent"
-            : "from-primary/40 via-primary/20 to-transparent"
-      }`} />
-
       <div className="p-4 pb-3">
         {/* Title row with star */}
         <div className="flex items-start justify-between gap-2">
@@ -171,8 +162,12 @@ export const ProjectTile = memo(function ProjectTile({
         )}
       </div>
 
-      {/* Stats row */}
-      <div className="px-4 py-2.5 border-t border-primary/[0.06] bg-primary/[0.02] flex items-center justify-between">
+      {/* Footer: stats + date on same line */}
+      <div className={`px-4 py-2.5 border-t flex items-center justify-between ${
+        project.stage === "BUNDLED"
+          ? "border-green-500/[0.08] bg-green-500/[0.02]"
+          : "border-primary/[0.06] bg-primary/[0.02]"
+      }`}>
         <div className="flex items-center gap-3 text-[11px] text-muted-foreground/70">
           <span className="flex items-center gap-1">
             <FileText className="h-3 w-3 opacity-50" />
@@ -183,14 +178,6 @@ export const ProjectTile = memo(function ProjectTile({
             {project.message_count}
           </span>
         </div>
-      </div>
-
-      {/* Footer */}
-      <div className={`px-4 py-2.5 border-t ${
-        project.stage === "BUNDLED"
-          ? "border-green-500/[0.08] bg-green-500/[0.02]"
-          : "border-primary/[0.06] bg-primary/[0.02]"
-      }`}>
         {project.stage === "BUNDLED" ? (
           <span className={`inline-flex items-center gap-1 text-[11px] font-medium ${stalenessColor(project.updated_at)}`}>
             <CheckCircle2 className="h-3 w-3" />

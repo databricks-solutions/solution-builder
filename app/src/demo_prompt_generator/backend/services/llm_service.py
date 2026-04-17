@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+from collections.abc import Iterator
 from enum import Enum
 from typing import Any, Literal
 
@@ -135,6 +136,86 @@ class LLMService:
             max_tokens=max_tokens,
         )
         return json.loads(response)
+
+    def chat_stream(
+        self,
+        prompt: str,
+        *,
+        size: ModelSize | Literal["mini", "normal"] = ModelSize.MINI,
+        system_prompt: str | None = None,
+        max_tokens: int = 1000,
+    ) -> Iterator[str]:
+        """
+        Stream a chat completion response token by token.
+
+        Args:
+            prompt: The user prompt
+            size: Model size - "mini" for fast/cheap, "normal" for more capable
+            system_prompt: Optional system prompt
+            max_tokens: Maximum tokens in response
+
+        Yields:
+            Tokens as they arrive from the model
+        """
+        # Normalize size to enum
+        if isinstance(size, str):
+            size = ModelSize(size)
+
+        model = MODEL_NAMES[size]
+        messages = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        messages.append({"role": "user", "content": prompt})
+
+        try:
+            response = self.client.chat.completions.create(
+                model=model,
+                messages=messages,
+                max_tokens=max_tokens,
+                stream=True,
+            )
+            for chunk in response:
+                if chunk.choices and chunk.choices[0].delta.content:
+                    yield chunk.choices[0].delta.content
+        except Exception as e:
+            logger.error(f"Chat stream failed (model={model}): {e}")
+            raise
+
+    def chat_stream_lines(
+        self,
+        prompt: str,
+        *,
+        size: ModelSize | Literal["mini", "normal"] = ModelSize.MINI,
+        system_prompt: str | None = None,
+        max_tokens: int = 1000,
+    ) -> Iterator[str]:
+        """
+        Stream chat completion and yield complete lines as they arrive.
+
+        Useful for line-delimited JSON output where each line is a valid JSON object.
+
+        Args:
+            prompt: The user prompt
+            size: Model size
+            system_prompt: Optional system prompt
+            max_tokens: Maximum tokens in response
+
+        Yields:
+            Complete lines (without trailing newline)
+        """
+        buffer = ""
+        for token in self.chat_stream(
+            prompt, size=size, system_prompt=system_prompt, max_tokens=max_tokens
+        ):
+            buffer += token
+            while "\n" in buffer:
+                line, buffer = buffer.split("\n", 1)
+                line = line.strip()
+                if line:
+                    yield line
+        # Yield any remaining content
+        if buffer.strip():
+            yield buffer.strip()
 
     def get_embedding(self, text: str) -> list[float]:
         """

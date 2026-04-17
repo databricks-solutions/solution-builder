@@ -9,12 +9,14 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated, Any, AsyncGenerator, TypeAlias
 
+from alembic import command
+from alembic.config import Config as AlembicConfig
 from databricks.sdk import WorkspaceClient
 from databricks.sdk.errors import NotFound
 from fastapi import FastAPI, Request
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from sqlalchemy import Engine, create_engine, event
+from sqlalchemy import Engine, create_engine, event, inspect
 from sqlmodel import Session, SQLModel, text
 
 from ._base import LifespanDependency
@@ -195,7 +197,6 @@ def create_db_engine(db_config: DatabaseConfig, ws: WorkspaceClient) -> Engine:
         return _create_pglite_engine()
 
     static_url = _get_static_pg_url()
-    engine_url = _build_engine_url(db_config, ws)
 
     if static_url:
         # Static URL mode: real Postgres with connection pool
@@ -205,15 +206,18 @@ def create_db_engine(db_config: DatabaseConfig, ws: WorkspaceClient) -> Engine:
             "pool_pre_ping": True,
         }
         # SSL is specified in the URL itself (sslmode=require)
-    else:
-        # Production mode: larger pool with standard settings
-        engine_kwargs = {"pool_size": 4, "pool_recycle": 45 * 60, "pool_pre_ping": True}
-        engine_kwargs["connect_args"] = {"sslmode": "require"}
+        engine = create_engine(static_url, **engine_kwargs)
+        return engine
+
+    # Production mode: Databricks Lakebase with dynamic OAuth tokens
+    engine_url = _build_engine_url(db_config, ws)
+    engine_kwargs = {"pool_size": 4, "pool_recycle": 45 * 60, "pool_pre_ping": True}
+    engine_kwargs["connect_args"] = {"sslmode": "require"}
 
     # In Lakebase, the SP's CAN_CONNECT_AND_CREATE permission does NOT
     # grant CREATE on the public schema. The SP must use its own schema.
     # We create the schema on first connect, then redirect all table ops there.
-    sp_schema = ws.config.client_id if not static_url else None
+    sp_schema = ws.config.client_id
     if sp_schema:
         engine_kwargs.setdefault("execution_options", {})
         engine_kwargs["execution_options"]["schema_translate_map"] = {None: sp_schema}
@@ -237,10 +241,9 @@ def create_db_engine(db_config: DatabaseConfig, ws: WorkspaceClient) -> Engine:
             cursor.close()
             dbapi_connection.autocommit = False
 
-    # Only use dynamic token refresh for production Databricks Database
-    if not static_url:
-        event.listens_for(engine, "do_connect")(before_connect)
-        event.listen(engine, "connect", after_connect)
+    # Dynamic token refresh for production Databricks Database
+    event.listens_for(engine, "do_connect")(before_connect)
+    event.listen(engine, "connect", after_connect)
 
     return engine
 
@@ -282,14 +285,52 @@ def validate_db(engine: Engine, db_config: DatabaseConfig) -> None:
         )
 
 
+def _get_alembic_config(connection) -> AlembicConfig:
+    """Create Alembic config pointing to our migrations directory.
+
+    Passes the existing connection to env.py via config.attributes["connection"].
+    This is required for Databricks Lakebase which uses dynamic OAuth tokens.
+    """
+    migrations_dir = Path(__file__).parent.parent / "migrations"
+    alembic_cfg = AlembicConfig()
+    alembic_cfg.set_main_option("script_location", str(migrations_dir))
+    # Pass the connection to env.py (not URL, because URL lacks OAuth token)
+    alembic_cfg.attributes["connection"] = connection
+    return alembic_cfg
+
+
+def _has_alembic_version_table(engine: Engine) -> bool:
+    """Check if alembic_version table exists (indicates Alembic-managed DB)."""
+    inspector = inspect(engine)
+    return "alembic_version" in inspector.get_table_names()
+
+
+def _drop_all_tables(engine: Engine) -> None:
+    """Drop all tables to force a clean Alembic migration."""
+    logger.warning("No alembic_version table found - dropping all tables for fresh migration")
+    inspector = inspect(engine)
+    table_names = inspector.get_table_names()
+    if table_names:
+        logger.info(f"Dropping tables: {table_names}")
+        with engine.connect() as conn:
+            # Drop tables in reverse dependency order (or just drop all with CASCADE)
+            for table in table_names:
+                conn.execute(text(f'DROP TABLE IF EXISTS "{table}" CASCADE'))
+            conn.commit()
+        logger.info("All tables dropped")
+
+
 def initialize_models(engine: Engine) -> None:
-    """Create all SQLModel tables and add any missing columns.
+    """Initialize database using Alembic migrations.
 
     Uses a PostgreSQL advisory lock to prevent race conditions when multiple
     uvicorn workers start simultaneously.
 
+    If alembic_version table doesn't exist (legacy DB or first run), drops all
+    existing tables to ensure clean Alembic-managed schema.
+
     Set RESET_DB=1 environment variable to drop all tables and start fresh.
-    For PGLite, this deletes the .pglite directory.
+    For PGLite, this deletes the .pglite directory (handled earlier).
     For other databases, this drops all tables.
     """
     # For non-PGLite databases, handle RESET_DB by dropping tables
@@ -297,199 +338,45 @@ def initialize_models(engine: Engine) -> None:
     if not _is_pglite_mode() and os.environ.get("RESET_DB") == "1":
         logger.warning("RESET_DB=1 detected - dropping all tables!")
         SQLModel.metadata.drop_all(engine)
-        logger.info("All tables dropped. Recreating...")
+        # Also drop alembic_version (not in SQLModel metadata)
+        with engine.connect() as conn:
+            conn.execute(text("DROP TABLE IF EXISTS alembic_version CASCADE"))
+            conn.commit()
+        logger.info("All tables dropped. Recreating via Alembic...")
 
-    logger.info("Initializing database models")
+    logger.info("Initializing database with Alembic migrations")
 
-    # Idempotent migrations — safe for concurrent workers and repeat deploys
-    _migrations = [
-        # Projects table
-        ("projects_table", """
-            CREATE TABLE IF NOT EXISTS projects (
-                id VARCHAR(50) PRIMARY KEY,
-                user_email VARCHAR(255) NOT NULL,
-                name VARCHAR(255) NOT NULL,
-                description TEXT,
-                project_type VARCHAR(50) DEFAULT 'DATABRICKS_DEMO',
-                skills TEXT DEFAULT '[]',
-                session_id VARCHAR(100),
-                cluster_id VARCHAR(100),
-                warehouse_id VARCHAR(100),
-                created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
-                updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
-            )
-        """),
-        ("projects_user_email_idx", "CREATE INDEX IF NOT EXISTS ix_projects_user_email ON projects (user_email)"),
-        ("projects_user_created_idx", "CREATE INDEX IF NOT EXISTS ix_projects_user_created ON projects (user_email, created_at)"),
-
-        # Project files table
-        ("project_files_table", """
-            CREATE TABLE IF NOT EXISTS project_files (
-                id SERIAL PRIMARY KEY,
-                project_id VARCHAR(50) NOT NULL,
-                relative_path VARCHAR(500) NOT NULL,
-                content_compressed BYTEA NOT NULL,
-                content_hash VARCHAR(64) NOT NULL,
-                file_size INTEGER DEFAULT 0,
-                last_modified TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
-                synced_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
-            )
-        """),
-        ("project_files_project_idx", "CREATE INDEX IF NOT EXISTS ix_project_files_project_id ON project_files (project_id)"),
-        ("project_files_unique_path", "CREATE UNIQUE INDEX IF NOT EXISTS ix_project_files_project_path ON project_files (project_id, relative_path)"),
-
-        # Messages table
-        ("messages_table", """
-            CREATE TABLE IF NOT EXISTS messages (
-                id SERIAL PRIMARY KEY,
-                project_id VARCHAR(50) NOT NULL,
-                role VARCHAR(20) NOT NULL,
-                content TEXT NOT NULL,
-                is_error BOOLEAN DEFAULT FALSE,
-                created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
-            )
-        """),
-        ("messages_project_idx", "CREATE INDEX IF NOT EXISTS ix_messages_project_id ON messages (project_id)"),
-        ("messages_project_created_idx", "CREATE INDEX IF NOT EXISTS ix_messages_project_created ON messages (project_id, created_at)"),
-
-        # Executions table
-        ("executions_table", """
-            CREATE TABLE IF NOT EXISTS executions (
-                id VARCHAR(50) PRIMARY KEY,
-                project_id VARCHAR(50) NOT NULL,
-                status VARCHAR(20) NOT NULL DEFAULT 'running',
-                events_json TEXT DEFAULT '[]',
-                error TEXT,
-                created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
-                updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
-            )
-        """),
-        ("executions_project_idx", "CREATE INDEX IF NOT EXISTS ix_executions_project_id ON executions (project_id)"),
-        ("executions_project_status_idx", "CREATE INDEX IF NOT EXISTS ix_executions_project_status ON executions (project_id, status)"),
-        ("executions_project_created_idx", "CREATE INDEX IF NOT EXISTS ix_executions_project_created ON executions (project_id, created_at)"),
-
-        # Add catalog/schema columns to projects
-        ("projects_add_catalog", "ALTER TABLE projects ADD COLUMN IF NOT EXISTS default_catalog VARCHAR(255)"),
-        ("projects_add_schema", "ALTER TABLE projects ADD COLUMN IF NOT EXISTS default_schema VARCHAR(255)"),
-
-        # Add session_id to executions for conversation resumption
-        ("executions_add_session_id", "ALTER TABLE executions ADD COLUMN IF NOT EXISTS session_id VARCHAR(100)"),
-
-        # Add reasoning_data JSON column to messages
-        ("messages_add_reasoning_data", "ALTER TABLE messages ADD COLUMN IF NOT EXISTS reasoning_data JSON"),
-
-        # Add cluster_name and warehouse_name to projects
-        ("projects_add_cluster_name", "ALTER TABLE projects ADD COLUMN IF NOT EXISTS cluster_name VARCHAR(255)"),
-        ("projects_add_warehouse_name", "ALTER TABLE projects ADD COLUMN IF NOT EXISTS warehouse_name VARCHAR(255)"),
-
-        # --- Template Library Feature ---
-
-        # Enable pgvector extension (for semantic search) - skip for PGLite
-        ("pgvector_extension", "CREATE EXTENSION IF NOT EXISTS vector"),
-
-        # Templates table (stores approved/pending templates)
-        ("templates_table", """
-            CREATE TABLE IF NOT EXISTS templates (
-                id VARCHAR(50) PRIMARY KEY,
-                name VARCHAR(255) NOT NULL,
-                status VARCHAR(20) NOT NULL DEFAULT 'REVIEW_REQUESTED',
-                owner_email VARCHAR(255) NOT NULL,
-                industry VARCHAR(100),
-                description TEXT,
-                full_description TEXT,
-                capabilities TEXT,
-                embedding vector(1024),
-                submitted_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-                reviewed_at TIMESTAMP WITH TIME ZONE,
-                reviewed_by VARCHAR(255),
-                source_project_id VARCHAR(50)
-            )
-        """),
-        ("templates_status_idx", "CREATE INDEX IF NOT EXISTS ix_templates_status ON templates (status)"),
-        ("templates_industry_idx", "CREATE INDEX IF NOT EXISTS ix_templates_industry ON templates (industry)"),
-        ("templates_owner_idx", "CREATE INDEX IF NOT EXISTS ix_templates_owner ON templates (owner_email)"),
-
-        # Template content table (stores files from templates)
-        ("template_content_table", """
-            CREATE TABLE IF NOT EXISTS template_content (
-                id SERIAL PRIMARY KEY,
-                template_id VARCHAR(50) NOT NULL REFERENCES templates(id) ON DELETE CASCADE,
-                relative_path VARCHAR(500) NOT NULL,
-                content_compressed BYTEA NOT NULL,
-                content_hash VARCHAR(64) NOT NULL,
-                file_size INTEGER DEFAULT 0,
-                created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-            )
-        """),
-        ("template_content_template_idx", "CREATE INDEX IF NOT EXISTS ix_template_content_template_id ON template_content (template_id)"),
-        ("template_content_unique_path", "CREATE UNIQUE INDEX IF NOT EXISTS ix_template_content_unique_path ON template_content (template_id, relative_path)"),
-
-        # Add embedding column if missing (handles case where table was created by SQLModel without it)
-        # PGLite uses TEXT, production uses vector(1024) — the migration loop handles the swap
-        ("templates_add_embedding", "ALTER TABLE templates ADD COLUMN IF NOT EXISTS embedding vector(1024)"),
-
-        # --- Stage pipeline ---
-        ("projects_add_stage", "ALTER TABLE projects ADD COLUMN IF NOT EXISTS stage VARCHAR(20) DEFAULT 'DRAFTING'"),
-
-        # --- Starring & sharing ---
-        ("project_stars_table", """
-            CREATE TABLE IF NOT EXISTS project_stars (
-                id SERIAL PRIMARY KEY,
-                user_email VARCHAR(255) NOT NULL,
-                project_id VARCHAR(50) NOT NULL,
-                created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
-            )
-        """),
-        ("project_stars_user_project_idx", "CREATE UNIQUE INDEX IF NOT EXISTS ix_project_stars_user_project ON project_stars (user_email, project_id)"),
-        ("project_stars_user_idx", "CREATE INDEX IF NOT EXISTS ix_project_stars_user ON project_stars (user_email)"),
-
-        ("project_shares_table", """
-            CREATE TABLE IF NOT EXISTS project_shares (
-                id SERIAL PRIMARY KEY,
-                project_id VARCHAR(50) NOT NULL,
-                owner_email VARCHAR(255) NOT NULL,
-                shared_with_email VARCHAR(255) NOT NULL,
-                message TEXT,
-                created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
-            )
-        """),
-        ("project_shares_unique_idx", "CREATE UNIQUE INDEX IF NOT EXISTS ix_project_shares_unique ON project_shares (project_id, shared_with_email)"),
-        ("project_shares_recipient_idx", "CREATE INDEX IF NOT EXISTS ix_project_shares_recipient ON project_shares (shared_with_email)"),
-        ("project_shares_project_idx", "CREATE INDEX IF NOT EXISTS ix_project_shares_project ON project_shares (project_id)"),
-
-        # --- Template lineage ---
-        ("projects_add_source_template_id", "ALTER TABLE projects ADD COLUMN IF NOT EXISTS source_template_id VARCHAR(50)"),
-        ("projects_source_template_idx", "CREATE INDEX IF NOT EXISTS ix_projects_source_template ON projects (source_template_id)"),
-    ]
-
-    # Use a PostgreSQL advisory lock so only one worker initializes the schema.
-    # Both create_all() and migrations run inside the lock.
+    # Use a PostgreSQL advisory lock so only one worker runs migrations.
     _MIGRATION_LOCK_ID = 8675309  # arbitrary fixed int
+
+    # Acquire advisory lock
     with engine.connect() as lock_conn:
         lock_conn.execute(text(f"SELECT pg_advisory_lock({_MIGRATION_LOCK_ID})"))
-        try:
-            # create_all() with checkfirst=True skips existing tables
+        lock_conn.commit()
+
+    try:
+        # Check if this is a legacy DB (no alembic_version) - if so, drop everything
+        if not _has_alembic_version_table(engine):
+            _drop_all_tables(engine)
+
+        # Enable pgvector extension for production (PGLite doesn't support it)
+        if not _is_pglite_mode():
             try:
-                SQLModel.metadata.create_all(engine)
-                logger.info("create_all completed successfully")
+                with engine.connect() as conn:
+                    conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+                    conn.commit()
             except Exception as e:
-                logger.warning(f"create_all failed: {e}", exc_info=True)
+                logger.warning(f"Could not create pgvector extension: {e}")
 
-            # Run idempotent migrations to fill in any schema gaps
-            with Session(engine) as session:
-                for migration_name, ddl in _migrations:
-                    try:
-                        if _is_pglite_mode() and "vector" in migration_name:
-                            continue
-                        if _is_pglite_mode() and "embedding vector" in ddl:
-                            ddl = ddl.replace("embedding vector(1024)", "embedding TEXT")
+        # Run Alembic migrations with a fresh connection
+        with engine.connect() as migration_conn:
+            alembic_cfg = _get_alembic_config(migration_conn)
+            command.upgrade(alembic_cfg, "head")
+            logger.info("Alembic migrations completed successfully")
 
-                        session.connection().execute(text(ddl))
-                        session.commit()
-                    except Exception as e:
-                        session.rollback()
-                        logger.warning(f"Migration {migration_name} FAILED: {e}")
-        finally:
+    finally:
+        # Release advisory lock
+        with engine.connect() as lock_conn:
             lock_conn.execute(text(f"SELECT pg_advisory_unlock({_MIGRATION_LOCK_ID})"))
             lock_conn.commit()
 
@@ -502,23 +389,44 @@ def initialize_models(engine: Engine) -> None:
 class _LakebaseDependency(LifespanDependency):
     @asynccontextmanager
     async def lifespan(self, app: FastAPI) -> AsyncGenerator[None, None]:
+        import asyncio
+        import concurrent.futures
+
         db_config = DatabaseConfig()  # ty: ignore[missing-argument]
-        ws = app.state.workspace_client
 
+        # For static LAKEBASE_PG_URL, we don't need WorkspaceClient (avoids slow CLI auth)
+        # Only get it for production Lakebase mode
+        ws = None
+        if not _is_pglite_mode() and not _get_static_pg_url():
+            ws = app.state._workspace_client
+            if ws is None:
+                ws = WorkspaceClient()
+                app.state._workspace_client = ws
+
+        # Create engine (fast - just config)
         engine = create_db_engine(db_config, ws)
-        validate_db(engine, db_config)
-        initialize_models(engine)
+        app.state.engine = engine
+        app.state.db_ready = False
 
-        # Note: ai-dev-kit is managed by dev.sh/build-electron.sh startup scripts
-        # No clone/pull here - the scripts handle branch checkout and cleanup
+        # Run DB validation and migrations in background thread
+        def init_db():
+            try:
+                validate_db(engine, db_config)
+                initialize_models(engine)
+                app.state.db_ready = True
+                logger.info("Database ready")
+            except Exception as e:
+                logger.error(f"Database initialization failed: {e}")
 
-        # Initialize file sync service
+        executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        db_future = executor.submit(init_db)
+
+        # Initialize file sync service (needs engine, not migrations)
         from ..services.file_sync import FileSyncService
         file_sync = FileSyncService(engine)
         app.state.file_sync = file_sync
 
         # Initialize and start file watcher
-        import asyncio
         from ..services.file_watcher import init_watcher
 
         async def sync_callback(project_id: str, paths: list[str]):
@@ -533,8 +441,11 @@ class _LakebaseDependency(LifespanDependency):
             logger.warning(f"Failed to start file watcher: {e}")
             app.state.file_watcher = None
 
-        app.state.engine = engine
         yield
+
+        # Wait for DB init to complete before shutdown
+        db_future.result(timeout=30)
+        executor.shutdown(wait=True)
 
         # Cleanup
         if app.state.file_watcher:

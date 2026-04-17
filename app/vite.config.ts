@@ -7,7 +7,7 @@ import { defineConfig } from "vite";
 // UI root path
 const uiRoot = path.resolve(__dirname, "src/demo_prompt_generator/ui");
 
-export default defineConfig(({ mode }) => {
+export default defineConfig(({ mode: _mode }) => {
   const isElectron = process.env.ELECTRON_BUILD === "1";
 
   return {

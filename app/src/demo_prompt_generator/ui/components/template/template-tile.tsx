@@ -27,11 +27,8 @@ export const TemplateTile = memo(function TemplateTile({
     <button
       type="button"
       onClick={onClick}
-      className="group relative text-left w-full rounded-xl border border-primary/[0.08] bg-card/60 backdrop-blur-lg shadow-sm shadow-primary/[0.03] overflow-hidden transition-all duration-200 hover:shadow-lg hover:shadow-primary/[0.08] hover:border-primary/20 hover:-translate-y-0.5 h-full flex flex-col focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className="group relative text-left w-full rounded-xl border border-primary/[0.08] bg-card/60 backdrop-blur-lg shadow-sm shadow-primary/[0.03] overflow-hidden transition-all duration-200 hover:shadow-lg hover:shadow-primary/[0.08] hover:border-primary/20 hover:-translate-y-0.5 h-full flex flex-col focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring cursor-pointer"
     >
-      {/* Gradient accent bar */}
-      <div className="absolute inset-x-0 top-0 h-[2px] bg-gradient-to-r from-primary/40 via-primary/20 to-transparent opacity-60 group-hover:opacity-100 transition-opacity" />
-
       <div className="p-4 pb-3 flex-1">
         {/* Title row */}
         <div className="flex items-start justify-between gap-2 mb-2">

@@ -11,6 +11,7 @@ from ..models import (
     MessageCreateRequest,
     MessageOut,
     Project,
+    decompress_reasoning,
 )
 from ..services.agent import get_client_pool
 
@@ -45,17 +46,20 @@ def list_project_messages(
     project_id: str,
     session: Dependencies.Session,
     headers: Dependencies.Headers,
+    limit: int = 50,
 ):
-    """List all messages for a project, oldest first."""
+    """List recent messages for a project, oldest first (limited to last N messages)."""
     user_email = _get_user_email(headers)
     _get_user_project(session, project_id, user_email)
 
+    # Get the last N messages by ordering DESC, limiting, then reversing
     stmt = (
         select(Message)
         .where(Message.project_id == project_id)
-        .order_by(Message.created_at.asc())
+        .order_by(Message.created_at.desc())
+        .limit(limit)
     )
-    messages = session.exec(stmt).all()
+    messages = list(reversed(session.exec(stmt).all()))
 
     return [
         MessageOut(
@@ -64,7 +68,7 @@ def list_project_messages(
             role=msg.role,
             content=msg.content,
             is_error=msg.is_error,
-            reasoning_data=msg.reasoning_data,
+            reasoning_data=decompress_reasoning(msg.reasoning_data),
             created_at=msg.created_at,
         )
         for msg in messages

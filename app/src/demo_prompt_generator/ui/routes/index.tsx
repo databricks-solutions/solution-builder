@@ -24,6 +24,11 @@ import {
   Loader2,
   Library,
   FolderOpen,
+  Database,
+  Pencil,
+  Send,
+  X,
+  RefreshCw,
 } from "lucide-react";
 import {
   listProjects,
@@ -31,11 +36,13 @@ import {
   searchTemplates,
   getConfigStatus,
   getCapabilities,
-  suggestCapabilities,
+  streamSuggestCapabilities,
   type ProjectListItem,
   type TemplateSearchResult,
   type Capability,
   type CapabilityInput,
+  type UseCaseIdea,
+  type IdeaToRefine,
 } from "@/lib/custom-api";
 
 export const Route = createFileRoute("/")({
@@ -59,12 +66,17 @@ export const Route = createFileRoute("/")({
 
 // Default selected capabilities
 const DEFAULT_SELECTED_PRODUCTS = [
+  // Buildable
   "sdp",                 // Processing
   "aibi-dashboards",     // Analytics
   "genie",               // NL Queries
   "knowledge-assistant", // AI Agents (KA)
   "supervisor-agent",    // AI Agents (MAS)
+  // Talking track
   "unity-catalog",       // Governance story
+  "genie-code",          // AI coding assistant
+  "databricks-one",      // Business user experience
+  "lakeflow-connect",    // Data ingestion
 ];
 
 function Index() {
@@ -87,10 +99,22 @@ function Index() {
   const [isSuggestingCapabilities, setIsSuggestingCapabilities] = useState(false);
   const [capabilityReasoning, setCapabilityReasoning] = useState<string | null>(null);
 
+  // Use-case ideas from LLM
+  const [ideas, setIdeas] = useState<UseCaseIdea[]>([]);
+  const [expectedIdeaCount, setExpectedIdeaCount] = useState<number>(0);
+
+  // Refine state: which idea is being refined and the input text
+  const [refiningIdeaIdx, setRefiningIdeaIdx] = useState<number | null>(null);
+  const [refineText, setRefineText] = useState("");
+  const [isRefining, setIsRefining] = useState(false);
+
   // Template search state
   const [matchingTemplates, setMatchingTemplates] = useState<TemplateSearchResult[]>([]);
   const [isSearchingTemplates, setIsSearchingTemplates] = useState(false);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
+
+  // Check if hero should be collapsed (user has typed something)
+  const isHeroCollapsed = topic.trim().length >= 3;
 
   // Auto-resize textarea
   const adjustTextareaHeight = useCallback(() => {
@@ -160,119 +184,175 @@ function Index() {
     return () => clearTimeout(timer);
   }, [topic]);
 
-  // Debounced capability suggestion (1000ms) - only triggered by topic changes, not by clicking
-  const lastTopicRef = useRef("");
+  // Streaming suggestion helper
   const abortControllerRef = useRef<AbortController | null>(null);
-  useEffect(() => {
-    // Only trigger when topic actually changes (not when explicitSelections changes)
-    if (topic.trim() === lastTopicRef.current) {
-      return;
-    }
-    lastTopicRef.current = topic.trim();
 
+  const runSuggestionStream = useCallback(async (
+    promptText: string,
+    refineIdea?: IdeaToRefine,
+    refineComment?: string
+  ) => {
     // Cancel any pending request
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
       abortControllerRef.current = null;
     }
 
+    if (!promptText.trim() || capabilities.length === 0) {
+      setIsSuggestingCapabilities(false);
+      return;
+    }
+
+    // Create new abort controller for this request
+    const abortController = new AbortController();
+    abortControllerRef.current = abortController;
+
+    // Clear previous ideas and show loading
+    setIdeas([]);
+    setExpectedIdeaCount(0);
+    setIsSuggestingCapabilities(true);
+
+    try {
+      // Build capability inputs
+      const capabilityInputs: CapabilityInput[] = capabilities.map((cap) => ({
+        id: cap.id,
+        status: explicitSelections.get(cap.id) ?? null,
+        isDefault: DEFAULT_SELECTED_PRODUCTS.includes(cap.id),
+      }));
+
+      // Stream events
+      for await (const event of streamSuggestCapabilities(
+        promptText.trim(),
+        capabilityInputs,
+        abortController.signal,
+        refineIdea,
+        refineComment
+      )) {
+        // Check if aborted
+        if (abortController.signal.aborted) return;
+
+        if (event.type === "count") {
+          // Set expected count to show skeleton cards
+          setExpectedIdeaCount(event.data.count);
+        } else if (event.type === "idea") {
+          // Append idea as it arrives
+          setIdeas((prev) => [...prev, event.data]);
+        } else if (event.type === "capabilities") {
+          // Update capabilities with user overrides
+          setSelectedProducts(() => {
+            const next = new Set<string>();
+            for (const capId of event.data.capabilities) {
+              next.add(capId);
+            }
+            for (const [capId, status] of explicitSelections) {
+              if (status === "selected") next.add(capId);
+              else if (status === "unselected") next.delete(capId);
+            }
+            return next;
+          });
+        } else if (event.type === "reasoning") {
+          // Set reasoning text from separate event
+          setCapabilityReasoning(event.data.text || null);
+        } else if (event.type === "error") {
+          console.error("Suggestion error:", event.data.error);
+          // Use fallback capabilities from error
+          setSelectedProducts(new Set(event.data.capabilities));
+        }
+      }
+    } catch (err) {
+      // Ignore abort errors
+      if (err instanceof Error && err.name === "AbortError") return;
+      console.error("Failed to suggest capabilities:", err);
+      setCapabilityReasoning(null);
+    } finally {
+      if (!abortController.signal.aborted) {
+        setIsSuggestingCapabilities(false);
+      }
+    }
+  }, [capabilities, explicitSelections]);
+
+  // Debounced capability suggestion (1000ms) - only triggered by topic changes
+  const lastTopicRef = useRef("");
+  useEffect(() => {
+    // Only trigger when topic actually changes
+    if (topic.trim() === lastTopicRef.current) {
+      return;
+    }
+    lastTopicRef.current = topic.trim();
+
     if (topic.trim().length < 3 || capabilities.length === 0) {
       setIsSuggestingCapabilities(false);
       return;
     }
 
-    // Show spinner immediately when user starts typing
+    // Show loading immediately
     setIsSuggestingCapabilities(true);
 
-    // Debounce the actual API call by 1 second
-    const timer = setTimeout(async () => {
-      // Create new abort controller for this request
-      const abortController = new AbortController();
-      abortControllerRef.current = abortController;
-
-      try {
-        // Build capability inputs with explicit selection status and default flag
-        const capabilityInputs: CapabilityInput[] = capabilities.map((cap) => ({
-          id: cap.id,
-          status: explicitSelections.get(cap.id) ?? null,
-          isDefault: DEFAULT_SELECTED_PRODUCTS.includes(cap.id),
-        }));
-
-        const result = await suggestCapabilities(topic.trim(), capabilityInputs, abortController.signal);
-
-        // If aborted, don't update state
-        if (abortController.signal.aborted) return;
-
-        // Update selected products: keep explicit selections, apply LLM suggestions for the rest
-        setSelectedProducts(() => {
-          const next = new Set<string>();
-
-          // Add all LLM-suggested capabilities
-          for (const capId of result.capabilities) {
-            next.add(capId);
-          }
-
-          // Override with explicit user selections
-          for (const [capId, status] of explicitSelections) {
-            if (status === "selected") {
-              next.add(capId);
-            } else if (status === "unselected") {
-              next.delete(capId);
-            }
-          }
-
-          return next;
-        });
-
-        // Store the reasoning
-        setCapabilityReasoning(result.reasoning ?? null);
-      } catch (err) {
-        // Ignore abort errors
-        if (err instanceof Error && err.name === "AbortError") return;
-        console.error("Failed to suggest capabilities:", err);
-        setCapabilityReasoning(null);
-      } finally {
-        // Only clear loading if this request wasn't aborted
-        if (!abortController.signal.aborted) {
-          setIsSuggestingCapabilities(false);
-        }
-      }
+    // Debounce the actual API call
+    const timer = setTimeout(() => {
+      runSuggestionStream(topic.trim());
     }, 1000);
 
     return () => {
       clearTimeout(timer);
-      // Cancel pending request on cleanup
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
       }
     };
-  }, [topic, capabilities, explicitSelections]);
+  }, [topic, capabilities, runSuggestionStream]);
+
+  // Manual regenerate handler
+  const handleRegenerate = useCallback(() => {
+    if (topic.trim().length >= 3) {
+      runSuggestionStream(topic.trim());
+    }
+  }, [topic, runSuggestionStream]);
 
   // Create new project and navigate
-  const handleCreateProject = async (e?: React.FormEvent) => {
+  const handleCreateProject = async (e?: React.FormEvent, idea?: UseCaseIdea) => {
     e?.preventDefault();
     if (isCreating || !topic.trim()) return;
-    const fullTopic = topic.trim();
+
+    // Capabilities are always from selectedProducts (shared across all ideas)
+    const capabilityIds = Array.from(selectedProducts);
 
     setIsCreating(true);
     setCreateError(null);
     try {
-      // Build description with full topic and selected products
-      let description = fullTopic;
-      if (selectedProducts.size > 0) {
-        description += `\n\nSelected capabilities: ${Array.from(selectedProducts).join(", ")}`;
+      // Build description: if we have an idea, use it; otherwise use raw topic
+      let description: string;
+
+      if (idea) {
+        // Use the idea's title + hook as description
+        description = `${idea.title}\n\n${idea.hook}`;
+        if (idea.datasources && idea.datasources.length > 0) {
+          description += `\n\nData sources: ${idea.datasources.join(", ")}`;
+        }
+      } else {
+        // Raw topic mode
+        description = topic.trim();
       }
+
+      if (capabilityIds.length > 0) {
+        description += `\n\nSelected capabilities: ${capabilityIds.join(", ")}`;
+      }
+
       // Backend will generate name and schema from description using LLM
       const project = await createProject(description);
 
-      // Build the initial prompt message with full user description
-      const selectedCapabilityIds = Array.from(selectedProducts);
-
-      let initialPrompt = `Help me build a databricks demo.\n\nDemo description:\n${fullTopic}`;
-      if (selectedCapabilityIds.length > 0) {
-        initialPrompt += `\n\nWe want the exact capabilities: ${selectedCapabilityIds.join(", ")}`;
+      // Build the initial prompt message
+      let initialPrompt: string;
+      if (idea) {
+        initialPrompt = `Help me build a databricks demo.\n\nUser request:\n${topic.trim()}\n\n**${idea.title}**\n\n${idea.hook}`;
+        if (capabilityIds.length > 0) {
+          initialPrompt += `\n\nWe want to highlight these capabilities: ${capabilityIds.join(", ")}`;
+        }
+      } else {
+        initialPrompt = `Help me build a databricks demo.\n\nDemo description:\n${topic.trim()}`;
+        if (capabilityIds.length > 0) {
+          initialPrompt += `\n\nWe want to highlight these capabilities: ${capabilityIds.join(", ")}`;
+        }
       }
-      initialPrompt += `\n\nSkip template search and skip the ideation/confirmation steps. Based on the description above, go ahead and design the story (hero, disruption, quest, resolution), then write the full README.md immediately. Don't ask me to confirm the direction first — just write the best version you can and I'll iterate from there. Stop after writing README.md so I can review.`;
 
       navigate({
         to: "/project/$projectId",
@@ -284,6 +364,32 @@ function Index() {
       setCreateError(error instanceof Error ? error.message : "Failed to create project. Please try again.");
       setIsCreating(false);
     }
+  };
+
+  // Handle refining an idea
+  const handleRefineSubmit = async (idea: UseCaseIdea) => {
+    if (!refineText.trim() || isRefining) return;
+
+    setIsRefining(true);
+    setRefiningIdeaIdx(null);
+
+    try {
+      await runSuggestionStream(
+        topic.trim(),
+        { title: idea.title, hook: idea.hook, datasources: idea.datasources },
+        refineText.trim()
+      );
+      setRefineText("");
+    } catch (err) {
+      console.error("Failed to refine idea:", err);
+    } finally {
+      setIsRefining(false);
+    }
+  };
+
+  // Handle clicking "Use this story" - directly create project
+  const handleUseStory = (idea: UseCaseIdea) => {
+    handleCreateProject(undefined, idea);
   };
 
   // Open existing project
@@ -308,9 +414,16 @@ function Index() {
           }}
         />
 
-        {/* Hero */}
-        <div className="relative z-10 mx-auto max-w-4xl space-y-6 text-center">
-          <div className="space-y-4">
+        {/* Hero - collapses when user starts typing */}
+        <div className={`relative z-10 mx-auto w-full space-y-6 text-center transition-all duration-300 ${
+          isHeroCollapsed ? "max-w-6xl" : "max-w-4xl"
+        }`}>
+          {/* Collapsible header */}
+          <div
+            className={`space-y-4 transition-all duration-300 ease-out overflow-hidden ${
+              isHeroCollapsed ? "max-h-0 opacity-0 mb-0" : "max-h-[300px] opacity-100"
+            }`}
+          >
             <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/10 backdrop-blur-sm border border-primary/20">
               <img src={assetUrl("/logo.svg")} alt="Databricks" className="h-10 w-10" />
             </div>
@@ -330,9 +443,9 @@ function Index() {
           </div>
 
           {/* Input card */}
-          <Card className="mx-auto w-full max-w-3xl text-left backdrop-blur-md bg-card/80 border-primary/10 shadow-lg shadow-primary/5">
+          <Card className="w-full text-left backdrop-blur-md bg-card/80 border-primary/10 shadow-lg shadow-primary/5">
             <CardContent className="p-4">
-              <form onSubmit={handleCreateProject} className="space-y-2.5">
+              <form onSubmit={(e) => handleCreateProject(e)} className="space-y-2.5">
                 <Textarea
                   ref={textareaRef}
                   placeholder='Describe your project... e.g. "predictive maintenance for wind turbines"'
@@ -345,64 +458,244 @@ function Index() {
                   rows={1}
                   autoFocus
                 />
+
+                {/* Ideas section - shows when we have ideas or loading */}
+                {isHeroCollapsed && (
+                  <div className="pt-2 pb-1">
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-2">
+                        <Lightbulb className="h-4 w-4 text-primary" />
+                        <span className="text-sm font-medium">
+                          {isSuggestingCapabilities
+                            ? "Generating story ideas..."
+                            : ideas.length === 1
+                              ? "Your demo story"
+                              : "Choose a story direction"}
+                        </span>
+                      </div>
+                      {/* Regenerate button */}
+                      {ideas.length > 0 && !isSuggestingCapabilities && (
+                        <button
+                          type="button"
+                          onClick={handleRegenerate}
+                          className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors cursor-pointer"
+                          title="Regenerate ideas"
+                        >
+                          <RefreshCw className="h-4 w-4" />
+                        </button>
+                      )}
+                    </div>
+                    {/* Initial loading state before count arrives */}
+                    {isSuggestingCapabilities && expectedIdeaCount === 0 && ideas.length === 0 && (
+                      <div className="flex items-center justify-center min-h-[180px] rounded-lg border border-border bg-card/50">
+                        <div className="flex flex-col items-center gap-3 text-muted-foreground">
+                          <Loader2 className="h-6 w-6 animate-spin text-primary/60" />
+                          <span className="text-xs">Analyzing your request...</span>
+                        </div>
+                      </div>
+                    )}
+                    <div className={`grid gap-3 ${
+                      expectedIdeaCount === 1 ? "grid-cols-1" : "grid-cols-1 md:grid-cols-3"
+                    } ${isSuggestingCapabilities && expectedIdeaCount === 0 && ideas.length === 0 ? "hidden" : ""}`}>
+                      {/* Render cards: real ideas + skeleton placeholders for remaining */}
+                      {(() => {
+                        // Use expectedIdeaCount to determine total slots (once count event arrives)
+                        const totalSlots = expectedIdeaCount > 0 ? expectedIdeaCount : ideas.length;
+                        return Array.from({ length: totalSlots }, (_, idx) => {
+                          const idea = ideas[idx];
+
+                          // Skeleton card for slots without data yet
+                          if (!idea) {
+                            return (
+                              <div
+                                key={`skeleton-${idx}`}
+                                className={`p-4 rounded-lg border border-border bg-card/50 space-y-3 ${
+                                  totalSlots > 1 ? "min-h-[180px]" : ""
+                                }`}
+                              >
+                                <div className="h-4 w-3/4 rounded-md bg-primary/10 animate-pulse" />
+                                <div className="space-y-2">
+                                  <div className="h-3 w-full rounded-md bg-muted-foreground/10 animate-pulse" />
+                                  <div className="h-3 w-5/6 rounded-md bg-muted-foreground/10 animate-pulse" />
+                                </div>
+                                <div className="h-3 w-2/3 rounded-md bg-muted-foreground/10 animate-pulse" />
+                                <div className="h-8 w-28 rounded-md bg-muted-foreground/10 animate-pulse mt-2" />
+                              </div>
+                            );
+                          }
+
+                          // Real idea card
+                          const isRefiningThis = refiningIdeaIdx === idx;
+                          return (
+                            <div
+                              key={idx}
+                              className={`p-4 rounded-lg border transition-all flex flex-col h-full ${
+                                totalSlots > 1 ? "min-h-[180px]" : ""
+                              } border-border/50 hover:border-primary/30`}
+                            >
+                              <p className="text-sm font-medium text-foreground mb-1.5">
+                                {idea.title}
+                              </p>
+                              <div className="text-xs text-muted-foreground leading-relaxed mb-3 flex-1">
+                                {/* Render hook with markdown-like formatting for detailed cards */}
+                                {idea.hook.includes("\n") ? (
+                                  <div className="space-y-2">
+                                    {idea.hook.split("\n\n").map((paragraph, pIdx) => (
+                                      <p key={pIdx}>
+                                        {paragraph.split(/(\*\*[^*]+\*\*)/).map((part, partIdx) => {
+                                          if (part.startsWith("**") && part.endsWith("**")) {
+                                            return (
+                                              <span key={partIdx} className="font-semibold text-foreground">
+                                                {part.slice(2, -2)}
+                                              </span>
+                                            );
+                                          }
+                                          return <span key={partIdx}>{part}</span>;
+                                        })}
+                                      </p>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <p>{idea.hook}</p>
+                                )}
+                              </div>
+                              {idea.datasources && idea.datasources.length > 0 && (
+                                <div className="flex flex-wrap items-center gap-1.5 mb-3">
+                                  <Database className="h-3 w-3 text-muted-foreground/60 shrink-0" />
+                                  {idea.datasources.map((ds, dsIdx) => (
+                                    <span
+                                      key={dsIdx}
+                                      className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-muted/50 text-muted-foreground"
+                                    >
+                                      {ds}
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+
+                              {/* Refine input - shows when refining this card */}
+                              {isRefiningThis && (
+                                <div className="mb-3 flex gap-2">
+                                  <input
+                                    type="text"
+                                    value={refineText}
+                                    onChange={(e) => setRefineText(e.target.value)}
+                                    onKeyDown={(e) => {
+                                      if (e.key === "Enter" && !e.shiftKey) {
+                                        e.preventDefault();
+                                        handleRefineSubmit(idea);
+                                      }
+                                      if (e.key === "Escape") {
+                                        setRefiningIdeaIdx(null);
+                                        setRefineText("");
+                                      }
+                                    }}
+                                    placeholder="How should we adjust this story?"
+                                    className="flex-1 text-xs px-2 py-1.5 rounded-md border border-border bg-background focus:outline-none focus:ring-1 focus:ring-primary/30"
+                                    autoFocus
+                                    disabled={isRefining}
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => handleRefineSubmit(idea)}
+                                    disabled={!refineText.trim() || isRefining}
+                                    className="p-1.5 rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 cursor-pointer"
+                                  >
+                                    {isRefining ? (
+                                      <Loader2 className="h-3 w-3 animate-spin" />
+                                    ) : (
+                                      <Send className="h-3 w-3" />
+                                    )}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setRefiningIdeaIdx(null);
+                                      setRefineText("");
+                                    }}
+                                    className="p-1.5 rounded-md bg-muted text-muted-foreground hover:bg-muted/80 cursor-pointer"
+                                  >
+                                    <X className="h-3 w-3" />
+                                  </button>
+                                </div>
+                              )}
+
+                              {/* Action buttons */}
+                              <div className="flex gap-2 mt-auto">
+                                <button
+                                  type="button"
+                                  onClick={() => handleUseStory(idea)}
+                                  disabled={isCreating}
+                                  className="text-xs font-medium px-3 py-1.5 rounded-md transition-all flex items-center gap-1.5 cursor-pointer bg-destructive text-destructive-foreground hover:bg-destructive/90 disabled:opacity-50"
+                                >
+                                  <Sparkles className="h-3 w-3" />
+                                  Use this story
+                                </button>
+                                {!isRefiningThis && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setRefiningIdeaIdx(idx);
+                                      setRefineText("");
+                                    }}
+                                    className="text-xs font-medium px-3 py-1.5 rounded-md transition-all flex items-center gap-1.5 cursor-pointer bg-muted text-muted-foreground hover:bg-muted/80"
+                                  >
+                                    <Pencil className="h-3 w-3" />
+                                    Refine
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        });
+                      })()}
+                    </div>
+                  </div>
+                )}
+
+                {/* Product selector - shows when collapsed OR when an idea is selected */}
                 <ProductSelector
                   capabilities={capabilities}
                   selectedProducts={selectedProducts}
                   onToggleProduct={handleToggleProduct}
-                  expanded={topic.trim().length >= 3}
+                  expanded={isHeroCollapsed}
                   isLoading={isSuggestingCapabilities}
                   explicitSelections={explicitSelections}
                 />
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    {createError && (
-                      <p className="text-sm text-destructive">{createError}</p>
-                    )}
-                    {capabilityReasoning && topic.trim().length >= 3 && (
-                      <TooltipProvider delayDuration={100}>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <button
-                              type="button"
-                              className="text-[11px] text-muted-foreground/60 hover:text-muted-foreground transition-colors flex items-center gap-1 group"
-                            >
-                              <span className="italic">View implementation flow</span>
-                              <span className="text-[10px] opacity-0 group-hover:opacity-100 transition-opacity">→</span>
-                            </button>
-                          </TooltipTrigger>
-                          <TooltipContent side="top" align="start" className="max-w-md">
-                            <p className="text-xs leading-relaxed">{capabilityReasoning}</p>
-                          </TooltipContent>
-                        </Tooltip>
-                      </TooltipProvider>
-                    )}
-                  </div>
-                  <div>
-                    <Button
-                      type="submit"
-                      disabled={isCreating || !topic.trim()}
-                      className="gap-2 px-5"
-                    >
-                      {isCreating ? (
-                        <>
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                          Creating...
-                        </>
-                      ) : (
-                        <>
-                          <Sparkles className="h-4 w-4" /> Build Asset
-                          <ArrowRight className="h-4 w-4" />
-                        </>
-                      )}
-                    </Button>
-                  </div>
+                {/* Error message and reasoning tooltip */}
+                <div className="flex items-center gap-2">
+                  {createError && (
+                    <p className="text-sm text-destructive">{createError}</p>
+                  )}
+                  {capabilityReasoning && isHeroCollapsed && (
+                    <TooltipProvider delayDuration={100}>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button
+                            type="button"
+                            className="text-[11px] text-muted-foreground/60 hover:text-muted-foreground transition-colors flex items-center gap-1 group"
+                          >
+                            <span className="italic">View implementation flow</span>
+                            <span className="text-[10px] opacity-0 group-hover:opacity-100 transition-opacity">→</span>
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent side="top" align="start" className="max-w-md">
+                          <p className="text-xs leading-relaxed">{capabilityReasoning}</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  )}
                 </div>
               </form>
             </CardContent>
           </Card>
 
-          {/* Research agent callout */}
-          <div className="mx-auto max-w-3xl">
+          {/* Research agent callout - hidden when collapsed */}
+          <div
+            className={`mx-auto max-w-4xl transition-all duration-300 ease-out overflow-hidden ${
+              isHeroCollapsed ? "max-h-0 opacity-0" : "max-h-[200px] opacity-100"
+            }`}
+          >
             <div className="rounded-xl border border-primary/10 bg-primary/[0.03] backdrop-blur-sm px-4 py-3 text-left">
               <div className="flex items-start gap-3">
                 <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 mt-0.5">

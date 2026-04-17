@@ -1,7 +1,0 @@
-{
-  "demo_name": "LuxeBeauty Returns Intelligence",
-  "industry": "Retail & CPG",
-  "description": "Cosmetics retailer investigates a 3x spike in product returns. Dashboard shows the anomaly, Genie traces it to 3 SKUs from one production lot, Knowledge Assistant finds the root-cause incident report.",
-  "tags": ["retail", "returns", "dashboard", "genie", "knowledge-assistant", "multi-agent"],
-  "owner_name": "Demo Library"
-}

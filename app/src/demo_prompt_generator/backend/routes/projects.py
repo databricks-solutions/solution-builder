@@ -238,9 +238,8 @@ def create_project(
     session.commit()
     session.refresh(project)
 
-    # Create project directory with placeholder README
-    initial_readme = f"# {project_name}\n\n_README will be generated once the demo story is designed._\n"
-    create_project_directory(project.id, initial_readme)
+    # Create project directory (no README yet - agent will create it)
+    create_project_directory(project.id)
 
     # Save context document as a project file if provided
     if body.context_document:

@@ -7,7 +7,9 @@ New project-based architecture with file sync and Claude Code integration.
 
 from __future__ import annotations
 
+import json
 import uuid
+import zlib
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Optional
@@ -33,6 +35,25 @@ def generate_uuid() -> str:
 def utc_now() -> datetime:
     """Get current UTC timestamp."""
     return datetime.now(timezone.utc)
+
+
+def compress_reasoning(data: dict | None) -> bytes | None:
+    """Compress reasoning data using zlib (fast compression). Returns raw bytes."""
+    if not data:
+        return None
+    json_bytes = json.dumps(data).encode("utf-8")
+    return zlib.compress(json_bytes, level=1)  # level 1 = fastest
+
+
+def decompress_reasoning(data: bytes | None) -> dict | None:
+    """Decompress reasoning data from bytes."""
+    if not data:
+        return None
+    try:
+        json_bytes = zlib.decompress(data)
+        return json.loads(json_bytes.decode("utf-8"))
+    except Exception:
+        return None  # Corrupted or invalid data
 
 
 # ---------------------------------------------------------------------------
@@ -264,7 +285,7 @@ class Message(SQLModel, table=True):
     Chat message within a project's conversation.
 
     Since each project has exactly one conversation, messages link directly to project.
-    Metadata field stores reasoning (thinking/tools) for assistant messages.
+    Reasoning data stored as compressed bytes (zlib) for space efficiency.
     """
     __tablename__ = "messages"
 
@@ -279,8 +300,8 @@ class Message(SQLModel, table=True):
     role: str = SQLField(max_length=20)  # "user" | "assistant" | "system"
     content: str = SQLField(sa_column=Column(Text, nullable=False))
     is_error: bool = SQLField(default=False)
-    # Reasoning data for assistant messages (ordered list of thinking/tool entries)
-    reasoning_data: Optional[dict] = SQLField(default=None, sa_column=Column(JSON, nullable=True))
+    # Reasoning data for assistant messages - zlib compressed bytes
+    reasoning_data: Optional[bytes] = SQLField(default=None, sa_column=Column(LargeBinary, nullable=True))
     created_at: datetime = SQLField(default_factory=utc_now)
 
     __table_args__ = (

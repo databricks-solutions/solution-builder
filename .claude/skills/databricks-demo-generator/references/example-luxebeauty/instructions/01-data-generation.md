@@ -1,213 +1,114 @@
 # Data Generation
 
-> **Before starting**: Check relevant skill (`databricks-synthetic-data-gen` should be present if ai-dev-kit is installed).
+Generate synthetic parquet files and upload to the raw data volume.
 
-## Task
+## Time References (Dynamic)
 
-Generate synthetic parquet files and upload them to the raw data volume.
+| Reference | Calculation |
+|-----------|-------------|
+| STORY_END_DATE | NOW |
+| STORY_START_DATE | NOW - 13 months |
+| AFFECTED_LOT_DATE | NOW - 7 weeks |
+| Spike week | NOW - 5 to 6 weeks |
 
-**Approach**: Write a Python data generation script locally, then run it via Spark Connect to generate data directly on Databricks.
+## Output: `{raw_data_volume}/`
 
----
+| File | Rows | Notes |
+|------|------|-------|
+| customers.parquet | ~50K | Region: US 70%, EU 20%, APAC 10%. Loyalty: standard 60%, silver 30%, gold 10% |
+| products.parquet | ~80 | Skincare ~40 ($25-120), Makeup ~25 ($15-65), Haircare ~15 ($18-45) |
+| production_lots.parquet | ~1.5K | Format: LOT-YYYY-MMDD. Status: released/on_hold/recalled |
+| orders.parquet | ~200K | ~3,800/week baseline with seasonality |
+| order_items.parquet | ~320K | ~1.6 items/order avg. Assign lot_id using FIFO per product |
+| returns.parquet | ~25K | ~8% normal return rate |
 
-## Data Volume Principle
+## Data Variation (Non-Uniform Patterns)
 
-Generate enough data so that the anomaly (spike) is clearly visible above the baseline noise. With too little data, random variations obscure the spike.
+### Orders seasonality
+- Black Friday week: 3x baseline
+- Holiday (Dec 15-31): 2.2x
+- Mother's Day week: 2x
+- Valentine's week: 1.8x
+- Summer (Jun-Aug): 0.75x
+- Add ±15% daily noise
 
-**Rule of thumb**: Spike should be **at least 3x the baseline**. More volume = smoother baseline = clearer spike.
+### Regional patterns
+- US: higher Makeup sales (40% vs 30% baseline)
+- EU: higher Skincare sales (50% vs 40% baseline)
+- APAC: higher Haircare sales (25% vs 15% baseline)
 
----
+### Product popularity (Pareto)
+- Top 20% of products = 60% of sales
+- Create 5-8 "hero products" per category with 3x sales volume
+- Some products have higher return rates naturally (complex skincare ~12%, simple haircare ~5%)
 
-## Data Time Range
+### Customer behavior
+- Gold tier: 2.5x order frequency, 1.8x basket size, lower return rate (5%)
+- Silver tier: 1.5x order frequency, 1.3x basket size
+- Standard tier: baseline, higher return rate (10%)
+- ~30% of customers are one-time buyers
 
-**IMPORTANT**: The data should always be current so the demo remains relevant. Use dynamic dates relative to NOW:
+### Return timing
+- 60% of returns within 7 days
+- 30% within 8-21 days
+- 10% within 22-30 days
 
-| Date Reference | Calculation | Purpose |
-|----------------|-------------|---------|
-| STORY_END_DATE | **NOW** (current date) | Most recent data point |
-| STORY_START_DATE | NOW - 13 months | ~1 year of historical data |
-| AFFECTED_LOT_DATE | NOW - 7 weeks | Production date of bad lot |
-| Spike week | NOW - 5 to 6 weeks | When returns peak (visible in charts) |
-
----
-
-## Output Location
-
-Upload to the **raw_data** volume (path defined in 00-demo-overview.md).
-
-**Files to Generate**:
-```
-{raw_data_volume}/
-├── customers.parquet          (~50,000 rows)
-├── products.parquet           (~80 rows)
-├── production_lots.parquet    (~1,500 rows)
-├── orders.parquet             (~200,000 rows)
-├── order_items.parquet        (~320,000 rows)
-└── returns.parquet            (~25,000 rows)
-```
-
-**Why these volumes**: With ~25K total returns and ~480/week baseline, the spike week (~1,500 returns) is clearly 3x+ above normal. Smaller datasets have too much noise to see the signal.
-
----
+### Production facilities
+- Lyon: 50% of lots (Skincare focus)
+- Milan: 30% of lots (Makeup focus)
+- Singapore: 20% of lots (Haircare focus)
 
 ## Table Schemas
 
-### 1. customers (~50,000 rows)
+### customers
+`customer_id` (PK, CUST-NNNNNN), `email`, `first_name`, `last_name`, `region`, `registration_date`, `loyalty_tier`
 
-| Column | Type | Description |
-|--------|------|-------------|
-| customer_id | STRING | Primary key (format: CUST-NNNNNN) |
-| email | STRING | |
-| first_name | STRING | |
-| last_name | STRING | |
-| region | STRING | "US", "EU", "APAC" |
-| registration_date | DATE | |
-| loyalty_tier | STRING | "standard", "silver", "gold" |
+### products
+`product_id` (PK, SKU-NNNN), `product_name`, `category`, `subcategory`, `price_usd`, `cost_usd`, `launch_date`, `is_active`
 
-**Distribution**:
-- Region: US ~70%, EU ~20%, APAC ~10%
-- Loyalty: standard ~60%, silver ~30%, gold ~10%
+### production_lots
+`lot_id` (PK), `product_id` (FK), `production_date`, `facility`, `quantity_produced` (200-1000), `status`
 
----
+### orders
+`order_id` (PK, ORD-YYYYMMDD-NNNNNN), `customer_id` (FK), `order_date`, `order_timestamp`, `region`, `subtotal_usd`, `shipping_usd`, `total_usd`, `status`
 
-### 2. products (~80 rows)
+### order_items
+`order_item_id` (PK, OI-NNNNNNNNN), `order_id` (FK), `product_id` (FK), `lot_id` (FK), `quantity`, `unit_price_usd`, `line_total_usd`
 
-| Column | Type | Description |
-|--------|------|-------------|
-| product_id | STRING | Primary key (format: SKU-NNNN) |
-| product_name | STRING | Display name |
-| category | STRING | "Skincare", "Makeup", "Haircare" |
-| subcategory | STRING | Specific type |
-| price_usd | DECIMAL(8,2) | Retail price |
-| cost_usd | DECIMAL(8,2) | Manufacturing cost |
-| launch_date | DATE | Product launch date |
-| is_active | BOOLEAN | Currently sold |
+### returns
+`return_id` (PK, RET-NNNNNNNN), `order_item_id` (FK), `return_date`, `return_timestamp`, `refund_amount_usd`, `return_reason`, `return_reason_text`
 
-**The 3 affected products** (these are the products that will have high returns):
-| SKU | Product Name | Category | Subcategory | Price | Cost |
-|-----|--------------|----------|-------------|-------|------|
-| SKU-1001 | Hydrating Serum 30ml | Skincare | Serums | ~$68 | ~$12 |
-| SKU-1002 | Vitamin C Cream 50ml | Skincare | Creams | ~$55 | ~$10 |
-| SKU-1003 | HA Moisture Boost 15ml | Skincare | Serums | ~$42 | ~$8 |
+## The Event (Deterministic Values)
 
-**Category Distribution**:
-- Skincare: ~40 products ($25-$120)
-- Makeup: ~25 products ($15-$65)
-- Haircare: ~15 products ($18-$45)
+**Affected products** (must exist with these exact values):
 
----
+| product_id | product_name | category | subcategory | price_usd | cost_usd |
+|------------|--------------|----------|-------------|-----------|----------|
+| SKU-1001 | Hydrating Serum 30ml | Skincare | Serums | 68.00 | 12.00 |
+| SKU-1002 | Vitamin C Cream 50ml | Skincare | Creams | 55.00 | 10.00 |
+| SKU-1003 | HA Moisture Boost 15ml | Skincare | Serums | 42.00 | 8.00 |
 
-### 3. production_lots (~1,500 rows)
+**Affected lot** (must exist):
+- `lot_id`: LOT-{YYYY}-{MMDD} based on AFFECTED_LOT_DATE
+- `production_date`: AFFECTED_LOT_DATE
+- `facility`: Lyon
+- `quantity_produced`: ~1,700 per SKU (~5,000 total)
+- `status`: released
+- Creates 3 rows (one per affected SKU)
 
-| Column | Type | Description |
-|--------|------|-------------|
-| lot_id | STRING | Primary key (format: LOT-YYYY-MMDD) |
-| product_id | STRING | FK to products |
-| production_date | DATE | Manufacturing date |
-| facility | STRING | Manufacturing location (e.g., "Lyon") |
-| quantity_produced | INT | Units in lot (200-1000) |
-| status | STRING | "released", "on_hold", "recalled" |
+**Affected lot distribution**:
+- ~5,000 order_items reference the affected lot
+- Orders occur between AFFECTED_LOT_DATE and AFFECTED_LOT_DATE + 5 weeks
+- ~1,500 returns from affected lot (~30% return rate)
+- Return dates: AFFECTED_LOT_DATE + 1 week to + 6 weeks
+- Peak week (NOW - 5 to 6 weeks): ~500 returns → ~$180K vs ~$60K baseline
 
-**The affected lot** - this is the lot that causes the returns spike:
-- Lot ID: `LOT-{YYYY}-{MMDD}` based on AFFECTED_LOT_DATE (e.g., if AFFECTED_LOT_DATE is Feb 12, 2025 → LOT-2025-0212)
-- Production date: AFFECTED_LOT_DATE (NOW - 7 weeks)
-- Products: SKU-1001, SKU-1002, SKU-1003
-- Quantity: ~1,700 units each (5,000 total)
-- Status: released
+**Texture complaints** (return_reason_text for affected lot returns):
+- "Cream has grainy texture, not smooth like usual"
+- "Product separated in the jar, looks curdled"
+- "Consistency is watery, doesn't feel right"
+- "Texture feels off compared to my last purchase"
+- "Serum looks cloudy and thick, not like before"
+- "Product texture has changed, feels gritty"
 
-**Why this matters**: The demo story is that this lot had equipment issues during production, but was released anyway. The lot ID ties the returns back to the incident report.
-
----
-
-### 4. orders (~200,000 rows)
-
-| Column | Type | Description |
-|--------|------|-------------|
-| order_id | STRING | Primary key (format: ORD-YYYYMMDD-NNNNNN) |
-| customer_id | STRING | FK to customers |
-| order_date | DATE | Order placement date |
-| order_timestamp | TIMESTAMP | Exact order time |
-| region | STRING | Customer region |
-| subtotal_usd | DECIMAL(10,2) | Sum of items |
-| shipping_usd | DECIMAL(6,2) | Shipping cost |
-| total_usd | DECIMAL(10,2) | Total amount |
-| status | STRING | "delivered", "shipped", "processing" |
-
-**Seasonality** (baseline ~3,800 orders/week) - this makes the data more realistic:
-| Period | Multiplier |
-|--------|------------|
-| Valentine's (Feb 7-14) | ~1.8x |
-| Mother's Day (May 5-11) | ~2.0x |
-| Black Friday (Nov 24-30) | ~3.0x |
-| Holiday (Dec 8-23) | ~2.2x |
-| Summer (Jun-Aug) | ~0.75x |
-| Normal periods | 1.0x |
-
----
-
-### 5. order_items (~320,000 rows)
-
-| Column | Type | Description |
-|--------|------|-------------|
-| order_item_id | STRING | Primary key (format: OI-NNNNNNNNN) |
-| order_id | STRING | FK to orders |
-| product_id | STRING | FK to products |
-| lot_id | STRING | FK to production_lots |
-| quantity | INT | Units ordered (usually 1) |
-| unit_price_usd | DECIMAL(8,2) | Price at sale |
-| line_total_usd | DECIMAL(10,2) | quantity × unit_price |
-
-**Affected lot assignment**:
-- Around 5,000 order_items should reference the affected lot
-- These orders happen between AFFECTED_LOT_DATE and AFFECTED_LOT_DATE + 5 weeks (as the lot inventory ships out)
-- Use FIFO logic: assign to oldest available lot for each product
-
-**Why this matters**: This links orders to the specific production lot, enabling the "trace back to source" analysis in Genie.
-
----
-
-### 6. returns (~25,000 rows)
-
-| Column | Type | Description |
-|--------|------|-------------|
-| return_id | STRING | Primary key (format: RET-NNNNNNNN) |
-| order_item_id | STRING | FK to order_items |
-| return_date | DATE | Return initiated date |
-| return_timestamp | TIMESTAMP | Exact return time |
-| refund_amount_usd | DECIMAL(10,2) | Refund issued |
-| return_reason | STRING | "quality", "wrong_item", "changed_mind", "damaged", "other" |
-| return_reason_text | STRING | Free text customer feedback |
-
-**Normal return distribution**: quality ~25%, changed_mind ~40%, wrong_item ~15%, damaged ~10%, other ~10%
-
-**Affected lot returns** - this creates the spike that triggers the investigation:
-- Around 1,500 returns from affected lot items (~30% return rate vs ~8% normal)
-- Return dates: AFFECTED_LOT_DATE + 1 week to AFFECTED_LOT_DATE + 6 weeks (7-14 days after order)
-- Peak week: NOW - 5 to 6 weeks (~500 returns, creating the ~$180K spike vs ~$60K baseline)
-- Return reason: predominantly "quality"
-- Return reason text: texture complaints like:
-  - "Cream has grainy texture, not smooth like usual"
-  - "Product separated in the jar, looks curdled"
-  - "Consistency is watery, doesn't feel right"
-  - "Texture feels off compared to my last purchase"
-  - "Serum looks cloudy and thick, not like before"
-  - "Product texture has changed, feels gritty"
-
-**Why this matters**: The texture complaints in the return_reason_text will match the "texture variations" mentioned in the incident report, connecting the dots for the user.
-
----
-
-## Validation
-
-After generating and uploading the data, verify the key demo facts are present.
-
-**Key checks**:
-
-| What to Check | What You Should See |
-|---------------|---------------------|
-| Affected lot in production_lots | 3 rows (one per affected SKU) |
-| Order items with affected lot | Around 5,000 items |
-| Returns from affected lot | Around 1,500 returns (~30% return rate) |
-| Returns in spike week (NOW - 5 to 6 weeks) | Significantly higher than other weeks (~$180K vs ~$60K) |
-| Return reasons for affected lot | Mostly "quality" with texture complaints |
-
+Return reason for affected lot: predominantly "quality"

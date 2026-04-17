@@ -948,24 +948,113 @@ export interface CapabilityInput {
   isDefault?: boolean;
 }
 
+export interface UseCaseIdea {
+  title: string;
+  hook: string;
+  datasources: string[];
+}
+
+export interface IdeaToRefine {
+  title: string;
+  hook: string;
+  datasources: string[];
+}
+
 export interface SuggestCapabilitiesResponse {
   capabilities: string[];
   reasoning?: string | null;
+  ideas: UseCaseIdea[];
 }
 
-export async function suggestCapabilities(
+// SSE event types for streaming capability suggestions
+export type SuggestEvent =
+  | { type: "count"; data: { count: number } }
+  | { type: "idea"; data: UseCaseIdea }
+  | { type: "capabilities"; data: { capabilities: string[] } }
+  | { type: "reasoning"; data: { text: string } }
+  | { type: "error"; data: { error: string; capabilities: string[] } };
+
+/**
+ * Stream capability suggestions and use-case ideas via SSE.
+ * Yields events as they arrive from the server.
+ */
+export async function* streamSuggestCapabilities(
   prompt: string,
   capabilities: CapabilityInput[],
-  signal?: AbortSignal
-): Promise<SuggestCapabilitiesResponse> {
+  signal?: AbortSignal,
+  refineIdea?: IdeaToRefine,
+  refineComment?: string
+): AsyncGenerator<SuggestEvent> {
+  const body: Record<string, unknown> = { prompt, capabilities };
+  if (refineIdea && refineComment) {
+    body.refine_idea = refineIdea;
+    body.refine_comment = refineComment;
+  }
+
   const resp = await fetch(apiUrl("/api/capabilities/suggest"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ prompt, capabilities }),
+    body: JSON.stringify(body),
     signal,
   });
-  if (!resp.ok) throw new Error(`Failed to suggest capabilities: ${resp.status}`);
-  return resp.json();
+
+  if (!resp.ok) {
+    throw new Error(`Failed to suggest capabilities: ${resp.status}`);
+  }
+
+  const reader = resp.body?.getReader();
+  if (!reader) {
+    throw new Error("No response body");
+  }
+
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+
+      // Parse SSE events from buffer
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || ""; // Keep incomplete line in buffer
+
+      let currentEvent = "";
+      let currentData = "";
+
+      for (const line of lines) {
+        if (line.startsWith("event: ")) {
+          currentEvent = line.slice(7).trim();
+        } else if (line.startsWith("data: ")) {
+          currentData = line.slice(6);
+        } else if (line === "" && currentEvent && currentData) {
+          // End of event, emit it
+          try {
+            const parsed = JSON.parse(currentData);
+            if (currentEvent === "count") {
+              yield { type: "count", data: parsed };
+            } else if (currentEvent === "idea") {
+              yield { type: "idea", data: parsed as UseCaseIdea };
+            } else if (currentEvent === "capabilities") {
+              yield { type: "capabilities", data: parsed };
+            } else if (currentEvent === "reasoning") {
+              yield { type: "reasoning", data: parsed };
+            } else if (currentEvent === "error") {
+              yield { type: "error", data: parsed };
+            }
+          } catch {
+            console.warn("Failed to parse SSE data:", currentData);
+          }
+          currentEvent = "";
+          currentData = "";
+        }
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
 }
 
 export interface CurrentUser {

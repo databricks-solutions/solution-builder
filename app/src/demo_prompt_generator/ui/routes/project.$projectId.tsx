@@ -142,7 +142,11 @@ function ProjectPage() {
   const [mobilePanel, setMobilePanel] = useState<"files" | "chat">("chat");
 
   // Chat panel resize state
-  const [chatWidth, setChatWidth] = useState(520);
+  // Start wider (650px) when no README exists, shrink to default (520px) once README is created
+  const DEFAULT_CHAT_WIDTH = 520;
+  const INITIAL_CHAT_WIDTH = 650; // Wider for initial ideation phase
+  const [chatWidth, setChatWidth] = useState(INITIAL_CHAT_WIDTH);
+  const hasReadmeRef = useRef(false);
   const isResizingRef = useRef(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const MIN_CHAT_WIDTH = 360;
@@ -195,6 +199,18 @@ function ProjectPage() {
       .catch(() => setLinkedTemplate(null));
   }, [projectId]);
 
+  // Auto-shrink chat panel when README is created (transition from ideation to normal)
+  useEffect(() => {
+    const hasReadme = files.some((f) => f.path === "README.md");
+    if (hasReadme && !hasReadmeRef.current) {
+      // README just appeared — shrink chat panel to default width
+      hasReadmeRef.current = true;
+      setChatWidth(DEFAULT_CHAT_WIDTH);
+    } else if (!hasReadme) {
+      hasReadmeRef.current = false;
+    }
+  }, [files]);
+
   // Ref to track selectedFile without causing handleSendMessage to recreate
   const selectedFileRef = useRef(selectedFile);
   selectedFileRef.current = selectedFile;
@@ -231,6 +247,9 @@ function ProjectPage() {
         const readme = fileList.find((f) => f.path === "README.md");
         if (readme) {
           setSelectedFile("README.md");
+          // README already exists — use default chat width
+          hasReadmeRef.current = true;
+          setChatWidth(DEFAULT_CHAT_WIDTH);
         } else if (fileList.length > 0) {
           setSelectedFile(fileList[0].path);
         }
@@ -1196,7 +1215,7 @@ function ProjectPage() {
 
         {/* Chat panel (right side, full-width on mobile when active) */}
         <div
-          className={`h-full ${
+          className={`h-full transition-[width] duration-300 ease-in-out ${
             mobilePanel === "files"
               ? "hidden md:block md:shrink-0"
               : "w-full md:w-auto md:shrink-0"

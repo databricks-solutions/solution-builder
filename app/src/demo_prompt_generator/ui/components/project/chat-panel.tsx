@@ -269,8 +269,8 @@ const LiveReasoningPopup = memo(function LiveReasoningPopup({
 
   return createPortal(
     <div
-      className={`fixed top-20 right-4 w-96 max-h-80 bg-background/95 backdrop-blur-xl border border-border/60 rounded-xl shadow-xl z-50 flex flex-col overflow-hidden transition-all duration-500 ${
-        isFadingOut ? "opacity-0 translate-x-4 scale-95" : "opacity-100 translate-x-0 scale-100"
+      className={`fixed bottom-4 left-4 w-[480px] max-h-56 bg-background/95 backdrop-blur-xl border border-border/60 rounded-xl shadow-xl z-50 flex flex-col overflow-hidden transition-all duration-500 ${
+        isFadingOut ? "opacity-0 -translate-x-4 scale-95" : "opacity-100 translate-x-0 scale-100"
       }`}
     >
       {/* Header */}
