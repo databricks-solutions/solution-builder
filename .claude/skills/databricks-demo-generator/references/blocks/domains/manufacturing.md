@@ -2,7 +2,7 @@
 name: Manufacturing & Industrial
 category: domain
 suggested_patterns: [predictive-maintenance, anomaly-detection, real-time-monitoring, compliance-audit]
-suggested_capabilities: [aibi-dashboards, genie, sdp, notebooks-eda, model-serving, streaming, knowledge-assistant]
+suggested_capabilities: [aibi-dashboards, genie, sdp, model-serving, streaming, knowledge-assistant]
 ---
 
 ## Terminology

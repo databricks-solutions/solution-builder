@@ -3,6 +3,7 @@ name: AI Functions
 category: lakeflow
 disabled: false
 buildable: false
+skill: databricks-ai-functions
 ---
 
 # AI Functions (ai_query)
@@ -26,13 +27,9 @@ Applying AI to production data requires moving data out, building pipelines, man
 
 When they need to enrich data at scale - classify tickets, extract entities, summarize documents, translate content, or apply any AI transformation. "Just add a column with `SELECT ai_classify(text, '["urgent", "normal"]') FROM tickets`."
 
-## How It Works
+## Implementation
 
-- **Call from SQL**: `SELECT ai_classify(text, ARRAY('urgent', 'normal')) FROM tickets` — no Python, no notebooks
-- **Task-specific functions**: `ai_extract`, `ai_summarize`, `ai_sentiment`, `ai_translate`, `ai_mask` — purpose-built for common tasks
-- **General function**: `ai_query(model, prompt)` for custom prompts when task-specific functions don't fit
-- **Batch processing**: Handles parallelization, retries, fault tolerance — processes millions of rows
-- **Use in SDP**: Add AI enrichment as a column in your pipeline — runs at scale during transformation
+The `databricks-ai-functions` ai-dev-kit skill provides all implementation details — API usage, configuration, and code patterns. The instructions you generate should specify WHAT to build and WHY (based on the demo story), not HOW.
 
 ## Demo Tips
 

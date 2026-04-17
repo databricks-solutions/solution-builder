@@ -2,6 +2,7 @@
 name: Knowledge Assistant
 category: agent-bricks
 disabled: false
+skill: databricks-agent-bricks
 ---
 
 # Knowledge Assistant
@@ -22,7 +23,7 @@ A Knowledge Assistant performs retrieval-augmented Q&A over unstructured documen
 2. **The smoking gun pattern:** One document must contain a specific finding that connects to the data anomaly — a confirmed breach report, an inspection finding, a clinical study result. This is the "aha moment" in the demo.
 3. **Identifier cross-referencing:** Documents must reference the same IDs, dates, and entity names as the structured data (merchant IDs, device fingerprints, patient IDs, part numbers). This creates the feeling of a unified investigation.
 4. **System instructions:** Frame the KA as a domain specialist. Include guidance on how to search, what to quote, and how to connect findings to the data patterns.
-5. **Document generation:** PDFs are generated synthetically and uploaded to a Unity Catalog volume, then indexed for retrieval.
+5. **Document generation:** PDFs are generated synthetically — the ai-dev-kit skill handles volume upload and indexing.
 
 ## Common Pitfalls
 

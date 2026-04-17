@@ -1,7 +1,7 @@
 ---
 name: Real-Time Monitoring & Automated Response
 category: pattern
-suggested_capabilities: [sdp, aibi-dashboards, genie, knowledge-assistant, supervisor-agent, notebooks-eda]
+suggested_capabilities: [sdp, aibi-dashboards, genie, knowledge-assistant, supervisor-agent]
 ---
 
 ## Narrative Arc

@@ -3,6 +3,7 @@ name: Zerobus Ingest
 category: lakeflow
 disabled: false
 buildable: false
+skill: databricks-zerobus-ingest
 ---
 
 # Zerobus Ingest
@@ -31,14 +32,11 @@ Any "stream data directly from devices/apps/services" scenario. Perfect for IoT 
 - Combine with SDP for real-time transformations after ingestion
 - Show the REST/gRPC simplicity: one API call lands data in a governed table
 - For observability demos, highlight OpenTelemetry support (logs, metrics, traces)
-- **Implementation note**: In demos, simulate push ingestion with a script that calls the Zerobus API
+- For demos, simulate push ingestion — the ai-dev-kit skill handles the implementation
 
-## How It Works
+## Implementation
 
-- **Your app calls an API**: Instead of dropping files or setting up Kafka, your app/device just POSTs data to a Zerobus endpoint (REST, gRPC, or OpenTelemetry)
-- **Data lands in a Delta table**: Shows up in Unity Catalog immediately — query it with SQL, transform with SDP
-- **No infrastructure**: You don't provision brokers or clusters — Databricks handles scaling
-- **Real-time ready**: Combine with SDP streaming tables to transform data as it arrives
+The `databricks-zerobus-ingest` ai-dev-kit skill provides all implementation details — API usage, configuration, and code patterns. The instructions you generate should specify WHAT to build and WHY (based on the demo story), not HOW.
 
 ## Use Cases
 

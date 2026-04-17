@@ -1,7 +1,7 @@
 ---
 name: Anomaly Detection & Root Cause Investigation
 category: pattern
-suggested_capabilities: [aibi-dashboards, genie, knowledge-assistant, supervisor-agent, sdp, notebooks-eda]
+suggested_capabilities: [aibi-dashboards, genie, knowledge-assistant, supervisor-agent, sdp]
 ---
 
 ## Narrative Arc

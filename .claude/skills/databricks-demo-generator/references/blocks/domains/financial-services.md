@@ -2,7 +2,7 @@
 name: Financial Services
 category: domain
 suggested_patterns: [anomaly-detection, compliance-audit, real-time-monitoring, customer-segmentation]
-suggested_capabilities: [aibi-dashboards, genie, knowledge-assistant, supervisor-agent, sdp, model-serving, streaming, notebooks-eda]
+suggested_capabilities: [aibi-dashboards, genie, knowledge-assistant, supervisor-agent, sdp, model-serving, streaming]
 ---
 
 ## Terminology

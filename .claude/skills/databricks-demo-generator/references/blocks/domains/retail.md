@@ -2,7 +2,7 @@
 name: Retail & CPG
 category: domain
 suggested_patterns: [anomaly-detection, customer-segmentation, real-time-monitoring, predictive-maintenance]
-suggested_capabilities: [aibi-dashboards, genie, sdp, knowledge-assistant, supervisor-agent, synthetic-data-gen, notebooks-eda]
+suggested_capabilities: [aibi-dashboards, genie, sdp, knowledge-assistant, supervisor-agent, synthetic-data-gen]
 ---
 
 ## Terminology

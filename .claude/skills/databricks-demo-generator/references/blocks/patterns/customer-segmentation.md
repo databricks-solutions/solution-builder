@@ -1,7 +1,7 @@
 ---
 name: Customer Segmentation & Predictive Targeting
 category: pattern
-suggested_capabilities: [aibi-dashboards, genie, sdp, notebooks-eda, knowledge-assistant, supervisor-agent]
+suggested_capabilities: [aibi-dashboards, genie, sdp, knowledge-assistant, supervisor-agent]
 ---
 
 ## Narrative Arc

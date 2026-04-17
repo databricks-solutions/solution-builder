@@ -2,6 +2,7 @@
 name: Streaming
 category: lakeflow
 disabled: false
+skill: databricks-spark-structured-streaming
 ---
 
 # Streaming
@@ -19,14 +20,10 @@ Structured Streaming and related ingestion tools (Auto Loader, Kafka, Zerobus) e
 
 ## Key Configuration Decisions
 
-1. **Ingestion pattern:** Choose based on source type:
-   - **Auto Loader (cloudFiles):** Best for file-based ingestion from volumes. Most common in demos. Incrementally processes new files as they arrive.
-   - **Kafka:** For demos that emphasize event-driven architecture. Requires a Kafka cluster or Confluent Cloud.
-   - **Zerobus Ingest:** Databricks-native gRPC ingestion directly into Delta tables. No message bus needed. Best for demos that want to show Databricks-native real-time without Kafka complexity.
-2. **Trigger mode:** `processingTime` for continuous (e.g., every 10 seconds), `availableNow` for micro-batch (process what is available, then stop). For demos, `availableNow` in a pipeline is typical.
-3. **Watermarking:** Define watermarks for late-arriving data if using windowed aggregations. Standard: 10 minutes to 1 hour depending on the use case.
-4. **Schema evolution:** Auto Loader handles schema evolution automatically with `cloudFiles.schemaEvolutionMode`. Set to `addNewColumns` for demos.
-5. **Checkpoint location:** Every streaming query needs a checkpoint path. Use volumes: `/Volumes/catalog/schema/checkpoints/stream_name/`.
+1. **Ingestion pattern:** Auto Loader for file-based ingestion (most common in demos). Kafka for event-driven architecture demos. Zerobus for Databricks-native real-time without Kafka complexity.
+2. **Trigger mode:** For demos, `availableNow` in a pipeline is typical (process what's available, then stop).
+
+The `databricks-spark-structured-streaming` ai-dev-kit skill handles all streaming configuration, checkpointing, and schema evolution details.
 
 ## Common Pitfalls
 

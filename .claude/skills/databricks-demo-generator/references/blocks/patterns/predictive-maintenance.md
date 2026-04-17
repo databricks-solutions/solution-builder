@@ -1,7 +1,7 @@
 ---
 name: Predictive Maintenance & Failure Prevention
 category: pattern
-suggested_capabilities: [sdp, aibi-dashboards, genie, notebooks-eda, knowledge-assistant, supervisor-agent]
+suggested_capabilities: [sdp, aibi-dashboards, genie, knowledge-assistant, supervisor-agent]
 ---
 
 ## Narrative Arc

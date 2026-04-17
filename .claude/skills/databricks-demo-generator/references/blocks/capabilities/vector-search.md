@@ -2,6 +2,7 @@
 name: Vector Search
 category: agent-bricks
 disabled: false
+skill: databricks-vector-search
 ---
 
 # Vector Search
@@ -18,11 +19,11 @@ Databricks Vector Search creates and queries vector indexes for similarity searc
 
 ## Key Configuration Decisions
 
-1. **Endpoint type:** Storage-optimized endpoints are recommended for most demos (lower cost, sufficient for demo-scale corpora). Standard endpoints for latency-sensitive production patterns.
-2. **Index type:** Delta Sync Index (automatically syncs with a Delta table of document chunks) is the standard choice. Direct Vector Access Index for manual management.
-3. **Embedding model:** Use the Databricks Foundation Model API embedding endpoint (`databricks-bge-large-en` or similar). Avoids external API dependencies.
-4. **Chunking strategy:** Chunk documents into 500-1000 token segments with 50-100 token overlap. Each chunk needs metadata (document title, section, page number) for citation.
-5. **Source table:** A Delta table with columns: `chunk_id`, `document_title`, `chunk_text`, `embedding_vector`, and metadata columns. The pipeline or a notebook populates this.
+1. **Endpoint type:** Storage-optimized for most demos (lower cost, sufficient for demo-scale corpora).
+2. **Index type:** Delta Sync Index (automatically syncs with a source table) is the standard choice.
+3. **Document corpus:** Design the chunk source table to include metadata (document title, section, page number) for proper citations in the KA.
+
+The `databricks-vector-search` ai-dev-kit skill handles endpoint creation, embedding configuration, chunking strategy, and index management.
 
 ## Common Pitfalls
 
