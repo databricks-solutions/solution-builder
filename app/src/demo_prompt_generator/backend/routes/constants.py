@@ -181,36 +181,34 @@ IMPORTANT RULES:
    If the user's prompt is generic or doesn't specifically require different capabilities, return the defaults, keep it simple, don't add any other capabilities or overthink.
    Example: "Demo about customer 360" should return the defaults.
 
-2. Unity Catalog (unity-catalog) and Genie Code (genie-code) should ALMOST ALWAYS be included unless:
-   - The user explicitly says they don't want them, OR
-   - They are in the "User excluded" list below
+2. Unity Catalog (unity-catalog) should ALMOST ALWAYS be included unless:
+   - The user explicitly says they don't want it, OR
+   - It is in the "User excluded" list below
 
 3. Consider the relationships between capabilities (e.g., dashboards need data from SDP)
 
 4. Only select capabilities that are relevant to the user's demo scenario or mentioned in the user's prompt.
-   Example: "Demo about customer 360 with an app" should return the defaults + an app (mentioned) and lakebase (because app leverages lakebase).
-   Example: "An IOT demo focusing on full UC capabilities" should return:
-      - "lakeflow-connect" + "sdp" (we always need some data),
-      - "genie-code" (always good to mention),
-      - "ai-bi-dashboards" + "genie" (simple wow effect, we don't do all the agent bricks ka/mas/etc as the demo wants to focus on the UC capabilities not AI),
-      - "unity-catalog", "data-classification", "data-quality", "abac", "delta-sharing" (all UC capabilities as requested)
+   Example: "Demo about customer 360 with an app" should return the defaults + app-python (mentioned) and lakebase (because app leverages lakebase).
+   Example: "An IOT demo with streaming" should return:
+      - "sdp" (we always need data processing),
+      - "streaming" (real-time ingestion as requested),
+      - "aibi-dashboards" + "genie" (simple wow effect),
+      - "unity-catalog" (governance)
    Example: "Fraud detection in bank payment, with an app" should return:
-      - "lakeflow-connect" + "sdp" (we always need some data),
-      - "genie-code" (always good to mention),
-      - "ai-bi-dashboards" + "genie" (simple wow effect),
+      - "sdp" (we always need data processing),
+      - "aibi-dashboards" + "genie" (simple wow effect),
       - "unity-catalog" (governance is key for banking),
       - "knowledge-assistant" + "supervisor-agent" (AI agents for investigation),
-      - "databricks-apps" + "lakebase" (app was mentioned, lakebase is a dependency),
-      - "model-training-mlflow" + "model-serving" (fraud detection implies ML models for scoring transactions in real-time)
+      - "app-python" + "lakebase" (app was mentioned, lakebase is a dependency),
+      - "model-serving" (fraud detection implies ML models for scoring transactions in real-time)
 
 5. Only return capability IDs from the list provided
 
 6. Write a "reasoning" field: a 1-2 sentence explanation describing the data flow and why each capability was selected (this shouldn't include a use-case or story specific details).
-   Use product names naturally in the flow (ingestion → processing → analysis → AI → app).
+   Use product names naturally in the flow (processing → analysis → AI → app).
    Examples:
-   - "Customer 360 demo": "Customer data ingested via Lakeflow Connect and unified through SDP (assisted by Genie Code). Business users explore insights with AI/BI Dashboards and ask questions via Genie. Knowledge Assistant provides context from documentation while Supervisor Agent orchestrates investigation workflows. Simplified access through Databricks One, all governed by Unity Catalog."
-   - "IOT demo with full UC": "IOT sensor data ingested via Lakeflow Connect and processed through SDP (assisted by Genie Code). Analysis powered by AI/BI Dashboards with natural language exploration via Genie. Full governance stack enabled: Unity Catalog for lineage, Data Classification for sensitive tags, Data Quality for monitoring, ABAC for access control, and Delta Sharing for partner collaboration."
-   - "Fraud detection with app": "Transaction data ingested via Lakeflow Connect and processed through SDP (assisted by Genie Code). Fraud models trained with MLflow and deployed via Model Serving for real-time scoring. Investigation workflows powered by Knowledge Assistant and Supervisor Agent. Analysis via AI/BI Dashboards and Genie. Operational app built with Databricks Apps backed by Lakebase, all governed by Unity Catalog.\""""
+   - "Customer 360 demo": "Customer data unified through SDP. Business users explore insights with AI/BI Dashboards and ask questions via Genie. Knowledge Assistant provides context from documentation while Supervisor Agent orchestrates investigation workflows, all governed by Unity Catalog."
+   - "Fraud detection with app": "Transaction data processed through SDP. Fraud models deployed via Model Serving for real-time scoring. Investigation workflows powered by Knowledge Assistant and Supervisor Agent. Analysis via AI/BI Dashboards and Genie. Operational app built with Databricks Apps backed by Lakebase, all governed by Unity Catalog.\""""
 
     user_prompt = f"""Demo description:
 {body.prompt}
@@ -228,7 +226,7 @@ Return a JSON object with two keys:
 - "reasoning": 1-2 sentence explanation of the data flow mentioning each selected product by name
 
 Remember: respect user constraints, and when in doubt, stick to the defaults.
-Example: {{"capabilities": ["sdp", "ai-bi-dashboards", "genie", "unity-catalog", "genie-code"], "reasoning": "Customer data ingested via Lakeflow Connect and processed through SDP..."}}"""
+Example: {{"capabilities": ["sdp", "aibi-dashboards", "genie", "unity-catalog", "knowledge-assistant", "supervisor-agent"], "reasoning": "Customer data processed through SDP, explored via AI/BI Dashboards and Genie..."}}"""
 
     try:
         llm = LLMService(ws, config)

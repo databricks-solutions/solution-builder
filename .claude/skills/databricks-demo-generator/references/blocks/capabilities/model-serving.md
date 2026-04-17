@@ -2,6 +2,7 @@
 name: Model Serving
 category: agent-bricks
 disabled: false
+skill: databricks-model-serving
 ---
 
 # Model Serving
@@ -19,10 +20,10 @@ Databricks Model Serving deploys ML models as real-time REST endpoints. In demos
 ## Key Configuration Decisions
 
 1. **Model type:** Binary classification is the most common demo pattern (fraud/not-fraud, readmission/no-readmission, defect/no-defect). Keep it simple — the audience cares about the business outcome, not the algorithm.
-2. **Feature engineering:** Define 15-25 features across 4-5 categories (transaction features, velocity features, entity profile features, contextual features). Document each feature's source table.
-3. **Training approach:** Use MLflow for experiment tracking and model registry. Algorithm choice: XGBoost/LightGBM for tabular data. Train in a notebook, register to MLflow, deploy to a serving endpoint.
+2. **Feature design:** Define 15-25 features across 4-5 categories relevant to the business domain. Feature importance should align with the demo narrative.
+3. **Training approach:** Use MLflow for experiment tracking. Keep it simple — XGBoost/LightGBM for tabular data. The model doesn't need to be production-grade for a demo.
 4. **Evaluation metrics:** Pick 3-4 metrics that map to business outcomes (not just AUC). Include at least one business metric like "fraud dollars caught" or "readmissions prevented."
-5. **Serving endpoint:** Configure with input/output schema. Latency target should be stated (typically <100ms for real-time scoring).
+5. **Serving endpoint:** State the latency target (typically <100ms). Include output fields that connect to the demo story (risk score, recommended action).
 
 ## Common Pitfalls
 

@@ -2,6 +2,7 @@
 name: Databricks Apps
 category: apps-infra
 disabled: false
+skill: databricks-app-python
 ---
 
 # Databricks Apps
@@ -20,9 +21,9 @@ Databricks Apps deploy full-stack web applications (FastAPI backend + React fron
 
 1. **Framework choice:** Use `apx` (FastAPI + React) for full-stack apps with custom UI. Use Streamlit or Gradio for quick prototypes or data-science-focused audiences.
 2. **OAuth model:** Choose between app-level auth (service principal — app acts as itself) and user-level auth (passthrough — app acts as the logged-in user). User-level is more secure for demos with row-level access control.
-3. **Resource bindings:** Declare SQL warehouses, serving endpoints, Lakebase databases, and secrets as app resources in `app.yaml`. Never hardcode connection strings.
-4. **Backend routes:** FastAPI routes that query SQL warehouses, call serving endpoints, or read from Lakebase. Keep the API surface small — 3-5 endpoints for a demo.
-5. **Frontend components:** React components for data tables, charts, forms, and status indicators. Use the apx component library for consistent styling.
+3. **Resource bindings:** Declare SQL warehouses, serving endpoints, Lakebase databases as app resources — never hardcode connection strings. The ai-dev-kit skill handles `app.yaml` configuration.
+4. **Backend routes:** Keep the API surface small — 3-5 endpoints for a demo.
+5. **Frontend components:** Use 2-4 screens for a demo app — don't over-scope the UI.
 
 ## Common Pitfalls
 

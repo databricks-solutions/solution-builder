@@ -2,6 +2,7 @@
 name: Supervisor Agent
 category: agent-bricks
 disabled: false
+skill: databricks-agent-bricks
 ---
 
 # Multi-Agent Supervisor

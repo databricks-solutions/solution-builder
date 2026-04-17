@@ -2,6 +2,7 @@
 name: Spark Declarative Pipelines
 category: lakeflow
 disabled: false
+skill: databricks-spark-declarative-pipelines
 ---
 
 # Spark Declarative Pipelines
@@ -17,26 +18,13 @@ Spark Declarative Pipelines (SDP, formerly DLT) define medallion-architecture da
 
 ## Key Configuration Decisions
 
-1. **Bronze layer:** One streaming table per source system. Use Auto Loader or cloud files for ingestion. Keep the schema as-is from the source — no transformation here.
-2. **Silver layer:** Enrichment and joins. Combine Bronze tables into denormalized, analysis-ready tables. Add computed columns (flags, scores, categorizations). This is where foreign key joins happen.
-3. **Gold layer:** Aggregations and business metrics. Materialized views grouped by the dimensions the dashboard and Genie need (date, category, entity). Design Gold tables to answer the demo's key questions directly.
-4. **Data quality expectations:** Add `CONSTRAINT` expectations on Silver and Gold tables for NULL checks, referential integrity, and value range validation.
-5. **Pipeline configuration:** Serverless compute, continuous or triggered mode. For demos, triggered mode with a single refresh is typical.
+1. **Bronze layer:** One streaming table per source system. Keep the schema as-is from the source — no transformation here.
+2. **Silver layer:** Enrichment and joins. Combine Bronze tables into denormalized, analysis-ready tables. Add computed columns (flags, scores, categorizations).
+3. **Gold layer:** Aggregations and business metrics. Design Gold tables backward from what the dashboard and Genie need.
+4. **Data quality:** Add expectations on Silver and Gold tables for NULL checks and value range validation.
+5. **Pipeline mode:** Use triggered mode with a single refresh for demos.
 
-## Volume Path Parameterization
-
-When the bronze layer ingests from `read_files('/Volumes/...')`, the path **cannot be parameterized in SQL** — there is no Spark conf interpolation in SQL `read_files()` arguments. Two options:
-
-1. **Python bronze notebook** (recommended for DABs) — reads `spark.conf.get("demo.volume_path")` to build paths dynamically. Fully parameterized across catalog/schema.
-2. **SQL bronze** (simpler) — hardcodes the path. Works only when deploying with default variable values.
-
-## Type Safety in Aggregations
-
-When aggregating BOOLEAN columns (common in generated data), always cast before aggregating:
-- **SQL**: `AVG(CAST(bool_col AS INT))`
-- **PySpark**: `F.avg(F.col("bool_col").cast("int"))`
-
-Failing to cast causes `DATATYPE_MISMATCH.UNEXPECTED_INPUT_TYPE` at runtime.
+The `databricks-spark-declarative-pipelines` ai-dev-kit skill handles all SQL/Python implementation, Auto Loader configuration, and pipeline deployment.
 
 ## Common Pitfalls
 

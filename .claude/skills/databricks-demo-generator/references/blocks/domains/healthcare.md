@@ -2,7 +2,7 @@
 name: Healthcare & Life Sciences
 category: domain
 suggested_patterns: [anomaly-detection, predictive-maintenance, compliance-audit, customer-segmentation]
-suggested_capabilities: [aibi-dashboards, genie, knowledge-assistant, supervisor-agent, sdp, model-serving, notebooks-eda]
+suggested_capabilities: [aibi-dashboards, genie, knowledge-assistant, supervisor-agent, sdp, model-serving]
 ---
 
 ## Terminology

@@ -3,6 +3,7 @@ name: Lakeflow Jobs
 category: lakeflow
 disabled: false
 buildable: true
+skill: databricks-jobs
 ---
 
 # Lakeflow Jobs
@@ -25,14 +26,9 @@ Airflow + cron + ad-hoc scripts = no single view of what's running, what failed,
 
 Closing the loop: "Here's how you run this in production every 5 minutes, with alerts and cost control."
 
-## How It Works
+## Implementation
 
-- **Create a job with tasks**: Each task can be a notebook, SQL query, SDP pipeline, dbt project, or Python script
-- **Define dependencies**: Task B runs after Task A — visualized as a DAG
-- **Triggers**: Time-based (cron), file arrival (new files in S3/ADLS), or table update (new rows in Delta table)
-- **Control flow**: Branching (`IF` conditions), loops (`FOR EACH` over a list), parameter passing between tasks
-- **Repair on failure**: If task 3 fails, fix it and re-run from task 3 — don't re-run tasks 1 and 2
-- **Cost controls**: Set budgets, timeouts, and cluster policies to prevent runaway jobs
+The `databricks-jobs` ai-dev-kit skill provides all implementation details — API usage, configuration, and code patterns. The instructions you generate should specify WHAT to build and WHY (based on the demo story), not HOW.
 
 ## Demo Tips
 

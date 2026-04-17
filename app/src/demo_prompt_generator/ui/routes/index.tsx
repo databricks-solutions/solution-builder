@@ -59,17 +59,12 @@ export const Route = createFileRoute("/")({
 
 // Default selected capabilities
 const DEFAULT_SELECTED_PRODUCTS = [
-  // Buildable (resources we create)
   "sdp",                 // Processing
   "aibi-dashboards",     // Analytics
   "genie",               // NL Queries
   "knowledge-assistant", // AI Agents (KA)
   "supervisor-agent",    // AI Agents (MAS)
-  // Talking track (narrative/demo selling points)
-  "lakeflow-connect",    // Ingestion story
   "unity-catalog",       // Governance story
-  "databricks-one",      // Business user experience
-  "genie-code",          // AI coding assistant
 ];
 
 function Index() {

@@ -2,6 +2,7 @@
 name: Lakebase
 category: apps-infra
 disabled: false
+skill: databricks-lakebase-provisioned
 ---
 
 # Lakebase
@@ -21,9 +22,9 @@ Lakebase is Databricks-managed PostgreSQL for OLTP workloads. It provides a rela
 
 1. **Instance type:** Provisioned for predictable workloads, Autoscaling for demos with variable load. Autoscaling supports scale-to-zero for cost efficiency.
 2. **Database schema:** Design 2-4 tables for operational state. Keep it simple — cases, actions, users, configuration. These are not analytical tables.
-3. **Sync configuration:** Synced tables replicate Delta Gold tables into Lakebase for app consumption, or Lakebase operational data back into Delta for analytics. Define sync direction and refresh cadence.
-4. **Connection method:** Apps connect via resource bindings in `app.yaml`. Notebooks connect via `databricks-sdk` credential generation. Never expose raw connection strings.
-5. **Branching (Autoscale):** Use database branches for dev/test isolation without copying data. Branches are instant and zero-copy.
+3. **Sync configuration:** Use synced tables to flow data between Lakebase and Delta. Define sync direction (Delta→Lakebase for app reads, Lakebase→Delta for analytics).
+4. **Connection method:** Use resource bindings in `app.yaml` or SDK credential generation — never expose raw connection strings.
+5. **Branching (Autoscale):** Database branches provide dev/test isolation without copying data.
 
 ## Common Pitfalls
 

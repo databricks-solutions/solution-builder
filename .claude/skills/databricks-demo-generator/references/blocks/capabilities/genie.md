@@ -2,6 +2,7 @@
 name: Genie Space
 category: ai-bi
 disabled: false
+skill: databricks-genie
 ---
 
 # Genie Space
@@ -38,13 +39,6 @@ A Genie space lets users ask natural-language questions that are translated into
 - **Dashboard link:** Genie answers the deeper questions the dashboard surfaces.
 - **Multi-agent supervisor:** Genie is typically Agent 1 (the data specialist) in a supervisor setup.
 - **Data generation:** Sample question expected answers must align with synthetic data distributions.
-
-## API Requirements
-
-When building the `serialized_space` JSON for Genie:
-- `example_question_sqls` **must be sorted by `id`** — the API rejects unsorted lists. Always sort: `sorted(sqls, key=lambda x: x["id"])`
-- Each `id` must be a lowercase 32-hex UUID (`uuid.uuid4().hex`)
-- `sample_questions` and `text_instructions` also use the same UUID format
 
 ## Example Specification Snippet
 

@@ -52,26 +52,22 @@ INDUSTRIES = [
 ]
 
 CAPABILITIES = [
-    {"id": "lakeflow-connect", "name": "Lakeflow Connect"},
     {"id": "sdp", "name": "SDP"},
     {"id": "lakeflow-jobs", "name": "Lakeflow Jobs"},
-    {"id": "ai-query", "name": "AI Query"},
-    {"id": "dashboards", "name": "Dashboards"},
+    {"id": "ai-functions", "name": "AI Functions"},
+    {"id": "aibi-dashboards", "name": "AI/BI Dashboards"},
     {"id": "genie", "name": "Genie"},
     {"id": "metric-views", "name": "Metric Views"},
-    {"id": "databricks-sql", "name": "Databricks SQL"},
     {"id": "vector-search", "name": "Vector Search"},
     {"id": "knowledge-assistant", "name": "Knowledge Assistant"},
     {"id": "supervisor-agent", "name": "Supervisor Agent"},
-    {"id": "model-training-mlflow", "name": "Model Training + MLflow"},
     {"id": "model-serving", "name": "Model Serving"},
     {"id": "unity-catalog", "name": "Unity Catalog"},
-    {"id": "delta-sharing", "name": "Delta Sharing"},
-    {"id": "abac", "name": "ABAC"},
-    {"id": "data-classification", "name": "Data Classification"},
-    {"id": "data-quality", "name": "Data Quality"},
-    {"id": "databricks-apps", "name": "Databricks Apps"},
+    {"id": "app-python", "name": "Databricks Apps"},
     {"id": "lakebase", "name": "Lakebase"},
+    {"id": "streaming", "name": "Streaming"},
+    {"id": "synthetic-data-gen", "name": "Synthetic Data Gen"},
+    {"id": "zerobus-ingest", "name": "Zerobus Ingest"},
 ]
 
 CAPABILITY_IDS = [c["id"] for c in CAPABILITIES]

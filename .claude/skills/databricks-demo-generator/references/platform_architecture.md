@@ -12,11 +12,9 @@ Data ingestion and transformation — how data enters and flows through the lake
 
 | ID | Product | Buildable | What It Does | Relationship |
 |----|---------|-----------|--------------|--------------|
-| `lakeflow-connect` | Lakeflow Connect | No | Managed connectors for SaaS apps, DBs, files (Salesforce, Workday, SAP, etc.) | Pulls from external systems |
-| `zerobus` | Zerobus Ingest | No | Push-based API (gRPC/REST/OTLP) for real-time ingestion direct to Delta tables. Serverless. | Receives pushes from apps/devices |
-| `delta-sharing` | Delta Sharing | No | Zero-copy sharing of live data from partners, consortiums, other orgs | Shares from external Databricks workspaces |
-| `marketplace` | Databricks Marketplace | No | Subscribe to third-party datasets, AI models, solution accelerators | Subscribes to marketplace providers via Delta Sharing |
-| `autoloader` | Auto Loader | No | Incremental ingestion from cloud storage (S3, ADLS, GCS). Schema inference + evolution. | Watches cloud storage |
+| `streaming` | Streaming | No | Structured Streaming, Auto Loader, Kafka ingestion for near-real-time data arrival. | Feeds `sdp` Bronze streaming tables |
+| `zerobus-ingest` | Zerobus Ingest | No | Push-based API (gRPC/REST/OTLP) for real-time ingestion direct to Delta tables. Serverless. | Receives pushes from apps/devices |
+| `synthetic-data-gen` | Synthetic Data Gen | Yes | Generate realistic demo datasets with Spark + Faker. Encodes anomalies, distributions, event injection. | Produces raw data for `sdp` Bronze layer |
 
 ---
 
@@ -38,8 +36,8 @@ Transform raw data into analytics-ready tables.
 
 | ID | Product | Buildable | What It Does | Relationship |
 |----|---------|-----------|--------------|--------------|
-| `sdp` | SDP (Spark Declarative Pipelines) | Yes | Declarative ETL: Bronze → Silver → Gold. Streaming + batch, auto-optimization. | Consumes from `data-ingestion` |
-| `ai-query` | AI Functions | No | SQL-native AI (`ai_classify`, `ai_extract`, `ai_summarize`) for enriching data at scale. | Enriches tables within a `sdp` pipeline or ad-hoc queries |
+| `sdp` | SDP (Spark Declarative Pipelines) | Yes | Declarative ETL: Bronze → Silver → Gold. Streaming + batch, auto-optimization. | Consumes from data ingestion |
+| `ai-functions` | AI Functions | No | SQL-native AI (`ai_classify`, `ai_extract`, `ai_summarize`) for enriching data at scale. | Enriches tables within a `sdp` pipeline or ad-hoc queries |
 | `metric-views` | Metric Views | Yes | Semantic layer: define metrics once (e.g., `fraud_rate`), use everywhere. Auto-materialized / aggregated for fast BI (cube). | Sits on top of Silver/Gold tables from `sdp` |
 
 ---
@@ -50,10 +48,7 @@ Query and visualize data for business insights.
 
 | ID | Product | Buildable | What It Does | Relationship |
 |----|---------|-----------|--------------|--------------|
-| `databricks-one` | Databricks One | No | Simplified interface for business users: personalized home, domain browsing, unified search. | Front door for consumers accessing `ai-bi-dashboards`, `genie`, `databricks-apps` |
-| `genie-code` | Genie Code | No | AI coding partner: autocomplete, chat, error diagnosis — all UC-aware. | Assists development across notebooks, `sdp`, dashboards |
-| `notebooks-eda` | Notebooks & EDA | No | Interactive data exploration, profiling, visualization. Multi-language (Python, SQL, R, Scala). | Explores data from `sdp`; runs on `serverless-compute` |
-| `ai-bi-dashboards` | AI/BI Dashboards | Yes | Interactive visualizations. The "5-second test" — anomaly obvious at a glance. | Visualizes queries; runs on `sql-warehouse` |
+| `aibi-dashboards` | AI/BI Dashboards | Yes | Interactive visualizations. The "5-second test" — anomaly obvious at a glance. | Visualizes queries; runs on `sql-warehouse` |
 | `genie` | AI/BI Genie | Yes | Natural language queries over structured data. Answers the WHAT. | Queries via `sql-warehouse` |
 
 ---
@@ -64,13 +59,10 @@ AI Agents executing task, Train models, serve predictions, answer questions from
 
 | ID | Product | Buildable | What It Does | Relationship |
 |----|---------|-----------|--------------|--------------|
-| `model-training-mlflow` | MLflow | Yes | Experiment tracking, model registry, lifecycle management. Classic ML or fine-tuning. | Trains on data from `sdp`; runs on `serverless-compute` |
-| `model-serving` | Model Serving | No | Serverless endpoints for real-time inference. Auto-scaling, pay-per-token. Guardrails + tracing. | Serves models from `model-training-mlflow` |
+| `model-serving` | Model Serving | No | Serverless endpoints for real-time inference. Auto-scaling, pay-per-token. Guardrails + tracing. | Serves models registered in MLflow |
 | `vector-search` | Vector Search | Yes | Managed embeddings + similarity search. Manual setup for custom RAG. | Indexes docs from `unity-catalog` Volumes |
 | `knowledge-assistant` | Knowledge Assistant | Yes | Fully managed RAG — point at docs, get Q&A. Answers the WHY with citations. | Reads docs from `unity-catalog` Volumes |
-| `information-extraction` | Information Extraction | Yes | Document-to-table agent: extract structured data from PDFs, images, text via visual UI. | Reads docs from `unity-catalog` Volumes; outputs to tables |
 | `supervisor-agent` | Supervisor Agent (MAS) | Yes | Orchestrates multiple agents into one interface. Routes to the right agent. | Routes to `genie`, `knowledge-assistant`, mcps, `model-serving` models |
-| `ai-gateway` | AI Gateway | No | Central governance for LLMs: routing, guardrails, rate limits, usage tracking. | Governs all `model-serving` endpoints |
 
 **Note:** Knowledge Assistant is the managed path (no vector search setup). Vector Search is for custom RAG with control over chunking/retrieval.
 
@@ -93,7 +85,7 @@ Run everything in production with reliability.
 
 | ID | Product | Buildable | What It Does | Relationship |
 |----|---------|-----------|--------------|--------------|
-| `lakeflow-jobs` | Lakeflow Jobs | Yes | Native orchestrator: multi-task workflows, retries, file/table triggers, cost controls. | Orchestrates all Databricks: triggers `sdp`, `notebooks-eda`, ML jobs, SQL queries |
+| `lakeflow-jobs` | Lakeflow Jobs | Yes | Native orchestrator: multi-task workflows, retries, file/table triggers, cost controls. | Orchestrates all Databricks: triggers `sdp`, ML jobs, SQL queries |
 
 ---
 
@@ -103,10 +95,7 @@ Governs ALL components above — data, models, metrics, dashboards, apps.
 
 | ID | Product | Buildable | What It Does | Relationship |
 |----|---------|-----------|--------------|--------------|
-| `unity-catalog` | Unity Catalog | No | Unified catalog: permissions, lineage, audit logs across clouds. | Governs all blocks |
-| `data-quality` | Data Quality Monitoring | Yes | Lakehouse Monitoring: auto-detect freshness/completeness anomalies, profile tables, track data health. | Monitors tables in `unity-catalog` schemas |
-| `abac` | ABAC | Yes | Attribute-based access: tag-based policies, row filters, column masks. | Controls access to `sdp` tables, based on tags and `data-classification` |
-| `data-classification` | Data Classification | Yes | Auto-tag sensitive data (PII, PHI, financial). | Tags columns in `unity-catalog` |
+| `unity-catalog` | Unity Catalog | No | Unified catalog: permissions, lineage, audit logs across clouds. Fine-grained access, ABAC, data classification, quality monitoring. | Governs all blocks |
 
 ---
 
@@ -114,26 +103,16 @@ Governs ALL components above — data, models, metrics, dashboards, apps.
 
 The recommended starting point for most demos:
 
-**Buildable capabilities** (resources we create):
-
 | ID | Product | Purpose |
 |----|---------|---------|
 | `sdp` | SDP | Data transformation (Bronze → Silver → Gold) |
-| `ai-bi-dashboards` | AI/BI Dashboards | Visual analytics with 5-second test |
+| `aibi-dashboards` | AI/BI Dashboards | Visual analytics with 5-second test |
 | `genie` | AI/BI Genie | Natural language queries (the WHAT) |
 | `knowledge-assistant` | Knowledge Assistant | Document Q&A (the WHY) |
 | `supervisor-agent` | Supervisor Agent | Multi-agent orchestration |
-
-**Talking track capabilities** (narrative/demo selling points):
-
-| ID | Product | Purpose |
-|----|---------|---------|
-| `lakeflow-connect` | Lakeflow Connect | Data ingestion from external systems |
 | `unity-catalog` | Unity Catalog | Governance: lineage, permissions, audit |
-| `databricks-one` | Databricks One | Business user experience: simplified interface |
-| `genie-code` | Genie Code | AI coding assistant across all surfaces |
 
-This covers the full investigation story: ingest → transform → visualize → ask questions → get context. Plus the governance and user experience story.
+This covers the full investigation story: transform → visualize → ask questions → get context, all governed by Unity Catalog.
 
 ---
 
