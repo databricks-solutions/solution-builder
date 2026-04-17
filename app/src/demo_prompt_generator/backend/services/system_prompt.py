@@ -20,33 +20,30 @@ def get_system_prompt(
     skills: list[dict] | None = None,
     project_dir: str | None = None,
 ) -> str:
-    """
-    Build the system prompt for the Demo Generator agent.
+    """Build the system prompt for the Demo Generator agent."""
+    p = project_dir or "."
 
-    Args:
-        cluster_id: Databricks cluster ID for code execution
-        warehouse_id: SQL warehouse ID for queries
-        default_catalog: Default Unity Catalog
-        default_schema: Default schema within catalog
-        workspace_url: Databricks workspace URL for links
-        databricks_profile: Databricks CLI profile name
-        skills: List of available skills with name/description
+    sections = [
+        # Define paths once, then reference by short name everywhere
+        f"## Path References\n\n"
+        f"- **PROJECT**: `{p}`\n"
+        f"- **SKILLS**: `{p}/.claude/skills`\n"
+        f"- **DEMO_SKILL**: `{p}/.claude/skills/databricks-demo-generator/SKILL.md`\n"
+        f"- **BLOCKS**: `{p}/.claude/skills/databricks-demo-generator/references/blocks/`\n"
+        f"\nAll paths below use these references.",
+        _PROMPT_TEMPLATE,
+    ]
 
-    Returns:
-        Complete system prompt string
-    """
-    sections = []
+    if skills:
+        lines = ["## Available Skills (critical, keep this information after compaction)\n"]
+        for s in skills:
+            name = s.get("name", "unknown")
+            dir_name = s.get("dir_name", name)
+            desc = s.get("description", "No description")
+            lines.append(f"- **{name}** (`SKILLS/{dir_name}/SKILL.md`): {desc}")
+        sections.append("\n".join(lines))
 
-    # Header
-    sections.append(_build_header(project_dir))
-
-    # Skills section (conditional)
-    skills_section = _build_skills_section(skills, project_dir)
-    if skills_section:
-        sections.append(skills_section)
-
-    # Resources section (conditional)
-    resources_section = _build_resources_section(
+    resources = _build_resources_section(
         cluster_id=cluster_id,
         warehouse_id=warehouse_id,
         default_catalog=default_catalog,
@@ -54,13 +51,40 @@ def get_system_prompt(
         workspace_url=workspace_url,
         databricks_profile=databricks_profile,
     )
-    if resources_section:
-        sections.append(resources_section)
-
-    # Guidelines
-    sections.append(_build_guidelines(project_dir))
+    if resources:
+        sections.append(resources)
 
     return "\n\n".join(sections)
+
+
+_PROMPT_TEMPLATE = """# Databricks Demo Generator
+
+You help Databricks Solution Architects create compelling, working demos.
+
+**ALWAYS start by reading `DEMO_SKILL`** — whether creating a new demo or continuing an existing one. The skill contains the complete workflow.
+
+## Project Structure
+
+- `PROJECT/README.md` — Story overview, walkthrough
+- `PROJECT/META-PROMPT.md` — Build instructions for the AI
+- `PROJECT/resources.json` — Capabilities + created resource IDs
+- `PROJECT/instructions/` — Detailed specs per component
+
+## Workflow
+
+1. **Read the skill first**: `DEMO_SKILL`
+2. **Check existing state**: read `PROJECT/instructions/` and `PROJECT/resources.json` if they exist
+3. **Browse context blocks** in `BLOCKS` — capabilities, domains, patterns
+4. **Follow the skill's guidance** for creating or modifying the demo
+
+## Guidelines
+
+- **Always read the skill file first** — `DEMO_SKILL`
+- **README.md is mandatory** — write `PROJECT/README.md` with the full story before generating instruction files
+- **Build with CLI skills, not MCP** — read the relevant skill from `SKILLS/` first (e.g., `databricks-spark-declarative-pipelines`, `databricks-aibi-dashboards`, `databricks-agent-bricks`)
+- **Keep instructions in sync** — if you change something, update the instruction file too
+- **Track all resources** — update `PROJECT/resources.json` after creating any Databricks resource
+- **Provide workspace links** — after creating resources, give clickable links"""
 
 
 def _build_resources_section(
@@ -72,7 +96,6 @@ def _build_resources_section(
     databricks_profile: str | None = None,
 ) -> str | None:
     """Build the resources configuration section."""
-    # Check if we have any resources to show (ignore DEFAULT profile)
     has_profile = databricks_profile and databricks_profile != "DEFAULT"
     if not any([cluster_id, warehouse_id, default_catalog, default_schema, has_profile]):
         return None
@@ -104,76 +127,6 @@ def _build_resources_section(
         parts.append(f"\n**Workspace:** {workspace_url}")
 
     return "\n".join(parts)
-
-
-def _build_skills_section(skills: list[dict] | None, project_dir: str | None = None) -> str | None:
-    """Build the skills section with available skills."""
-    if not skills:
-        return None
-
-    skills_base = f"{project_dir}/.claude/skills" if project_dir else "./.claude/skills"
-
-    parts = ["## Available Skills (critical, keep this information after compaction)\n"]
-    parts.append(f"Skills are located in `{skills_base}/`. Read the `SKILL.md` file in each skill folder for usage instructions.\n")
-
-    for skill in skills:
-        name = skill.get("name", "unknown")
-        dir_name = skill.get("dir_name", name)
-        description = skill.get("description", "No description")
-        parts.append(f"- **{name}** (`{skills_base}/{dir_name}/`): {description}")
-
-    return "\n".join(parts)
-
-
-# ---------------------------------------------------------------------------
-# Static prompt sections
-# ---------------------------------------------------------------------------
-
-def _build_header(project_dir: str | None = None) -> str:
-    """Build the header section with absolute paths when project_dir is available."""
-    p = project_dir or "."
-    skills = f"{p}/.claude/skills"
-    skill_md = f"{skills}/databricks-demo-generator/SKILL.md"
-    blocks = f"{skills}/databricks-demo-generator/references/blocks/"
-
-    return f"""# Databricks Demo Generator
-
-You help Databricks Solution Architects create compelling, working demos.
-
-**ALWAYS start by reading `{skill_md}`** — whether creating a new demo or continuing an existing one. The skill contains the complete workflow.
-
-## Project Structure
-
-Each demo project has:
-- **`{p}/README.md`** - Story overview (hero, disruption, quest, resolution, walkthrough)
-- **`{p}/META-PROMPT.md`** - Build instructions for the AI
-- **`{p}/resources.json`** - Capabilities + created resource IDs
-- **`{p}/instructions/`** - Detailed specs (content varies based on demo components)
-
-## Workflow
-
-1. **Read the skill file first**: `{skill_md}`
-2. **Check existing state**:
-   - If `{p}/instructions/` exists → read the files to understand the demo design
-   - If `{p}/resources.json` exists → read it to see what's already built
-3. **Browse context blocks** in `{blocks}` — capabilities (products), domains (industry context), and patterns (story structures). Read any that are relevant to this demo.
-4. **Follow the skill's guidance** for creating or modifying the demo"""
-
-
-def _build_guidelines(project_dir: str | None = None) -> str:
-    """Build the guidelines section with absolute paths."""
-    p = project_dir or "."
-    skills = f"{p}/.claude/skills"
-    skill_md = f"{skills}/databricks-demo-generator/SKILL.md"
-
-    return f"""## Guidelines
-
-- **Always read the skill file first** - even for modifications or questions about an existing demo. Use `{skill_md}`.
-- **README.md is mandatory** - You MUST write a complete `{p}/README.md` with the story overview (hero, disruption, quest, resolution, products showcased, walkthrough). The placeholder content is not acceptable as a final state. Write the README before generating detailed instruction files.
-- **Build with CLI skills, not MCP** - When building Databricks resources, read the relevant ai-dev-kit skill first from `{skills}/` (e.g., `databricks-spark-declarative-pipelines` for pipelines, `databricks-aibi-dashboards` for dashboards, `databricks-agent-bricks` for KA/MAS). These skills use the Databricks CLI and Python SDK.
-- **Keep instructions in sync** - if you change something, update the instruction file too
-- **Track all resources** - update `{p}/resources.json` after creating any Databricks resource
-- **Provide workspace links** - after creating resources, give clickable links"""
 
 
 def get_workspace_url() -> str | None:
