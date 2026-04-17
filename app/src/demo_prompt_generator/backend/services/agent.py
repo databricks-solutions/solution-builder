@@ -259,6 +259,7 @@ async def stream_agent_response(
                 workspace_url=get_workspace_url(),
                 databricks_profile=databricks_profile,
                 skills=skills,
+                project_dir=str(project_dir),
             )
 
             # Build allowed tools list

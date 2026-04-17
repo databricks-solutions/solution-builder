@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from ..core import Dependencies, create_router
 from ..models import Project
 from ..services.skills_manager import (
+    get_project_directory,
     get_project_skills_list,
     get_skill_file_content,
     get_skill_files_tree,
@@ -154,8 +155,9 @@ def get_project_system_prompt(
     user_email = _get_user_email(headers)
     project = _verify_project_access(session, project_id, user_email)
 
-    # Get skills
+    # Get skills and project directory
     skills = get_project_skills_list(project_id)
+    project_dir = get_project_directory(project_id)
 
     # Build prompt with project's resources
     prompt = get_system_prompt(
@@ -165,6 +167,7 @@ def get_project_system_prompt(
         default_schema=project.default_schema,
         workspace_url=get_workspace_url(),
         skills=skills,
+        project_dir=str(project_dir),
     )
 
     return SystemPromptResponse(prompt=prompt)
