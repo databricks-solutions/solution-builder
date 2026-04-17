@@ -4,7 +4,7 @@
 
 Industry Demo Prompt Generator — a full-stack Databricks App that generates personalized demo instruction packages. Instead of static demo repos, it captures best practices as composable **blocks** of structured context that an LLM assembles into tailored demo packages for any customer scenario. The generated packages are then executed by the [Databricks AI Dev Kit](https://github.com/databricks/ai-dev-kit) to build real assets (tables, pipelines, dashboards, etc.) on a live workspace.
 
-Built with [APX](https://github.com/databricks-solutions/apx) (FastAPI + React/Vite) and deployed as a Databricks App with Lakebase (managed PostgreSQL) for persistence.
+Built with FastAPI + React/Vite and deployed as a Databricks App with Lakebase (managed PostgreSQL) for persistence.
 
 ## Repository structure
 
@@ -52,10 +52,6 @@ All commands run from `app/`:
 ```bash
 # Local development (backend + frontend with hot reload)
 ./scripts/dev.sh              # Starts uvicorn:8000 + vite:5173, auto-clones ai_dev_kit
-# OR if apx is installed:
-apx dev start                 # Starts everything on :9000 (recommended)
-apx dev stop
-apx dev logs -f
 
 # Type checking
 npx tsc --noEmit              # Frontend TypeScript

@@ -8,7 +8,7 @@ export default defineConfig({
   retries: 0,
   reporter: [["list"], ["html", { open: "never" }]],
   webServer: {
-    command: "cd app && uv run apx run",
+    command: "cd app && uv run uvicorn demo_prompt_generator.backend.app:app --host 127.0.0.1 --port 9000",
     url: "http://localhost:9000",
     reuseExistingServer: true,
     timeout: 60_000,

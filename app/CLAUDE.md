@@ -4,7 +4,7 @@ Detailed patterns and conventions for working on the `app/` directory. Read the 
 
 ## Architecture overview
 
-This is a full-stack APX application with a clear separation:
+This is a full-stack application (FastAPI + React/Vite) with a clear separation:
 
 - **Backend** (`src/demo_prompt_generator/backend/`): FastAPI, SQLModel, Lakebase (PostgreSQL)
 - **Frontend** (`src/demo_prompt_generator/ui/`): React 19, TanStack Router, Tailwind CSS v4, shadcn/ui (Radix)
@@ -188,7 +188,7 @@ export const Route = createFileRoute("/my-route")({
 
 ### Components
 
-- **shadcn/ui primitives** in `components/ui/` — standard Radix-based components. Add new ones with `apx components add <name> --yes` or manually from the shadcn registry.
+- **shadcn/ui primitives** in `components/ui/` — standard Radix-based components. Add new ones manually from the [shadcn registry](https://ui.shadcn.com/).
 - **Feature components** in `components/project/` — the main project workspace UI.
 - **Layout components** in `components/layout/` — app shell, navigation.
 
@@ -245,18 +245,13 @@ npx playwright test tests/e2e-comprehensive.spec.ts
 npx playwright test --ui
 ```
 
-Tests target `http://localhost:9000` (the combined APX server, not the split dev ports).
+Tests target `http://localhost:9000` (the production-mode server, not the split dev ports).
 
 ## Common tasks
 
 ### Add a new shadcn/ui component
 
-```bash
-# If apx MCP is available:
-apx components add <component-name> --yes
-
-# Otherwise, manually copy from shadcn registry into components/ui/
-```
+Manually copy from the [shadcn registry](https://ui.shadcn.com/) into `components/ui/`.
 
 ### Type checking after changes
 
@@ -271,8 +266,8 @@ uv run mypy src            # Backend (from app/ directory)
 # Option 1: Split servers (backend:8000, frontend:5173)
 ./scripts/dev.sh
 
-# Option 2: Combined APX server (:9000, recommended)
-apx dev start
+# Option 2: Production mode (:9000, requires bun run build first)
+uv run uvicorn demo_prompt_generator.backend.app:app --host 127.0.0.1 --port 9000
 ```
 
 ### Build for deployment

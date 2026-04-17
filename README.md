@@ -2,7 +2,7 @@
 
 A full-stack Databricks App for building personalized demo packages. Describe a customer scenario and an AI agent — powered by the [Claude Agent SDK](https://github.com/anthropics/claude-agent-sdk) and [Databricks AI Dev Kit](https://github.com/databricks/ai-dev-kit) — designs the architecture, generates instruction files, writes code, and deploys real assets (tables, pipelines, dashboards, agents) on a live workspace.
 
-Built with [APX](https://github.com/databricks-solutions/apx) (FastAPI + React) and deployed as a Databricks App with Lakebase for persistence.
+Built with FastAPI + React/Vite and deployed as a Databricks App with Lakebase (managed PostgreSQL) for persistence.
 
 ## Quick start — deploy to Databricks
 
@@ -10,7 +10,6 @@ The entire app deploys as a [Databricks Asset Bundle](https://docs.databricks.co
 
 ### Prerequisites
 
-- [APX CLI](https://github.com/databricks-solutions/apx) (`pip install apx`)
 - [Databricks CLI](https://docs.databricks.com/dev-tools/cli/index.html) v0.239.0+
 - A Databricks workspace with a Foundation Model serving endpoint (default: `databricks-claude-sonnet-4-6`)
 
@@ -107,14 +106,13 @@ This installs the `databricks-demo-generator` skill to `.claude/skills/` in your
 
 ```bash
 cd app
-apx dev start     # Start backend + frontend + OpenAPI watcher at http://localhost:9000
-apx dev stop      # Stop dev servers
-apx dev logs -f   # Stream logs
-apx dev check     # TypeScript + Python type checking
-apx build         # Production build
+./scripts/dev.sh          # Start backend (uvicorn:8000) + frontend (vite:5173)
+npx tsc --noEmit          # TypeScript type checking
+uv run mypy src           # Python type checking
+bun run build             # Production build
 ```
 
-APX automatically provisions a local PostgreSQL instance (PGLite) — no manual database setup needed. The app resolves Databricks credentials from the SDK (environment variables, `.env` file, or active CLI profile).
+The dev script automatically provisions a local PostgreSQL instance (PGLite) — no manual database setup needed. The app resolves Databricks credentials from the SDK (environment variables, `.env` file, or active CLI profile).
 
 See `app/.env.example` for all configuration options.
 
