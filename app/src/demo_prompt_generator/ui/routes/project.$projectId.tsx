@@ -752,15 +752,15 @@ function ProjectPage() {
   const handleCreateSpec = useCallback(() => {
     if (isStreaming) return;
     handleSendMessage(
-      "Generate the detailed instruction files. Follow the demo generator skill's Phase 6 workflow:\n\n" +
+      "Generate the detailed specification files. Follow the demo generator skill's Phase 6 workflow:\n\n" +
       "1. Read `resources.json` to see which capabilities are selected (buildable vs talking_track)\n" +
       "2. Batch-read ALL capability blocks for the buildable capabilities in one turn\n" +
-      "3. Also read the example instruction files from the skill's references for format/style\n" +
-      "4. Write files in dependency order — one stage per turn:\n" +
-      "   - **Stage A** (parallel): `META-PROMPT.md`, `01-data-generation.md`, `02-unstructured-docs.md` (if needed)\n" +
-      "   - **Stage B** (after reading Stage A): `03-pipelines.md`\n" +
-      "   - **Stage C** (after reading Stage B): `04-genie-space.md`, `05-dashboard.md`, `06-knowledge-assistant.md` (parallel within stage)\n" +
-      "   - **Stage D** (after reading Stage C): `07-multi-agent-supervisor.md`, `10-databricks-app.md` (if needed)\n" +
+      "3. Also read the example specification files from the skill's references for format/style\n" +
+      "4. Write specification files in dependency order — one stage per turn:\n" +
+      "   - **Stage A** (parallel): `META-PROMPT.md`, `01-lakeflow.md`\n" +
+      "   - **Stage B** (after reading Stage A): `02-uc-governance.md` (if needed)\n" +
+      "   - **Stage C** (after reading Stage B): `03-ai-bi.md`, `04-agent-bricks.md` (parallel within stage)\n" +
+      "   - **Stage D** (after reading Stage C): `05-apps-infra.md` (if needed)\n" +
       "5. Only generate files for capabilities in resources.json — skip any not selected\n" +
       "6. Run a coherence check after all files are written"
     );
@@ -770,7 +770,7 @@ function ProjectPage() {
   const handleUpdateSpec = useCallback(() => {
     if (isStreaming) return;
     handleSendMessage(
-      "Review and update the specification files in the instructions/ folder based on the current project state and recent discussions."
+      "Review and update the specification files in the specifications/ folder based on the current project state and recent discussions."
     );
   }, [isStreaming, handleSendMessage]);
 
@@ -783,7 +783,7 @@ function ProjectPage() {
       "2. Read `resources.json` to see which capabilities need building and what's already created\n" +
       "3. For EACH buildable capability in order:\n" +
       "   a. Load the relevant skill (e.g. `databricks-synthetic-data-gen`, `databricks-spark-declarative-pipelines`, `databricks-aibi-dashboards`)\n" +
-      "   b. Read the matching instruction file\n" +
+      "   b. Read the matching specification file\n" +
       "   c. Build the resource following the skill's guidance\n" +
       "   d. Validate the result\n" +
       "   e. Update `resources.json` created_resources with the new resource ID\n" +

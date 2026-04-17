@@ -1,6 +1,6 @@
 ---
 name: databricks-demo-generator
-description: Generate comprehensive instruction files / specifications for building Databricks assets, demos or end 2 end projects. Use when users want to create a new demo, design a demo story, or need help structuring demo components, create an entire project. This skill creates prompts that another agent will execute to build the actual demo.
+description: Generate comprehensive specification files for building Databricks assets, demos or end 2 end projects. Use when users want to create a new demo, design a demo story, or need help structuring demo components, create an entire project. This skill creates prompts that another agent will execute to build the actual demo.
 ---
 
 # Databricks Demo Generator
@@ -53,7 +53,7 @@ Each demo project has this structure:
 ./architecture.md     # Architecture diagram schema (JSON) for visual rendering
 ./META-PROMPT.md      # Build instructions for the AI
 ./resources.json      # Selected capabilities + created resource IDs
-./instructions/       # Detailed specs (content varies based on demo components)
+./specifications/     # Detailed specs per component
 ```
 
 The `./instructions/` folder contains detailed specs for each component in the demo. The exact files depend on what the demo includes — there is no fixed list.
@@ -338,68 +338,43 @@ Reply "yes" to continue, or let me know what to change.
 
 **Wait for user confirmation before proceeding.**
 
-### Phase 6: Generate Detailed Instructions
+### Phase 6: Generate Detailed Specifications
 
-After user approves, generate the remaining files. **Instructions must be written in stages, not all at once** — downstream components (dashboards, Genie, KA) reference tables, columns, and document IDs that upstream components (data generation, pipeline, document generation) define. Writing everything in one parallel burst lets the LLM invent table names in the dashboard that don't match what the pipeline creates, producing `TABLE_OR_VIEW_NOT_FOUND` at build time.
+After approval, generate:
+- `META-PROMPT.md` — **Copy `{SKILL_BASE_DIR}/references/META-PROMPT-TEMPLATE.md` as-is.** It's fully generic — no modifications needed.
+- `specifications/*.md` — One file per category, numbered in build order (read the example-luxebeauty/specifications)
 
-**Staging rule**: Parallelize *within* a stage (files that share no data contract). Serialize *across* stages (later stages read earlier stages' files for the canonical table/column/ID names).
+Only generate files for categories used in this demo. **One file per category**, numbered in canonical order. Skip unused categories (keep the number gap).
 
-**First turn — batch-read all references.** Emit parallel `Read` calls for every capability block in `{SKILL_BASE_DIR}/references/blocks/capabilities/` that needs a detailed instruction file, plus the matching `references/example-luxebeauty/instructions/*.md` style references. These are the positioning details, common pitfalls, and example specs you skipped in Phase 3.
+| # | Category | File | What goes in it |
+|---|----------|------|-----------------|
+| 01 | Lakeflow | `01-lakeflow.md` | Data generation (schemas, distributions, the event), unstructured docs/PDFs, SDP pipeline (bronze→silver→gold), validation queries |
+| 02 | UC Governance | `02-uc-governance.md` | ABAC policies, data quality monitors, classification rules |
+| 03 | AI/BI | `03-ai-bi.md` | Dashboard (layout, filters, widgets) + Genie Space (system instructions, investigation flow, sample Q&A) |
+| 04 | Agent Bricks | `04-agent-bricks.md` | KA (docs, system instructions, Q&A) + MAS (routing, demo flow) + model serving if applicable |
+| 05 | Apps & Infra | `05-apps-infra.md` | Databricks Apps + Lakebase config |
 
-**Then generate in dependency order**, one stage per turn:
+**Staging rule**: Specifications must be written in stages, not all at once — downstream categories (AI/BI, Agent Bricks) reference tables, columns, and document IDs that upstream categories (Lakeflow) define. Parallelize *within* a stage, serialize *across* stages.
 
 | Stage | Files (parallel within stage) | Depends On |
 |-------|-------------------------------|------------|
-| **A — Foundations** | `META-PROMPT.md`, `01-data-generation.md`, `02-unstructured-docs.md` (if any) | Nothing (derived from plan in context) |
-| **B — Pipeline** | `03-pipelines.md`, `03b-pipeline-validation.md` (if needed) | Stage A's data-generation spec (entities, columns) |
-| **C — Consumption** | `04-genie-space.md`, `05-dashboard.md`, `06-knowledge-assistant.md` | Stage B's pipeline spec (Gold table names, columns) + Stage A's document spec for KA |
-| **D — Orchestration** | `07-multi-agent-supervisor.md`, `10-databricks-app.md`, etc. | Stages A–C (all components it routes between) |
+| **A — Foundations** | `META-PROMPT.md`, `01-lakeflow.md` | Nothing (derived from plan in context) |
+| **B — Governance** | `02-uc-governance.md` | Stage A (table names from pipeline spec) |
+| **C — Consumption** | `03-ai-bi.md`, `04-agent-bricks.md` | Stages A–B (Gold table names, columns, document IDs) |
+| **D — Apps** | `05-apps-infra.md` | Stages A–C (all components it connects to) |
 
-**Before each stage after A, read the files the previous stage wrote.** They are the source of truth for names. In particular:
+**Before each stage after A, read the files the previous stage wrote.** They are the source of truth for names — dashboard dataset SQL must reference only tables defined in the pipeline spec with exact, fully-qualified names (`{CATALOG}.{SCHEMA}.table_name`).
 
-- When writing `05-dashboard.md`, the dataset SQL must reference only tables defined in `03-pipelines.md`'s Gold layer table list, with the exact names used there, fully qualified as `{CATALOG}.{SCHEMA}.table_name`. If the dashboard needs a table the pipeline doesn't produce, go back and update `03-pipelines.md` — do not invent a table in the dashboard spec.
-- When writing `04-genie-space.md`, its sample questions must resolve against the Silver/Gold tables in `03-pipelines.md`.
-- When writing `06-knowledge-assistant.md`, its document references must match identifiers in `02-unstructured-docs.md`.
-- When writing `07-multi-agent-supervisor.md`, every tool it routes to must exist in a prior-stage file.
+#### Writing Good Spec Files
 
-Within a stage, parallel writes are fine — files in the same stage share no data contract. Across stages, the dependency is load-bearing: skipping the read loses the contract and produces the bug this staging prevents.
+One file per category, sections within. Each file must be clear enough that another agent can execute without ambiguity. Write **functional specs** (what to build, not how). Be dense — no prose that an LLM can infer. Focus on:
 
-**At project root:**
-- **META-PROMPT.md** — Build instructions for the AI: project structure, build order, resource tracking, validation steps. Use the reference examples as a structural guide, but customize catalog/schema names, build steps, and validation checks for this specific demo.
+- **Deterministic values**: Exact IDs, names, numbers that must be reproduced
+- **Schemas**: Column names, types, relationships
+- **The event**: What makes the story data interesting (distributions, anomalies)
+- **Coherence contracts**: Which columns/tables are consumed by downstream categories (e.g., gold table dimensions must match dashboard filters)
 
-**In `./instructions/` folder:**
-Generate one instruction file per component. The exact files depend on what the demo includes — **only generate files for components that are part of this demo**. Number them in build order.
-
-Common instruction file types (include only what's needed):
-
-| Component | File | When to Include |
-|-----------|------|-----------------|
-| Data generation | `01-data-generation.md` | Almost always — most demos need synthetic data |
-| Documents / PDFs | `02-unstructured-docs.md` | When the demo has a Knowledge Assistant or document search |
-| Pipeline (SDP) | `03-pipelines.md` | When the demo has Bronze/Silver/Gold data transformation |
-| Pipeline validation | `03b-pipeline-validation.md` | When pipeline is complex enough to warrant dedicated validation |
-| Genie Space | `04-genie-space.md` | When the demo includes natural language data exploration |
-| Dashboard | `05-dashboard.md` | When the demo has visual analytics |
-| Knowledge Assistant | `06-knowledge-assistant.md` | When the demo has document-based Q&A |
-| Multi-Agent Supervisor | `07-multi-agent-supervisor.md` | When the demo orchestrates multiple AI components |
-| ML Notebook | `08-ml-notebook.md` | When the demo includes model training or scoring |
-| Model Serving | `09-model-serving.md` | When the demo deploys a model endpoint |
-| Databricks App | `10-databricks-app.md` | When the demo has a custom web application |
-| Vector Search | `11-vector-search.md` | When the demo needs semantic search / embeddings |
-
-#### Writing Good Instructions
-
-Each file should be clear enough that another agent can execute without ambiguity. Write **functional specs** (what to build, not how to build it):
-
-- **Data**: Schema with column names, types, descriptions. Distributions that create realistic patterns. The "event" encoded in the data. Relationships between tables.
-- **Dashboard**: Layout that tells the visual story. KPIs in business terms. The key insight must be obvious at a glance (5-second test). Filters for drilling down.
-- **Genie**: Instructions that guide smart analysis. Sample questions that drive the demo narrative. Domain knowledge: baselines, thresholds, what's normal vs abnormal.
-- **KA**: What documents to generate. The key content that explains the "why." Identifiers that match the structured data exactly.
-- **Walkthrough**: Read like a pitch script. Include talk track. Follow the story arc. Short sentences, clear flow, no jargon.
-
-#### Parallelization for Speed
-
-See the top-level **Tool-Use Efficiency** section. For this phase specifically: parallelize **within** a stage (Stage A files together, Stage C files together), but **never across stages**. `05-dashboard.md` and `04-genie-space.md` belong to Stage C and can be written in the same turn — but only *after* Stage B's `03-pipelines.md` is written and read back in. Writing `01-data-generation.md` in parallel with `05-dashboard.md` is the exact anti-pattern the staging rule exists to prevent.
+**Do NOT repeat story context in every file.** Define shared values (affected SKUs, lot, persona, key metrics) once in `01-lakeflow.md`, reference "from 01" in later files.
 
 ### Phase 7: Coherence Review
 
@@ -434,8 +409,7 @@ Location: [catalog.schema]
 
 **2. Transition prompt:**
 ```
-Demo instructions are ready in `./instructions/`.
-
+Demo specifications are ready in `./specifications/`.
 Would you like me to build the demo resources now?
 
 Reply "yes" to start building, or "no" to stop here.
@@ -465,39 +439,22 @@ If the user confirms, build the actual Databricks resources.
 | Databricks App | `databricks-app-python` |
 | Vector Search index | `databricks-vector-search` |
 
-Each skill uses the **Databricks CLI** (`databricks` commands via Bash) and **Python SDK** for resource creation. Do NOT use MCP tools (`mcp__databricks__*`) — use the skills instead.
-
-### Starting the Build
-
-**First, read `resources.json`** to see which capabilities need to be built (the `buildable` list). Then read `META-PROMPT.md` for the build order.
-
-For each buildable capability:
-1. Load the relevant skill from the table above
-2. Read the corresponding instruction file
-3. Follow the skill's guidance to create the resource
-4. Validate the result per the instruction file's criteria
-5. Update `resources.json` `created_resources` with the resource ID
+For each capability: load skill → read spec file → create resource → validate → update `resources.json` with resource ID.
 
 ### Build-Order Gates — Do Not Skip
 
-Consumption resources (dashboards, Genie spaces, Knowledge Assistants, agents) depend on upstream data. Create them ONLY after their upstream data exists. Enforce these gates during build:
+Consumption resources (dashboards, Genie spaces, Knowledge Assistants, agents) depend on upstream data. Create them ONLY after their upstream data exists:
 
 | Before building... | Required upstream state |
 |--------------------|-------------------------|
-| **AI/BI Dashboard** | Pipeline has run successfully AND every table referenced in any dataset returns `COUNT(*) > 0` via `execute_sql`. No exceptions. See the MANDATORY Build Gate at the top of `blocks/capabilities/aibi-dashboards.md`. |
-| **Genie Space** | Every table listed in the Genie config exists and has rows. Sample questions resolve against real data. |
-| **Knowledge Assistant** | Source documents are uploaded to the volume and the vector index has finished syncing (not still embedding). |
-| **Multi-Agent Supervisor** | Every downstream tool/agent it routes to has a valid `*_id` in `resources.json.created_resources`. |
+| **AI/BI Dashboard** | Pipeline has run successfully AND every referenced table returns `COUNT(*) > 0` via `execute_sql`. |
+| **Genie Space** | Every table listed in the Genie config exists and has rows. |
+| **Knowledge Assistant** | Source documents uploaded and vector index has finished syncing. |
+| **Multi-Agent Supervisor** | Every downstream tool has a valid `*_id` in `resources.json.created_resources`. |
 
-**If a gate fails, STOP and fix the upstream resource — do not proceed.** A dashboard built against missing tables is worse than no dashboard: it looks built, fails silently, and requires delete-and-recreate to fix.
+**If a gate fails, STOP and fix the upstream resource — do not proceed.**
 
-### Critical: Keep Instructions in Sync
-
-**The instruction files are your product requirements.** They must ALWAYS reflect the current state of the demo — including any changes made during building.
-
-**Sync workflow:** User requests change → Update instruction file FIRST → Apply to resource → Confirm in sync
-
-Never change a resource without updating its instruction file. Never let instructions drift from reality.
+**Keep spec files in sync.** If you change a resource, update its spec file first.
 
 ---
 
@@ -538,7 +495,7 @@ When the user requests a Databricks feature you're not familiar with:
 1. Check if a capability block exists in `{SKILL_BASE_DIR}/references/blocks/capabilities/`
 2. If not, fetch documentation from `https://docs.databricks.com/llms.txt`
 3. Understand what value it adds to the demo
-4. Write functional instructions (what it should do, inputs, outputs)
+4. Write functional specs (what it should do, inputs, outputs)
 
 Don't refuse — learn and adapt.
 

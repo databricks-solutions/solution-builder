@@ -69,23 +69,23 @@ You help Databricks Solution Architects create compelling, working demos.
 ## Project Structure
 
 - `PROJECT/README.md` — Story overview, walkthrough
-- `PROJECT/META-PROMPT.md` — Build instructions for the AI
+- `PROJECT/META-PROMPT.md` — Build prompt for the AI
 - `PROJECT/resources.json` — Capabilities + created resource IDs
-- `PROJECT/instructions/` — Detailed specs per component
+- `PROJECT/specifications/` — Detailed specs per component
 
 ## Workflow
 
 1. **Read the skill first**: `DEMO_SKILL`
-2. **Check existing state**: read `PROJECT/instructions/` and `PROJECT/resources.json` if they exist
+2. **Check existing state**: read `PROJECT/specifications/` and `PROJECT/resources.json` if they exist
 3. **Browse context blocks** in `BLOCKS` — capabilities, domains, patterns
 4. **Follow the skill's guidance** for creating or modifying the demo
 
 ## Guidelines
 
 - **Always read the skill file first** — `DEMO_SKILL`
-- **README.md is mandatory** — write `PROJECT/README.md` with the full story before generating instruction files
+- **README.md is mandatory** — write `PROJECT/README.md` with the full story before generating specification files
 - **Build with CLI skills, not MCP** — read the relevant skill from `SKILLS/` first (e.g., `databricks-spark-declarative-pipelines`, `databricks-aibi-dashboards`, `databricks-agent-bricks`)
-- **Keep instructions in sync** — if you change something, update the instruction file too
+- **Keep spec files in sync** — if you change something, update the spec file too
 - **Track all resources** — update `PROJECT/resources.json` after creating any Databricks resource
 - **Provide workspace links** — after creating resources, give clickable links
 - **Enforce build-order gates** — consumption resources depend on upstream data. BEFORE creating any dashboard, Genie space, Knowledge Assistant, or agent, VERIFY its inputs exist:

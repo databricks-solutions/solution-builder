@@ -232,11 +232,10 @@ def create_db_engine(db_config: DatabaseConfig, ws: WorkspaceClient) -> Engine:
         cparams["password"] = cred.token
 
     def after_connect(dbapi_connection, connection_record):
-        """Create the SP schema if needed and set search_path for raw SQL."""
+        """Set search_path for raw SQL. Schema itself is created once in initialize_models()."""
         if sp_schema:
             dbapi_connection.autocommit = True
             cursor = dbapi_connection.cursor()
-            cursor.execute(f'CREATE SCHEMA IF NOT EXISTS "{sp_schema}"')
             cursor.execute(f'SET search_path TO "{sp_schema}", public')
             cursor.close()
             dbapi_connection.autocommit = False
@@ -244,6 +243,10 @@ def create_db_engine(db_config: DatabaseConfig, ws: WorkspaceClient) -> Engine:
     # Dynamic token refresh for production Databricks Database
     event.listens_for(engine, "do_connect")(before_connect)
     event.listen(engine, "connect", after_connect)
+
+    # Stash SP schema so initialize_models() can scope introspection/DDL to it.
+    # This is critical on shared Lakebase instances to avoid touching other tenants' tables.
+    engine._sp_schema = sp_schema  # type: ignore[attr-defined]
 
     return engine
 
@@ -299,25 +302,36 @@ def _get_alembic_config(connection) -> AlembicConfig:
     return alembic_cfg
 
 
-def _has_alembic_version_table(engine: Engine) -> bool:
-    """Check if alembic_version table exists (indicates Alembic-managed DB)."""
+def _has_alembic_version_table(engine: Engine, schema: str | None = None) -> bool:
+    """Check if alembic_version table exists in the given schema (scoped introspection)."""
     inspector = inspect(engine)
-    return "alembic_version" in inspector.get_table_names()
+    return "alembic_version" in inspector.get_table_names(schema=schema)
 
 
-def _drop_all_tables(engine: Engine) -> None:
-    """Drop all tables to force a clean Alembic migration."""
-    logger.warning("No alembic_version table found - dropping all tables for fresh migration")
+def _drop_all_tables(engine: Engine, schema: str | None = None) -> None:
+    """Drop all tables in the given schema only.
+
+    IMPORTANT: On shared Lakebase instances, introspection MUST be scoped to the
+    SP's own schema — otherwise search_path would expose tables in `public` and
+    other tenants' schemas, which this function must never touch.
+    """
+    if schema is None:
+        raise RuntimeError(
+            "_drop_all_tables requires an explicit schema on shared Lakebase. "
+            "Refusing to run unscoped introspection that could return other tenants' tables."
+        )
+    logger.warning(
+        f"No alembic_version table found in schema '{schema}' - dropping tables there for fresh migration"
+    )
     inspector = inspect(engine)
-    table_names = inspector.get_table_names()
+    table_names = inspector.get_table_names(schema=schema)
     if table_names:
-        logger.info(f"Dropping tables: {table_names}")
+        logger.info(f"Dropping tables in schema '{schema}': {table_names}")
         with engine.connect() as conn:
-            # Drop tables in reverse dependency order (or just drop all with CASCADE)
             for table in table_names:
-                conn.execute(text(f'DROP TABLE IF EXISTS "{table}" CASCADE'))
+                conn.execute(text(f'DROP TABLE IF EXISTS "{schema}"."{table}" CASCADE'))
             conn.commit()
-        logger.info("All tables dropped")
+        logger.info(f"All tables in schema '{schema}' dropped")
 
 
 def initialize_models(engine: Engine) -> None:
@@ -333,14 +347,21 @@ def initialize_models(engine: Engine) -> None:
     For PGLite, this deletes the .pglite directory (handled earlier).
     For other databases, this drops all tables.
     """
+    # SP schema (set in create_db_engine for production Lakebase mode). None for PGLite / static URL.
+    sp_schema: str | None = getattr(engine, "_sp_schema", None)
+
     # For non-PGLite databases, handle RESET_DB by dropping tables
     # (PGLite reset is handled earlier in _create_pglite_engine)
     if not _is_pglite_mode() and os.environ.get("RESET_DB") == "1":
         logger.warning("RESET_DB=1 detected - dropping all tables!")
+        # drop_all respects schema_translate_map (set on engine), so this drops only our SP schema's tables
         SQLModel.metadata.drop_all(engine)
-        # Also drop alembic_version (not in SQLModel metadata)
+        # Also drop alembic_version (not in SQLModel metadata) — scoped to our schema
         with engine.connect() as conn:
-            conn.execute(text("DROP TABLE IF EXISTS alembic_version CASCADE"))
+            if sp_schema:
+                conn.execute(text(f'DROP TABLE IF EXISTS "{sp_schema}".alembic_version CASCADE'))
+            else:
+                conn.execute(text("DROP TABLE IF EXISTS alembic_version CASCADE"))
             conn.commit()
         logger.info("All tables dropped. Recreating via Alembic...")
 
@@ -355,9 +376,28 @@ def initialize_models(engine: Engine) -> None:
         lock_conn.commit()
 
     try:
-        # Check if this is a legacy DB (no alembic_version) - if so, drop everything
-        if not _has_alembic_version_table(engine):
-            _drop_all_tables(engine)
+        # Ensure our SP schema exists (done here under advisory lock, not on every
+        # new connection, to avoid races on CREATE SCHEMA IF NOT EXISTS).
+        if sp_schema:
+            with engine.connect() as conn:
+                conn.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{sp_schema}"'))
+                conn.commit()
+            logger.info(f"Ensured SP schema exists: {sp_schema}")
+
+        # Check if this is a legacy DB (no alembic_version in OUR schema) - if so,
+        # drop only our schema's tables. Never touches public/other tenants.
+        if sp_schema:
+            if not _has_alembic_version_table(engine, schema=sp_schema):
+                _drop_all_tables(engine, schema=sp_schema)
+        else:
+            # PGLite / single-tenant static URL: operate on default schema
+            inspector = inspect(engine)
+            if "alembic_version" not in inspector.get_table_names():
+                logger.warning("No alembic_version table - dropping default-schema tables for fresh migration")
+                with engine.connect() as conn:
+                    for table in inspector.get_table_names():
+                        conn.execute(text(f'DROP TABLE IF EXISTS "{table}" CASCADE'))
+                    conn.commit()
 
         # Enable pgvector extension for production (PGLite doesn't support it)
         if not _is_pglite_mode():

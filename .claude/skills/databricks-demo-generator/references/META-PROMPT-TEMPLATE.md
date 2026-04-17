@@ -6,11 +6,11 @@ Use this prompt to start a new session and implement the demo.
 
 ## Quick Start
 
-I have a set of instruction files in the `instructions/` folder that describe a demo I want to build on Databricks.
+I have a set of spec files in the `specifications/` folder that describe a demo I want to build on Databricks.
 
-**Phase 1 - Understand**: Read all instruction files to understand the full demo scope, story, and technical requirements.
+**Phase 1 - Understand**: Read `README.md` and `resources.json` to understand the demo story, scope, and infrastructure. Then read all spec files (numbered `*.md` in `specifications/`).
 
-**Phase 2 - Plan**: Create a task list based on the build order below. Each task should be a concrete implementation step. For each task, identify which skill to use (check `/skills` for available skills).
+**Phase 2 - Plan**: Create a task list based on spec file order. Each task should be a concrete implementation step. For each task, identify which skill to use (check `/skills` for available skills).
 
 **Phase 3 - Implement**: Work through the task list one by one:
 - **IMPORTANT - Use ai-dev-kit skills**: Before each task, load the relevant ai-dev-kit skill (e.g., `databricks-synthetic-data-gen`, `databricks-spark-declarative-pipelines`, `databricks-aibi-dashboards`, `databricks-agent-bricks`). Skills use the **Databricks CLI** and **Python SDK** — do NOT use MCP tools.
@@ -64,9 +64,9 @@ Before starting, verify:
 ├── README.md                         # Demo story and walkthrough
 ├── architecture.md                   # Architecture diagram schema (JSON)
 ├── META-PROMPT.md                    # This file - build instructions
-├── resources.json                    # Capabilities + created Databricks resource IDs
-├── instructions/                     # Detailed specs for each component
-│   └── *.md                          # Component-specific instructions
+├── resources.json                    # Capabilities + created resource IDs
+├── specifications/                   # Detailed specs for each component
+│   └── NN-*.md                       # Numbered spec files
 ├── src/                              # Implementation files
 │   ├── data_generation/              # Data generation scripts
 │   ├── documents/                    # Document generation scripts (if applicable)
@@ -80,20 +80,20 @@ Before starting, verify:
 
 ## Build Order
 
-Follow the sequence defined by the numbered instruction files in `./instructions/`. Each file specifies what to build and how to validate it.
+Follow the numbered spec files in `./specifications/`. Each file specifies what to build and how to validate it.
 
 General ordering principle: **data first, then transformations, then consumption layers** (dashboards, Genie, AI components).
+
+**Not all demos have all components.** Only build what's in the spec files.
 
 ### Build-Order Gates — DO NOT SKIP
 
 A consumption resource must never be created before its upstream data exists. These are hard gates, not suggestions:
 
-- **Before creating the dashboard**: the pipeline must have completed successfully AND every table referenced in any dataset query must return `COUNT(*) > 0` via `execute_sql` against `{CATALOG}.{SCHEMA}.{table}`. If any table is missing or empty, STOP — re-run the pipeline, fix the data, then retry. Never create a dashboard against tables that do not exist or are empty; the widgets will silently fail with `TABLE_OR_VIEW_NOT_FOUND` and there is no recovery except delete-and-recreate.
+- **Before creating the dashboard**: the pipeline must have completed successfully AND every table referenced in any dataset query must return `COUNT(*) > 0` via `execute_sql`. If any table is missing or empty, STOP and fix.
 - **Before creating the Genie space**: every table listed in its config must exist with rows.
 - **Before creating the Knowledge Assistant**: source documents must be uploaded and the vector index must have finished syncing.
 - **Before creating the Multi-Agent Supervisor**: every downstream tool must be created and have its ID in `resources.json.created_resources`.
-
-Log the validation query results inline so it is clear which tables were checked before each consumption resource was created.
 
 ---
 
@@ -123,7 +123,7 @@ Add resource IDs as you create them:
 
 ## Validation After Each Step
 
-After each step that creates tables or data, validate before moving to the next. Each instruction file specifies its own validation criteria. General checks:
+After each step that creates tables or data, validate before moving to the next. **Each spec file has its own validation section** — follow those specific checks.
 
 | After Step | What to Check |
 |------------|---------------|
@@ -149,4 +149,4 @@ After each step that creates tables or data, validate before moving to the next.
 
 ## Begin
 
-Start with Phase 1 — read all the instruction files to understand the full demo scope.
+Start with Phase 1 - read `README.md`, `resources.json`, and all spec files.

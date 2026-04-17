@@ -78,7 +78,7 @@ const STAGE_META: Record<ProjectStage, StageMeta> = {
     label: "Specification",
     shortLabel: "Spec",
     icon: FileText,
-    description: "instructions/*.md files",
+    description: "specifications/*.md files",
   },
   BUILT: {
     label: "Built",
@@ -105,7 +105,7 @@ export interface StageInfo {
   checks: Record<ProjectStage, StageCheck[]>;
   hasReadme: boolean;
   hasArch: boolean;
-  hasInstructions: boolean;
+  hasSpecifications: boolean;
   hasCode: boolean;
   hasDab: boolean;
 }
@@ -118,7 +118,7 @@ export function detectStageFromFiles(files: ProjectFile[]): StageInfo {
   const readme = fileMap.get("README.md");
   const hasReadme = !!readme && readme.size >= MIN_README_CHARS;
   const hasArch = fileMap.has("architecture.md");
-  const hasInstructions = paths.some((p) => p.startsWith("instructions/"));
+  const hasSpecifications = paths.some((p) => p.startsWith("specifications/"));
   const hasCode = paths.some(
     (p) => (p.endsWith(".py") || p.endsWith(".sql")) && !p.startsWith("src/deploy/")
   );
@@ -136,10 +136,10 @@ export function detectStageFromFiles(files: ProjectFile[]): StageInfo {
     SPECIFICATION: [
       { label: "README.md exists", passed: hasReadme },
       { label: "architecture.md exists", passed: hasArch },
-      { label: "instructions/*.md files exist", passed: hasInstructions },
+      { label: "specifications/*.md files exist", passed: hasSpecifications },
     ],
     BUILT: [
-      { label: "instructions/*.md files exist", passed: hasInstructions },
+      { label: "specifications/*.md files exist", passed: hasSpecifications },
       { label: "Code files (.py or .sql) exist", passed: hasCode },
     ],
     BUNDLED: [
@@ -154,7 +154,7 @@ export function detectStageFromFiles(files: ProjectFile[]): StageInfo {
     stage = "BUNDLED";
   } else if (hasCode) {
     stage = "BUILT";
-  } else if (hasInstructions) {
+  } else if (hasSpecifications) {
     stage = "SPECIFICATION";
   } else if (hasArch) {
     stage = "ARCHITECTED";
@@ -162,7 +162,7 @@ export function detectStageFromFiles(files: ProjectFile[]): StageInfo {
     stage = "SUMMARIZED";
   }
 
-  return { stage, checks, hasReadme, hasArch, hasInstructions, hasCode, hasDab };
+  return { stage, checks, hasReadme, hasArch, hasSpecifications, hasCode, hasDab };
 }
 
 // ---------------------------------------------------------------------------
@@ -206,7 +206,7 @@ export function BuildStepper({
 }: BuildStepperProps) {
   // Auto-detect stage from files
   const stageInfo = useMemo(() => detectStageFromFiles(files), [files]);
-  const { stage: currentStage, checks, hasReadme, hasArch, hasInstructions, hasCode, hasDab } = stageInfo;
+  const { stage: currentStage, checks, hasReadme, hasArch, hasSpecifications, hasCode, hasDab } = stageInfo;
   const currentIdx = PROJECT_STAGES.indexOf(currentStage);
 
   // Build the list of available actions based on current state
@@ -234,14 +234,14 @@ export function BuildStepper({
   }
 
   // Specification actions
-  if (!hasInstructions && onCreateSpec) {
+  if (!hasSpecifications && onCreateSpec) {
     actions.push({
       label: "Create Specifications",
       icon: FileText,
       onClick: onCreateSpec,
       variant: !hasArch ? undefined : "primary",
     });
-  } else if (hasInstructions && onUpdateSpec) {
+  } else if (hasSpecifications && onUpdateSpec) {
     actions.push({
       label: "Update Specifications",
       icon: FileText,
@@ -255,7 +255,7 @@ export function BuildStepper({
       label: "Build Databricks Resources",
       icon: Hammer,
       onClick: onBuildResources,
-      variant: !hasInstructions ? undefined : "primary",
+      variant: !hasSpecifications ? undefined : "primary",
     });
   } else if (hasCode && onUpdateResources) {
     actions.push({
@@ -282,7 +282,7 @@ export function BuildStepper({
   }
 
   // If all stages are done, make Download ZIP the primary action
-  const allDone = hasReadme && hasArch && hasInstructions && hasCode;
+  const allDone = hasReadme && hasArch && hasSpecifications && hasCode;
   if (allDone && onDownloadDAB) {
     actions.push({
       label: "Download ZIP",

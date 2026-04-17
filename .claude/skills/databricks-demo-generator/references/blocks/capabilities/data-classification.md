@@ -11,14 +11,14 @@ buildable: false
 
 ## Pain
 
-Manual data classification doesn't scale. New tables go untagged. PII leaks into dashboards. Compliance audits require manual inventory of sensitive data.
+Manual classification doesn't scale. New tables go untagged. PII leaks into dashboards. Compliance audits require manual inventory of sensitive data.
 
 ## Key Features
 
-- **Auto-detection** - scans tables for PII patterns (SSN, email, phone, etc.)
-- **Customizable rules** - define domain-specific sensitive data patterns
-- **Continuous monitoring** - new data automatically classified
-- **UC integration** - tags flow into governance policies
+- **Auto-detection** — scans tables for PII patterns (SSN, email, phone, etc.)
+- **Customizable rules** — define domain-specific sensitive data patterns
+- **Continuous monitoring** — new data automatically classified
+- **UC integration** — tags flow into governance policies
 
 ## Position
 
@@ -26,17 +26,17 @@ Compliance-heavy scenarios. FSI: PCI, PII tracking. Healthcare: PHI detection. A
 
 ## How It Works
 
-- **You enable classification on tables/schemas**: Point at a catalog or schema, classification scans the data
-- **Auto-detection finds sensitive patterns**: SSN, email, phone, credit card — built-in patterns match common PII/PHI/PCI formats
-- **Tags get applied automatically**: Detected sensitive columns get UC tags — no manual work
-- **Custom rules for your domain**: Add patterns for your own sensitive data types (e.g., internal account IDs)
-- **Continuous monitoring**: New tables and columns get scanned automatically — classification stays current
+- **Enable on tables/schemas**: Point at a catalog or schema, classification scans the data
+- **Auto-detection finds patterns**: SSN, email, phone, credit card — built-in patterns match common PII/PHI/PCI formats
+- **Tags applied automatically**: Detected sensitive columns get UC tags — no manual work
+- **Custom rules**: Add patterns for domain-specific sensitive types (e.g., internal account IDs)
+- **Continuous**: New tables and columns scanned automatically — classification stays current
 
 ## Demo Tips
 
-- **Coming soon** - not yet available for demos
+- **Coming soon** — not yet available for demos
 - Part of the Unity Catalog governance story
-- Position as "automatic compliance" - find PII before it becomes a problem
+- Position as "automatic compliance" — find PII before it becomes a problem
 - Great for regulated industries
 
 ## URL

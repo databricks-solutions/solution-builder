@@ -312,6 +312,10 @@ def get_deployed_resources(
     )
     if content is None:
         content = file_sync.get_file_content(
+            project_id, "specifications/resources.json", session=session
+        )
+    if content is None:
+        content = file_sync.get_file_content(
             project_id, "instructions/resources.json", session=session
         )
 
@@ -340,6 +344,12 @@ def get_deployed_resources(
         .where(ProjectFile.project_id == project_id)
         .where(ProjectFile.relative_path == "resources.json")
     ).first()
+    if not file_record:
+        file_record = session.exec(
+            select(ProjectFile)
+            .where(ProjectFile.project_id == project_id)
+            .where(ProjectFile.relative_path == "specifications/resources.json")
+        ).first()
     if not file_record:
         file_record = session.exec(
             select(ProjectFile)

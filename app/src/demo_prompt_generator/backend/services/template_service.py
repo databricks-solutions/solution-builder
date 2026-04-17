@@ -39,7 +39,7 @@ PROJECTS_BASE_DIR = os.getenv("PROJECTS_BASE_DIR", "./projects")
 # Files to exclude from templates (dynamic/environment-specific content)
 TEMPLATE_EXCLUDED_FILES = {
     "resources.json",               # Contains created Databricks resource IDs (root)
-    "instructions/resources.json",  # Contains created Databricks resource IDs (instructions/)
+    "specifications/resources.json",  # Contains created Databricks resource IDs (specifications/)
 }
 
 

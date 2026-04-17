@@ -9,6 +9,15 @@ variables:
   llm_endpoint:
     description: "Foundation Model serving endpoint for LLM calls"
     default: "databricks-claude-sonnet-4-6"
+  summarization_endpoint:
+    description: "Serving endpoint for summarization (cheap/fast model)"
+    default: "databricks-gpt-5-4-mini"
+  embedding_endpoint:
+    description: "Serving endpoint for embeddings (template search)"
+    default: "databricks-qwen3-embedding-0-6b"
+  lakebase_instance:
+    description: "Existing Lakebase instance to reuse (SP gets its own schema)"
+    default: "databricks-demos-shared"
 
 sync:
   include:
@@ -22,25 +31,28 @@ artifacts:
     build: ./scripts/build.sh
 
 resources:
-  database_instances:
-    demo-prompt-generator-db:
-      name: "demo-prompt-gen-lakebase"
-      capacity: "CU_1"
-
   apps:
     demo-prompt-generator-app:
-      name: "demo-asset-builder"
+      name: "demo-prompt-gen-cal"
       description: "Demo Prompt Generator — generates Databricks demo skill packages"
       source_code_path: ./.build
       resources:
         - name: "db"
           database:
             database_name: "databricks_postgres"
-            instance_name: ${resources.database_instances.demo-prompt-generator-db.name}
+            instance_name: ${var.lakebase_instance}
             permission: "CAN_CONNECT_AND_CREATE"
         - name: "llm"
           serving_endpoint:
             name: ${var.llm_endpoint}
+            permission: "CAN_QUERY"
+        - name: "summarization"
+          serving_endpoint:
+            name: ${var.summarization_endpoint}
+            permission: "CAN_QUERY"
+        - name: "embedding"
+          serving_endpoint:
+            name: ${var.embedding_endpoint}
             permission: "CAN_QUERY"
       permissions:
         - level: "CAN_USE"

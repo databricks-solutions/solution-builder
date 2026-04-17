@@ -45,7 +45,7 @@ function DocsPage() {
           <span className="font-medium text-foreground">composable blocks</span> —
           domain knowledge, story patterns, and product guidance stored as Markdown files.
           An AI agent reads the relevant blocks and assembles them into a complete package:
-          README, architecture diagram, and detailed instruction files that the{" "}
+          README, architecture diagram, and detailed specification files that the{" "}
           <a href="https://github.com/databricks/ai-dev-kit" className="text-primary hover:underline" target="_blank" rel="noreferrer">
             AI Dev Kit
           </a>{" "}
@@ -61,7 +61,7 @@ function DocsPage() {
           {[
             { num: "1", icon: Puzzle, title: "Describe", text: "Industry, scenario, products" },
             { num: "2", icon: Bot, title: "Design", text: "Story, README, architecture" },
-            { num: "3", icon: Layers, title: "Specify", text: "Instruction files per component" },
+            { num: "3", icon: Layers, title: "Specify", text: "Spec files per component" },
             { num: "4", icon: Download, title: "Export", text: "Build on workspace or download ZIP" },
           ].map((step, idx) => (
             <div key={step.num} className="relative flex items-start gap-3 rounded-xl border bg-card p-4">
@@ -82,7 +82,7 @@ function DocsPage() {
         </div>
 
         <p className="text-xs text-muted-foreground leading-relaxed">
-          The agent stops after writing the README for your approval. Instruction files
+          The agent stops after writing the README for your approval. Specification files
           are only generated once you confirm the story direction.
         </p>
       </section>
@@ -197,9 +197,9 @@ from aggregate metrics to a specific root cause in under 60 seconds.`}</code>
             <tbody className="divide-y">
               {[
                 ["Block", "A Markdown file with YAML frontmatter — the atomic unit of reusable context. Three types: domains, patterns, capabilities."],
-                ["Project", "A workspace with a chat session, generated files, and Databricks resource config. Produces README, architecture, and instruction files."],
+                ["Project", "A workspace with a chat session, generated files, and Databricks resource config. Produces README, architecture, and specification files."],
                 ["Template", "A published project snapshot. Fork it to start from a proven demo, then customize."],
-                ["Instruction File", "A functional spec for one component — data schema, pipeline definition, dashboard layout, or Genie config. Detailed enough for the AI Dev Kit to execute."],
+                ["Spec File", "A functional spec for one component — data schema, pipeline definition, dashboard layout, or Genie config. Detailed enough for the AI Dev Kit to execute."],
                 ["Architecture", "A JSON schema describing the data flow as columns, nodes, and edges. The UI renders it as an interactive diagram."],
               ].map(([term, def]) => (
                 <tr key={term}>

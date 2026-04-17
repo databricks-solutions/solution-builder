@@ -12,11 +12,15 @@ skill: databricks-unity-catalog
 
 Unified governance layer for all data, AI models, metrics, and dashboards. One place for access control, lineage, auditing, and discovery across the entire Lakehouse.
 
+Each warehouse, lake, BI tool, ML platform has its own ACLs and catalog. "Who can see this?" or "where did this KPI come from?" takes weeks. Audits (GDPR, SOX, DORA) become multi-month fire drills. Security blocks new use cases because exposure is unclear.
+
 ## When to Use in a Demo
 
 - Present in every demo as the governance foundation, but rarely the centerpiece.
 - Usually surfaces in the "platform" or "closing" section, or as the spanning layer in the architecture diagram.
 - Make it the focus only when the customer's primary pain is governance, compliance, or data democratization.
+
+Key capabilities: fine-grained access (column/row-level security, dynamic masking), ABAC (tag-based policies), automatic data classification, automated lineage, audit logs, data quality monitoring, cross-cloud federation.
 
 ## Key Configuration Decisions
 
@@ -65,7 +69,7 @@ Do not include in demo instructions:
 
 ## Implementation
 
-The `databricks-unity-catalog` ai-dev-kit skill handles all implementation: catalog/schema creation, grants, volume operations, system table queries, and data profiling. Specify WHAT to build and WHY (based on the demo story), not HOW.
+The `databricks-unity-catalog` ai-dev-kit skill covers implementation details. Specs should specify WHAT to build and WHY (demo story), not HOW.
 
 ## Demo Tips
 
@@ -73,8 +77,15 @@ The `databricks-unity-catalog` ai-dev-kit skill handles all implementation: cata
 - Show **fine-grained access** — "same data, different views based on role."
 - Show **BROWSE + access requests** — "anyone can discover what exists and request access without a ticket."
 - For regulated industries, call out the **audit trail** — every query and permission change is logged automatically.
-- In the architecture diagram, draw UC as the layer that spans the entire stack.
+- Architecture: UC spans the entire stack as the governance layer.
 - Keep it brief unless governance is the primary focus. Two minutes, two features, move on.
+
+## When to Emphasize
+
+- Regulated industry (FSI, Healthcare, PubSec)
+- Multiple clouds or data sources
+- Compliance requirements (GDPR, SOX, DORA)
+- Data democratization concerns (who can see what)
 
 ## URL
 

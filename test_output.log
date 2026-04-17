@@ -1,0 +1,29 @@
+[2m[WebServer] [22m/Users/cal.reynolds/Downloads/skunkworks/industry-demo-prompts/app/.venv/lib/python3.11/site-packages/requests/__init__.py:113: RequestsDependencyWarning: urllib3 (2.6.3) or chardet (7.4.0.post2)/charset_normalizer (3.4.4) doesn't match a supported version!
+[2m[WebServer] [22m  warnings.warn(
+[2m[WebServer] [22malembic.runtime.plugins INFO: setup plugin alembic.autogenerate.schemas
+[2m[WebServer] [22malembic.runtime.plugins INFO: setup plugin alembic.autogenerate.tables
+[2m[WebServer] [22malembic.runtime.plugins INFO: setup plugin alembic.autogenerate.types
+[2m[WebServer] [22malembic.runtime.plugins INFO: setup plugin alembic.autogenerate.constraints
+[2m[WebServer] [22malembic.runtime.plugins INFO: setup plugin alembic.autogenerate.defaults
+[2m[WebServer] [22malembic.runtime.plugins INFO: setup plugin alembic.autogenerate.comments
+[2m[WebServer] [22mINFO:     Started server process [8565]
+[2m[WebServer] [22mINFO:     Waiting for application startup.
+[2m[WebServer] [22mdemo-prompt-generator INFO: Starting app with configuration:
+[2m[WebServer] [22mapp_name='demo-prompt-generator' databricks_host='https://e2-demo-tools.cloud.databricks.com' databricks_token='' llm_model='databricks-claude-sonnet-4-6' summarization_model='databricks-gpt-5-4-mini' embedding_model='databricks-qwen3-embedding-0-6b' template_admin_emails=['quentin.ambard@databricks.com', 'cal.reynold@gmail.com']
+[2m[WebServer] [22mdemo-prompt-generator INFO: Using PGLite database at: /Users/cal.reynolds/.pglite
+[2m[WebServer] [22mdemo-prompt-generator INFO: Validating PGLite database connection
+[2m[WebServer] [22mdemo-prompt-generator INFO: PGLite database connection validated successfully
+[2m[WebServer] [22mdemo-prompt-generator INFO: Initializing database with Alembic migrations
+[2m[WebServer] [22mdemo_prompt_generator.backend.services.file_watcher INFO: File watcher started on projects
+[2m[WebServer] [22mdemo-prompt-generator INFO: File watcher started successfully
+[2m[WebServer] [22mINFO:     Application startup complete.
+[2m[WebServer] [22mINFO:     Uvicorn running on http://127.0.0.1:9000 (Press CTRL+C to quit)
+[2m[WebServer] [22malembic.runtime.migration INFO: Context impl PostgresqlImpl.
+[2m[WebServer] [22malembic.runtime.migration INFO: Will assume transactional DDL.
+[2m[WebServer] [22mdemo-prompt-generator INFO: Alembic migrations completed successfully
+[2m[WebServer] [22mdemo-prompt-generator INFO: Database models initialized successfully
+[2m[WebServer] [22mdemo-prompt-generator INFO: Database ready
+Error: No tests found.
+Make sure that arguments are regular expressions matching test files.
+You may need to escape symbols like "$" or "*" and quote the arguments.
+
