@@ -35,7 +35,7 @@ node_modules/
 .databricks
 .build/
 
-# apx (legacy)
+# Legacy dev tooling
 .apx/
 
 # PGLite local database
