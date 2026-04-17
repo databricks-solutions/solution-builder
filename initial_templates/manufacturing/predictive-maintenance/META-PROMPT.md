@@ -6,9 +6,9 @@ Use this prompt to start a new session and implement the demo.
 
 ## Quick Start
 
-I have a set of instruction files in the `instructions/` folder that describe a demo I want to build on Databricks.
+I have a set of spec files in the `specifications/` folder that describe a demo I want to build on Databricks.
 
-**Phase 1 - Understand**: Read all instruction files starting with `README.md` to understand the full demo scope, story, and technical requirements.
+**Phase 1 - Understand**: Read all spec files starting with `README.md` to understand the full demo scope, story, and technical requirements.
 
 **Phase 2 - Plan**: Create a task list based on the build order below.
 
@@ -36,7 +36,7 @@ Derived paths:
 
 ## Build Order
 
-| Step | Task | Instruction File | Output |
+| Step | Task | Spec File | Output |
 |------|------|------------------|--------|
 | 1 | Create catalog, schema, volume | (infrastructure) | Databricks resources |
 | 2 | Generate synthetic data | `01-data-generation.md` | Parquet files in volume |
@@ -83,4 +83,4 @@ Derived paths:
 
 ## Begin
 
-Start with Phase 1 - read all the instruction files beginning with `README.md`.
+Start with Phase 1 - read all the spec files beginning with `README.md`.

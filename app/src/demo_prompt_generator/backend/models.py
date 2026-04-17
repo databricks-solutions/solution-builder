@@ -86,7 +86,7 @@ class ProjectStage(str, Enum):
     DRAFTING = "DRAFTING"
     SUMMARIZED = "SUMMARIZED"        # README.md exists
     ARCHITECTED = "ARCHITECTED"      # architecture.md exists (optional)
-    SPECIFICATION = "SPECIFICATION"  # instructions/*.md files exist
+    SPECIFICATION = "SPECIFICATION"  # specifications/*.md files exist
     BUILT = "BUILT"                  # .py/.sql files + resources.json with IDs
     BUNDLED = "BUNDLED"              # databricks.yml exists (DAB)
 
@@ -107,8 +107,8 @@ def compute_project_stage(file_paths: list[str]) -> str:
     if has_code and has_resources:
         return ProjectStage.BUILT.value
 
-    has_instructions = any(p.startswith("instructions/") and p.endswith(".md") for p in path_set)
-    if has_instructions:
+    has_specifications = any(p.startswith("specifications/") and p.endswith(".md") for p in path_set)
+    if has_specifications:
         return ProjectStage.SPECIFICATION.value
 
     if "architecture.md" in names:

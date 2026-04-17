@@ -1,6 +1,6 @@
 # Demo Asset Builder
 
-A full-stack Databricks App for building personalized demo packages. Describe a customer scenario and an AI agent — powered by the [Claude Agent SDK](https://github.com/anthropics/claude-agent-sdk) and [Databricks AI Dev Kit](https://github.com/databricks/ai-dev-kit) — designs the architecture, generates instruction files, writes code, and deploys real assets (tables, pipelines, dashboards, agents) on a live workspace.
+A full-stack Databricks App for building personalized demo packages. Describe a customer scenario and an AI agent — powered by the [Claude Agent SDK](https://github.com/anthropics/claude-agent-sdk) and [Databricks AI Dev Kit](https://github.com/databricks/ai-dev-kit) — designs the architecture, generates specification files, writes code, and deploys real assets (tables, pipelines, dashboards, agents) on a live workspace.
 
 Built with FastAPI + React/Vite and deployed as a Databricks App with Lakebase (managed PostgreSQL) for persistence.
 

@@ -6,11 +6,11 @@ Use this prompt to start a new session and implement the demo.
 
 ## Quick Start
 
-I have a set of instruction files in the `instructions/` folder that describe a demo I want to build on Databricks.
+I have a set of spec files in the `specifications/` folder that describe a demo I want to build on Databricks.
 
-**Phase 1 - Understand**: Read `README.md` and `resources.json` to understand the demo story, scope, and infrastructure. Then read all instruction files (numbered `*.md` in `instructions/`).
+**Phase 1 - Understand**: Read `README.md` and `resources.json` to understand the demo story, scope, and infrastructure. Then read all spec files (numbered `*.md` in `specifications/`).
 
-**Phase 2 - Plan**: Create a task list based on instruction file order. Each task should be a concrete implementation step. For each task, identify which skill to use (check `/skills` for available skills).
+**Phase 2 - Plan**: Create a task list based on spec file order. Each task should be a concrete implementation step. For each task, identify which skill to use (check `/skills` for available skills).
 
 **Phase 3 - Implement**: Work through the task list one by one:
 - **Check skills first**: Before starting each task, list your available skills and check if any are relevant (e.g., data generation, pipelines, dashboards, Genie, agents). If a relevant skill exists, read it first for patterns and best practices.
@@ -59,8 +59,8 @@ Before starting, verify:
 ├── architecture.md                   # Architecture diagram schema (JSON)
 ├── META-PROMPT.md                    # This file - build instructions
 ├── resources.json                    # Capabilities + created resource IDs
-├── instructions/                     # Detailed specs for each component
-│   └── NN-*.md                       # Numbered instruction files
+├── specifications/                   # Detailed specs for each component
+│   └── NN-*.md                       # Numbered spec files
 ├── src/                              # Implementation files
 │   ├── data_generation/              # Data generation scripts
 │   ├── documents/                    # Document generation scripts (if applicable)
@@ -79,11 +79,11 @@ Files written here are:
 
 ## Build Order
 
-Follow the numbered instruction files in `./instructions/`. Each file specifies what to build and how to validate it.
+Follow the numbered spec files in `./specifications/`. Each file specifies what to build and how to validate it.
 
 General ordering principle: **data first, then transformations, then consumption layers** (dashboards, Genie, AI components).
 
-**Not all demos have all components.** Only build what's in the instruction files.
+**Not all demos have all components.** Only build what's in the spec files.
 
 ---
 
@@ -95,7 +95,7 @@ Update `resources.json` after each resource is created. Add resource IDs to the 
 
 ## Validation After Each Step
 
-After each step that creates tables or data, validate before moving to the next. **Each instruction file has its own validation section** — follow those specific checks.
+After each step that creates tables or data, validate before moving to the next. **Each spec file has its own validation section** — follow those specific checks.
 
 | After Step | What to Check |
 |------------|---------------|
@@ -121,4 +121,4 @@ After each step that creates tables or data, validate before moving to the next.
 
 ## Begin
 
-Start with Phase 1 - read `README.md`, `resources.json`, and all instruction files.
+Start with Phase 1 - read `README.md`, `resources.json`, and all spec files.

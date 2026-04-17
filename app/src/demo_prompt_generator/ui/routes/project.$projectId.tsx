@@ -730,8 +730,8 @@ function ProjectPage() {
   const handleCreateSpec = useCallback(() => {
     if (isStreaming) return;
     handleSendMessage(
-      "Create detailed specification files in the instructions/ folder. For each major component in the architecture:\n\n" +
-      "1. Create an `instructions/<component-name>.md` file\n" +
+      "Create detailed specification files in the specifications/ folder. For each major component in the architecture:\n\n" +
+      "1. Create a `specifications/<component-name>.md` file\n" +
       "2. Include the component's purpose, inputs, outputs, and implementation details\n" +
       "3. Reference the architecture diagram for context\n" +
       "4. Use the demo generator skill references for proper formatting"
@@ -742,7 +742,7 @@ function ProjectPage() {
   const handleUpdateSpec = useCallback(() => {
     if (isStreaming) return;
     handleSendMessage(
-      "Review and update the specification files in the instructions/ folder based on the current project state and recent discussions."
+      "Review and update the specification files in the specifications/ folder based on the current project state and recent discussions."
     );
   }, [isStreaming, handleSendMessage]);
 
@@ -750,7 +750,7 @@ function ProjectPage() {
   const handleBuildResources = useCallback(() => {
     if (isStreaming) return;
     handleSendMessage(
-      "Read META-PROMPT.md and create the Databricks resources. Build all the components defined in the instructions."
+      "Read META-PROMPT.md and create the Databricks resources. Build all the components defined in the specifications."
     );
   }, [isStreaming, handleSendMessage]);
 

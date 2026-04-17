@@ -301,7 +301,7 @@ def get_deployed_resources(
 
     file_sync: FileSyncService = request.app.state.file_sync
     content = file_sync.get_file_content(
-        project_id, "instructions/resources.json", session=session
+        project_id, "specifications/resources.json", session=session
     )
 
     if content is None:
@@ -327,7 +327,7 @@ def get_deployed_resources(
     file_record = session.exec(
         select(ProjectFile)
         .where(ProjectFile.project_id == project_id)
-        .where(ProjectFile.relative_path == "instructions/resources.json")
+        .where(ProjectFile.relative_path == "specifications/resources.json")
     ).first()
     if file_record:
         deployed_at = file_record.last_modified

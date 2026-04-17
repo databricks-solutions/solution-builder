@@ -7,70 +7,37 @@ skill: databricks-spark-declarative-pipelines
 
 # Spark Declarative Pipelines
 
-## What It Does
+SDP (formerly DLT) defines medallion-architecture pipelines using streaming tables and materialized views. Transforms raw data (Bronze) through enrichment (Silver) to business-ready aggregations (Gold) in a declarative, dependency-managed framework on serverless compute.
 
-Spark Declarative Pipelines (SDP, formerly DLT) define medallion-architecture data pipelines using streaming tables and materialized views. They transform raw ingested data (Bronze) through enrichment (Silver) to business-ready aggregations (Gold) in a declarative, dependency-managed framework running on serverless compute.
+## When to Use
 
-## When to Use in a Demo
+- Every demo needs a pipeline — the backbone transforming synthetic raw data into Gold tables for dashboards and Genie.
+- Not the centerpiece — enabling infrastructure. Build it correct and complete, not flashy.
 
-- Every demo needs a pipeline. It is the backbone that transforms synthetic raw data into the Gold tables that dashboards and Genie spaces query.
-- The pipeline is typically not the centerpiece of the demo — it is the enabling infrastructure. Build it to be correct and complete, not flashy.
+## Key Decisions
 
-## Key Configuration Decisions
+1. **Bronze:** One streaming table per source system. Keep schema as-is from source — no transforms.
+2. **Silver:** Enrichment and joins. Combine Bronze into denormalized, analysis-ready tables. Add computed columns (flags, scores, categorizations).
+3. **Gold:** Aggregations and business metrics. Design backward from dashboard and Genie needs.
+4. **Data quality:** Add expectations on Silver/Gold for NULL checks and value range validation.
+5. **Pipeline mode:** Triggered with a single refresh for demos.
 
-1. **Bronze layer:** One streaming table per source system. Keep the schema as-is from the source — no transformation here.
-2. **Silver layer:** Enrichment and joins. Combine Bronze tables into denormalized, analysis-ready tables. Add computed columns (flags, scores, categorizations).
-3. **Gold layer:** Aggregations and business metrics. Design Gold tables backward from what the dashboard and Genie need.
-4. **Data quality:** Add expectations on Silver and Gold tables for NULL checks and value range validation.
-5. **Pipeline mode:** Use triggered mode with a single refresh for demos.
+The `databricks-spark-declarative-pipelines` ai-dev-kit skill handles SQL/Python implementation, Auto Loader config, and pipeline deployment.
 
-The `databricks-spark-declarative-pipelines` ai-dev-kit skill handles all SQL/Python implementation, Auto Loader configuration, and pipeline deployment.
+## Pitfalls
 
-## Common Pitfalls
+- Gold tables not matching dashboard query needs — design Gold backward from dashboard and Genie requirements.
+- Missing Silver joins leaving NULL foreign keys in Gold aggregations.
+- Not running the pipeline before building the dashboard — tables must be materialized with data.
+- Overcomplicated Silver with too many intermediates — keep to 2-4 Silver tables.
+- Forgetting data quality constraints — low effort, demonstrates platform capability.
 
-- Gold tables that do not match what the dashboard queries need — design Gold tables backward from the dashboard and Genie requirements.
-- Missing joins in Silver that leave NULL foreign keys in Gold aggregations.
-- Not running the pipeline before building the dashboard — the tables must be materialized with data.
-- Overcomplicated Silver layer with too many intermediate tables — keep it to 2-4 Silver tables.
-- Forgetting data quality constraints — they are low effort and demonstrate platform capability.
+## Connections
 
-## How It Connects to Other Components
-
-- **Upstream (synthetic data gen):** Bronze tables ingest the generated synthetic data from volumes or streaming sources.
-- **Downstream (dashboard):** Gold tables are the primary data source for dashboard KPI cards and charts.
+- **Upstream (synthetic data gen):** Bronze tables ingest generated synthetic data from volumes or streaming sources.
+- **Downstream (dashboard):** Gold tables feed dashboard KPI cards and charts.
 - **Downstream (Genie):** Genie queries Gold and occasionally Silver tables.
 - **Streaming:** Bronze streaming tables can use Auto Loader or structured streaming for real-time ingestion.
-
-## Example Specification Snippet
-
-```yaml
-pipeline:
-  name: "fraud-detection-pipeline"
-  mode: triggered  # or continuous
-  bronze:
-    - table: bronze_transactions
-      source: "cloud_files('/Volumes/catalog/schema/raw/transactions/')"
-      format: parquet
-    - table: bronze_merchants
-      source: "cloud_files('/Volumes/catalog/schema/raw/merchants/')"
-    - table: bronze_fraud_cases
-      source: "cloud_files('/Volumes/catalog/schema/raw/fraud_cases/')"
-  silver:
-    - table: silver_transactions_enriched
-      description: "Transactions joined with merchants, accounts, fraud flags"
-      joins: [bronze_transactions, bronze_merchants, bronze_accounts, bronze_fraud_cases]
-      computed_columns: [is_fraud, merchant_risk_tier]
-      constraints:
-        - "valid_amount EXPECT (amount > 0)"
-        - "valid_merchant EXPECT (merchant_id IS NOT NULL)"
-  gold:
-    - table: gold_daily_fraud_metrics
-      description: "Daily fraud KPIs by date, channel, merchant"
-      group_by: [txn_date, channel, mcc_code, merchant_id]
-      metrics: [total_transactions, fraud_count, fraud_rate, fraud_amount]
-    - table: gold_merchant_fraud_analysis
-      description: "Merchant-level fraud with alert levels"
-```
 
 ## URL
 

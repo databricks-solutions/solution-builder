@@ -12,15 +12,15 @@ Native **orchestrator** for all Databricks workloads with retries, conditional l
 
 ## Pain
 
-Airflow + cron + ad-hoc scripts = no single view of what's running, what failed, what's late and what it breaks. Debugging a failed daily batch means grepping logs across three tools and guessing dependencies.
+Airflow + cron + ad-hoc scripts = no single view of what's running, failed, late, or breaking. Debugging a failed daily batch means grepping logs across three tools and guessing dependencies.
 
 ## Key Features
 
-- **Multi-task workflows** - notebooks, SQL, pipelines, ML in one DAG
-- **Control flow** - branching, loops, conditional execution
-- **File/table triggers** - start jobs on data arrival
-- **Repair and retry** - partial reruns, automatic recovery
-- **Cost controls** - budgets, timeouts, cluster policies
+- **Multi-task workflows** — notebooks, SQL, pipelines, ML in one DAG
+- **Control flow** — branching, loops, conditional execution
+- **File/table triggers** — start jobs on data arrival
+- **Repair and retry** — partial reruns, automatic recovery
+- **Cost controls** — budgets, timeouts, cluster policies
 
 ## Position
 
@@ -28,16 +28,16 @@ Closing the loop: "Here's how you run this in production every 5 minutes, with a
 
 ## Implementation
 
-The `databricks-jobs` ai-dev-kit skill provides all implementation details — API usage, configuration, and code patterns. The instructions you generate should specify WHAT to build and WHY (based on the demo story), not HOW.
+The `databricks-jobs` ai-dev-kit skill covers implementation details. Specs should specify WHAT to build and WHY (demo story), not HOW.
 
 ## Demo Tips
 
 - **Usually mentioned, rarely shown live** — orchestration is "boring" but essential
-- Good for the "how does this run in production?" question
-- Mention triggers: "pipeline runs automatically when new data lands"
-- Emphasize **repair and retry**: "if step 3 fails, you don't re-run steps 1 and 2"
-- In demo narratives, Jobs is what keeps the data fresh for the dashboard/Genie
-- Can show the workflow DAG briefly if customer asks about scheduling
+- For the "how does this run in production?" question
+- Triggers: "pipeline runs automatically when new data lands"
+- **Repair and retry**: "if step 3 fails, you don't re-run steps 1 and 2"
+- In demo narratives, Jobs keeps data fresh for the dashboard/Genie
+- Show workflow DAG briefly if customer asks about scheduling
 
 ## URL
 

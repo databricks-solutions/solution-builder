@@ -1,6 +1,6 @@
 ---
 name: databricks-demo-generator
-description: Generate comprehensive instruction files / specifications for building Databricks assets, demos or end 2 end projects. Use when users want to create a new demo, design a demo story, or need help structuring demo components, create an entire project. This skill creates prompts that another agent will execute to build the actual demo.
+description: Generate comprehensive specification files for building Databricks assets, demos or end 2 end projects. Use when users want to create a new demo, design a demo story, or need help structuring demo components, create an entire project. This skill creates prompts that another agent will execute to build the actual demo.
 ---
 
 # Databricks Demo Generator
@@ -142,7 +142,7 @@ How much exploration depends on request specificity:
 ./architecture.md     # Architecture diagram schema (JSON)
 ./META-PROMPT.md      # Copy of META-PROMPT-TEMPLATE.md (with placeholders filled)
 ./resources.json      # Selected capabilities + created resource IDs
-./instructions/       # Detailed specs per component
+./specifications/     # Detailed specs per component
 ```
 
 ### resources.json (Source of Truth)
@@ -240,34 +240,32 @@ After user approves README:
 1. Create `resources.json` with selected capabilities
 2. Create `architecture.md` with the architecture diagram schema
 
-### Phase 6: Generate Detailed Instructions
+### Phase 6: Generate Detailed Specifications
 
 After approval, generate:
 - `META-PROMPT.md` — **Copy `{SKILL_BASE_DIR}/references/META-PROMPT-TEMPLATE.md` as-is.** It's fully generic — no modifications needed.
-- `instructions/*.md` — One file per component, numbered in build order
+- `specifications/*.md` — One file per component, numbered in build order (read the example-luxebeauty/specifications)
 
-Only generate files for components in this demo. Common types:
+Only generate files for categories used in this demo. **One file per category**, numbered in canonical order. Skip unused categories (keep the number gap).
 
-| Component | File |
-|-----------|------|
-| Synthetic data | `01-data-generation.md` |
-| Documents/PDFs | `02-unstructured-docs.md` |
-| Pipeline (SDP) | `03-pipelines.md` |
-| Genie Space | `04-genie-space.md` |
-| Dashboard | `05-dashboard.md` |
-| Knowledge Assistant | `06-knowledge-assistant.md` |
-| Multi-Agent Supervisor | `07-multi-agent-supervisor.md` |
+| # | Category | File | What goes in it |
+|---|----------|------|-----------------|
+| 01 | Lakeflow | `01-lakeflow.md` | Data generation (schemas, distributions, the event), unstructured docs/PDFs, SDP pipeline (bronze→silver→gold), validation queries |
+| 02 | UC Governance | `02-uc-governance.md` | ABAC policies, data quality monitors, classification rules |
+| 03 | AI/BI | `03-ai-bi.md` | Dashboard (layout, filters, widgets) + Genie Space (system instructions, investigation flow, sample Q&A) |
+| 04 | Agent Bricks | `04-agent-bricks.md` | KA (docs, system instructions, Q&A) + MAS (routing, demo flow) + model serving if applicable |
+| 05 | Apps & Infra | `05-apps-infra.md` | Databricks Apps + Lakebase config |
 
-#### Writing Good Instructions
+#### Writing Good Spec Files
 
-Each file should be clear enough that another agent can execute without ambiguity. Write **functional specs** (what to build, not how):
+One file per category, sections within. Each file must be clear enough that another agent can execute without ambiguity. Write **functional specs** (what to build, not how). Be dense — no prose that an LLM can infer. Focus on:
 
-- **Data**: Schema with column names, types, descriptions. Distributions that create realistic patterns. The "event" encoded in the data. Relationships between tables.
-- **Dashboard**: Layout that tells the visual story. KPIs in business terms. Key insight obvious at a glance (5-second test). Filters for drilling down.
-- **Genie**: Instructions that guide smart analysis. Sample questions that drive the demo narrative. Domain knowledge: baselines, thresholds, what's normal vs abnormal.
-- **KA**: What documents to generate. The key content that explains the "why." Identifiers that match the structured data exactly.
+- **Deterministic values**: Exact IDs, names, numbers that must be reproduced
+- **Schemas**: Column names, types, relationships
+- **The event**: What makes the story data interesting (distributions, anomalies)
+- **Coherence contracts**: Which columns/tables are consumed by downstream categories (e.g., gold table dimensions must match dashboard filters)
 
-**Parallelization**: Read all reference files in parallel at the start. Write independent instruction files in parallel when they don't share dependencies.
+**Do NOT repeat story context in every file.** Define shared values (affected SKUs, lot, persona, key metrics) once in `01-lakeflow.md`, reference "from 01" in later files.
 
 ### Phase 7: Coherence Review
 
@@ -287,7 +285,7 @@ Story: [Protagonist] sees [catalyst]. Asks "[question]".
 
 Location: [catalog.schema]
 
-Demo instructions are ready in `./instructions/`.
+Demo specifications are ready in `./specifications/`.
 Would you like me to build the demo resources now?
 ```
 
@@ -307,9 +305,9 @@ If user opts in, build actual Databricks resources using **ai-dev-kit CLI skills
 | Knowledge Assistant | `databricks-agent-bricks` |
 | Multi-Agent Supervisor | `databricks-agent-bricks` |
 
-For each capability: load skill → read instruction file → create resource → validate → update `resources.json` with resource ID.
+For each capability: load skill → read spec file → create resource → validate → update `resources.json` with resource ID.
 
-**Keep instructions in sync.** If you change a resource, update its instruction file first.
+**Keep spec files in sync.** If you change a resource, update its spec file first.
 
 ---
 
@@ -328,7 +326,7 @@ When the user requests a Databricks feature you're not familiar with:
 1. Check if a capability block exists in `{SKILL_BASE_DIR}/references/blocks/capabilities/`
 2. If not, fetch documentation from `https://docs.databricks.com/llms.txt`
 3. Understand what value it adds to the demo
-4. Write functional instructions (what it should do, inputs, outputs)
+4. Write functional specs (what it should do, inputs, outputs)
 
 Don't refuse — learn and adapt.
 

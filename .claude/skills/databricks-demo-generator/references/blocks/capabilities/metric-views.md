@@ -12,39 +12,38 @@ skill: databricks-metric-views
 
 ## Pain
 
-"Revenue" means different things to different teams. Marketing calculates it one way, Finance another, and the CEO dashboard shows a third number. Every new report triggers debates about "which number is right." Complex metrics like ratios or distinct counts break when re-aggregated. Teams create dozens of pre-baked views for every possible slice, yet still can't answer ad-hoc questions.
+"Revenue" means different things to different teams. Marketing calculates one way, Finance another, CEO dashboard shows a third number. Every report triggers "which number is right?" debates. Complex metrics (ratios, distinct counts) break when re-aggregated. Teams create dozens of views for every slice, yet can't answer ad-hoc questions.
 
 ## Key Features
 
-- **Define once, use everywhere** - single source of truth for business metrics
-- **Flexible dimensions** - query any metric across any dimension at runtime
-- **Complex calculations** - ratios, distinct counts, time-over-time that aggregate correctly
-- **Auto-materialization** - pre-compute and incrementally update aggregations for performance
-- **UC governed** - metrics inherit permissions, show in lineage, are auditable
+- **Define once, use everywhere** — single source of truth for business metrics
+- **Flexible dimensions** — query any metric across any dimension at runtime
+- **Complex calculations** — ratios, distinct counts, time-over-time that aggregate correctly
+- **Auto-materialization** — pre-compute and incrementally update aggregations for performance
+- **UC governed** — metrics inherit permissions, show in lineage, auditable
 
 ## Position
 
-When consistency matters: "Your Genie answers and dashboards all draw from the same metric definitions - no more spreadsheet reconciliation." FSI: regulatory metrics that must match across reports. Retail: consistent revenue/margin definitions across regions.
+When consistency matters: "Genie answers and dashboards draw from the same metric definitions — no spreadsheet reconciliation." FSI: regulatory metrics must match across reports. Retail: consistent revenue/margin across regions.
 
 ## Demo Tips
 
-- **Typically sits in the gold layer** - materializes pre-aggregated data for fast queries
-- Think of it as creating a "cube" that pre-computes many dimension combinations
-- **Perfect for dashboards** - one metric view can power multiple dashboard widgets
-- Mention the consistency story: "Everyone sees the same definition of revenue"
-- Good for complex metrics: "This ratio aggregates correctly no matter how you slice it"
-- In the architecture diagram, Metric Views sit between gold tables and consumers (Dashboard, Genie)
-- Not always needed - use when there are complex metrics or consistency requirements
+- **Sits in the gold layer** — materializes pre-aggregated data for fast queries
+- Think "cube" that pre-computes many dimension combinations
+- **Perfect for dashboards** — one metric view powers multiple widgets
+- Consistency: "Everyone sees the same definition of revenue"
+- Complex metrics: "This ratio aggregates correctly no matter how you slice it"
+- Architecture: Metric Views sit between gold tables and consumers (Dashboard, Genie)
+- Not always needed — use when complex metrics or consistency requirements exist
 
 ## Implementation
 
-The `databricks-metric-views` ai-dev-kit skill provides all implementation details — API usage, configuration, and code patterns. The instructions you generate should specify WHAT to build and WHY (based on the demo story), not HOW.
+The `databricks-metric-views` ai-dev-kit skill covers implementation details. Specs should specify WHAT to build and WHY (demo story), not HOW.
 
 ## When to Include
 
-Include Metric Views when:
 - Multiple metrics with complex calculations (ratios, YoY, running totals)
-- Need for consistent definitions across reports
+- Consistent definitions needed across reports
 - Performance requirements for interactive dashboards
 - Regulatory/compliance need for auditable metric definitions
 

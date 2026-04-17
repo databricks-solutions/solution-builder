@@ -12,31 +12,31 @@ Serverless **push-based ingestion API** that writes data directly into Unity Cat
 
 ## Pain
 
-Building real-time data pipelines requires message brokers (Kafka, Kinesis), cluster management, and custom consumers. IoT devices, mobile apps, and services need low-latency data landing but teams spend months on infrastructure instead of building applications.
+Real-time pipelines require message brokers (Kafka, Kinesis), cluster management, custom consumers. IoT devices, mobile apps, services need low-latency data landing but teams spend months on infrastructure instead of applications.
 
 ## Key Features
 
-- **Push-based API** - gRPC and REST endpoints for direct data push
-- **Serverless** - no brokers, clusters, or infrastructure to manage
-- **OpenTelemetry native** - built-in support for OTLP protocol
-- **Direct to Delta** - writes straight to Unity Catalog managed tables
-- **Low latency** - near real-time ingestion without polling
+- **Push-based API** — gRPC and REST endpoints for direct data push
+- **Serverless** — no brokers, clusters, or infrastructure to manage
+- **OpenTelemetry native** — built-in OTLP protocol support
+- **Direct to Delta** — writes straight to UC managed tables
+- **Low latency** — near real-time ingestion without polling
 
 ## Position
 
-Any "stream data directly from devices/apps/services" scenario. Perfect for IoT telemetry, application events, observability data, and real-time sensor feeds. Pairs naturally with Lakebase for operational applications that need both push ingestion and low-latency reads.
+Any "stream data directly from devices/apps/services" scenario. IoT telemetry, application events, observability data, real-time sensor feeds. Pairs naturally with Lakebase for apps needing both push ingestion and low-latency reads.
 
 ## Demo Tips
 
-- **Ideal for IoT/edge scenarios** - devices pushing telemetry without polling
+- **Ideal for IoT/edge** — devices pushing telemetry without polling
 - Combine with SDP for real-time transformations after ingestion
-- Show the REST/gRPC simplicity: one API call lands data in a governed table
-- For observability demos, highlight OpenTelemetry support (logs, metrics, traces)
-- For demos, simulate push ingestion — the ai-dev-kit skill handles the implementation
+- REST/gRPC simplicity: one API call lands data in a governed table
+- Observability demos: highlight OpenTelemetry support (logs, metrics, traces)
+- For demos, simulate push ingestion — ai-dev-kit skill handles implementation
 
 ## Implementation
 
-The `databricks-zerobus-ingest` ai-dev-kit skill provides all implementation details — API usage, configuration, and code patterns. The instructions you generate should specify WHAT to build and WHY (based on the demo story), not HOW.
+The `databricks-zerobus-ingest` ai-dev-kit skill covers implementation details. Specs should specify WHAT to build and WHY (demo story), not HOW.
 
 ## Use Cases
 
