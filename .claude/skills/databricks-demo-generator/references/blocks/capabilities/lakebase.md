@@ -2,6 +2,7 @@
 name: Lakebase
 category: apps-infra
 disabled: false
+buildable: true
 skill: databricks-lakebase-provisioned
 ---
 
@@ -40,5 +41,5 @@ Databricks-managed PostgreSQL for OLTP workloads. Relational database for operat
 - **Streaming:** Near-real-time sync keeps operational state current with streaming data.
 
 ## URL
-
+Best practices: https://www.databricks.com/blog/beyond-provisioning-developers-guide-databricks-lakebase-autoscaling
 https://docs.databricks.com/aws/en/lakebase/index.html

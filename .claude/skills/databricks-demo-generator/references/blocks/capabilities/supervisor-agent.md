@@ -2,6 +2,7 @@
 name: Supervisor Agent
 category: agent-bricks
 disabled: false
+buildable: true
 skill: databricks-agent-bricks
 ---
 

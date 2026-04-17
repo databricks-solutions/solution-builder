@@ -48,14 +48,38 @@ class LLMService:
     def __init__(self, ws: WorkspaceClient, config: AppConfig | None = None):
         self.ws = ws
         self.config = config
-        self._client = None
+        self._clients: dict[str, Any] = {}
 
-    @property
-    def client(self):
-        """Lazy-load the OpenAI client."""
-        if self._client is None:
-            self._client = self.ws.serving_endpoints.get_open_ai_client()
-        return self._client
+    def _client_for(self, endpoint_name: str):
+        """Build an OpenAI client scoped to a specific serving endpoint.
+
+        Uses base_url `<host>/serving-endpoints/<endpoint_name>` so requests hit
+        `/serving-endpoints/<endpoint_name>/chat/completions` (or /embeddings) —
+        these paths are authorized by the per-endpoint CAN_QUERY grant from
+        Databricks Apps resources. The generic `/serving-endpoints/chat/completions`
+        router path requires a broader scope that Apps don't receive.
+        """
+        cached = self._clients.get(endpoint_name)
+        if cached is not None:
+            return cached
+
+        from openai import OpenAI
+
+        host = (self.ws.config.host or "").rstrip("/")
+        headers = self.ws.config.authenticate()
+        token = headers.get("Authorization", "").removeprefix("Bearer ").strip()
+        client = OpenAI(
+            base_url=f"{host}/serving-endpoints/{endpoint_name}",
+            api_key=token,
+        )
+        self._clients[endpoint_name] = client
+        return client
+
+    def _chat_client(self, model: str):
+        return self._client_for(model)
+
+    def _embedding_client(self):
+        return self._client_for(EMBEDDING_MODEL)
 
     # -------------------------------------------------------------------------
     # Core Methods
@@ -102,7 +126,7 @@ class LLMService:
             kwargs["response_format"] = {"type": "json_object"}
 
         try:
-            response = self.client.chat.completions.create(**kwargs)
+            response = self._chat_client(model).chat.completions.create(**kwargs)
             return response.choices[0].message.content
         except Exception as e:
             logger.error(f"Chat completion failed (model={model}): {e}")
@@ -168,7 +192,7 @@ class LLMService:
         messages.append({"role": "user", "content": prompt})
 
         try:
-            response = self.client.chat.completions.create(
+            response = self._chat_client(model).chat.completions.create(
                 model=model,
                 messages=messages,
                 max_tokens=max_tokens,
@@ -233,7 +257,7 @@ class LLMService:
             text = text[:max_chars]
 
         try:
-            response = self.client.embeddings.create(
+            response = self._embedding_client().embeddings.create(
                 model=EMBEDDING_MODEL,
                 input=text,
             )
@@ -256,7 +280,7 @@ class LLMService:
         truncated = [t[:max_chars] if len(t) > max_chars else t for t in texts]
 
         try:
-            response = self.client.embeddings.create(
+            response = self._embedding_client().embeddings.create(
                 model=EMBEDDING_MODEL,
                 input=truncated,
             )

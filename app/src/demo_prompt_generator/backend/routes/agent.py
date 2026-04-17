@@ -97,15 +97,17 @@ async def invoke_agent(
     if session_id:
         logger.info(f"Resuming session for project {body.project_id}: {session_id}")
 
-    # Save user message
+    # Save user message (skipped when auto-kicking off an already-persisted
+    # opening prompt, to avoid a duplicate bubble in the chat).
     execution_id = generate_uuid()
-    user_msg = Message(
-        project_id=body.project_id,
-        role="user",
-        content=body.message,
-    )
-    session.add(user_msg)
-    session.commit()
+    if body.save_user_message:
+        user_msg = Message(
+            project_id=body.project_id,
+            role="user",
+            content=body.message,
+        )
+        session.add(user_msg)
+        session.commit()
 
     # Create stream
     stream = manager.create_stream(execution_id, body.project_id)
@@ -133,18 +135,22 @@ async def invoke_agent(
                 collected_events.append(event)
         except Exception as e:
             logger.exception(f"Agent execution failed: {e}")
-            return
+            stream.mark_error(str(e))
+            # Fall through to save whatever we collected so far
 
         # Save assistant response and session_id after completion.
         # This runs even if the browser disconnected — the task is decoupled
-        # from the SSE consumer.
+        # from the SSE consumer. Always attempt to save: even when the text
+        # response is empty (tool-heavy sessions that hit max turns), we still
+        # need to persist the session_id so the next invocation can resume.
         try:
             full_response = collect_text_response(collected_events)
             reasoning = collect_reasoning(collected_events)
-            if full_response:
-                from sqlmodel import Session as SQLSession
-                with SQLSession(engine) as db:
-                    # Compress reasoning data to save space (can be large with tool inputs/outputs)
+
+            from sqlmodel import Session as SQLSession
+            with SQLSession(engine) as db:
+                # Save assistant message if we got any text
+                if full_response:
                     raw_reasoning = {"reasoning": reasoning} if reasoning else None
                     reasoning_data = compress_reasoning(raw_reasoning)
                     assistant_msg = Message(
@@ -154,18 +160,22 @@ async def invoke_agent(
                         reasoning_data=reasoning_data,
                     )
                     db.add(assistant_msg)
+                else:
+                    logger.warning(f"Agent returned empty text response for project {body.project_id}")
 
-                    if stream.session_id:
-                        proj = db.get(Project, body.project_id)
-                        if proj:
-                            proj.session_id = stream.session_id
-                            proj.updated_at = utc_now()
-                            db.add(proj)
+                # Always persist session_id so conversation can resume
+                if stream.session_id:
+                    proj = db.get(Project, body.project_id)
+                    if proj:
+                        proj.session_id = stream.session_id
+                        proj.updated_at = utc_now()
+                        db.add(proj)
 
-                    db.commit()
+                db.commit()
+                if full_response:
                     logger.info(f"Saved assistant message for project {body.project_id} ({len(full_response)} chars)")
-            else:
-                logger.warning(f"Agent returned empty response for project {body.project_id}")
+                if stream.session_id:
+                    logger.info(f"Persisted session_id for project {body.project_id}: {stream.session_id}")
         except Exception as e:
             logger.exception(f"Failed to save agent response for project {body.project_id}: {e}")
 

@@ -52,17 +52,21 @@ Derived paths:
 
 ## Resource Tracking
 
+The `resources.json` file at the project root tracks capabilities and all created Databricks resources. Update its `created_resources` object after each resource is created:
+
 ```json
 {
-  "catalog": "freshmart",
-  "schema": "supply_chain",
-  "volume_path": "/Volumes/freshmart/supply_chain/raw_data",
-  "workspace_folder": "/Workspace/Users/.../demand_forecasting_demo",
-  "pipeline_id": null,
-  "dashboard_id": null,
-  "genie_space_id": null,
-  "knowledge_assistant_id": null,
-  "multi_agent_supervisor_id": null
+  "capabilities": { "buildable": [...], "talking_track": [...] },
+  "created_resources": {
+    "catalog": "freshmart",
+    "schema": "supply_chain",
+    "workspace_folder": "/Workspace/Users/.../demand_forecasting_demo",
+    "pipeline_id": "<id>",
+    "dashboard_id": "<id>",
+    "genie_space_id": "<id>",
+    "knowledge_assistant_id": "<id>",
+    "multi_agent_supervisor_id": "<id>"
+  }
 }
 ```
 

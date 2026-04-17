@@ -2,6 +2,7 @@
 name: Spark Declarative Pipelines
 category: lakeflow
 disabled: false
+buildable: true
 skill: databricks-spark-declarative-pipelines
 ---
 
@@ -24,6 +25,18 @@ SDP (formerly DLT) defines medallion-architecture pipelines using streaming tabl
 
 The `databricks-spark-declarative-pipelines` ai-dev-kit skill handles SQL/Python implementation, Auto Loader config, and pipeline deployment.
 
+**Design Gold backward** — start from dashboard/Genie needs, then work backward through Silver to Bronze. This prevents the most common pitfall: Gold tables that don't match downstream queries.
+
+**Dataset types per layer:**
+- **Bronze:** Streaming tables. One per source, minimal transformation.
+- **Silver cleaning** (filtering, dedup): Streaming tables.
+- **Silver enrichment** (joins, computed columns): Materialized views.
+- **Gold** (aggregations, KPIs): Always materialized views.
+
+**Data quality expectations:** Always include — low effort, demos well. Bronze: `EXPECT (id IS NOT NULL)`. Silver: NOT NULL on join keys, value ranges. Gold: business rule validation.
+
+**Gold table design for downstream:** Clear column names (not `col1`, `amt`), descriptions with units and valid ranges, `CLUSTER BY` on filter columns.
+
 ## Pitfalls
 
 - Gold tables not matching dashboard query needs — design Gold backward from dashboard and Genie requirements.
@@ -34,11 +47,14 @@ The `databricks-spark-declarative-pipelines` ai-dev-kit skill handles SQL/Python
 
 ## Connections
 
-- **Upstream (synthetic data gen):** Bronze tables ingest generated synthetic data from volumes or streaming sources.
-- **Downstream (dashboard):** Gold tables feed dashboard KPI cards and charts.
+- **Upstream (synthetic data gen):** Bronze tables ingest generated synthetic data from volumes via Auto Loader.
+- **Downstream (dashboard):** Gold materialized views feed dashboard KPI cards and charts.
 - **Downstream (Genie):** Genie queries Gold and occasionally Silver tables.
-- **Streaming:** Bronze streaming tables can use Auto Loader or structured streaming for real-time ingestion.
+- **Downstream (ML/serving):** Gold tables can feed feature engineering or model training notebooks.
+
 
 ## URL
 
-https://www.databricks.com/product/data-engineering/spark-declarative-pipelines
+Best practices: https://docs.databricks.com/aws/en/ldp/best-practices
+- [Spark Declarative Pipelines](https://www.databricks.com/product/data-engineering/spark-declarative-pipelines) — Product overview.
+- [Pipeline development](https://docs.databricks.com/aws/en/ldp/) — Full documentation for creating and managing pipelines.

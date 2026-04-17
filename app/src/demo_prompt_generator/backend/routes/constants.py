@@ -37,7 +37,6 @@ class CapabilityInput(BaseModel):
     """Capability with user's explicit selection status."""
     id: str
     status: Optional[Literal["selected", "unselected"]] = None
-    is_default: bool = False
 
 
 class IdeaToRefine(BaseModel):
@@ -143,7 +142,6 @@ def _load_platform_architecture() -> str:
 def _build_suggest_prompts(
     body: SuggestCapabilitiesRequest,
     platform_context: str,
-    default_list: str,
     mandatory_list: str,
     excluded_list: str,
     cap_list: str,
@@ -213,7 +211,7 @@ A demo needs:
 3. **Select capabilities** that apply to ALL the story ideas (they're exploring different angles of the same topic).
 
 ## Capability Selection Rules
-- DEFAULT selection: {default_list}
+- Pick capabilities based on the user's prompt — do not pre-bias toward any buildable capability.
 - Always include "synthetic-data-gen" — all demos need realistic fake data
 - Almost always include talking track: "lakeflow-connect", "unity-catalog", "databricks-one", "genie-code"
 - Unity Catalog should almost always be included unless explicitly excluded
@@ -328,7 +326,6 @@ def suggest_capabilities(
     # Separate capabilities by status
     always_include = [c.id for c in body.capabilities if c.status == "selected"]
     never_include = [c.id for c in body.capabilities if c.status == "unselected"]
-    default_caps = [c.id for c in body.capabilities if c.is_default]
     to_decide = [c.id for c in body.capabilities if c.status is None]
 
     def generate_events():
@@ -346,17 +343,16 @@ def suggest_capabilities(
         valid_ids = {c["id"] for c in available_caps}
 
         # Format capability lists for the prompt
-        default_list = ", ".join(default_caps) if default_caps else "(none)"
         mandatory_list = ", ".join(always_include) if always_include else "(none)"
         excluded_list = ", ".join(never_include) if never_include else "(none)"
 
         cap_list = "\n".join([
-            f"- {c['id']}: {c['name']} ({c['category']})" + (" [DEFAULT]" if c["id"] in default_caps else "")
+            f"- {c['id']}: {c['name']} ({c['category']})"
             for c in available_for_llm
         ])
 
         system_prompt, user_prompt = _build_suggest_prompts(
-            body, platform_context, default_list, mandatory_list, excluded_list, cap_list
+            body, platform_context, mandatory_list, excluded_list, cap_list
         )
 
         try:
@@ -370,7 +366,7 @@ def suggest_capabilities(
             for line in llm.chat_stream_lines(
                 user_prompt,
                 system_prompt=system_prompt,
-                size=ModelSize.NORMAL,
+                size=ModelSize.MINI,
                 max_tokens=1500,
             ):
                 try:
@@ -415,8 +411,8 @@ def suggest_capabilities(
 
         except Exception as e:
             logger.error(f"Failed to suggest capabilities: {e}")
-            # On error, return the defaults + explicitly selected ones
-            fallback = list(set(always_include + default_caps) - set(never_include))
+            # On error, return only explicitly selected capabilities
+            fallback = list(set(always_include) - set(never_include))
             yield f"event: error\ndata: {json.dumps({'error': str(e), 'capabilities': fallback})}\n\n"
 
     return StreamingResponse(

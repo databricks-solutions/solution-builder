@@ -194,11 +194,19 @@ export async function listProjects(): Promise<ProjectListItem[]> {
   return resp.json();
 }
 
-export async function createProject(description: string): Promise<Project> {
+export async function createProject(
+  description: string,
+  capabilities: string[] = [],
+  initialPrompt?: string,
+): Promise<Project> {
   const resp = await fetch(apiUrl("/api/projects"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ description }),
+    body: JSON.stringify({
+      description,
+      capabilities,
+      initial_prompt: initialPrompt,
+    }),
   });
   if (!resp.ok) throw new Error(`Failed to create project: ${resp.status}`);
   return resp.json();
@@ -415,12 +423,17 @@ export async function clearProjectSession(projectId: string): Promise<{ success:
 
 export async function invokeAgent(
   projectId: string,
-  message: string
+  message: string,
+  options: { saveUserMessage?: boolean } = {},
 ): Promise<InvokeAgentResponse> {
   const resp = await fetch(apiUrl("/api/invoke_agent"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ project_id: projectId, message }),
+    body: JSON.stringify({
+      project_id: projectId,
+      message,
+      save_user_message: options.saveUserMessage ?? true,
+    }),
   });
   if (!resp.ok) throw new Error(`Failed to invoke agent: ${resp.status}`);
   return resp.json();
@@ -853,12 +866,13 @@ export async function updateTemplateStatus(
 
 export async function createProjectFromTemplate(
   templateId: string,
-  name: string
+  name: string,
+  initialPrompt?: string,
 ): Promise<Project> {
   const resp = await fetch(apiUrl(`/api/templates/${templateId}/create-project`), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name }),
+    body: JSON.stringify({ name, initial_prompt: initialPrompt }),
   });
   if (!resp.ok) throw new Error(`Failed to create project from template: ${resp.status}`);
   return resp.json();
@@ -945,7 +959,6 @@ export async function getCapabilities(): Promise<Capability[]> {
 export interface CapabilityInput {
   id: string;
   status: "selected" | "unselected" | null;
-  isDefault?: boolean;
 }
 
 export interface UseCaseIdea {

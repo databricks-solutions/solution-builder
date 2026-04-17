@@ -85,6 +85,15 @@ cp "$WHEEL" .build/
 cp dist/requirements.txt .build/
 cp app.yml .build/
 
+# Bundle capability/domain/pattern blocks. The backend walks up from its
+# install location looking for .claude/skills/databricks-demo-generator/references/blocks.
+# In the app runtime, .build/ lands at /app/python/source_code, so placing
+# .claude there makes the folder discoverable.
+if [[ -d "../.claude" ]]; then
+    echo "  Bundling .claude/ (capability blocks)..."
+    cp -r "../.claude" .build/.claude
+fi
+
 echo -e "${GREEN}Build complete!${NC}"
 echo -e "  ${BLUE}.build/${NC}"
 ls -lh .build/

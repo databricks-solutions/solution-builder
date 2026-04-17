@@ -2,6 +2,7 @@
 name: Vector Search
 category: agent-bricks
 disabled: false
+buildable: true
 skill: databricks-vector-search
 ---
 

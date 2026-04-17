@@ -2,7 +2,7 @@
 name: ABAC
 category: uc-governance
 disabled: false
-buildable: true
+buildable: false
 ---
 
 # Attribute-Based Access Control (ABAC)

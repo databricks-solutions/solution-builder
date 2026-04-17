@@ -27,6 +27,89 @@ PROJECTS_BASE_DIR = os.getenv("PROJECTS_BASE_DIR", "./projects")
 # Set to a list of skill names to limit which skills are copied
 DEFAULT_SKILLS = None  # Copy all skills from ai-dev-kit
 
+# Skills that should ALWAYS be copied into every project (baseline tooling
+# that applies regardless of which demo capabilities the user picked).
+CORE_SKILLS: set[str] = {
+    "databricks-config",
+    "databricks-docs",
+    "databricks-python-sdk",
+    "databricks-unity-catalog",
+    "databricks-synthetic-data-gen",
+    "databricks-bundles",
+    "databricks-execution-compute",
+    "databricks-dbsql",
+    "databricks-jobs",
+}
+
+# Never copy these skill dirs (stub/template entries in ai-dev-kit).
+EXCLUDE_SKILLS: set[str] = {"TEMPLATE"}
+
+# Map each capability id (see references/blocks/capabilities/*.md) to the
+# ai-dev-kit skill dirs it needs. Capabilities not listed contribute no extra
+# skills beyond CORE_SKILLS.
+CAPABILITY_TO_SKILLS: dict[str, list[str]] = {
+    "ai-functions": ["databricks-ai-functions"],
+    "aibi-dashboards": ["databricks-aibi-dashboards"],
+    "databricks-apps": ["databricks-app-python", "databricks-lakebase-provisioned"],
+    "genie": ["databricks-genie"],
+    "information-extraction": ["databricks-ai-functions"],
+    "knowledge-assistant": ["databricks-agent-bricks", "databricks-unstructured-pdf-generation"],
+    "lakebase": ["databricks-lakebase-provisioned", "databricks-lakebase-autoscale"],
+    "lakeflow-jobs": ["databricks-jobs"],
+    "metric-views": ["databricks-metric-views"],
+    "model-serving": ["databricks-model-serving"],
+    "model-training-mlflow": ["databricks-mlflow-evaluation", "databricks-model-serving"],
+    "sdp": ["databricks-spark-declarative-pipelines"],
+    "supervisor-agent": ["databricks-agent-bricks"],
+    "vector-search": ["databricks-vector-search"],
+    "zerobus-ingest": ["databricks-zerobus-ingest"],
+}
+
+
+def skills_for_capabilities(capability_ids: Optional[list[str]]) -> Optional[list[str]]:
+    """Resolve selected capability IDs to the set of skill dir_names to copy.
+
+    Returns None if capability_ids is None (caller should copy everything) or empty
+    (same — no selection signal, default to full set). Otherwise returns the union of
+    CORE_SKILLS and each capability's mapped skills, minus EXCLUDE_SKILLS.
+    """
+    if not capability_ids:
+        return None
+    resolved: set[str] = set(CORE_SKILLS)
+    for cap in capability_ids:
+        for skill in CAPABILITY_TO_SKILLS.get(cap, []):
+            resolved.add(skill)
+    resolved -= EXCLUDE_SKILLS
+    return sorted(resolved)
+
+
+def _prune_capability_blocks(
+    demo_skill_dest: Path,
+    capability_ids: list[str],
+) -> None:
+    """Remove capability block files the user didn't select.
+
+    Keeps domains/, patterns/, and all non-capabilities references intact.
+    Only removes files from references/blocks/capabilities/ whose stem
+    (filename minus .md) is not in the selected capability_ids set.
+    """
+    caps_dir = demo_skill_dest / "references" / "blocks" / "capabilities"
+    if not caps_dir.is_dir():
+        return
+
+    selected = set(capability_ids)
+    removed = 0
+    for f in list(caps_dir.iterdir()):
+        if f.is_file() and f.suffix == ".md" and f.stem not in selected:
+            f.unlink()
+            removed += 1
+
+    if removed:
+        logger.info(
+            f"Pruned {removed} unselected capability blocks; "
+            f"kept {len(selected)} selected"
+        )
+
 
 def get_available_skills() -> list[dict]:
     """
@@ -43,6 +126,8 @@ def get_available_skills() -> list[dict]:
     skills = []
     for skill_path in skills_dir.iterdir():
         if not skill_path.is_dir():
+            continue
+        if skill_path.name in EXCLUDE_SKILLS:
             continue
 
         skill_md = skill_path / "SKILL.md"
@@ -125,6 +210,7 @@ def get_demo_generator_skill_path() -> Optional[Path]:
 def copy_skills_to_project(
     project_id: str,
     enabled_skills: Optional[list[str]] = None,
+    capability_ids: Optional[list[str]] = None,
 ) -> bool:
     """
     Copy skills to a project's .claude/skills/ directory.
@@ -132,6 +218,9 @@ def copy_skills_to_project(
     Args:
         project_id: Project UUID
         enabled_skills: List of skill names to copy. If None, use defaults.
+        capability_ids: Selected capability IDs. When provided, only capability
+            blocks matching these IDs are kept in the demo-generator skill.
+            Unselected capability blocks are pruned so the agent never sees them.
 
     Returns:
         True if successful
@@ -164,8 +253,10 @@ def copy_skills_to_project(
         shutil.copytree(demo_skill_path, dest)
         copied += 1
 
-        # Domains, patterns, and capabilities all live in the skill's references/blocks/
-        # directory — no separate copy needed.
+        # Prune capability blocks the user didn't select so the agent
+        # never sees them and can't accidentally incorporate them.
+        if capability_ids:
+            _prune_capability_blocks(dest, capability_ids)
 
     # Copy skills from ai-dev-kit
     skills_src = Path(AI_DEV_KIT_LOCAL) / "databricks-skills"
@@ -319,13 +410,20 @@ def get_project_directory(project_id: str) -> Path:
     return Path(PROJECTS_BASE_DIR).resolve() / project_id
 
 
-def create_project_directory(project_id: str, initial_readme: str | None = None) -> Path:
+def create_project_directory(
+    project_id: str,
+    initial_readme: str | None = None,
+    capabilities: Optional[list[str]] = None,
+) -> Path:
     """
     Create a new project directory with initial structure.
 
     Args:
         project_id: Project UUID
         initial_readme: Optional initial content for README.md (None = no README created)
+        capabilities: Selected capability IDs. When provided, only skills needed for
+            these capabilities (plus CORE_SKILLS) are copied into the project. When
+            None/empty, all skills are copied (legacy behavior).
 
     Returns:
         Path to the created project directory
@@ -349,8 +447,43 @@ def create_project_directory(project_id: str, initial_readme: str | None = None)
         "mcpServers": {},
     }, indent=2))
 
-    # Copy skills
-    copy_skills_to_project(project_id)
+    # Copy skills — filter to capability-relevant set when capabilities provided.
+    # Also pass raw capability IDs so the demo-generator's capability blocks
+    # are pruned to only what the user selected.
+    copy_skills_to_project(
+        project_id,
+        skills_for_capabilities(capabilities),
+        capability_ids=capabilities,
+    )
 
     logger.info(f"Created project directory: {project_dir}")
     return project_dir
+
+
+def build_initial_resources_json(capability_ids: list[str]) -> dict:
+    """Build the initial resources.json content from selected capability IDs.
+
+    Classifies each ID as buildable or talking_track using the ``buildable``
+    flag in the capability markdown frontmatter.
+    """
+    from ..core.constants import get_capabilities_by_id
+
+    caps_by_id = get_capabilities_by_id()
+
+    buildable: list[str] = []
+    talking_track: list[str] = []
+
+    for cap_id in capability_ids:
+        meta = caps_by_id.get(cap_id)
+        if meta and meta.get("buildable"):
+            buildable.append(cap_id)
+        else:
+            talking_track.append(cap_id)
+
+    return {
+        "capabilities": {
+            "buildable": sorted(buildable),
+            "talking_track": sorted(talking_track),
+        },
+        "created_resources": {},
+    }

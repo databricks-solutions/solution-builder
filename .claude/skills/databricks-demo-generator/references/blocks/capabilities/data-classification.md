@@ -2,7 +2,7 @@
 name: Data Classification
 category: uc-governance
 disabled: false
-buildable: true
+buildable: false
 ---
 
 # Data Classification

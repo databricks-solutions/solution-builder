@@ -65,18 +65,14 @@ import {
 
 export const Route = createFileRoute("/project/$projectId")({
   component: ProjectPage,
-  validateSearch: (search: Record<string, unknown>) => ({
-    prompt: typeof search.prompt === "string" ? search.prompt : undefined,
-  }),
 });
+
+// Tool names that change files on disk — trigger a sidebar refresh on their tool_result.
+const FILE_MUTATING_TOOLS = new Set(["Write", "Edit", "MultiEdit", "NotebookEdit"]);
 
 function ProjectPage() {
   const { projectId } = Route.useParams();
-  const { prompt: initialPrompt } = Route.useSearch();
   const navigate = useNavigate();
-
-  // Track if initial prompt has been sent
-  const initialPromptSentRef = useRef(false);
 
   // Project state
   const [project, setProject] = useState<Project | null>(null);
@@ -293,11 +289,16 @@ function ProjectPage() {
 
   // Handle sending a message to the agent
   const handleSendMessage = useCallback(
-    async (message: string) => {
+    async (message: string, options: { skipOptimisticUserMessage?: boolean } = {}) => {
       if (isStreaming) return;
 
-      // Show user message immediately
-      setPendingUserMessage(message);
+      const skipOptimistic = options.skipOptimisticUserMessage ?? false;
+
+      // Show user message immediately (unless it's already in `messages` from
+      // the DB, e.g. auto-kicking the project's opening prompt).
+      if (!skipOptimistic) {
+        setPendingUserMessage(message);
+      }
       setLastReasoning(null);
       reasoningRef.current = null;
       setIsStreaming(true);
@@ -306,21 +307,26 @@ function ProjectPage() {
       setStreamingTools(new Map());
 
       try {
-        // Add user message to local state immediately so it's visible
-        // even if the stream fails or the backend restarts
-        const userMsg: Message = {
-          id: Date.now(),
-          project_id: projectId,
-          role: "user",
-          content: message,
-          is_error: false,
-          created_at: new Date().toISOString(),
-        };
-        setMessages(prev => [...prev, userMsg]);
-        setPendingUserMessage(null);
+        if (!skipOptimistic) {
+          // Add user message to local state immediately so it's visible
+          // even if the stream fails or the backend restarts
+          const userMsg: Message = {
+            id: Date.now(),
+            project_id: projectId,
+            role: "user",
+            content: message,
+            is_error: false,
+            created_at: new Date().toISOString(),
+          };
+          setMessages(prev => [...prev, userMsg]);
+          setPendingUserMessage(null);
+        }
 
-        // Start agent
-        const response = await invokeAgent(projectId, message);
+        // Start agent. When skipOptimistic is true, the user message is already
+        // persisted in the DB — tell the backend not to save it again.
+        const response = await invokeAgent(projectId, message, {
+          saveUserMessage: !skipOptimistic,
+        });
         setExecutionId(response.execution_id);
 
         // Create abort controller
@@ -368,6 +374,10 @@ function ProjectPage() {
               setStreamingTools(new Map(toolsMap));
               // Update ref for use in finally
               reasoningRef.current = { thinking: fullThinking, tools: new Map(toolsMap) };
+              // Live-refresh the sidebar when a file-modifying tool succeeds
+              if (!event.is_error && FILE_MUTATING_TOOLS.has(existing.name)) {
+                listProjectFiles(projectId).then(setFiles).catch(() => {});
+              }
             }
           } else if (event.type === "error") {
             console.error("Agent error:", event.error);
@@ -491,8 +501,7 @@ function ProjectPage() {
     if (
       reconnectAttemptedRef.current ||
       isLoadingProject ||
-      isStreaming ||
-      initialPrompt // Let the initial-prompt effect handle this case
+      isStreaming
     ) return;
     reconnectAttemptedRef.current = true;
 
@@ -531,6 +540,9 @@ function ProjectPage() {
               toolsMap.set(event.tool_use_id, { ...existing, result: event.content, isError: event.is_error ?? false });
               setStreamingTools(new Map(toolsMap));
               reasoningRef.current = { thinking: fullThinking, tools: new Map(toolsMap) };
+              if (!event.is_error && FILE_MUTATING_TOOLS.has(existing.name)) {
+                listProjectFiles(projectId).then(setFiles).catch(() => {});
+              }
             }
           } else if (event.type === "stream.completed") {
             break;
@@ -582,30 +594,40 @@ function ProjectPage() {
         setFileContentKey((k) => k + 1);
       }
     })();
-  }, [projectId, isLoadingProject, isStreaming, initialPrompt]);
+  }, [projectId, isLoadingProject, isStreaming]);
 
 
-  // Auto-send initial prompt if provided (from project creation)
+  // Auto-kick the agent when we land on a freshly created project that has
+  // exactly one persisted user message (the opening prompt) and no assistant
+  // reply yet. The user message is already in `messages` from `loadProject`,
+  // so we pass skipOptimisticUserMessage to avoid adding a duplicate, and
+  // tell the backend to skip saving it.
+  const autoKickAttemptedRef = useRef(false);
   useEffect(() => {
     if (
-      initialPrompt &&
-      !initialPromptSentRef.current &&
-      !isLoadingMessages &&
-      messages.length === 0 &&
-      project
-    ) {
-      initialPromptSentRef.current = true;
-      // Clear the prompt from URL to prevent re-sending on refresh
-      navigate({
-        to: "/project/$projectId",
-        params: { projectId },
-        search: { prompt: undefined },
-        replace: true,
-      });
-      // Send the message
-      handleSendMessage(initialPrompt);
-    }
-  }, [initialPrompt, isLoadingMessages, messages.length, project, projectId, navigate, handleSendMessage]);
+      autoKickAttemptedRef.current ||
+      isLoadingProject ||
+      isLoadingMessages ||
+      isStreaming ||
+      !project
+    ) return;
+    if (messages.length !== 1 || messages[0].role !== "user") return;
+
+    autoKickAttemptedRef.current = true;
+    const opener = messages[0].content;
+
+    (async () => {
+      // If the server already has an active execution (e.g. a refresh during
+      // the very first run), the reconnect effect will pick it up — don't
+      // double-kick.
+      const active = await getActiveExecution(projectId).catch(() => null) as
+        | { execution_id: string; project_id: string; is_running: boolean }
+        | null;
+      if (active && active.is_running) return;
+
+      handleSendMessage(opener, { skipOptimisticUserMessage: true });
+    })();
+  }, [projectId, isLoadingProject, isLoadingMessages, isStreaming, project, messages, handleSendMessage]);
 
   // Handle stopping the stream
   const handleStop = useCallback(async () => {
@@ -730,11 +752,17 @@ function ProjectPage() {
   const handleCreateSpec = useCallback(() => {
     if (isStreaming) return;
     handleSendMessage(
-      "Create detailed specification files in the specifications/ folder. For each major component in the architecture:\n\n" +
-      "1. Create a `specifications/<component-name>.md` file\n" +
-      "2. Include the component's purpose, inputs, outputs, and implementation details\n" +
-      "3. Reference the architecture diagram for context\n" +
-      "4. Use the demo generator skill references for proper formatting"
+      "Generate the detailed specification files. Follow the demo generator skill's Phase 6 workflow:\n\n" +
+      "1. Read `resources.json` to see which capabilities are selected (buildable vs talking_track)\n" +
+      "2. Batch-read ALL capability blocks for the buildable capabilities in one turn\n" +
+      "3. Also read the example specification files from the skill's references for format/style\n" +
+      "4. Write specification files in dependency order — one stage per turn:\n" +
+      "   - **Stage A** (parallel): `META-PROMPT.md`, `01-lakeflow.md`\n" +
+      "   - **Stage B** (after reading Stage A): `02-uc-governance.md` (if needed)\n" +
+      "   - **Stage C** (after reading Stage B): `03-ai-bi.md`, `04-agent-bricks.md` (parallel within stage)\n" +
+      "   - **Stage D** (after reading Stage C): `05-apps-infra.md` (if needed)\n" +
+      "5. Only generate files for capabilities in resources.json — skip any not selected\n" +
+      "6. Run a coherence check after all files are written"
     );
   }, [isStreaming, handleSendMessage]);
 
@@ -750,7 +778,16 @@ function ProjectPage() {
   const handleBuildResources = useCallback(() => {
     if (isStreaming) return;
     handleSendMessage(
-      "Read META-PROMPT.md and create the Databricks resources. Build all the components defined in the specifications."
+      "Build the Databricks resources. Follow the demo generator skill's Part 2 workflow:\n\n" +
+      "1. Read `META-PROMPT.md` for build order, catalog/schema, and validation checklist\n" +
+      "2. Read `resources.json` to see which capabilities need building and what's already created\n" +
+      "3. For EACH buildable capability in order:\n" +
+      "   a. Load the relevant skill (e.g. `databricks-synthetic-data-gen`, `databricks-spark-declarative-pipelines`, `databricks-aibi-dashboards`)\n" +
+      "   b. Read the matching specification file\n" +
+      "   c. Build the resource following the skill's guidance\n" +
+      "   d. Validate the result\n" +
+      "   e. Update `resources.json` created_resources with the new resource ID\n" +
+      "4. After ALL resources are built, run the validation checklist from META-PROMPT.md"
     );
   }, [isStreaming, handleSendMessage]);
 

@@ -2,6 +2,7 @@
 name: Synthetic Data Generation
 category: lakeflow
 disabled: false
+buildable: true
 skill: databricks-synthetic-data-gen
 ---
 

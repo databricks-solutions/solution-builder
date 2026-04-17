@@ -13,6 +13,7 @@ import {
   Boxes,
   Bot,
   BrainCircuit,
+  AppWindow,
   ExternalLink,
 } from "lucide-react";
 import type { DeployedResourceLink } from "@/lib/custom-api";
@@ -27,6 +28,7 @@ const RESOURCE_ICONS: Record<string, React.ElementType> = {
   catalog_explorer: Boxes,
   knowledge_assistant: Bot,
   multi_agent_supervisor: BrainCircuit,
+  app: AppWindow,
 };
 
 function formatRelativeTime(dateStr: string): string {

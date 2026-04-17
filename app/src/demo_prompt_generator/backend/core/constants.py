@@ -105,6 +105,7 @@ def _load_capabilities_from_files() -> list[dict]:
                 "name": frontmatter["name"],
                 "category": CATEGORY_DISPLAY_NAMES.get(category_slug, category_slug.title()),
                 "disabled": frontmatter.get("disabled", False),
+                "buildable": frontmatter.get("buildable", False),
             })
         except Exception as e:
             logger.warning(f"Failed to parse capability {md_file.name}: {e}")

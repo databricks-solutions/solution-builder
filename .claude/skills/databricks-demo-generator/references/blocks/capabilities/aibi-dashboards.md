@@ -2,12 +2,27 @@
 name: AI/BI Dashboards
 category: ai-bi
 disabled: false
+buildable: true
 skill: databricks-aibi-dashboards
 ---
 
 # AI/BI Dashboards
 
 Interactive SQL-backed visualizations — counters, charts, tables, cross-filters. Primary "first impression" artifact in most demos.
+
+## MANDATORY Build Gate — Do Not Skip
+
+**A dashboard must NEVER be created before every table it references exists and contains rows.** Dashboards deployed against missing or empty tables produce silent `TABLE_OR_VIEW_NOT_FOUND` errors on every widget — the demo looks built but is broken, and the only recovery is delete-and-recreate.
+
+Before calling any dashboard create API, satisfy ALL of the following. If any check fails, STOP and fix the upstream pipeline — do not proceed to dashboard creation:
+
+1. **Pipeline has run to completion.** `resources.json.created_resources.pipeline_id` is set, and the most recent pipeline update is in a terminal success state.
+2. **Every referenced table exists and has rows.** For every table named in any dataset SQL, run:
+   ```sql
+   SELECT COUNT(*) AS n FROM {CATALOG}.{SCHEMA}.{table_name}
+   ```
+   Every query must succeed (no `TABLE_OR_VIEW_NOT_FOUND`) and return `n > 0`.
+3. **Every referenced column exists.** Run each dataset's SQL with `LIMIT 1` and confirm no `COLUMN_NOT_FOUND`.
 
 ## Narrative Arc
 
@@ -58,6 +73,12 @@ Avoid pie charts (hard to compare slices), dual-axis lines (false correlations, 
 ## Dataset Design
 
 3-5 SQL datasets shared across widgets. Design by purpose: summary (counters), trend (line/area), breakdown (bar), detail (table). Filter columns must be consistent across datasets for cross-filtering. The `databricks-aibi-dashboards` ai-dev-kit skill covers *how* to create dashboards.
+
+## Table References
+
+1. **Only reference tables defined in the pipeline spec.** Use exact table names from the Gold layer. If the dashboard needs a table the pipeline doesn't produce, update the pipeline spec first.
+2. **Always fully qualify** as `{CATALOG}.{SCHEMA}.table_name`. Never use bare table names.
+3. **Validate every dataset query before creating the dashboard.**
 
 ## Pitfalls
 

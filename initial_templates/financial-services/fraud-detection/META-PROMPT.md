@@ -100,25 +100,23 @@ Follow this sequence. Each step has a dedicated spec file.
 
 ## Resource Tracking
 
-**IMPORTANT**: Maintain a `resources.json` file in the specifications folder to track all created Databricks resources. This makes it easy to reference IDs across steps.
-
-Create this file at the start of Phase 3 and update it after each resource is created:
+**IMPORTANT**: The `resources.json` file at the project root tracks capabilities and all created Databricks resources. Update its `created_resources` object after each resource is created:
 
 ```json
 {
-  "catalog": "meridian_bank",
-  "schema": "fraud_ops",
-  "volume_path": "/Volumes/meridian_bank/fraud_ops/raw_data",
-  "workspace_folder": "/Workspace/Users/.../fraud_detection_demo",
-  "pipeline_id": null,
-  "dashboard_id": null,
-  "genie_space_id": null,
-  "knowledge_assistant_id": null,
-  "multi_agent_supervisor_id": null
+  "capabilities": { "buildable": [...], "talking_track": [...] },
+  "created_resources": {
+    "catalog": "meridian_bank",
+    "schema": "fraud_ops",
+    "workspace_folder": "/Workspace/Users/.../fraud_detection_demo",
+    "pipeline_id": "<id>",
+    "dashboard_id": "<id>",
+    "genie_space_id": "<id>",
+    "knowledge_assistant_id": "<id>",
+    "multi_agent_supervisor_id": "<id>"
+  }
 }
 ```
-
-Update each `*_id` field immediately after creating the corresponding resource.
 
 ---
 

@@ -141,7 +141,6 @@ function ProjectsPage() {
     navigate({
       to: "/project/$projectId",
       params: { projectId },
-      search: { prompt: undefined },
     });
   };
 
