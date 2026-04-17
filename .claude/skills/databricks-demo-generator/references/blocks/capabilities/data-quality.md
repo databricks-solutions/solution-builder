@@ -2,7 +2,7 @@
 name: Data Quality Monitoring
 category: uc-governance
 disabled: false
-buildable: true
+buildable: false
 ---
 
 # Data Quality Monitoring (Lakehouse Monitoring)

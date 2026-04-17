@@ -417,6 +417,14 @@ class ProjectCreateRequest(BaseModel):
     context_document: Optional[str] = Field(
         None, description="Full text of a source document to use as context for generation"
     )
+    capabilities: list[str] = Field(
+        default_factory=list,
+        description="Selected capability IDs — used to scope which ai-dev-kit skills get copied into the project.",
+    )
+    initial_prompt: Optional[str] = Field(
+        None,
+        description="Opening chat message. Persisted as a user Message on the new project so it survives refresh and renders before the agent replies.",
+    )
 
 
 class ProjectUpdateRequest(BaseModel):
@@ -549,6 +557,10 @@ class InvokeAgentRequest(BaseModel):
     """Request to invoke Claude Code agent."""
     project_id: str
     message: str = Field(..., description="User message to send to agent")
+    save_user_message: bool = Field(
+        True,
+        description="Persist a new user Message row for `message`. Set false when the message is already in the DB (e.g. auto-kicking the agent from a project's opening prompt).",
+    )
 
 
 class InvokeAgentResponse(BaseModel):
@@ -636,6 +648,10 @@ class TemplateStatusUpdateRequest(BaseModel):
 class CreateProjectFromTemplateRequest(BaseModel):
     """Request to create a project from a template."""
     name: str = Field(..., description="Name for the new project")
+    initial_prompt: Optional[str] = Field(
+        None,
+        description="Opening chat message to persist as the first user Message on the new project (e.g. the template's customize prompt).",
+    )
 
 
 # ---------------------------------------------------------------------------

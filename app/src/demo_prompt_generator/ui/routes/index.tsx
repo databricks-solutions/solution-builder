@@ -64,15 +64,9 @@ export const Route = createFileRoute("/")({
   },
 });
 
-// Default selected capabilities
+// Default selected capabilities — talking-track only.
+// Buildable capabilities are chosen by the LLM based on the user's prompt.
 const DEFAULT_SELECTED_PRODUCTS = [
-  // Buildable
-  "sdp",                 // Processing
-  "aibi-dashboards",     // Analytics
-  "genie",               // NL Queries
-  "knowledge-assistant", // AI Agents (KA)
-  "supervisor-agent",    // AI Agents (MAS)
-  // Talking track
   "unity-catalog",       // Governance story
   "genie-code",          // AI coding assistant
   "databricks-one",      // Business user experience
@@ -217,7 +211,6 @@ function Index() {
       const capabilityInputs: CapabilityInput[] = capabilities.map((cap) => ({
         id: cap.id,
         status: explicitSelections.get(cap.id) ?? null,
-        isDefault: DEFAULT_SELECTED_PRODUCTS.includes(cap.id),
       }));
 
       // Stream events
@@ -337,27 +330,33 @@ function Index() {
         description += `\n\nSelected capabilities: ${capabilityIds.join(", ")}`;
       }
 
-      // Backend will generate name and schema from description using LLM
-      const project = await createProject(description);
+      // Build the initial prompt message.
+      //
+      // The capability list is AUTHORITATIVE — resources.json must contain exactly
+      // these capability IDs. The idea hook / story text is narrative flavor and
+      // may reference products by name (e.g. "Knowledge Assistant") that the user
+      // did NOT select; those mentions must be treated as descriptive language,
+      // NOT as a signal to add capabilities the user didn't pick.
+      const authoritativeCapsLine = capabilityIds.length > 0
+        ? `\n\n=== AUTHORITATIVE CAPABILITY LIST ===\nresources.json MUST contain exactly these capabilities (and only these): ${capabilityIds.join(", ")}\n\nThe story below may mention other Databricks products by name — that is narrative phrasing only. Do NOT add capabilities to resources.json or architecture.md beyond the list above. If the story mentions a product not in this list, either rewrite that sentence in README to not name it, or drop the reference — do not add it to resources.json.`
+        : "";
 
-      // Build the initial prompt message
       let initialPrompt: string;
       if (idea) {
-        initialPrompt = `Help me build a databricks demo.\n\nUser request:\n${topic.trim()}\n\n**${idea.title}**\n\n${idea.hook}`;
-        if (capabilityIds.length > 0) {
-          initialPrompt += `\n\nWe want to highlight these capabilities: ${capabilityIds.join(", ")}`;
-        }
+        initialPrompt = `Help me build a databricks demo.\n\nUser request:\n${topic.trim()}\n\n**${idea.title}**\n\n${idea.hook}${authoritativeCapsLine}`;
       } else {
-        initialPrompt = `Help me build a databricks demo.\n\nDemo description:\n${topic.trim()}`;
-        if (capabilityIds.length > 0) {
-          initialPrompt += `\n\nWe want to highlight these capabilities: ${capabilityIds.join(", ")}`;
-        }
+        initialPrompt = `Help me build a databricks demo.\n\nDemo description:\n${topic.trim()}${authoritativeCapsLine}`;
       }
+
+      // Backend will generate name and schema from description using LLM.
+      // Passing capabilityIds scopes which ai-dev-kit skills get copied into the project.
+      // Passing initialPrompt persists the opening message as a real user Message so it
+      // shows up as the first chat bubble on load — no URL-param round-trip, no race.
+      const project = await createProject(description, capabilityIds, initialPrompt);
 
       navigate({
         to: "/project/$projectId",
         params: { projectId: project.id },
-        search: { prompt: initialPrompt },
       });
     } catch (error) {
       console.error("Failed to create project:", error);
@@ -394,7 +393,7 @@ function Index() {
 
   // Open existing project
   const handleOpenProject = (projectId: string) => {
-    navigate({ to: "/project/$projectId", params: { projectId }, search: { prompt: undefined } });
+    navigate({ to: "/project/$projectId", params: { projectId } });
   };
 
   return (

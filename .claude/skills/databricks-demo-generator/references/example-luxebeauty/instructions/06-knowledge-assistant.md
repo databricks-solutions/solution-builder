@@ -1,46 +1,110 @@
 # Knowledge Assistant Creation
 
-Create `LuxeBeauty Incidents` KA pointing to `{raw_data_volume}/incident_pdf/`.
+> **Before starting**: Check relevant skill (`databricks-agent-bricks` should be present if ai-dev-kit is installed).
 
-## Story Context
+## Task
 
-After Genie identifies the lot, Claire asks: "Was there an incident for that lot?" The KA finds the incident report and explains *why* the texture problems happened (homogenizer pressure issue).
+Create a Knowledge Assistant (KA) that enables natural language queries against the incident documentation.
 
-## Instructions
+**Important**: The KA answers the "WHY" question - why did the texture problems happen? It should reliably find the incident report when asked about lot LOT-2025-0212.
+
+---
+
+## KA Configuration
+
+| Setting | Value |
+|---------|-------|
+| **KA Name** | `LuxeBeauty Incidents` |
+| **Description** | "Search production incident reports and quality documentation for LuxeBeauty Co." |
+| **Volume Path** | `/Volumes/{catalog}/{schema}/{volume}/incident_pdf/` (as defined in 00-demo-overview.md and 02-unstructured-docs.md) |
+
+
+---
+
+## KA Instructions
+
+Add these instructions to the Knowledge Assistant:
 
 ```
 You are a knowledge assistant for LuxeBeauty Co.'s production incident reports.
 
-KEY DOCUMENT (the smoking gun):
-The incident report for the affected lot contains:
-- Equipment: Homogenizer Unit HMG-03 at Lyon
+## RESPONSE REQUIREMENTS
+
+When answering questions:
+1. Always cite the specific document name and report number (e.g., "PIR-2025-0212")
+2. Quote relevant passages directly when they contain key information
+3. Include dates, lot numbers, and product SKUs when they appear
+4. Connect the incident details to the business impact when relevant
+
+## KEY DOCUMENT KNOWLEDGE
+
+The incident report for LOT-2025-0212 contains:
+- Equipment: Homogenizer Unit HMG-03 at Lyon facility
 - Issue: Pressure gauge fluctuations (2.1-2.8 bar vs normal 2.4-2.6 bar)
 - Cause: Calibration drift in pressure regulation valve
-- Products: SKU-1001, SKU-1002, SKU-1003 (~5,000 total units)
-- QC Note: "texture variations due to pressure fluctuations during emulsification"
-- Disposition: RELEASED for distribution despite the issue
+- Products: SKU-1001, SKU-1002, SKU-1003 (2,400 total units)
+- QC Note: Texture variations due to pressure fluctuations during emulsification
+- Disposition: RELEASED for distribution
 
-RESPONSE PATTERN:
-1. Cite the document name and report number
-2. Quote the QC assessment about texture
-3. Mention the lot was released anyway
-4. Connect: This explains why customers complain about "grainy texture" and "separated product"
+## KEY RESPONSE PATTERN
 
-Always cite document name, quote key passages, include lot/SKU numbers.
+When asked about texture issues or lot LOT-2025-0212:
+1. Reference the incident report PIR-2025-0212
+2. Quote the QC note about "texture variations due to pressure fluctuations during emulsification"
+3. Mention the disposition was "RELEASE FOR DISTRIBUTION"
+4. Connect to the root cause: homogenizer pressure issues
 ```
 
-## Certified Q&A
+---
 
-| Question | Expected |
-|----------|----------|
-| "Was there any incident for this lot?" | Finds incident report, pressure fluctuations, QC note about texture, release decision |
-| "What caused the texture problems?" | Homogenizer pressure fluctuations during emulsification |
-| "Which products were affected?" | SKU-1001, SKU-1002, SKU-1003 (~5,000 units) |
-| "Why was the lot released?" | QC visual inspection passed, texture deemed "cosmetic variation only" |
+## Demo Questions (Configure as Sample Questions)
 
-## Demo Answer Pattern
+These questions must work reliably for the demo:
 
-When asked about the lot incident, KA should answer like:
-> "Yes, incident report PIR-{date} documents a production issue on {date}. The homogenizer (HMG-03) had pressure fluctuations during production of SKU-1001, 1002, and 1003. QC noted that 'some units may exhibit minor texture variations due to pressure fluctuations during emulsification.' Despite this, the lot was released for distribution because the variation was deemed cosmetic only. This explains the customer complaints about grainy texture and separated product."
+### Primary Demo Question
+```
+"Was there any incident reported for lot LOT-2025-0212?"
+```
+**Expected behavior**: KA finds the incident report and summarizes the pressure fluctuation issue, affected products, and release decision.
 
-Add ka_id to `resources.json`.
+### Secondary Demo Questions
+```
+"What caused the texture problems?"
+"Was the lot released despite the issue?"
+"Which products were affected by the incident?"
+"Who approved the release of LOT-2025-0212?"
+"What equipment had issues at the Lyon facility?"
+```
+
+---
+
+## Example Question/Guideline Pairs
+
+Add these to help the KA route questions correctly:
+
+| Question | Guideline |
+|----------|-----------|
+| "Was there any incident for lot LOT-2025-0212?" | Search for production incident reports, cite PIR-2025-0212, include QC note about texture |
+| "What caused the texture problems?" | Find the homogenizer pressure issue, quote the QC assessment about emulsification |
+| "Was the lot released?" | Find disposition section, state RELEASE FOR DISTRIBUTION and the rationale |
+| "Which products were affected?" | List SKU-1001, SKU-1002, SKU-1003 with quantities |
+| "What happened at the Lyon facility?" | Reference HMG-03 homogenizer, pressure gauge fluctuations, calibration drift |
+
+---
+
+## Resource Tracking
+
+After creating, add the KA ID to `created_resources` in `resources.json`.
+
+---
+
+## Validation
+
+After creating the KA, test these queries:
+
+| Question | Expected Key Results |
+|----------|---------------------|
+| "Incident for lot LOT-2025-0212" | Finds PIR-2025-0212, mentions pressure fluctuations |
+| "What caused texture problems?" | Pressure fluctuations during emulsification |
+| "Was the lot released?" | Yes - RELEASE FOR DISTRIBUTION |
+| "Which products were affected?" | SKU-1001, SKU-1002, SKU-1003 (2,400 units) |

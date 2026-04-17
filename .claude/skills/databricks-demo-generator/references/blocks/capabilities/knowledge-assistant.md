@@ -2,6 +2,7 @@
 name: Knowledge Assistant
 category: agent-bricks
 disabled: false
+buildable: true
 skill: databricks-agent-bricks
 ---
 

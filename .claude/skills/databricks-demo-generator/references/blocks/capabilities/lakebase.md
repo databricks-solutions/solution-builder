@@ -2,6 +2,7 @@
 name: Lakebase
 category: apps-infra
 disabled: false
+buildable: true
 skill: databricks-lakebase-provisioned
 ---
 
@@ -69,5 +70,5 @@ lakebase:
 ```
 
 ## URL
-
+Best practices: https://www.databricks.com/blog/beyond-provisioning-developers-guide-databricks-lakebase-autoscaling
 https://docs.databricks.com/aws/en/lakebase/index.html

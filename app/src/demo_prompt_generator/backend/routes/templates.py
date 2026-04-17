@@ -14,6 +14,7 @@ from ..core import Dependencies, create_router
 from ..core._config import AppConfig
 from ..models import (
     CreateProjectFromTemplateRequest,
+    Message,
     ProjectOut,
     Template,
     TemplateContent,
@@ -454,6 +455,17 @@ def create_project_from_template(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+    # Persist the opening prompt so it renders as the first chat bubble on load.
+    message_count = 0
+    if body.initial_prompt and body.initial_prompt.strip():
+        session.add(Message(
+            project_id=project.id,
+            role="user",
+            content=body.initial_prompt,
+        ))
+        session.commit()
+        message_count = 1
+
     return ProjectOut(
         id=project.id,
         name=project.name,
@@ -463,7 +475,7 @@ def create_project_from_template(
         stage=project.stage,
         created_at=project.created_at,
         updated_at=project.updated_at,
-        message_count=0,
+        message_count=message_count,
         file_count=0,  # Will be counted on next fetch
         source_template_id=project.source_template_id,
         source_template_name=template.name if template else None,

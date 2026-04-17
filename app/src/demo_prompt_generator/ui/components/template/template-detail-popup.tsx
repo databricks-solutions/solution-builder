@@ -108,12 +108,15 @@ I'm going to send you follow-up instructions to customize this demo. Once you've
 
     setIsCreating(true);
     try {
-      const project = await createProjectFromTemplate(template.id, template.name);
+      const project = await createProjectFromTemplate(
+        template.id,
+        template.name,
+        CUSTOMIZATION_PROMPT,
+      );
       onClose();
       navigate({
         to: "/project/$projectId",
         params: { projectId: project.id },
-        search: { prompt: CUSTOMIZATION_PROMPT },
       });
     } catch (e) {
       setError((e as Error).message);

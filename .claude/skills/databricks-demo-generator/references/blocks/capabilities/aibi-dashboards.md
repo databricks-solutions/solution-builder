@@ -2,10 +2,27 @@
 name: AI/BI Dashboards
 category: ai-bi
 disabled: false
+buildable: true
 skill: databricks-aibi-dashboards
 ---
 
 # AI/BI Dashboards
+
+## MANDATORY Build Gate — Do Not Skip
+
+**A dashboard must NEVER be created before every table it references exists and contains rows.** Dashboards deployed against missing or empty tables produce silent `TABLE_OR_VIEW_NOT_FOUND` errors on every widget — the demo looks built but is broken, and the only recovery is delete-and-recreate.
+
+Before calling any dashboard create API, satisfy ALL of the following. If any check fails, STOP and fix the upstream pipeline — do not proceed to dashboard creation:
+
+1. **Pipeline has run to completion.** `resources.json.created_resources.pipeline_id` is set, and the most recent pipeline update is in a terminal success state (`COMPLETED` / `IDLE` after a successful update — not `FAILED`, `RUNNING`, or never-started).
+2. **Every referenced table exists.** For every table named in any dataset SQL, run `execute_sql`:
+   ```sql
+   SELECT COUNT(*) AS n FROM {CATALOG}.{SCHEMA}.{table_name}
+   ```
+   Every query must succeed (no `TABLE_OR_VIEW_NOT_FOUND`) and return `n > 0`. Zero rows is a failure — an empty dashboard is a broken dashboard.
+3. **Every referenced column exists.** For each dataset, run the dataset's actual SQL (with a `LIMIT 1`) and confirm it returns without `COLUMN_NOT_FOUND`. This catches spec drift between `03-pipelines.md` and `05-dashboard.md`.
+
+Only after all three checks pass may the dashboard create call proceed. Log each validation result so the user can see which tables were verified.
 
 ## What It Does
 
@@ -97,7 +114,25 @@ Avoid pie charts (slices are hard to compare), dual-axis lines (imply false corr
 
 Dashboards typically have 3-5 datasets (SQL queries) shared across widgets. Design datasets by purpose: summary (KPI counters), trend (line/area charts), breakdown (bar charts), and detail (drill-down table). Keep filter columns consistent across datasets so cross-filtering works.
 
-The `databricks-aibi-dashboards` ai-dev-kit skill offers instructions for *how* to create dashboards. 
+The `databricks-aibi-dashboards` ai-dev-kit skill offers instructions for *how* to create dashboards.
+
+## Table References — MANDATORY Rules
+
+Dashboards fail with `[TABLE_OR_VIEW_NOT_FOUND]` when SQL references tables that either don't exist or aren't reachable from the warehouse's default catalog. Prevent this with three non-negotiable rules:
+
+1. **Only reference tables defined in the pipeline spec.** The dashboard instruction file's dataset SQL must use the exact table names listed in the pipeline instruction file's Gold layer section. No renames, no pluralizations, no hallucinated helper tables. If the dashboard needs a table the pipeline doesn't produce, **update the pipeline spec first** — don't invent a table in the dashboard spec.
+2. **Always fully qualify every table reference** as `{CATALOG}.{SCHEMA}.table_name`. Never write bare `FROM gold_daily_summary` in dataset SQL — it depends on the warehouse's current catalog/schema and breaks silently when those defaults differ. The dataset spec should show the full three-part name.
+3. **Validate every dataset query before creating the dashboard** (see Pre-Deploy Validation below).
+
+## Pre-Deploy Validation — MANDATORY
+
+Before calling the dashboard create API, execute every dataset's SQL against the target warehouse and confirm it returns rows. Use `execute_sql` (or the `databricks-aibi-dashboards` skill's validation step). If any query fails:
+
+- `TABLE_OR_VIEW_NOT_FOUND` → the pipeline either didn't run, didn't materialize that table, or the table name in the dashboard spec doesn't match what the pipeline created. Fix the spec mismatch, re-run the pipeline, then retry — do not deploy a dashboard with broken datasets.
+- `COLUMN_NOT_FOUND` → the pipeline spec and dashboard spec disagree on columns. Align them.
+- Zero rows → the pipeline ran but produced no data for the filter range. Check data generation and pipeline logic.
+
+This validation is NOT optional. Deploying a dashboard that references missing tables produces a broken demo — every widget shows an error state, and there is no recovery except to delete and recreate.
 
 ## Common Pitfalls
 

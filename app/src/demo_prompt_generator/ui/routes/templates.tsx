@@ -103,7 +103,7 @@ function TemplatesPage() {
     setActionLoading(templateId);
     try {
       const project = await openTemplateProject(templateId);
-      navigate({ to: "/project/$projectId", params: { projectId: project.id }, search: { prompt: undefined } });
+      navigate({ to: "/project/$projectId", params: { projectId: project.id } });
     } catch (error) {
       console.error("Failed to open template project:", error);
     } finally {

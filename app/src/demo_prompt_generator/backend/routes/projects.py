@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 import shutil
 from datetime import datetime, timezone
@@ -30,6 +31,7 @@ from ..models import (
 )
 from ..services.file_sync import FileSyncService
 from ..services.skills_manager import (
+    build_initial_resources_json,
     create_project_directory,
     ensure_project_skills,
     get_project_directory,
@@ -238,8 +240,19 @@ def create_project(
     session.commit()
     session.refresh(project)
 
-    # Create project directory (no README yet - agent will create it)
-    create_project_directory(project.id)
+    # Create project directory (no README yet - agent will create it).
+    # Passing capabilities scopes the copied skills to what this demo needs.
+    create_project_directory(project.id, capabilities=body.capabilities)
+
+    # Write resources.json from the user's capability selections so it exists
+    # before the agent runs. The agent never decides initial contents — it can
+    # edit later via chat, but correctness at t=0 is deterministic.
+    if body.capabilities:
+        project_dir = get_project_directory(project.id)
+        resources = build_initial_resources_json(body.capabilities)
+        (project_dir / "resources.json").write_text(
+            json.dumps(resources, indent=2) + "\n", encoding="utf-8"
+        )
 
     # Save context document as a project file if provided
     if body.context_document:
@@ -251,6 +264,19 @@ def create_project(
     # Sync files to database so they appear in the file list
     file_sync: FileSyncService = request.app.state.file_sync
     file_sync.full_sync_project(project.id, session=session)
+
+    # Persist the opening prompt so it renders as the first chat bubble on load
+    # (instead of being passed through the URL and added optimistically in the UI,
+    # which was racy against message-list fetches).
+    message_count = 0
+    if body.initial_prompt and body.initial_prompt.strip():
+        session.add(Message(
+            project_id=project.id,
+            role="user",
+            content=body.initial_prompt,
+        ))
+        session.commit()
+        message_count = 1
 
     # Get actual file count from DB
     file_count = session.exec(
@@ -268,7 +294,7 @@ def create_project(
         stage=project.stage,
         created_at=project.created_at,
         updated_at=project.updated_at,
-        message_count=0,
+        message_count=message_count,
         file_count=file_count,
         cluster_id=project.cluster_id,
         cluster_name=project.cluster_name,

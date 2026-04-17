@@ -235,22 +235,28 @@ _RESOURCE_URL_PATTERNS: dict[str, tuple[str, str]] = {
     "sql_warehouse_id": ("{host}/sql/warehouses/{id}", "SQL Warehouse"),
     "knowledge_assistant_id": ("{host}/genie/rooms/{id}", "Knowledge Assistant"),
     "multi_agent_supervisor_id": ("{host}/genie/rooms/{id}", "Multi-Agent Supervisor"),
+    "app_name": ("{host}/apps/{id}", "App"),
 }
-
-# Keys to skip (metadata, not linkable resources)
-_SKIP_KEYS = {"catalog", "schema", "volume_path", "raw_data_volume"}
 
 
 def _build_deployed_links(
     data: dict, host: str | None
 ) -> list[DeployedResourceLink]:
-    """Build deployed resource links from resources.json data."""
+    """Build deployed resource links from resources.json data.
+
+    Supports both the new format (created_resources nested object) and
+    the legacy flat format where resource IDs are top-level keys.
+    """
+    # New format nests resource IDs under "created_resources";
+    # fall back to the top-level dict for the legacy flat format.
+    resources = data.get("created_resources", data)
+
     links: list[DeployedResourceLink] = []
     host = (host or "").rstrip("/")
 
     # Catalog Explorer link (combined catalog + schema)
-    catalog = data.get("catalog")
-    schema = data.get("schema")
+    catalog = resources.get("catalog")
+    schema = resources.get("schema")
     if catalog and schema and host:
         links.append(DeployedResourceLink(
             resource_type="catalog_explorer",
@@ -259,7 +265,7 @@ def _build_deployed_links(
         ))
 
     # Workspace folder link
-    workspace_folder = data.get("workspace_folder")
+    workspace_folder = resources.get("workspace_folder")
     if workspace_folder and host:
         links.append(DeployedResourceLink(
             resource_type="workspace_folder",
@@ -269,12 +275,12 @@ def _build_deployed_links(
 
     # Standard ID-based resources
     for key, (url_template, label) in _RESOURCE_URL_PATTERNS.items():
-        resource_id = data.get(key)
+        resource_id = resources.get(key)
         if not resource_id:
             continue
         url = url_template.format(host=host, id=resource_id) if host else None
         links.append(DeployedResourceLink(
-            resource_type=key.removesuffix("_id"),
+            resource_type=key.removesuffix("_id").removesuffix("_name"),
             label=label,
             url=url,
             resource_id=str(resource_id),
@@ -300,9 +306,14 @@ def get_deployed_resources(
     _get_user_project(session, project_id, user_email)
 
     file_sync: FileSyncService = request.app.state.file_sync
+    # Try root-level resources.json first (new convention), then legacy path
     content = file_sync.get_file_content(
-        project_id, "instructions/resources.json", session=session
+        project_id, "resources.json", session=session
     )
+    if content is None:
+        content = file_sync.get_file_content(
+            project_id, "instructions/resources.json", session=session
+        )
 
     if content is None:
         return DeployedResourcesOut()
@@ -322,13 +333,19 @@ def get_deployed_resources(
 
     links = _build_deployed_links(data, host)
 
-    # Get deployment timestamp from the file record
+    # Get deployment timestamp from the file record (check both paths)
     deployed_at = None
     file_record = session.exec(
         select(ProjectFile)
         .where(ProjectFile.project_id == project_id)
-        .where(ProjectFile.relative_path == "instructions/resources.json")
+        .where(ProjectFile.relative_path == "resources.json")
     ).first()
+    if not file_record:
+        file_record = session.exec(
+            select(ProjectFile)
+            .where(ProjectFile.project_id == project_id)
+            .where(ProjectFile.relative_path == "instructions/resources.json")
+        ).first()
     if file_record:
         deployed_at = file_record.last_modified
 

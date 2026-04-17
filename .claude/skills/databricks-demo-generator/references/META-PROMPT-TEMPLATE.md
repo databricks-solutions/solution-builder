@@ -8,31 +8,37 @@ Use this prompt to start a new session and implement the demo.
 
 I have a set of instruction files in the `instructions/` folder that describe a demo I want to build on Databricks.
 
-**Phase 1 - Understand**: Read `README.md` and `resources.json` to understand the demo story, scope, and infrastructure. Then read all instruction files (numbered `*.md` in `instructions/`).
+**Phase 1 - Understand**: Read all instruction files to understand the full demo scope, story, and technical requirements.
 
-**Phase 2 - Plan**: Create a task list based on instruction file order. Each task should be a concrete implementation step. For each task, identify which skill to use (check `/skills` for available skills).
+**Phase 2 - Plan**: Create a task list based on the build order below. Each task should be a concrete implementation step. For each task, identify which skill to use (check `/skills` for available skills).
 
 **Phase 3 - Implement**: Work through the task list one by one:
-- **Check skills first**: Before starting each task, list your available skills and check if any are relevant (e.g., data generation, pipelines, dashboards, Genie, agents). If a relevant skill exists, read it first for patterns and best practices.
-- **Write all files to the project folder first** (Python scripts, SQL files, configs). This keeps everything tracked, backed up, and exportable.
+- **IMPORTANT - Use ai-dev-kit skills**: Before each task, load the relevant ai-dev-kit skill (e.g., `databricks-synthetic-data-gen`, `databricks-spark-declarative-pipelines`, `databricks-aibi-dashboards`, `databricks-agent-bricks`). Skills use the **Databricks CLI** and **Python SDK** — do NOT use MCP tools.
+- **IMPORTANT - Write all files to the project folder first** (Python scripts, SQL files, configs). This keeps everything tracked, backed up, and exportable.
 - Upload to Databricks (volumes for data, workspace for code)
-- Create Databricks resources via APIs (not DAB)
+- Create Databricks resources via CLI/SDK (not MCP, not DAB)
 - Validate after each step that creates data or tables
 - If validation fails, fix the issue before moving to the next task
 
-**Phase 4 - Test End-to-End**: Test the full demo flow as described in the README walkthrough. Verify all components interact correctly.
+**Phase 4 - Test End-to-End**: Test the full demo flow as described in the walkthrough. Verify all components interact correctly. Fix any issues.
 
-**Before starting**: Run the pre-flight check. Ask me if any resources already contain data.
+**Before starting**: Run the pre-flight check to ensure required infrastructure exists. Ask me if any resources already contain data.
 
 ---
 
 ## Databricks Infrastructure
 
-All project-specific names (catalog, schema, workspace folder) are in `resources.json` at the project root.
+### Resource Names
+
+| Resource | Name |
+|----------|------|
+| **Catalog** | `{CATALOG}` |
+| **Schema** | `{SCHEMA}` |
+| **Workspace Folder** | `/Workspace/Users/{user}/ai_demos/{DEMO_NAME}/` |
 
 Derived paths:
-- **Raw Data Volume**: `/Volumes/{catalog}/{schema}/raw_data/`
-- **Documents Volume**: `/Volumes/{catalog}/{schema}/raw_data/{doc_folder}/` (if demo includes documents)
+- **Raw Data Volume**: `/Volumes/{CATALOG}/{SCHEMA}/raw_data/`
+- **Documents Volume**: `/Volumes/{CATALOG}/{SCHEMA}/raw_data/documents/` (if demo includes documents)
 
 ### Pre-flight Check
 
@@ -51,16 +57,16 @@ Before starting, verify:
 
 ## Local Project Structure
 
-**Write all files to this project folder** (the folder containing this META-PROMPT.md):
+**Write all files to this project folder** (the folder containing this META-PROMPT.md). This structure is automatically tracked and backed up:
 
 ```
 ./                                    # Project root (this folder)
 ├── README.md                         # Demo story and walkthrough
 ├── architecture.md                   # Architecture diagram schema (JSON)
 ├── META-PROMPT.md                    # This file - build instructions
-├── resources.json                    # Capabilities + created resource IDs
+├── resources.json                    # Capabilities + created Databricks resource IDs
 ├── instructions/                     # Detailed specs for each component
-│   └── NN-*.md                       # Numbered instruction files
+│   └── *.md                          # Component-specific instructions
 ├── src/                              # Implementation files
 │   ├── data_generation/              # Data generation scripts
 │   ├── documents/                    # Document generation scripts (if applicable)
@@ -70,32 +76,54 @@ Before starting, verify:
 
 **Workflow**: Write code to project folder → Upload to Databricks → Create resources via APIs → Validate.
 
-Files written here are:
-1. **Tracked** - Automatically synced to the database as you write them
-2. **Versioned** - Changes are preserved, enabling iteration
-3. **Exportable** - Download as ZIP, create a DAB bundle, or push to git
-
 ---
 
 ## Build Order
 
-Follow the numbered instruction files in `./instructions/`. Each file specifies what to build and how to validate it.
+Follow the sequence defined by the numbered instruction files in `./instructions/`. Each file specifies what to build and how to validate it.
 
 General ordering principle: **data first, then transformations, then consumption layers** (dashboards, Genie, AI components).
 
-**Not all demos have all components.** Only build what's in the instruction files.
+### Build-Order Gates — DO NOT SKIP
+
+A consumption resource must never be created before its upstream data exists. These are hard gates, not suggestions:
+
+- **Before creating the dashboard**: the pipeline must have completed successfully AND every table referenced in any dataset query must return `COUNT(*) > 0` via `execute_sql` against `{CATALOG}.{SCHEMA}.{table}`. If any table is missing or empty, STOP — re-run the pipeline, fix the data, then retry. Never create a dashboard against tables that do not exist or are empty; the widgets will silently fail with `TABLE_OR_VIEW_NOT_FOUND` and there is no recovery except delete-and-recreate.
+- **Before creating the Genie space**: every table listed in its config must exist with rows.
+- **Before creating the Knowledge Assistant**: source documents must be uploaded and the vector index must have finished syncing.
+- **Before creating the Multi-Agent Supervisor**: every downstream tool must be created and have its ID in `resources.json.created_resources`.
+
+Log the validation query results inline so it is clear which tables were checked before each consumption resource was created.
 
 ---
 
 ## Resource Tracking
 
-Update `resources.json` after each resource is created. Add resource IDs to the `created_resources` object (e.g., `"pipeline_id"`, `"dashboard_id"`, `"genie_space_id"`, etc.).
+**IMPORTANT**: The `resources.json` file at the project root tracks capabilities and all created Databricks resources. It is created during the specification phase with capabilities; update its `created_resources` object after each resource is created during build.
+
+Add resource IDs as you create them:
+```json
+{
+  "capabilities": { "buildable": [...], "talking_track": [...] },
+  "created_resources": {
+    "catalog": "{CATALOG}",
+    "schema": "{SCHEMA}",
+    "workspace_folder": "/Workspace/...",
+    "pipeline_id": "<id>",
+    "dashboard_id": "<id>",
+    "genie_space_id": "<id>",
+    "knowledge_assistant_id": "<id>",
+    "multi_agent_supervisor_id": "<id>",
+    "app_name": "<name>"
+  }
+}
+```
 
 ---
 
 ## Validation After Each Step
 
-After each step that creates tables or data, validate before moving to the next. **Each instruction file has its own validation section** — follow those specific checks.
+After each step that creates tables or data, validate before moving to the next. Each instruction file specifies its own validation criteria. General checks:
 
 | After Step | What to Check |
 |------------|---------------|
@@ -121,4 +149,4 @@ After each step that creates tables or data, validate before moving to the next.
 
 ## Begin
 
-Start with Phase 1 - read `README.md`, `resources.json`, and all instruction files.
+Start with Phase 1 — read all the instruction files to understand the full demo scope.

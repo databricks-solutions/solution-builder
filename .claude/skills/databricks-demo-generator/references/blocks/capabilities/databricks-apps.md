@@ -2,6 +2,7 @@
 name: Databricks Apps
 category: apps-infra
 disabled: false
+buildable: true
 skill: databricks-app-python
 ---
 
