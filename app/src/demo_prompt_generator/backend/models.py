@@ -183,6 +183,7 @@ class Project(SQLModel, table=True):
 
     # Claude Code session fields (1:1 conversation per project)
     session_id: Optional[str] = SQLField(default=None, max_length=100)
+    active_execution_id: Optional[str] = SQLField(default=None, max_length=50)
     cluster_id: Optional[str] = SQLField(default=None, max_length=100)
     cluster_name: Optional[str] = SQLField(default=None, max_length=255)
     warehouse_id: Optional[str] = SQLField(default=None, max_length=100)

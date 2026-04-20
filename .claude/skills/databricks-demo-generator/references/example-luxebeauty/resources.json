@@ -1,8 +1,9 @@
 {
   "capabilities": {
     "buildable": [
+      "synthetic-data-gen",
       "sdp",
-      "ai-bi-dashboards",
+      "aibi-dashboards",
       "genie",
       "knowledge-assistant",
       "supervisor-agent"

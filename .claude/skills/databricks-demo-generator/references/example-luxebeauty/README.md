@@ -6,16 +6,16 @@
 |---|---|
 | **Company** | LuxeBeauty Co. — D2C cosmetics e-commerce |
 | **Hero** | Claire Dubois, VP of Operations (non-technical) |
-| **Problem** | Returns spike to $180K this week (3x normal) |
+| **Problem** | Returns spiked to $180K/week three weeks ago (3x normal), still elevated |
 | **Investigation** | Claire asks "Why so many returns?" — traces to 3 skincare products from one production lot |
 | **Root cause** | Homogenizer pressure issue during production caused texture problems in 5,000 units |
-| **Impact** | $180K in returns, ~30% return rate vs 8% normal |
+| **Impact** | $180K peak returns, ~30% return rate vs 8% normal, slowly decaying as affected inventory clears |
 
 ---
 
 ## Overview
 
-Claire opens her Monday dashboard and sees returns at $180K — triple the usual $60K. Three Skincare products are driving it, all with 30% return rates.
+Claire opens her Monday dashboard and sees returns spiked to $180K three weeks ago — triple the usual $60K — and are still elevated at ~$80K despite trending down. Three Skincare products are driving it, all with 30% return rates.
 
 She asks one question: *"Why do I have so many returns?"*
 
@@ -30,7 +30,8 @@ The platform traces it through structured data (returns → products → lot) an
 | Metric | Value |
 |--------|-------|
 | Normal weekly returns | ~$60K |
-| This week's returns | ~$180K (3x) |
+| Peak returns (3 weeks ago) | ~$180K (3x) |
+| Current returns | ~$80K (decaying) |
 | Affected lot | (dynamic — LOT-{YYYY}-{MMDD} at runtime) |
 | Affected SKUs | SKU-1001, SKU-1002, SKU-1003 |
 | Return rate for affected products | ~30% vs 8% normal |
@@ -66,7 +67,7 @@ The platform traces it through structured data (returns → products → lot) an
 **Open the dashboard**
 
 - Claire is VP of Ops — not technical. She built this dashboard herself with AI/BI.
-- Revenue normal, orders steady... but returns: **$180K** (usually $60K)
+- Revenue normal, orders steady... but returns spiked to **$180K** three weeks ago (usually $60K), still at ~$80K
 - Three Skincare products at 30% return rate — everything else is 8%
 - In most companies: email analyst, open ticket, wait 2 weeks. Claire just asks.
 
@@ -82,7 +83,7 @@ The platform traces it through structured data (returns → products → lot) an
 
 **Type:** `Was there an incident for that lot?`
 
-- KA finds it: Feb 12 — homogenizer had pressure fluctuations
+- KA finds it: homogenizer had pressure fluctuations on the affected lot date
 - QC noted "minor texture variations" but released the lot
 - **Root cause found:** equipment issue → texture problems → returns spike
 

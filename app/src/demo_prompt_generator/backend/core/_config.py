@@ -35,9 +35,10 @@ class AppConfig(BaseSettings):
         default="databricks-claude-sonnet-4-6",
     )
 
-    # LLM endpoints for template library
-    summarization_model: str = Field(default="databricks-gpt-5-4-mini")
-    embedding_model: str = Field(default="databricks-qwen3-embedding-0-6b")
+    # AI Gateway model names (no app prefix — these are workspace-level)
+    ai_gateway_mini: str = Field(default="databricks-gpt-5-4-mini", validation_alias="AI_GATEWAY_MINI")
+    ai_gateway: str = Field(default="databricks-claude-opus-4-7", validation_alias="AI_GATEWAY")
+    ai_gateway_embedding: str = Field(default="databricks-qwen3-embedding-0-6b", validation_alias="AI_GATEWAY_EMBEDDING")
 
     # Admin emails for template review (comma-separated in env var)
     template_admin_emails: list[str] = Field(

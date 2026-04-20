@@ -39,14 +39,16 @@ IGNORE_PATTERNS = [
     "*.swp",
     ".DS_Store",
     "*.tmp",
+    "*.tmp.*",  # Atomic write temp files (e.g. file.py.tmp.59934.123456)
     "*.log",
 ]
 
 
 def should_ignore(relative_path: str) -> bool:
     """Check if a path matches any ignore pattern."""
+    basename = os.path.basename(relative_path)
     for pattern in IGNORE_PATTERNS:
-        if fnmatch.fnmatch(relative_path, pattern):
+        if fnmatch.fnmatch(relative_path, pattern) or fnmatch.fnmatch(basename, pattern):
             return True
         # Also check if any parent path matches directory patterns
         if pattern.endswith("/**"):

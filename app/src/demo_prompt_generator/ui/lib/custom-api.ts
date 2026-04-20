@@ -116,6 +116,7 @@ export interface ToolEntry {
   id: string;
   name: string;
   input: unknown;
+  started_at?: string;
 }
 
 export interface ToolResultEntry {
@@ -123,6 +124,7 @@ export interface ToolResultEntry {
   tool_id: string;
   content: string;
   is_error: boolean;
+  completed_at?: string;
 }
 
 export type ReasoningEntry = ThinkingEntry | ToolEntry | ToolResultEntry;
@@ -173,10 +175,11 @@ export type AgentEvent =
   | { type: "text"; text: string }
   | { type: "thinking"; thinking: string }
   | { type: "thinking_delta"; thinking: string }
-  | { type: "tool_use"; tool_id: string; tool_name: string; tool_input: unknown }
-  | { type: "tool_result"; tool_use_id: string; content: string; is_error: boolean }
+  | { type: "tool_use"; tool_id: string; tool_name: string; tool_input: unknown; timestamp?: string }
+  | { type: "tool_result"; tool_use_id: string; content: string; is_error: boolean; timestamp?: string }
   | { type: "result"; session_id: string | null; duration_ms: number; total_cost_usd?: number; is_error?: boolean; num_turns?: number }
   | { type: "system"; subtype: string; data: unknown }
+  | { type: "file_changed"; path: string }
   | { type: "error"; error: string }
   | { type: "cancelled" }
   | { type: "stream.completed"; is_error: boolean; is_cancelled: boolean }

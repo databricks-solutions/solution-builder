@@ -34,6 +34,8 @@ interface ToolInfo {
   input: unknown;
   result?: string;
   isError?: boolean;
+  startedAt?: string;
+  completedAt?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -82,11 +84,6 @@ function getToolDescription(name: string, input: unknown): string {
   description = description.replace(/^(\/[^/]+)+\/projects\/[a-f0-9-]+\//, "");
   description = description.replace(/^\.\/projects\/[a-f0-9-]+\//, "");
 
-  // Truncate long descriptions
-  if (description.length > 60) {
-    description = description.slice(0, 57) + "...";
-  }
-
   return description;
 }
 
@@ -103,6 +100,15 @@ function formatToolJson(tool: { name: string; input: unknown; result?: string; i
     }),
   };
   return JSON.stringify(data, null, 2);
+}
+
+/** Format duration between two ISO timestamps as a human-readable string. */
+function formatDuration(startedAt?: string, completedAt?: string): string | null {
+  if (!startedAt || !completedAt) return null;
+  const ms = new Date(completedAt).getTime() - new Date(startedAt).getTime();
+  if (ms < 0 || isNaN(ms)) return null;
+  if (ms < 1000) return `${ms}ms`;
+  return `${(ms / 1000).toFixed(1)}s`;
 }
 
 interface ReasoningInfo {
@@ -197,6 +203,36 @@ const LiveReasoningPopup = memo(function LiveReasoningPopup({
   const [storedTools, setStoredTools] = useState<Map<string, ToolInfo>>(new Map());
   const [userHasScrolled, setUserHasScrolled] = useState(false);
 
+  // Drag state
+  const [position, setPosition] = useState<{ x: number; y: number } | null>(null);
+  const dragRef = useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  const handleDragStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    const panel = panelRef.current;
+    if (!panel) return;
+    const rect = panel.getBoundingClientRect();
+    // If no position set yet, initialize from current rendered position
+    const currentX = position?.x ?? rect.left;
+    const currentY = position?.y ?? rect.top;
+    dragRef.current = { startX: e.clientX, startY: e.clientY, origX: currentX, origY: currentY };
+
+    const handleDragMove = (ev: MouseEvent) => {
+      if (!dragRef.current) return;
+      const dx = ev.clientX - dragRef.current.startX;
+      const dy = ev.clientY - dragRef.current.startY;
+      setPosition({ x: dragRef.current.origX + dx, y: dragRef.current.origY + dy });
+    };
+    const handleDragEnd = () => {
+      dragRef.current = null;
+      window.removeEventListener("mousemove", handleDragMove);
+      window.removeEventListener("mouseup", handleDragEnd);
+    };
+    window.addEventListener("mousemove", handleDragMove);
+    window.addEventListener("mouseup", handleDragEnd);
+  }, [position]);
+
   const hasContent = thinking || tools.size > 0;
 
   // Always update stored content when we have live content
@@ -229,10 +265,11 @@ const LiveReasoningPopup = memo(function LiveReasoningPopup({
     }
   }, [isStreaming, isVisible, isFadingOut]);
 
-  // Reset scroll tracking when streaming starts
+  // Reset scroll tracking and position when streaming starts
   useEffect(() => {
     if (isStreaming) {
       setUserHasScrolled(false);
+      setPosition(null);
     }
   }, [isStreaming]);
 
@@ -269,12 +306,21 @@ const LiveReasoningPopup = memo(function LiveReasoningPopup({
 
   return createPortal(
     <div
-      className={`fixed bottom-4 left-4 w-[480px] max-h-56 bg-background/95 backdrop-blur-xl border border-border/60 rounded-xl shadow-xl z-50 flex flex-col overflow-hidden transition-all duration-500 ${
-        isFadingOut ? "opacity-0 -translate-x-4 scale-95" : "opacity-100 translate-x-0 scale-100"
+      ref={panelRef}
+      style={{
+        ...(position ? { left: position.x, top: position.y, bottom: "auto" } : {}),
+        minWidth: 400,
+        minHeight: 200,
+      }}
+      className={`fixed ${position ? "" : "bottom-4 left-4"} w-[560px] h-80 resize overflow-hidden bg-background/95 backdrop-blur-xl border border-border/60 rounded-xl shadow-xl z-50 flex flex-col transition-opacity duration-500 ${
+        isFadingOut ? "opacity-0" : "opacity-100"
       }`}
     >
-      {/* Header */}
-      <div className="shrink-0 flex items-center justify-between px-3.5 py-2.5 border-b border-border/50">
+      {/* Header — drag handle */}
+      <div
+        onMouseDown={handleDragStart}
+        className="shrink-0 flex items-center justify-between px-3.5 py-2.5 border-b border-border/50 cursor-grab active:cursor-grabbing select-none"
+      >
         <div className="flex items-center gap-2">
           <div className="flex items-center justify-center w-5 h-5 rounded-md bg-amber-500/10">
             <Brain className="h-3 w-3 text-amber-500" />
@@ -318,11 +364,12 @@ const LiveReasoningPopup = memo(function LiveReasoningPopup({
               </div>
               {Array.from(displayTools.entries()).map(([toolId, tool]) => {
                 const description = getToolDescription(tool.name, tool.input);
+                const duration = formatDuration(tool.startedAt, tool.completedAt);
                 return (
                   <Tooltip key={toolId}>
                     <TooltipTrigger asChild>
-                      <div className="flex items-start gap-2 px-2.5 py-1.5 bg-muted/40 rounded-lg text-xs cursor-help hover:bg-muted/60 transition-colors">
-                        <div className="shrink-0 mt-0.5">
+                      <div className="flex items-center gap-2 w-full px-2.5 py-1.5 bg-muted/40 rounded-lg text-xs cursor-help hover:bg-muted/60 transition-colors">
+                        <div className="shrink-0">
                           {tool.result !== undefined ? (
                             tool.isError ? (
                               <X className="h-3 w-3 text-destructive" />
@@ -333,17 +380,18 @@ const LiveReasoningPopup = memo(function LiveReasoningPopup({
                             <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
                           )}
                         </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-1.5">
-                            <span className="font-medium">{tool.name}</span>
-                            {description && (
-                              <span className="text-muted-foreground font-mono truncate text-[10px]">
-                                {description}
-                              </span>
-                            )}
-                            <Info className="h-2.5 w-2.5 text-muted-foreground/40 shrink-0" />
-                          </div>
-                        </div>
+                        <span className="font-medium shrink-0">{tool.name}</span>
+                        {description && (
+                          <span className="text-muted-foreground font-mono truncate text-[10px] flex-1 min-w-0">
+                            {description}
+                          </span>
+                        )}
+                        {duration && (
+                          <span className="text-muted-foreground/60 text-[10px] tabular-nums shrink-0">
+                            {duration}
+                          </span>
+                        )}
+                        <Info className="h-2.5 w-2.5 text-muted-foreground/40 shrink-0" />
                       </div>
                     </TooltipTrigger>
                     <TooltipContent side="left" align="start" className="max-w-md max-h-60 overflow-auto">
@@ -402,6 +450,7 @@ const CollapsibleReasoning = memo(function CollapsibleReasoning({ reasoning }: C
               <div className="space-y-0.5">
                 {Array.from(reasoning.tools.entries()).map(([toolId, tool]) => {
                   const description = getToolDescription(tool.name, tool.input);
+                  const duration = formatDuration(tool.startedAt, tool.completedAt);
                   return (
                     <Tooltip key={toolId}>
                       <TooltipTrigger asChild>
@@ -419,6 +468,11 @@ const CollapsibleReasoning = memo(function CollapsibleReasoning({ reasoning }: C
                               {description && (
                                 <span className="text-muted-foreground font-mono truncate">
                                   {description}
+                                </span>
+                              )}
+                              {duration && (
+                                <span className="text-muted-foreground/60 text-[10px] tabular-nums shrink-0">
+                                  {duration}
                                 </span>
                               )}
                               <Info className="h-2.5 w-2.5 text-muted-foreground/40 shrink-0" />
@@ -459,15 +513,16 @@ const CollapsibleReasoningFromMetadata = memo(function CollapsibleReasoningFromM
   const toolCount = entries.filter(e => e.type === "tool").length;
 
   // Merge tool and tool_result entries for display
-  const toolResults = new Map<string, { name: string; input: unknown; result?: string; isError?: boolean }>();
+  const toolResults = new Map<string, { name: string; input: unknown; result?: string; isError?: boolean; startedAt?: string; completedAt?: string }>();
   for (const entry of entries) {
     if (entry.type === "tool") {
-      toolResults.set(entry.id, { name: entry.name, input: entry.input });
+      toolResults.set(entry.id, { name: entry.name, input: entry.input, startedAt: entry.started_at });
     } else if (entry.type === "tool_result") {
       const existing = toolResults.get(entry.tool_id);
       if (existing) {
         existing.result = entry.content;
         existing.isError = entry.is_error;
+        existing.completedAt = entry.completed_at;
       }
     }
   }
@@ -500,6 +555,7 @@ const CollapsibleReasoningFromMetadata = memo(function CollapsibleReasoningFromM
                 const result = toolResults.get(entry.id);
                 const description = getToolDescription(entry.name, entry.input);
                 const toolData = result || { name: entry.name, input: entry.input };
+                const duration = formatDuration(result?.startedAt, result?.completedAt);
 
                 return (
                   <Tooltip key={`tool-${entry.id}`}>
@@ -518,6 +574,11 @@ const CollapsibleReasoningFromMetadata = memo(function CollapsibleReasoningFromM
                             {description && (
                               <span className="text-muted-foreground font-mono truncate">
                                 {description}
+                              </span>
+                            )}
+                            {duration && (
+                              <span className="text-muted-foreground/60 text-[10px] tabular-nums shrink-0">
+                                {duration}
                               </span>
                             )}
                             <Info className="h-2.5 w-2.5 text-muted-foreground/40 shrink-0" />

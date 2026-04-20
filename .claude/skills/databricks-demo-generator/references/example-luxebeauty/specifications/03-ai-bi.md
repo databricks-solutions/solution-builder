@@ -8,50 +8,44 @@ Tables and columns referenced here are defined in 01-lakeflow.md (Section C).
 
 Create `LuxeBeauty Operations` dashboard. Save locally as `{workspace_folder}/dashboard.json`.
 
-### Data Sources
-
-| Widget | Table | Filter Columns | Metric Columns |
-|--------|-------|----------------|----------------|
-| KPIs | gold_daily_summary | date, region, category | revenue_usd, order_count, items_sold, returns_usd |
-| Returns trend | gold_daily_summary | date, region, category | returns_usd |
-| Revenue trend | gold_daily_summary | date, region, category | revenue_usd |
-| Category pie | gold_daily_summary | region, category | revenue_usd |
-| Products table | gold_returns_by_product | region, category | product_name, units_sold, total_refund_usd, return_rate |
-
 ### Layout
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│ FILTERS: Date Range (Last 30 days) | Region | Category          │
-├─────────────────────────────────────────────────────────────────┤
-│ [Revenue $3.8M ✓] [Orders 15.2K ✓] [Items 24.3K ✓] [Returns $180K ⚠️ 3x] │
-├─────────────────────────────────────────────────────────────────┤
-│ WEEKLY RETURNS TREND (full width) ← THE SPIKE                   │
-├─────────────────────────────────────────────────────────────────┤
-│ Weekly Revenue (steady)    │  Revenue by Category (pie)         │
-├─────────────────────────────────────────────────────────────────┤
-│ PRODUCTS TABLE sorted by return_rate DESC                       │
-│ SKU-1001 Hydrating Serum | Skincare | 1,680 | $34K | 30% ⚠️    │
-│ SKU-1002 Vitamin C Cream | Skincare | 1,650 | $27K | 30% ⚠️    │
-│ SKU-1003 HA Moisture Boost | Skincare | 1,670 | $21K | 30% ⚠️  │
-├─────────────────────────────────────────────────────────────────┤
-│ EMBEDDED GENIE SPACE                                            │
-└─────────────────────────────────────────────────────────────────┘
-```
+Filters: Date Range (default: last 6 months) | Region | Category
+
+Rows (each sums to width 6) - should be filtered (see below) so keep the filtered field in the dataset:
+
+1. **KPIs** (3 counters, each 1/3 width)
+   - Monthly Revenue (last 30 days): SUM(revenue_usd). Should show ~$380K — healthy, nothing alarming.
+   - Monthly Orders (last 30 days): COUNT DISTINCT order_id. Should show ~15K — stable.
+   - Monthly Return Rate ⚠️ (last 30 days): return_count / order_count as %. Should show ~24% vs ~8% normal — the 3x spike grabs attention.
+
+2. **"Returns 3x Above Baseline"** (bar chart grouped by category, full width)
+   - X: week. Y: SUM(returns_usd). **Group/color by: category** — so each bar is stacked or grouped by Skincare/Makeup/Haircare. This makes the Skincare spike visually pop with color.
+   - Should show ~12 months of flat ~$60K/week baseline, then a build-up, a clear peak at ~$180K about 3 weeks ago, and a decay back toward normal in the most recent weeks. The spike must NOT be at the rightmost edge — it should be clearly in the past with a visible decay, showing the problem is being resolved.
+
+3. **"Weekly Revenue (Steady)"** (line chart grouped by region, half width) | **"Revenue by Category"** (horizontal bar grouped by region, half width)
+   - Revenue line — X: week, Y: SUM(revenue_usd), **color by: region** (US/EU/APAC). Should look steady/growing — contrast with the returns spike. Shows the business is fine overall.
+   - Category bar — Y: category, X: SUM(revenue_usd), **color by: region**. Skincare, Makeup, Haircare broken out by region. Shows revenue mix and regional patterns — Skincare is the largest, which matters because affected products are all Skincare.
+
+4. **Products table** (full width)
+   - Columns: product_name, category, units_sold, total_refund_usd, return_rate. Sorted by return_rate DESC.
+   - Top 3 rows should be SKU-1001/1002/1003 at ~30% return rate. Everything else at ~8%. The contrast is the signal — three products are 4x worse than normal.
+
+Link the Genie Space created in section B to this dashboard.
 
 ### Filters
 
 | Filter | Column | Source Tables | Default |
 |--------|--------|---------------|---------|
-| Date Range | date | gold_daily_summary | Last 30 days |
+| Date Range | date | gold_daily_summary | Last 6 months |
 | Region | region | gold_daily_summary, gold_returns_by_product | All |
 | Category | category | gold_daily_summary, gold_returns_by_product | All |
 
-All filters affect ALL widgets including products table.
+Date Range affects KPIs and trend charts (gold_daily_summary). Region and Category affect all widgets including products table.
 
 ### Validation
 
-Spike visible (returns ~$60K→$180K). Products sorted (SKU-1001/1002/1003 at top ~30%). Region filter works (select "EU" → all widgets update). Category filter works (select "Skincare" → spike more pronounced).
+Return rate KPI shows ~24% (vs ~8% normal). Returns bar chart shows colored category breakdown with a clear spike ~3 weeks ago (~$180K peak, Skincare dominates the spike), then decay toward baseline in recent weeks. Revenue line shows steady trend with regional color breakdown. Products sorted (SKU-1001/1002/1003 at top ~30%). Region filter works (select "EU" → all widgets update). Category filter works (select "Skincare" → spike more pronounced).
 
 Add dashboard_id to `resources.json`.
 
@@ -73,7 +67,7 @@ You analyze LuxeBeauty operations data for Claire (VP Ops, non-technical).
 BASELINES: Normal weekly returns ~$60K, normal return rate ~8%, anomaly threshold >20%.
 
 INVESTIGATION FLOW for "Why so many returns?":
-1. gold_daily_summary → SUM(returns_usd) by week → spot 3x spike (~$180K vs $60K)
+1. gold_daily_summary → SUM(returns_usd) by week → spot 3x spike (~$180K peak ~3 weeks ago, decaying but still above baseline)
 2. gold_returns_by_product → WHERE return_rate > 0.2 → SKU-1001, SKU-1002, SKU-1003
 3. gold_returns_by_lot → GROUP BY lot_id → one lot dominates
 4. silver_returns → return_reason_text WHERE lot_id = affected → texture complaints

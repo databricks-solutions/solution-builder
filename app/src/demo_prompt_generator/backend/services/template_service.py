@@ -30,7 +30,8 @@ from ..models import (
     utc_now,
 )
 from .file_sync import compress_content, decompress_content, compute_file_hash
-from .llm_service import LLMService
+from ..core.constants import INDUSTRIES, get_capabilities
+from .llm_service import LLMService, ModelSize
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +69,34 @@ def _store_embedding(session: Session, template_id: str, embedding: list[float])
         """),
         {"embedding": str(embedding), "template_id": template_id}
     )
+
+
+def _summarize_readme(llm: LLMService, readme_content: str) -> dict:
+    """Extract metadata (description, capabilities, industry) from README via LLM."""
+    import json
+    capability_ids = [c["id"] for c in get_capabilities()]
+    prompt = f"""Analyze this README and return JSON:
+{{
+    "description": "1-2 sentence summary",
+    "capabilities": ["capability-id-1", "capability-id-2"],
+    "industry": "one of the industries listed below"
+}}
+
+Available capability IDs: {json.dumps(capability_ids)}
+Available industries: {json.dumps(INDUSTRIES)}
+
+README:
+{readme_content[:8000]}
+"""
+    try:
+        result = llm.chat_json(prompt, size=ModelSize.MINI)
+        result["capabilities"] = [c for c in result.get("capabilities", []) if c in capability_ids]
+        if result.get("industry") not in INDUSTRIES:
+            result["industry"] = None
+        return result
+    except Exception as e:
+        logger.error(f"Failed to summarize README: {e}")
+        return {"description": None, "capabilities": [], "industry": None}
 
 
 class TemplateService:
@@ -128,7 +157,7 @@ class TemplateService:
             readme_content = f"# {project.name}\n\n{project.description or ''}"
 
         # LLM extraction
-        extracted = self.llm.summarize_readme(readme_content)
+        extracted = _summarize_readme(self.llm, readme_content)
 
         # Generate embedding
         embedding = self.llm.get_embedding(readme_content)
@@ -555,7 +584,7 @@ class TemplateService:
             readme_content = f"# {project.name}\n\n{project.description or ''}"
 
         # Update template metadata from LLM
-        extracted = self.llm.summarize_readme(readme_content)
+        extracted = _summarize_readme(self.llm, readme_content)
         template.name = project.name
         template.industry = extracted.get("industry")
         template.description = extracted.get("description")

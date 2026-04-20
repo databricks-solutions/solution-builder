@@ -230,11 +230,11 @@ def download_project_as_zip(
 # URL patterns for deployed Databricks resources: key -> (url_template, label)
 _RESOURCE_URL_PATTERNS: dict[str, tuple[str, str]] = {
     "pipeline_id": ("{host}/pipelines/{id}", "Pipeline"),
-    "dashboard_id": ("{host}/sql/dashboards/{id}", "Dashboard"),
+    "dashboard_id": ("{host}/sql/dashboardsv3/{id}", "Dashboard"),
     "genie_space_id": ("{host}/genie/rooms/{id}", "Genie Space"),
     "sql_warehouse_id": ("{host}/sql/warehouses/{id}", "SQL Warehouse"),
-    "knowledge_assistant_id": ("{host}/genie/rooms/{id}", "Knowledge Assistant"),
-    "multi_agent_supervisor_id": ("{host}/genie/rooms/{id}", "Multi-Agent Supervisor"),
+    "knowledge_assistant_id": ("{host}/ml/bricks/ka/configure/{id}", "Knowledge Assistant"),
+    "multi_agent_supervisor_id": ("{host}/ml/bricks/sa/configure/{id}", "Multi-Agent Supervisor"),
     "app_name": ("{host}/apps/{id}", "App"),
 }
 
@@ -244,8 +244,8 @@ def _build_deployed_links(
 ) -> list[DeployedResourceLink]:
     """Build deployed resource links from resources.json data.
 
-    Supports both the new format (created_resources nested object) and
-    the legacy flat format where resource IDs are top-level keys.
+    Supports the created_resources nested object with *_id keys,
+    and the legacy flat format where resource IDs are top-level.
     """
     # New format nests resource IDs under "created_resources";
     # fall back to the top-level dict for the legacy flat format.

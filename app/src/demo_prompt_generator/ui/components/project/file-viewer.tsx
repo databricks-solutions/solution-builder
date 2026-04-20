@@ -707,14 +707,47 @@ export const FileViewer = memo(function FileViewer({
                 <p className="text-xs mt-1">Generating automatically...</p>
               </div>
             </div>
-          ) : activeTab === "readme" && !hasReadme ? (
+          ) : activeTab === "readme" && !hasReadme && !isStreaming ? (
             <div className="flex-1 flex items-center justify-center">
               <div className="text-center text-muted-foreground max-w-md px-4">
-                <div className="animate-spin h-8 w-8 border-2 border-primary border-t-transparent rounded-full mx-auto mb-4" />
-                <p className="text-sm font-medium">The assistant is working on your demo specification...</p>
-                <p className="text-xs mt-2 text-muted-foreground/80">
-                  Please follow along in the chat panel and answer any questions the assistant may have.
+                <Sparkles className="h-10 w-10 mx-auto mb-3 text-primary/40" />
+                <p className="text-sm">Describe your demo to the assistant and press enter to get started.</p>
+              </div>
+            </div>
+          ) : activeTab === "readme" && !hasReadme && isStreaming ? (
+            <div className="flex-1 flex items-center justify-center p-8">
+              <div className="text-left max-w-2xl w-full">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="animate-spin h-6 w-6 border-2 border-primary border-t-transparent rounded-full flex-shrink-0" />
+                  <h2 className="text-lg font-semibold text-foreground">Your project is being crafted...</h2>
+                </div>
+                <p className="text-[17px] text-muted-foreground mb-8 leading-relaxed">
+                  The assistant has deep knowledge of every Databricks product — SDP pipelines, AI/BI dashboards, Genie, Knowledge Assistants, Model Serving, Apps, and more. It designs projects that showcase how these capabilities connect into a compelling end-to-end story for your customer.
                 </p>
+                <ol className="space-y-4 text-[15px]">
+                  <li className="flex gap-4">
+                    <span className="flex-shrink-0 w-7 h-7 rounded-full bg-primary/15 text-primary text-sm flex items-center justify-center font-semibold">1</span>
+                    <div>
+                      <span className="text-foreground font-medium">Review the story</span>
+                      <p className="text-sm text-muted-foreground mt-0.5">The generated narrative will appear right here as a README. Review it, iterate with the assistant until it fits your customer perfectly.</p>
+                    </div>
+                  </li>
+                  <li className="flex gap-4">
+                    <span className="flex-shrink-0 w-7 h-7 rounded-full bg-muted text-muted-foreground text-sm flex items-center justify-center font-medium">2</span>
+                    <div>
+                      <span className="text-muted-foreground font-medium">Generate specifications</span>
+                      <p className="text-sm text-muted-foreground/70 mt-0.5">Once you're happy with the story, ask the AI to generate detailed specs — data pipelines, dashboards, agents, Genie spaces, and more.</p>
+                    </div>
+                  </li>
+                  <li className="flex gap-4">
+                    <span className="flex-shrink-0 w-7 h-7 rounded-full bg-muted text-muted-foreground text-sm flex items-center justify-center font-medium">3</span>
+                    <div>
+                      <span className="text-muted-foreground font-medium">Build the assets</span>
+                      <p className="text-sm text-muted-foreground/70 mt-0.5">Create real Databricks resources from the specs using Genie Code or AI Dev Kit. Sit back, have a coffee, and enjoy your project.</p>
+                    </div>
+                  </li>
+                </ol>
+                <p className="text-xs mt-6 text-muted-foreground/50">Follow along in the chat panel — the assistant may ask you questions.</p>
               </div>
             </div>
           ) : isLoading ? (

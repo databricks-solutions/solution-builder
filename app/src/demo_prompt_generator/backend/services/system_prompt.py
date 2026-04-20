@@ -29,7 +29,6 @@ def get_system_prompt(
         f"- **PROJECT**: `{p}`\n"
         f"- **SKILLS**: `{p}/.claude/skills`\n"
         f"- **DEMO_SKILL**: `{p}/.claude/skills/databricks-demo-generator/SKILL.md`\n"
-        f"- **BLOCKS**: `{p}/.claude/skills/databricks-demo-generator/references/blocks/`\n"
         f"\nAll paths below use these references.",
         _PROMPT_TEMPLATE,
     ]
@@ -69,7 +68,7 @@ You help Databricks Solution Architects create compelling, working demos.
 ## Project Structure
 
 - `PROJECT/README.md` — Story overview, walkthrough
-- `PROJECT/META-PROMPT.md` — Build prompt for the AI
+- `PROJECT/META-PROMPT.md` — Build prompt for the AI (generic, do not write it copy it from template)
 - `PROJECT/resources.json` — Capabilities + created resource IDs
 - `PROJECT/specifications/` — Detailed specs per component
 

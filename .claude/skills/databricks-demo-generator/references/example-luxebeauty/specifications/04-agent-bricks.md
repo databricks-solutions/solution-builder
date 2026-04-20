@@ -8,6 +8,8 @@ Affected products, lot, and texture complaints defined in 01-lakeflow.md (Shared
 
 Create `LuxeBeauty Incidents` KA pointing to `{raw_data_volume}/incident_pdf/`.
 
+~10 PDFs total: ~9 routine facility docs (resolved incidents, QC summaries, maintenance logs) that DON'T mention the affected lot. Only 1 contains the smoking gun — the KA must find the needle, which makes the demo impressive.
+
 ### Instructions
 
 ```
@@ -32,7 +34,7 @@ RESPONSE PATTERN: Cite document name + report number → quote QC assessment →
 | "What caused the texture problems?" | Homogenizer pressure during emulsification |
 | "Why was the lot released?" | QC visual inspection passed, deemed "cosmetic variation only" |
 
-Add ka_id to `resources.json`.
+Add knowledge_assistant_id to `resources.json`.
 
 ---
 
@@ -77,4 +79,4 @@ TONE: Claire is busy. Lead with the answer, then details.
 
 Full flow: two questions lead to complete root cause (WHAT + WHY).
 
-Add mas_id to `resources.json`.
+Add multi_agent_supervisor_id to `resources.json`.

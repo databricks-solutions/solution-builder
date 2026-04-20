@@ -494,7 +494,7 @@ function Index() {
                       </div>
                     )}
                     <div className={`grid gap-3 ${
-                      expectedIdeaCount === 1 ? "grid-cols-1" : "grid-cols-1 md:grid-cols-3"
+                      expectedIdeaCount === 1 ? "grid-cols-1" : expectedIdeaCount === 2 ? "grid-cols-1 md:grid-cols-2" : "grid-cols-1 md:grid-cols-3"
                     } ${isSuggestingCapabilities && expectedIdeaCount === 0 && ideas.length === 0 ? "hidden" : ""}`}>
                       {/* Render cards: real ideas + skeleton placeholders for remaining */}
                       {(() => {

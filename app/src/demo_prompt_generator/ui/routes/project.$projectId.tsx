@@ -215,7 +215,17 @@ function ProjectPage() {
   const abortControllerRef = useRef<AbortController | null>(null);
 
   // Ref to capture reasoning during streaming (for saving in finally)
-  const reasoningRef = useRef<{ thinking: string; tools: Map<string, { name: string; input: unknown; result?: string; isError?: boolean }> } | null>(null);
+  const reasoningRef = useRef<{ thinking: string; tools: Map<string, { name: string; input: unknown; result?: string; isError?: boolean; startedAt?: string; completedAt?: string }> } | null>(null);
+
+  // Debounced file list refresh — avoids N parallel /files calls when
+  // the agent writes multiple files in quick succession.
+  const fileRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const debouncedRefreshFiles = useCallback(() => {
+    if (fileRefreshTimerRef.current) clearTimeout(fileRefreshTimerRef.current);
+    fileRefreshTimerRef.current = setTimeout(() => {
+      listProjectFiles(projectId).then(setFiles).catch(() => {});
+    }, 500);
+  }, [projectId]);
 
   // Loading state for the entire page
   const [isLoadingProject, setIsLoadingProject] = useState(true);
@@ -335,7 +345,7 @@ function ProjectPage() {
         // Stream progress
         let fullContent = "";
         let fullThinking = "";
-        const toolsMap = new Map<string, { name: string; input: unknown; result?: string; isError?: boolean }>();
+        const toolsMap = new Map<string, { name: string; input: unknown; result?: string; isError?: boolean; startedAt?: string; completedAt?: string }>();
 
         for await (const event of streamAgentProgress(
           response.execution_id,
@@ -358,6 +368,7 @@ function ProjectPage() {
             toolsMap.set(event.tool_id, {
               name: event.tool_name,
               input: event.tool_input,
+              startedAt: event.timestamp,
             });
             setStreamingTools(new Map(toolsMap));
             // Update ref for use in finally
@@ -370,14 +381,21 @@ function ProjectPage() {
                 ...existing,
                 result: event.content,
                 isError: event.is_error ?? false,
+                completedAt: event.timestamp,
               });
               setStreamingTools(new Map(toolsMap));
               // Update ref for use in finally
               reasoningRef.current = { thinking: fullThinking, tools: new Map(toolsMap) };
               // Live-refresh the sidebar when a file-modifying tool succeeds
               if (!event.is_error && FILE_MUTATING_TOOLS.has(existing.name)) {
-                listProjectFiles(projectId).then(setFiles).catch(() => {});
+                debouncedRefreshFiles();
               }
+            }
+          } else if (event.type === "file_changed") {
+            // Watchdog detected a file change — refresh file list and content
+            debouncedRefreshFiles();
+            if (selectedFileRef.current === event.path) {
+              setFileContentKey((k) => k + 1);
             }
           } else if (event.type === "error") {
             console.error("Agent error:", event.error);
@@ -397,8 +415,8 @@ function ProjectPage() {
             reasoning: [
               ...(reasoningRef.current.thinking ? [{ type: "thinking" as const, content: reasoningRef.current.thinking }] : []),
               ...Array.from(reasoningRef.current.tools.entries()).flatMap(([id, tool]) => [
-                { type: "tool" as const, id, name: tool.name, input: tool.input },
-                ...(tool.result !== undefined ? [{ type: "tool_result" as const, tool_id: id, content: tool.result, is_error: tool.isError ?? false }] : []),
+                { type: "tool" as const, id, name: tool.name, input: tool.input, started_at: tool.startedAt },
+                ...(tool.result !== undefined ? [{ type: "tool_result" as const, tool_id: id, content: tool.result, is_error: tool.isError ?? false, completed_at: tool.completedAt }] : []),
               ]),
             ],
           } : null,
@@ -439,40 +457,41 @@ function ProjectPage() {
       } catch (error) {
         if ((error as Error).name !== "AbortError") {
           console.error("Failed to send message:", error);
-          // Re-fetch messages and files from DB — the agent may still be
-          // running server-side even though our SSE stream dropped
-          try {
-            const [msgs, fileList, deployed] = await Promise.all([
-              listProjectMessages(projectId),
-              listProjectFiles(projectId),
-              getDeployedResources(projectId).catch(() => null),
-            ]);
-            setMessages(msgs);
-            setFiles(fileList);
-            setDeployedResources(deployed);
-
-            // Auto-select README.md if no file is selected
-            let fileToLoad = selectedFileRef.current;
-            if (!fileToLoad) {
-              const readme = fileList.find((f) => f.path === "README.md");
-              if (readme) {
-                fileToLoad = "README.md";
-                setSelectedFile("README.md");
-              } else if (fileList.length > 0) {
-                fileToLoad = fileList[0].path;
-                setSelectedFile(fileList[0].path);
-              }
-            }
-
-            // Refresh file content — agent may have written files before the stream dropped
-            if (fileToLoad) {
-              try {
-                const content = await getProjectFile(projectId, fileToLoad);
-                setFileContent(content);
-              } catch { /* file may not exist yet */ }
-            }
-          } catch { /* ignore fetch errors during recovery */ }
         }
+        // Re-fetch messages and files from DB — the agent may still be
+        // running server-side even though our SSE stream dropped, or
+        // this was an abort after stop (backend saved the response).
+        try {
+          const [msgs, fileList, deployed] = await Promise.all([
+            listProjectMessages(projectId),
+            listProjectFiles(projectId),
+            getDeployedResources(projectId).catch(() => null),
+          ]);
+          setMessages(msgs);
+          setFiles(fileList);
+          setDeployedResources(deployed);
+
+          // Auto-select README.md if no file is selected
+          let fileToLoad = selectedFileRef.current;
+          if (!fileToLoad) {
+            const readme = fileList.find((f) => f.path === "README.md");
+            if (readme) {
+              fileToLoad = "README.md";
+              setSelectedFile("README.md");
+            } else if (fileList.length > 0) {
+              fileToLoad = fileList[0].path;
+              setSelectedFile(fileList[0].path);
+            }
+          }
+
+          // Refresh file content — agent may have written files before the stream dropped
+          if (fileToLoad) {
+            try {
+              const content = await getProjectFile(projectId, fileToLoad);
+              setFileContent(content);
+            } catch { /* file may not exist yet */ }
+          }
+        } catch { /* ignore fetch errors during recovery */ }
       } finally {
         // Save reasoning from ref BEFORE clearing streaming state
         if (reasoningRef.current) {
@@ -517,7 +536,7 @@ function ProjectPage() {
 
         let fullContent = "";
         let fullThinking = "";
-        const toolsMap = new Map<string, { name: string; input: unknown; result?: string; isError?: boolean }>();
+        const toolsMap = new Map<string, { name: string; input: unknown; result?: string; isError?: boolean; startedAt?: string; completedAt?: string }>();
 
         for await (const event of streamAgentProgress(
           execution.execution_id,
@@ -531,18 +550,23 @@ function ProjectPage() {
             setStreamingThinking(fullThinking);
             reasoningRef.current = { thinking: fullThinking, tools: new Map(toolsMap) };
           } else if (event.type === "tool_use") {
-            toolsMap.set(event.tool_id, { name: event.tool_name, input: event.tool_input });
+            toolsMap.set(event.tool_id, { name: event.tool_name, input: event.tool_input, startedAt: event.timestamp });
             setStreamingTools(new Map(toolsMap));
             reasoningRef.current = { thinking: fullThinking, tools: new Map(toolsMap) };
           } else if (event.type === "tool_result") {
             const existing = toolsMap.get(event.tool_use_id);
             if (existing) {
-              toolsMap.set(event.tool_use_id, { ...existing, result: event.content, isError: event.is_error ?? false });
+              toolsMap.set(event.tool_use_id, { ...existing, result: event.content, isError: event.is_error ?? false, completedAt: event.timestamp });
               setStreamingTools(new Map(toolsMap));
               reasoningRef.current = { thinking: fullThinking, tools: new Map(toolsMap) };
               if (!event.is_error && FILE_MUTATING_TOOLS.has(existing.name)) {
-                listProjectFiles(projectId).then(setFiles).catch(() => {});
+                debouncedRefreshFiles();
               }
+            }
+          } else if (event.type === "file_changed") {
+            debouncedRefreshFiles();
+            if (selectedFileRef.current === event.path) {
+              setFileContentKey((k) => k + 1);
             }
           } else if (event.type === "stream.completed") {
             break;
@@ -629,17 +653,25 @@ function ProjectPage() {
     })();
   }, [projectId, isLoadingProject, isLoadingMessages, isStreaming, project, messages, handleSendMessage]);
 
-  // Handle stopping the stream
+  // Handle stopping the stream — tell the backend to cancel, then let the
+  // SSE loop receive "stream.completed" naturally so the partial response
+  // is saved. Only force-abort after a timeout as a safety net.
   const handleStop = useCallback(async () => {
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-    }
     if (executionId) {
       try {
         await stopAgentStream(executionId);
       } catch (error) {
         console.error("Failed to stop stream:", error);
       }
+      // Give the SSE loop up to 3s to receive "stream.completed" from the
+      // backend. If it hasn't finished by then, force-abort as a fallback.
+      setTimeout(() => {
+        if (abortControllerRef.current) {
+          abortControllerRef.current.abort();
+        }
+      }, 3000);
+    } else if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
     }
   }, [executionId]);
 

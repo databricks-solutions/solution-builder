@@ -471,6 +471,12 @@ class _LakebaseDependency(LifespanDependency):
 
         async def sync_callback(project_id: str, paths: list[str]):
             await file_sync.sync_files_to_db(project_id, paths)
+            # Notify active SSE stream so the frontend sees changes instantly
+            from ..services.active_stream import get_stream_manager
+            stream = get_stream_manager().get_project_stream(project_id)
+            if stream:
+                for path in paths:
+                    stream.add_event({"type": "file_changed", "path": path})
 
         try:
             watcher = init_watcher(sync_callback)

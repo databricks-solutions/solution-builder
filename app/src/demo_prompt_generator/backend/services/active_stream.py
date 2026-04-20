@@ -90,6 +90,7 @@ class ActiveStreamManager:
     Singleton manager for all active streams.
 
     Provides stream lifecycle management and cleanup.
+    Uses per-project locks to prevent concurrent agent invocations.
     """
     _instance: ClassVar["ActiveStreamManager | None"] = None
     _streams: dict[str, ActiveStream]
@@ -98,7 +99,14 @@ class ActiveStreamManager:
 
     def __init__(self):
         self._streams = {}
+        self._project_locks: dict[str, asyncio.Lock] = {}
         self._last_cleanup = time.time()
+
+    def get_project_lock(self, project_id: str) -> asyncio.Lock:
+        """Get or create a per-project lock for serializing agent invocations."""
+        if project_id not in self._project_locks:
+            self._project_locks[project_id] = asyncio.Lock()
+        return self._project_locks[project_id]
 
     @classmethod
     def get_instance(cls) -> "ActiveStreamManager":
@@ -122,7 +130,12 @@ class ActiveStreamManager:
     def get_project_stream(self, project_id: str) -> ActiveStream | None:
         """Get the active (running) stream for a project, if any."""
         for stream in self._streams.values():
-            if stream.project_id == project_id and not stream.is_complete and not stream.is_error:
+            if (
+                stream.project_id == project_id
+                and not stream.is_complete
+                and not stream.is_cancelled
+                and not stream.is_error
+            ):
                 return stream
         return None
 

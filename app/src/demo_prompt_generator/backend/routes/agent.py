@@ -82,40 +82,46 @@ async def invoke_agent(
     user = session.exec(select(User).where(User.email == user_email)).first()
     databricks_profile = user.databricks_profile if user else "DEFAULT"
 
-    # Check for existing running execution
     manager = get_stream_manager()
-    existing_stream = manager.get_project_stream(body.project_id)
-    if existing_stream:
-        # Return existing execution if still running
-        return InvokeAgentResponse(
-            execution_id=existing_stream.execution_id,
-            project_id=body.project_id,
-        )
 
-    # Use session_id from project (simpler than Execution table)
-    session_id = project.session_id
-    if session_id:
-        logger.info(f"Resuming session for project {body.project_id}: {session_id}")
+    # Per-project lock prevents two concurrent POSTs from both creating agents
+    # (e.g. browser refresh races between reconnect and autoKick effects).
+    async with manager.get_project_lock(body.project_id):
+        # Check for existing running execution
+        existing_stream = manager.get_project_stream(body.project_id)
+        if existing_stream:
+            return InvokeAgentResponse(
+                execution_id=existing_stream.execution_id,
+                project_id=body.project_id,
+            )
 
-    # Save user message (skipped when auto-kicking off an already-persisted
-    # opening prompt, to avoid a duplicate bubble in the chat).
-    execution_id = generate_uuid()
-    if body.save_user_message:
-        user_msg = Message(
-            project_id=body.project_id,
-            role="user",
-            content=body.message,
-        )
-        session.add(user_msg)
+        # Use session_id from project (simpler than Execution table)
+        session_id = project.session_id
+        if session_id:
+            logger.info(f"Resuming session for project {body.project_id}: {session_id}")
+
+        # Save user message (skipped when auto-kicking off an already-persisted
+        # opening prompt, to avoid a duplicate bubble in the chat).
+        execution_id = generate_uuid()
+        if body.save_user_message:
+            user_msg = Message(
+                project_id=body.project_id,
+                role="user",
+                content=body.message,
+            )
+            session.add(user_msg)
+            session.commit()
+
+        # Create stream and persist execution_id so it survives server restart
+        stream = manager.create_stream(execution_id, body.project_id)
+        project.active_execution_id = execution_id
+        project.updated_at = utc_now()
+        session.add(project)
         session.commit()
-
-    # Create stream
-    stream = manager.create_stream(execution_id, body.project_id)
 
     # Capture engine reference for use in background task (request session
     # will be closed by the time run_agent's completion code executes)
     engine = request.app.state.engine
-
 
     # Start agent in background
     async def run_agent():
@@ -138,7 +144,7 @@ async def invoke_agent(
             stream.mark_error(str(e))
             # Fall through to save whatever we collected so far
 
-        # Save assistant response and session_id after completion.
+        # Save assistant response, session_id, and clear active_execution_id.
         # This runs even if the browser disconnected — the task is decoupled
         # from the SSE consumer. Always attempt to save: even when the text
         # response is empty (tool-heavy sessions that hit max turns), we still
@@ -163,13 +169,14 @@ async def invoke_agent(
                 else:
                     logger.warning(f"Agent returned empty text response for project {body.project_id}")
 
-                # Always persist session_id so conversation can resume
-                if stream.session_id:
-                    proj = db.get(Project, body.project_id)
-                    if proj:
+                # Persist session_id and clear active_execution_id
+                proj = db.get(Project, body.project_id)
+                if proj:
+                    if stream.session_id:
                         proj.session_id = stream.session_id
-                        proj.updated_at = utc_now()
-                        db.add(proj)
+                    proj.active_execution_id = None
+                    proj.updated_at = utc_now()
+                    db.add(proj)
 
                 db.commit()
                 if full_response:
@@ -263,7 +270,10 @@ async def stream_progress(
     "/stop_stream/{execution_id}",
     operation_id="stopStream",
 )
-async def stop_stream(execution_id: str):
+async def stop_stream(
+    execution_id: str,
+    session: Dependencies.Session,
+):
     """Cancel a running agent execution."""
     manager = get_stream_manager()
     stream = manager.get_stream(execution_id)
@@ -277,6 +287,14 @@ async def stop_stream(execution_id: str):
     # Cancel the task if running
     if stream.task and not stream.task.done():
         stream.task.cancel()
+
+    # Clear the DB flag so a new execution can start
+    project = session.get(Project, stream.project_id)
+    if project and project.active_execution_id == execution_id:
+        project.active_execution_id = None
+        project.updated_at = utc_now()
+        session.add(project)
+        session.commit()
 
     logger.info(f"Cancelled execution {execution_id}")
     return {"success": True, "execution_id": execution_id}
@@ -296,10 +314,15 @@ class ActiveExecutionOut(BaseModel):
 )
 async def get_active_execution(
     project_id: str,
+    session: Dependencies.Session,
     headers: Dependencies.Headers,
 ):
-    """Get the active (running) execution for a project, if any."""
-    # Just check in-memory stream manager - no DB needed
+    """Get the active (running) execution for a project, if any.
+
+    Checks in-memory streams first. If none found but the DB has an
+    active_execution_id, the server restarted mid-execution — clear
+    the stale flag and return None so the frontend can recover.
+    """
     manager = get_stream_manager()
     stream = manager.get_project_stream(project_id)
 
@@ -309,5 +332,18 @@ async def get_active_execution(
             project_id=stream.project_id,
             is_running=not stream.is_complete and not stream.is_cancelled and not stream.is_error,
         )
+
+    # No in-memory stream — check if DB still thinks one is running
+    # (server restarted mid-execution). Clear the stale flag.
+    project = session.get(Project, project_id)
+    if project and project.active_execution_id:
+        logger.warning(
+            f"Clearing stale active_execution_id for project {project_id} "
+            f"(execution {project.active_execution_id} lost on server restart)"
+        )
+        project.active_execution_id = None
+        project.updated_at = utc_now()
+        session.add(project)
+        session.commit()
 
     return None

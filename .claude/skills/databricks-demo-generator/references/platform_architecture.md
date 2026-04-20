@@ -53,7 +53,7 @@ This reference shows how ALL Databricks capabilities connect. Most demos use a s
 
 ## Default Demo Combination
 
-**Buildable:** `sdp`, `aibi-dashboards`, `genie`, `knowledge-assistant`, `supervisor-agent`
+**Buildable:** `synthetic-data-gen`, `sdp`, `aibi-dashboards`, `genie`, `knowledge-assistant`, `supervisor-agent`
 
 **Talking track:** `lakeflow-connect`, `unity-catalog`, `databricks-one`, `genie-code` (should be almost always there)
 

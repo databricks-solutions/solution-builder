@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import re
 import shutil
 from datetime import datetime, timezone
@@ -12,7 +11,7 @@ from sqlmodel import func, select, text
 
 from ..core import Dependencies, create_router
 from ..core._config import logger
-from ..services.llm_service import LLMService
+from ..services.llm_service import LLMService, ModelSize
 from ..models import (
     Message,
     Project,
@@ -31,7 +30,6 @@ from ..models import (
 )
 from ..services.file_sync import FileSyncService
 from ..services.skills_manager import (
-    build_initial_resources_json,
     create_project_directory,
     ensure_project_skills,
     get_project_directory,
@@ -88,6 +86,34 @@ def _generate_schema_name(project_name: str) -> str:
     # Limit length
     clean_name = clean_name[:50]
     return f"{DEFAULT_SCHEMA_PREFIX}{clean_name}"
+
+
+def _generate_project_metadata(llm: LLMService, description: str) -> dict[str, str]:
+    """Generate project name, description, and schema name from user prompt via LLM."""
+    prompt = f"""Based on this demo description, return JSON:
+{{
+    "name": "Short Demo Name (max 100 chars)",
+    "description": "Brief summary (max 200 chars)",
+    "schema_name": "sql_safe_lowercase_name"
+}}
+
+User prompt:
+{description[:4000]}
+"""
+    try:
+        result = llm.chat_json(prompt, size=ModelSize.MINI, max_tokens=300)
+        name = result.get("name", "Untitled Demo")[:100]
+        short_desc = result.get("description", "")[:200]
+        schema_name = result.get("schema_name", "demo")
+        schema_name = re.sub(r"[^a-z0-9_]", "_", schema_name.lower())
+        schema_name = re.sub(r"_+", "_", schema_name).strip("_")
+        if not schema_name or not schema_name[0].isalpha():
+            schema_name = "demo_" + schema_name
+        return {"name": name, "description": short_desc, "schema_name": schema_name[:50]}
+    except Exception as e:
+        logger.error(f"Failed to generate project metadata: {e}")
+        first_line = description.split("\n")[0].strip()[:100]
+        return {"name": first_line or "Untitled Demo", "description": "", "schema_name": "demo_project"}
 
 
 def _get_user_email(headers) -> str:
@@ -216,7 +242,7 @@ def create_project(
 
     # Use LLM to generate project name, description, and schema from user prompt
     llm_service = LLMService(ws, config)
-    metadata = llm_service.generate_project_metadata(body.description)
+    metadata = _generate_project_metadata(llm_service, body.description)
     project_name = metadata["name"]
     project_description = metadata.get("description") or body.description[:200]
     default_schema = f"{DEFAULT_SCHEMA_PREFIX}{metadata['schema_name']}"
@@ -243,16 +269,6 @@ def create_project(
     # Create project directory (no README yet - agent will create it).
     # Passing capabilities scopes the copied skills to what this demo needs.
     create_project_directory(project.id, capabilities=body.capabilities)
-
-    # Write resources.json from the user's capability selections so it exists
-    # before the agent runs. The agent never decides initial contents — it can
-    # edit later via chat, but correctness at t=0 is deterministic.
-    if body.capabilities:
-        project_dir = get_project_directory(project.id)
-        resources = build_initial_resources_json(body.capabilities)
-        (project_dir / "resources.json").write_text(
-            json.dumps(resources, indent=2) + "\n", encoding="utf-8"
-        )
 
     # Save context document as a project file if provided
     if body.context_document:

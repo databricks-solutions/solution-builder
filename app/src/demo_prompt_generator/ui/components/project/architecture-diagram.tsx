@@ -419,7 +419,7 @@ const ArchitectureDiagramInner = memo(function ArchitectureDiagramInner({
           maxZoom={3}
           defaultEdgeOptions={{ type: "smoothstep" }}
           proOptions={{ hideAttribution: true }}
-          connectionLineStyle={{ stroke: "hsl(var(--primary))", strokeWidth: 2 }}
+          connectionLineStyle={{ stroke: "var(--primary)", strokeWidth: 2 }}
           connectionLineType={ConnectionLineType.SmoothStep}
         >
           <Background variant={BackgroundVariant.Dots} gap={16} size={1} color="#94a3b8" className="opacity-30" />

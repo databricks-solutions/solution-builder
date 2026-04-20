@@ -14,11 +14,15 @@
 
 **Texture complaints** (return_reason_text for affected lot): "Cream has grainy texture, not smooth like usual" / "Product separated in the jar, looks curdled" / "Consistency is watery, doesn't feel right" / "Texture feels off compared to my last purchase" / "Serum looks cloudy and thick, not like before" / "Product texture has changed, feels gritty"
 
-**Time references**: STORY_END_DATE = NOW, STORY_START_DATE = NOW - 13 months, AFFECTED_LOT_DATE = NOW - 7 weeks, Spike week = NOW - 5 to 6 weeks.
+**Time references**: STORY_END_DATE = NOW, STORY_START_DATE = NOW - 13 months, AFFECTED_LOT_DATE = NOW - 8 weeks, SPIKE_PEAK = NOW - 3 weeks, DECAY_START = NOW - 2 weeks. The spike should be clearly visible in the past with a decay curve back toward normal — NOT ongoing at the rightmost edge of charts.
+
+Important reminder: these are generated guidance for you to generate pyspark databricks connect code, if some numbers don't exactly sum up during the implementation it's ok, keep it simple, and just ensure we respect the demo narrative.
 
 ---
 
 ## A. Synthetic Data Generation
+
+**Important note**: when generating this file, ensure the math are correct if you use exact numbers - keep it approximative to avoid incoherences.
 
 Generate parquet files → `{raw_data_volume}/`
 
@@ -47,7 +51,7 @@ Production facilities: Lyon 50% (Skincare), Milan 30% (Makeup), Singapore 20% (H
 
 ### The Event
 
-~5,000 order_items reference the affected lot. Orders between AFFECTED_LOT_DATE and +5 weeks. ~1,500 returns (~30% rate). Peak week (NOW -5 to -6 weeks): ~500 returns → ~$180K vs ~$60K baseline. Return reason: predominantly "quality".
+~5,000 order_items reference the affected lot. Orders between AFFECTED_LOT_DATE and +5 weeks (~8 to ~3 weeks ago). ~1,500 returns total (~30% rate). Returns follow a realistic curve: slow build (weeks 6-4 ago), sharp peak at SPIKE_PEAK (~3 weeks ago, ~500 returns that week → ~$180K vs ~$60K baseline), then gradual decay over the last 2 weeks as the affected inventory sells through (back toward ~$90K, then ~$70K). The peak should be clearly in the past, not at the chart edge. Return reason: predominantly "quality".
 
 ### Table Schemas
 
@@ -83,7 +87,7 @@ Create pipeline `luxebeauty_operations` transforming raw parquet → analytics t
 
 | Consumer | Needs | From Table |
 |----------|-------|------------|
-| Dashboard KPIs | revenue, orders, items, returns by date/region/category | gold_daily_summary |
+| Dashboard KPIs | revenue, orders, items, return_count, returns_usd by date/region/category | gold_daily_summary |
 | Dashboard products | SKU-level return rates with region/category filtering | gold_returns_by_product |
 | Genie investigation | Trace returns → products → lot → feedback | gold_returns_by_lot + silver_returns |
 
@@ -119,7 +123,7 @@ customers/products/production_lots/orders/order_items/returns.parquet → bronze
 
 | Table | Filter Columns | Metric Columns |
 |-------|---------------|----------------|
-| gold_daily_summary | date, region, category | revenue_usd, order_count, items_sold, returns_usd |
+| gold_daily_summary | date, region, category | revenue_usd, order_count, items_sold, return_count, returns_usd |
 | gold_returns_by_product | region, category | product_id, product_name, units_sold, total_refund_usd, return_rate |
 | gold_returns_by_lot | region, category | lot_id, product_id, product_name, facility, feedback_samples, return_rate |
 
@@ -131,7 +135,7 @@ Run before proceeding to 03-ai-bi.md.
 
 | Check | Query | Expected |
 |-------|-------|----------|
-| Returns spike | `SELECT DATE_TRUNC('week', date) as week, SUM(returns_usd) FROM gold_daily_summary GROUP BY 1 ORDER BY 1 DESC LIMIT 10` | One week ~$180K, others ~$60K |
+| Returns spike | `SELECT DATE_TRUNC('week', date) as week, SUM(returns_usd) FROM gold_daily_summary GROUP BY 1 ORDER BY 1 DESC LIMIT 10` | Peak week ~$180K, recent weeks decaying (~$90K→$70K), baseline ~$60K |
 | Problem products | `SELECT product_id, product_name, return_rate FROM gold_returns_by_product WHERE return_rate > 0.2` | SKU-1001/1002/1003 at ~30% |
 | Common lot | `SELECT lot_id, SUM(return_count), AVG(return_rate) FROM gold_returns_by_lot WHERE return_rate > 0.2 GROUP BY lot_id` | One lot, ~1,500 returns |
 | Texture feedback | `SELECT feedback_samples FROM gold_returns_by_lot WHERE return_rate > 0.25 LIMIT 1` | Contains "grainy", "separated" |
