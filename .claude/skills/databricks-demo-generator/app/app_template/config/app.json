@@ -20,27 +20,6 @@
   "branding": {
     "appName": "LuxeBeauty Operations"
   },
-  "hero": {
-    "name": "Claire Dubois",
-    "role": "VP of Operations",
-    "company": "LuxeBeauty Co.",
-    "avatarInitials": "CD"
-  },
-  "story": {
-    "headline": "Returns are running 3x normal — and we don't know why.",
-    "situation": "Three weeks ago returns jumped from ~$60K/week to $180K, driven by three skincare SKUs with a 30% return rate. They're still elevated at ~$80K. Revenue looks fine, orders look fine — but the refunds line is eating the quarter.",
-    "goal": "Find the root cause, confirm the blast radius, and decide on a recall or field fix.",
-    "whatYoullSee": [
-      "Ask a natural-language question — the supervisor routes across returns data and production incident reports.",
-      "The data analyst traces the spike to SKU-1001, SKU-1002, SKU-1003 from one production lot — 30% return rate vs 8% normal.",
-      "The incident expert surfaces the homogenizer pressure issue on that lot — QC flagged texture variations, the batch was released anyway."
-    ]
-  },
-  "starterQuestions": [
-    "Why do I have so many returns?",
-    "Was there an incident for that lot?",
-    "Which customers are most affected?"
-  ],
   "assistantScript": [
     {
       "prompt": "Why do I have so many returns?"
@@ -53,10 +32,5 @@
       "prompt": "Yes — send the emails with the coupon and approve all the refunds.",
       "triggerAfter": ["template", "coupon"]
     }
-  ],
-  "featuredAction": {
-    "title": "Handle the bad-lot returns",
-    "description": "The assistant figures out which lot is driving the spike, drafts an apology email with a 20% coupon, and waits for your approval before anything goes out.",
-    "prompt": "Something is off with our returns right now. Find the worst production lot (highest return count or return rate), draft the apology email template with placeholders for the customer and coupon, and show me who it'd go to. Wait for my approval before creating the coupon or sending anything. Once I say go, email every affected customer with a 20% coupon and approve their refunds."
-  }
+  ]
 }

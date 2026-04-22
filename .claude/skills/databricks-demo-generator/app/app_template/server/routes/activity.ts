@@ -11,12 +11,8 @@ export function registerActivityRoutes(
   deps: { db: AppDb },
 ): void {
   app.get('/api/activity/recent', async (req, res) => {
-    try {
-      const limit = Math.min(Number(req.query.limit ?? 20), 100);
-      const events = await recentActivity(deps.db, limit);
-      res.json(events);
-    } catch (e) {
-      res.status(500).json({ error: (e as Error).message });
-    }
+    const limit = Math.min(Number(req.query.limit ?? 20), 100);
+    const events = await recentActivity(deps.db, limit);
+    res.json(events);
   });
 }

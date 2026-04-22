@@ -48,6 +48,35 @@
   --warning: oklch(0.78 0.15 75);
   --warning-foreground: oklch(0.2 0.025 255);
 
+  /* Subtle status tints (light bg + dark text for badges, pills, activity icons) */
+  --success-subtle: oklch(0.94 0.08 160);
+  --success-subtle-foreground: oklch(0.35 0.1 160);
+  --warning-subtle: oklch(0.94 0.08 85);
+  --warning-subtle-foreground: oklch(0.3 0.08 60);
+  --info-subtle: oklch(0.94 0.06 245);
+  --info-subtle-foreground: oklch(0.38 0.12 250);
+
+  /* Tier badges (domain-specific, easy to swap) */
+  --tier-gold: oklch(0.94 0.08 85);
+  --tier-gold-foreground: oklch(0.3 0.08 60);
+  --tier-silver: oklch(0.94 0.01 255);
+  --tier-silver-foreground: oklch(0.42 0.02 255);
+  --tier-bronze: oklch(0.94 0.06 55);
+  --tier-bronze-foreground: oklch(0.35 0.1 40);
+  --tier-platinum: oklch(0.94 0.06 295);
+  --tier-platinum-foreground: oklch(0.38 0.1 295);
+
+  /* Status indicator dots */
+  --status-running: oklch(0.6 0.17 150);
+  --status-idle: oklch(0.75 0.15 75);
+
+  /* Overlay backdrop */
+  --overlay: oklch(0.15 0.02 255 / 0.4);
+
+  /* Primary variant for animations / hover on dark surfaces */
+  --primary-light: oklch(0.40 0.14 245);
+  --on-primary-hover: oklch(1 0 0 / 0.1);
+
   /* Charts — editorial sequence */
   --chart-1: oklch(0.32 0.095 264);  /* indigo */
   --chart-2: oklch(0.72 0.125 195);  /* teal */
@@ -114,3 +143,43 @@ h3,
   font-feature-settings: "ss01";
   letter-spacing: -0.01em;
 }
+
+/* Chat dock trigger — slide-up entrance + synced sparkle & color breathe */
+@keyframes dockEnter {
+  from {
+    opacity: 0; transform: translateY(16px) scale(0.95);
+    background: linear-gradient(135deg,
+      color-mix(in oklch, var(--primary) 82%, white) 0%,
+      var(--primary) 55%,
+      color-mix(in oklch, var(--primary) 88%, black) 100%);
+  }
+  to {
+    opacity: 1; transform: translateY(0) scale(1);
+    background: linear-gradient(135deg,
+      color-mix(in oklch, var(--primary) 82%, white) 0%,
+      var(--primary) 55%,
+      color-mix(in oklch, var(--primary) 88%, black) 100%);
+  }
+}
+@keyframes sparkle {
+  0%, 100% { opacity: 1; transform: rotate(0deg) scale(1); }
+  50%      { opacity: 0.4; transform: rotate(20deg) scale(1.15); }
+}
+@keyframes dockBreathe {
+  0%, 100% {
+    background: linear-gradient(135deg,
+      color-mix(in oklch, var(--primary) 82%, white) 0%,
+      var(--primary) 55%,
+      color-mix(in oklch, var(--primary) 88%, black) 100%);
+    box-shadow: 0 4px 14px oklch(from var(--primary) l c h / 0.3);
+  }
+  50% {
+    background: linear-gradient(135deg,
+      color-mix(in oklch, var(--primary-light) 82%, white) 0%,
+      var(--primary-light) 55%,
+      color-mix(in oklch, var(--primary-light) 88%, black) 100%);
+    box-shadow: 0 4px 20px oklch(from var(--primary-light) l c h / 0.45);
+  }
+}
+.animate-dock-enter  { animation: dockEnter 0.4s ease-out, dockBreathe 3s ease-in-out 1s infinite; }
+.animate-sparkle     { animation: sparkle 3s ease-in-out infinite 1s; }

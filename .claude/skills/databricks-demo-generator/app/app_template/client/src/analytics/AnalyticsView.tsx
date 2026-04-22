@@ -57,8 +57,8 @@ export function AnalyticsView() {
                 <span
                   className={`inline-block size-1.5 rounded-full ${
                     warehouse.state === 'RUNNING'
-                      ? 'bg-green-500'
-                      : 'bg-amber-500'
+                      ? 'bg-[var(--status-running)]'
+                      : 'bg-[var(--status-idle)]'
                   }`}
                 />
               )}

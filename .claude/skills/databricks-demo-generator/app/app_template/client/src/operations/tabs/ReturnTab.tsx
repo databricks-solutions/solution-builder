@@ -136,9 +136,9 @@ function ActionButton({
 }) {
   const cls =
     variant === 'success'
-      ? 'bg-emerald-600 text-white hover:bg-emerald-700'
+      ? 'bg-success text-success-foreground hover:opacity-90'
       : variant === 'danger'
-        ? 'bg-amber-600 text-white hover:bg-amber-700'
+        ? 'bg-warning text-warning-foreground hover:opacity-90'
         : 'bg-muted text-foreground hover:bg-muted/70';
   return (
     <button

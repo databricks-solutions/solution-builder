@@ -2,12 +2,11 @@
  * Home / landing page.
  *
  * Template concern: this is where you tell the STORY of the use case.
- * The narrative pieces (hero persona, story headline + situation + goal,
- * "journey diagram" quotes, starter prompts, featuredAction, and the
- * scripted 3-step `assistantScript`) are ALL config-driven via
- * `config/app.json` → rendered here. To repurpose this template for a
- * different use case, you typically only need to rewrite `config/app.json`
- * + the agent tools + instructions in `server/agent/<yourAgent>.ts`.
+ * The narrative pieces (hero persona, headline, situation, goal, journey
+ * diagram quotes, starter prompts, featured action) are hardcoded in this
+ * file as an EXAMPLE — rewrite them for your demo. Only `assistantScript`
+ * and `branding` stay config-driven (script chain is reused by the chat
+ * dock; branding is also read by the shell header).
  *
  * The journey diagram's 4 cards wire into the floating chat dock via
  * `dockController` (pub/sub in `chat/dockController.ts`) — clicking a card
@@ -33,6 +32,36 @@ import { fetchActivity, type ActivityEvent } from '@/lib/returns';
 import { dataMutated } from '@/lib/events';
 import { dockController } from '@/chat/dockController';
 
+// ---------------------------------------------------------------------------
+// Narrative — REPLACE for your demo.
+// This is what the landing page shows. Hero persona, headline, situation,
+// starter prompts, and the "featured action" are the story hooks that tell
+// the viewer what this app does. Rewrite these to match your use case.
+// ---------------------------------------------------------------------------
+
+const HERO = {
+  name: 'Claire Dubois',
+  role: 'VP of Operations',
+};
+
+const STORY = {
+  headline: "Returns are running 3x normal — and we don't know why.",
+  situation:
+    "Three weeks ago returns jumped from ~$60K/week to $180K, driven by three skincare SKUs with a 30% return rate. They're still elevated at ~$80K. Revenue looks fine, orders look fine — but the refunds line is eating the quarter.",
+  goal: 'Find the root cause, confirm the blast radius, and decide on a recall or field fix.',
+};
+
+const STARTER_QUESTIONS = [
+  'Why do I have so many returns?',
+  'Was there an incident for that lot?',
+  'Which customers are most affected?',
+];
+
+// The featured action's copy is inlined in the JSX below — the section is just
+// HTML, edit it freely. The prompt text is the single thing the agent runs.
+const FEATURED_ACTION_PROMPT =
+  "Something is off with our returns right now. Find the worst production lot (highest return count or return rate), draft the apology email template with placeholders for the customer and coupon, and show me who it'd go to. Wait for my approval before creating the coupon or sending anything. Once I say go, email every affected customer with a 20% coupon and approve their refunds.";
+
 export function HomeView() {
   const [config, setConfig] = useState<AppConfig | null>(null);
   const [activity, setActivity] = useState<ActivityEvent[]>([]);
@@ -52,39 +81,32 @@ export function HomeView() {
     return <div className="p-12 text-muted-foreground">Loading…</div>;
   }
 
-  const { hero, story, starterQuestions, featuredAction } = config;
-  const heroFirstName = hero?.name.split(/\s+/)[0] ?? 'you';
+  const heroFirstName = HERO.name.split(/\s+/)[0];
 
   return (
     <div className="h-full overflow-y-auto">
       <div className="max-w-5xl mx-auto px-8 py-14 space-y-14">
         {/* Hero */}
         <section className="space-y-5">
-          {hero && (
-            <div className="inline-flex items-center gap-2 text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
-              <span className="inline-block h-px w-8 bg-foreground/40" />
-              {hero.name} · {hero.role}
-            </div>
-          )}
+          <div className="inline-flex items-center gap-2 text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
+            <span className="inline-block h-px w-8 bg-foreground/40" />
+            {HERO.name} · {HERO.role}
+          </div>
           <h1 className="display text-5xl lg:text-6xl font-semibold leading-[1.05] tracking-tight text-foreground">
-            {story?.headline ?? 'Ask your assistant anything.'}
+            {STORY.headline}
           </h1>
-          {story?.situation && (
-            <p className="text-lg text-muted-foreground leading-relaxed max-w-3xl">
-              {story.situation}
-            </p>
-          )}
-          {story?.goal && (
-            <p
-              className="inline-block text-sm text-foreground italic border-l-2 pl-3 py-0.5 max-w-3xl"
-              style={{ borderColor: 'var(--accent)' }}
-            >
-              <span className="font-semibold not-italic uppercase tracking-[0.15em] text-xs text-muted-foreground mr-2">
-                Goal
-              </span>
-              {story.goal}
-            </p>
-          )}
+          <p className="text-lg text-muted-foreground leading-relaxed max-w-3xl">
+            {STORY.situation}
+          </p>
+          <p
+            className="inline-block text-sm text-foreground italic border-l-2 pl-3 py-0.5 max-w-3xl"
+            style={{ borderColor: 'var(--accent)' }}
+          >
+            <span className="font-semibold not-italic uppercase tracking-[0.15em] text-xs text-muted-foreground mr-2">
+              Goal
+            </span>
+            {STORY.goal}
+          </p>
         </section>
 
         {/* Persona journey diagram */}
@@ -101,63 +123,61 @@ export function HomeView() {
         </section>
 
         {/* Starter prompts — each opens the floating assistant dock */}
-        {starterQuestions.length > 0 && (
-          <section className="space-y-3">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-              Try asking
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {starterQuestions.map((q) => (
-                <button
-                  key={q}
-                  onClick={() => dockController.newAndSend(q)}
-                  className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-4 py-2 text-sm text-foreground hover:border-foreground/30 hover:shadow-sm transition-all"
-                >
-                  <Sparkles className="size-3.5 text-muted-foreground" />
-                  {q}
-                  <ArrowRight className="size-3.5 text-muted-foreground" />
-                </button>
-              ))}
-            </div>
-          </section>
-        )}
+        <section className="space-y-3">
+          <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+            Try asking
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {STARTER_QUESTIONS.map((q) => (
+              <button
+                key={q}
+                onClick={() => dockController.newAndSend(q)}
+                className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-4 py-2 text-sm text-foreground hover:border-foreground/30 hover:shadow-sm transition-all"
+              >
+                <Sparkles className="size-3.5 text-muted-foreground" />
+                {q}
+                <ArrowRight className="size-3.5 text-muted-foreground" />
+              </button>
+            ))}
+          </div>
+        </section>
 
-        {/* Featured action — climax */}
-        {featuredAction && (
-          <section>
+        {/* Featured action — climax. Inline the copy; edit this HTML freely. */}
+        <section>
+          <div
+            className="rounded-2xl p-7 relative overflow-hidden"
+            style={{
+              background:
+                'linear-gradient(135deg, color-mix(in oklch, var(--primary) 96%, white) 0%, color-mix(in oklch, var(--primary) 88%, var(--accent) 12%) 100%)',
+              color: 'var(--primary-foreground)',
+            }}
+          >
             <div
-              className="rounded-2xl p-7 relative overflow-hidden"
-              style={{
-                background:
-                  'linear-gradient(135deg, color-mix(in oklch, var(--primary) 96%, white) 0%, color-mix(in oklch, var(--primary) 88%, var(--accent) 12%) 100%)',
-                color: 'var(--primary-foreground)',
-              }}
-            >
-              <div
-                className="absolute -right-16 -top-16 size-52 rounded-full opacity-20"
-                style={{ background: 'var(--accent)' }}
-              />
-              <div className="relative">
-                <div className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.18em] opacity-80 mb-3">
-                  <Zap className="size-3.5" />
-                  Let the assistant handle it
-                </div>
-                <h3 className="display text-2xl font-semibold mb-2 leading-tight">
-                  {featuredAction.title}
-                </h3>
-                <p className="text-sm opacity-85 leading-relaxed mb-5 max-w-2xl">
-                  {featuredAction.description}
-                </p>
-                <button
-                  onClick={() => dockController.newAndSend(featuredAction.prompt)}
-                  className="inline-flex items-center gap-2 rounded-full bg-background text-foreground px-5 py-2 text-sm font-medium hover:opacity-90 transition-opacity"
-                >
-                  Run this <ArrowRight className="size-4" />
-                </button>
+              className="absolute -right-16 -top-16 size-52 rounded-full opacity-20"
+              style={{ background: 'var(--accent)' }}
+            />
+            <div className="relative">
+              <div className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.18em] opacity-80 mb-3">
+                <Zap className="size-3.5" />
+                Let the assistant handle it
               </div>
+              <h3 className="display text-2xl font-semibold mb-2 leading-tight">
+                Handle the bad-lot returns
+              </h3>
+              <p className="text-sm opacity-85 leading-relaxed mb-5 max-w-2xl">
+                The assistant figures out which lot is driving the spike,
+                drafts an apology email with a 20% coupon, and waits for your
+                approval before anything goes out.
+              </p>
+              <button
+                onClick={() => dockController.newAndSend(FEATURED_ACTION_PROMPT)}
+                className="inline-flex items-center gap-2 rounded-full bg-background text-foreground px-5 py-2 text-sm font-medium hover:opacity-90 transition-opacity"
+              >
+                Run this <ArrowRight className="size-4" />
+              </button>
             </div>
-          </section>
-        )}
+          </div>
+        </section>
 
         {/* Proof — activity feed */}
         {activity.length > 0 && (
@@ -322,8 +342,8 @@ function ActivityIcon({ kind }: { kind: ActivityEvent['kind'] }) {
   const Icon = kind === 'email' ? Mail : CheckCircle2;
   const bg =
     kind === 'email'
-      ? 'bg-blue-100 text-blue-800'
-      : 'bg-emerald-100 text-emerald-800';
+      ? 'bg-[var(--info-subtle)] text-[var(--info-subtle-foreground)]'
+      : 'bg-[var(--success-subtle)] text-[var(--success-subtle-foreground)]';
   return (
     <div
       className={`size-7 rounded-full flex items-center justify-center shrink-0 ${bg}`}

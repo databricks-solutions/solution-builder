@@ -6,26 +6,5 @@
   "dashboardId": "01f13cb336c11fd3a2e3f682fe0cf4ff",
   "branding": {
     "appName": "CloudSync Operations"
-  },
-  "hero": {
-    "name": "Ethan Brooks",
-    "role": "Head of Customer Experience",
-    "company": "CloudSync",
-    "avatarInitials": "EB"
-  },
-  "story": {
-    "headline": "Something broke after Friday's release — and it's costing us customers.",
-    "situation": "It's Monday morning. The weekend release went out Friday night. CSAT dropped from 4.4 to 1.94, ticket volume tripled, and the exec team wants answers by noon.",
-    "goal": "Find the root cause, scope the blast radius, and decide what to ship this week.",
-    "whatYoullSee": [
-      "Ask a natural-language question — the supervisor routes across data and docs.",
-      "The data analyst surfaces the 6x onboarding-ticket spike and CSAT collapse.",
-      "The release expert connects the spike to the FF-ONBOARD-V2 flag + documented root cause."
-    ]
-  },
-  "starterQuestions": [
-    "Which ticket categories spiked after Friday's release?",
-    "Which customers are most at risk?",
-    "What changed in v2.4.1 that broke onboarding?"
-  ]
+  }
 }

@@ -3,7 +3,7 @@
  *
  * Template responsibilities, in order:
  *   1. Read `config/app.json` (the use-case knobs — agent endpoint, warehouse,
- *      dashboard, Delta sync tables, story copy).
+ *      dashboard, Delta sync tables, branding, scripted demo chain).
  *   2. Create the AppKit app with the 3 plugins we rely on:
  *        - server()     → Express, OBO auth forwarding, serve-the-client
  *        - lakebase()   → Postgres pool backed by Databricks Lakebase
@@ -55,10 +55,6 @@ type AppConfig = {
   agentModel?: string;
   dashboardId: string;
   branding: { appName: string };
-  hero?: unknown;
-  story?: unknown;
-  starterQuestions?: string[];
-  featuredAction?: unknown;
   assistantScript?: Array<{
     label: string;
     prompt: string;
@@ -92,53 +88,60 @@ const endpointFormatCache = new Map<string, 'agent' | 'chat_completion'>();
 let agentExperimentId: string | null = null;
 
 // ============================================================================
+// Error logging — compact by default so bulk-insert failures (DrizzleQueryError
+// with thousands of params) don't flood the terminal.
+// ============================================================================
+
+function logErrorCompact(prefix: string, err: unknown): void {
+  const e = err as {
+    message?: string;
+    stack?: string;
+    cause?: { code?: string; detail?: string; constraint?: string; table?: string };
+    query?: string;
+  };
+  // Drizzle stuffs the full query + every parameter value into err.message,
+  // which can be 100k+ chars on bulk inserts — truncate everything hard.
+  const parts = [truncate(e.message ?? String(err), 300)];
+  if (e.cause?.code) parts.push(`pg=${e.cause.code}`);
+  if (e.cause?.constraint) parts.push(`constraint=${e.cause.constraint}`);
+  if (e.cause?.detail) parts.push(`detail=${truncate(e.cause.detail, 200)}`);
+  if (e.query) parts.push(`query=${truncate(e.query, 200)}`);
+  console.error(`${prefix} ${parts.join(' | ')}`);
+  if (e.stack) {
+    console.error(
+      e.stack
+        .split('\n')
+        .slice(0, 12)
+        .map((l) => truncate(l, 300))
+        .join('\n'),
+    );
+  }
+}
+
+function truncate(s: string, n: number): string {
+  return s.length > n ? `${s.slice(0, n)}… (+${s.length - n} chars)` : s;
+}
+
+process.on('unhandledRejection', (reason) => {
+  logErrorCompact('[unhandledRejection]', reason);
+});
+
+// ============================================================================
 // Boot
 // ============================================================================
+
+const t0 = Date.now();
+const ms = () => `${Date.now() - t0}ms`;
 
 const appkit = await createApp({
   plugins: [server({ autoStart: false }), lakebase(), analytics({})],
 });
+console.log(`[boot +${ms()}] AppKit created`);
 
 const db = createDb(appkit.lakebase.pool);
-await runMigrations(db);
-console.log('[app] Drizzle migrations up to date');
-
-if (appConfig.data) {
-  await syncFromDelta(db, appConfig.data);
-} else {
-  console.warn('[app] No `data` section in config/app.json — skipping Delta sync');
-}
-
-if (appConfig.agentMlflowExperimentPath) {
-  const host = (process.env.DATABRICKS_HOST ?? '').replace(/\/$/, '');
-  if (host) {
-    try {
-      agentExperimentId = await ensureMlflowExperiment(
-        host,
-        appConfig.agentMlflowExperimentPath,
-      );
-      console.log(
-        `[app] MLflow experiment ready: ${appConfig.agentMlflowExperimentPath} (id=${agentExperimentId})`,
-      );
-      // Wire the TS MLflow tracing SDK at the experiment we just resolved so
-      // every OpenAI Agents SDK run (and any withSpan around tool execs)
-      // lands in this experiment's Traces tab.
-      mlflow.init({
-        trackingUri: 'databricks',
-        experimentId: agentExperimentId,
-      });
-      console.log('[app] mlflow-tracing initialized');
-    } catch (e) {
-      console.warn(
-        '[app] Failed to resolve MLflow experiment — "Agent traces" link will be hidden:',
-        (e as Error).message,
-      );
-    }
-  }
-}
 
 // ============================================================================
-// Routes
+// Routes — register immediately so server can start while DB catches up.
 // ============================================================================
 
 appkit.server.extend((app) => {
@@ -157,6 +160,68 @@ appkit.server.extend((app) => {
   registerReturnsRoutes(app, { db });
   registerActivityRoutes(app, { db });
   registerAdminRoutes(app, { db, data: appConfig.data });
+
+  // Global error handler — Express 5 forwards unhandled async rejections
+  // here automatically, so routes don't need individual try/catch blocks.
+  // Logs a compact summary; huge params/queries (e.g. DrizzleQueryError with
+  // 12k-param bulk inserts) would otherwise flood the terminal and crash it.
+  app.use(
+    (
+      err: Error,
+      req: import('express').Request,
+      res: import('express').Response,
+      _next: import('express').NextFunction,
+    ) => {
+      logErrorCompact(`[500] ${req.method} ${req.path}`, err);
+      if (!res.headersSent) {
+        res.status(500).json({ error: err.message });
+      }
+    },
+  );
 });
 
 await appkit.server.start();
+console.log(`[boot +${ms()}] Server listening — background init in progress…`);
+
+// ============================================================================
+// Background init — migrations, sync, MLflow run after server is up.
+// Requests that hit the DB before migrations finish will fail; that's fine
+// for dev — the UI will retry on next navigation.
+// ============================================================================
+
+// Resolve MLflow experiment ID (HTTP call) in parallel with DB init,
+// but defer mlflow.init() until after sync — otherwise the SDK instruments
+// sync queries that have no parent span and produces noisy warnings.
+const mlflowIdPromise = (async () => {
+  if (!appConfig.agentMlflowExperimentPath) return null;
+  const host = (process.env.DATABRICKS_HOST ?? '').replace(/\/$/, '');
+  if (!host) return null;
+  try {
+    const id = await ensureMlflowExperiment(host, appConfig.agentMlflowExperimentPath);
+    console.log(`[boot +${ms()}] MLflow experiment resolved (id=${id})`);
+    return id;
+  } catch (e) {
+    console.warn('[boot] MLflow experiment failed — "Agent traces" link will be hidden:', (e as Error).message);
+    return null;
+  }
+})();
+
+// Migrations → sync → then activate MLflow tracing.
+(async () => {
+  try {
+    await runMigrations(db);
+    console.log(`[boot +${ms()}] Migrations up to date`);
+    if (appConfig.data) {
+      await syncFromDelta(db, appConfig.data);
+      console.log(`[boot +${ms()}] Delta sync done`);
+    }
+  } catch (e) {
+    logErrorCompact('[boot] DB init failed:', e);
+  }
+  // Now safe to enable tracing — sync queries are done.
+  agentExperimentId = await mlflowIdPromise;
+  if (agentExperimentId) {
+    mlflow.init({ trackingUri: 'databricks', experimentId: agentExperimentId });
+    console.log(`[boot +${ms()}] MLflow tracing active`);
+  }
+})();

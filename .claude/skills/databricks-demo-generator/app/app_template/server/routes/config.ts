@@ -15,10 +15,6 @@ type Deps = {
     mlflowExperimentId?: string;
     dashboardId: string;
     branding: { appName: string };
-    hero?: unknown;
-    story?: unknown;
-    starterQuestions?: string[];
-    featuredAction?: unknown;
     assistantScript?: Array<{
       label: string;
       prompt: string;
@@ -29,7 +25,7 @@ type Deps = {
 };
 
 export function registerConfigRoutes(app: Application, deps: Deps): void {
-  // GET /api/config — story, branding, agent endpoint, dashboard id, ...
+  // GET /api/config — branding, agent endpoint, dashboard id, script chain.
   app.get('/api/config', (_req, res) => {
     const { appConfig, getAgentExperimentId } = deps;
     res.json({
@@ -38,10 +34,6 @@ export function registerConfigRoutes(app: Application, deps: Deps): void {
       agentMlflowExperimentId: getAgentExperimentId(),
       dashboardId: appConfig.dashboardId,
       branding: appConfig.branding,
-      hero: appConfig.hero,
-      story: appConfig.story,
-      starterQuestions: appConfig.starterQuestions ?? [],
-      featuredAction: appConfig.featuredAction ?? null,
       assistantScript: appConfig.assistantScript ?? [],
     });
   });
@@ -60,26 +52,22 @@ export function registerConfigRoutes(app: Application, deps: Deps): void {
   // name once.
   let warehouseCache: { id: string; name: string; state: string } | null = null;
   app.get('/api/warehouse', async (_req, res) => {
-    try {
-      const id = process.env.DATABRICKS_WAREHOUSE_ID;
-      if (!id) {
-        res.json({ id: null, name: null, state: null });
-        return;
-      }
-      if (warehouseCache && warehouseCache.id === id) {
-        res.json(warehouseCache);
-        return;
-      }
-      const { client } = getExecutionContext();
-      const w = await client.warehouses.get({ id });
-      warehouseCache = {
-        id,
-        name: w.name ?? id,
-        state: (w.state as string | undefined) ?? 'UNKNOWN',
-      };
-      res.json(warehouseCache);
-    } catch (e) {
-      res.status(500).json({ error: (e as Error).message });
+    const id = process.env.DATABRICKS_WAREHOUSE_ID;
+    if (!id) {
+      res.json({ id: null, name: null, state: null });
+      return;
     }
+    if (warehouseCache && warehouseCache.id === id) {
+      res.json(warehouseCache);
+      return;
+    }
+    const { client } = getExecutionContext();
+    const w = await client.warehouses.get({ id });
+    warehouseCache = {
+      id,
+      name: w.name ?? id,
+      state: (w.state as string | undefined) ?? 'UNKNOWN',
+    };
+    res.json(warehouseCache);
   });
 }

@@ -13,7 +13,7 @@ import {
   SidebarRail,
 } from '@databricks/appkit-ui/react';
 import { Spinner } from '@databricks/appkit-ui/react';
-import { BarChart3, LayoutDashboard, MessagesSquare, PackageOpen, Plus } from 'lucide-react';
+import { BarChart3, LayoutDashboard, MessagesSquare, PackageOpen, Plus, Trash2 } from 'lucide-react';
 import { fetchConfig, type AppConfig } from '@/lib/api';
 import { conversationStore, useConversationList } from '@/lib/conversations';
 
@@ -45,10 +45,17 @@ export function AppSidebar() {
     }
   }
 
+  async function deleteConvo(e: React.MouseEvent, id: string) {
+    e.preventDefault();
+    e.stopPropagation();
+    await conversationStore.remove(id);
+    if (location.pathname === `/c/${id}`) navigate('/');
+  }
+
   return (
     <Sidebar collapsible="icon">
       <SidebarHeader>
-        <div className="flex items-center gap-2.5 px-2 py-2">
+        <NavLink to="/" className="flex items-center gap-2.5 px-2 py-2 rounded-md hover:bg-sidebar-accent transition-colors">
           <div
             className="flex aspect-square size-8 items-center justify-center rounded-md text-primary-foreground font-semibold shrink-0"
             style={{ background: 'var(--primary)' }}
@@ -59,13 +66,8 @@ export function AppSidebar() {
             <span className="text-sm font-semibold truncate">
               {config?.branding.appName ?? 'Loading…'}
             </span>
-            {config?.hero && (
-              <span className="text-xs text-muted-foreground truncate">
-                {config.hero.company}
-              </span>
-            )}
           </div>
-        </div>
+        </NavLink>
       </SidebarHeader>
 
       <SidebarContent>
@@ -109,19 +111,26 @@ export function AppSidebar() {
                 </div>
               )}
               {convoList.map((c) => (
-                <SidebarMenuItem key={c.id}>
+                <SidebarMenuItem key={c.id} className="group/convo">
                   <NavLink to={`/c/${c.id}`}>
                     {({ isActive }) => (
                       <SidebarMenuButton
                         isActive={isActive}
                         tooltip={c.title}
-                        className="text-sm"
+                        className="text-sm pr-7"
                       >
                         <MessagesSquare className="size-4 shrink-0" />
                         <span className="truncate">{c.title}</span>
                       </SidebarMenuButton>
                     )}
                   </NavLink>
+                  <button
+                    onClick={(e) => deleteConvo(e, c.id)}
+                    className="absolute right-1 top-1/2 -translate-y-1/2 p-1 rounded text-muted-foreground hover:text-destructive hover:bg-sidebar-accent opacity-0 group-hover/convo:opacity-100 transition-opacity"
+                    aria-label="Delete conversation"
+                  >
+                    <Trash2 className="size-3.5" />
+                  </button>
                 </SidebarMenuItem>
               ))}
             </SidebarMenu>

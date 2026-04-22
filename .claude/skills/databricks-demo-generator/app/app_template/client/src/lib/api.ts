@@ -6,26 +6,6 @@ export type Me = {
   isUserContext: boolean;
 };
 
-export type Hero = {
-  name: string;
-  role: string;
-  company: string;
-  avatarInitials?: string;
-};
-
-export type Story = {
-  headline: string;
-  situation: string;
-  goal: string;
-  whatYoullSee: string[];
-};
-
-export type FeaturedAction = {
-  title: string;
-  description: string;
-  prompt: string;
-};
-
 export type ScriptStep = {
   /** Optional short label; falls back to `prompt` (truncated in the UI). */
   label?: string;
@@ -41,10 +21,6 @@ export type AppConfig = {
   agentMlflowExperimentId: string | null;
   dashboardId: string;
   branding: { appName: string };
-  hero?: Hero;
-  story?: Story;
-  starterQuestions: string[];
-  featuredAction: FeaturedAction | null;
   assistantScript: ScriptStep[];
 };
 

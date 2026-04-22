@@ -15,14 +15,10 @@ export function registerAdminRoutes(
 ): void {
   const { db, data } = deps;
   app.post('/api/admin/reset', async (_req, res) => {
-    try {
-      await wipeMirroredTables(db);
-      if (data) {
-        await syncFromDelta(db, data, { forceIfAnyEmpty: true });
-      }
-      res.json({ ok: true });
-    } catch (e) {
-      res.status(500).json({ error: (e as Error).message });
+    await wipeMirroredTables(db);
+    if (data) {
+      await syncFromDelta(db, data, { forceIfAnyEmpty: true });
     }
+    res.json({ ok: true });
   });
 }

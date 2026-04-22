@@ -49,5 +49,37 @@ if lsof -ti:"$APP_PORT" >/dev/null 2>&1; then
   exit 1
 fi
 
+# Create .env from template if it doesn't exist
+if [ ! -f ".env" ]; then
+  if [ -f ".env.template" ]; then
+    cp .env.template .env
+    echo "[start.sh] created .env from .env.template — fill in the values and re-run."
+  else
+    echo "[start.sh] ERROR: no .env file. Copy .env.template to .env and fill in your values."
+  fi
+  exit 1
+fi
+
+# Validate required env vars
+source .env
+missing=()
+[ -z "${DATABRICKS_HOST:-}" ]    && missing+=("DATABRICKS_HOST")
+[ -z "${LAKEBASE_ENDPOINT:-}" ]  && missing+=("LAKEBASE_ENDPOINT")
+[ -z "${PGHOST:-}" ]             && missing+=("PGHOST")
+[ -z "${DATABRICKS_WAREHOUSE_ID:-}" ] && missing+=("DATABRICKS_WAREHOUSE_ID")
+if [ ${#missing[@]} -gt 0 ]; then
+  echo "[start.sh] ERROR: missing required values in .env: ${missing[*]}"
+  echo "           Fill them in and re-run. See .env.template for details."
+  exit 1
+fi
+
+# Ensure dependencies are installed and .bin symlinks are valid.
+# cp -r can turn symlinks into regular files — detect and fix by reinstalling.
+if [ ! -d "node_modules/@databricks/appkit/dist" ] || [ ! -L "node_modules/.bin/tsx" ]; then
+  echo "[start.sh] node_modules missing or broken — reinstalling…"
+  rm -rf node_modules
+  npm install
+fi
+
 echo "[start.sh] ports clear — starting dev server"
 exec npm run dev

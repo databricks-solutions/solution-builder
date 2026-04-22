@@ -202,7 +202,7 @@ function ThumbsDownModal({ onClose, onSubmit, traceUrl }: ModalProps) {
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4"
-      style={{ background: 'rgba(0,0,0,0.4)' }}
+      style={{ background: 'var(--overlay)' }}
       onClick={state === 'saving' ? undefined : onClose}
     >
       <div
@@ -226,7 +226,7 @@ function ThumbsDownModal({ onClose, onSubmit, traceUrl }: ModalProps) {
 
         {state === 'saved' ? (
           <div className="px-5 py-6 flex flex-col items-center gap-4 text-center">
-            <div className="size-12 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center">
+            <div className="size-12 rounded-full bg-[var(--success-subtle)] text-[var(--success-subtle-foreground)] flex items-center justify-center">
               <CheckCircle2 className="size-6" />
             </div>
             <div>

@@ -4,7 +4,7 @@ Invoked as the **final stage** of demo generation, after all other resources (pi
 
 ## Template overview
 
-Full-stack Node.js/React Databricks App. The assistant doesn't just answer — it **investigates via MAS, drafts actions, writes to Lakebase on approval**. Config-driven: most narrative + wiring lives in `config/app.json`.
+Full-stack Node.js/React Databricks App. The assistant doesn't just answer — it **investigates via MAS, drafts actions, writes to Lakebase on approval**. Wiring + scripted demo chain live in `config/app.json`; home-page narrative copy (hero persona, headline, situation, goal, starter questions, featured action) is hardcoded at the top of `HomeView.tsx` so each demo can reshape the landing freely.
 
 ### Required resources
 
@@ -24,13 +24,15 @@ Chat UI (dock + full-page), streaming with thinking panel, MLflow tracing per tu
 
 | Area | What to change |
 |------|---------------|
-| **Config & narrative** | `config/app.json` — persona, story, starter questions, scripted demo chain, branding, data sources, resource IDs |
+| **Config** | `config/app.json` — branding, scripted demo chain (`assistantScript`), data sources, resource IDs (agent endpoint, warehouse, MLflow, dashboard) |
+| **Home narrative** | `client/src/home/HomeView.tsx` top-of-file constants — `HERO`, `STORY` (headline/situation/goal), `STARTER_QUESTIONS`, `FEATURED_ACTION`. Rewrite these to match the demo; the template values are an example, not a pattern to preserve |
 | **Domain schema** | Lakebase entity tables (keep chat state as-is). Preserve the append-only JSONB audit columns pattern — powers the operations timeline |
 | **Data sync** | Delta→Lakebase SELECTs for the domain's data subset |
 | **Domain queries** | Lookup + bulk-update helpers for the operations entity |
 | **Agent** | Tools + instructions. MAS/Genie passthrough typically stays; domain tools (find, batch-process, create) get rewritten |
 | **Analytics SQL** | Warehouse queries for the domain's charts |
 | **Frontend** | Home page journey cards, operations page (columns, drawer tabs, detail content), analytics charts if layout changes |
+| **Theming** | `client/src/index.css` `:root` block — all colors are CSS custom properties. Change the palette there to rebrand (primary, accent, status tints, tier badges, charts). No hardcoded colors in components |
 
 ## How to generate
 
@@ -56,6 +58,7 @@ Key patterns to preserve:
 - **`assistantScript`** in config with `triggerAfter` keywords — drives the scripted demo path.
 - **KPI cards** that tick live when the agent writes — the real-time feedback loop.
 - **Thinking panel** streaming MAS sub-agent activity — the transparency demo moment.
+- **Reset demo** button (header) — truncates all Lakebase tables and re-syncs from Delta. The demo makes real writes (approvals, emails, audit trail), so a one-click reset to restart from the beginning of the story is essential. Keep this unless explicitly told otherwise.
 
 Handle missing components during this step:
 - **No MAS, has Genie**: Point `ask_data` to Genie endpoint. Streaming interface is compatible.
@@ -63,8 +66,21 @@ Handle missing components during this step:
 - **No dashboard**: Remove Dashboard route + sidebar entry.
 - **No KA**: MAS routes everything to Genie — no code change needed.
 
-### Step 4: Validate
+### Step 4: Configure environment
 
+The app needs a `.env` file with Databricks + Lakebase connection details. `.env.template` has the full list with comments.
+
+1. Copy `.env.template` to `.env` (or run `./start.sh` — it does this automatically on first run)
+2. Fill in the values from the Lakebase project created during the build phase:
+   - `DATABRICKS_HOST` — workspace URL
+   - `LAKEBASE_ENDPOINT`, `PGHOST` — from `databricks lakebase projects describe <project-name>`
+   - `DATABRICKS_WAREHOUSE_ID` — the SQL warehouse powering analytics + sync
+   - `DATABRICKS_WORKSPACE_ID` — workspace ID (visible in workspace URL)
+3. `./start.sh` validates required values and fails with a clear message if any are missing
+
+### Step 5: Validate
+
+- `./start.sh` starts without errors
 - `npm run build` succeeds
 - `config/app.json` resource IDs match `resources.json`
 - `data.tables` names match pipeline's actual Delta table names

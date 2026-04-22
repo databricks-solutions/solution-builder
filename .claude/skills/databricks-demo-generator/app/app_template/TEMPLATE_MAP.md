@@ -72,7 +72,7 @@ JSONB types: EmailEntry `{at, direction, from?, to?, subject, body}`, AuditEntry
 
 ## Delta → Lakebase sync (`server/db/sync.ts`)
 
-One-shot at boot (skips if populated). Pulls via Databricks SQL Statements API: customers with returns → their orders → denormalized returns. Chunked inserts (2000/batch), idempotent. Table names from `config.data.tables`. Reset endpoint calls `wipeMirroredTables()` + re-sync.
+One-shot at boot (skips if populated). Pulls via Databricks SQL Statements API — all 3 warehouse queries fire in parallel, then inserts run sequentially in FK order (customers → orders → returns). Chunk sizes kept under Postgres's 65,535 parameter ceiling (rows × columns): 5k rows for customers/orders, 2.5k for returns (15 cols). Idempotent via `onConflictDoNothing`. Table names from `config.data.tables`. Reset endpoint calls `wipeMirroredTables()` + re-sync.
 
 ## Agent (`server/agent/refundops.ts`)
 
@@ -132,17 +132,15 @@ Persistent per-user conversation (`kind='demo_dock'`). Script progression from `
   "dashboardId": "...",
   "data": { "catalog": "...", "schema": "...", "tables": { "returns": "silver_returns", "orders": "bronze_orders", ... } },
   "branding": { "appName": "..." },
-  "hero": { "name": "...", "role": "...", "company": "...", "avatarInitials": "..." },
-  "story": { "headline": "...", "situation": "...", "goal": "...", "whatYoullSee": [...] },
-  "starterQuestions": ["...", "..."],
-  "assistantScript": [ { "prompt": "..." }, { "prompt": "...", "triggerAfter": ["keyword"] } ],
-  "featuredAction": { "title": "...", "description": "...", "prompt": "..." }
+  "assistantScript": [ { "prompt": "..." }, { "prompt": "...", "triggerAfter": ["keyword"] } ]
 }
 ```
 
+Narrative copy (hero persona, headline, situation, goal, starter questions, featured-action CTA) lives **hardcoded at the top of `client/src/home/HomeView.tsx`** as constants — rewrite those for your demo. Only `assistantScript` + `branding` need to stay in config (script is reused by the chat dock, branding by the shell).
+
 ## Client component details
 
-**HomeView**: Hero (story from config), journey diagram (4 cards: "Operate" → `/operations`, "Ask" → `dockController.openAndSend(script[0])`, "Investigate" → opens dock, "Take action" → `dockController.openAndSend(script[1])`), starter question chips (each → `dockController.openAndSend`), featured action card (gradient CTA → sends prompt), activity feed (fetches `/api/activity/recent`, shows emails + audit with relative timestamps).
+**HomeView**: Hero (persona + headline + situation + goal — hardcoded constants at top of file), journey diagram (4 cards: "Operate" → `/operations`, "Ask" → `dockController.openAndSend(script[0])`, "Investigate" → opens dock, "Take action" → `dockController.openAndSend(script[1])`), starter question chips (each → `dockController.openAndSend`), featured action card (gradient CTA → sends prompt), activity feed (fetches `/api/activity/recent`, shows emails + audit with relative timestamps).
 
 **OperationsView**: Fetches `/api/returns?status={filter}&lot={lot}` + `/api/returns/summary`. Subscribes to `dataMutated` (refetches on agent writes). URL-synced filters (`?lot=LOT-123`). Renders KpiCards (from summary: pending/approved/escalated counts + $), ReturnsTable (columns: Lot, Customer, SKU, Reason, Value, Status — click selects row), ReturnDrawer (slide-over, 3 tabs). "Ask the assistant" banner opens dock.
 
@@ -202,12 +200,28 @@ When changing `server/db/schema.ts`:
 2. Run `npm run db:generate` → creates new migration SQL in `drizzle/`
 3. Migrations auto-apply on boot (`server/db/migrate.ts`)
 
+## Theming & brand (`client/src/index.css`)
+
+All colors are centralized as CSS custom properties in `:root`. No hardcoded color values in components — everything references tokens. To rebrand:
+
+- **Primary palette**: `--primary`, `--primary-foreground`, `--primary-light`, `--on-primary-hover`
+- **Accent**: `--accent`, `--accent-foreground` (used in gradients, highlights)
+- **Status tints** (badge/pill backgrounds): `--success-subtle`, `--warning-subtle`, `--info-subtle` + their `-foreground` pairs
+- **Action buttons**: `--success`/`--warning`/`--destructive` + `-foreground` pairs
+- **Tier badges**: `--tier-gold`, `--tier-silver`, `--tier-bronze`, `--tier-platinum` + `-foreground` (domain-specific, swap per demo)
+- **Status dots**: `--status-running`, `--status-idle`
+- **Charts**: `--chart-1` through `--chart-5`
+- **Fonts**: `--font-sans`, `--font-display`, `--font-mono` (loaded via `<link>` in `index.html`)
+- **Sidebar**: separate `--sidebar-*` token family
+
+Components use `var(--token)` via Tailwind arbitrary values (`bg-[var(--success-subtle)]`) or inline styles for gradients/animations. Changing the `:root` block rebrands the entire app.
+
 ## Key patterns
 
 1. **Delta mirror**: Lakebase mirrors Delta subset for OLTP. Agent writes Postgres; analytics queries Delta. Manual sync at boot + reset.
 2. **Append-only audit**: Primary entity carries `emails[]` + `aiAuditTrail[]` JSONB. Every write appends. Activity tab renders timeline from one row.
 3. **3-phase action chain**: Discover → Draft+confirm (STOP) → Execute. Mandatory approval stop = demo trust moment.
-4. **Config-driven narrative**: `config/app.json` drives story, persona, script steps, branding. Home, dock, featured action all render from config.
+4. **Narrative split**: script steps + branding live in `config/app.json` (reused by dock/shell); home-page copy (persona, headline, situation, goal, starter questions, featured action) is hardcoded at the top of `HomeView.tsx` as constants — treat the template content as a reference to replace per demo.
 5. **Bulk update**: Single `UPDATE FROM VALUES` for N rows. Templates rendered server-side per customer.
 6. **MAS as tool**: `ask_data` → MAS endpoint. Sub-agent activity streams to ThinkingPanel via onToolProgress → SSE.
 7. **MLflow tracing**: Per-turn spans, tool child spans, trace ID on message → "View trace" link. Thumbs → human assessments.

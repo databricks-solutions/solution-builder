@@ -232,11 +232,15 @@ export function ChatDock() {
       {!open && (
         <button
           onClick={() => setOpen(true)}
-          className="fixed bottom-5 right-5 z-40 inline-flex items-center gap-2 rounded-full px-4 py-2.5 shadow-lg text-sm font-medium hover:shadow-xl transition-shadow"
-          style={{ background: 'var(--primary)', color: 'var(--primary-foreground)' }}
+          className="fixed bottom-6 right-6 z-40 inline-flex items-center gap-3 rounded-full px-6 py-3.5 text-base font-semibold shadow-lg hover:shadow-xl hover:scale-105 active:scale-100 transition-all duration-200"
+          style={{
+            background:
+              'linear-gradient(135deg, color-mix(in oklch, var(--primary) 82%, white) 0%, var(--primary) 55%, color-mix(in oklch, var(--primary) 88%, black) 100%)',
+            color: 'var(--primary-foreground)',
+          }}
         >
-          <Sparkles className="size-4" />
-          Ask the assistant
+          <Sparkles className="size-5 animate-sparkle" />
+          Ask the assistant — from question to resolution
         </button>
       )}
 
@@ -255,7 +259,7 @@ export function ChatDock() {
               <button
                 onClick={() => void startNewConversation()}
                 disabled={turn.streaming}
-                className="p-1.5 rounded hover:bg-white/10 transition-colors disabled:opacity-40"
+                className="p-1.5 rounded hover:bg-[var(--on-primary-hover)] transition-colors disabled:opacity-40"
                 title="New conversation"
                 aria-label="New conversation"
               >
@@ -263,7 +267,7 @@ export function ChatDock() {
               </button>
               <button
                 onClick={() => setOpen(false)}
-                className="p-1.5 rounded hover:bg-white/10 transition-colors"
+                className="p-1.5 rounded hover:bg-[var(--on-primary-hover)] transition-colors"
                 aria-label="Close"
               >
                 <X className="size-4" />

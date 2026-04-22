@@ -75,7 +75,7 @@ function EmailRow({ email }: { email: EmailEntry }) {
         onClick={() => setExpanded((v) => !v)}
         className="w-full text-left px-4 py-3 flex items-center gap-3 hover:bg-muted/40 transition-colors"
       >
-        <div className="size-7 rounded-full bg-blue-100 text-blue-800 flex items-center justify-center shrink-0">
+        <div className="size-7 rounded-full bg-[var(--info-subtle)] text-[var(--info-subtle-foreground)] flex items-center justify-center shrink-0">
           <Arrow className="size-3.5" />
         </div>
         <div className="flex-1 min-w-0">
@@ -136,7 +136,7 @@ function describe(action: AuditEntry['action']) {
     case 'approved':
       return {
         icon: <CheckCircle2 className="size-3.5" />,
-        tone: 'bg-emerald-100 text-emerald-800',
+        tone: 'bg-[var(--success-subtle)] text-[var(--success-subtle-foreground)]',
         label: 'Approved',
       };
     case 'rejected':
@@ -148,13 +148,13 @@ function describe(action: AuditEntry['action']) {
     case 'escalated':
       return {
         icon: <AlertTriangle className="size-3.5" />,
-        tone: 'bg-amber-100 text-amber-900',
+        tone: 'bg-[var(--warning-subtle)] text-[var(--warning-subtle-foreground)]',
         label: 'Escalated',
       };
     case 'email_sent':
       return {
         icon: <MessageSquare className="size-3.5" />,
-        tone: 'bg-blue-100 text-blue-800',
+        tone: 'bg-[var(--info-subtle)] text-[var(--info-subtle-foreground)]',
         label: 'Email sent',
       };
     default:

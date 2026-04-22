@@ -54,7 +54,7 @@ function Card({
 }) {
   const toneClass =
     tone === 'success'
-      ? 'text-emerald-700'
+      ? 'text-[var(--success-subtle-foreground)]'
       : tone === 'danger'
         ? 'text-destructive'
         : 'text-foreground';

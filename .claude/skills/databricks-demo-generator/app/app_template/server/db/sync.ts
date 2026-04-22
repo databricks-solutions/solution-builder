@@ -50,156 +50,151 @@ export async function syncFromDelta(
     return;
   }
 
-  console.log('[sync] Starting Delta → Lakebase sync…');
+  console.log('[sync] Starting Delta → Lakebase sync (parallel)…');
   const t0 = Date.now();
 
   const fq = (name: keyof DataConfig['tables']) =>
     `${cfg.catalog}.${cfg.schema}.${cfg.tables[name]}`;
 
-  // 1) Customers — only retail rows that have a return.
-  const customerRows = await execSql<{
-    customer_id: string;
-    email: string;
-    first_name: string;
-    last_name: string;
-    region: string | null;
-    loyalty_tier: string | null;
-    registration_date: string | null;
-  }>(
-    warehouseId,
-    `SELECT c.customer_id, c.email, c.first_name, c.last_name, c.region,
-            c.loyalty_tier, c.registration_date
-     FROM ${fq('customers')} c
-     WHERE c.email IS NOT NULL AND c.first_name IS NOT NULL
-       AND c.customer_id IN (
-         SELECT DISTINCT o.customer_id
-         FROM ${fq('orders')} o
-         JOIN ${fq('orderItems')} oi ON oi.order_id = o.order_id
+  // Fire all 3 warehouse queries in parallel (the slow part), then insert
+  // sequentially respecting FK order: customers → orders → returns.
+  const [customerRows, orderRows, returnRows] = await Promise.all([
+    execSql<{
+      customer_id: string;
+      email: string;
+      first_name: string;
+      last_name: string;
+      region: string | null;
+      loyalty_tier: string | null;
+      registration_date: string | null;
+    }>(
+      warehouseId,
+      `SELECT c.customer_id, c.email, c.first_name, c.last_name, c.region,
+              c.loyalty_tier, c.registration_date
+       FROM ${fq('customers')} c
+       WHERE c.email IS NOT NULL AND c.first_name IS NOT NULL
+         AND c.customer_id IN (
+           SELECT DISTINCT o.customer_id
+           FROM ${fq('orders')} o
+           JOIN ${fq('orderItems')} oi ON oi.order_id = o.order_id
+           JOIN ${fq('returns')} r ON r.order_item_id = oi.order_item_id
+         )`,
+    ),
+    execSql<{
+      order_id: string;
+      customer_id: string | null;
+      order_date: string | null;
+      region: string | null;
+      total_usd: number | null;
+      status: string | null;
+    }>(
+      warehouseId,
+      `SELECT o.order_id, o.customer_id, o.order_date, o.region, o.total_usd, o.status
+       FROM ${fq('orders')} o
+       WHERE o.order_id IN (
+         SELECT DISTINCT oi.order_id
+         FROM ${fq('orderItems')} oi
          JOIN ${fq('returns')} r ON r.order_item_id = oi.order_item_id
        )`,
-  );
+    ),
+    execSql<{
+      return_id: string;
+      order_id: string;
+      customer_id: string;
+      order_date: string | null;
+      return_date: string | null;
+      refund_amount_usd: number;
+      return_reason: string | null;
+      return_reason_text: string | null;
+      product_id: string | null;
+      product_name: string | null;
+      category: string | null;
+      lot_id: string | null;
+      facility: string | null;
+      region: string | null;
+    }>(
+      warehouseId,
+      `SELECT r.return_id,
+              oi.order_id,
+              o.customer_id,
+              r.order_date,
+              r.return_date,
+              r.refund_amount_usd,
+              r.return_reason,
+              r.return_reason_text,
+              r.product_id,
+              r.product_name,
+              r.category,
+              r.lot_id,
+              r.facility,
+              r.region
+       FROM ${fq('returns')} r
+       LEFT JOIN ${fq('orderItems')} oi ON oi.order_item_id = r.order_item_id
+       LEFT JOIN ${fq('orders')} o ON o.order_id = oi.order_id`,
+    ),
+  ]);
+  console.log(`[sync]   queries done (${((Date.now() - t0) / 1000).toFixed(1)}s) — inserting…`);
+
+  // Insert in FK order: customers → orders → returns.
+  // Chunk sizes target ~(rows × columns) < 65_535 (Postgres's int16 bind-param limit),
+  // kept well below the ceiling for safety.
   if (customerRows.length) {
-    await chunkInsert(customerRows, 2000, (chunk) =>
-      db
-        .insert(customers)
-        .values(
-          chunk.map((r) => ({
-            id: r.customer_id,
-            email: r.email,
-            firstName: r.first_name,
-            lastName: r.last_name,
-            region: r.region,
-            loyaltyTier: r.loyalty_tier,
-            registrationDate: r.registration_date,
-          })),
-        )
-        .onConflictDoNothing(),
+    await chunkInsert(customerRows, 5_000, (chunk) =>
+      db.insert(customers).values(
+        chunk.map((r) => ({
+          id: r.customer_id,
+          email: r.email,
+          firstName: r.first_name,
+          lastName: r.last_name,
+          region: r.region,
+          loyaltyTier: r.loyalty_tier,
+          registrationDate: r.registration_date,
+        })),
+      ).onConflictDoNothing(),
     );
   }
-  console.log(`[sync]   customers: ${customerRows.length}`);
+  console.log(`[sync]   customers: ${customerRows.length} (${((Date.now() - t0) / 1000).toFixed(1)}s)`);
 
-  // 2) Orders — any order referenced by a return.
-  const orderRows = await execSql<{
-    order_id: string;
-    customer_id: string | null;
-    order_date: string | null;
-    region: string | null;
-    total_usd: number | null;
-    status: string | null;
-  }>(
-    warehouseId,
-    `SELECT o.order_id, o.customer_id, o.order_date, o.region, o.total_usd, o.status
-     FROM ${fq('orders')} o
-     WHERE o.order_id IN (
-       SELECT DISTINCT oi.order_id
-       FROM ${fq('orderItems')} oi
-       JOIN ${fq('returns')} r ON r.order_item_id = oi.order_item_id
-     )`,
-  );
   if (orderRows.length) {
-    await chunkInsert(orderRows, 2000, (chunk) =>
-      db
-        .insert(orders)
-        .values(
-          chunk.map((r) => ({
-            id: r.order_id,
-            customerId: r.customer_id,
-            orderDate: r.order_date,
-            region: r.region,
-            totalUsd: r.total_usd === null ? null : Number(r.total_usd),
-            status: r.status,
-          })),
-        )
-        .onConflictDoNothing(),
+    await chunkInsert(orderRows, 5_000, (chunk) =>
+      db.insert(orders).values(
+        chunk.map((r) => ({
+          id: r.order_id,
+          customerId: r.customer_id,
+          orderDate: r.order_date,
+          region: r.region,
+          totalUsd: r.total_usd === null ? null : Number(r.total_usd),
+          status: r.status,
+        })),
+      ).onConflictDoNothing(),
     );
   }
-  console.log(`[sync]   orders: ${orderRows.length}`);
+  console.log(`[sync]   orders: ${orderRows.length} (${((Date.now() - t0) / 1000).toFixed(1)}s)`);
 
-  // 3) Returns — denormalized. We JOIN through order_items + orders to
-  //    pull order_id + customer_id onto every return row so the UI never
-  //    has to hop.
-  const returnRows = await execSql<{
-    return_id: string;
-    order_id: string;
-    customer_id: string;
-    order_date: string | null;
-    return_date: string | null;
-    refund_amount_usd: number;
-    return_reason: string | null;
-    return_reason_text: string | null;
-    product_id: string | null;
-    product_name: string | null;
-    category: string | null;
-    lot_id: string | null;
-    facility: string | null;
-    region: string | null;
-  }>(
-    warehouseId,
-    `SELECT r.return_id,
-            oi.order_id,
-            o.customer_id,
-            r.order_date,
-            r.return_date,
-            r.refund_amount_usd,
-            r.return_reason,
-            r.return_reason_text,
-            r.product_id,
-            r.product_name,
-            r.category,
-            r.lot_id,
-            r.facility,
-            r.region
-     FROM ${fq('returns')} r
-     LEFT JOIN ${fq('orderItems')} oi ON oi.order_item_id = r.order_item_id
-     LEFT JOIN ${fq('orders')} o ON o.order_id = oi.order_id`,
-  );
   if (returnRows.length) {
-    await chunkInsert(returnRows, 2000, (chunk) =>
-      db
-        .insert(returns)
-        .values(
-          chunk.map((r) => ({
-            id: r.return_id,
-            orderId: r.order_id,
-            customerId: r.customer_id,
-            orderDate: r.order_date,
-            returnDate: r.return_date,
-            refundAmountUsd: Number(r.refund_amount_usd),
-            returnReason: r.return_reason,
-            returnReasonText: r.return_reason_text,
-            productId: r.product_id,
-            productName: r.product_name,
-            category: r.category,
-            lotId: r.lot_id,
-            facility: r.facility,
-            region: r.region,
-            status: 'pending' as const,
-          })),
-        )
-        .onConflictDoNothing(),
+    await chunkInsert(returnRows, 2_500, (chunk) =>
+      db.insert(returns).values(
+        chunk.map((r) => ({
+          id: r.return_id,
+          orderId: r.order_id,
+          customerId: r.customer_id,
+          orderDate: r.order_date,
+          returnDate: r.return_date,
+          refundAmountUsd: Number(r.refund_amount_usd),
+          returnReason: r.return_reason,
+          returnReasonText: r.return_reason_text,
+          productId: r.product_id,
+          productName: r.product_name,
+          category: r.category,
+          lotId: r.lot_id,
+          facility: r.facility,
+          region: r.region,
+          status: 'pending' as const,
+        })),
+      ).onConflictDoNothing(),
     );
   }
-  console.log(`[sync]   returns: ${returnRows.length}`);
+  console.log(`[sync]   returns: ${returnRows.length} (${((Date.now() - t0) / 1000).toFixed(1)}s)`);
 
   const dt = ((Date.now() - t0) / 1000).toFixed(1);
   console.log(`[sync] Done in ${dt}s`);

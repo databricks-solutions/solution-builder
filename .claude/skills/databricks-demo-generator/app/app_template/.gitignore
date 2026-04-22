@@ -5,6 +5,7 @@ dist/
 .env.local
 .env.*
 !.env.example
+!.env.template
 .DS_Store
 *.tsbuildinfo
 playwright-report/
