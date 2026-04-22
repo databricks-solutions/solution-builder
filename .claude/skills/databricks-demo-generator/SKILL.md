@@ -31,15 +31,9 @@ This skill has two parts:
 
 ---
 
-## Tool-Use Efficiency (read this first — applies to every phase)
+## Efficiency
 
-Latency is dominated by LLM round-trips, not tool execution. Tool calls in the same response run concurrently. Batch aggressively:
-
-- **Reads are always parallel-safe.** Need domain block + pattern block + 3 capability blocks + `platform_architecture.md`? Emit all 6 `Read` calls in one response — not one per turn.
-- **Independent writes are parallel-safe.** `resources.json`, `README.md`, and `architecture.md` don't depend on each other — write all three in one turn.
-- **Sequential when semantically dependent.** Dashboard spec must reference exact table names from the pipeline spec → write pipeline first, read it, then write dashboard. Don't parallelize across semantic dependencies even if neither file reads the other at write time.
-
-**When in doubt**: if tool call B doesn't need the *result* of tool call A, issue them together.
+Batch reads in the same response when possible (e.g. load all reference blocks in one turn). Spec files must be written in dependency order — downstream specs reference names defined upstream (e.g. dashboard spec needs table names from pipeline spec).
 
 ---
 
@@ -188,9 +182,7 @@ Before writing files, load all references in a single response:
 
 All reads in ONE turn. If you catch yourself wanting to Read during the write step, go back and add it to this batch.
 
-#### Write resources.json + README.md + architecture.md — PARALLEL
-
-Emit all three files in a single response using three parallel Write calls. They share no file-level dependency.
+#### Write resources.json + README.md + architecture.md
 
 **`./resources.json`** — The user's message includes an AUTHORITATIVE CAPABILITY LIST when coming from the UI. That list is the source of truth. If the story mentions a product not in the list, rewrite the sentence or drop the reference — don't add it to resources.json.
 
@@ -226,26 +218,36 @@ After approval, generate:
 - `META-PROMPT.md` — **Copy `cp {DEMO_SKILL}/references/META-PROMPT-TEMPLATE.md {PROJECT}/META-PROMPT.md` as-is.** It's fully generic do not write it.
 - `specifications/*.md` — One file per category, numbered in build order (read `{DEMO_SKILL}/references/example-luxebeauty/specifications/` for format and density reference)
 
-Only generate files for categories used in this demo. Skip unused categories (keep the number gap).
+Only generate files for categories used in this demo. Skip unused categories.
 
-| # | Category | File | What goes in it |
-|---|----------|------|-----------------|
-| 01 | Lakeflow | `01-lakeflow.md` | Data generation (schemas, distributions, the event), unstructured docs/PDFs, SDP pipeline (bronze→silver→gold), validation queries |
-| 02 | UC Governance | `02-uc-governance.md` | ABAC policies, data quality monitors, classification rules |
-| 03 | AI/BI | `03-ai-bi.md` | Dashboard (layout, filters, widgets) + Genie Space (system instructions, investigation flow, sample Q&A) |
-| 04 | Agent Bricks | `04-agent-bricks.md` | KA (docs, system instructions, Q&A) + MAS (routing, demo flow) + model serving if applicable |
-| 05 | Apps & Infra | `05-apps-infra.md` | Databricks Apps + Lakebase config |
+Downstream specs reference tables, columns, and IDs that upstream specs define. Write in dependency order — read the previous spec before writing the next.
 
-**Staging rule**: Downstream specs reference tables, columns, and IDs that upstream specs define. Parallelize within a stage, serialize across.
+| File(s) | What goes in it | Depends on |
+|---------|-----------------|------------|
+| `META-PROMPT.md` (cp, don't write), `01-lakeflow.md` | Data generation (schemas, distributions, the event), unstructured docs/PDFs, SDP pipeline (bronze→silver→gold), validation queries | Nothing |
+| `02-uc-governance.md` | ABAC policies, data quality monitors, classification rules | lakeflow (table names) |
+| `03-ai-bi.md`, `04-agent-bricks.md` | Dashboard (layout, filters, widgets) + Genie Space (instructions, Q&A). KA (docs, instructions, Q&A) + MAS (routing, demo flow) + model serving | lakeflow + governance (Gold tables, columns, doc IDs) |
+| `specifications/app/*.md` | App spec — only when app is required. See below. | lakeflow |
 
-| Stage | Files (parallel within stage) | Depends On |
-|-------|-------------------------------|------------|
-| **A — Foundations** | `META-PROMPT.md` (cp do not write), `01-lakeflow.md` | Nothing |
-| **B — Governance** | `02-uc-governance.md` | Stage A (table names) |
-| **C — Consumption** | `03-ai-bi.md`, `04-agent-bricks.md` | Stages A–B (Gold tables, columns, doc IDs) |
-| **D — Apps** | `05-apps-infra.md` | Stages A–C |
+**App Specification** (if `databricks-apps` in resources.json):
 
-**Before each stage after A, read the files the previous stage wrote.** They are the source of truth for names — dashboard dataset SQL must reference only tables defined in the pipeline spec with exact, fully-qualified names.
+Spawn a **subagent** as soon as `01-lakeflow.md` is written — it runs in parallel with the other specs. The subagent has no context from the parent conversation, so your prompt must tell it to read:
+
+1. `{DEMO_SKILL}/SKILL.md` up to the Coherence Review section — spec-writing standards (functional, dense, coherent)
+2. `{DEMO_SKILL}/app/app_template/TEMPLATE_MAP.md` — comprehensive map of the template (schema, tools, routes, components, what to customize vs keep)
+3. `{PROJECT}/README.md` — the demo story, persona, products, walkthrough
+4. `{PROJECT}/resources.json` — which capabilities are included
+5. `{PROJECT}/specifications/01-lakeflow.md` — table names, schemas, data shape
+6. `{DEMO_SKILL}/references/example-luxebeauty/specifications/app/` — all files, as reference for structure and density
+
+Then instruct it to write new app specs in `{PROJECT}/specifications/app/` for the current demo's story. File structure is flexible (the example has 4 files: overview+home+assistant, operations, analytics+dashboard, data model — adapt as needed).
+
+Tell the subagent to focus on:
+- **Narrative coherence** — persona, story, starter questions, scripted demo chain align with README and data specs
+- **Agent behavior** — tools, 3-phase action chain adapted to the domain
+- **Pages** — what each shows, how it maps to Databricks capabilities
+- **Data model** — which Delta tables mirror to Lakebase, domain entity shape, append-only audit pattern
+- **Adaptability** — adapt to what the demo has (no MAS → use Genie or pure agent; no dashboard → remove page; no KA → MAS routes to Genie only...)
 
 #### Writing Good Spec Files
 
@@ -301,6 +303,20 @@ Consumption resources depend on upstream data. The dependency graph is in `{DEMO
 Before creating any dashboard, Genie space, KA, or agent: verify every table/document it references exists and has rows. If a gate fails, STOP and fix upstream — do not proceed.
 
 **CRITICAL: Keep spec files in sync.** If you change a resource during build, or if the user ask you to change a resource, update its spec file first.
+
+### App Generation (if requested)
+
+If the demo includes a Databricks App (`databricks-apps` in resources.json), build all other resources first, verify they work, then ask the user:
+
+```
+All demo resources are built and working.
+Would you like me to generate the Databricks App now?
+```
+
+If the user says yes, read `{DEMO_SKILL}/app/app.md` for full instructions on how to copy the template, customize it for the story, and wire it to the built resources.
+
+## Part 3: Package
+when the user ask you to create a DAB, read `{DEMO_SKILL}/references/dab/dab.md` and create the dab specification for the user.
 
 ---
 

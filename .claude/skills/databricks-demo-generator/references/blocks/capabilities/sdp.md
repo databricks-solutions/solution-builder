@@ -17,11 +17,14 @@ SDP (formerly DLT) defines medallion-architecture pipelines using streaming tabl
 
 ## Key Decisions
 
-1. **Bronze:** One streaming table per source system. Keep schema as-is from source — no transforms.
-2. **Silver:** Enrichment and joins. Combine Bronze into denormalized, analysis-ready tables. Add computed columns (flags, scores, categorizations).
+1. **Bronze:** One streaming table per source. Schema as-is — no transforms, no cleaning.
+2. **Silver:** Two roles depending on table complexity:
+   - **1:1 cleaning** — when a Bronze table needs quality checks or light transforms, create a Silver counterpart with expectations (e.g., `EXPECT (order_id IS NOT NULL)`). Only create these when useful — skip pass-through tables that add no value.
+   - **Joins/enrichment** — denormalize by joining Bronze/Silver tables into analysis-ready wide tables. Typically 2-4 Silver tables is enough.
 3. **Gold:** Aggregations and business metrics. Design backward from dashboard and Genie needs.
-4. **Data quality:** Add expectations on Silver/Gold for NULL checks and value range validation.
+4. **Data quality:** Add expectations on Silver for NULL checks on join keys and ID columns. Low effort, demos well.
 5. **Pipeline mode:** Triggered with a single refresh for demos.
+6. **Aggregation strategy:** Gold MVs work for a few focused aggregations. For cube-style analytics with many dimension combinations, prefer Metric Views over creating many Gold MVs.
 
 The `databricks-spark-declarative-pipelines` ai-dev-kit skill handles SQL/Python implementation, Auto Loader config, and pipeline deployment.
 
@@ -31,9 +34,7 @@ The `databricks-spark-declarative-pipelines` ai-dev-kit skill handles SQL/Python
 - **Bronze:** Streaming tables. One per source, minimal transformation.
 - **Silver cleaning** (filtering, dedup): Streaming tables.
 - **Silver enrichment** (joins, computed columns): Materialized views.
-- **Gold** (aggregations, KPIs): Always materialized views.
-
-**Data quality expectations:** Always include — low effort, demos well. Bronze: `EXPECT (id IS NOT NULL)`. Silver: NOT NULL on join keys, value ranges. Gold: business rule validation.
+- **Gold** (aggregations, KPIs): Materialized views.
 
 **Gold table design for downstream:** Clear column names (not `col1`, `amt`), descriptions with units and valid ranges, `CLUSTER BY` on filter columns.
 
@@ -42,7 +43,7 @@ The `databricks-spark-declarative-pipelines` ai-dev-kit skill handles SQL/Python
 - Gold tables not matching dashboard query needs — design Gold backward from dashboard and Genie requirements.
 - Missing Silver joins leaving NULL foreign keys in Gold aggregations.
 - Not running the pipeline before building the dashboard — tables must be materialized with data.
-- Overcomplicated Silver with too many intermediates — keep to 2-4 Silver tables.
+- Overcomplicated Silver with too many intermediates — 2-4 Silver tables is usually enough.
 - Forgetting data quality constraints — low effort, demonstrates platform capability.
 
 ## Connections

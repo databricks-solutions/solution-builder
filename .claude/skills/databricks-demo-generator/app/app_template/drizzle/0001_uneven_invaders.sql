@@ -1,0 +1,1 @@
+ALTER TABLE "app"."messages" ADD COLUMN "thinking" jsonb DEFAULT '[]'::jsonb NOT NULL;

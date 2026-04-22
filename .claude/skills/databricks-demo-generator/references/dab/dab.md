@@ -132,7 +132,7 @@ Create a `databricks.yml` at the project root. See [example_databricks.yml](exam
 - `sync.include` for static files (PDFs, etc.)
 - Two environments: `sdk_only` and `sdk_latest`
 
-## Step 7: Project Structure
+## Step 7: Project Structure example
 
 ```
 project/

@@ -1,0 +1,116 @@
+@import "@databricks/appkit-ui/styles.css";
+
+@plugin "@tailwindcss/typography";
+
+/* Google Fonts (Fraunces + Geist + Geist Mono) are loaded via <link>
+ * tags in index.html so the PostCSS `@import must precede all other
+ * statements` warning doesn't fire against Tailwind v4's ordering. */
+
+@theme {
+  --font-sans: "Geist", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Fraunces", Georgia, serif;
+  --font-mono: "Geist Mono", ui-monospace, SFMono-Regular, monospace;
+}
+
+:root {
+  /* --- Light theme (business-first, editorial) --- */
+  --radius: 0.625rem;
+
+  /* Neutrals */
+  --background: oklch(0.99 0.003 260);
+  --foreground: oklch(0.18 0.015 255);
+  --muted: oklch(0.965 0.006 255);
+  --muted-foreground: oklch(0.52 0.015 255);
+  --border: oklch(0.915 0.008 255);
+  --input: oklch(0.93 0.008 255);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.18 0.015 255);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.18 0.015 255);
+  --ring: oklch(0.58 0.16 255);
+
+  /* Brand — deep indigo primary */
+  --primary: oklch(0.32 0.095 264);
+  --primary-foreground: oklch(0.99 0.003 260);
+
+  --secondary: oklch(0.965 0.006 255);
+  --secondary-foreground: oklch(0.28 0.02 255);
+
+  --accent: oklch(0.72 0.125 195);  /* electric teal */
+  --accent-foreground: oklch(0.18 0.015 255);
+
+  /* Destructive — warm red */
+  --destructive: oklch(0.62 0.195 25);
+  --destructive-foreground: oklch(0.99 0.003 260);
+
+  --success: oklch(0.6 0.13 160);
+  --success-foreground: oklch(1 0 0);
+  --warning: oklch(0.78 0.15 75);
+  --warning-foreground: oklch(0.2 0.025 255);
+
+  /* Charts — editorial sequence */
+  --chart-1: oklch(0.32 0.095 264);  /* indigo */
+  --chart-2: oklch(0.72 0.125 195);  /* teal */
+  --chart-3: oklch(0.62 0.195 25);   /* warm red */
+  --chart-4: oklch(0.78 0.15 75);    /* amber */
+  --chart-5: oklch(0.5 0.09 295);    /* purple */
+
+  /* Sidebar — light, distinguished from canvas */
+  --sidebar: oklch(0.975 0.005 255);
+  --sidebar-foreground: oklch(0.22 0.02 255);
+  --sidebar-primary: oklch(0.32 0.095 264);
+  --sidebar-primary-foreground: oklch(0.99 0.003 260);
+  --sidebar-accent: oklch(0.93 0.015 255);
+  --sidebar-accent-foreground: oklch(0.2 0.02 255);
+  --sidebar-border: oklch(0.91 0.008 255);
+  --sidebar-ring: oklch(0.58 0.16 255);
+}
+
+/* Force light even if OS is dark — this is a business-facing demo */
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: light;
+  }
+}
+
+html,
+body {
+  font-family: var(--font-sans);
+  font-feature-settings: "cv11", "ss01", "ss03";
+}
+
+/* Every interactive control — buttons, links, role=button, checkboxes, etc. —
+   gets a pointer cursor. Disabled controls fall back to not-allowed. */
+button:not(:disabled),
+a[href],
+[role="button"]:not([aria-disabled="true"]),
+summary,
+label[for],
+input[type="checkbox"]:not(:disabled),
+input[type="radio"]:not(:disabled),
+select:not(:disabled) {
+  cursor: pointer;
+}
+
+button:disabled,
+[role="button"][aria-disabled="true"],
+input:disabled,
+select:disabled,
+textarea:disabled {
+  cursor: not-allowed;
+}
+
+/* Indeterminate top-line progress bar used on data tables while reloading. */
+@keyframes loadingBar {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(400%); }
+}
+
+h1,
+h2,
+h3,
+.display {
+  font-family: var(--font-display);
+  font-feature-settings: "ss01";
+  letter-spacing: -0.01em;
+}

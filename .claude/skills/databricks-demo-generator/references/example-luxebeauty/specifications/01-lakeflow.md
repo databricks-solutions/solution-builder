@@ -95,11 +95,11 @@ Create pipeline `luxebeauty_operations` transforming raw parquet → analytics t
 
 customers/products/production_lots/orders/order_items/returns.parquet → bronze_{table_name}
 
-### Bronze → Silver (joins)
+### Bronze → Silver (joins + expectations)
 
-**silver_order_items**: order_items JOIN orders (→ order_date, region) JOIN products (→ product_name, category) JOIN production_lots (→ facility, production_date). Columns: order_item_id, order_id, order_date, region, product_id, product_name, category, lot_id, facility, production_date, quantity, unit_price_usd, line_total_usd.
+**silver_order_items**: order_items JOIN orders (→ order_date, region) JOIN products (→ product_name, category) JOIN production_lots (→ facility, production_date). Expectations: `order_item_id IS NOT NULL`, `order_id IS NOT NULL`, `product_id IS NOT NULL`. Columns: order_item_id, order_id, order_date, region, product_id, product_name, category, lot_id, facility, production_date, quantity, unit_price_usd, line_total_usd.
 
-**silver_returns**: returns JOIN silver_order_items ON order_item_id. Columns: return_id, order_item_id, order_date, region, product_id, product_name, category, lot_id, facility, return_date, refund_amount_usd, return_reason, return_reason_text, days_to_return.
+**silver_returns**: returns JOIN silver_order_items ON order_item_id. Expectations: `return_id IS NOT NULL`, `order_item_id IS NOT NULL`. Columns: return_id, order_item_id, order_date, region, product_id, product_name, category, lot_id, facility, return_date, refund_amount_usd, return_reason, return_reason_text, days_to_return.
 
 ### Silver → Gold (aggregations)
 

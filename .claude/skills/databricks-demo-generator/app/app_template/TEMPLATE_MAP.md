@@ -1,0 +1,213 @@
+# App Template Map
+
+Reference for agents customizing this template. Read this instead of scanning every file.
+
+## File structure
+
+Files marked `[D]` are domain-specific (LuxeBeauty example — adapt per demo). Others are generic infrastructure.
+
+```
+config/
+  app.json              [D] Narrative, resource IDs, data sources, script steps
+  queries/*.sql         [D] Analytics SQL (Delta via SQL Warehouse)
+
+server/
+  server.ts                 Boot: load config → AppKit app → migrations → syncFromDelta → MLflow init → routes
+  agent/refundops.ts    [D] Agent definition, tools, ~700-line system prompt (OpenAI Agents SDK)
+  db/
+    schema.ts           [D] Lakebase tables (Drizzle ORM)
+    sync.ts             [D] Delta → Lakebase sync queries
+    migrate.ts              Migration runner
+    index.ts                DB pool init
+    queries/
+      chat.ts               Conversation + message CRUD
+      returns.ts        [D] Domain entity CRUD + bulk operations
+  chat-stream/
+    agent-stream.ts         Responses API → SSE (reasoning + tool events)
+    mas-stream.ts           MAS passthrough streaming
+    sse.ts                  SSE helpers
+  routes/
+    chat.ts                 Conversations CRUD, streaming turns, feedback
+    returns.ts          [D] Domain entity endpoints
+    config.ts               /api/config, /api/me, /api/warehouse
+    activity.ts             Recent activity feed
+    admin.ts                Demo reset (truncate + re-sync)
+  lib/
+    auth.ts                 Databricks OBO auth headers
+    mlflow.ts               Experiment get-or-create, feedback → assessments
+    user.ts                 User identity from request headers
+    endpoint.ts             Endpoint utilities
+    templates.ts        [D] Email template placeholder filling
+
+client/src/
+  App.tsx                   Routes: / (Home), /c/:id (Chat), /operations, /analytics, /dashboard
+  shared/types.ts       [D] Domain entity types (ReturnRow, ReturnDetail, LotRow, etc.)
+  shell/                    AppSidebar (nav), AppHeader (chrome)
+  home/HomeView.tsx     [D] Story section, journey diagram, starter chips, featured action, activity feed
+  chat/                     ChatDock (floating), ChatView (full-page), ThinkingPanel, MessageBubble,
+                            useChatTurn (hook), streamChat (SSE parser), script.ts, dockController, FeedbackRow
+  operations/           [D] OperationsView, KpiCards, ReturnsTable, ReturnDrawer, tabs/ (Return, Customer, Activity)
+  analytics/            [D] AnalyticsView (charts), FacilityPanel (drill-down)
+  dashboard/                DashboardView (embedded AI/BI iframe from config.dashboardId)
+  lib/
+    api.ts                  Config + user fetch wrappers
+    conversations.ts        Client conversation store (useSyncExternalStore)
+    returns.ts          [D] Domain entity fetch wrappers
+    events.ts               dataMutated pub/sub (invalidate on agent writes)
+```
+
+## Lakebase schema (`server/db/schema.ts`)
+
+**Chat state (generic):**
+- `conversations`: id (uuid), userEmail, title, kind (`default`|`demo_dock`), timestamps
+- `messages`: id (uuid), conversationId (FK), role, content, position, traceId (MLflow), thinking (jsonb[]), error, createdAt
+- `feedback`: id (uuid), messageId (FK), userEmail, value (`up`|`down`), rationale, traceId, mlflowAssessmentId
+
+**Domain tables (LuxeBeauty example):**
+- `customers`: id, email, firstName, lastName, region, loyaltyTier, registrationDate
+- `orders`: id, customerId (FK), orderDate, region, totalUsd, status
+- `returns` (primary entity): id, orderId, customerId, returnDate, refundAmountUsd, returnReason, productId, productName, category, lotId, facility, region, status (`pending`|`approved`|`rejected`|`escalated`), **emails** (jsonb[], append-only), **aiAuditTrail** (jsonb[], append-only), decidedAt, timestamps
+
+JSONB types: EmailEntry `{at, direction, from?, to?, subject, body}`, AuditEntry `{at, by, action, notes?, tool?}`, ThinkingEntry `{kind: tool_call|tool_output|intermediate_message, ...}`
+
+## Delta → Lakebase sync (`server/db/sync.ts`)
+
+One-shot at boot (skips if populated). Pulls via Databricks SQL Statements API: customers with returns → their orders → denormalized returns. Chunked inserts (2000/batch), idempotent. Table names from `config.data.tables`. Reset endpoint calls `wipeMirroredTables()` + re-sync.
+
+## Agent (`server/agent/refundops.ts`)
+
+Context: `{db, userEmail, req, masEndpointName, databricksHost, model, onToolProgress?}`
+
+| Tool | Input → Output | Effect |
+|------|---------------|--------|
+| `ask_data` | `{question}` → `{answer, trace_id}` | Calls MAS endpoint, streams sub-agent activity via onToolProgress → ThinkingPanel |
+| `find_returns_for_lot` | `{lot}` → pending returns list | Read-only Lakebase query |
+| `create_coupon` | `{percent_off, reason}` → `{code, ...}` | Pure function, no DB write |
+| `process_return_batch` | `{lot, coupon_code, email_subject_template, email_body_template}` → `{email_count, approved_count, total_refund_usd}` | **WRITE**: renders templates per customer (`{firstname}`, `{lastname}`, `{product_name}`, `{coupon_code}`), appends emails + audit, flips to approved |
+
+SDK setup: OpenAI client → `${host}/serving-endpoints`, Responses API for reasoning summaries, custom fetch (Connection: close, strips long IDs >64 chars), MLflow tracing (not OpenAI).
+
+Instructions: MODE A (investigation — single `ask_data` call) or MODE B (action — 3-phase: discover → draft+confirm → execute after approval).
+
+## Routes
+
+**Chat routes** (`server/routes/chat.ts`): GET/POST/DELETE `/api/conversations[/:id]`, GET `/api/dock-conversation`, POST `/api/chat/stream` (SSE), POST `/api/messages/:id/feedback`
+
+**Domain routes** (`server/routes/returns.ts`): GET `/api/returns[?status=&lot=]`, GET `/api/returns/summary`, GET `/api/returns/:id`, POST `/api/returns/:id/decide`, GET `/api/lots/summary`, GET `/api/facilities/summary`, GET `/api/facilities/:name/lots`, GET `/api/customers/:id/orders`
+
+**Other**: GET `/api/config`, `/api/me`, `/api/warehouse`, `/api/activity/recent`, POST `/api/admin/reset`
+
+## Domain queries (`server/db/queries/returns.ts`)
+
+| Function | Signature | Purpose |
+|----------|-----------|---------|
+| `listReturns` | `(db, {status?, lot?, limit?})` | Filtered list for operations queue |
+| `getReturn` | `(db, id)` | Full row with emails[] + aiAuditTrail[] |
+| `decideReturn` | `(db, {id, userEmail, decision, notes?})` | Append audit entry + flip status |
+| `returnsSummary` | `(db)` | GROUP BY status → `{status, n, total_usd}[]` |
+| `facilitySummary` | `(db)` | `{facility, return_count, pending_count, total_refund_usd}[]` |
+| `lotsByFacility` | `(db, facility, limit)` | Top lots within a facility |
+| `lotSummary` | `(db, limit)` | Global top lots by return count |
+| `listCustomerOrders` | `(db, customerId, limit)` | Customer's order history |
+| `recentActivity` | `(db, limit)` | UNION of emails[] + aiAuditTrail[] across all rows, sorted by time |
+| `processReturnBatch` | `(db, {return_ids, coupon_code, email_subject, email_body, userEmail})` | Bulk: render templates, append emails + audit, flip to approved — single UPDATE FROM VALUES |
+| `processReturnBatchForLot` | `(db, {lot, ...})` | Fetch pending for lot → call processReturnBatch |
+
+## Chat streaming
+
+Server (`agent-stream.ts`): wraps agent run in MLflow span, emits SSE events — `output_text.delta`, `reasoning_summary_text.delta/done`, `output_item.done` (tool_call/tool_output/message), `response.completed` (trace_id).
+
+Client: `streamChat.ts` parses SSE → `useChatTurn.ts` accumulates state → `ThinkingPanel.tsx` renders live (merges tool_call + output by callId). Persisted on message as `thinking[]` JSONB for reload-safe history.
+
+## ChatDock
+
+Persistent per-user conversation (`kind='demo_dock'`). Script progression from `config.assistantScript` — next chip appears when previous message contains `triggerAfter` substring. External control via `dockController.openAndSend(prompt)` from any page.
+
+## config/app.json structure
+
+```json
+{
+  "agentEndpointName": "...", "masId": "...",
+  "mlflowExperimentId": "...", "agentMlflowExperimentPath": "...", "agentModel": "...",
+  "dashboardId": "...",
+  "data": { "catalog": "...", "schema": "...", "tables": { "returns": "silver_returns", "orders": "bronze_orders", ... } },
+  "branding": { "appName": "..." },
+  "hero": { "name": "...", "role": "...", "company": "...", "avatarInitials": "..." },
+  "story": { "headline": "...", "situation": "...", "goal": "...", "whatYoullSee": [...] },
+  "starterQuestions": ["...", "..."],
+  "assistantScript": [ { "prompt": "..." }, { "prompt": "...", "triggerAfter": ["keyword"] } ],
+  "featuredAction": { "title": "...", "description": "...", "prompt": "..." }
+}
+```
+
+## Client component details
+
+**HomeView**: Hero (story from config), journey diagram (4 cards: "Operate" → `/operations`, "Ask" → `dockController.openAndSend(script[0])`, "Investigate" → opens dock, "Take action" → `dockController.openAndSend(script[1])`), starter question chips (each → `dockController.openAndSend`), featured action card (gradient CTA → sends prompt), activity feed (fetches `/api/activity/recent`, shows emails + audit with relative timestamps).
+
+**OperationsView**: Fetches `/api/returns?status={filter}&lot={lot}` + `/api/returns/summary`. Subscribes to `dataMutated` (refetches on agent writes). URL-synced filters (`?lot=LOT-123`). Renders KpiCards (from summary: pending/approved/escalated counts + $), ReturnsTable (columns: Lot, Customer, SKU, Reason, Value, Status — click selects row), ReturnDrawer (slide-over, 3 tabs). "Ask the assistant" banner opens dock.
+
+**ReturnDrawer tabs**: ReturnTab (detail grid + Approve/Reject/Escalate buttons → POST `/api/returns/:id/decide`), CustomerTab (profile + order history from `/api/customers/:id/orders`), ActivityTab (merged timeline from row's emails[] + aiAuditTrail[]).
+
+**AnalyticsView**: Warehouse badge (name + state), BarChart (`returns_by_product`), LineChart (`daily_refund_trend`), DataTable (worst lots), FacilityPanel (dropdown → lots by facility → click lot → navigate to `/operations?lot=`).
+
+## Analytics SQL (`config/queries/`)
+
+- `daily_refund_trend.sql` — `SELECT return_date, SUM(refund_amount_usd) FROM silver_returns WHERE last 30 days GROUP BY return_date`
+- `returns_by_product.sql` — `SELECT product_name, COUNT(*), SUM(refund_amount_usd) FROM silver_returns GROUP BY product_name ORDER BY count DESC LIMIT 10`
+- `worst_lots.sql` — `SELECT lot_id, product_name, facility, return_count, return_rate_pct, total_refund_usd FROM gold_returns_by_lot ORDER BY return_rate DESC LIMIT 20`
+
+## How the agent runner works (`server/chat-stream/agent-stream.ts`)
+
+Uses `@openai/agents` SDK. Flow:
+1. Start MLflow span (`refundops.turn`, spanType: AGENT)
+2. Build agent via `buildRefundOpsAgent(ctx)` — returns `Agent` with name, model, modelSettings (`reasoning: {effort: 'low', summary: 'auto'}`), instructions, tools
+3. Normalize conversation history (assistant messages → `{role: 'assistant', content: [{type: 'output_text', text}]}`)
+4. Call `runAgent(agent, input, {stream: true})` → async event stream
+5. Event loop dispatches:
+   - `raw_model_stream_event` → unwrap: `reasoning_summary_text.delta/done` (thinking), `output_text.delta` (final text)
+   - `run_item_stream_event` → `tool_called` / `tool_output` (pushed to thinking[])
+6. Each event → `sseWrite(res, event)` to client
+7. On completion: emit `response.completed` with trace_id, persist thinking[] to message
+
+MAS events bubble up differently: `ask_data` tool's `onToolProgress` callback emits `ToolProgressEvent` (`mas_narration` | `mas_tool_call{callId, subAgent, query}` | `mas_tool_output{callId, subAgent, snippet}`) → these are also SSE-written and pushed to thinking[].
+
+## Thinking event flow (end-to-end)
+
+```
+Agent SDK event / onToolProgress callback
+  → server pushes to thinking[] array + sseWrite(res, event)
+    → client streamChat.ts parses SSE, calls onToolCall/onToolOutput/onReasoningDelta handlers
+      → useChatTurn accumulates thinkingEvents[] state
+        → ThinkingPanel renders (merges tool_call + output by callId, reasoning inline)
+          → on completion: thinking[] persisted to message JSONB
+            → on reload: MessageBubble renders collapsed "Reasoning · N tools" toggle from persisted thinking[]
+```
+
+## Real-time update flow
+
+```
+Agent completes turn (e.g., bulk-approves returns in Lakebase)
+  → useChatTurn.onTurnEnd() fires
+    → calls dataMutated.emit()
+      → OperationsView (subscribed via dataMutated.subscribe) refetches returns + summary
+        → KPI counters update, table rows reflect new status
+```
+
+Same flow for the ReturnDrawer Activity tab — it refetches the single return, whose emails[] and aiAuditTrail[] arrays now have new entries from the agent's bulk write.
+
+## Drizzle migration workflow
+
+When changing `server/db/schema.ts`:
+1. Edit the schema
+2. Run `npm run db:generate` → creates new migration SQL in `drizzle/`
+3. Migrations auto-apply on boot (`server/db/migrate.ts`)
+
+## Key patterns
+
+1. **Delta mirror**: Lakebase mirrors Delta subset for OLTP. Agent writes Postgres; analytics queries Delta. Manual sync at boot + reset.
+2. **Append-only audit**: Primary entity carries `emails[]` + `aiAuditTrail[]` JSONB. Every write appends. Activity tab renders timeline from one row.
+3. **3-phase action chain**: Discover → Draft+confirm (STOP) → Execute. Mandatory approval stop = demo trust moment.
+4. **Config-driven narrative**: `config/app.json` drives story, persona, script steps, branding. Home, dock, featured action all render from config.
+5. **Bulk update**: Single `UPDATE FROM VALUES` for N rows. Templates rendered server-side per customer.
+6. **MAS as tool**: `ask_data` → MAS endpoint. Sub-agent activity streams to ThinkingPanel via onToolProgress → SSE.
+7. **MLflow tracing**: Per-turn spans, tool child spans, trace ID on message → "View trace" link. Thumbs → human assessments.

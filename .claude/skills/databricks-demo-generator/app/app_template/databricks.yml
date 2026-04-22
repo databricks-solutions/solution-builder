@@ -1,0 +1,18 @@
+bundle:
+  name: mas-chat-demo
+
+resources:
+  apps:
+    app:
+      name: "mas-chat-demo"
+      description: "Chatbot + dashboard + user menu"
+      source_code_path: ./
+      # Uncomment to enable on behalf of user API scopes. Available scopes: sql, dashboards.genie, files.files
+      # user_api_scopes:
+      #   - sql
+
+targets:
+  default:
+    default: true
+    workspace:
+      host: https://e2-demo-field-eng.cloud.databricks.com

@@ -8,7 +8,7 @@ Use this prompt to start a new session and implement the demo.
 
 I have a set of spec files in the `specifications/` folder that describe a demo I want to build on Databricks.
 
-**Phase 1 - Understand**: Read `README.md` and `resources.json` to understand the demo story, scope, and infrastructure. Then read all spec files (numbered `*.md` in `specifications/`).
+**Phase 1 - Understand**: Read `README.md` and `resources.json` to understand the demo story, potential existing assets, scope, and infrastructure. Then read all spec files (numbered `*.md` in `specifications/`).
 
 **Phase 2 - Plan**: Create a task list based on spec file order. Each task should be a concrete implementation step. For each task, identify which skill to use (check `/skills` for available skills).
 
@@ -25,20 +25,6 @@ I have a set of spec files in the `specifications/` folder that describe a demo 
 **Before starting**: Run the pre-flight check to ensure required infrastructure exists. Ask me if any resources already contain data.
 
 ---
-
-## Databricks Infrastructure
-
-### Resource Names
-
-| Resource | Name |
-|----------|------|
-| **Catalog** | `{CATALOG}` |
-| **Schema** | `{SCHEMA}` |
-| **Workspace Folder** | `/Workspace/Users/{user}/ai_demos/{DEMO_NAME}/` |
-
-Derived paths:
-- **Raw Data Volume**: `/Volumes/{CATALOG}/{SCHEMA}/raw_data/`
-- **Documents Volume**: `/Volumes/{CATALOG}/{SCHEMA}/raw_data/documents/` (if demo includes documents)
 
 ### Pre-flight Check
 
@@ -137,8 +123,6 @@ After each step that creates tables or data, validate before moving to the next.
 ---
 
 ## Troubleshooting
-
-**CRITICAL - MCP server crashes**: If an MCP server crashes or becomes unresponsive, **STOP immediately**. Ask the user to restart and wait for confirmation before continuing.
 
 **PyPI failures**: If pip/uv fails to install packages, use the internal Databricks proxy:
 ```bash

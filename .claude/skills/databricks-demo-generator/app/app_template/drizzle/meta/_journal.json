@@ -1,0 +1,27 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1776765717163,
+      "tag": "0000_soft_big_bertha",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1776772714974,
+      "tag": "0001_uneven_invaders",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1776806017208,
+      "tag": "0002_fast_iron_man",
+      "breakpoints": true
+    }
+  ]
+}
