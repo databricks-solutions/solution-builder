@@ -20,7 +20,14 @@ Important reminder: these are generated guidance for you to generate pyspark dat
 
 ---
 
+> Parallelization + subagent spawning rules live in `SKILL.md` → **Parallelization with Subagents**.
+
+
 ## A. Synthetic Data Generation
+
+**Skill to use**: `databricks-synthetic-data-gen` — read `SKILLS/databricks-synthetic-data-gen/SKILL.md` before implementing.
+
+**Python runtime**: use **Python 3.12** for data-gen (matches Databricks serverless). Running 3.11 locally against serverless causes pickle/UDF mismatches.
 
 **Important note**: when generating this file, ensure the math are correct if you use exact numbers - keep it approximative to avoid incoherences.
 
@@ -69,17 +76,9 @@ Production facilities: Lyon 50% (Skincare), Milan 30% (Makeup), Singapore 20% (H
 
 ---
 
-## B. PDF Generation
+## B. SDP Pipeline
 
-Generate ~10 PDFs in `{raw_data_volume}/incident_pdf/`. Only ONE contains the smoking gun.
-
-**Background (~9 PDFs)**: Routine Lyon facility docs (resolved incidents, QC summaries, maintenance logs, supplier audits, safety inspections). NO mention of affected lot or texture issues.
-
-**Key document**: Production Incident Report PIR-{YYYY}-{MMDD} matching AFFECTED_LOT_DATE. Facility: Lyon. Reporter: Marc Dupont, Production Supervisor. Equipment: Homogenizer Unit HMG-03. Issue: pressure gauge fluctuations (2.1-2.8 bar vs normal 2.4-2.6 bar). Cause: calibration drift in pressure regulation valve. Affected: SKU-1001/1002/1003 (~5,000 units). QC assessment: "Some units may exhibit minor texture variations due to the pressure fluctuations during emulsification. This is a cosmetic variation only and does not affect product safety or efficacy." Disposition: RELEASED for distribution.
-
----
-
-## C. SDP Pipeline
+**Skill to use**: `databricks-spark-declarative-pipelines` — read `SKILLS/databricks-spark-declarative-pipelines/SKILL.md` before implementing.
 
 Create pipeline `luxebeauty_operations` transforming raw parquet → analytics tables.
 
@@ -126,6 +125,18 @@ customers/products/production_lots/orders/order_items/returns.parquet → bronze
 | gold_daily_summary | date, region, category | revenue_usd, order_count, items_sold, return_count, returns_usd |
 | gold_returns_by_product | region, category | product_id, product_name, units_sold, total_refund_usd, return_rate |
 | gold_returns_by_lot | region, category | lot_id, product_id, product_name, facility, feedback_samples, return_rate |
+
+---
+
+## C. PDF Generation
+
+**Skill to use**: `databricks-unstructured-pdf-generation` — read `SKILLS/databricks-unstructured-pdf-generation/SKILL.md` before implementing.
+
+Generate ~10 PDFs in `{raw_data_volume}/incident_pdf/`. Only ONE contains the smoking gun.
+
+**Background (~9 PDFs)**: Routine Lyon facility docs (resolved incidents, QC summaries, maintenance logs, supplier audits, safety inspections). NO mention of affected lot or texture issues.
+
+**Key document**: Production Incident Report PIR-{YYYY}-{MMDD} matching AFFECTED_LOT_DATE. Facility: Lyon. Reporter: Marc Dupont, Production Supervisor. Equipment: Homogenizer Unit HMG-03. Issue: pressure gauge fluctuations (2.1-2.8 bar vs normal 2.4-2.6 bar). Cause: calibration drift in pressure regulation valve. Affected: SKU-1001/1002/1003 (~5,000 units). QC assessment: "Some units may exhibit minor texture variations due to the pressure fluctuations during emulsification. This is a cosmetic variation only and does not affect product safety or efficacy." Disposition: RELEASED for distribution.
 
 ---
 

@@ -2,6 +2,85 @@
 
 Reference for agents customizing this template. Read this instead of scanning every file.
 
+## What this app is (functional)
+
+This template is the **action surface** of a Databricks demo — the place where the AI *does* something, not just answers questions. It pairs with upstream pipelines (the data), a Genie space (conversational analytics), and an AI/BI dashboard (read-only visuals). Its unique job: show the agent investigating an anomaly, drafting a batch action, and executing it after human approval — with every step visible in a live operations queue.
+
+**Canonical demo arc** (LuxeBeauty example, but the shape is universal):
+1. User lands on Home, sees a protagonist with a problem (`$X at risk`, anomaly peaked weeks ago).
+2. User clicks a starter chip → opens the chat dock → asks the agent.
+3. Agent's `ask_data` tool hits MAS (or Genie) → investigates → identifies the bad batch.
+4. User asks "can you fix it?" → agent drafts a batch action (emails + refunds) and **stops for approval**.
+5. User approves → agent writes to Lakebase → Operations page updates live (KPIs, status flips, timeline grows).
+6. (Optional) User inspects a single row → sees emails + audit trail in a drawer.
+
+The demo lands because the user watched the AI *take an action with real-world-looking consequences* under human control — not because the agent said something clever.
+
+## Surfaces — what each one is for
+
+| Surface | Functional role | Customize per demo? |
+|---------|-----------------|---------------------|
+| **Home** (`/`) | Frame protagonist + problem + journey. Entry point to the agent via starter chips / featured action. | **YES** — persona, headline, situation, goal, starter questions, journey cards |
+| **Chat dock** (floating + `/c/:id`) | The SA's steering wheel. Scripted progression (`config.assistantScript`) with `triggerAfter` keywords unlocks each step. | **YES** — script steps + trigger keywords |
+| **Operations** (`/operations`) | The "truth of the world" — where the anomaly visibly lives and where the AI's action lands. Table + drawer with Approve/Reject/Escalate + live refresh on `dataMutated`. | **YES** — domain entity, table columns, drawer tabs, filter dimensions |
+| **Analytics** (`/analytics`) | Light, bespoke charts over Delta (via warehouse SQL). Secondary to the dashboard — useful for one or two drill-downs tied to the story. | **YES** — SQL files in `config/queries/` |
+| **Dashboard** (`/dashboard`) | Embedded AI/BI iframe (the "proper" analytics surface). Just a viewport onto the real dashboard. | **NO** — just set `config.dashboardId` |
+
+## What to touch, and when
+
+Three tiers, not two — because some defaults fit the canonical arc but don't survive every story. Use judgment.
+
+### Tier 1 — Structural (keep unless you know what you're doing)
+
+These are load-bearing plumbing. Break them and the app doesn't boot, or a core feature silently dies.
+
+- **OBO auth** (`lib/auth.ts`) — Databricks identity forwarding. No demo works without it.
+- **MLflow tracing wiring** (span creation, trace_id on message, feedback → assessments) — trace viewer links break if removed.
+- **SSE streaming pipeline** (agent-stream → sseWrite → streamChat → useChatTurn → ThinkingPanel) — break this and the chat just hangs.
+- **Delta → Lakebase sync-at-boot + reset endpoint** — without it, a fresh app has no data.
+- **Drizzle migration runner on boot** — schema changes won't apply without it.
+
+### Tier 2 — Canonical defaults (the demo's "house style" — change with intent)
+
+These fit the canonical arc (investigate → approve → act). They *usually* survive a rewrite because most demos want the same shape — but swap them if the story genuinely differs.
+
+| Default | Keep when… | Change when… |
+|---------|------------|--------------|
+| **3-phase chain** (discover → draft+confirm → execute) | Story has a "fix it" moment where the user approves a batch action | Story is read-only (pure investigation, no action) → drop phases 2–3. Story has multiple action types → document each chain. |
+| **`triggerAfter` keyword progression** on `assistantScript` | Linear demo script (SA clicks chips in order) | Free-form exploration demo → drop triggers, use plain prompts. |
+| **Append-only audit** (`emails[]` + `aiAuditTrail[]` JSONB on primary entity) | Demo shows "the AI did X at Y" timeline | No timeline tab, no action history needed → drop the JSONB columns. |
+| **`dataMutated` pub-sub** | Operations page should update live when the agent writes | Read-only demo, no writes to react to → harmless but dead weight. |
+| **`ask_data` → MAS** | Demo has MAS | No MAS → point `ask_data` at Genie directly; or drop the tool if no data lookup needed. |
+| **ChatDock + Home chips with script** | SA is the presenter; demo is scripted | End-user-driven demo → surface the chat on its own page, drop the dock's "next chip" mechanic. |
+
+### Tier 3 — Always rewrite per demo (content, not infra)
+
+Every demo touches these. They're what makes your demo yours, not LuxeBeauty's.
+
+- **Persona/story/copy** — hardcoded constants at the top of `HomeView.tsx`. Replace wholesale: persona name, headline, situation, goal, starter questions, featured action.
+- **`config/app.json`** — `branding`, `assistantScript` steps, `data.tables`, `dashboardId`, `agentEndpointName`, `masId`, `mlflowExperimentId`, `agentModel`.
+- **Domain schema** (`server/db/schema.ts`) — the primary entity swaps (returns → tickets → accounts → whatever). If you keep Tier 2 audit columns, their shape is fixed; the surrounding columns are yours.
+- **Agent tools** (`server/agent/<name>.ts`) — the file is renamed per demo (`refundops.ts` → `supportops.ts`). Tool names and bodies swap; if you keep the 3-phase chain, the *shape* of the tools (read-only discovery tool + batch write tool + pure-function draft helper) is what's preserved.
+- **Domain CRUD** (`server/db/queries/<entity>.ts`, `server/routes/<entity>.ts`).
+- **Operations view** — table columns, drawer tab content, filter dimensions.
+- **Analytics SQL** in `config/queries/` — 2–4 queries aligned to the story's key numbers.
+- **Theme tokens** in `client/src/index.css` — brand palette and, if they exist, tier badges.
+
+## Adapting to a reduced capability set
+
+Not every demo has every Databricks capability. Drop surfaces that don't map:
+
+| If demo has no… | Do this |
+|-----------------|---------|
+| **MAS** | Point `ask_data` at Genie directly (same interface). Drop MAS-specific streaming events (`mas_narration` etc.) from ThinkingPanel. |
+| **Genie** | Agent does data work itself via SQL tool. `ask_data` becomes a thin wrapper around a warehouse query. |
+| **KA** | Skip the "investigate documents" phase. Arc shortens: discover via data → draft → execute. |
+| **Dashboard** | Remove `/dashboard` route + nav item + journey card. |
+| **Analytics charts** | Remove `/analytics` route; demo relies on the embedded dashboard instead. |
+| **Write action** (read-only demo) | Skip the bulk-action tool. Arc shortens to discover → answer (no approval step). Much less impressive — only choose this if the story genuinely doesn't need a fix. |
+
+The smallest viable demo: Home + Chat dock + Operations + one agent tool that reads Lakebase. Everything else is additive.
+
 ## File structure
 
 Files marked `[D]` are domain-specific (LuxeBeauty example — adapt per demo). Others are generic infrastructure.

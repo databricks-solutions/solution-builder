@@ -19,6 +19,13 @@ from pydantic import BaseModel
 from sqlmodel import select
 from ..core import Dependencies, create_router
 from ..core._config import logger
+from ..core.auth import (
+    detect_mode,
+    request_user_pat,
+    resolve_host,
+    write_project_auth_file,
+)
+from ..services.skills_manager import get_project_directory
 from ..models import (
     InvokeAgentRequest,
     InvokeAgentResponse,
@@ -76,11 +83,39 @@ async def invoke_agent(
     Returns execution_id for streaming progress.
     """
     user_email = _get_user_email(headers)
-    project = _get_user_project(session, body.project_id, user_email)
+    # Resolve auth mode once, here, while we still have the request headers.
+    # See backend/AUTH.md — the mode dictates how the Claude subprocess
+    # will authenticate to Databricks.
+    mode = detect_mode(headers)
+    # Deployed mode: refresh <project>/.databrickscfg from the current PAT
+    # before spawn so the subprocess starts with a fresh token. No-op in
+    # local mode. Non-fatal if it fails.
+    if mode == "deployed":
+        pat = request_user_pat(headers)
+        host = resolve_host(headers)
+        if pat and host:
+            try:
+                write_project_auth_file(
+                    get_project_directory(body.project_id), host, pat
+                )
+            except Exception:
+                logger.exception(
+                    "failed to refresh .databrickscfg for project %s",
+                    body.project_id,
+                )
+        elif pat:
+            logger.warning(
+                "invoke_agent in deployed mode without resolvable host — "
+                ".databrickscfg not refreshed"
+            )
+    # DB reads (run on thread so we don't block the event loop on sync psycopg).
+    def _load_initial():
+        project = _get_user_project(session, body.project_id, user_email)
+        user = session.exec(select(User).where(User.email == user_email)).first()
+        databricks_profile = user.databricks_profile if user else "DEFAULT"
+        return project, databricks_profile
 
-    # Get user's Databricks profile
-    user = session.exec(select(User).where(User.email == user_email)).first()
-    databricks_profile = user.databricks_profile if user else "DEFAULT"
+    project, databricks_profile = await asyncio.to_thread(_load_initial)
 
     manager = get_stream_manager()
 
@@ -100,24 +135,26 @@ async def invoke_agent(
         if session_id:
             logger.info(f"Resuming session for project {body.project_id}: {session_id}")
 
-        # Save user message (skipped when auto-kicking off an already-persisted
-        # opening prompt, to avoid a duplicate bubble in the chat).
+        # Save user message + execution_id. Runs on a worker thread to keep the
+        # event loop free while psycopg is waiting on PG.
         execution_id = generate_uuid()
-        if body.save_user_message:
-            user_msg = Message(
-                project_id=body.project_id,
-                role="user",
-                content=body.message,
-            )
-            session.add(user_msg)
+        stream = manager.create_stream(execution_id, body.project_id)
+
+        def _persist_start():
+            if body.save_user_message:
+                user_msg = Message(
+                    project_id=body.project_id,
+                    role="user",
+                    content=body.message,
+                )
+                session.add(user_msg)
+                session.commit()
+            project.active_execution_id = execution_id
+            project.updated_at = utc_now()
+            session.add(project)
             session.commit()
 
-        # Create stream and persist execution_id so it survives server restart
-        stream = manager.create_stream(execution_id, body.project_id)
-        project.active_execution_id = execution_id
-        project.updated_at = utc_now()
-        session.add(project)
-        session.commit()
+        await asyncio.to_thread(_persist_start)
 
     # Capture engine reference for use in background task (request session
     # will be closed by the time run_agent's completion code executes)
@@ -126,11 +163,13 @@ async def invoke_agent(
     # Start agent in background
     async def run_agent():
         collected_events = []
+        was_cancelled = False
         try:
             async for event in stream_agent_response(
                 project_id=body.project_id,
                 message=body.message,
                 stream=stream,
+                mode=mode,
                 cluster_id=project.cluster_id,
                 warehouse_id=project.warehouse_id,
                 default_catalog=project.default_catalog,
@@ -139,6 +178,12 @@ async def invoke_agent(
                 session_id=session_id,
             ):
                 collected_events.append(event)
+        except asyncio.CancelledError:
+            # User hit stop: persist what we have so the partial result and
+            # reasoning are still visible on refresh.
+            was_cancelled = True
+            stream.is_cancelled = True
+            logger.info(f"Agent execution {execution_id} cancelled by user")
         except Exception as e:
             logger.exception(f"Agent execution failed: {e}")
             stream.mark_error(str(e))
@@ -149,40 +194,49 @@ async def invoke_agent(
         # from the SSE consumer. Always attempt to save: even when the text
         # response is empty (tool-heavy sessions that hit max turns), we still
         # need to persist the session_id so the next invocation can resume.
+        # Runs on a worker thread because sync psycopg would otherwise block
+        # the event loop (freezing every other SSE/HTTP request).
         try:
             full_response = collect_text_response(collected_events)
             reasoning = collect_reasoning(collected_events)
 
             from sqlmodel import Session as SQLSession
-            with SQLSession(engine) as db:
-                # Save assistant message if we got any text
-                if full_response:
-                    raw_reasoning = {"reasoning": reasoning} if reasoning else None
-                    reasoning_data = compress_reasoning(raw_reasoning)
-                    assistant_msg = Message(
-                        project_id=body.project_id,
-                        role="assistant",
-                        content=full_response,
-                        reasoning_data=reasoning_data,
-                    )
-                    db.add(assistant_msg)
-                else:
-                    logger.warning(f"Agent returned empty text response for project {body.project_id}")
 
-                # Persist session_id and clear active_execution_id
-                proj = db.get(Project, body.project_id)
-                if proj:
-                    if stream.session_id:
-                        proj.session_id = stream.session_id
-                    proj.active_execution_id = None
-                    proj.updated_at = utc_now()
-                    db.add(proj)
+            def _persist_completion() -> None:
+                with SQLSession(engine) as db:
+                    # Save assistant message if we got any text OR were cancelled
+                    # (so the partial reasoning + cancel marker survive refresh).
+                    if full_response or was_cancelled or reasoning:
+                        raw_reasoning = {"reasoning": reasoning} if reasoning else None
+                        reasoning_data = compress_reasoning(raw_reasoning)
+                        assistant_msg = Message(
+                            project_id=body.project_id,
+                            role="assistant",
+                            content=full_response,
+                            is_cancelled=was_cancelled,
+                            reasoning_data=reasoning_data,
+                        )
+                        db.add(assistant_msg)
+                    else:
+                        logger.warning(f"Agent returned empty text response for project {body.project_id}")
 
-                db.commit()
-                if full_response:
-                    logger.info(f"Saved assistant message for project {body.project_id} ({len(full_response)} chars)")
-                if stream.session_id:
-                    logger.info(f"Persisted session_id for project {body.project_id}: {stream.session_id}")
+                    # Persist session_id and clear active_execution_id
+                    proj = db.get(Project, body.project_id)
+                    if proj:
+                        if stream.session_id:
+                            proj.session_id = stream.session_id
+                        proj.active_execution_id = None
+                        proj.updated_at = utc_now()
+                        db.add(proj)
+
+                    db.commit()
+
+            await asyncio.to_thread(_persist_completion)
+
+            if full_response:
+                logger.info(f"Saved assistant message for project {body.project_id} ({len(full_response)} chars)")
+            if stream.session_id:
+                logger.info(f"Persisted session_id for project {body.project_id}: {stream.session_id}")
         except Exception as e:
             logger.exception(f"Failed to save agent response for project {body.project_id}: {e}")
 
@@ -288,13 +342,17 @@ async def stop_stream(
     if stream.task and not stream.task.done():
         stream.task.cancel()
 
-    # Clear the DB flag so a new execution can start
-    project = session.get(Project, stream.project_id)
-    if project and project.active_execution_id == execution_id:
-        project.active_execution_id = None
-        project.updated_at = utc_now()
-        session.add(project)
-        session.commit()
+    # Clear the DB flag so a new execution can start. Run on a worker thread —
+    # sync psycopg would otherwise block the event loop.
+    def _clear_active_execution() -> None:
+        project = session.get(Project, stream.project_id)
+        if project and project.active_execution_id == execution_id:
+            project.active_execution_id = None
+            project.updated_at = utc_now()
+            session.add(project)
+            session.commit()
+
+    await asyncio.to_thread(_clear_active_execution)
 
     logger.info(f"Cancelled execution {execution_id}")
     return {"success": True, "execution_id": execution_id}
@@ -334,16 +392,20 @@ async def get_active_execution(
         )
 
     # No in-memory stream — check if DB still thinks one is running
-    # (server restarted mid-execution). Clear the stale flag.
-    project = session.get(Project, project_id)
-    if project and project.active_execution_id:
-        logger.warning(
-            f"Clearing stale active_execution_id for project {project_id} "
-            f"(execution {project.active_execution_id} lost on server restart)"
-        )
-        project.active_execution_id = None
-        project.updated_at = utc_now()
-        session.add(project)
-        session.commit()
+    # (server restarted mid-execution). Clear the stale flag. Run on a
+    # worker thread so psycopg doesn't block the event loop.
+    def _clear_stale_flag() -> None:
+        project = session.get(Project, project_id)
+        if project and project.active_execution_id:
+            logger.warning(
+                f"Clearing stale active_execution_id for project {project_id} "
+                f"(execution {project.active_execution_id} lost on server restart)"
+            )
+            project.active_execution_id = None
+            project.updated_at = utc_now()
+            session.add(project)
+            session.commit()
+
+    await asyncio.to_thread(_clear_stale_flag)
 
     return None

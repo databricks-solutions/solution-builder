@@ -7,10 +7,11 @@ import React, { memo, useState, useMemo, useEffect, lazy, Suspense } from "react
 import { ScrollArea } from "../ui/scroll-area";
 import { Prose } from "../markdown-prose";
 import { Skeleton } from "../ui/skeleton";
-import { ChevronRight, ChevronDown, ChevronLeft, Folder, FolderOpen, FileText, FileCode, Braces, Settings, File, Sparkles, RefreshCw, Network, Database, Eye, Code, Server, Boxes } from "lucide-react";
+import { ChevronRight, ChevronDown, ChevronLeft, Folder, FolderOpen, FileText, FileCode, Braces, Settings, File, Sparkles, RefreshCw, Network, Database, Eye, Code, Server, Boxes, Globe } from "lucide-react";
 import { Button } from "../ui/button";
 import type { ProjectFile, ProjectFileContent, DeployedResourceLink } from "../../lib/custom-api";
 import { DeployedResourcesBar } from "./deployed-resources-bar";
+import { AppPreviewTab } from "../../preview";
 
 // Lazy load the architecture diagram to avoid loading ReactFlow on every page
 const ArchitectureDiagram = lazy(() => import("./architecture-diagram"));
@@ -22,7 +23,7 @@ const CodeViewer = lazy(() => import("./code-viewer").then(m => ({ default: m.Co
 // Types
 // ---------------------------------------------------------------------------
 
-type ViewTab = "readme" | "architecture" | "files";
+type ViewTab = "readme" | "architecture" | "app" | "files";
 
 interface ResourcesInfo {
   warehouseName?: string | null;
@@ -31,6 +32,7 @@ interface ResourcesInfo {
 }
 
 interface FileViewerProps {
+  projectId: string;
   files: ProjectFile[];
   selectedFile: string | null;
   fileContent: ProjectFileContent | null;
@@ -48,6 +50,9 @@ interface FileViewerProps {
   onResourcesClick?: () => void;
   deployedResources?: DeployedResourceLink[];
   deployedAt?: string | null;
+  /** Wire auto-fix-from-logs on the App tab. Without this, the toggle is hidden. */
+  onAutoFixSend?: (message: string) => void;
+  autoFixApiRef?: import("../../preview").AutoFixApiRef;
 }
 
 interface TreeNode {
@@ -290,7 +295,14 @@ const CollapsedSidebar = memo(function CollapsedSidebar({
   activeTab,
 }: CollapsedSidebarProps) {
   // Get label based on active tab
-  const tabLabel = activeTab === "readme" ? "Summary" : activeTab === "architecture" ? "Architecture" : "Files";
+  const tabLabel =
+    activeTab === "readme"
+      ? "Summary"
+      : activeTab === "architecture"
+        ? "Architecture"
+        : activeTab === "app"
+          ? "App"
+          : "Files";
 
   return (
     <div className="w-12 h-full shrink-0 border-r border-border bg-muted/30 flex flex-col items-center pt-2 pb-2">
@@ -487,6 +499,20 @@ const TabBar = memo(function TabBar({
             <Network className="h-4 w-4" />
             Architecture
           </button>
+
+          <button
+            role="tab"
+            aria-selected={activeTab === "app"}
+            onClick={() => onTabChange("app")}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-medium transition-colors cursor-pointer ${
+              activeTab === "app"
+                ? "bg-background text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            <Globe className="h-4 w-4" />
+            App
+          </button>
         </div>
 
         {/* Right side: Resource pills */}
@@ -526,6 +552,7 @@ const TabBar = memo(function TabBar({
 // ---------------------------------------------------------------------------
 
 export const FileViewer = memo(function FileViewer({
+  projectId,
   files,
   selectedFile,
   fileContent,
@@ -543,6 +570,8 @@ export const FileViewer = memo(function FileViewer({
   onResourcesClick,
   deployedResources,
   deployedAt,
+  onAutoFixSend,
+  autoFixApiRef,
 }: FileViewerProps) {
   const [isSidebarExpanded, setIsSidebarExpanded] = useState(false);
   const [activeTab, setActiveTab] = useState<ViewTab>("readme");
@@ -671,8 +700,15 @@ export const FileViewer = memo(function FileViewer({
 
         {/* File content */}
         <div className="flex-1 flex flex-col min-w-0">
-          {/* Architecture tab — full-height, no scroll wrapper */}
-          {activeTab === "architecture" && isCreatingArchitecture ? (
+          {/* App tab — full-height, isolated preview module */}
+          {activeTab === "app" ? (
+            <AppPreviewTab
+              projectId={projectId}
+              onAutoFixSend={onAutoFixSend}
+              isStreaming={isStreaming}
+              autoFixApiRef={autoFixApiRef}
+            />
+          ) : activeTab === "architecture" && isCreatingArchitecture ? (
             <div className="flex-1 flex items-center justify-center">
               <div className="text-center text-muted-foreground">
                 <div className="animate-spin h-8 w-8 border-2 border-primary border-t-transparent rounded-full mx-auto mb-3" />

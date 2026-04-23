@@ -29,6 +29,7 @@ import {
   Send,
   X,
   RefreshCw,
+  AlertCircle,
 } from "lucide-react";
 import {
   listProjects,
@@ -338,7 +339,7 @@ function Index() {
       // did NOT select; those mentions must be treated as descriptive language,
       // NOT as a signal to add capabilities the user didn't pick.
       const authoritativeCapsLine = capabilityIds.length > 0
-        ? `\n\n=== AUTHORITATIVE CAPABILITY LIST ===\nresources.json MUST contain exactly these capabilities (and only these): ${capabilityIds.join(", ")}\n\nThe story below may mention other Databricks products by name — that is narrative phrasing only. Do NOT add capabilities to resources.json or architecture.md beyond the list above. If the story mentions a product not in this list, either rewrite that sentence in README to not name it, or drop the reference — do not add it to resources.json.`
+        ? `\n\nUse these capabilities within the demo: ${capabilityIds.join(", ")} (do not add extra unless it's a strict missing dependency)`
         : "";
 
       let initialPrompt: string;
@@ -398,6 +399,14 @@ function Index() {
 
   return (
     <div className="relative flex min-h-screen flex-col overflow-hidden">
+      {/* Full-page overlay while creating a project (or after a creation error) */}
+      {(isCreating || createError) && (
+        <CreateProjectOverlay
+          creating={isCreating}
+          error={createError}
+          onDismiss={() => setCreateError(null)}
+        />
+      )}
       <Navbar />
       <main className="flex flex-1 flex-col items-center px-4 pt-12 pb-20">
         <BubbleBackground
@@ -865,6 +874,57 @@ function Index() {
         templateId={selectedTemplateId}
         onClose={() => setSelectedTemplateId(null)}
       />
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Create-project overlay
+// ---------------------------------------------------------------------------
+
+function CreateProjectOverlay({
+  creating,
+  error,
+  onDismiss,
+}: {
+  creating: boolean;
+  error: string | null;
+  onDismiss: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm">
+      <div className="mx-4 w-full max-w-md rounded-2xl border border-border bg-card p-8 shadow-2xl">
+        {error ? (
+          <div className="space-y-4">
+            <div className="flex items-center gap-3">
+              <AlertCircle className="size-6 text-destructive shrink-0" />
+              <h3 className="text-lg font-semibold">Project creation failed</h3>
+            </div>
+            <div className="rounded-md bg-muted/50 p-3 text-sm font-mono text-muted-foreground max-h-48 overflow-y-auto whitespace-pre-wrap break-words">
+              {error}
+            </div>
+            <button
+              type="button"
+              onClick={onDismiss}
+              className="w-full inline-flex items-center justify-center gap-2 rounded-md bg-primary text-primary-foreground px-4 py-2 text-sm font-medium hover:bg-primary/90 transition-colors"
+            >
+              Dismiss
+            </button>
+          </div>
+        ) : creating ? (
+          <div className="space-y-4 text-center">
+            <div className="flex justify-center">
+              <Loader2 className="size-10 text-primary animate-spin" />
+            </div>
+            <div className="space-y-1">
+              <h3 className="text-lg font-semibold">Creating your project…</h3>
+              <p className="text-sm text-muted-foreground">
+                Please wait a moment — this takes a little while as we set up your project, and load the relevant skills.
+              </p>
+            </div>
+          </div>
+        ) : null}
+      </div>
     </div>
   );
 }

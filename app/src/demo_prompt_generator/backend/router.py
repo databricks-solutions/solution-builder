@@ -18,6 +18,7 @@ from .routes import templates as _templates  # noqa: E402, F401
 from .routes import constants as _constants  # noqa: E402, F401
 from .routes import config as _config  # noqa: E402, F401
 from .routes import block_factory as _block_factory  # noqa: E402, F401
+from .routes import me as _me  # noqa: E402, F401  # /api/me — see AUTH.md
 
 
 @router.get("/health", operation_id="health")

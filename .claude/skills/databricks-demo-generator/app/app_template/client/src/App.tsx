@@ -21,6 +21,7 @@ import { ChatDock } from '@/chat/ChatDock';
 import { OperationsView } from '@/operations/OperationsView';
 import { AnalyticsView } from '@/analytics/AnalyticsView';
 import { DashboardView } from '@/dashboard/DashboardView';
+import { RouteError } from './RouteError';
 
 function Layout() {
   return (
@@ -37,18 +38,35 @@ function Layout() {
   );
 }
 
-const router = createBrowserRouter([
-  {
-    element: <Layout />,
-    children: [
-      { path: '/', element: <HomeView /> },
-      { path: '/c/:id', element: <ChatView /> },
-      { path: '/operations', element: <OperationsView /> },
-      { path: '/analytics', element: <AnalyticsView /> },
-      { path: '/dashboard', element: <DashboardView /> },
-    ],
-  },
-]);
+// When this app runs inside the Demo Prompt Generator's preview proxy, a
+// client-side shim publishes `window.__PREVIEW_BASENAME__` (e.g.
+// "/preview/<project-id>"). Passing it as `basename` tells react-router to
+// strip that prefix before matching routes. Outside the proxy it's undefined
+// and the router behaves normally.
+declare global {
+  interface Window {
+    __PREVIEW_BASENAME__?: string;
+  }
+}
+const PREVIEW_BASENAME =
+  typeof window !== 'undefined' ? window.__PREVIEW_BASENAME__ : undefined;
+
+const router = createBrowserRouter(
+  [
+    {
+      element: <Layout />,
+      errorElement: <RouteError />,
+      children: [
+        { path: '/', element: <HomeView /> },
+        { path: '/c/:id', element: <ChatView /> },
+        { path: '/operations', element: <OperationsView /> },
+        { path: '/analytics', element: <AnalyticsView /> },
+        { path: '/dashboard', element: <DashboardView /> },
+      ],
+    },
+  ],
+  PREVIEW_BASENAME ? { basename: PREVIEW_BASENAME } : undefined,
+);
 
 export default function App() {
   return <RouterProvider router={router} />;

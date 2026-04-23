@@ -11,29 +11,43 @@ A skill for creating and building compelling Databricks demos that Technical Sol
 
 Generate a **coherent demo package** — a business story that showcases Databricks capabilities. The story must be compelling (a clear protagonist, problem, and resolution in $), and the technical components must connect end-to-end (data → pipeline → dashboard → agent all align). One key value of this skill: everything generated is fully coherent — the synthetic data serves the story and works as input for every downstream consumer (dashboards, apps, Genie spaces, agents).
 
-This skill has two parts:
+## How this skill is organized
 
-1. **Part 1 - Generate Specifications**: Create markdown files describing the demo story, architecture, and component specs. These are functional specs (what to do, not how) that guide implementation.
-2. **Part 2 - Build Resources**: If the user opts in, build the actual Databricks resources following the spec files. Keep specs in sync with any changes made during building.
+The main loop lives in this file (SKILL.md) — it describes **the flow**: stages, gates, what each stage produces, when to stop for user input. For **how to execute** a given stage, read the matching `SKILL_DIR/stages/NN-*.md` at the moment you enter it. Keep SKILL.md in your context at all times — pull in a stage file **only** when you're actively executing that stage.
 
----
+| Stage | What | User gate at end | Execution guide |
+|-------|------|------------------|-----------------|
+| **0. Capture Intent** | Understand request, browse domain/pattern blocks, propose story ideas if vague | — (flows into stage 1) | Inline in SKILL.md |
+| **1. Design Story** | Write `resources.json` + `README.md` + `architecture.md` (batched in one message) | ✅ *"Approve the story?"* | `stages/01-design-story.md` |
+| **2. Write Specs** | Write `specifications/*.md` + coherence review; spawn app-spec subagent if needed | ✅ *"Ready to build?"* | `stages/02-write-specs.md` |
+| **3. Build** (opt) | Create Databricks resources via ai-dev-kit skills | — (build completes) | `stages/03-build.md` |
+| **4. Package as a DAB** (opt) | On user request, post-build | — | `references/dab/dab.md` |
 
-## Quick Reference
+**Cross-cutting (not a stage):**
+- **Spawning subagents** — shared prompt structure, speed rules, scope: `SKILL_DIR/stages/subagents.md`
+- **App customization** — folded into stages 2 + 3: `SKILL_DIR/app/app.md`
 
-| Phase | What | Output |
-|-------|------|--------|
-| 1. Capture Intent | Understand request, browse domain/pattern blocks, ideate if needed | Selected story direction |
-| 2. Design Story & Generate Files | Design story, load refs, write `resources.json` + `README.md` + `architecture.md` (parallel) | Top-level files |
-| 3. User Review | User confirms story is good | Approval to continue |
-| 4. Generate Detailed Specs | Write specification files in staged order (`specifications/*.md`) | Spec files |
-| 5. Coherence Review | Verify end-to-end: data → pipeline → dashboard → agent all align | Verified specs |
-| 6. Build (opt) | Create Databricks resources using ai-dev-kit skills | Working demo |
+## Paths
+
+Your system prompt defines `DEMO_SKILL` (absolute path to this file), `PROJECT`, and `SKILLS`. Derive `SKILL_DIR = dirname(DEMO_SKILL)` once — this skill refers to sibling files like `SKILL_DIR/stages/*.md`, `SKILL_DIR/app/app.md`, `SKILL_DIR/references/*`.
+
+**When spawning subagents**, substitute every placeholder (`SKILL_DIR/…`, `PROJECT/…`, `SKILLS/…`) with its real absolute path before sending — the subagent has no system prompt defining them. Full guidance in `SKILL_DIR/stages/subagents.md`.
 
 ---
 
 ## Efficiency
 
-Batch reads in the same response when possible (e.g. load all reference blocks in one turn). Spec files must be written in dependency order — downstream specs reference names defined upstream (e.g. dashboard spec needs table names from pipeline spec).
+Batch tool calls in the same response whenever you can: emit multiple `Read` or `Write` calls in one assistant message and the harness executes them concurrently. You still generate tokens sequentially — batching saves LLM round-trips, not output time. Load all reference blocks in one message, write independent files in one message. Spec files must still be **written in dependency order** — downstream specs reference names defined upstream (e.g. dashboard spec needs table names from pipeline spec), so read the upstream spec before writing the next one. Real parallelism only happens when a subagent runs in a separate context (see `SKILL_DIR/stages/subagents.md`). Latency is dominated by LLM round-trips, not tool execution — every sequential tool call that could have been batched is wasted time.
+
+### Telling the user where you are
+
+Between phases, drop a one-liner so the user always knows where you are in the flow. Examples:
+
+- *"Story approved — starting spec generation (~2 min, app subagent in background)."*
+- *"Specs ready. Ready to build when you say go."*
+- *"Building. Genie + dashboard subagent running, app subagent running. Continuing with governance meanwhile."*
+
+No drawn-out status dumps — one line, then the work continues.
 
 ---
 
@@ -44,13 +58,14 @@ Batch reads in the same response when possible (e.g. load all reference blocks i
 ./architecture.md     # Architecture diagram schema (JSON) for visual rendering
 ./META-PROMPT.md      # Build instructions for the AI (generic, do not write it, copy it from template)
 ./resources.json      # Selected capabilities + created resource IDs
-./specifications/     # Detailed specs per component - The exact files depend on what the demo includes — there is no fixed list
+./specifications/     # Detailed specs per component — the exact files depend on what the demo includes; there is no fixed list
 ```
 
 ### resources.json
 
-Source of truth for what capabilities the demo includes. Created during spec phase with capabilities, updated during build with resource IDs. Structure mirrors `{DEMO_SKILL}/references/example-luxebeauty/resources.json`.
-**After build** (populated with created resource IDs - do not add links here):
+Source of truth for what capabilities the demo includes. Created during spec phase with capabilities, updated during build with resource IDs. Structure mirrors `SKILL_DIR/references/example-luxebeauty/resources.json`.
+
+**After build** (populated with created resource IDs — do not add links here):
 ```json
 {
   "capabilities": { "buildable": [...], "talking_track": [...] },
@@ -61,33 +76,35 @@ Source of truth for what capabilities the demo includes. Created during spec pha
     "genie_space_id": "abc123...",
     "knowledge_assistant_id": "ka-456...",
     "multi_agent_supervisor_id": "mas-789...",
-    "app_name": "luxebeauty-demo"
+    "app_name": "luxebeauty-demo",
+    "lakebase_project_id": "xxx",
+    "lakebase_branch": "xxx"
   }
 }
 ```
 
-- **buildable**: Capabilities that require actual Databricks resources (pipelines, dashboards, agents, apps, etc.)
-- **talking_track**: Capabilities mentioned in the demo narrative but don't require resource creation
-- **created_resources**: Filled during build phase — keys match the resource type (e.g., `pipeline_id`, `dashboard_id`, `genie_space_id`)
+- **buildable**: capabilities that require actual Databricks resources (pipelines, dashboards, agents, apps, etc.)
+- **talking_track**: capabilities mentioned in the demo narrative but don't require resource creation
+- **created_resources**: filled during build phase — keys match the resource type (e.g., `pipeline_id`, `dashboard_id`, `genie_space_id`)
 
-Capability IDs come from `{DEMO_SKILL}/references/platform_architecture.md`.
+Capability IDs come from `SKILL_DIR/references/platform_architecture.md`.
 
 When the user provides exact capabilities, use those directly — don't override with pattern suggestions.
 
 ### Architecture Diagram
 
-Read `{DEMO_SKILL}/references/architecture.md` for the schema format (icons, tiers, columns, edges, groups). Generate the architecture as JSON in `./architecture.md` — the UI renders it automatically.
+Read `SKILL_DIR/references/architecture.md` for the schema format (icons, tiers, columns, edges, groups). Generate the architecture as JSON in `./architecture.md` — the UI renders it automatically.
 
 ---
 
 ## Context Blocks & Platform Architecture
 
-**Always start by reading `{DEMO_SKILL}/references/platform_architecture.md`** — it shows the complete Databricks platform capabilities with dependencies, all product IDs and categories, and when to use each capability.
+**Always start by reading `SKILL_DIR/references/platform_architecture.md`** — it shows the complete Databricks platform capabilities with dependencies, all product IDs and categories, and when to use each capability.
 
-`{DEMO_SKILL}/references/blocks/` contains reusable context. Explore them for: ideation (user has a vague use-case, you need to know common industry use-cases / best practices) or to better understand how to position Databricks features / how they work
+`SKILL_DIR/references/blocks/` contains reusable context. Explore them for: ideation (user has a vague use-case, you need to know common industry use-cases / best practices) or to better understand how to position Databricks features / how they work.
 
 | Folder | What's Inside | When to Read |
-|--------|--------------|--------------|
+|--------|---------------|--------------|
 | `domains/` | Industry verticals (retail, healthcare, finance, manufacturing) — terminology, KPIs, personas, pain points | When the demo targets a specific industry |
 | `patterns/` | Story structures (anomaly detection, segmentation, predictive, compliance, real-time) — narrative arc, data shape, wow-moment design | When designing the story flow |
 | `capabilities/` | Databricks products — selling points, positioning, how to showcase unique value, common pitfalls | When you need deep product knowledge for spec writing |
@@ -112,33 +129,33 @@ Regardless of pattern, every demo needs a great story. A great demo has:
 - **Business language** — Revenue, cost, customers (in $). Not technical jargon.
 - **One clear problem** — Focused narrative, easy to follow.
 
-**The rule**: If you have to explain the business domain before the demo, pick a simpler domain.
+**The rule**: if you have to explain the business domain before the demo, pick a simpler domain.
 
 ---
 
 ## Modifying an Existing Project
 
-When the project already has files (`README.md`, `resources.json`, `specifications/`), don't restart from Phase 1. Instead:
+When the project already has files (`README.md`, `resources.json`, `specifications/`), don't restart from stage 0. Instead:
 
-1. **Read existing state** — `README.md`, `resources.json`, and any `specifications/*.md` files
-2. **Understand the user's request** — what they want to change (story, capabilities, a specific spec, a built resource)
+1. **Read existing state** — `README.md`, `resources.json`, and any `specifications/*.md` files.
+2. **Understand the user's request** — what they want to change (story, capabilities, a specific spec, a built resource).
 3. **Make targeted changes** — update only the affected files. Keep everything else consistent.
 4. **Propagate changes downstream** — if you change the story or data schema, update all specs that reference those values. If you change a spec, update the built resource if it exists.
+5. **App changes**: read `SKILL_DIR/app/app.md` for instructions.
+6. **Spec-writing standards**: if you're editing `specifications/*.md`, read `SKILL_DIR/stages/02-write-specs.md` for the standards (functional specs, temporal realism, coherence contracts, etc.).
 
 The coherence contract still applies: every change must ripple through all dependent files.
 
 ---
 
-## Part 1: Generate Specifications
-
-### Phase 1: Capture Intent
+## Stage 0 — Capture Intent
 
 First, assess the user's input — how much is already decided?
 
-**Vague** ("retail demo", "something with IoT"): Full ideation needed.
-1. Check `{DEMO_SKILL}/references/blocks/domains/` for a matching domain block — read it for terminology, KPIs, personas, pain points. Note its `suggested_patterns` and `suggested_capabilities`. No match? Use general knowledge.
-2. Browse `{DEMO_SKILL}/references/blocks/patterns/` — use the domain's `suggested_patterns` to pick the best fit. Read it for the narrative arc, data shape, wow moment, and suggested capabilities.
-3. Propose 2-3 story ideas combining domain terminology with the pattern's arc. Title format: "[Domain]'s [problem]". Keep it brief — no product names yet.
+**Vague** ("retail demo", "something with IoT"): full ideation needed.
+1. Check `SKILL_DIR/references/blocks/domains/` for a matching domain block — read it for terminology, KPIs, personas, pain points. Note its `suggested_patterns` and `suggested_capabilities`. No match? Use general knowledge.
+2. Browse `SKILL_DIR/references/blocks/patterns/` — use the domain's `suggested_patterns` to pick the best fit. Read it for the narrative arc, data shape, wow moment, and suggested capabilities.
+3. Propose 2–3 story ideas combining domain terminology with the pattern's arc. Title format: "[Domain]'s [problem]". Keep it brief — no product names yet.
    ```
    1. **Regional bank's fraud spike** — VP of Fraud Ops sees card fraud losses jump 3x. Traces it to compromised POS terminals at a merchant chain.
    2. **Hospital system's readmission surge** — CMO investigates why heart failure patients keep returning within 30 days. Uncovers a discharge protocol gap.
@@ -147,136 +164,35 @@ First, assess the user's input — how much is already decided?
    Pick one, combine ideas, or describe something else.
    ```
 
-**Moderate** ("fraud detection demo for a bank, dashboards + Genie to investigate suspicious transactions"): Story direction is clear but needs fleshing out.
+**Moderate** ("fraud detection demo for a bank, dashboards + Genie to investigate suspicious transactions"): story direction is clear but needs fleshing out.
 1. Read domain block if one exists. Read the matching pattern block.
-2. Confirm capabilities from the platform_architecture.md and capabilities block when more details are required — no need to propose alternatives.
+2. Confirm capabilities from `platform_architecture.md` and capability blocks when more detail is required — no need to propose alternatives.
 
-**Detailed** (full PRD with protagonist, catalyst, narrative arc already defined): The user has done the thinking. Skip ideation — go straight to databricks features / capabilities, generate the story for validation, then specs.
+**Detailed** (full PRD with protagonist, catalyst, narrative arc already defined): the user has done the thinking. Skip ideation — go straight to stage 1.
 
-### Phase 2: Design the Story & Generate Files
+## Stage 1 — Design Story
 
-Once the direction is clear, two things happen: design the story, then write all files.
+**Read `SKILL_DIR/stages/01-design-story.md` now** and follow it. Outputs: `resources.json`, `README.md`, `architecture.md` at the project root.
 
-#### Designing the Story
+**Gate — ask the user before continuing:**
 
-Nail down the specifics. The exact structure depends on the story pattern, but should define (unless instructed otherwise):
-
-1. **The Protagonist** — Company name, industry, persona name and role, what they care about
-2. **The Setup** — What's normal, what context the audience needs
-3. **The Catalyst** — What triggers the demo flow (a spike, a question, a prediction, an alert)
-4. **The Journey** — How the protagonist uses the platform to get from question to answer
-5. **The Resolution** — What they learn, the business impact (in $), what action they take
-6. **The Value** — One-sentence "so what" that lands with the audience
-
-**Match products to story moments** — Each product should have a clear "when it shines" moment in the walkthrough. Drop any from the story that don't earn a moment; add any the user requests.
-Important: you must always keep the resources.json up to date with all the product capabilities the demo requires. Some technical products (data generation) can be in resources.json (we need them for implementation) and not appear in the README.md story (they don't have a wow effect in the story).
-
-#### Context Load — one turn, all reads in parallel
-
-Before writing files, load all references in a single response:
-
-- `{DEMO_SKILL}/references/architecture.md` — diagram schema
-- `{DEMO_SKILL}/references/example-luxebeauty/README.md` — style reference
-- `{DEMO_SKILL}/references/platform_architecture.md` — if not already in context
-- Any capability blocks you need for understanding product positioning (avoid reading them if it's clear from common knowledge, specific ones like dashboard can be valuable)
-
-All reads in ONE turn. If you catch yourself wanting to Read during the write step, go back and add it to this batch.
-
-#### Write resources.json + README.md + architecture.md
-
-**`./resources.json`** — The user's message includes an AUTHORITATIVE CAPABILITY LIST when coming from the UI. That list is the source of truth. If the story mentions a product not in the list, rewrite the sentence or drop the reference — don't add it to resources.json.
-
-**`./architecture.md`** — JSON diagram following the schema in `{DEMO_SKILL}/references/architecture.md`. Nodes and edges must match the products in README and resources.json.
-
-**`./README.md`** — Same structure as `{DEMO_SKILL}/references/example-luxebeauty/README.md`:
-- **The Story** — Summary table (company, protagonist, problem, journey, resolution, impact)
-- **Overview** — Short paragraph
-- **Key Numbers** — Metrics table
-- **Products Showcased** — Product + what it does in this demo (must match resources.json)
-- **Demo Walkthrough** — Concise bullet points a presenter can glance at
-
-**Coherence across the three files is your responsibility** — you're writing all three from the same plan in context, so Products Showcased ↔ architecture nodes ↔ resources.json capabilities must all name the same set of products. The parallel writes work because coherence comes from your plan, not from reading one file to write the next.
-
-### Phase 3: User Review Checkpoint
-
-**Stop and ask for user approval before generating detailed specs.** Summarize the story, key products, and demo flow. Wait for confirmation.
-After writing README.md, say:
 ```
-I've created the demo story in README.md with:
-- [VERY Brief summary of the story with products being showcased]
-- [VERY SHORT The demo flow]
+I've created the demo story in README.md and the architecture.
+Narrative: [VERY VERY brief summary the narrative, easy to read]
 
 **Should I go ahead and generate the detailed specification files?**
 
 Reply "yes" to continue, or let me know what to change.
 ```
 
+Wait for confirmation before starting stage 2.
 
-### Phase 4: Generate Detailed Specifications
+## Stage 2 — Write Specs
 
-After approval, generate:
-- `META-PROMPT.md` — **Copy `cp {DEMO_SKILL}/references/META-PROMPT-TEMPLATE.md {PROJECT}/META-PROMPT.md` as-is.** It's fully generic do not write it.
-- `specifications/*.md` — One file per category, numbered in build order (read `{DEMO_SKILL}/references/example-luxebeauty/specifications/` for format and density reference)
+**Read `SKILL_DIR/stages/02-write-specs.md` now** and follow it. Outputs: `META-PROMPT.md` (copied) + `specifications/*.md`. Includes the coherence pass at the end.
 
-Only generate files for categories used in this demo. Skip unused categories.
+**Gate — ask the user before continuing:**
 
-Downstream specs reference tables, columns, and IDs that upstream specs define. Write in dependency order — read the previous spec before writing the next.
-
-| File(s) | What goes in it | Depends on |
-|---------|-----------------|------------|
-| `META-PROMPT.md` (cp, don't write), `01-lakeflow.md` | Data generation (schemas, distributions, the event), unstructured docs/PDFs, SDP pipeline (bronze→silver→gold), validation queries | Nothing |
-| `02-uc-governance.md` | ABAC policies, data quality monitors, classification rules | lakeflow (table names) |
-| `03-ai-bi.md`, `04-agent-bricks.md` | Dashboard (layout, filters, widgets) + Genie Space (instructions, Q&A). KA (docs, instructions, Q&A) + MAS (routing, demo flow) + model serving | lakeflow + governance (Gold tables, columns, doc IDs) |
-| `specifications/app/*.md` | App spec — only when app is required. See below. | lakeflow |
-
-**App Specification** (if `databricks-apps` in resources.json):
-
-Spawn a **subagent** as soon as `01-lakeflow.md` is written — it runs in parallel with the other specs. The subagent has no context from the parent conversation, so your prompt must tell it to read:
-
-1. `{DEMO_SKILL}/SKILL.md` up to the Coherence Review section — spec-writing standards (functional, dense, coherent)
-2. `{DEMO_SKILL}/app/app_template/TEMPLATE_MAP.md` — comprehensive map of the template (schema, tools, routes, components, what to customize vs keep)
-3. `{PROJECT}/README.md` — the demo story, persona, products, walkthrough
-4. `{PROJECT}/resources.json` — which capabilities are included
-5. `{PROJECT}/specifications/01-lakeflow.md` — table names, schemas, data shape
-6. `{DEMO_SKILL}/references/example-luxebeauty/specifications/app/` — all files, as reference for structure and density
-
-Then instruct it to write new app specs in `{PROJECT}/specifications/app/` for the current demo's story. File structure is flexible (the example has 4 files: overview+home+assistant, operations, analytics+dashboard, data model — adapt as needed).
-
-Tell the subagent to focus on:
-- **Narrative coherence** — persona, story, starter questions, scripted demo chain align with README and data specs
-- **Agent behavior** — tools, 3-phase action chain adapted to the domain
-- **Pages** — what each shows, how it maps to Databricks capabilities
-- **Data model** — which Delta tables mirror to Lakebase, domain entity shape, append-only audit pattern
-- **Adaptability** — adapt to what the demo has (no MAS → use Genie or pure agent; no dashboard → remove page; no KA → MAS routes to Genie only...)
-
-#### Writing Good Spec Files
-
-Each file must be clear enough that another agent can execute without ambiguity. Write **functional specs** (what to build, not how). Focus on:
-
-- **Deterministic values**: Exact IDs, names, numbers that must be reproduced
-- **Schemas**: Column names, types, relationships, count must be correct so keep it high level to avoid spec errors.
-- **The event**: What makes the story data interesting (distributions, anomalies)
-- **Coherence contracts**: Which columns/tables are consumed downstream (e.g., gold table dimensions must match dashboard filters)
-- **Temporal realism**: The story's key event (spike, anomaly, incident) should be clearly in the **past** — NOT at the rightmost edge of charts. Place the peak ~2-4 weeks ago with a realistic decay curve (build-up → peak → gradual return toward baseline). This produces dashboards where the anomaly is visually obvious as a bump in historical data, not a cliff edge. Define explicit time anchors (e.g., `SPIKE_PEAK = NOW - 3 weeks, DECAY_START = NOW - 2 weeks`).
-- **Dashboard color**: Charts should group/color by a key dimension (region, category, segment) so the dashboard is visually rich. Bar charts stacked/grouped by the filter dimension; line charts colored by region or category. A monochrome dashboard is a missed opportunity — color reveals which segment drives the anomaly.
-
-Define shared values (affected SKUs, lot, persona, metrics) once in `01-lakeflow.md`, reference "from 01" in later files.
-
-### Phase 5: Coherence Review
-
-**The hardest and most important step.** Check that everything connects and do a last round of edit if needed:
-
-- [ ] The data generation file values are coherent with the story metrics, and the math checks out
-- [ ] Data supports all dashboard visualizations (columns, aggregations, filter dimensions) and genie questions
-- [ ] Documents (if any) contain the content KA queries expect
-- [ ] Identifiers match across data and documents (lot IDs, SKUs, dates)
-- [ ] Key numbers are consistent everywhere (same amounts, same rates)
-- [ ] The demo flow works end-to-end (each step feeds the next) and highlight databricks features
-- [ ] Specs are functional (WHAT to do), not technical (HOW to do it)
-
-**Final review prompt**: Ask yourself: "Is this a great, coherent story? Is all data there to support every downstream consumer? Did I follow all user instructions?"
-
-After coherence review, ask the user if they want to build:
 ```
 Demo specifications are ready in `./specifications/`.
 Would you like me to build the demo resources now?
@@ -284,45 +200,19 @@ Would you like me to build the demo resources now?
 Reply "yes" to start building, or "no" to stop here.
 ```
 
----
+## Stage 3 — Build 
 
-## Part 2: Build Resources (Phase 6)
+If the user confirms, **read `SKILL_DIR/stages/03-build.md` now** and follow it. It covers: build-order gates, subagent parallelization, how to spawn a build subagent, app generation, and sync rules between specs and built resources.
 
-If the user confirms, build the actual Databricks resources.
+## Stage 4 — Package as a DAB (optional)
 
-### Building with ai-dev-kit Skills
-
-**All building uses ai-dev-kit CLI skills — not MCP tools.** Before each build step, load the relevant skill from the `{SKILLS}` directory (check your system prompt for the skill list)
-
-For each capability: load skill → read spec file → create resource → validate → update `resources.json` with resource ID.
-
-### Build-Order Gates — Do Not Skip
-
-Consumption resources depend on upstream data. The dependency graph is in `{DEMO_SKILL}/references/platform_architecture.md`. The core rule: **never create a downstream resource before its upstream data exists and is verified**.
-
-Before creating any dashboard, Genie space, KA, or agent: verify every table/document it references exists and has rows. If a gate fails, STOP and fix upstream — do not proceed.
-
-**CRITICAL: Keep spec files in sync.** If you change a resource during build, or if the user ask you to change a resource, update its spec file first.
-
-### App Generation (if requested)
-
-If the demo includes a Databricks App (`databricks-apps` in resources.json), build all other resources first, verify they work, then ask the user:
-
-```
-All demo resources are built and working.
-Would you like me to generate the Databricks App now?
-```
-
-If the user says yes, read `{DEMO_SKILL}/app/app.md` for full instructions on how to copy the template, customize it for the story, and wire it to the built resources.
-
-## Part 3: Package
-when the user ask you to create a DAB, read `{DEMO_SKILL}/references/dab/dab.md` and create the dab specification for the user.
+When the user asks you to create a DAB, read `SKILL_DIR/references/dab/dab.md` and create the DAB specification.
 
 ---
 
 ## Reference Materials
 
-Browse `{DEMO_SKILL}/references/` for worked examples showing file format, detail level, and how files connect. The `example-luxebeauty/` folder is the primary reference — adapt the structure, don't copy the content.
+Browse `SKILL_DIR/references/` for worked examples showing file format, detail level, and how files connect. The `example-luxebeauty/` folder is the primary reference — adapt the structure, don't copy the content.
 
 ---
 
@@ -341,10 +231,10 @@ Browse `{DEMO_SKILL}/references/` for worked examples showing file format, detai
 
 When the user requests a Databricks feature you're not familiar with:
 
-1. Check if a capability block exists in `{DEMO_SKILL}/references/blocks/capabilities/`
-2. If not, fetch documentation from `https://docs.databricks.com/llms.txt`
-3. Understand what value it adds to the demo
-4. Write functional specs (what it should do, inputs, outputs)
+1. Check if a capability block exists in `SKILL_DIR/references/blocks/capabilities/`.
+2. If not, fetch documentation from `https://docs.databricks.com/llms.txt`.
+3. Understand what value it adds to the demo.
+4. Write functional specs (what it should do, inputs, outputs).
 
 Don't refuse — learn and adapt.
 
@@ -359,4 +249,4 @@ Everything in this skill is a **default**. The user is in control:
 - User wants to skip the walkthrough? Fine.
 - User has specific requirements that contradict these defaults? User wins.
 
-**Your job**: Help the user create a great demo, whatever that looks like for them.
+**Your job**: help the user create a great demo, whatever that looks like for them.

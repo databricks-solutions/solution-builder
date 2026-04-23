@@ -28,16 +28,36 @@ DEBOUNCE_SECONDS = 0.5
 BATCH_SIZE = 100
 PROJECTS_BASE_DIR = os.getenv("PROJECTS_BASE_DIR", "./projects")
 
-# Patterns to ignore from sync (these paths are managed elsewhere)
+# Patterns to ignore from sync (these paths are managed elsewhere, or would thrash
+# the DB with thousands of events during `npm install`, `uv sync`, builds, etc.)
 IGNORE_PATTERNS = [
+    # Managed elsewhere
     ".claude/skills/**",  # Skills managed by skills_manager
     ".claude/settings*",  # Local settings
+    ".databrickscfg",  # Per-project Databricks auth file — see backend/AUTH.md
+    ".databrickscfg.*",  # Atomic-write temp variants
+    # Language package/artifact dirs — never back these up
+    "node_modules/**",
+    ".venv/**",
+    "venv/**",
     "__pycache__/**",
+    ".pytest_cache/**",
+    ".ruff_cache/**",
+    ".mypy_cache/**",
+    # Build / bundler output
+    "dist/**",
+    "build/**",
+    ".next/**",
+    ".turbo/**",
+    ".parcel-cache/**",
+    "__dist__/**",
+    # VCS + OS cruft
     ".git/**",
+    ".DS_Store",
+    # File-type noise
     "*.pyc",
     "*.pyo",
     "*.swp",
-    ".DS_Store",
     "*.tmp",
     "*.tmp.*",  # Atomic write temp files (e.g. file.py.tmp.59934.123456)
     "*.log",
@@ -45,15 +65,20 @@ IGNORE_PATTERNS = [
 
 
 def should_ignore(relative_path: str) -> bool:
-    """Check if a path matches any ignore pattern."""
+    """Check if a path matches any ignore pattern.
+
+    For `dir/**` patterns, matches `dir/` anywhere in the path (e.g. `app/node_modules/...`
+    is ignored by `node_modules/**`, not just a top-level `node_modules/...`).
+    """
     basename = os.path.basename(relative_path)
+    parts = relative_path.split("/")
     for pattern in IGNORE_PATTERNS:
         if fnmatch.fnmatch(relative_path, pattern) or fnmatch.fnmatch(basename, pattern):
             return True
-        # Also check if any parent path matches directory patterns
         if pattern.endswith("/**"):
-            dir_pattern = pattern[:-3]
-            if relative_path.startswith(dir_pattern + "/") or relative_path == dir_pattern:
+            dir_name = pattern[:-3]
+            # Match if any path segment equals the dir name (or matches it as a glob).
+            if any(fnmatch.fnmatch(part, dir_name) for part in parts):
                 return True
     return False
 
@@ -157,9 +182,26 @@ class FileWatcherService:
         logger.info("File watcher stopped")
 
     def _on_file_change(self, project_id: str, relative_path: str, event_type: str) -> None:
-        """Called from watchdog thread - schedules async processing."""
+        """Called from watchdog thread - updates the listing cache synchronously,
+        then schedules an async DB flush."""
         if not self._running or not self._loop:
             return
+
+        # Update the file-listing cache in-place so the next /files call is fresh
+        # without having to re-walk the filesystem. Safe from a watchdog thread:
+        # the cache uses its own RLock.
+        try:
+            from ..routes.project_files import cache_remove_file, cache_update_file
+            if event_type == "deleted":
+                cache_remove_file(project_id, relative_path)
+            else:
+                # created / modified / moved (src side) — re-stat the path. moved's
+                # dest side fires a separate 'created' event which we handle the
+                # same way.
+                cache_update_file(project_id, relative_path)
+        except Exception as e:
+            # Cache is a best-effort optimization — never break the watcher.
+            logger.debug(f"cache update failed for {project_id}/{relative_path}: {e}")
 
         self._pending[project_id].add(relative_path)
 

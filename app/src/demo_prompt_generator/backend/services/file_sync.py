@@ -62,6 +62,16 @@ class FileSyncService:
         return self._base_dir / project_id
 
     async def sync_files_to_db(self, project_id: str, relative_paths: list[str]) -> int:
+        """Async wrapper — runs the blocking DB sync on a worker thread.
+
+        Why: psycopg/SQLAlchemy calls are synchronous; running them directly on the
+        asyncio event loop (as the file watcher's debounced flush does) freezes every
+        in-flight HTTP request and SSE stream until PG answers.
+        """
+        import asyncio
+        return await asyncio.to_thread(self._sync_files_to_db_blocking, project_id, relative_paths)
+
+    def _sync_files_to_db_blocking(self, project_id: str, relative_paths: list[str]) -> int:
         """
         Sync changed files from filesystem to database.
 
@@ -138,27 +148,8 @@ class FileSyncService:
         return synced
 
     def sync_files_to_db_sync(self, project_id: str, relative_paths: list[str]) -> int:
-        """
-        Synchronous version of sync_files_to_db for use in non-async contexts.
-        """
-        import asyncio
-
-        try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                # We're in an async context, create a task
-                import concurrent.futures
-                with concurrent.futures.ThreadPoolExecutor() as executor:
-                    future = executor.submit(
-                        asyncio.run, self.sync_files_to_db(project_id, relative_paths)
-                    )
-                    return future.result()
-            else:
-                return loop.run_until_complete(
-                    self.sync_files_to_db(project_id, relative_paths)
-                )
-        except RuntimeError:
-            return asyncio.run(self.sync_files_to_db(project_id, relative_paths))
+        """Synchronous version for non-async contexts (call the blocking impl directly)."""
+        return self._sync_files_to_db_blocking(project_id, relative_paths)
 
     def restore_project_from_db(self, project_id: str, session: Optional[Session] = None) -> int:
         """
@@ -169,11 +160,19 @@ class FileSyncService:
         - User switches devices
         - Manual refresh requested
 
+        Also ensures the project's ai-dev-kit skills are in place — skills aren't
+        backed up to the DB (they live in the monorepo), so a restore must copy
+        them fresh too.
+
         Returns:
             Number of files restored
         """
         project_dir = self._project_dir(project_id)
         project_dir.mkdir(parents=True, exist_ok=True)
+
+        # Lazy import to avoid a circular module load at startup.
+        from .skills_manager import ensure_project_skills
+        ensure_project_skills(project_id)
 
         def _restore(sess: Session) -> int:
             restored = 0
@@ -317,16 +316,16 @@ class FileSyncService:
 
             # Get local files (excluding ignored patterns)
             local_files = set()
+            # Directory names we prune at any depth — keep in sync with
+            # file_watcher.IGNORE_PATTERNS.
+            PRUNE_DIRS = {
+                ".claude", ".git", ".venv", "venv",
+                "node_modules", "__pycache__", ".pytest_cache",
+                ".ruff_cache", ".mypy_cache",
+                "dist", "build", ".next", ".turbo", ".parcel-cache", "__dist__",
+            }
             for root, dirs, files in os.walk(project_dir):
-                # Skip .claude, venvs, node_modules, and other non-project dirs
-                dirs[:] = [
-                    d for d in dirs
-                    if d != ".claude"
-                    and not d.startswith("__")
-                    and not d.startswith(".venv")
-                    and d != "node_modules"
-                    and d != ".git"
-                ]
+                dirs[:] = [d for d in dirs if d not in PRUNE_DIRS]
 
                 for fname in files:
                     abs_path = Path(root) / fname

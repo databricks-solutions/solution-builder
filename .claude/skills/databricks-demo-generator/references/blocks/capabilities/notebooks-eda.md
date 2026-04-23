@@ -1,7 +1,7 @@
 ---
 name: Notebooks & EDA
 category: ai-bi
-disabled: false
+disabled:  true
 buildable: false
 ---
 

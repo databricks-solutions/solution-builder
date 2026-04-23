@@ -76,6 +76,37 @@ export async function handleChatStream(args: {
     return;
   }
 
+  // Sanitize history before sending to the model. Two invariants the
+  // Responses API is strict about, either of which surfaces as an
+  // unhelpful "502 INTERNAL_ERROR: invalid response from upstream":
+  //   1. No empty-content messages. A failed prior turn may have persisted
+  //      an assistant row with content='' (see the error-only branch below);
+  //      replaying it produces `[{type: 'output_text', text: ''}]`, which
+  //      the API rejects. We keep that row in the DB for UI display but
+  //      skip it here so it can't contaminate future context.
+  //   2. Only user/assistant roles reach the SDK.
+  const cleanMessages = messages.filter(
+    (m) =>
+      (m.role === 'user' || m.role === 'assistant') &&
+      typeof m.content === 'string' &&
+      m.content.trim().length > 0,
+  );
+
+  // If sanitization leaves us with nothing to send (e.g. the only message
+  // was an empty user turn), bail cleanly rather than letting the upstream
+  // 502 bubble up. This also protects agent-stream from running with zero
+  // history.
+  const lastClean = cleanMessages[cleanMessages.length - 1];
+  if (!lastClean || lastClean.role !== 'user') {
+    sseError(
+      res,
+      'Empty message — please type something before sending.',
+    );
+    res.write('data: [DONE]\n\n');
+    res.end();
+    return;
+  }
+
   let finalText: string | null = null;
   let traceId: string | null = null;
   let thinking: ThinkingEntry[] = [];
@@ -90,7 +121,7 @@ export async function handleChatStream(args: {
       masEndpointName: config.agentEndpointName,
       databricksHost: host,
       model: config.agentModel ?? 'databricks-gpt-5-4',
-      messages,
+      messages: cleanMessages,
     });
     finalText = out.finalText;
     traceId = out.traceId;
@@ -102,7 +133,7 @@ export async function handleChatStream(args: {
       res,
       host,
       endpoint: config.agentEndpointName,
-      messages,
+      messages: cleanMessages,
       formatCache,
     });
     finalText = out.finalText;

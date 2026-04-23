@@ -244,13 +244,31 @@ def copy_skills_to_project(
 
     copied = 0
 
+    # Ignore rules for skill copies. The demo-generator skill bundles an
+    # app_template/ that may carry a local node_modules/ (hundreds of MB),
+    # a dev .env with secrets, or build artifacts. Skip them so creation
+    # is fast and we never leak credentials.
+    _ignored = shutil.ignore_patterns(
+        "node_modules",
+        ".venv",
+        "dist",
+        ".env",
+        ".env.local",
+        ".DS_Store",
+        "*.tsbuildinfo",
+        "playwright-report",
+        "test-results",
+        "__pycache__",
+        "*.pyc",
+    )
+
     # Copy demo-generator from this project
     demo_skill_path = get_demo_generator_skill_path()
     if demo_skill_path and demo_skill_path.exists():
         dest = skills_dest / "databricks-demo-generator"
         if dest.exists():
             shutil.rmtree(dest)
-        shutil.copytree(demo_skill_path, dest)
+        shutil.copytree(demo_skill_path, dest, ignore=_ignored)
         copied += 1
 
         # Prune capability blocks the user didn't select so the agent
@@ -278,7 +296,7 @@ def copy_skills_to_project(
             dest = skills_dest / dir_name
             if dest.exists():
                 shutil.rmtree(dest)
-            shutil.copytree(src, dest)
+            shutil.copytree(src, dest, ignore=_ignored)
             copied += 1
 
     logger.info(f"Copied {copied} skills to project {project_id}")

@@ -246,6 +246,27 @@ async function callMasAsTool(
   return { answer: lastStepText ?? '(no answer)', trace_id };
 }
 
+// ────────────────────────────────────────────────────────────────────────────
+// Adding / editing tools — read this before touching `parameters: z.object(...)`.
+//
+// The Agents SDK ships every tool's zod schema to the Responses API with
+// `strict: true`. Strict mode requires every property to appear in `required`.
+// If you write `.optional()` on a field, zod-to-json-schema drops it from
+// `required`, OpenAI rejects the schema with a 400, and Databricks' proxy
+// masks the 400 as a bare 502 INTERNAL_ERROR — you get no clue what's wrong.
+//
+//   ❌  reason: z.string().optional()                 // breaks with strict:true
+//   ✅  reason: z.string().nullable()                 // field required, value may be null
+//   ✅  reason: z.string().nullable().describe('…')
+//
+// Other gotchas for new tools:
+//   • Every `z.object({...})` field needs a `.describe('…')` — the model uses
+//     it to decide when/how to call the tool. Missing descriptions = bad calls.
+//   • Keep property names snake_case. OpenAI's tool calls sometimes normalize
+//     casing and mixing conventions causes subtle argument-parsing bugs.
+//   • Don't use `z.union([...])` at the top level of parameters — Responses
+//     API strict mode requires a single object schema.
+// ────────────────────────────────────────────────────────────────────────────
 function makeTools(ctx: AgentContext) {
   const findReturnsForLot = tool({
     name: 'find_returns_for_lot',

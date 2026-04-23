@@ -1,7 +1,7 @@
 ---
 name: ABAC
 category: uc-governance
-disabled: false
+disabled: true
 buildable: false
 ---
 

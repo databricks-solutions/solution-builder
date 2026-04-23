@@ -6,6 +6,7 @@ import io
 import json
 import logging
 import os
+import threading
 import traceback
 import zipfile
 from datetime import datetime, timezone
@@ -31,8 +32,143 @@ router = create_router()
 
 PROJECTS_BASE_DIR = os.getenv("PROJECTS_BASE_DIR", "./projects")
 
-# Files/folders to exclude from listing
-EXCLUDED_PATTERNS = {".claude", ".databricks", "__pycache__", ".git", ".DS_Store", "node_modules"}
+# Files/folders to exclude from listing. Keep in sync with
+# file_watcher.IGNORE_PATTERNS and file_sync.PRUNE_DIRS.
+EXCLUDED_PATTERNS = {
+    # Managed elsewhere
+    ".claude",
+    ".databricks",
+    # Language package/artifact dirs
+    "node_modules",
+    ".venv", "venv",
+    "__pycache__", ".pytest_cache", ".ruff_cache", ".mypy_cache",
+    # Build output
+    "dist", "build", ".next", ".turbo", ".parcel-cache", "__dist__",
+    # VCS + OS
+    ".git",
+    ".DS_Store",
+}
+
+
+# ---------------------------------------------------------------------------
+# In-memory file listing cache
+#
+# Keyed by project_id. Each entry is a dict[relative_path → file dict], so
+# watcher events can add / update / remove a single entry in O(1) without
+# re-walking the filesystem. Reads convert the dict to a sorted list.
+#
+# Invalidation:
+# - First read for a project: full walk populates the cache.
+# - Watcher 'created'/'modified' events: `cache_update_file` re-stats one path.
+# - Watcher 'deleted'/'moved' events: `cache_remove_file` pops the entry.
+# - `?force=true` query param: evicts the entry, next read rebuilds.
+# ---------------------------------------------------------------------------
+
+_file_cache: dict[str, dict[str, dict]] = {}
+_cache_lock = threading.RLock()
+
+
+def _make_file_entry(project_dir: Path, file_path: Path) -> dict | None:
+    """Build a file entry dict from an absolute path, or None if ignored/missing."""
+    try:
+        rel_path = file_path.relative_to(project_dir)
+    except ValueError:
+        return None
+    # Reject if any path segment is an excluded directory, or if the basename is.
+    for part in rel_path.parts:
+        if part in EXCLUDED_PATTERNS:
+            return None
+    try:
+        stat = file_path.stat()
+    except OSError:
+        return None
+    return {
+        "path": str(rel_path),
+        "name": file_path.name,
+        "size": stat.st_size,
+        "last_modified": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
+    }
+
+
+def _build_cache_from_walk(project_id: str, project_dir: Path) -> dict[str, dict]:
+    """Walk the filesystem once and build the cache dict."""
+    entries: dict[str, dict] = {}
+    if not project_dir.exists():
+        return entries
+    for root, dirs, filenames in os.walk(project_dir):
+        dirs[:] = [d for d in dirs if d not in EXCLUDED_PATTERNS]
+        root_path = Path(root)
+        for name in filenames:
+            if name in EXCLUDED_PATTERNS:
+                continue
+            entry = _make_file_entry(project_dir, root_path / name)
+            if entry is not None:
+                entries[entry["path"]] = entry
+    return entries
+
+
+def _get_cached_files(project_id: str, project_dir: Path, force: bool = False) -> list[dict]:
+    """Return the sorted file list for a project, rebuilding the cache if needed.
+
+    We release the lock while doing the initial `os.walk` so concurrent readers
+    don't serialize on a slow cold-start. If two callers race on the first read,
+    both will walk (idempotent) and whichever writes last wins — but both see a
+    correct snapshot and neither blocks the other.
+    """
+    # Fast path: entry already cached.
+    with _cache_lock:
+        if not force:
+            entries = _file_cache.get(project_id)
+            if entries is not None:
+                files = list(entries.values())
+                return sorted(files, key=lambda f: f["path"])
+        # else: miss or force — fall through to rebuild outside the lock.
+        _file_cache.pop(project_id, None)
+
+    # Slow path: walk outside the lock so we don't block other readers/watcher events.
+    fresh = _build_cache_from_walk(project_id, project_dir)
+
+    # Publish. If a watcher event arrived between the pop and now, its update was
+    # applied to an already-removed entry (no-op path in cache_update_file when
+    # the project isn't cached). The walk we just did reflects current disk state,
+    # so we're consistent.
+    with _cache_lock:
+        _file_cache[project_id] = fresh
+        files = list(fresh.values())
+
+    return sorted(files, key=lambda f: f["path"])
+
+
+def cache_update_file(project_id: str, relative_path: str) -> None:
+    """Watcher hook: file was created/modified. Re-stat one path and update the cache.
+
+    If the entry ends up filtered out (excluded pattern / unreadable), it is removed.
+    No-op when the project hasn't been cached yet — the next read will build it from scratch.
+    """
+    with _cache_lock:
+        entries = _file_cache.get(project_id)
+        if entries is None:
+            return  # Not cached yet; next read will do a full walk.
+        project_dir = Path(PROJECTS_BASE_DIR).resolve() / project_id
+        entry = _make_file_entry(project_dir, project_dir / relative_path)
+        if entry is None:
+            entries.pop(relative_path, None)
+        else:
+            entries[relative_path] = entry
+
+
+def cache_remove_file(project_id: str, relative_path: str) -> None:
+    """Watcher hook: file was deleted. Drop the entry from the cache."""
+    with _cache_lock:
+        entries = _file_cache.get(project_id)
+        if entries is not None:
+            entries.pop(relative_path, None)
+
+
+def cache_evict_project(project_id: str) -> None:
+    """Drop the whole cache for a project (e.g. after a bulk restore from DB)."""
+    with _cache_lock:
+        _file_cache.pop(project_id, None)
 
 
 def _get_user_email(headers) -> str:
@@ -54,36 +190,9 @@ def _get_user_project(session, project_id: str, user_email: str) -> Project:
     return row
 
 
-def _list_files_from_filesystem(project_dir: Path) -> list[dict]:
-    """List all files in a project directory from the filesystem."""
-    files = []
-
-    if not project_dir.exists():
-        return files
-
-    for file_path in project_dir.rglob("*"):
-        # Skip directories
-        if file_path.is_dir():
-            continue
-
-        # Skip excluded patterns
-        rel_path = file_path.relative_to(project_dir)
-        if any(part in EXCLUDED_PATTERNS for part in rel_path.parts):
-            continue
-
-        try:
-            stat = file_path.stat()
-            files.append({
-                "path": str(rel_path),
-                "name": file_path.name,
-                "size": stat.st_size,
-                "last_modified": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
-            })
-        except OSError:
-            # Skip files we can't stat
-            continue
-
-    return sorted(files, key=lambda f: f["path"])
+# (Old _list_files_from_filesystem removed — callers now use _get_cached_files,
+# which delegates to _build_cache_from_walk for the first read and keeps the
+# cache warm via watcher hooks.)
 
 
 @router.get(
@@ -96,24 +205,28 @@ def list_project_files(
     session: Dependencies.Session,
     headers: Dependencies.Headers,
     request: Request,
+    force: bool = False,
 ):
-    """List all files in a project from the local filesystem."""
+    """List all files in a project from the local filesystem.
+
+    Served from an in-memory cache that the file watcher keeps in sync with the
+    filesystem. Pass `?force=true` to evict and rebuild from a fresh `os.walk`
+    (useful when the UI's Refresh button is clicked, or if the cache is suspect).
+    """
     try:
         user_email = _get_user_email(headers)
-        logger.info(f"list_project_files: user={user_email}, project={project_id}")
         _get_user_project(session, project_id, user_email)
 
         project_dir = Path(PROJECTS_BASE_DIR).resolve() / project_id
 
-        # If folder doesn't exist, restore from DB first
+        # If folder doesn't exist, restore from DB first (and drop stale cache).
         if not project_dir.exists():
             logger.info(f"Project folder missing, restoring from DB: {project_id}")
             file_sync: FileSyncService = request.app.state.file_sync
             file_sync.restore_project_from_db(project_id, session=session)
+            cache_evict_project(project_id)
 
-        # List files directly from filesystem
-        files = _list_files_from_filesystem(project_dir)
-        logger.info(f"list_project_files: found {len(files)} files")
+        files = _get_cached_files(project_id, project_dir, force=force)
 
         return [
             ProjectFileOut(

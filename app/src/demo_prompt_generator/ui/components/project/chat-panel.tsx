@@ -23,7 +23,7 @@ import {
   Sparkles,
   Square,
 } from "lucide-react";
-import type { Message, ReasoningEntry } from "../../lib/custom-api";
+import { getMessageReasoning, type Message, type ReasoningEntry } from "../../lib/custom-api";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -134,9 +134,119 @@ interface ChatPanelProps {
 }
 
 interface MessageBubbleProps {
-  message: Message | { role: string; content: string; is_error?: boolean };
+  message: Message | { role: string; content: string; is_error?: boolean; is_cancelled?: boolean };
   isStreaming?: boolean;
 }
+
+// ---------------------------------------------------------------------------
+// Collapsible long-message helper
+// ---------------------------------------------------------------------------
+
+// Messages longer than this get a middle-collapsed "[…] show more" toggle.
+// HEAD + TAIL = visible content when collapsed; the threshold sits well above
+// HEAD+TAIL so collapsing only kicks in when there's enough hidden content to
+// be worth a click. Hiding 50 chars is pointless; hiding 250+ is useful.
+const COLLAPSE_HEAD = 350;
+const COLLAPSE_TAIL = 200;
+const COLLAPSE_CHAR_THRESHOLD = COLLAPSE_HEAD + COLLAPSE_TAIL + 250; // 800
+
+/** Slice to the last whitespace ≤ `limit` from the start so we don't cut mid-word. */
+function sliceHead(content: string, limit: number): string {
+  if (content.length <= limit) return content;
+  const slice = content.slice(0, limit);
+  const lastBreak = Math.max(slice.lastIndexOf("\n"), slice.lastIndexOf(" "));
+  return slice.slice(0, lastBreak > limit - 80 ? lastBreak : limit);
+}
+
+/** Slice to the first whitespace ≥ `content.length - limit` so the tail starts at a word boundary. */
+function sliceTail(content: string, limit: number): string {
+  if (content.length <= limit) return content;
+  const start = content.length - limit;
+  const slice = content.slice(start);
+  const firstBreak = Math.min(
+    slice.indexOf("\n") === -1 ? Infinity : slice.indexOf("\n"),
+    slice.indexOf(" ") === -1 ? Infinity : slice.indexOf(" ")
+  );
+  return firstBreak < 80 ? slice.slice(firstBreak + 1) : slice;
+}
+
+interface CollapsibleBodyProps {
+  content: string;
+  /** "raw" = plain text (user bubble). "markdown" = render via Prose (assistant bubble). */
+  mode: "raw" | "markdown";
+  /** Disable collapsing (e.g. while the message is actively streaming). */
+  disabled?: boolean;
+}
+
+const CollapsibleBody = memo(function CollapsibleBody({ content, mode, disabled = false }: CollapsibleBodyProps) {
+  const [expanded, setExpanded] = useState(false);
+  const shouldCollapse = !disabled && content.length > COLLAPSE_CHAR_THRESHOLD;
+
+  if (!shouldCollapse || expanded) {
+    // Full content — tack "Show less" on the end when expanded so the user
+    // can collapse back. Kept inline to avoid wasted vertical space.
+    return (
+      <>
+        {mode === "markdown" ? (
+          <Prose compact className="text-inherit text-sm">{content}</Prose>
+        ) : (
+          <p className="text-sm whitespace-pre-wrap leading-snug">{content}</p>
+        )}
+        {shouldCollapse && expanded && (
+          <button
+            type="button"
+            onClick={() => setExpanded(false)}
+            className="ml-1 text-xs opacity-70 hover:opacity-100 underline-offset-2 hover:underline cursor-pointer"
+          >
+            Show less
+          </button>
+        )}
+      </>
+    );
+  }
+
+  // Collapsed: head + inline "[ … show more ] " + tail, all on one flow.
+  const head = sliceHead(content, COLLAPSE_HEAD);
+  const tail = sliceTail(content, COLLAPSE_TAIL);
+  const onExpand = () => setExpanded(true);
+
+  // Shared marker: [ … **show more** … ] with the bold clickable label inside
+  // the brackets, so it reads as one visual unit no matter the rendering mode.
+  const marker = (
+    <span className="whitespace-nowrap opacity-80">
+      [ …{" "}
+      <button
+        type="button"
+        onClick={onExpand}
+        className="font-bold underline-offset-2 hover:underline cursor-pointer"
+      >
+        show more
+      </button>
+      {" "}… ]
+    </span>
+  );
+
+  if (mode === "markdown") {
+    // Markdown can't embed a React node mid-string, so we split head/tail into
+    // two Prose blocks with the marker in between. space-y-0 keeps them tight.
+    return (
+      <div className="space-y-0">
+        <Prose compact className="text-inherit text-sm">{head}</Prose>
+        <div className="text-sm my-0.5">{marker}</div>
+        <Prose compact className="text-inherit text-sm">{tail}</Prose>
+      </div>
+    );
+  }
+
+  // Raw mode (user bubble): marker inline in the paragraph flow.
+  return (
+    <p className="text-sm whitespace-pre-wrap leading-snug">
+      {head}
+      {" "}{marker}{" "}
+      {tail}
+    </p>
+  );
+});
 
 // ---------------------------------------------------------------------------
 // Message Bubble
@@ -148,12 +258,13 @@ const MessageBubble = memo(function MessageBubble({
 }: MessageBubbleProps) {
   const isUser = message.role === "user";
   const isError = "is_error" in message && message.is_error;
+  const isCancelled = "is_cancelled" in message && message.is_cancelled;
 
   if (isUser) {
     return (
       <div className="flex justify-end">
-        <div className="max-w-[85%] rounded-2xl rounded-br-md px-3.5 py-2 bg-primary text-primary-foreground shadow-sm">
-          <p className="text-sm whitespace-pre-wrap leading-relaxed">{message.content}</p>
+        <div className="max-w-[85%] rounded-2xl rounded-br-md px-3.5 py-1.5 bg-primary text-primary-foreground shadow-sm">
+          <CollapsibleBody content={message.content} mode="raw" />
         </div>
       </div>
     );
@@ -162,16 +273,25 @@ const MessageBubble = memo(function MessageBubble({
   return (
     <div className="flex justify-start">
       <div
-        className={`max-w-[92%] rounded-2xl rounded-bl-md px-3.5 py-2.5 ${
+        className={`max-w-[92%] rounded-2xl rounded-bl-md px-3.5 py-1.5 ${
           isError
             ? "bg-destructive/5 border border-destructive/20 text-destructive"
+            : isCancelled
+            ? "bg-muted/60 border border-amber-500/30"
             : "bg-muted/60"
         }`}
       >
         <div className="text-sm">
-          <Prose compact className="text-inherit text-sm">{message.content}</Prose>
+          {message.content && (
+            <CollapsibleBody content={message.content} mode="markdown" disabled={isStreaming} />
+          )}
           {isStreaming && (
             <span className="inline-block w-0.5 h-4 ml-0.5 bg-foreground/70 animate-pulse rounded-full align-text-bottom" />
+          )}
+          {isCancelled && (
+            <div className={`text-xs text-amber-600 dark:text-amber-400 font-medium ${message.content ? "mt-2" : ""}`}>
+              Canceled by user
+            </div>
           )}
         </div>
       </div>
@@ -208,30 +328,59 @@ const LiveReasoningPopup = memo(function LiveReasoningPopup({
   const dragRef = useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
 
-  const handleDragStart = useCallback((e: React.MouseEvent) => {
+  const handleDragStart = useCallback((e: React.PointerEvent) => {
     e.preventDefault();
     const panel = panelRef.current;
     if (!panel) return;
     const rect = panel.getBoundingClientRect();
-    // If no position set yet, initialize from current rendered position
-    const currentX = position?.x ?? rect.left;
-    const currentY = position?.y ?? rect.top;
-    dragRef.current = { startX: e.clientX, startY: e.clientY, origX: currentX, origY: currentY };
+    // Always drive from the element's real rect — avoids closure-stale
+    // `position` reads (old code listed `position` as a useCallback dep, which
+    // recreated the handler on every mousemove's setState).
+    dragRef.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      origX: rect.left,
+      origY: rect.top,
+    };
 
-    const handleDragMove = (ev: MouseEvent) => {
+    // During the drag, write position imperatively to `style` via rAF so we
+    // don't re-render the (expensive, streaming) reasoning content on every
+    // pointermove. We only call setPosition once, at pointerup, so React
+    // commits the final spot — the portal still remembers where it was moved.
+    let pendingX = rect.left;
+    let pendingY = rect.top;
+    let rafId: number | null = null;
+    const applyPending = () => {
+      rafId = null;
+      panel.style.left = `${pendingX}px`;
+      panel.style.top = `${pendingY}px`;
+      panel.style.bottom = "auto";
+    };
+
+    const handleDragMove = (ev: PointerEvent) => {
       if (!dragRef.current) return;
       const dx = ev.clientX - dragRef.current.startX;
       const dy = ev.clientY - dragRef.current.startY;
-      setPosition({ x: dragRef.current.origX + dx, y: dragRef.current.origY + dy });
+      pendingX = dragRef.current.origX + dx;
+      pendingY = dragRef.current.origY + dy;
+      if (rafId === null) rafId = requestAnimationFrame(applyPending);
     };
     const handleDragEnd = () => {
       dragRef.current = null;
-      window.removeEventListener("mousemove", handleDragMove);
-      window.removeEventListener("mouseup", handleDragEnd);
+      if (rafId !== null) cancelAnimationFrame(rafId);
+      window.removeEventListener("pointermove", handleDragMove);
+      window.removeEventListener("pointerup", handleDragEnd);
+      window.removeEventListener("pointercancel", handleDragEnd);
+      document.body.style.userSelect = "";
+      // Commit the final position to React so subsequent renders keep it.
+      setPosition({ x: pendingX, y: pendingY });
     };
-    window.addEventListener("mousemove", handleDragMove);
-    window.addEventListener("mouseup", handleDragEnd);
-  }, [position]);
+    // Prevent text selection flicker mid-drag.
+    document.body.style.userSelect = "none";
+    window.addEventListener("pointermove", handleDragMove);
+    window.addEventListener("pointerup", handleDragEnd);
+    window.addEventListener("pointercancel", handleDragEnd);
+  }, []);
 
   const hasContent = thinking || tools.size > 0;
 
@@ -318,8 +467,8 @@ const LiveReasoningPopup = memo(function LiveReasoningPopup({
     >
       {/* Header — drag handle */}
       <div
-        onMouseDown={handleDragStart}
-        className="shrink-0 flex items-center justify-between px-3.5 py-2.5 border-b border-border/50 cursor-grab active:cursor-grabbing select-none"
+        onPointerDown={handleDragStart}
+        className="shrink-0 flex items-center justify-between px-3.5 py-2.5 border-b border-border/50 cursor-grab active:cursor-grabbing select-none touch-none"
       >
         <div className="flex items-center gap-2">
           <div className="flex items-center justify-center w-5 h-5 rounded-md bg-amber-500/10">
@@ -429,7 +578,7 @@ const CollapsibleReasoning = memo(function CollapsibleReasoning({ reasoning }: C
     <div className="mt-1">
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center gap-1 text-xs text-muted-foreground/70 hover:text-muted-foreground transition-colors"
+        className="flex items-center gap-1 text-xs text-muted-foreground/70 hover:text-muted-foreground transition-colors cursor-pointer"
       >
         {isOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
         <span>Reasoning ({reasoning.tools.size} tool{reasoning.tools.size !== 1 ? "s" : ""})</span>
@@ -502,19 +651,47 @@ const CollapsibleReasoning = memo(function CollapsibleReasoning({ reasoning }: C
 // ---------------------------------------------------------------------------
 
 interface CollapsibleReasoningFromMetadataProps {
-  entries: ReasoningEntry[];
+  /** Prefer `messageId` (lazy fetch on expand). `entries` is kept as an escape
+   *  hatch for callers that already have the data in hand (e.g. a just-streamed
+   *  message where reasoning was built up client-side). */
+  messageId?: number;
+  entries?: ReasoningEntry[];
 }
 
-const CollapsibleReasoningFromMetadata = memo(function CollapsibleReasoningFromMetadata({ entries }: CollapsibleReasoningFromMetadataProps) {
+const CollapsibleReasoningFromMetadata = memo(function CollapsibleReasoningFromMetadata({ messageId, entries: initialEntries }: CollapsibleReasoningFromMetadataProps) {
   const [isOpen, setIsOpen] = useState(false);
+  const [entries, setEntries] = useState<ReasoningEntry[] | null>(initialEntries ?? null);
+  const [isLoading, setIsLoading] = useState(false);
 
-  if (!entries || entries.length === 0) return null;
+  // Lazy fetch on first expand when we have a messageId but no entries yet.
+  const handleToggle = useCallback(async () => {
+    const nextOpen = !isOpen;
+    setIsOpen(nextOpen);
+    if (nextOpen && entries === null && messageId !== undefined) {
+      setIsLoading(true);
+      try {
+        const data = await getMessageReasoning(messageId);
+        setEntries(data?.reasoning ?? []);
+      } catch {
+        setEntries([]);
+      } finally {
+        setIsLoading(false);
+      }
+    }
+  }, [isOpen, entries, messageId]);
 
-  const toolCount = entries.filter(e => e.type === "tool").length;
+  // If we have inline entries and nothing to show, hide the toggle.
+  if (initialEntries !== undefined && initialEntries.length === 0) return null;
+
+  const toolCount = entries ? entries.filter(e => e.type === "tool").length : 0;
+  // When tool count is unknown (entries not fetched yet), show a generic label.
+  const label = entries === null
+    ? "Reasoning"
+    : `Reasoning (${toolCount} tool${toolCount !== 1 ? "s" : ""})`;
 
   // Merge tool and tool_result entries for display
   const toolResults = new Map<string, { name: string; input: unknown; result?: string; isError?: boolean; startedAt?: string; completedAt?: string }>();
-  for (const entry of entries) {
+  for (const entry of entries ?? []) {
     if (entry.type === "tool") {
       toolResults.set(entry.id, { name: entry.name, input: entry.input, startedAt: entry.started_at });
     } else if (entry.type === "tool_result") {
@@ -530,13 +707,16 @@ const CollapsibleReasoningFromMetadata = memo(function CollapsibleReasoningFromM
   return (
     <div className="mt-1">
       <button
-        onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center gap-1 text-xs text-muted-foreground/70 hover:text-muted-foreground transition-colors"
+        onClick={handleToggle}
+        className="flex items-center gap-1 text-xs text-muted-foreground/70 hover:text-muted-foreground transition-colors cursor-pointer"
       >
         {isOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-        <span>Reasoning ({toolCount} tool{toolCount !== 1 ? "s" : ""})</span>
+        <span>{label}</span>
       </button>
-      {isOpen && (
+      {isOpen && isLoading && (
+        <div className="mt-2 pl-3 text-xs text-muted-foreground/70">Loading reasoning…</div>
+      )}
+      {isOpen && !isLoading && entries && (
         <TooltipProvider delayDuration={200}>
           <div className="mt-2 space-y-2 pl-3 border-l-2 border-border/50">
             {entries.map((entry, idx) => {
@@ -717,7 +897,7 @@ export const ChatPanel = memo(function ChatPanel({
         onScroll={handleChatScroll}
         className="flex-1 min-h-0 overflow-y-auto"
       >
-        <div className="p-4 space-y-4">
+        <div className="p-4 space-y-2">
           {!hasMessages && !isClearingSession && (
             <div className="flex flex-col items-center justify-center py-16 px-4">
               {isLoadingMessages ? (
@@ -751,18 +931,29 @@ export const ChatPanel = memo(function ChatPanel({
           {messages.map((msg, idx) => {
             const isAssistant = msg.role === "assistant";
             const isLastAssistant = isAssistant && idx === messages.length - 1;
-            const hasReasoningData = isAssistant && msg.reasoning_data?.reasoning && msg.reasoning_data.reasoning.length > 0;
+            // Two sources of reasoning:
+            //   1. msg.reasoning_data is already populated (e.g. a just-streamed
+            //      message built up client-side) — pass it inline.
+            //   2. msg.has_reasoning === true — the server has compressed bytes
+            //      available; fetch lazily on toggle expand.
+            const inlineEntries = msg.reasoning_data?.reasoning;
+            const hasInline = isAssistant && inlineEntries && inlineEntries.length > 0;
+            const hasLazy = isAssistant && !hasInline && msg.has_reasoning === true;
 
             return (
               <div key={msg.id}>
-                {/* Show reasoning from reasoning_data (saved in DB) */}
-                {hasReasoningData && (
+                {hasInline && (
                   <div className="mb-1.5 ml-0">
-                    <CollapsibleReasoningFromMetadata entries={msg.reasoning_data!.reasoning!} />
+                    <CollapsibleReasoningFromMetadata entries={inlineEntries} />
+                  </div>
+                )}
+                {hasLazy && (
+                  <div className="mb-1.5 ml-0">
+                    <CollapsibleReasoningFromMetadata messageId={msg.id} />
                   </div>
                 )}
                 {/* Fallback: show lastReasoning for the last assistant message if no reasoning_data */}
-                {!hasReasoningData && !isStreaming && lastReasoning && isLastAssistant && (
+                {!hasInline && !hasLazy && !isStreaming && lastReasoning && isLastAssistant && (
                   <div className="mb-1.5">
                     <CollapsibleReasoning reasoning={lastReasoning} />
                   </div>
@@ -782,7 +973,7 @@ export const ChatPanel = memo(function ChatPanel({
           {/* Streaming AI response */}
           {isStreaming && (
             <div className="flex justify-start">
-              <div className="max-w-[92%] rounded-2xl rounded-bl-md px-3.5 py-2.5 bg-muted/60">
+              <div className="max-w-[92%] rounded-2xl rounded-bl-md px-3.5 py-1.5 bg-muted/60">
                 {streamingContent ? (
                   <div className="text-sm">
                     <Prose compact className="text-inherit text-sm">{streamingContent}</Prose>

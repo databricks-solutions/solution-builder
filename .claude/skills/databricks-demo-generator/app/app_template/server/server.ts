@@ -20,6 +20,9 @@
  * `db/schema.ts`, and the agent in `server/agent/<yourAgent>.ts`. The rest
  * of the wiring here is the same regardless of use case.
  */
+import { installLogger } from './lib/logger.js';
+installLogger();
+
 import {
   createApp,
   server,
@@ -42,6 +45,7 @@ import { registerChatRoutes } from './routes/chat.js';
 import { registerReturnsRoutes } from './routes/returns.js';
 import { registerActivityRoutes } from './routes/activity.js';
 import { registerAdminRoutes } from './routes/admin.js';
+import { registerDevLogRoutes } from './routes/dev-log.js';
 
 // ============================================================================
 // Config
@@ -126,6 +130,10 @@ process.on('unhandledRejection', (reason) => {
   logErrorCompact('[unhandledRejection]', reason);
 });
 
+process.on('uncaughtException', (err) => {
+  logErrorCompact('[uncaughtException]', err);
+});
+
 // ============================================================================
 // Boot
 // ============================================================================
@@ -160,6 +168,11 @@ appkit.server.extend((app) => {
   registerReturnsRoutes(app, { db });
   registerActivityRoutes(app, { db });
   registerAdminRoutes(app, { db, data: appConfig.data });
+
+  if (process.env.DEV_CLIENT_ERROR_LOG === '1') {
+    registerDevLogRoutes(app, logErrorCompact);
+    console.log('[boot] DEV_CLIENT_ERROR_LOG=1 → /api/log/client-error enabled');
+  }
 
   // Global error handler — Express 5 forwards unhandled async rejections
   // here automatically, so routes don't need individual try/catch blocks.

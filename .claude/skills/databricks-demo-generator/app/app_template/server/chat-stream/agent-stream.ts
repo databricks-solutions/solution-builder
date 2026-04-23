@@ -123,8 +123,20 @@ export async function streamAgentTurn(args: {
     // shape `[{type: 'output_text', text: ...}]`. Passing a string for an
     // assistant item causes `item.content.map is not a function` in the
     // SDK's getMessageItem when building the next turn's input.
+    //
+    // We also drop empty-content messages here as a safety net. A prior
+    // failed turn may have persisted an assistant row with content=''; the
+    // Responses API rejects `{type: 'output_text', text: ''}` with a 502
+    // "invalid response from upstream server" that's very hard to diagnose
+    // from the client side. index.ts filters these upstream too, but this
+    // second pass protects any future caller that bypasses it.
     const history = messages
-      .filter((m) => m.role === 'user' || m.role === 'assistant')
+      .filter(
+        (m) =>
+          (m.role === 'user' || m.role === 'assistant') &&
+          typeof m.content === 'string' &&
+          m.content.trim().length > 0,
+      )
       .map((m) =>
         m.role === 'assistant'
           ? {

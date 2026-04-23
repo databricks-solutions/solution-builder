@@ -1,7 +1,7 @@
 ---
 name: Metric Views
 category: ai-bi
-disabled: false
+disabled: true
 buildable: true
 skill: databricks-metric-views
 ---

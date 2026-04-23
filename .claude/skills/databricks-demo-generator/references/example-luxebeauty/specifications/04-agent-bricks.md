@@ -1,8 +1,10 @@
 # Agent Bricks — KA + MAS
 
+**Skill to use** (both sections): `databricks-agent-bricks` — read `SKILLS/databricks-agent-bricks/SKILL.md` before implementing.
+
 Affected products, lot, and texture complaints defined in 01-lakeflow.md (Shared Context).
 
----
+> Parallelization + subagent spawning rules live in `SKILL.md` → **Parallelization with Subagents**. KA has a blocking dependency on the incident PDFs from `01-lakeflow.md` (Section C).
 
 ## A. Knowledge Assistant
 

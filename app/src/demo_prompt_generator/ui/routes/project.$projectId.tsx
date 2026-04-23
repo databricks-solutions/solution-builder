@@ -4,6 +4,7 @@
 
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useState, useEffect, useCallback, useRef } from "react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -15,10 +16,12 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { FileViewer } from "@/components/project/file-viewer";
+import type { AutoFixApi } from "@/preview";
 import { BuildStepper } from "@/components/project/build-stepper";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { ChatPanel } from "@/components/project/chat-panel";
 import { SkillsPopup } from "@/components/project/skills-popup";
+import { UserMenu } from "@/components/layout/user-menu";
 import { TemplatePublishDialog } from "@/components/project/template-publish-dialog";
 import {
   ResourcesPopover,
@@ -297,12 +300,26 @@ function ProjectPage() {
     loadFileContent();
   }, [projectId, selectedFile, fileContentKey]);
 
+  // Ref to reach into the AppPreviewTab's auto-fix API (for budget reset).
+  const autoFixApiRef = useRef<AutoFixApi | null>(null);
+
   // Handle sending a message to the agent
   const handleSendMessage = useCallback(
-    async (message: string, options: { skipOptimisticUserMessage?: boolean } = {}) => {
+    async (
+      message: string,
+      options: { skipOptimisticUserMessage?: boolean; isAutoFix?: boolean } = {},
+    ) => {
       if (isStreaming) return;
 
       const skipOptimistic = options.skipOptimisticUserMessage ?? false;
+      const isAutoFix = options.isAutoFix ?? false;
+
+      // A manual user message resets the auto-fix budget back to the full
+      // allowance — the user has taken the wheel, so we can auto-fix again
+      // if new errors appear later. Auto-fix sends themselves don't reset.
+      if (!isAutoFix && !skipOptimistic) {
+        autoFixApiRef.current?.resetBudget();
+      }
 
       // Show user message immediately (unless it's already in `messages` from
       // the DB, e.g. auto-kicking the project's opening prompt).
@@ -457,6 +474,7 @@ function ProjectPage() {
       } catch (error) {
         if ((error as Error).name !== "AbortError") {
           console.error("Failed to send message:", error);
+          toast.error((error as Error).message || "Stream disconnected");
         }
         // Re-fetch messages and files from DB — the agent may still be
         // running server-side even though our SSE stream dropped, or
@@ -606,6 +624,7 @@ function ProjectPage() {
       } catch (error) {
         if ((error as Error).name !== "AbortError") {
           console.error("Failed to reconnect to agent:", error);
+          toast.error((error as Error).message || "Lost connection to agent");
         }
       } finally {
         if (reasoningRef.current) setLastReasoning(reasoningRef.current);
@@ -675,11 +694,12 @@ function ProjectPage() {
     }
   }, [executionId]);
 
-  // Handle refresh
+  // Handle refresh — force=true bypasses and rebuilds the server-side cache.
+  // User-initiated action, so paying the full re-walk is expected behavior.
   const handleRefresh = useCallback(async () => {
     try {
       const [fileList, deployed] = await Promise.all([
-        listProjectFiles(projectId),
+        listProjectFiles(projectId, { force: true }),
         getDeployedResources(projectId).catch(() => null),
       ]);
       setFiles(fileList);
@@ -1149,6 +1169,10 @@ function ProjectPage() {
                 <Trash2 className="h-3.5 w-3.5" />
               </Button>
             </div>
+
+            {/* User menu — keeps the avatar + profile link reachable from
+                the project page (this header doesn't use <Navbar>). */}
+            <UserMenu />
           </div>
 
           {/* Metadata row */}
@@ -1246,6 +1270,7 @@ function ProjectPage() {
         {/* File viewer (left side) */}
         <div className={`flex-1 min-w-0 overflow-hidden ${mobilePanel === "chat" ? "hidden md:flex" : "flex"} flex-col`}>
           <FileViewer
+            projectId={projectId}
             files={files}
             selectedFile={selectedFile}
             fileContent={fileContent}
@@ -1267,6 +1292,8 @@ function ProjectPage() {
             onResourcesClick={() => setIsResourcesOpen(true)}
             deployedResources={deployedResources?.resources}
             deployedAt={deployedResources?.deployed_at}
+            onAutoFixSend={(msg) => handleSendMessage(msg, { isAutoFix: true })}
+            autoFixApiRef={autoFixApiRef}
           />
         </div>
 

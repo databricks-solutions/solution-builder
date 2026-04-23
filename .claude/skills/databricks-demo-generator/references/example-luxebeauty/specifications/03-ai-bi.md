@@ -1,10 +1,51 @@
 # AI/BI — Dashboard + Genie
 
 Tables and columns referenced here are defined in 01-lakeflow.md (Section C).
+Your goal is to create a Genie space and an AI/BI Dashboard for this story, respecting these specifications.
 
----
+> Parallelization + subagent spawning rules live in `SKILL.md` → **Parallelization with Subagents**.
 
-## A. Dashboard
+## A. Genie Space
+
+**Skill to use**: `databricks-genie` — read `SKILLS/databricks-genie/SKILL.md` before implementing.
+
+Create `LuxeBeauty Operations Analytics` Genie Space.
+
+### Tables
+
+gold_daily_summary (trends), gold_returns_by_product (product-level rates), gold_returns_by_lot (lot tracing + feedback_samples), silver_returns (raw return_reason_text), bronze_products (catalog), bronze_production_lots (lot details).
+
+### Instructions
+
+```
+You analyze LuxeBeauty operations data for Claire (VP Ops, non-technical).
+
+BASELINES: Normal weekly returns ~$60K, normal return rate ~8%, anomaly threshold >20%.
+
+INVESTIGATION FLOW for "Why so many returns?":
+1. gold_daily_summary → SUM(returns_usd) by week → spot 3x spike (~$180K peak ~3 weeks ago, decaying but still above baseline)
+2. gold_returns_by_product → WHERE return_rate > 0.2 → SKU-1001, SKU-1002, SKU-1003
+3. gold_returns_by_lot → GROUP BY lot_id → one lot dominates
+4. silver_returns → return_reason_text WHERE lot_id = affected → texture complaints
+5. Conclude + suggest: "Would you like me to check for production incidents?"
+
+CUSTOMER FEEDBACK (from affected lot): "grainy texture" / "product separated" / "consistency is watery" / "texture feels off"
+```
+
+### Sample Questions
+
+"Why do I have so many returns?" / "Which products have the highest return rate?" / "What are customers saying about returns?" / "Show me returns trend for the last 8 weeks" / "Which lot has the most returns?" / "Tell me about lot [LOT-ID]"
+
+### Validation
+
+"Why so many returns?" → 3x spike, SKU-1001/1002/1003, common lot, texture feedback. "What are customers saying?" → surfaces "grainy", "separated", "watery".
+
+Add genie_space_id to `resources.json`.
+
+
+## B. Dashboard
+
+**Skill to use**: `databricks-aibi-dashboards` — read `SKILLS/databricks-aibi-dashboards/SKILL.md` before implementing.
 
 Create `LuxeBeauty Operations` dashboard. Save locally as `{workspace_folder}/dashboard.json`.
 
@@ -51,37 +92,3 @@ Add dashboard_id to `resources.json`.
 
 ---
 
-## B. Genie Space
-
-Create `LuxeBeauty Operations Analytics` Genie Space.
-
-### Tables
-
-gold_daily_summary (trends), gold_returns_by_product (product-level rates), gold_returns_by_lot (lot tracing + feedback_samples), silver_returns (raw return_reason_text), bronze_products (catalog), bronze_production_lots (lot details).
-
-### Instructions
-
-```
-You analyze LuxeBeauty operations data for Claire (VP Ops, non-technical).
-
-BASELINES: Normal weekly returns ~$60K, normal return rate ~8%, anomaly threshold >20%.
-
-INVESTIGATION FLOW for "Why so many returns?":
-1. gold_daily_summary → SUM(returns_usd) by week → spot 3x spike (~$180K peak ~3 weeks ago, decaying but still above baseline)
-2. gold_returns_by_product → WHERE return_rate > 0.2 → SKU-1001, SKU-1002, SKU-1003
-3. gold_returns_by_lot → GROUP BY lot_id → one lot dominates
-4. silver_returns → return_reason_text WHERE lot_id = affected → texture complaints
-5. Conclude + suggest: "Would you like me to check for production incidents?"
-
-CUSTOMER FEEDBACK (from affected lot): "grainy texture" / "product separated" / "consistency is watery" / "texture feels off"
-```
-
-### Sample Questions
-
-"Why do I have so many returns?" / "Which products have the highest return rate?" / "What are customers saying about returns?" / "Show me returns trend for the last 8 weeks" / "Which lot has the most returns?" / "Tell me about lot [LOT-ID]"
-
-### Validation
-
-"Why so many returns?" → 3x spike, SKU-1001/1002/1003, common lot, texture feedback. "What are customers saying?" → surfaces "grainy", "separated", "watery".
-
-Add genie_space_id to `resources.json`.

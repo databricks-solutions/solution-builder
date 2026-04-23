@@ -1,7 +1,7 @@
 ---
 name: ML + MLflow
 category: agent-bricks
-disabled: false
+disabled: true
 buildable: true
 skill: databricks-model-serving
 ---

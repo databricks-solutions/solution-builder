@@ -152,7 +152,6 @@ MLflow experiments (two, linked in the header):
 cp .env.example .env
 # edit .env:
 #   DATABRICKS_HOST=https://your-workspace.cloud.databricks.com
-#   DATABRICKS_APP_PORT=8765
 #   (Lakebase envs are injected by `databricks apps run-local` / deploy)
 
 databricks auth login --host https://your-workspace.cloud.databricks.com

@@ -31,7 +31,6 @@ from ..models import (
 from ..services.file_sync import FileSyncService
 from ..services.skills_manager import (
     create_project_directory,
-    ensure_project_skills,
     get_project_directory,
 )
 from .resources import list_clusters, list_warehouses
@@ -334,27 +333,38 @@ def get_project(
     headers: Dependencies.Headers,
     request: Request,
 ):
-    """Get a single project by ID. Also ensures local files exist."""
+    """Get a single project by ID.
+
+    Restores files from the DB **only** when the local project folder is missing
+    or empty — the common hot path (folder populated, watcher cache warm) avoids
+    the expensive DB-to-disk reconcile and the redundant file-list SELECT.
+    """
     user_email = _get_user_email(headers)
     project = _get_user_project(session, project_id, user_email)
 
-    # Ensure local project directory exists and files are restored from DB
-    file_sync: FileSyncService = request.app.state.file_sync
-    file_sync.restore_project_from_db(project_id, session=session)
-    ensure_project_skills(project_id)
+    # Lazy import (avoids a module-level cycle with project_files which imports
+    # service helpers itself).
+    from ..services.skills_manager import PROJECTS_BASE_DIR
+    from pathlib import Path as _Path
+    project_dir = _Path(PROJECTS_BASE_DIR) / project_id
 
-    # Get counts and recompute stage from files
+    # Only run the heavy restore when we actually need to.
+    needs_restore = not project_dir.exists() or not any(project_dir.iterdir())
+    if needs_restore:
+        file_sync: FileSyncService = request.app.state.file_sync
+        file_sync.restore_project_from_db(project_id, session=session)
+
+    # File metadata comes from the in-memory cache populated by the file watcher.
+    # No second DB SELECT; no disk walk in the hot path (cache hit → O(N) dict copy).
+    from .project_files import _get_cached_files
+    file_entries = _get_cached_files(project_id, project_dir)
+    file_paths = [f["path"] for f in file_entries]
+    file_count = len(file_paths)
+
     msg_count = session.exec(
         select(func.count()).select_from(Message).where(Message.project_id == project.id)
     ).one()
 
-    file_paths = [
-        row for row in session.exec(
-            select(ProjectFile.relative_path)
-            .where(ProjectFile.project_id == project.id)
-        ).all()
-    ]
-    file_count = len(file_paths)
     stage = compute_project_stage(file_paths)
     if stage != project.stage:
         project.stage = stage

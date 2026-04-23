@@ -1,7 +1,7 @@
 ---
 name: AI Functions
 category: lakeflow
-disabled: false
+disabled: true
 buildable: false
 skill: databricks-ai-functions
 ---

@@ -1,7 +1,7 @@
 ---
 name: Data Quality Monitoring
 category: uc-governance
-disabled: false
+disabled: true
 buildable: false
 ---
 

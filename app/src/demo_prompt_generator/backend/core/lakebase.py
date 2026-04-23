@@ -117,9 +117,15 @@ def _create_pglite_engine() -> Engine:
     # Build connection URL
     engine_url = f"postgresql+psycopg://{user}@{host}:{port}/{db_name}"
 
+    # Pool sized for the app's concurrent access pattern: multiple sync handlers
+    # (dispatched to FastAPI's thread pool) + agent background tasks + file-watcher
+    # debounce flushes all can grab a session at once. pool_timeout keeps a session
+    # exhaustion from looking like a deadlock — raises `TimeoutError` fast instead.
     engine = create_engine(
         engine_url,
-        pool_size=4,
+        pool_size=10,
+        max_overflow=20,
+        pool_timeout=5,
         pool_pre_ping=True,
     )
 
@@ -198,20 +204,25 @@ def create_db_engine(db_config: DatabaseConfig, ws: WorkspaceClient) -> Engine:
 
     static_url = _get_static_pg_url()
 
+    # See comment in _create_pglite_engine for pool sizing rationale.
+    POOL_KWARGS: dict[str, Any] = {
+        "pool_size": 10,
+        "max_overflow": 20,
+        "pool_timeout": 5,
+        "pool_recycle": 45 * 60,
+        "pool_pre_ping": True,
+    }
+
     if static_url:
         # Static URL mode: real Postgres with connection pool
-        engine_kwargs: dict[str, Any] = {
-            "pool_size": 4,
-            "pool_recycle": 45 * 60,
-            "pool_pre_ping": True,
-        }
+        engine_kwargs: dict[str, Any] = dict(POOL_KWARGS)
         # SSL is specified in the URL itself (sslmode=require)
         engine = create_engine(static_url, **engine_kwargs)
         return engine
 
     # Production mode: Databricks Lakebase with dynamic OAuth tokens
     engine_url = _build_engine_url(db_config, ws)
-    engine_kwargs = {"pool_size": 4, "pool_recycle": 45 * 60, "pool_pre_ping": True}
+    engine_kwargs = dict(POOL_KWARGS)
     engine_kwargs["connect_args"] = {"sslmode": "require"}
 
     # In Lakebase, the SP's CAN_CONNECT_AND_CREATE permission does NOT

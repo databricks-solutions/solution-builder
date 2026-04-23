@@ -41,6 +41,14 @@ export default defineConfig(({ mode: _mode }) => {
           target: "http://127.0.0.1:8000",
           changeOrigin: true,
         },
+        // Preview iframe + its proxied HTTP/WS/SSE traffic to the child app.
+        // Match `/preview/<uuid>[/...]` only — NOT Vite's own module requests
+        // like `/preview/AppPreviewTab.tsx` (source under ui/preview/).
+        "^/preview/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(/.*)?$": {
+          target: "http://127.0.0.1:8000",
+          changeOrigin: true,
+          ws: true, // forward WebSocket upgrades (Vite HMR in the child)
+        },
       },
     },
     build: {

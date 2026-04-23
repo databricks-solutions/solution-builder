@@ -4,12 +4,24 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { AppLayout } from "@/components/layout/app-layout";
+import { ConfigCheck } from "@/components/config/config-check";
 import {
   getCurrentUser,
   getConfigStatus,
+  getMe,
+  testDatabricksConnection,
   type CurrentUser,
   type ConfigStatus,
+  type DatabricksConnectionStatus,
+  type WhoAmI,
 } from "@/lib/custom-api";
 import {
   Shield,
@@ -18,6 +30,8 @@ import {
   CheckCircle2,
   XCircle,
   User,
+  Settings,
+  Cloud,
 } from "lucide-react";
 
 function ProfileWithLayout() {
@@ -41,16 +55,40 @@ function getInitials(email: string): string {
 function ProfilePage() {
   const [user, setUser] = useState<CurrentUser | null>(null);
   const [config, setConfig] = useState<ConfigStatus | null>(null);
+  const [me, setMe] = useState<WhoAmI | null>(null);
+  const [dbxConn, setDbxConn] = useState<DatabricksConnectionStatus | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isConfigOpen, setIsConfigOpen] = useState(false);
+
+  const reload = async () => {
+    try {
+      // Identity comes from /api/me (see backend/AUTH.md). ConfigStatus is
+      // still used for the admin flag + DB health, not for identity.
+      const [userData, configData, meData] = await Promise.all([
+        getCurrentUser(),
+        getConfigStatus(),
+        getMe(),
+      ]);
+      setUser(userData);
+      setConfig(configData);
+      setMe(meData);
+      // In local mode we test the connection for the chosen profile.
+      // In deployed mode there's no profile — skip the test; we can add
+      // a deployed-mode health probe later if needed.
+      if (meData.mode === "local" && meData.databricks_profile) {
+        testDatabricksConnection(meData.databricks_profile)
+          .then(setDbxConn)
+          .catch(() => setDbxConn(null));
+      } else {
+        setDbxConn(null);
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
 
   useEffect(() => {
-    Promise.all([getCurrentUser(), getConfigStatus()])
-      .then(([userData, configData]) => {
-        setUser(userData);
-        setConfig(configData);
-      })
-      .catch(console.error)
-      .finally(() => setIsLoading(false));
+    reload().finally(() => setIsLoading(false));
   }, []);
 
   if (isLoading) {
@@ -131,6 +169,88 @@ function ProfilePage() {
         </CardContent>
       </Card>
 
+      {/* ---------- Databricks Connection Card ----------
+          Profile editing only makes sense in local mode. In deployed mode
+          the Databricks Apps runtime manages auth via the per-request
+          x-forwarded-access-token — nothing for the user to configure.
+          See backend/AUTH.md. */}
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between space-y-0">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Cloud className="h-4 w-4 text-muted-foreground" />
+            Databricks Connection
+          </CardTitle>
+          {me?.mode === "local" && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setIsConfigOpen(true)}
+              className="gap-1.5"
+            >
+              <Settings className="h-3.5 w-3.5" />
+              Edit configuration
+            </Button>
+          )}
+        </CardHeader>
+        <Separator />
+        <CardContent className="pt-4">
+          <dl className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
+            <div>
+              <dt className="text-muted-foreground">Profile</dt>
+              <dd className="font-medium">
+                {me?.mode === "deployed" ? (
+                  <span className="text-muted-foreground italic">
+                    Managed by Databricks Apps
+                  </span>
+                ) : (
+                  me?.databricks_profile ?? "-"
+                )}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-muted-foreground">Host</dt>
+              <dd className="font-medium truncate">
+                {dbxConn?.host ?? "-"}
+              </dd>
+            </div>
+            <div className="col-span-2">
+              <dt className="text-muted-foreground">Status</dt>
+              <dd className="flex items-center gap-1.5 font-medium">
+                {me?.mode === "deployed" ? (
+                  <>
+                    <CheckCircle2 className="h-4 w-4 text-green-500" />
+                    Authenticated via Databricks Apps
+                  </>
+                ) : dbxConn == null ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                    Checking…
+                  </>
+                ) : dbxConn.connected ? (
+                  <>
+                    <CheckCircle2 className="h-4 w-4 text-green-500" />
+                    Connected
+                  </>
+                ) : (
+                  <>
+                    <XCircle className="h-4 w-4 text-destructive" />
+                    Not connected
+                  </>
+                )}
+              </dd>
+            </div>
+            {dbxConn?.error && (
+              <div className="col-span-2">
+                <dt className="text-muted-foreground">Error</dt>
+                <dd className="text-destructive text-xs mt-0.5">
+                  {dbxConn.error}
+                </dd>
+              </div>
+            )}
+          </dl>
+        </CardContent>
+      </Card>
+
       {/* ---------- Database Status Card ---------- */}
       <Card>
         <CardHeader>
@@ -175,6 +295,22 @@ function ProfilePage() {
           </dl>
         </CardContent>
       </Card>
+
+      {/* ---------- Edit Configuration Dialog ---------- */}
+      <Dialog open={isConfigOpen} onOpenChange={setIsConfigOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Configuration</DialogTitle>
+          </DialogHeader>
+          <ConfigCheck
+            isInitialSetup={false}
+            onComplete={() => {
+              setIsConfigOpen(false);
+              void reload();
+            }}
+          />
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

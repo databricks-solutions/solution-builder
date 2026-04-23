@@ -1,7 +1,7 @@
 ---
 name: Model Serving
 category: agent-bricks
-disabled: false
+disabled: true
 buildable: false
 skill: databricks-model-serving
 ---

@@ -48,31 +48,79 @@ def list_project_messages(
     headers: Dependencies.Headers,
     limit: int = 50,
 ):
-    """List recent messages for a project, oldest first (limited to last N messages)."""
+    """List recent messages for a project, oldest first (limited to last N messages).
+
+    Excludes `reasoning_data` from the response — it can be hundreds of KB per
+    assistant message and is only needed when the user expands the "Reasoning"
+    toggle. Clients should fetch it lazily via `GET /messages/{id}/reasoning`.
+    `has_reasoning: bool` tells the UI whether the toggle should appear.
+    """
     user_email = _get_user_email(headers)
     _get_user_project(session, project_id, user_email)
 
-    # Get the last N messages by ordering DESC, limiting, then reversing
+    # Project specific columns — skipping `reasoning_data` means PG doesn't
+    # stream potentially-MBs of compressed blobs to the app. We compute
+    # has_reasoning as a boolean from the column's NULL-ness.
     stmt = (
-        select(Message)
+        select(
+            Message.id,
+            Message.project_id,
+            Message.role,
+            Message.content,
+            Message.is_error,
+            Message.is_cancelled,
+            (Message.reasoning_data.isnot(None)).label("has_reasoning"),  # type: ignore[attr-defined]
+            Message.created_at,
+        )
         .where(Message.project_id == project_id)
         .order_by(Message.created_at.desc())
         .limit(limit)
     )
-    messages = list(reversed(session.exec(stmt).all()))
+    rows = list(reversed(session.exec(stmt).all()))
 
     return [
         MessageOut(
-            id=msg.id,
-            project_id=msg.project_id,
-            role=msg.role,
-            content=msg.content,
-            is_error=msg.is_error,
-            reasoning_data=decompress_reasoning(msg.reasoning_data),
-            created_at=msg.created_at,
+            id=row.id,
+            project_id=row.project_id,
+            role=row.role,
+            content=row.content,
+            is_error=row.is_error,
+            is_cancelled=row.is_cancelled,
+            has_reasoning=bool(row.has_reasoning),
+            reasoning_data=None,  # Fetched lazily via /messages/{id}/reasoning.
+            created_at=row.created_at,
         )
-        for msg in messages
+        for row in rows
     ]
+
+
+@router.get(
+    "/messages/{message_id}/reasoning",
+    operation_id="getMessageReasoning",
+)
+def get_message_reasoning(
+    message_id: int,
+    session: Dependencies.Session,
+    headers: Dependencies.Headers,
+):
+    """Fetch and decompress reasoning for a single message.
+
+    Called on demand when the user expands the "Reasoning" toggle. Verified via
+    the owning project's user_email.
+    """
+    user_email = _get_user_email(headers)
+
+    # One projected query that also joins the project to check ownership.
+    row = session.exec(
+        select(Message.project_id, Message.reasoning_data).where(Message.id == message_id)
+    ).first()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Message not found")
+
+    project_id, reasoning_bytes = row
+    _get_user_project(session, project_id, user_email)  # raises 404 on mismatch
+
+    return {"reasoning_data": decompress_reasoning(reasoning_bytes)}
 
 
 @router.post(
@@ -106,6 +154,7 @@ def add_project_message(
         role=msg.role,
         content=msg.content,
         is_error=msg.is_error,
+        is_cancelled=msg.is_cancelled,
         created_at=msg.created_at,
     )
 
@@ -150,21 +199,24 @@ async def clear_project_session(
     - Deletes all messages from the database
     - Removes the Claude SDK client from the pool (clears session memory)
     """
+    import asyncio
     user_email = _get_user_email(headers)
-    _get_user_project(session, project_id, user_email)
 
-    # Delete all messages
-    messages = session.exec(
-        select(Message).where(Message.project_id == project_id)
-    ).all()
+    # DB work on a worker thread — sync psycopg would otherwise block the loop.
+    def _delete_messages() -> int:
+        _get_user_project(session, project_id, user_email)
+        messages = session.exec(
+            select(Message).where(Message.project_id == project_id)
+        ).all()
+        for msg in messages:
+            session.delete(msg)
+        session.commit()
+        return len(messages)
 
-    for msg in messages:
-        session.delete(msg)
-
-    session.commit()
+    deleted_count = await asyncio.to_thread(_delete_messages)
 
     # Remove client from pool (this clears the SDK session)
     pool = get_client_pool()
     await pool.remove_client(project_id)
 
-    return {"success": True, "deleted_count": len(messages)}
+    return {"success": True, "deleted_count": deleted_count}

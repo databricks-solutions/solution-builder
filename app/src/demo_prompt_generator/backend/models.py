@@ -301,6 +301,7 @@ class Message(SQLModel, table=True):
     role: str = SQLField(max_length=20)  # "user" | "assistant" | "system"
     content: str = SQLField(sa_column=Column(Text, nullable=False))
     is_error: bool = SQLField(default=False)
+    is_cancelled: bool = SQLField(default=False)
     # Reasoning data for assistant messages - zlib compressed bytes
     reasoning_data: Optional[bytes] = SQLField(default=None, sa_column=Column(LargeBinary, nullable=True))
     created_at: datetime = SQLField(default_factory=utc_now)
@@ -537,13 +538,20 @@ class DeployedResourcesOut(BaseModel):
 
 
 class MessageOut(BaseModel):
-    """Chat message response."""
+    """Chat message response.
+
+    `reasoning_data` is omitted from list endpoints (can be hundreds of KB per
+    message). `has_reasoning` tells the UI whether to show the reasoning toggle;
+    the payload is fetched lazily from `GET /messages/{id}/reasoning`.
+    """
     id: int
     project_id: str
     role: str
     content: str
     is_error: bool
-    reasoning_data: Optional[dict] = None  # Reasoning entries for assistant messages
+    is_cancelled: bool = False
+    has_reasoning: bool = False
+    reasoning_data: Optional[dict] = None  # Populated only on the per-message fetch.
     created_at: datetime
 
 

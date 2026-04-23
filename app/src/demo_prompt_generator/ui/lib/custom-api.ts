@@ -139,6 +139,12 @@ export interface Message {
   role: "user" | "assistant" | "system";
   content: string;
   is_error: boolean;
+  is_cancelled?: boolean;
+  /** True when the server has compressed reasoning bytes for this message.
+   *  The UI uses this to decide whether to render the Reasoning toggle.
+   *  Actual payload is fetched lazily via getMessageReasoning(id). */
+  has_reasoning?: boolean;
+  /** Only populated after a lazy fetch from getMessageReasoning(id). */
   reasoning_data?: MessageReasoningData | null;
   created_at: string;
 }
@@ -333,8 +339,12 @@ export async function updateProjectResources(
 // Project Files API
 // ---------------------------------------------------------------------------
 
-export async function listProjectFiles(projectId: string): Promise<ProjectFile[]> {
-  const resp = await fetch(apiUrl(`/api/projects/${projectId}/files`));
+export async function listProjectFiles(
+  projectId: string,
+  opts: { force?: boolean } = {}
+): Promise<ProjectFile[]> {
+  const qs = opts.force ? "?force=true" : "";
+  const resp = await fetch(apiUrl(`/api/projects/${projectId}/files${qs}`));
   if (!resp.ok) throw new Error(`Failed to list files: ${resp.status}`);
   return resp.json();
 }
@@ -412,6 +422,17 @@ export async function clearProjectMessages(projectId: string): Promise<void> {
   if (!resp.ok) throw new Error(`Failed to clear messages: ${resp.status}`);
 }
 
+/** Lazy-fetch the decompressed reasoning for a single message. Returns `null`
+ *  when the server has no reasoning stored for that message. */
+export async function getMessageReasoning(
+  messageId: number
+): Promise<MessageReasoningData | null> {
+  const resp = await fetch(apiUrl(`/api/messages/${messageId}/reasoning`));
+  if (!resp.ok) throw new Error(`Failed to fetch reasoning: ${resp.status}`);
+  const data = await resp.json();
+  return data.reasoning_data ?? null;
+}
+
 export async function clearProjectSession(projectId: string): Promise<{ success: boolean; deleted_count: number }> {
   const resp = await fetch(apiUrl(`/api/projects/${projectId}/session/clear`), {
     method: "POST",
@@ -449,14 +470,24 @@ export async function* streamAgentProgress(
   let cursor = 0;
   let reconnectAttempts = 0;
   const MAX_RECONNECT_ATTEMPTS = 10;
+  // Server's SSE window is ~50s + small grace. If a fetch stays silent past this,
+  // the backend event loop is probably blocked — abort so we can retry.
+  const STREAM_FETCH_TIMEOUT_MS = 75_000;
 
   while (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+    const timeoutController = new AbortController();
+    const timeoutId = setTimeout(() => timeoutController.abort(), STREAM_FETCH_TIMEOUT_MS);
+    // Combine user-provided signal with the timeout signal
+    const combinedSignal = signal
+      ? anySignal([signal, timeoutController.signal])
+      : timeoutController.signal;
+
     try {
       const resp = await fetch(apiUrl(`/api/stream_progress/${executionId}`), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ last_timestamp: cursor }),
-        signal,
+        signal: combinedSignal,
       });
 
       if (!resp.ok) throw new Error(`Stream failed: ${resp.status}`);
@@ -518,17 +549,34 @@ export async function* streamAgentProgress(
       // Normal end of stream
       return;
     } catch (error) {
-      if ((error as Error).name === "AbortError") {
+      // User-initiated abort — stop entirely.
+      if ((error as Error).name === "AbortError" && signal?.aborted) {
         return;
       }
-      // Retry on connection errors
+      // Timeout or connection error — retry with backoff.
       reconnectAttempts++;
       if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
-        throw error;
+        throw new Error(
+          `Stream failed after ${MAX_RECONNECT_ATTEMPTS} retries. The backend may be unresponsive — try reloading the page.`
+        );
       }
       await new Promise(r => setTimeout(r, 1000 * reconnectAttempts));
+    } finally {
+      clearTimeout(timeoutId);
     }
   }
+}
+
+function anySignal(signals: AbortSignal[]): AbortSignal {
+  const controller = new AbortController();
+  for (const s of signals) {
+    if (s.aborted) {
+      controller.abort();
+      return controller.signal;
+    }
+    s.addEventListener("abort", () => controller.abort(), { once: true });
+  }
+  return controller.signal;
 }
 
 export async function stopAgentStream(executionId: string): Promise<void> {
@@ -1127,6 +1175,25 @@ export interface ConfigStatus {
 export async function getConfigStatus(): Promise<ConfigStatus> {
   const resp = await fetch(apiUrl("/api/config/status"));
   if (!resp.ok) throw new Error(`Failed to get config status: ${resp.status}`);
+  return resp.json();
+}
+
+/**
+ * Unified identity — see backend/AUTH.md. The ONLY way UI should read
+ * "who is the user". Do not reach for `ConfigStatus.current_user` (deprecated).
+ */
+export type IdentityMode = "local" | "deployed";
+
+export interface WhoAmI {
+  email: string | null;
+  databricks_profile: string | null;
+  mode: IdentityMode;
+  is_configured: boolean;
+}
+
+export async function getMe(): Promise<WhoAmI> {
+  const resp = await fetch(apiUrl("/api/me"));
+  if (!resp.ok) throw new Error(`Failed to get identity: ${resp.status}`);
   return resp.json();
 }
 
