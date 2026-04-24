@@ -12,21 +12,27 @@ cp SKILL_DIR/references/META-PROMPT-TEMPLATE.md PROJECT/META-PROMPT.md
 
 It's fully generic. Do not author a new one.
 
-### 2. Write `specifications/*.md` in dependency order
+### 2. Write `specifications/*.md` — fan out after 01 is done
 
-One file per category, numbered in build order. Read `SKILL_DIR/references/example-luxebeauty/specifications/*.md` for format + density reference.
-Only the subagent in charge of the app should read `example-luxebeauty/specifications/app/*.md` files
+One file per category. Read `SKILL_DIR/references/example-luxebeauty/specifications/*.md` for format + density reference.
+Only the subagent in charge of the app should read `example-luxebeauty/specifications/app/*.md` files.
 
 **Only generate files for categories the demo actually uses. Skip unused categories.**
 
-Downstream specs reference tables, columns, and IDs that upstream specs define. **Read the previous spec before writing the next** — this is the one place where sequential reads are unavoidable, because the content of N+1 depends on N.
+**The flow is `01-lakeflow.md` first, then everything else fans out in parallel.** All other specs depend only on `01-lakeflow.md` for table/column/ID names — they do NOT depend on each other. Once `01-lakeflow.md` is written:
+
+1. **Spawn the app-spec subagent immediately** (see "App specification subagent" section below) — it runs in its own context.
+2. **In the same parent turn, write 02 / 03 / 04 in a single batched response** (multiple `Write` tool calls in one message). You just wrote 01 — its content is already in your context, no re-read needed.
+
+Do NOT serialize 02→03→04 — that's the slow path you want to avoid. The parent's job after 01 is: spawn the app subagent + emit the remaining writes as a batch.
 
 | File(s) | What goes in it | Depends on |
 |---------|-----------------|------------|
-| `META-PROMPT.md` (cp, don't write), `01-lakeflow.md` | Data generation (schemas, distributions, the event), unstructured docs/PDFs, SDP pipeline (bronze→silver→gold), validation queries | Nothing |
-| `02-uc-governance.md` | ABAC policies, data quality monitors, classification rules | lakeflow (table names) |
-| `03-ai-bi.md`, `04-agent-bricks.md` | Dashboard (layout, filters, widgets) + Genie Space (instructions, Q&A). KA (docs, instructions, Q&A) + MAS (routing, demo flow) + model serving | lakeflow + governance (gold tables, columns, doc IDs) |
-| `specifications/app/*.md` | App spec — read only when an app is required. Spawn a subagent (see below) as soon as `01-lakeflow.md` is written. | lakeflow |
+| `META-PROMPT.md` (cp, don't write), `01-lakeflow.md` | Data generation (schemas, distributions, the event), unstructured docs/PDFs, SDP pipeline (bronze→silver→gold), validation queries | Nothing — write first |
+| `02-uc-governance.md` | ABAC policies, data quality monitors, classification rules | lakeflow only |
+| `03-ai-bi.md` | Dashboard (layout, filters, widgets) + Genie Space (instructions, Q&A) | lakeflow only |
+| `04-agent-bricks.md` | KA (docs, instructions, Q&A) + MAS (routing, demo flow) + model serving | lakeflow only |
+| `specifications/app/*.md` | App spec — only when an app is required. **Spawn the subagent the moment `01-lakeflow.md` is written**, before writing 02/03/04. | lakeflow only |
 
 ### 3. Writing good spec files
 
@@ -87,7 +93,7 @@ Group the reads by purpose:
 - Avoid recreating a full, complete app. The app should be a subset, where typically we see something is wrong, ask about the agent why, and we have some AI brain with tools to fix it (the tools should mock external call). It should remain simple.
 - Adaptability: no MAS → Genie or pure agent; no dashboard → remove page; no KA → MAS routes to Genie only.
 
-After spawning, tell the user in one short line (e.g. *"Writing the app specs in the background — ~1 min. Continuing with the other specs meanwhile."*), then continue with the main-thread specs.
+After spawning, tell the user in one short line (e.g. *"Writing the app specs in the background — ~1 min. Batching 02/03/04 in parallel meanwhile."*), then in the **next assistant message** emit the 02/03/04 `Write` calls as a single batch. Do not wait for the subagent to return before kicking off the parent-thread specs.
 
 ## Coherence review (the hardest and most important step) — PARENT ONLY
 

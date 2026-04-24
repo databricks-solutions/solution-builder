@@ -207,7 +207,13 @@ A demo needs:
 - CRITICAL: the demo must be used to showcase Databricks capabilities and the whole must be coherent (input data is what we leverage at the end for apps / dash / genie... in the story)
 
 ## Examples
-- "Demo about customer 360 with an app" → Default Demo Combination + databricks-apps (mentioned) + lakebase (app dependency)
+- "Demo about customer 360 with an app" →
+  - synthetic-data-gen (always needed)
+  - lakeflow-connect (data ingestion)
+  - sdp (data processing)
+  - aibi-dashboards + genie (simple wow effect)
+  - databricks-apps + lakebase (app mentioned, lakebase is dependency)
+  - unity-catalog, databricks-one, genie-code (talking track)
 - "An IOT demo with sensor data streaming" →
   - synthetic-data-gen (always needed)
   - lakeflow-connect (data ingestion) + zerobus-ingest (realtime streaming)
@@ -219,7 +225,7 @@ A demo needs:
   - lakeflow-connect (data ingestion)
   - sdp (data processing)
   - aibi-dashboards + genie (analysis)
-  - knowledge-assistant + supervisor-agent (AI agents for investigation)
+  - knowledge-assistant + supervisor-agent (AI agents for investigation — story explicitly involves unstructured-doc lookup)
   - model-training-mlflow + model-serving (fraud ML models for real-time scoring)
   - databricks-apps + lakebase (app mentioned, lakebase is dependency)
   - unity-catalog, genie-code (talking track)

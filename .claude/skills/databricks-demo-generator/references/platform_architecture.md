@@ -27,8 +27,8 @@ This reference shows how ALL Databricks capabilities connect. Most demos use a s
 | `genie-code` | Genie Code | No | AI coding partner: autocomplete, chat, error diagnosis — all UC-aware | Assists development across all surfaces |
 | `notebooks-eda` | Notebooks & EDA | No | Interactive data exploration, profiling, visualization. Multi-language | Explores data from `sdp` |
 | `aibi-dashboards` | AI/BI Dashboards | Yes | Interactive visualizations. The "5-second test" — anomaly obvious at a glance | Visualizes queries via `sql-warehouse` |
-| `genie` | AI/BI Genie | Yes | Natural language queries over structured data. Answers the WHAT | Queries via `sql-warehouse` |
 | **Agent Bricks — AI agents, models, and document understanding** |||||
+| `genie` | AI/BI Genie | Yes | Natural language queries over structured data. Answers the WHAT | Queries via `sql-warehouse` |
 | `ml-training-serving` | ML Training & Serving | Yes | MLflow tracking + UC registry + batch scoring + real-time Model Serving. One capability, full lifecycle | Trains on data from `sdp`; batch/endpoint consumed by dashboards, apps, agents |
 | `vector-search` | Vector Search | Yes | Managed embeddings + similarity search. Manual setup for custom RAG | Indexes docs from UC Volumes |
 | `knowledge-assistant` | Knowledge Assistant | Yes | Fully managed RAG — point at docs, get Q&A. Answers the WHY with citations | Reads docs from UC Volumes |
@@ -52,11 +52,11 @@ This reference shows how ALL Databricks capabilities connect. Most demos use a s
 
 ## Default Demo Combination
 
-**Buildable:** `synthetic-data-gen`, `sdp`, `aibi-dashboards`, `genie`, `knowledge-assistant`, `supervisor-agent`
+**Buildable:** `synthetic-data-gen`, `sdp`, `aibi-dashboards`, `genie`
 
 **Talking track:** `lakeflow-connect`, `unity-catalog`, `databricks-one`, `genie-code` (should be almost always there)
 
-Data flows from external systems (Lakeflow Connect) through SDP transformation, visualized in Dashboards, explored via Genie (the WHAT) and Knowledge Assistant (the WHY), orchestrated by Supervisor Agent — all governed by Unity Catalog, with Databricks One as the business user entry point and Genie Code assisting development.
+Data flows from external systems (Lakeflow Connect) through SDP transformation, visualized in Dashboards, explored via Genie — all governed by Unity Catalog, with Databricks One as the business user entry point and Genie Code assisting development. Add `knowledge-assistant` + `supervisor-agent` only when the story explicitly needs unstructured-doc lookup or multi-agent routing.
 
 ---
 
@@ -64,8 +64,8 @@ Data flows from external systems (Lakeflow Connect) through SDP transformation, 
 
 All demos need `synthetic-data-gen` to create realistic fake data.
 
-**Customer 360 demo** (generic, use defaults):
-`synthetic-data-gen`, `lakeflow-connect`, `sdp`, `aibi-dashboards`, `genie`, `knowledge-assistant`, `supervisor-agent`, `unity-catalog`, `databricks-one`, `genie-code`
+**Customer 360 demo** (generic, use defaults — add KA + supervisor-agent only when the story actually needs unstructured-doc lookup or multi-agent routing):
+`synthetic-data-gen`, `lakeflow-connect`, `sdp`, `aibi-dashboards`, `genie`, `unity-catalog`, `databricks-one`, `genie-code`
 
 **IoT sensor streaming demo**:
 `synthetic-data-gen`, `lakeflow-connect`, `zerobus-ingest` (real-time push), `sdp`, `aibi-dashboards`, `genie`, `unity-catalog`, `genie-code`

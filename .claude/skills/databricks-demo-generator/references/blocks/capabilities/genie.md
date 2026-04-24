@@ -1,6 +1,6 @@
 ---
 name: Genie Space
-category: ai-bi
+category: agent-bricks
 disabled: false
 buildable: true
 skill: databricks-genie

@@ -217,6 +217,13 @@ function ProjectPage() {
   // Abort controller for cancellation
   const abortControllerRef = useRef<AbortController | null>(null);
 
+  // Wall-clock timestamp of the most recent event drained from the SSE
+  // stream (any event — text/thinking/tool/keepalive/etc). Used by the
+  // visibility-change handler to decide if the stream has gone silent
+  // (e.g. browser dropped the streaming body in a backgrounded tab) and
+  // needs to be force-aborted + resumed. 0 = no event yet.
+  const lastEventReceivedAtRef = useRef<number>(0);
+
   // Ref to capture reasoning during streaming (for saving in finally)
   const reasoningRef = useRef<{ thinking: string; tools: Map<string, { name: string; input: unknown; result?: string; isError?: boolean; startedAt?: string; completedAt?: string }> } | null>(null);
 
@@ -368,6 +375,9 @@ function ProjectPage() {
           response.execution_id,
           abortControllerRef.current.signal
         )) {
+          // Heartbeat for the visibility-recovery handler — any event
+          // (incl. ones we don't render) proves the stream is alive.
+          lastEventReceivedAtRef.current = Date.now();
           if (event.type === "text_delta") {
             fullContent += event.text;
             setStreamingContent(fullContent);
@@ -530,114 +540,164 @@ function ProjectPage() {
     [projectId, isStreaming]
   );
 
-  // Reconnect to an in-flight agent execution on mount (e.g. after page
-  // refresh or navigating back). The agent task runs server-side regardless
-  // of client connection, so we just need to resume the SSE consumer.
-  const reconnectAttemptedRef = useRef(false);
-  useEffect(() => {
-    if (
-      reconnectAttemptedRef.current ||
-      isLoadingProject ||
-      isStreaming
-    ) return;
-    reconnectAttemptedRef.current = true;
+  // Resume an in-flight server-side execution by attaching a fresh SSE
+  // consumer. Safe to call repeatedly — bails out if a stream is already
+  // live (`abortControllerRef.current` non-null) or if the server has no
+  // active execution. Used by:
+  //   1. The on-mount reconnect (after page refresh / nav-back)
+  //   2. The visibility-change recovery (tab came back, our reader died)
+  const tryResumeActiveExecution = useCallback(async () => {
+    // Already streaming on this client — nothing to do.
+    if (abortControllerRef.current) return;
 
-    (async () => {
-      try {
-        const execution = await getActiveExecution(projectId) as { execution_id: string; project_id: string; is_running: boolean } | null;
-        if (!execution || !execution.is_running) return;
+    type ExecutionInfo = { execution_id: string; project_id: string; is_running: boolean };
+    let execution: ExecutionInfo | null = null;
+    try {
+      execution = (await getActiveExecution(projectId)) as ExecutionInfo | null;
+    } catch {
+      return;
+    }
+    if (!execution || !execution.is_running) return;
+    // Re-check guard — we awaited an HTTP call, another path may have
+    // started a stream in the meantime.
+    if (abortControllerRef.current) return;
+    const exec = execution;
 
-        // There's an active execution — resume streaming
-        setIsStreaming(true);
-        setExecutionId(execution.execution_id);
-        abortControllerRef.current = new AbortController();
+    // There's an active execution — resume streaming
+    setIsStreaming(true);
+    setExecutionId(exec.execution_id);
+    abortControllerRef.current = new AbortController();
+    lastEventReceivedAtRef.current = Date.now();
 
-        let fullContent = "";
-        let fullThinking = "";
-        const toolsMap = new Map<string, { name: string; input: unknown; result?: string; isError?: boolean; startedAt?: string; completedAt?: string }>();
+    try {
+      let fullContent = "";
+      let fullThinking = "";
+      const toolsMap = new Map<string, { name: string; input: unknown; result?: string; isError?: boolean; startedAt?: string; completedAt?: string }>();
 
-        for await (const event of streamAgentProgress(
-          execution.execution_id,
-          abortControllerRef.current.signal
-        )) {
-          if (event.type === "text_delta") {
-            fullContent += event.text;
-            setStreamingContent(fullContent);
-          } else if (event.type === "thinking_delta") {
-            fullThinking += event.thinking;
-            setStreamingThinking(fullThinking);
-            reasoningRef.current = { thinking: fullThinking, tools: new Map(toolsMap) };
-          } else if (event.type === "tool_use") {
-            toolsMap.set(event.tool_id, { name: event.tool_name, input: event.tool_input, startedAt: event.timestamp });
+      for await (const event of streamAgentProgress(
+        exec.execution_id,
+        abortControllerRef.current.signal
+      )) {
+        // Heartbeat for the visibility-recovery handler.
+        lastEventReceivedAtRef.current = Date.now();
+        if (event.type === "text_delta") {
+          fullContent += event.text;
+          setStreamingContent(fullContent);
+        } else if (event.type === "thinking_delta") {
+          fullThinking += event.thinking;
+          setStreamingThinking(fullThinking);
+          reasoningRef.current = { thinking: fullThinking, tools: new Map(toolsMap) };
+        } else if (event.type === "tool_use") {
+          toolsMap.set(event.tool_id, { name: event.tool_name, input: event.tool_input, startedAt: event.timestamp });
+          setStreamingTools(new Map(toolsMap));
+          reasoningRef.current = { thinking: fullThinking, tools: new Map(toolsMap) };
+        } else if (event.type === "tool_result") {
+          const existing = toolsMap.get(event.tool_use_id);
+          if (existing) {
+            toolsMap.set(event.tool_use_id, { ...existing, result: event.content, isError: event.is_error ?? false, completedAt: event.timestamp });
             setStreamingTools(new Map(toolsMap));
             reasoningRef.current = { thinking: fullThinking, tools: new Map(toolsMap) };
-          } else if (event.type === "tool_result") {
-            const existing = toolsMap.get(event.tool_use_id);
-            if (existing) {
-              toolsMap.set(event.tool_use_id, { ...existing, result: event.content, isError: event.is_error ?? false, completedAt: event.timestamp });
-              setStreamingTools(new Map(toolsMap));
-              reasoningRef.current = { thinking: fullThinking, tools: new Map(toolsMap) };
-              if (!event.is_error && FILE_MUTATING_TOOLS.has(existing.name)) {
-                debouncedRefreshFiles();
-              }
+            if (!event.is_error && FILE_MUTATING_TOOLS.has(existing.name)) {
+              debouncedRefreshFiles();
             }
-          } else if (event.type === "file_changed") {
-            debouncedRefreshFiles();
-            if (selectedFileRef.current === event.path) {
-              setFileContentKey((k) => k + 1);
-            }
-          } else if (event.type === "stream.completed") {
-            break;
           }
-        }
-
-        // Refresh messages, files, and deployed resources from DB after agent completion
-        const [msgs, fileList, deployed] = await Promise.all([
-          listProjectMessages(projectId),
-          listProjectFiles(projectId),
-          getDeployedResources(projectId).catch(() => null),
-        ]);
-        setMessages(msgs);
-        setFiles(fileList);
-        setDeployedResources(deployed);
-
-        // Auto-select README.md if no file is selected
-        let fileToLoad = selectedFileRef.current;
-        if (!fileToLoad) {
-          const readme = fileList.find((f) => f.path === "README.md");
-          if (readme) {
-            fileToLoad = "README.md";
-            setSelectedFile("README.md");
-          } else if (fileList.length > 0) {
-            fileToLoad = fileList[0].path;
-            setSelectedFile(fileList[0].path);
+        } else if (event.type === "file_changed") {
+          debouncedRefreshFiles();
+          if (selectedFileRef.current === event.path) {
+            setFileContentKey((k) => k + 1);
           }
+        } else if (event.type === "stream.completed") {
+          break;
         }
-
-        // Refresh selected file content
-        if (fileToLoad) {
-          try {
-            const content = await getProjectFile(projectId, fileToLoad);
-            setFileContent(content);
-          } catch { /* ignore */ }
-        }
-      } catch (error) {
-        if ((error as Error).name !== "AbortError") {
-          console.error("Failed to reconnect to agent:", error);
-          toast.error((error as Error).message || "Lost connection to agent");
-        }
-      } finally {
-        if (reasoningRef.current) setLastReasoning(reasoningRef.current);
-        setIsStreaming(false);
-        setStreamingContent("");
-        setStreamingThinking("");
-        setStreamingTools(new Map());
-        setExecutionId(null);
-        abortControllerRef.current = null;
-        setFileContentKey((k) => k + 1);
       }
-    })();
-  }, [projectId, isLoadingProject, isStreaming]);
+
+      // Refresh messages, files, and deployed resources from DB after agent completion
+      const [msgs, fileList, deployed] = await Promise.all([
+        listProjectMessages(projectId),
+        listProjectFiles(projectId),
+        getDeployedResources(projectId).catch(() => null),
+      ]);
+      setMessages(msgs);
+      setFiles(fileList);
+      setDeployedResources(deployed);
+
+      // Auto-select README.md if no file is selected
+      let fileToLoad = selectedFileRef.current;
+      if (!fileToLoad) {
+        const readme = fileList.find((f) => f.path === "README.md");
+        if (readme) {
+          fileToLoad = "README.md";
+          setSelectedFile("README.md");
+        } else if (fileList.length > 0) {
+          fileToLoad = fileList[0].path;
+          setSelectedFile(fileList[0].path);
+        }
+      }
+
+      // Refresh selected file content
+      if (fileToLoad) {
+        try {
+          const content = await getProjectFile(projectId, fileToLoad);
+          setFileContent(content);
+        } catch { /* ignore */ }
+      }
+    } catch (error) {
+      if ((error as Error).name !== "AbortError") {
+        console.error("Failed to reconnect to agent:", error);
+        toast.error((error as Error).message || "Lost connection to agent");
+      }
+    } finally {
+      if (reasoningRef.current) setLastReasoning(reasoningRef.current);
+      setIsStreaming(false);
+      setStreamingContent("");
+      setStreamingThinking("");
+      setStreamingTools(new Map());
+      setExecutionId(null);
+      abortControllerRef.current = null;
+      setFileContentKey((k) => k + 1);
+    }
+  }, [projectId, debouncedRefreshFiles]);
+
+  // On-mount reconnect: if the server has an in-flight execution for this
+  // project (e.g. after page refresh or nav-back), resume the SSE consumer.
+  // The agent task runs server-side regardless of client connection.
+  const reconnectAttemptedRef = useRef(false);
+  useEffect(() => {
+    if (reconnectAttemptedRef.current || isLoadingProject) return;
+    reconnectAttemptedRef.current = true;
+    void tryResumeActiveExecution();
+  }, [isLoadingProject, tryResumeActiveExecution]);
+
+  // Visibility-recovery: when the tab comes back to the foreground while we
+  // think we're streaming, the underlying fetch body may have been silently
+  // dropped by the browser (Chrome throttles backgrounded tabs aggressively
+  // and can abandon streaming responses after long inactivity). Detect that
+  // by checking whether we've received an event in the last few seconds; if
+  // not, abort the stale reader and re-attach via tryResumeActiveExecution.
+  useEffect(() => {
+    const SILENT_THRESHOLD_MS = 5_000;
+    const onVisibility = () => {
+      if (document.visibilityState !== "visible") return;
+      // Not streaming, or no controller — nothing to recover.
+      if (!abortControllerRef.current) return;
+      const lastEvent = lastEventReceivedAtRef.current;
+      const silentMs = lastEvent === 0 ? Infinity : Date.now() - lastEvent;
+      if (silentMs < SILENT_THRESHOLD_MS) return;
+
+      // Stream looks dead — abort it and let the for-await catch+finally
+      // run (clears `abortControllerRef.current`, refreshes the DB).
+      // Then ask the server if anything is still running and re-attach.
+      const controller = abortControllerRef.current;
+      controller.abort();
+      // Wait one macrotask so the for-await's finally has a chance to run
+      // and clear `abortControllerRef.current` before we try to resume.
+      setTimeout(() => {
+        void tryResumeActiveExecution();
+      }, 0);
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
+  }, [tryResumeActiveExecution]);
 
 
   // Auto-kick the agent when we land on a freshly created project that has

@@ -19,7 +19,7 @@ The main loop lives in this file (SKILL.md) — it describes **the flow**: stage
 |-------|------|------------------|-----------------|
 | **0. Capture Intent** | Understand request, browse domain/pattern blocks, propose story ideas if vague | — (flows into stage 1) | Inline in SKILL.md |
 | **1. Design Story** | Write `resources.json` + `README.md` + `architecture.md` (batched in one message) | ✅ *"Approve the story?"* | `stages/01-design-story.md` |
-| **2. Write Specs** | Write `specifications/*.md` + coherence review; spawn app-spec subagent if needed | ✅ *"Ready to build?"* | `stages/02-write-specs.md` |
+| **2. Write Specs** | Write `01-lakeflow.md`, then fan out: spawn app subagent + batch-write 02/03/04 in parallel; coherence review | ✅ *"Ready to build?"* | `stages/02-write-specs.md` |
 | **3. Build** (opt) | Create Databricks resources via ai-dev-kit skills | — (build completes) | `stages/03-build.md` |
 | **4. Package as a DAB** (opt) | On user request, post-build | — | `references/dab/dab.md` |
 
@@ -37,7 +37,7 @@ Your system prompt defines `DEMO_SKILL` (absolute path to this file), `PROJECT`,
 
 ## Efficiency
 
-Batch tool calls in the same response whenever you can: emit multiple `Read` or `Write` calls in one assistant message and the harness executes them concurrently. You still generate tokens sequentially — batching saves LLM round-trips, not output time. Load all reference blocks in one message, write independent files in one message. Spec files must still be **written in dependency order** — downstream specs reference names defined upstream (e.g. dashboard spec needs table names from pipeline spec), so read the upstream spec before writing the next one. Real parallelism only happens when a subagent runs in a separate context (see `SKILL_DIR/stages/subagents.md`). Latency is dominated by LLM round-trips, not tool execution — every sequential tool call that could have been batched is wasted time.
+Batch tool calls in the same response whenever you can: emit multiple `Read` or `Write` calls in one assistant message and the harness executes them concurrently. You still generate tokens sequentially — batching saves LLM round-trips, not output time. Load all reference blocks in one message, write independent files in one message. **Spec writing fans out after `01-lakeflow.md`**: 02 / 03 / 04 all depend only on 01, not on each other, so once 01 is written the app subagent gets spawned AND 02/03/04 are emitted as a single batched-Write turn — never serialize them. Real parallelism only happens when a subagent runs in a separate context (see `SKILL_DIR/stages/subagents.md`). Latency is dominated by LLM round-trips, not tool execution — every sequential tool call that could have been batched is wasted time.
 
 ### Telling the user where you are
 
@@ -200,12 +200,14 @@ Wait for confirmation before starting stage 2.
 
 ## Stage 2 — Write Specs
 
-**Read `SKILL_DIR/stages/02-write-specs.md` now** and follow it. Outputs: `META-PROMPT.md` (copied) + `specifications/*.md`. Includes the coherence pass at the end.
+**Read `SKILL_DIR/stages/02-write-specs.md` now** and follow it. Outputs: `META-PROMPT.md` (copied wit cp don't read/write it) + `specifications/*.md`. Includes the coherence pass at the end.
+
+**Mental model before you start:** write `01-lakeflow.md` first (everything else depends on it). Then fan out — spawn the app subagent **and** batch-write 02 / 03 / 04 in the same parent turn. The other specs only depend on 01, never on each other, so serializing them is wasted time.
 
 **Gate — ask the user before continuing:**
-
+Say for example (don't mention / describe all the files)
 ```
-Demo specifications are ready in `./specifications/`.
+Demo specifications are ready in `./specifications/`  .
 Would you like me to build the demo resources now?
 
 Reply "yes" to start building, or "no" to stop here.
@@ -214,6 +216,8 @@ Reply "yes" to start building, or "no" to stop here.
 ## Stage 3 — Build 
 
 If the user confirms, **read `SKILL_DIR/stages/03-build.md` now** and follow it. It covers: build-order gates, subagent parallelization, how to spawn a build subagent, app generation, and sync rules between specs and built resources.
+
+**Mental model before you start:** build time dominates this stage. The pipeline is the only sequential gate (raw data → SDP → tables exist). Once tables exist, fan out — Genie/Dashboard, KA/MAS, and the App all run as parallel subagents. Never loop through resources one at a time on the main thread.
 
 ## Stage 4 — Package as a DAB (optional)
 

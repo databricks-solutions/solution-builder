@@ -10,7 +10,7 @@ All resource files (.py, .sql, .yaml, …) must go in the project folder.
 
 Read the skill's `SKILL.md` BEFORE building — it contains the exact CLI commands, auth flow, and verification steps. Use the CLI the skill documents; do NOT use MCP tools.
 
-For each capability: **read `SKILLS/<skill-dir>/SKILL.md` → read the spec file → create the resource → validate → update `resources.json` with the resource ID**.
+For each capability the recipe is: **read `SKILLS/<skill-dir>/SKILL.md` → read the spec file → create the resource → validate → update `resources.json` with the resource ID**. Independent capabilities run **in parallel via subagents** — see the table below. Don't loop through resources sequentially; build time dominates this stage.
 
 Important capabilities with instructions for you to check if you need to build them: 
 Dashboard => read aibi-dashboards.md

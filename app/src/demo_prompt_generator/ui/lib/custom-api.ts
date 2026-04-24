@@ -496,6 +496,16 @@ export async function* streamAgentProgress(
       const decoder = new TextDecoder();
       let buf = "";
       let shouldReconnect = false;
+      // Did we observe an explicit terminator from the server?
+      // - `[DONE]` sentinel
+      // - `stream.completed` event
+      // - `stream.reconnect` event
+      // If `reader.read()` returns `done: true` WITHOUT one of these, the
+      // browser silently dropped the streaming body (common in backgrounded
+      // tabs after long throttling). Treat that as a reconnect, not a clean
+      // exit — otherwise the consumer thinks the agent finished when it
+      // didn't, and we never resume.
+      let sawTerminator = false;
 
       while (true) {
         const { done, value } = await reader.read();
@@ -508,7 +518,10 @@ export async function* streamAgentProgress(
         for (const part of parts) {
           if (!part.startsWith("data: ")) continue;
           const payload = part.slice(6);
-          if (payload === "[DONE]") return;
+          if (payload === "[DONE]") {
+            sawTerminator = true;
+            return;
+          }
 
           try {
             const event = JSON.parse(payload) as AgentEvent;
@@ -520,12 +533,14 @@ export async function* streamAgentProgress(
 
             // Handle reconnect signal
             if (event.type === "stream.reconnect") {
+              sawTerminator = true;
               shouldReconnect = true;
               break;
             }
 
             // Handle completion
             if (event.type === "stream.completed") {
+              sawTerminator = true;
               yield event;
               return;
             }
@@ -546,7 +561,16 @@ export async function* streamAgentProgress(
         continue;
       }
 
-      // Normal end of stream
+      // Stream ended without an explicit terminator — the body was dropped
+      // (backgrounded tab, proxy idle close, network blip). Reconnect with
+      // the last cursor instead of declaring the run finished.
+      if (!sawTerminator) {
+        reconnectAttempts++;
+        await new Promise(r => setTimeout(r, 500));
+        continue;
+      }
+
+      // Normal end of stream (terminator received).
       return;
     } catch (error) {
       // User-initiated abort — stop entirely.
