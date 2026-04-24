@@ -40,71 +40,80 @@ The platform traces it through structured data (returns → products → lot) an
 
 ## Products Showcased
 
-| Product | What it does in this demo |
-|---------|---------------------------|
-| **Lakeflow Connect** | Pulls data from Shopify (orders), Zendesk (returns), ERP (production) — no custom pipelines |
-| **SDP Pipeline** | Transforms raw data into analytics-ready tables (Bronze → Silver → Gold) |
-| **AI/BI Dashboard** | Claire built this herself — shows the $180K spike at a glance |
-| **AI/BI Genie** | Answers "Why so many returns?" by investigating data: trend, products, lot, customer comments |
-| **Knowledge Assistant** | Finds the incident report explaining the homogenizer issue |
-| **Multi-Agent Supervisor** | Routes Claire's questions to the right tool (Genie for data, KA for docs) |
-| **Unity Catalog** | Governance across everything — same permissions from raw data to AI |
-| **Databricks One** | Claire's single place to talk to her data — dashboards, Genie, and apps unified |
-| **Genie Code** | AI assistant that helped Claire build her dashboard and refine queries |
+"Build" = a resource we provision in the workspace. "Talk track" = a platform capability we mention live but don't build per-demo (already there or auto-included).
+
+| Product | Mode | What it does in this demo |
+|---------|------|---------------------------|
+| **Lakeflow Connect** | Talk track | Pulls Shopify orders, Zendesk returns, and ERP production data into the lakehouse — no custom pipelines, so the spike is visible the morning it happens |
+| **SDP Pipeline** | Build | Turns those raw feeds into the Gold tables (returns, products, lots) the dashboard, Genie, and the app all read from |
+| **Databricks Apps** | Build | Hosts the Returns Console where Claire's team works — full-stack React/FastAPI, OAuth + resource bindings out of the box, no separate hosting |
+| **Lakebase** | Build | The serverless Postgres behind the app — holds the live returns queue, refund approvals, and audit timeline that ticks during the demo |
+| **AI/BI Dashboard** | Build | The $180K spike at a glance — built in clicks, embedded in both the app and Databricks One |
+| **AI/BI Genie** | Build | Cracks the *"why so many returns?"* question by tracing the spike to one production lot across three SKUs |
+| **Knowledge Assistant** | Build | Surfaces the homogenizer incident report — connects the data anomaly to the manufacturing root cause |
+| **Multi-Agent Supervisor** | Build | The brain inside the app's chat — routes Claire's questions to Genie (the data) or KA (the docs) without her thinking about it |
+| **MLflow** | Talk track | Auto-traces every Genie / KA / MAS call — replay any agent decision later, no wiring needed |
+| **Unity Catalog** | Talk track | One permission model from Shopify ingestion all the way to the agent's tool calls — Claire only sees what she's allowed to see, everywhere |
+| **Databricks One** | Talk track | Where the rest of the company lands — the CEO, finance, marketing get the same dashboard + Genie answers, no app required |
 
 ---
 
 ## Demo Walkthrough
 
-### Setup (30 sec — optional)
-
-> Data from Shopify, Zendesk, and ERP flows in via **Lakeflow Connect** — no custom pipelines. Transformed by **SDP** into analytics-ready tables. All governed by **Unity Catalog**.
+**Frame:** Monday morning. Claire's team pinged her — returns are spiking. She opens the Returns Console to see what's going on.
 
 ---
 
-### Act 1: Dashboard (1 min)
+### Act 1 — Open the app (1 min)
 
-**Open the dashboard**
+**Open the LuxeBeauty Returns Console.**
 
-- Claire is VP of Ops — not technical. She built this dashboard herself with AI/BI.
-- Revenue normal, orders steady... but returns spiked to **$180K** three weeks ago (usually $60K), still at ~$80K
-- Three Skincare products at 30% return rate — everything else is 8%
-- In most companies: email analyst, open ticket, wait 2 weeks. Claire just asks.
+This is the operational app Claire's team uses every day. KPI cards show returns running at 3x normal, 250+ customers waiting on resolution. Recent activity feed shows yesterday's refunds piling up.
 
----
-
-### Act 2: Investigation (3 min)
-
-**Open MAS → Type:** `Why do I have so many returns?`
-
-- Genie investigates: 3x normal, three products, all from **one production lot**
-- Customer comments: "grainy texture", "product separated"
-- Suggests checking for an incident report
-
-**Type:** `Was there an incident for that lot?`
-
-- KA finds it: homogenizer had pressure fluctuations on the affected lot date
-- QC noted "minor texture variations" but released the lot
-- **Root cause found:** equipment issue → texture problems → returns spike
+> *"You don't have to leave Databricks to ship a real product to your business users. This is **Databricks Apps** — a full-stack React + FastAPI app, hosted on Databricks, with OAuth and resource bindings built in. No separate hosting, no separate identity provider, no separate audit trail."*
+>
+> *"The operational state — the returns queue, approvals, the audit timeline — lives in **Lakebase**, a managed serverless Postgres designed for cloud apps. Same governance as your lakehouse, but built for sub-millisecond reads and writes from your app. The Gold tables your **SDP pipeline** produces — fed by **Lakeflow Connect** from Shopify, Zendesk, and your ERP — are synced into Lakebase automatically. Operators read fresh data; analysts query the same source of truth and the Datawarehouse in the same place."*
 
 ---
 
-### Act 3: Platform (1 min)
+### Act 2 — Ask why, in the app (2 min)
 
-Zoom out — what made this possible:
+**In the app's chat dock, type:** `Why do I have so many returns?`
 
-- **Databricks One** — Claire's single place to talk to her data
-- **Lakeflow Connect** — data ingestion in clicks
-- **SDP** — pipelines by describing what you need
-- **Dashboard** — built by Claire with **Genie Code** assistance, no BI team needed
-- **Genie** — analytics for business users
-- **KA** — connects data (WHAT) to documents (WHY)
-- **Unity Catalog** — governance across everything
+The thinking panel streams the investigation live. **Claire never leaves the app.**
 
-**One platform. Anyone can ask. Everyone gets answers.**
+> *"The assistant inside the app isn't a hand-rolled prompt — it's a **Multi-Agent Supervisor**. Under the hood it routed to **Genie**, which traced the spike to one production lot across three SKUs and pulled customer comments — 'grainy texture', 'product separated'. Then it routed to **Knowledge Assistant**, which searched the manufacturing reports and found the homogenizer pressure incident on that lot's production date."*
+>
+> *"Two questions, two specialist agents, one answer — and **MLflow** traces every step of the agent's reasoning so you can replay any decision later. **Unity Catalog** is the spine: the agents only see what Claire is allowed to see. Same permissions on the raw data, the agents, and the app."*
+
+---
+
+### Act 3 — Act on it, in the app (2 min)
+
+**Click the featured action:** `Handle the bad-lot returns`.
+
+Agent drafts the apology email + 20% coupon, identifies all 250 affected customers, and **stops for approval**. Claire reviews → approves → KPI cards tick live as refunds process and emails go out. Audit trail in the drawer shows every action with timestamps and signatures.
+
+> *"This is what makes an app different from a chatbot: it can **act**. The agent's tools write to **Lakebase** — refunds, coupons, audit rows — and the 'wait for approval' is a hard stop in the agent's tool chain, not a UI suggestion. **Humans-in-the-loop, by design.**"*
+
+---
+
+### Act 4 — Zoom out: Databricks One (1 min)
+
+**Switch tabs to Databricks One.**
+
+> *"The team built this app because returns processing is their daily job — they need write actions, approvals, an audit trail. **But you don't always need to build an app.** For everyone else in the company — finance, marketing, the CEO — **Databricks One** is already the answer. Same data, same governance, no code to write."*
+
+Show the same dashboard from the app, ask Genie the same `Why so many returns?` question conversationally, surface the same KA incident report.
+
+> *"Same Lakeflow Connect ingestion. Same SDP Gold tables. Same Genie space. Same Knowledge Assistant. Same Unity Catalog governance. **One platform, two surfaces: the app for the team that operates the business, Databricks One for everyone else who just needs to ask.**"*
 
 ---
 
 ### Closing
 
-> Claire did in 2 minutes what used to take a team two weeks. That's not a better BI tool — that's a different way of running your business.
+> Every project, every app, every agent that actually moves the business has the same prerequisite: **data from every source you've got, in one place, ready to act on.** No single system held the answer here — it was in the join across all of them. Same for the next project, and the one after that.
+>
+> That's the bet Databricks lets you make: **ingest from anywhere, then act on it any way you need.** Lakeflow Connect pulls from 200+ sources with no custom plumbing. SDP shapes it into Gold tables. From there, the *acting* layer is wide open: AI/BI dashboards for the read-only audience, Databricks One for the no-code crowd, Genie + KA + MAS for the agentic experiences, Lakebase + Databricks Apps when your team needs a real product to operate the business. Unity Catalog underneath all of it — one permission model, one source of truth.
+>
+> **Ingest everything. Then build whatever you need on top — BI, apps, agents — without re-stitching the data each time.**

@@ -40,11 +40,16 @@ export function AppPreviewTab({ projectId, onAutoFixSend, isStreaming = false, a
   // (can't call .reload() on a cross-origin iframe, and src= tricks race with React).
   const [refreshNonce, setRefreshNonce] = useState(0);
 
-  // Auto-fix-from-logs toggle (only meaningful if the parent wires onAutoFixSend).
-  const [autoFixEnabled, setAutoFixEnabled] = useState(false);
+  // Auto-fix-from-logs: on by default. The hook internally no-ops when the
+  // app isn't emitting errors, so it's safe to be "enabled" even before the
+  // preview is running — keeps the toggle steerable without lifecycle gating.
+  const [autoFixEnabled, setAutoFixEnabled] = useState(true);
   const appRunning = state?.status === "ready";
 
   const { budgetRemaining, resetBudget } = useAutoFixErrors({
+    // Still require the app to be running before we START sending fixes —
+    // otherwise pre-start logs (the handful of INFO lines from dev.sh) would
+    // never trigger, but stopping mid-session shouldn't silently disable.
     enabled: autoFixEnabled && !!onAutoFixSend && appRunning,
     logs,
     isStreaming,
@@ -93,7 +98,9 @@ export function AppPreviewTab({ projectId, onAutoFixSend, isStreaming = false, a
                 enabled: autoFixEnabled,
                 onToggle: () => setAutoFixEnabled((e) => !e),
                 budgetRemaining,
-                disabled: !appRunning,
+                // Toggle is always clickable — even if the app isn't running
+                // the user can pre-flip it so fixes kick in the moment it starts.
+                disabled: false,
               }
             : undefined
         }

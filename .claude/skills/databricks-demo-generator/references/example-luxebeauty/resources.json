@@ -15,5 +15,26 @@
       "genie-code"
     ]
   },
-  "created_resources": {}
+  "created_resources": {
+    "workspace_folder": "/Workspace/Users/sa@databricks.com/luxebeauty_demo",
+    "catalog": "luxebeauty",
+    "schema": "demo_c360",
+    "warehouse_id": "862f1d757f0424f7",
+    "pipeline_id": "17bed323-f405-4645-a559-7605171f5b41",
+    "dashboard_id": "01efab12cd34...",
+    "genie_space_id": "abc123...",
+    "knowledge_assistant_id": "ka-456...",
+    "knowledge_assistant_endpoint": "ka-luxebeauty-endpoint",
+    "multi_agent_supervisor_id": "mas-789...",
+    "multi_agent_supervisor_endpoint": "mas-luxebeauty-endpoint",
+    "mlflow_experiment_path": "/Workspace/Users/sa@databricks.com/luxebeauty/experiments/churn_prediction",
+    "app": {
+      "name": "luxebeauty-demo",
+      "deployment_note": "Deployed to workspace via `databricks apps deploy`. See app.md Step 6.",
+      "id": "app-luxebeauty-1234"
+    },
+    "lakebase_project_id": "dbdemos-asset-generator",
+    "lakebase_branch": "luxebeauty-quentin",
+    "lakebase_database": "luxebeauty_app"
+  }
 }

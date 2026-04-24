@@ -1,1 +1,20 @@
+# Databricks App manifest — read by the runtime when the app starts.
+#
+# For this template the start command is fixed: `npm run start` (defined in
+# package.json → kicks off the Node/React server + client build). Change it
+# only if you change the framework.
+#
+# Environment + resource bindings (SQL warehouse, Lakebase, secrets, etc.)
+# are attached to the app via the workspace UI after `databricks apps create`
+# — NOT listed here. The deployment flow in app.md spells out the steps.
+# Reference shape (left commented — add via UI, don't hard-code):
+#
+# env:
+#   - name: DATABRICKS_WAREHOUSE_ID
+#     valueFrom: sql-warehouse       # <— resource name you attach in the UI
+#   - name: LAKEBASE_ENDPOINT
+#     valueFrom: lakebase
+#   - name: USE_MOCK_BACKEND
+#     value: "false"
+
 command: ['npm', 'run', 'start']

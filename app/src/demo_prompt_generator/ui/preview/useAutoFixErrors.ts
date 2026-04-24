@@ -26,9 +26,13 @@ import type { PreviewLogLine } from "./types";
 /** How long to wait after the last error line before finalizing an incident. */
 const DEBOUNCE_MS = 500;
 
-/** Flood trigger: this many error lines in this many ms. */
-const FLOOD_LINE_COUNT = 30;
-const FLOOD_WINDOW_MS = 10_000;
+/** Flood trigger: this many DISTINCT top-level error incidents in this many ms.
+ * We count top-level error lines, not stack-trace continuations — a single pg
+ * error renders as ~50 lines and shouldn't by itself qualify as a flood.
+ * Real floods (crash loops, watchdog spam) emit hundreds of top-level errors
+ * per second from multiple call sites. */
+const FLOOD_LINE_COUNT = 20;
+const FLOOD_WINDOW_MS = 5_000;
 
 /** Min gap between consecutive auto-fix sends. */
 const MIN_INTERVAL_MS = 10_000;
@@ -41,10 +45,13 @@ const DEDUP_WINDOW_MS = 60_000;
 const PAUSE_NOTICE_INTERVAL_MS = 60_000;
 
 /** How many lines of recent context to snapshot during a FLOOD. */
-const FLOOD_SNAPSHOT_LINES = 30;
+const FLOOD_SNAPSHOT_LINES = 80;
 
-/** Max payload sent to the agent (chars) — keeps the chat readable. */
-const MAX_PAYLOAD_CHARS = 1500;
+/** Max payload sent to the agent (chars). Large enough to carry a full pg
+ * error + stack trace (~3–5 KB) plus a bit of surrounding context. If we
+ * exceed it, head+tail are preserved (head = where the error starts, tail =
+ * the leaf cause — both matter for diagnosis). */
+const MAX_PAYLOAD_CHARS = 8000;
 
 /** Default budget per session. */
 const DEFAULT_BUDGET = 3;
@@ -86,8 +93,13 @@ function cheapHash(s: string): string {
 
 function truncatePayload(text: string): string {
   if (text.length <= MAX_PAYLOAD_CHARS) return text;
-  // Keep the END — stack traces are most useful at the leaf.
-  return "…[truncated]…\n" + text.slice(-MAX_PAYLOAD_CHARS);
+  // Head + tail: keep the beginning (where the error is first raised — the
+  // route / query / table name) AND the end (stack trace leaf + `cause`).
+  // Middle is usually repeated query body / indent noise.
+  const budget = MAX_PAYLOAD_CHARS - 20; // leave room for the marker
+  const head = Math.floor(budget * 0.4);
+  const tail = budget - head;
+  return text.slice(0, head) + "\n…[truncated]…\n" + text.slice(-tail);
 }
 
 // -----------------------------------------------------------------------------
@@ -297,17 +309,24 @@ export function useAutoFixErrors({
       const errorLike = isErrorLine(line);
 
       if (errorLike) {
+        // Is this line STARTING a new incident (vs continuing one already in
+        // the buffer)? We only count new incidents toward flood detection —
+        // otherwise a 50-line logger dump of a single pg error would itself
+        // qualify as a flood.
+        const isNewIncident = incidentBufferRef.current.length === 0;
+
         // Incident buffer: add this line.
         incidentBufferRef.current.push(line);
 
-        // Flood detection — add to sliding window, trim old, check threshold.
-        floodWindowRef.current.push(now);
-        floodWindowRef.current = floodWindowRef.current.filter(
-          (t) => now - t <= FLOOD_WINDOW_MS,
-        );
-        if (floodWindowRef.current.length >= FLOOD_LINE_COUNT) {
-          triggerFloodSend();
-          continue; // flood handler clears buffers
+        if (isNewIncident) {
+          floodWindowRef.current.push(now);
+          floodWindowRef.current = floodWindowRef.current.filter(
+            (t) => now - t <= FLOOD_WINDOW_MS,
+          );
+          if (floodWindowRef.current.length >= FLOOD_LINE_COUNT) {
+            triggerFloodSend();
+            continue; // flood handler clears buffers
+          }
         }
 
         // (Re)start the debounce timer.

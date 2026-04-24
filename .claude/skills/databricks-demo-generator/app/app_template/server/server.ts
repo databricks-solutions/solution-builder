@@ -98,6 +98,7 @@ let agentExperimentId: string | null = null;
 
 function logErrorCompact(prefix: string, err: unknown): void {
   const e = err as {
+    name?: string;
     message?: string;
     stack?: string;
     cause?: { code?: string; detail?: string; constraint?: string; table?: string };
@@ -110,16 +111,21 @@ function logErrorCompact(prefix: string, err: unknown): void {
   if (e.cause?.constraint) parts.push(`constraint=${e.cause.constraint}`);
   if (e.cause?.detail) parts.push(`detail=${truncate(e.cause.detail, 200)}`);
   if (e.query) parts.push(`query=${truncate(e.query, 200)}`);
-  console.error(`${prefix} ${parts.join(' | ')}`);
-  if (e.stack) {
-    console.error(
-      e.stack
+
+  // Print the header + stack frames in a SINGLE console.error call so the
+  // logger emits one timestamp/level prefix with indented continuation lines.
+  // Strip the leading "Name: message" lines from e.stack (Node duplicates the
+  // message at the top) — we already printed the message above.
+  const header = `${prefix} ${parts.join(' | ')}`;
+  const frames = e.stack
+    ? e.stack
         .split('\n')
+        .filter((l) => l.trimStart().startsWith('at '))
         .slice(0, 12)
-        .map((l) => truncate(l, 300))
-        .join('\n'),
-    );
-  }
+        .map((l) => truncate(l.trimStart(), 300))
+        .join('\n')
+    : '';
+  console.error(frames ? `${header}\n${frames}` : header);
 }
 
 function truncate(s: string, n: number): string {

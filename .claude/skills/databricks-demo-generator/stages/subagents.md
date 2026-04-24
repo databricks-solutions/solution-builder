@@ -23,8 +23,9 @@ If you find yourself paraphrasing the README or listing pages / tools / data-mod
 ## Rules for writing the prompt
 
 **Reads (first turn, one batched message):**
-- **Default: SKILL.md + the relevant `stages/NN-*.md` as the first two reads.** Gives the subagent flow, gates, coherence contracts, storytelling principles. Without it, subagents write technically correct but contextually blind output.
-- **Narrow exception** — skip SKILL.md only when the task is truly isolated (e.g. generating PDFs from an already-written spec). Most subagents don't qualify.
+- **Always include `PROJECT/README.md`.** Every subagent — spec, build, PDF generation, whatever — reads the demo's README first. It's the persona, story, KPI numbers, and walkthrough; without it the subagent produces technically correct but contextually blind output (generic docs instead of demo-specific ones, stats that don't match the story, etc.). Phrase it verbatim: *"PROJECT/README.md — demo story, persona, walkthrough. READ THIS — do not rely on a summary."*
+- **Default: SKILL.md + the relevant `stages/NN-*.md` as the next two reads.** Gives the subagent flow, gates, coherence contracts, storytelling principles.
+- **Narrow exception** — skip SKILL.md only when the task is truly isolated (e.g. generating PDFs from an already-written spec). README.md is never the exception — always include it.
 - For build subagents, also include the relevant ai-dev-kit skill(s) at `SKILLS/<skill-dir>/SKILL.md` — you pick the dir-name from your *Available Skills* index.
 - All paths must be fully resolved — no `SKILL_DIR/…` placeholders (the subagent can't expand them).
 
@@ -54,31 +55,33 @@ If you find yourself paraphrasing the README or listing pages / tools / data-mod
 Parent is in Stage 2 and has just written `01-lakeflow.md`. Spawning the app-spec subagent in parallel with the other main-thread specs:
 
 ```
-Start by reading SKILL.md and stages/02-write-specs.md to understand the overall flow — we're on Stage 2 (spec generation). You've been spawned to write the `specifications/app/*.md` files for this demo's Databricks App, adapted to the demo's story. The parent is writing the other main-thread specs in parallel; your output must stay coherent with theirs.
+Start by reading `SKILL_DIR/SKILL.md`, then `PROJECT/README.md` — that's the flow overview (what we're doing) and the specific demo's story we're working on. You've been spawned to write the `specifications/app/*.md` files for this demo's Databricks App, adapted to the demo's story. The parent is in Stage 2 and writing the other main-thread specs in parallel; your output must stay coherent with theirs.
 
-When done, return: the list of files you wrote + a one-line summary each.
+When done, return a quick, short summary of the job done and any error/issue you might have.
 Do not spawn further subagents. Do not ask the user questions — if something is ambiguous, make a reasonable choice and note it in your return.
 
-**Speed rules.** Batch tool calls in the same message — the harness runs them concurrently. Emit all your `Read` calls in one message, all independent `Write` calls in one message. Sequential reads/writes waste round-trips.
+**Speed rules.** Batch tool calls in the same message. Read and write in batch, Sequential reads/writes waste round-trips.
 
 **Paths (absolute):**
 - PROJECT = /abs/path/to/projects/abc-123
 - SKILL_DIR = /abs/path/to/projects/abc-123/.claude/skills/databricks-demo-generator
 
 **Project state:**
-- catalog: `my_catalog` · schema: `my_schema` · warehouse_id: `abc123wh`
+- catalog: `my_catalog` · schema: `my_schema` · warehouse_id: `abc123wh`, ...
 
 **Reads (all in one batched turn):**
-- SKILL_DIR/SKILL.md — flow overview; you're in Stage 2; your output sits alongside other specs the parent is writing.
-- SKILL_DIR/stages/02-write-specs.md — spec-writing standards (sections 3 onward).
-- SKILL_DIR/app/app.md — app generation guide.
-- SKILL_DIR/app/app_template/TEMPLATE_MAP.md — template structure.
-- SKILL_DIR/references/example-luxebeauty/specifications/app/*.md — structure + density reference (all 4 files).
-- PROJECT/README.md — demo story, persona, walkthrough. READ THIS — do not rely on a summary.
-- PROJECT/resources.json — capabilities.
-- PROJECT/specifications/01-lakeflow.md — table names + schemas.
+- Understand the context
+    - SKILL_DIR/SKILL.md — flow overview; you're in Stage 2; your output sits alongside other specs the parent is writing.
+    - PROJECT/README.md — demo story, persona, walkthrough. READ THIS — do not rely on a summary.
+- Understand your specifci task:
+    - SKILL_DIR/stages/02-write-specs.md — spec-writing standards (sections 3 onward) - this describe your job / what you have to do.
+    - SKILL_DIR/app/app.md — app generation guide.
+    - SKILL_DIR/app/app_template/TEMPLATE_MAP.md — template structure.
+    - SKILL_DIR/references/example-luxebeauty/specifications/app/*.md — structure + density reference (all 4 files).
+    - PROJECT/resources.json
+    - PROJECT/specifications/01-lakeflow.md — table names + schemas.
 
-**Output:** `PROJECT/specifications/app/*.md`. File count and names are YOUR call — adapt to this demo's capabilities (example has 4 files; drop pages if MAS/dashboard/KA are missing). Write all outputs in ONE batched turn.
+**Output:** `PROJECT/specifications/app/*.md`. File count and names are YOUR call — adapt to this demo's capabilities (ex: drop pages if MAS/dashboard/KA are missing, change layout etc).
 
 **Scope:**
 - Do NOT spawn further subagents.
@@ -88,4 +91,4 @@ Do not spawn further subagents. Do not ask the user questions — if something i
 - You own app design decisions (pages, agent tools, data model, starter questions) — derive them from README + 01-lakeflow + the template map. Don't wait for direction.
 ```
 
-Notice what's **not** in the prompt: no pasted story, no persona, no KPI numbers, no pre-decided page list, no pre-decided tool list, no scripted demo flow. All of that comes from the README the subagent reads.
+Notice what's **not** in the prompt: no pasted story, no persona, no KPI numbers, no pre-decided page list, no pre-decided tool list, no scripted demo flow. All of that comes from the README the subagent reads. We send instructions.

@@ -12,6 +12,11 @@ Read the skill's `SKILL.md` BEFORE building — it contains the exact CLI comman
 
 For each capability: **read `SKILLS/<skill-dir>/SKILL.md` → read the spec file → create the resource → validate → update `resources.json` with the resource ID**.
 
+Important capabilities with instructions for you to check if you need to build them: 
+Dashboard => read aibi-dashboards.md
+Metric views => read metric-view.md
+ML model => read ml-training-serving.md (you must deploy it as a databricks serverless job, no spark connect)
+
 ## Build-order gates — do not skip
 
 Consumption resources depend on upstream data. The dependency graph is in `SKILL_DIR/references/platform_architecture.md`. The core rule:

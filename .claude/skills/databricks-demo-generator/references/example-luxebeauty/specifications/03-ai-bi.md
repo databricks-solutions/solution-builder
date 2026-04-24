@@ -3,6 +3,11 @@
 Tables and columns referenced here are defined in 01-lakeflow.md (Section C).
 Your goal is to create a Genie space and an AI/BI Dashboard for this story, respecting these specifications.
 
+> **Talking-track-only products mentioned in the README** — do **not** build resources for these:
+> - **Databricks One** is a workspace-level surface, not a buildable artifact. Once the dashboard, Genie space, and KA exist, they show up there for users with the right entitlement. Nothing to provision.
+> - **Genie Code** is the AI authoring assist *inside* the Genie/SQL editor — referenced in the README narrative, not a separate resource.
+> - **Unity Catalog** is the global governance layer — already in place at the workspace level, just ensure the catalog/schema/grants in `01-lakeflow.md` are applied.
+
 > Parallelization + subagent spawning rules live in `SKILL.md` → **Parallelization with Subagents**.
 
 ## A. Genie Space

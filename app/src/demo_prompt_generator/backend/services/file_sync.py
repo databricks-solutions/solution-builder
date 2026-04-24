@@ -314,24 +314,23 @@ class FileSyncService:
                 ).all()
             }
 
-            # Get local files (excluding ignored patterns)
+            # Get local files (excluding ignored patterns). Rules in sync with
+            # routes.project_files._is_excluded_segment and
+            # services.file_watcher.IGNORE_PATTERNS.
+            from ..routes.project_files import _is_excluded_segment
             local_files = set()
-            # Directory names we prune at any depth — keep in sync with
-            # file_watcher.IGNORE_PATTERNS.
-            PRUNE_DIRS = {
-                ".claude", ".git", ".venv", "venv",
-                "node_modules", "__pycache__", ".pytest_cache",
-                ".ruff_cache", ".mypy_cache",
-                "dist", "build", ".next", ".turbo", ".parcel-cache", "__dist__",
-            }
             for root, dirs, files in os.walk(project_dir):
-                dirs[:] = [d for d in dirs if d not in PRUNE_DIRS]
+                dirs[:] = [d for d in dirs if not _is_excluded_segment(d)]
 
                 for fname in files:
+                    if _is_excluded_segment(fname):
+                        continue
                     abs_path = Path(root) / fname
                     rel_path = str(abs_path.relative_to(project_dir))
 
-                    # Skip hidden files and common ignores
+                    # Skip hidden files and common ignores (backstop — the
+                    # segment check already handles most of this, but leave
+                    # the .pyc / leading-dot guard for parity with legacy).
                     if not fname.startswith(".") and not fname.endswith(".pyc"):
                         local_files.add(rel_path)
 

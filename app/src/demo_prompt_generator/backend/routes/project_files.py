@@ -34,13 +34,14 @@ PROJECTS_BASE_DIR = os.getenv("PROJECTS_BASE_DIR", "./projects")
 
 # Files/folders to exclude from listing. Keep in sync with
 # file_watcher.IGNORE_PATTERNS and file_sync.PRUNE_DIRS.
+#
+# Exact names for directory pruning (matched per-segment in the walk).
 EXCLUDED_PATTERNS = {
     # Managed elsewhere
     ".claude",
     ".databricks",
     # Language package/artifact dirs
     "node_modules",
-    ".venv", "venv",
     "__pycache__", ".pytest_cache", ".ruff_cache", ".mypy_cache",
     # Build output
     "dist", "build", ".next", ".turbo", ".parcel-cache", "__dist__",
@@ -48,6 +49,29 @@ EXCLUDED_PATTERNS = {
     ".git",
     ".DS_Store",
 }
+
+
+def _is_excluded_segment(segment: str) -> bool:
+    """True if a path segment (dir or file basename) should be hidden from
+    the file listing. Extends EXCLUDED_PATTERNS with glob rules for variant
+    names the set can't express literally:
+      - .venv*, venv* (covers .venv, venv, .venv-datagen, etc.)
+      - .tmp*         (hidden tempfile pattern like .tmpXXXXXX)
+      - *.tmp, *.tmp.* (tmp suffix/middle)
+    Keep in sync with file_watcher.IGNORE_PATTERNS."""
+    if segment in EXCLUDED_PATTERNS:
+        return True
+    if segment.startswith(".venv") or (
+        segment.startswith("venv") and (segment == "venv" or segment.startswith("venv-") or segment.startswith("venv."))
+    ):
+        return True
+    if segment.startswith(".tmp"):
+        return True
+    if segment.endswith(".tmp") or ".tmp." in segment:
+        return True
+    if segment == ".databrickscfg" or segment.startswith(".databrickscfg."):
+        return True
+    return False
 
 
 # ---------------------------------------------------------------------------
@@ -74,9 +98,9 @@ def _make_file_entry(project_dir: Path, file_path: Path) -> dict | None:
         rel_path = file_path.relative_to(project_dir)
     except ValueError:
         return None
-    # Reject if any path segment is an excluded directory, or if the basename is.
+    # Reject if any path segment (dir or basename) matches an exclusion rule.
     for part in rel_path.parts:
-        if part in EXCLUDED_PATTERNS:
+        if _is_excluded_segment(part):
             return None
     try:
         stat = file_path.stat()
@@ -96,10 +120,10 @@ def _build_cache_from_walk(project_id: str, project_dir: Path) -> dict[str, dict
     if not project_dir.exists():
         return entries
     for root, dirs, filenames in os.walk(project_dir):
-        dirs[:] = [d for d in dirs if d not in EXCLUDED_PATTERNS]
+        dirs[:] = [d for d in dirs if not _is_excluded_segment(d)]
         root_path = Path(root)
         for name in filenames:
-            if name in EXCLUDED_PATTERNS:
+            if _is_excluded_segment(name):
                 continue
             entry = _make_file_entry(project_dir, root_path / name)
             if entry is not None:
@@ -121,7 +145,13 @@ def _get_cached_files(project_id: str, project_dir: Path, force: bool = False) -
             entries = _file_cache.get(project_id)
             if entries is not None:
                 files = list(entries.values())
+                logger.info(
+                    f"[cache] hit {project_id} ({len(files)} files)"
+                )
                 return sorted(files, key=lambda f: f["path"])
+        logger.info(
+            f"[cache] {'force rebuild' if force else 'miss'} for {project_id}"
+        )
         # else: miss or force — fall through to rebuild outside the lock.
         _file_cache.pop(project_id, None)
 
@@ -148,13 +178,27 @@ def cache_update_file(project_id: str, relative_path: str) -> None:
     with _cache_lock:
         entries = _file_cache.get(project_id)
         if entries is None:
-            return  # Not cached yet; next read will do a full walk.
+            # Benign: no cache yet (cold start / post-restart / recent evict).
+            # The next GET /files will do a full walk and include this file.
+            logger.info(
+                f"[cache] cold for {project_id} — {relative_path} will be picked up "
+                f"on next full walk"
+            )
+            return
         project_dir = Path(PROJECTS_BASE_DIR).resolve() / project_id
         entry = _make_file_entry(project_dir, project_dir / relative_path)
         if entry is None:
-            entries.pop(relative_path, None)
+            had = entries.pop(relative_path, None) is not None
+            logger.info(
+                f"[cache] update {project_id}/{relative_path} → filtered/missing, "
+                f"{'removed' if had else 'no-op'} (cache size={len(entries)})"
+            )
         else:
             entries[relative_path] = entry
+            logger.info(
+                f"[cache] update {project_id}/{relative_path} → added/updated "
+                f"(cache size={len(entries)})"
+            )
 
 
 def cache_remove_file(project_id: str, relative_path: str) -> None:
@@ -341,14 +385,18 @@ def download_project_as_zip(
 
 
 # URL patterns for deployed Databricks resources: key -> (url_template, label)
+# The `app` resource is nested (object with name/id/deployment_note), handled
+# separately in _build_deployed_links; not included here.
 _RESOURCE_URL_PATTERNS: dict[str, tuple[str, str]] = {
     "pipeline_id": ("{host}/pipelines/{id}", "Pipeline"),
     "dashboard_id": ("{host}/sql/dashboardsv3/{id}", "Dashboard"),
     "genie_space_id": ("{host}/genie/rooms/{id}", "Genie Space"),
     "sql_warehouse_id": ("{host}/sql/warehouses/{id}", "SQL Warehouse"),
     "knowledge_assistant_id": ("{host}/ml/bricks/ka/configure/{id}", "Knowledge Assistant"),
+    "knowledge_assistant_endpoint": ("{host}/ml/endpoints/{id}", "KA Endpoint"),
     "multi_agent_supervisor_id": ("{host}/ml/bricks/sa/configure/{id}", "Multi-Agent Supervisor"),
-    "app_name": ("{host}/apps/{id}", "App"),
+    "multi_agent_supervisor_endpoint": ("{host}/ml/endpoints/{id}", "MAS Endpoint"),
+    "mlflow_experiment_path": ("{host}#workspace{id}", "MLflow Experiment"),
 }
 
 
@@ -393,10 +441,23 @@ def _build_deployed_links(
             continue
         url = url_template.format(host=host, id=resource_id) if host else None
         links.append(DeployedResourceLink(
-            resource_type=key.removesuffix("_id").removesuffix("_name"),
+            resource_type=key.removesuffix("_id").removesuffix("_name").removesuffix("_path"),
             label=label,
             url=url,
             resource_id=str(resource_id),
+        ))
+
+    # Databricks App — stored as a nested object { name, id, deployment_note }.
+    # The canonical URL uses the app name (human-readable), not the internal id.
+    app = resources.get("app")
+    if isinstance(app, dict) and app.get("name"):
+        name = app["name"]
+        url = f"{host}/apps/{name}" if host else None
+        links.append(DeployedResourceLink(
+            resource_type="app",
+            label="App",
+            url=url,
+            resource_id=str(name),
         ))
 
     return links

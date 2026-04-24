@@ -21,7 +21,7 @@ This reference shows how ALL Databricks capabilities connect. Most demos use a s
 | **Data Processing — Transform raw data into analytics-ready tables** |||||
 | `sdp` | SDP (Spark Declarative Pipelines) | Yes | Declarative ETL: Bronze → Silver → Gold. Streaming + batch, auto-optimization. Uses Auto Loader for incremental cloud storage ingestion | Consumes from ingestion |
 | `ai-functions` | AI Functions | No | SQL-native AI (`ai_classify`, `ai_extract`, `ai_summarize`) for enriching data | Enriches tables within `sdp` |
-| `metric-views` | Metric Views | Yes | Semantic layer: define metrics once, use everywhere. Auto-materialized for fast BI | Sits on top of Silver/Gold tables |
+| `metric-views` | Metric Views | Yes | Semantic layer: define metrics once, use everywhere. Auto-materialized for fast BI | Sits on top of Silver/Gold tables from `sdp`, used by `aibi-dashboards`, created using sql queries with a `sql-warehouse`, saved in a notebook |
 | **Analytics — Query and visualize data for business insights** |||||
 | `databricks-one` | Databricks One | No | Simplified interface for business users: personalized home, domain browsing, unified search | Front door for consumers |
 | `genie-code` | Genie Code | No | AI coding partner: autocomplete, chat, error diagnosis — all UC-aware | Assists development across all surfaces |
@@ -29,16 +29,15 @@ This reference shows how ALL Databricks capabilities connect. Most demos use a s
 | `aibi-dashboards` | AI/BI Dashboards | Yes | Interactive visualizations. The "5-second test" — anomaly obvious at a glance | Visualizes queries via `sql-warehouse` |
 | `genie` | AI/BI Genie | Yes | Natural language queries over structured data. Answers the WHAT | Queries via `sql-warehouse` |
 | **Agent Bricks — AI agents, models, and document understanding** |||||
-| `model-training-mlflow` | MLflow | Yes | Experiment tracking, model registry, lifecycle management. Classic ML or fine-tuning | Trains on data from `sdp` |
-| `model-serving` | Model Serving | No | Serverless endpoints for real-time inference. Auto-scaling, pay-per-token. Guardrails + tracing | Serves models from `model-training-mlflow` |
+| `ml-training-serving` | ML Training & Serving | Yes | MLflow tracking + UC registry + batch scoring + real-time Model Serving. One capability, full lifecycle | Trains on data from `sdp`; batch/endpoint consumed by dashboards, apps, agents |
 | `vector-search` | Vector Search | Yes | Managed embeddings + similarity search. Manual setup for custom RAG | Indexes docs from UC Volumes |
 | `knowledge-assistant` | Knowledge Assistant | Yes | Fully managed RAG — point at docs, get Q&A. Answers the WHY with citations | Reads docs from UC Volumes |
 | `information-extraction` | Information Extraction | Yes | Document-to-table agent: extract structured data from PDFs, images, text | Reads docs from UC Volumes; outputs to tables |
-| `supervisor-agent` | Supervisor Agent (MAS) | Yes | Orchestrates multiple agents into one interface. Routes to the right agent | Routes to `genie`, `knowledge-assistant`, `model-serving` |
-| `ai-gateway` | AI Gateway | No | Central governance for LLMs: routing, guardrails, rate limits, usage tracking | Governs all `model-serving` endpoints |
+| `supervisor-agent` | Supervisor Agent (MAS) | Yes | Orchestrates multiple agents into one interface. Routes to the right agent | Routes to `genie`, `knowledge-assistant`, `ml-training-serving` |
+| `ai-gateway` | AI Gateway | No | Central governance for LLMs: routing, guardrails, rate limits, usage tracking | Governs all serving endpoints from `ml-training-serving` |
 | **Apps — Ship internal tools powered by the lakehouse** |||||
 | `lakebase` | Lakebase | Yes | Managed Postgres for operational workloads. App state, transactions, low-latency reads | Syncs with `sdp` tables, powers apps |
-| `databricks-apps` | Databricks Apps | Yes | Serverless app runtime (Streamlit, Gradio, Dash, React). SSO + UC governance | Leverages `lakebase`, `model-serving`, `supervisor-agent` |
+| `databricks-apps` | Databricks Apps | Yes | Serverless app runtime (Streamlit, Gradio, Dash, React). SSO + UC governance | Leverages `lakebase`, `ml-training-serving`, `supervisor-agent` |
 | **Orchestration — Run everything in production with reliability** |||||
 | `lakeflow-jobs` | Lakeflow Jobs | Yes | Native orchestrator: multi-task workflows, retries, file/table triggers, cost controls | Orchestrates `sdp`, notebooks, ML jobs |
 | **Governance — Unity Catalog governs ALL components** |||||
@@ -72,10 +71,10 @@ All demos need `synthetic-data-gen` to create realistic fake data.
 `synthetic-data-gen`, `lakeflow-connect`, `zerobus-ingest` (real-time push), `sdp`, `aibi-dashboards`, `genie`, `unity-catalog`, `genie-code`
 
 **Fraud detection with app**:
-`synthetic-data-gen`, `lakeflow-connect`, `sdp`, `aibi-dashboards`, `genie`, `knowledge-assistant`, `supervisor-agent`, `model-training-mlflow`, `model-serving` (real-time scoring), `databricks-apps`, `lakebase`, `unity-catalog`, `genie-code`
+`synthetic-data-gen`, `lakeflow-connect`, `sdp`, `aibi-dashboards`, `genie`, `knowledge-assistant`, `supervisor-agent`, `ml-training-serving` (real-time scoring via endpoint), `databricks-apps`, `lakebase`, `unity-catalog`, `genie-code`
 
 **Document processing pipeline**:
 `synthetic-data-gen`, `lakeflow-connect`, `sdp`, `information-extraction`, `aibi-dashboards`, `knowledge-assistant`, `supervisor-agent`, `databricks-one`, `unity-catalog`, `genie-code`
 
 **ML-powered recommendations**:
-`synthetic-data-gen`, `lakeflow-connect`, `sdp`, `model-training-mlflow`, `model-serving`, `aibi-dashboards`, `genie`, `unity-catalog`, `databricks-one`, `genie-code`
+`synthetic-data-gen`, `lakeflow-connect`, `sdp`, `ml-training-serving`, `aibi-dashboards`, `genie`, `unity-catalog`, `databricks-one`, `genie-code`

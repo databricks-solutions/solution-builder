@@ -1,10 +1,16 @@
 # Analytics & Dashboard Pages
 
-## Analytics page
+The app has **two distinct pages** in the sidebar — both surface analytics, but for different reasons. Keep both unless the demo explicitly skips dashboards.
 
-Warehouse-backed charts at lakehouse scale. Header shows warehouse indicator (name + state) — visibly not static mocks. Queries live in `config/queries/*.sql`.
+## Analytics page (`/analytics`)
 
-**Top row:** Daily refund trend (line chart, full width) — total_refund_usd by day, 30 days. Baseline ~$8-10K/day, peak ~$25K/day 3 weeks ago, decaying. The spike that started everything.
+Warehouse-backed charts at lakehouse scale, rendered natively in the app via `@databricks/appkit-ui/react` (`BarChart`, `LineChart`, `DataTable`). Header shows the warehouse name + state — visibly not static mocks. Queries live in `config/queries/*.sql` and are typed at build time by AppKit.
+
+**Why it exists alongside the AI/BI Dashboard:** this is the *in-app* analytics surface — designed for the operator who's already in the Returns Console and wants to spot patterns without context-switching to a separate tool. Same SQL warehouse underneath; different UX.
+
+### LuxeBeauty layout
+
+**Top row:** Daily refund trend (line chart, full width) — `total_refund_usd` by day, 30 days. Baseline ~$8-10K/day, peak ~$25K/day 3 weeks ago, decaying. The spike that started everything.
 
 **Second row:** Returns by product (bar chart, left) — top 10 by return count + refund $. SKU-1001/1002/1003 dominate 3-4x. | Worst lots (table, right) — lot ID, facility, return count, return rate %. Lyon lot at ~30% vs ~8% baseline.
 
@@ -16,6 +22,10 @@ Warehouse-backed charts at lakehouse scale. Header shows warehouse indicator (na
 - `returns_by_product` — top 10 products by return_count + total_refund_usd
 - `worst_lots` — lot_id, facility, return_count, return_rate %. From gold_returns_by_lot
 
-## Dashboard page
+The template ships a working version of this page — tune the SQL and labels to your demo's data, don't rebuild from scratch.
 
-Embedded AI/BI dashboard as full-page iframe with SSO. References `config.dashboardId`. Fully interactive — filters, drill-downs work. No extra login, no chart rebuilding in React. Remove page if demo has no dashboard.
+## Dashboard page (`/dashboard`)
+
+Embed the AI/BI dashboard already built in `03-ai-bi.md` (Section B) as a full-page iframe with SSO. Look up `dashboard_id` in `resources.json` and wire it into `config.dashboardId` — do **not** rebuild the dashboard, just point at the existing one. Filters and drill-downs work natively. Remove the page entirely if the demo has no dashboard.
+
+**Why it exists alongside the in-app Analytics page:** this proves a published AI/BI dashboard can live inside a custom app — same SSO, same data, no chart rebuilding in React. The "build vs buy" answer for richer visuals.

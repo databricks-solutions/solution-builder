@@ -64,7 +64,7 @@ Under every assistant message:
 
 Narrative landing — tells the story in 10s, plays it in 90s.
 
-**Story section:** Persona badge ("Claire Dubois · VP of Operations · LuxeBeauty Co."), headline ("Returns are running 3x normal"), situation (returns jumped $60K→$180K/week, 3 SKUs at 30% return rate, still elevated ~$80K), goal (root cause → blast radius → recall or field fix), preview bullets.
+**Story section:** Persona badge ("Claire Dubois · VP of Operations · LuxeBeauty Co."), headline ("Returns are running 3x normal"), situation (returns jumped $60K→$180K/week, 3 SKUs at 30% return rate, still elevated ~$80K — *team pinged her this morning to take a look*), goal (root cause → blast radius → recall or field fix), preview bullets.
 
 **Journey diagram:** 4-beat horizontal strip (demo remote control): See the spike → Operations | Ask why → starts chat | Trace root cause → Analytics | Fix it → action flow.
 

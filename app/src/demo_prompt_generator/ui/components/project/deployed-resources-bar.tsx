@@ -10,6 +10,8 @@ import {
   Boxes,
   AppWindow,
   ExternalLink,
+  Radio,
+  FlaskConical,
 } from "lucide-react";
 import type { DeployedResourceLink } from "@/lib/custom-api";
 
@@ -57,7 +59,10 @@ const RESOURCE_ICONS: Record<string, React.ElementType> = {
   workspace_folder: FolderOpen,
   catalog_explorer: Boxes,
   knowledge_assistant: AgentIcon,
+  knowledge_assistant_endpoint: Radio,
   multi_agent_supervisor: AgentIcon,
+  multi_agent_supervisor_endpoint: Radio,
+  mlflow_experiment: FlaskConical,
   app: AppWindow,
 };
 

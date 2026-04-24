@@ -57,3 +57,37 @@ class AppConfig(BaseSettings):
 
 logging.basicConfig(level=logging.INFO, format="%(name)s %(levelname)s: %(message)s")
 logger = logging.getLogger(app_name)
+
+# Quiet noisy loggers we don't care about in dev:
+#   - `httpx` logs every outbound request at INFO. The preview iframe proxies
+#     every asset through httpx → hundreds of lines per page load.
+#   - uvicorn's access logger ("127.0.0.1 - GET /preview/... 200") fires for
+#     each proxied vite HMR asset. Filter preview noise out, keep real API.
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
+
+
+class _DropPreviewAccessLog(logging.Filter):
+    """Drop uvicorn.access records whose request path is under /preview/.
+
+    Uvicorn's access record message is formatted like:
+        '%s - "%s %s HTTP/%s" %d' via positional args:
+        args = (client_addr, method, full_path, http_version, status_code)
+    We pattern-match the 3rd arg; if it starts with /preview/ we drop the record.
+    Keeps visibility on /api/* — the ones that actually matter.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        args = record.args
+        if isinstance(args, tuple) and len(args) >= 3:
+            path = args[2]
+            if isinstance(path, str) and path.startswith("/preview/"):
+                return False
+        # Fallback: check the rendered message (covers format variants).
+        msg = record.getMessage()
+        if '"GET /preview/' in msg or '"POST /preview/' in msg or '"HEAD /preview/' in msg:
+            return False
+        return True
+
+
+logging.getLogger("uvicorn.access").addFilter(_DropPreviewAccessLog())

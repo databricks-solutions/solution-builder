@@ -27,7 +27,7 @@ The two append-only arrays on `returns` make each row a standalone timeline — 
 
 ## Delta → Lakebase sync
 
-No built-in Delta-to-Lakebase mirroring — too heavy for a demo. Manual one-shot sync at boot instead:
+> **Talking-track vs build:** in production this is **Lakebase Synced Tables** — managed, continuous Delta→Lakebase replication with the same UC governance. That's what we sell ("the Gold tables your pipeline produces are synced into Lakebase"). For the demo build we keep it simple: a manual one-shot sync at boot, code we can show, no extra resource to provision. Same outcome on screen.
 
 1. If mirror tables empty → pull via Databricks SQL Statements API (customers with returns, their orders, all returns denormalized)
 2. Chunked inserts (2000/batch), idempotent (skip on conflict)

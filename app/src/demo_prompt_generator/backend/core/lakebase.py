@@ -482,12 +482,25 @@ class _LakebaseDependency(LifespanDependency):
 
         async def sync_callback(project_id: str, paths: list[str]):
             await file_sync.sync_files_to_db(project_id, paths)
-            # Notify active SSE stream so the frontend sees changes instantly
+            # Notify active SSE stream so the frontend sees changes instantly.
+            # Only works during an active agent run — get_project_stream returns
+            # None once the stream is marked complete/cancelled/errored. For
+            # idle projects the UI refreshes on other triggers (tool_result
+            # for FILE_MUTATING_TOOLS, project load).
             from ..services.active_stream import get_stream_manager
             stream = get_stream_manager().get_project_stream(project_id)
             if stream:
+                logger.info(
+                    f"[watcher] emitting {len(paths)} file_changed event(s) "
+                    f"for project {project_id} (exec {stream.execution_id}): {paths}"
+                )
                 for path in paths:
                     stream.add_event({"type": "file_changed", "path": path})
+            else:
+                logger.info(
+                    f"[watcher] no active stream for project {project_id} — "
+                    f"{len(paths)} file change(s) NOT pushed to UI: {paths}"
+                )
 
         try:
             watcher = init_watcher(sync_callback)

@@ -64,6 +64,7 @@ cd ./app && npm install
 
 This is a heavy edit — the initial files you have are from a template with a use case for luxe beauty. It's a skeleton, not a drop-in ready to use. 
 Use the demo's app specs as your blueprint and rewrite all the customizable areas (see table above) to match the story. For each spec and area, read the existing template code, understand the pattern, then entirely rewrite for the new domain. Typically, the operational part needs to be fully updated
+Remember - change the style / features so that it respects the user intent and matches with the story.
 
 Key patterns to preserve:
 - **3-phase action chain**: discover (read-only) → draft + confirm (STOP for approval) → execute. The mandatory approval stop is the demo's trust moment.
@@ -81,62 +82,106 @@ Handle missing components during this step:
 
 Make sure you do an extensive review - no mention to the template specific use-case, everything is migrate to the new app story, rename/delete file to support the new specification, review the full implementation to make sure it's all up to date and we'll be able to start and make the app work.
 
+read `resources.json` to get the available resource ids to use (ex: mas endpoint)
+
 ### Step 4: Configure environment
 
 **lakebase: Use OAuth, not password.** The AppKit `lakebase()` plugin fetches and auto-refreshes 1-hour OAuth tokens (2-minute refresh buffer) and injects them into every `pg.Pool` connection. Code is just `createDb(appkit.lakebase.pool)`. **Do NOT create a password role, do NOT call `reveal_password`, do NOT set `PGPASSWORD`.**
 
 Identity: local dev = your Databricks user (`databricks auth describe`). Deployed = the app's service principal, auto-granted `CONNECT_AND_CREATE` via the `databricks.yml` Postgres resource.
 
-#### 4a. Create the Lakebase project
+#### 4a. Provision your Lakebase project + database
+
+The flow is: reuse a shared project if one exists (cheap copy-on-write branch, ~5s), otherwise create your own (slow, ~minutes). Either way, finish by creating a fresh Postgres database via psycopg.
+
+**Step 1 — Look for an existing shared project**
+
+```bash
+databricks postgres list-projects | jq -r '.[] | select(.name | startswith("projects/dbdemos-asset-generator")) | .name'
+```
+
+If this returns a name (e.g. `projects/dbdemos-asset-generator`), use it as `<SHARED_PROJECT_NAME>` in Step 2. If empty, skip to Step 3.
+
+**Step 2 — Create your own branch in the shared project** (preferred — fast, isolated)
+
+```bash
+databricks postgres create-branch <SHARED_PROJECT_NAME>/branches/<your-branch> \
+    --json '{"spec": {"parent_branch": "production", "ttl_seconds": 604800}}'
+```
+
+- `<your-branch>`: lowercase + hyphens (e.g. your username). 7-day TTL auto-deletes; bump it if you need longer.
+- The branch is a copy-on-write fork of `production` — instant, no data copy, your own writeable Postgres.
+- **The creator is auto-granted `DATABRICKS_SUPERUSER` on the new branch.** No teammate-grant dance needed.
+- Save into `resources.json` (everything else — endpoint path, host — derives from these), then skip Step 3:
+  ```json
+  "lakebase_project_id": "dbdemos-asset-generator",
+  "lakebase_branch": "<your-branch>"
+  ```
+
+If branch creation fails (no quota, project locked, permission denied), fall through to Step 3.
+
+**Step 3 — Fallback: create your own project**
 
 ```bash
 databricks postgres create-project <PROJECT_ID> \
     --json '{"spec": {"display_name": "<Display Name>", "pg_version": "17"}}'
 ```
 
-- `PROJECT_ID`: lowercase + hyphens (e.g. `my-app`). Long-running — blocks until the default endpoint `primary` is `READY`.
-- A fresh project comes with: branch `production`, endpoint `primary`, database `databricks_postgres`.
-- **The creator is auto-granted `DATABRICKS_SUPERUSER` on `production`.** Skip 4b if you created the project.
-- Save `PROJECT_ID`, `production`, `databricks_postgres` into `resources.json`.
+- `PROJECT_ID`: lowercase + hyphens (e.g. `my-app`). Long-running — blocks until the default endpoint `primary` is `READY` (~minutes).
+- A fresh project comes with: branch `production`, endpoint `primary`, database `databricks_postgres`. Use `production` as your branch.
+- The creator is auto-granted `DATABRICKS_SUPERUSER` on `production`.
+- Save into `resources.json`:
+  ```json
+  "lakebase_project_id": "<PROJECT_ID>",
+  "lakebase_branch": "production"
+  ```
 
-#### 4b. Grant `DATABRICKS_SUPERUSER` to other local developers (skip if you're the creator)
+**Step 4 — Create your Postgres database via psycopg**
 
-Lakebase has two independent permission systems: workspace ACLs (who sees the project in the UI) and Postgres roles (what you can do once connected via OAuth). Every teammate who wants to run the app locally needs the Postgres role — without it their OAuth token connects but DDL fails with `permission denied`. In production this is unnecessary: the service principal gets `CONNECT_AND_CREATE` via `databricks.yml`.
+`databricks_postgres` exists by default but you want a fresh one for this app. There is no CLI for `CREATE DATABASE` — use psycopg directly with an OAuth token from `WorkspaceClient`:
 
-**Case A — teammate has already connected at least once** (a role row exists):
+```python
+import psycopg
+from databricks.sdk import WorkspaceClient
 
-```bash
-# 1. Find the role name
-databricks postgres list-roles projects/<PROJECT_ID>/branches/production
-# Locate the entry where .status.postgres_role == "<teammate-email>"; copy .name
-# (e.g. projects/<PROJECT_ID>/branches/production/roles/rol-abcd-1234)
+w = WorkspaceClient()
+host = "<PGHOST from get-endpoint>"  # see 4b
+user = w.current_user.me().user_name
+token = w.config.oauth_token().access_token
 
-# 2. Add DATABRICKS_SUPERUSER
-databricks postgres update-role <ROLE_NAME> spec.membership_roles \
-    --json '{"spec": {"membership_roles": ["DATABRICKS_SUPERUSER"]}}'
+# autocommit=True is MANDATORY — CREATE DATABASE cannot run in a transaction.
+with psycopg.connect(
+    host=host, user=user, password=token,
+    dbname="databricks_postgres", sslmode="require", autocommit=True,
+) as conn:
+    conn.execute('CREATE DATABASE "<my_app_db>"')
 ```
 
-**Case B — teammate has never connected** (no role row yet). The native `postgres create-role` silently drops `attributes` and `membership_roles`, so use the raw API:
+Save `<my_app_db>` into `resources.json` alongside the project + branch:
 
-```bash
-databricks api post \
-    "/api/2.0/postgres/projects/<PROJECT_ID>/branches/production/roles?role_id=<role-id>" \
-    --json '{"spec": {"attributes": {"createdb": true, "createrole": true, "bypassrls": true},
-                      "identity_type": "USER",
-                      "auth_method": "LAKEBASE_OAUTH_V1",
-                      "postgres_role": "<teammate-email>",
-                      "membership_roles": ["DATABRICKS_SUPERUSER"]}}'
+```json
+"lakebase_database": "<my_app_db>"
 ```
 
-`<role-id>` is a lowercase-hyphens resource name you pick (e.g. `user-bastian`). To revoke, run the Case A update with `"membership_roles": []`.
+**Gotchas (all live-verified earlier this session):**
+- `autocommit=True` is mandatory for `CREATE DATABASE` — psycopg's default opens a transaction, which Postgres rejects.
+- Don't `SET ROLE databricks_superuser` for the session — connect *as* yourself; the role membership is already in effect.
+- OAuth tokens have a **1h TTL**. For long-running scripts, refresh via `w.config.oauth_token().access_token` before each new connection.
+- `sslmode="require"` is mandatory — Lakebase rejects plaintext connections.
 
-#### 4c. Fill `.env` (local dev only)
+#### 4b. Fill `.env` (local dev only)
+
+`<BRANCH_PATH>` below is whatever you set up in 4a:
+- Shared-project branch (Step 2): `projects/dbdemos-asset-generator/branches/<your-branch>`
+- Own project (Step 3): `projects/<PROJECT_ID>/branches/production`
+
+A branch always has a `primary` endpoint auto-created with it.
 
 **Two Lakebase values, two roles — do not confuse them:**
 
 | Variable | What it is | Format / example |
 |----------|------------|------------------|
-| `LAKEBASE_ENDPOINT` | **Resource name** (a path). Used by AppKit to refresh OAuth tokens. | `projects/<PROJECT_ID>/branches/production/endpoints/primary` |
+| `LAKEBASE_ENDPOINT` | **Resource name** (a path). Used by AppKit to refresh OAuth tokens. | `<BRANCH_PATH>/endpoints/primary` |
 | `PGHOST` | **DNS hostname**. Used by psycopg/node-postgres to open the TCP connection. | `ep-small-dawn-d13fr9rm.database.us-west-2.cloud.databricks.com` |
 
 A common mistake is putting the hostname in both. If `LAKEBASE_ENDPOINT` has dots in it, it's wrong — it must start with `projects/`.
@@ -144,9 +189,9 @@ A common mistake is putting the hostname in both. If `LAKEBASE_ENDPOINT` has dot
 Both values come from the same command:
 
 ```bash
-databricks postgres get-endpoint projects/<PROJECT_ID>/branches/production/endpoints/primary
-# .name            → LAKEBASE_ENDPOINT  (e.g. "projects/<PROJECT_ID>/branches/production/endpoints/primary")
-# .status.hosts.host → PGHOST            (e.g. "ep-small-dawn-d13fr9rm.database.us-west-2.cloud.databricks.com")
+databricks postgres get-endpoint <BRANCH_PATH>/endpoints/primary
+# .name              → LAKEBASE_ENDPOINT  (e.g. "<BRANCH_PATH>/endpoints/primary")
+# .status.hosts.host → PGHOST             (e.g. "ep-small-dawn-d13fr9rm.database.us-west-2.cloud.databricks.com")
 ```
 
 (`get-project` and `get-branch` don't return the host — you must use `get-endpoint`.)
@@ -158,10 +203,10 @@ DATABRICKS_WORKSPACE_ID=<workspace-id>
 DATABRICKS_WAREHOUSE_ID=<warehouse-id>          # powers analytics + Delta→Lakebase sync
 
 # Lakebase — OAuth, NO password. LAKEBASE_ENDPOINT is a resource path; PGHOST is a hostname.
-LAKEBASE_ENDPOINT=projects/<PROJECT_ID>/branches/production/endpoints/primary
+LAKEBASE_ENDPOINT=<BRANCH_PATH>/endpoints/primary
 PGHOST=<host from .status.hosts.host — ends in .cloud.databricks.com>
 PGPORT=5432
-PGDATABASE=databricks_postgres                  # default on a fresh project
+PGDATABASE=<my_app_db>                          # the database you created in 4a Step 4
 PGUSER=<your Databricks email>                  # local dev only
 PGSSLMODE=require
 # No PGPASSWORD.
@@ -205,16 +250,72 @@ for i in {1..60}; do
   fi
   sleep 1
 done
-
-# ALWAYS stop — whether it booted, crashed, or we're still waiting.
-kill "$APP_PID" 2>/dev/null
-# Give it a moment, then SIGKILL if still alive.
-sleep 2
-kill -9 "$APP_PID" 2>/dev/null || true
 ```
 
-Review `/tmp/app-smoke.log` for any errors. If the app crashed or logged fatal errors, fix them before reporting the build complete. Common issues: missing `DATABRICKS_HOST`, wrong catalog/schema, Lakebase endpoint not reachable, agent tool referencing a table column that doesn't exist yet.
+- Review `/tmp/app-smoke.log` for any errors. If the app crashed or logged fatal errors, fix them before reporting the build complete. Common issues: missing `DATABRICKS_HOST`, wrong catalog/schema, Lakebase endpoint not reachable, agent tool referencing a table column that doesn't exist yet.
+- Test the main endpoints (some get/create), make sure you test the chatbot / assistant endpoints as it's often having issue. 
+If you see errors, check the logs and fix the errors accordingly, the app should be functional once you finish
 
-> **Don't leave the app running.** From this point on, the **App** tab in the Demo Prompt Generator UI owns the process lifecycle — it spawns, supervises, proxies, and stops on idle / explicit Stop. A leftover smoke-test process would be untracked and could block the UI's own port. Verify with `lsof -iTCP:$PORT -sTCP:LISTEN` before reporting done.
->
-> Tell the user the build is complete and point them at the **App** tab to start it.
+**Don't leave the app running.** From this point on, the **App** tab in the Demo Prompt Generator UI owns the process lifecycle — it spawns, supervises, proxies, and stops on idle / explicit Stop. A leftover smoke-test process would be untracked and could block the UI's own port. Verify with `lsof -iTCP:$PORT -sTCP:LISTEN` before reporting done.
+
+ALWAYS stop — whether it booted, crashed, or we're still waiting.
+`kill -9 "$APP_PID" 2>/dev/null || true`
+
+**Never run `./start.sh` casually.** Only during the one-shot smoke test described above, or when a user explicitly asks you to debug a boot issue — and always kill it immediately after. The UI is the single supervisor of the app process; any other `start.sh` run will collide with it.
+
+Tell the user the build is complete and point them at the **App** tab to start it.
+
+### Step 6: Deploy the app (only on explicit user request)
+
+**Do NOT deploy the app by yourself.** When the user says "deploy resources" / "deploy the demo" / similar, that means everything *except* the app (pipeline, dashboard, Genie, KA, MAS, model, etc.). The app is deployed **only** when the user explicitly says something like "deploy the app" / "push the app to the workspace" / "create the Databricks App."
+
+DO NOT OVERRIDE/DELETE another existing app. If you hit quota limits, just report to the user and save it in resource.json app.deployment_note.
+
+When they do ask, the flow is:
+
+```bash
+# 1. Create the app (once — name must be unique in the workspace)
+databricks apps create <app-name>
+
+# 2. Upload source code to a Workspace path
+databricks workspace mkdirs /Workspace/Users/<user>/apps/<app-name>
+databricks workspace import-dir . /Workspace/Users/<user>/apps/<app-name> --overwrite
+
+# 3. Deploy that source as a new app deployment
+databricks apps deploy <app-name> \
+  --source-code-path /Workspace/Users/<user>/apps/<app-name>
+
+# 4. Attach resources via the workspace UI
+#    (SQL warehouse, Lakebase, secrets — bind to the env vars referenced in app.yaml)
+
+# 5. Check status + get the URL
+databricks apps get <app-name>
+```
+
+**Redeploys** (after code changes):
+
+```bash
+# Clean the workspace path then re-upload. `--overwrite` on import alone
+# doesn't prune removed/renamed files — delete first, re-import everything.
+# The `|| true` tolerates the first-time case where the dir doesn't exist yet.
+databricks workspace delete /Workspace/Users/<user>/apps/<app-name> --recursive 2>/dev/null || true
+databricks workspace import-dir . /Workspace/Users/<user>/apps/<app-name>
+databricks apps deploy <app-name> \
+  --source-code-path /Workspace/Users/<user>/apps/<app-name>
+```
+
+**`app.yaml`** lives at the repo root and tells the runtime how to start. This template's `app.yaml` is Node-based (`command: ['npm', 'run', 'start']`) — don't change that unless you've also swapped the framework.
+
+Environment variable bindings (`env:` block with `valueFrom: <resource-name>`) can be declared in `app.yaml` but are generally **attached via the UI after create** — that's cleaner for demos since resource IDs differ per workspace. The template's `app.yaml` ships with the reference shape commented out.
+
+**After deploying, record the app in `resources.json`.** Under `created_resources`, add (or update) the nested `app` object:
+
+```json
+"app": {
+  "name": "<app-name>",                   // the argument you passed to `databricks apps create`
+  "id": "<id from `databricks apps get`>",// optional — the workspace-assigned app id, if needed for APIs
+  "deployment_note": "<one-liner>"        // free-form: deployed successfully / quota hit / etc.
+}
+```
+
+The `deployment_note` is where you record any caveat — quota errors, partial deploys, "reused existing app", whatever's worth knowing on the next run. The UI's deployed-resources bar reads `app.name` to build the `/apps/<name>` link.

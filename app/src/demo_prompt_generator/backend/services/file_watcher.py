@@ -36,10 +36,12 @@ IGNORE_PATTERNS = [
     ".claude/settings*",  # Local settings
     ".databrickscfg",  # Per-project Databricks auth file — see backend/AUTH.md
     ".databrickscfg.*",  # Atomic-write temp variants
-    # Language package/artifact dirs — never back these up
+    # Language package/artifact dirs — never back these up.
+    # Glob on dir segments: `.venv*/**` catches `.venv`, `.venv-datagen`,
+    # `.venv-something`, etc. `venv*/**` covers bare `venv` variants.
     "node_modules/**",
-    ".venv/**",
-    "venv/**",
+    ".venv*/**",
+    "venv*/**",
     "__pycache__/**",
     ".pytest_cache/**",
     ".ruff_cache/**",
@@ -60,6 +62,7 @@ IGNORE_PATTERNS = [
     "*.swp",
     "*.tmp",
     "*.tmp.*",  # Atomic write temp files (e.g. file.py.tmp.59934.123456)
+    ".tmp*",    # Hidden tempfile pattern (e.g. .tmpJXLTJq from Python's tempfile)
     "*.log",
 ]
 
@@ -112,22 +115,33 @@ class ProjectEventHandler(FileSystemEventHandler):
         if event.is_directory:
             return
 
-        info = self._extract_project_info(event.src_path)
-        if not info:
-            return
-
-        project_id, relative_path = info
-
-        # Skip if no relative path (root of project)
-        if not relative_path:
-            return
-
-        # Skip ignored paths
-        if should_ignore(relative_path):
-            return
-
         event_type = event.event_type  # 'created', 'modified', 'deleted', 'moved'
-        self.on_change(project_id, relative_path, event_type)
+
+        # Move events have two paths. The src is where the file LEFT (often a
+        # tempfile that we'd ignore); the dest is where the file landed — the
+        # "real" name a caller cares about (e.g. atomic writes: tempfile →
+        # target.md). We fire once per side so both the old-side cache
+        # removal and the new-side cache add happen.
+        paths_to_emit: list[tuple[str, str]] = []  # (path, event_type)
+        if event_type == "moved":
+            dest_path = getattr(event, "dest_path", None)
+            if event.src_path:
+                paths_to_emit.append((event.src_path, "deleted"))
+            if dest_path:
+                paths_to_emit.append((dest_path, "created"))
+        else:
+            paths_to_emit.append((event.src_path, event_type))
+
+        for abs_path, evt_kind in paths_to_emit:
+            info = self._extract_project_info(abs_path)
+            if not info:
+                continue
+            project_id, relative_path = info
+            if not relative_path:
+                continue
+            if should_ignore(relative_path):
+                continue
+            self.on_change(project_id, relative_path, evt_kind)
 
 
 class FileWatcherService:
@@ -187,6 +201,10 @@ class FileWatcherService:
         if not self._running or not self._loop:
             return
 
+        logger.info(
+            f"[watcher] {event_type} {project_id}/{relative_path}"
+        )
+
         # Update the file-listing cache in-place so the next /files call is fresh
         # without having to re-walk the filesystem. Safe from a watchdog thread:
         # the cache uses its own RLock.
@@ -200,8 +218,13 @@ class FileWatcherService:
                 # same way.
                 cache_update_file(project_id, relative_path)
         except Exception as e:
-            # Cache is a best-effort optimization — never break the watcher.
-            logger.debug(f"cache update failed for {project_id}/{relative_path}: {e}")
+            # Cache update is best-effort, but if this ever fails the /files
+            # endpoint goes stale — so make it visible. The watcher itself
+            # keeps going regardless.
+            logger.warning(
+                f"[cache] update failed for {project_id}/{relative_path}: {e}",
+                exc_info=True,
+            )
 
         self._pending[project_id].add(relative_path)
 

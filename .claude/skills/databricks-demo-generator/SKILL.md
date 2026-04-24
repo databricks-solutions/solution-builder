@@ -64,6 +64,7 @@ No drawn-out status dumps — one line, then the work continues.
 ### resources.json
 
 Source of truth for what capabilities the demo includes. Created during spec phase with capabilities, updated during build with resource IDs. Structure mirrors `SKILL_DIR/references/example-luxebeauty/resources.json`.
+You must keep this exact naming convention.
 
 **After build** (populated with created resource IDs — do not add links here):
 ```json
@@ -75,8 +76,15 @@ Source of truth for what capabilities the demo includes. Created during spec pha
     "dashboard_id": "01efab12cd34...",
     "genie_space_id": "abc123...",
     "knowledge_assistant_id": "ka-456...",
+    "knowledge_assistant_endpoint": "ka-15956b19-endpoint",
     "multi_agent_supervisor_id": "mas-789...",
-    "app_name": "luxebeauty-demo",
+    "multi_agent_supervisor_endpoint": "sa-15956b19-endpoint",
+    "mlflow_experiment_path": "/workspace/xxx",
+    "app":{
+      "name": "xxx",
+      "deployment_note": "xxx",
+      "id": "xx"
+    },
     "lakebase_project_id": "xxx",
     "lakebase_branch": "xxx"
   }
@@ -141,7 +149,10 @@ When the project already has files (`README.md`, `resources.json`, `specificatio
 2. **Understand the user's request** — what they want to change (story, capabilities, a specific spec, a built resource).
 3. **Make targeted changes** — update only the affected files. Keep everything else consistent.
 4. **Propagate changes downstream** — if you change the story or data schema, update all specs that reference those values. If you change a spec, update the built resource if it exists.
-5. **App changes**: read `SKILL_DIR/app/app.md` for instructions.
+5. **App changes** — **if the user asks about anything app-related (adding a page, changing an agent tool, updating theming, data model, re-generating, debugging, deploying), read `SKILL_DIR/app/app.md` FIRST.** Don't improvise from memory. Non-negotiable principles while working on the app:
+   - **Don't start the app.** The Demo Prompt Generator UI supervises the app's process; a separate `./start.sh` collides with it.
+   - **One-shot smoke tests only** — if you must run it to validate a change, run it once on a random port, then kill it immediately (see `app.md` Step 5 for the exact pattern). Leaving it running is a bug.
+   - **Never deploy the app on your own.** "Deploy resources" / "deploy the demo" means everything except the app. Deploy the app **only** when the user says "deploy the app" / "push the app" / similar explicit wording. The flow is in `app.md` Step 6.
 6. **Spec-writing standards**: if you're editing `specifications/*.md`, read `SKILL_DIR/stages/02-write-specs.md` for the standards (functional specs, temporal realism, coherence contracts, etc.).
 
 The coherence contract still applies: every change must ripple through all dependent files.

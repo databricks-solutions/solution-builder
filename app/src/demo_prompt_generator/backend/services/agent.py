@@ -7,6 +7,7 @@ No thread wrapper - runs directly in FastAPI async context.
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import time
 from dataclasses import dataclass, field
@@ -306,6 +307,10 @@ async def stream_agent_response(
                 setting_sources=[],
                 mcp_servers={},
                 env=claude_env,
+                # Default is 1 MB which is too tight for a coding agent — a
+                # `Read` on a moderate file or `Bash` stdout from a verbose
+                # command routinely exceeds it and kills the stdin reader.
+                max_buffer_size=25 * 1024 * 1024,
             )
 
             # Resume previous session if provided
@@ -334,6 +339,13 @@ async def stream_agent_response(
             msg_count += 1
             msg_type = type(msg).__name__
             logger.debug(f"SDK message #{msg_count}: {msg_type}")
+
+            # Oversized-message canary. The SDK's stdin reader dies when a
+            # single message exceeds max_buffer_size (we raised it to 25 MB,
+            # but any ~1 MB+ message still points at something worth knowing —
+            # usually a Bash tool dumping a giant stdout or a Read of a huge
+            # file). Log loudly at 500 KB+, but NEVER dump the full content.
+            _log_if_oversized(msg, msg_count)
 
             # Check for cancellation
             if stream.is_cancelled:
@@ -375,6 +387,106 @@ async def stream_agent_response(
         yield {"type": "error", "error": str(e)}
         # On error, remove the client from pool
         await pool.remove_client(project_id)
+
+
+# Threshold for logging an oversized SDK message. The SDK hard-fails at
+# max_buffer_size; we log well before that so we can see what kind of content
+# is bloating messages (tool outputs are the usual suspect).
+_OVERSIZED_WARN_BYTES = 500 * 1024  # 500 KB
+_PREVIEW_CHARS = 200
+
+
+def _log_if_oversized(msg: Any, msg_count: int) -> None:
+    """If the SDK message is unusually large, log metadata + a short preview.
+    Never logs the full payload — just enough to identify which tool is the
+    offender (Bash stdout, Read of a huge file, subagent return, etc.)."""
+    # Estimate size via a bounded serialization. We only need the ballpark.
+    try:
+        size = _estimate_msg_size(msg)
+    except Exception:
+        return
+    if size < _OVERSIZED_WARN_BYTES:
+        return
+
+    kb = size / 1024
+    meta = _extract_msg_meta(msg)
+    logger.warning(
+        f"[sdk] oversized message #{msg_count}: type={type(msg).__name__} "
+        f"size~{kb:.0f}KB {meta}"
+    )
+
+
+def _estimate_msg_size(msg: Any) -> int:
+    """Rough byte-count of a message's user-visible content, ignoring structure
+    overhead. Walks known content-block shapes."""
+    total = 0
+    content = getattr(msg, "content", None)
+    if isinstance(content, str):
+        total += len(content)
+    elif isinstance(content, list):
+        for block in content:
+            for attr in ("text", "thinking", "content", "input"):
+                v = getattr(block, attr, None)
+                if isinstance(v, str):
+                    total += len(v)
+                elif isinstance(v, (dict, list)):
+                    # Tool inputs are often dicts; serialize approximately.
+                    try:
+                        total += len(json.dumps(v, default=str))
+                    except Exception:
+                        total += len(str(v))
+    # ResultMessage.result etc.
+    for attr in ("result", "text"):
+        v = getattr(msg, attr, None)
+        if isinstance(v, str):
+            total += len(v)
+    return total
+
+
+def _extract_msg_meta(msg: Any) -> str:
+    """Return a short metadata string describing the largest content block:
+    tool name + input-key summary for ToolUse; tool_use_id + result preview
+    for ToolResult; text/thinking preview for Assistant content. Preview is
+    truncated to ~200 chars."""
+    parts: list[str] = []
+    content = getattr(msg, "content", None)
+    if isinstance(content, list):
+        for block in content:
+            block_type = type(block).__name__
+            # ToolUseBlock: surface tool name + the input keys (not values)
+            if block_type == "ToolUseBlock":
+                name = getattr(block, "name", "?")
+                inp = getattr(block, "input", {})
+                keys = list(inp.keys()) if isinstance(inp, dict) else []
+                # Find the biggest string value in the input — that's what's
+                # bloating the message (e.g. Write/Edit with huge content).
+                big_field, big_len = None, 0
+                if isinstance(inp, dict):
+                    for k, v in inp.items():
+                        if isinstance(v, str) and len(v) > big_len:
+                            big_field, big_len = k, len(v)
+                meta = f"ToolUse[name={name}, keys={keys}]"
+                if big_field:
+                    meta += f" big_field={big_field}({big_len}B)"
+                parts.append(meta)
+            elif block_type == "ToolResultBlock":
+                tid = getattr(block, "tool_use_id", "?")
+                c = getattr(block, "content", "")
+                if isinstance(c, list):
+                    # Rare shape — content can be a list of dicts
+                    c = json.dumps(c, default=str)
+                preview = (c[:_PREVIEW_CHARS] + "…") if isinstance(c, str) and len(c) > _PREVIEW_CHARS else str(c)[:_PREVIEW_CHARS]
+                parts.append(f"ToolResult[tool_use_id={tid}] preview={preview!r}")
+            elif block_type in ("TextBlock", "ThinkingBlock"):
+                attr = "text" if block_type == "TextBlock" else "thinking"
+                v = getattr(block, attr, "") or ""
+                if len(v) > _PREVIEW_CHARS:
+                    parts.append(f"{block_type}({len(v)}B) preview={v[:_PREVIEW_CHARS]!r}")
+    # ResultMessage.result
+    result = getattr(msg, "result", None)
+    if isinstance(result, str) and len(result) > _PREVIEW_CHARS:
+        parts.append(f"result({len(result)}B) preview={result[:_PREVIEW_CHARS]!r}")
+    return " ".join(parts) if parts else "(no block metadata)"
 
 
 def _convert_sdk_message(msg: Any) -> Generator[dict, None, None]:

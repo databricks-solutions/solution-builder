@@ -779,7 +779,14 @@ export const FileViewer = memo(function FileViewer({
                     <span className="flex-shrink-0 w-7 h-7 rounded-full bg-muted text-muted-foreground text-sm flex items-center justify-center font-medium">3</span>
                     <div>
                       <span className="text-muted-foreground font-medium">Build the assets</span>
-                      <p className="text-sm text-muted-foreground/70 mt-0.5">Create real Databricks resources from the specs using Genie Code or AI Dev Kit. Sit back, have a coffee, and enjoy your project.</p>
+                      <p className="text-sm text-muted-foreground/70 mt-0.5">Create the Databricks resources from the specs using Genie Code or AI Dev Kit — pipelines, dashboards, Genie spaces, agents, all in your workspace.</p>
+                      <ul className="mt-2 ml-1 space-y-1">
+                        <li className="text-sm text-muted-foreground/70 flex gap-2">
+                          <span className="text-muted-foreground/40">•</span>
+                          <span>Optionally scaffold a custom Databricks App on top — preview it live right here in the generator while it's being built.</span>
+                        </li>
+                      </ul>
+                      <p className="text-sm text-muted-foreground/60 mt-2 italic">Sit back, have a coffee, and enjoy your project.</p>
                     </div>
                   </li>
                 </ol>
