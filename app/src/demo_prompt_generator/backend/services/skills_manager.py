@@ -41,8 +41,12 @@ CORE_SKILLS: set[str] = {
     "databricks-jobs",
 }
 
-# Never copy these skill dirs (stub/template entries in ai-dev-kit).
-EXCLUDE_SKILLS: set[str] = {"TEMPLATE"}
+# Never copy these skill dirs (stub/template entries in ai-dev-kit,
+# plus skills that conflict with the demo-generator's own app flow).
+# - databricks-app-python: generic Streamlit/Gradio Python app skill.
+#   Our app is Node/React/FastAPI via app_template + app.md; this skill
+#   makes build subagents default to Streamlit. Kept out.
+EXCLUDE_SKILLS: set[str] = {"TEMPLATE", "databricks-app-python"}
 
 # Map each capability id (see references/blocks/capabilities/*.md) to the
 # ai-dev-kit skill dirs it needs. Capabilities not listed contribute no extra
@@ -50,7 +54,10 @@ EXCLUDE_SKILLS: set[str] = {"TEMPLATE"}
 CAPABILITY_TO_SKILLS: dict[str, list[str]] = {
     "ai-functions": ["databricks-ai-functions"],
     "aibi-dashboards": ["databricks-aibi-dashboards"],
-    "databricks-apps": ["databricks-app-python", "databricks-lakebase-provisioned"],
+    # databricks-app-python intentionally NOT listed: it's the generic
+    # Streamlit/Python-app skill; our app is Node/React/FastAPI via
+    # app_template + app.md.
+    "databricks-apps": ["databricks-lakebase-provisioned"],
     "genie": ["databricks-genie"],
     "information-extraction": ["databricks-ai-functions"],
     "knowledge-assistant": ["databricks-agent-bricks", "databricks-unstructured-pdf-generation"],
@@ -69,18 +76,12 @@ CAPABILITY_TO_SKILLS: dict[str, list[str]] = {
 def skills_for_capabilities(capability_ids: Optional[list[str]]) -> Optional[list[str]]:
     """Resolve selected capability IDs to the set of skill dir_names to copy.
 
-    Returns None if capability_ids is None (caller should copy everything) or empty
-    (same — no selection signal, default to full set). Otherwise returns the union of
-    CORE_SKILLS and each capability's mapped skills, minus EXCLUDE_SKILLS.
+    Currently disabled — always returns None so `copy_skills_to_project`
+    copies every ai-dev-kit skill regardless of which capabilities were
+    selected. The per-capability mapping (`CAPABILITY_TO_SKILLS`) and the
+    `CORE_SKILLS` baseline are kept below for reference / future re-enable.
     """
-    if not capability_ids:
-        return None
-    resolved: set[str] = set(CORE_SKILLS)
-    for cap in capability_ids:
-        for skill in CAPABILITY_TO_SKILLS.get(cap, []):
-            resolved.add(skill)
-    resolved -= EXCLUDE_SKILLS
-    return sorted(resolved)
+    return None
 
 
 def _prune_capability_blocks(

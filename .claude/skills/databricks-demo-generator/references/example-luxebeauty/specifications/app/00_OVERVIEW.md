@@ -1,5 +1,7 @@
 # App Specification — Overview, Home & Assistant
 
+> **Build-time note.** Read `SKILL_DIR/app/app.md` FIRST and follow it end-to-end — that's the playbook (rsync template → customize → Lakebase → env → smoke test → deploy). This is **not** a from-scratch build: the template at `SKILL_DIR/app/app_template/` is a Node.js + React + FastAPI app with Lakebase, MAS streaming, MLflow tracing, OBO auth, chat dock, and scripted demo chain already wired. You rsync it into `PROJECT/app/`, read `TEMPLATE_MAP.md` for what's preserved vs customized, then rewrite domain pieces (home narrative, agent tools, Lakebase schema, analytics SQL, theming) to match the story. Typically run as a subagent spawned once 01-lakeflow.B is ready. **Do NOT rebuild in Streamlit / Gradio** — you'd lose streaming, MLflow, the scripted chain, and the OBO/audit pattern. On conflict: `app.md` governs *how*, this spec governs *what*.
+
 ## Pitch
 
 AI assistant that **investigates, drafts the fix, and executes it** in one conversation — not just answers questions. Claire watches every step happen live: MAS routes across Genie + KA, traces the returns spike to one production lot, drafts apology emails with coupons, bulk-approves refunds. Operations queue updates in real time. Every action is traced in MLflow.

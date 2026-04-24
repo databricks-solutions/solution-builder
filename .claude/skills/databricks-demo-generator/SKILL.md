@@ -49,6 +49,12 @@ Between phases, drop a one-liner so the user always knows where you are in the f
 
 No drawn-out status dumps — one line, then the work continues.
 
+### Output discipline
+
+Between tool calls, write about the **problem**, not the file you're about to create. If a sentence describes what the file will contain, put it in the file (comments, code) instead — don't preview it in chat. Don't narrate the act of writing ("writing the script…", "finishing the join…", "still generating…") — the tool call does that.
+
+Real thinking (surprising results, tradeoffs, ambiguity, errors) is welcome. File previews and progress updates aren't.
+
 ---
 
 ## Project Structure

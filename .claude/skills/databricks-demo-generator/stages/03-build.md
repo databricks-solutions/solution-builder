@@ -37,13 +37,15 @@ Build time dominates this stage. Several resources are independent — run them 
 |-------|-----------|-----------------------|-----------|
 | `01-lakeflow` A (synthetic data) | Main thread | — | — |
 | `01-lakeflow` B (SDP pipeline) | Main thread, after A | — | A (needs raw data) |
-| `01-lakeflow` C (incident PDFs) | Subagent, spawn with A | A + B | — |
+| `01-lakeflow` C (unstructured docs — write HTML content + convert to PDF + upload) | Subagent, spawn with A | A + B | — |
 | `02-uc-governance` | Main thread | — | B (needs tables) |
 | `03-ai-bi` (Genie → Dashboard, sequential inside) | Subagent | `04-agent-bricks`, App | B |
 | `04-agent-bricks` (KA → MAS, sequential inside) | Subagent | `03-ai-bi`, App | 01.C for KA step; B for MAS step |
 | App generation | Subagent, spawn after 01.B | `03-ai-bi`, `04-agent-bricks` | 01.B (needs tables to wire the app), plus whatever resource IDs it embeds (dashboard id, MAS endpoint) — may need a brief wait at the end to fill those in |
 
 The example shows that a **long-running task like App generation can start as soon as its minimum dependency is met** (tables exist after 01.B), rather than waiting for the whole build to finish. Apply this logic to any resource in your demo: as soon as its upstream is ready, spawn it in parallel with anything independent.
+
+**Unstructured-docs scope (PDF subagent):** the subagent owns the full job — **authoring the HTML content, converting it to PDF, and uploading to the UC Volume.** Writing the HTML is the slow LLM work (often 5–10 domain-specific documents); do NOT keep that on the main thread and hand only the conversion step to the subagent. The parent's only job here is to spawn the subagent with a pointer to `01-lakeflow.md` Section C (the content spec).
 
 ### Wait rules (non-negotiable)
 
@@ -81,7 +83,7 @@ First **read `SKILL_DIR/stages/subagents.md`** — it has the shared prompt stru
 - **Duplicate what a file says.** If it's in `app.md`, `TEMPLATE_MAP.md`, the ai-dev-kit skill, the spec, or the README — point at the file, don't re-type it in the prompt. When the file is updated, your prompt goes stale.
 - **Re-enumerate step-by-step CLI commands.** The `SKILLS/<skill-dir>/SKILL.md` / `app.md` the subagent reads knows how to build the resource.
 - **Pass unresolved placeholders.** Every `SKILL_DIR/…`, `PROJECT/…`, `SKILLS/…` in the prompt must be a real absolute path before you send it.
-- **Don't include `stages/03-build.md`** — the subagent doesn't need the parent's parallelization table. But **DO include `SKILL.md`** as the first read for most build subagents (gates, coherence, storytelling). Skip it only for truly narrow tasks like PDF generation from an already-written spec. See `SKILL_DIR/stages/subagents.md`.
+- **Don't include `stages/03-build.md`** — the subagent doesn't need the parent's parallelization table. But **DO include `SKILL.md`** as the first read for most build subagents (gates, coherence, storytelling). Skip it only for truly narrow tasks like unstructured-docs generation where the content spec already exists in `01-lakeflow.md` and the subagent just needs to author the HTML, convert, and upload. See `SKILL_DIR/stages/subagents.md`.
 
 ## App generation
 
