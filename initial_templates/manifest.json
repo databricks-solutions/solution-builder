@@ -1,0 +1,61 @@
+{
+  "owner_email": "system@databricks.com",
+  "templates": [
+    {
+      "id": "00000000-seed-4000-a001-000000000001",
+      "directory": "financial-services/fraud-detection",
+      "name": "Meridian Bank \u2014 Card Fraud Investigation",
+      "description": "Card fraud investigation demo: a VP of Fraud Operations traces a $2.4M weekly fraud spike to compromised POS terminals at QuickMart, using dashboards, Genie analytics, and a Knowledge Assistant to surface the merchant security audit.",
+      "industry": "Financial Services",
+      "capabilities": ["synthetic-data-gen", "sdp", "aibi-dashboards", "genie", "knowledge-assistant", "supervisor-agent"]
+    },
+    {
+      "id": "00000000-seed-4000-a001-000000000002",
+      "directory": "healthcare/hospital-readmissions",
+      "name": "Lakeside Health System \u2014 Readmission Investigation",
+      "description": "Hospital readmission investigation demo: a Chief Medical Officer traces an 18% readmission rate (double the CMS target) to heart failure patients with a discharge protocol gap, using dashboards, Genie analytics, and a Knowledge Assistant.",
+      "industry": "Healthcare & Life Sciences",
+      "capabilities": ["synthetic-data-gen", "sdp", "aibi-dashboards", "genie", "knowledge-assistant", "supervisor-agent"]
+    },
+    {
+      "id": "00000000-seed-4000-a001-000000000003",
+      "directory": "retail/demand-forecasting",
+      "name": "FreshMart Grocery \u2014 Stockout Investigation",
+      "description": "Retail stockout investigation demo: a VP of Supply Chain traces $4.2M in lost sales to dairy stockouts at 23 stores caused by a demand forecast miss during a stadium concert, using dashboards, Genie, and a Knowledge Assistant.",
+      "industry": "Retail & CPG",
+      "capabilities": ["synthetic-data-gen", "sdp", "aibi-dashboards", "genie", "knowledge-assistant", "supervisor-agent"]
+    },
+    {
+      "id": "00000000-seed-4000-a001-000000000004",
+      "directory": "manufacturing/predictive-maintenance",
+      "name": "Precision Motors \u2014 Equipment Failure Investigation",
+      "description": "Manufacturing defect investigation demo: a VP of Manufacturing traces an 8.5% defect rate (3x target) to ignored vibration warnings on CNC machines at the Detroit plant, using dashboards, Genie analytics, and a Knowledge Assistant.",
+      "industry": "Manufacturing",
+      "capabilities": ["synthetic-data-gen", "sdp", "aibi-dashboards", "genie", "knowledge-assistant", "supervisor-agent"]
+    },
+    {
+      "id": "00000000-seed-4000-a001-000000000005",
+      "directory": "media/subscriber-churn",
+      "name": "StreamVue Media \u2014 Subscriber Churn Investigation",
+      "description": "Subscriber churn investigation demo: a VP of Retention traces 4.8% monthly churn (double normal) to an offline playback bug affecting mobile-first users, using dashboards, Genie analytics, and a Knowledge Assistant.",
+      "industry": "Media & Entertainment",
+      "capabilities": ["synthetic-data-gen", "sdp", "aibi-dashboards", "genie", "knowledge-assistant", "supervisor-agent"]
+    },
+    {
+      "id": "00000000-seed-4000-a001-000000000006",
+      "directory": "energy/equipment-failure",
+      "name": "Pacific Grid Utilities \u2014 Transformer Failure Investigation",
+      "description": "Utility outage investigation demo: a VP of Grid Operations traces 47 unplanned outages (3x normal) to a cooling system defect in a batch of distribution transformers, using dashboards, Genie analytics, and a Knowledge Assistant.",
+      "industry": "Manufacturing",
+      "capabilities": ["synthetic-data-gen", "sdp", "aibi-dashboards", "genie", "knowledge-assistant", "supervisor-agent"]
+    },
+    {
+      "id": "00000000-seed-4000-a001-000000000007",
+      "directory": "travel/disruption-response",
+      "name": "SkyWest Airlines \u2014 Delay Investigation",
+      "description": "Airline delay investigation demo: a VP of Operations traces on-time performance dropping to 62% to an APU software bug affecting departure turnarounds, using dashboards, Genie analytics, and a Knowledge Assistant.",
+      "industry": null,
+      "capabilities": ["synthetic-data-gen", "sdp", "aibi-dashboards", "genie", "knowledge-assistant", "supervisor-agent"]
+    }
+  ]
+}

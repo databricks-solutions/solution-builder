@@ -464,6 +464,12 @@ class _LakebaseDependency(LifespanDependency):
             try:
                 validate_db(engine, db_config)
                 initialize_models(engine)
+                # Seed default templates (non-fatal if it fails)
+                try:
+                    from ..services.seed_templates import seed_default_templates
+                    seed_default_templates(engine)
+                except Exception as e:
+                    logger.warning(f"Template seeding failed (non-fatal): {e}")
                 app.state.db_ready = True
                 logger.info("Database ready")
             except Exception as e:
