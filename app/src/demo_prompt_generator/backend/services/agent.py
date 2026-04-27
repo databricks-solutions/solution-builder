@@ -42,6 +42,24 @@ KEEPALIVE_INTERVAL = 15  # seconds between keepalive events
 CLIENT_IDLE_TIMEOUT = 300  # 5 minutes before disconnecting idle clients
 
 
+async def _keepalive_loop(stream: ActiveStream, interval: float = KEEPALIVE_INTERVAL) -> None:
+    """Periodically append a keepalive event to `stream` so SSE clients see
+    progress even when the SDK is blocked on a long-running tool call.
+
+    The SDK's `receive_response()` does not yield while a tool is executing,
+    so any in-loop keepalive would be unreachable. Running this as a separate
+    asyncio.Task ticks on a wall-clock timer regardless of the SDK's state.
+    """
+    try:
+        while not (stream.is_complete or stream.is_cancelled or stream.is_error):
+            await asyncio.sleep(interval)
+            if stream.is_complete or stream.is_cancelled or stream.is_error:
+                return
+            stream.add_event({"type": "keepalive", "ts": time.time()})
+    except asyncio.CancelledError:
+        return
+
+
 def _build_claude_env(
     project_dir: Path,
     *,
@@ -331,50 +349,53 @@ async def stream_agent_response(
         await client.query(message)
         logger.info(f"Sent query to agent for project {project_id}")
 
-        # Stream responses with keepalive
-        last_event_time = time.time()
+        # Heartbeat task — adds a keepalive event to the in-memory stream every
+        # KEEPALIVE_INTERVAL seconds. Lives in a separate task because the SDK's
+        # `receive_response()` blocks for the entire duration of a tool call.
+        # Without this, long Bash tools (Genie create, pipeline run, ML training)
+        # produce zero events for 20+ minutes and the SSE handler reconnects
+        # forever on empty windows.
         msg_count = 0
+        heartbeat = asyncio.create_task(_keepalive_loop(stream))
 
-        async for msg in client.receive_response():
-            msg_count += 1
-            msg_type = type(msg).__name__
-            logger.debug(f"SDK message #{msg_count}: {msg_type}")
+        try:
+            async for msg in client.receive_response():
+                msg_count += 1
+                msg_type = type(msg).__name__
+                logger.debug(f"SDK message #{msg_count}: {msg_type}")
 
-            # Oversized-message canary. The SDK's stdin reader dies when a
-            # single message exceeds max_buffer_size (we raised it to 25 MB,
-            # but any ~1 MB+ message still points at something worth knowing —
-            # usually a Bash tool dumping a giant stdout or a Read of a huge
-            # file). Log loudly at 500 KB+, but NEVER dump the full content.
-            _log_if_oversized(msg, msg_count)
+                # Oversized-message canary. The SDK's stdin reader dies when a
+                # single message exceeds max_buffer_size (we raised it to 25 MB,
+                # but any ~1 MB+ message still points at something worth knowing —
+                # usually a Bash tool dumping a giant stdout or a Read of a huge
+                # file). Log loudly at 500 KB+, but NEVER dump the full content.
+                _log_if_oversized(msg, msg_count)
 
-            # Check for cancellation
-            if stream.is_cancelled:
-                try:
-                    await client.interrupt()
-                except Exception:
-                    pass
-                stream.mark_cancelled()
-                logger.info(f"Agent cancelled for project {project_id}")
-                return
+                # Check for cancellation
+                if stream.is_cancelled:
+                    try:
+                        await client.interrupt()
+                    except Exception:
+                        pass
+                    stream.mark_cancelled()
+                    logger.info(f"Agent cancelled for project {project_id}")
+                    return
 
-            # Convert and yield events
-            for event in _convert_sdk_message(msg):
-                stream.add_event(event)
-                yield event
-                last_event_time = time.time()
+                # Convert and yield events
+                for event in _convert_sdk_message(msg):
+                    stream.add_event(event)
+                    yield event
 
-            # Extract session_id from ResultMessage
-            if msg_type == "ResultMessage" and hasattr(msg, "session_id") and msg.session_id:
-                final_session_id = msg.session_id
-                logger.info(f"Captured session_id: {final_session_id}")
-
-            # Send keepalive if needed
-            elapsed = time.time() - last_event_time
-            if elapsed >= KEEPALIVE_INTERVAL:
-                keepalive_event = {"type": "keepalive", "elapsed_since_last_event": elapsed}
-                stream.add_event(keepalive_event)
-                yield keepalive_event
-                last_event_time = time.time()
+                # Extract session_id from ResultMessage
+                if msg_type == "ResultMessage" and hasattr(msg, "session_id") and msg.session_id:
+                    final_session_id = msg.session_id
+                    logger.info(f"Captured session_id: {final_session_id}")
+        finally:
+            heartbeat.cancel()
+            try:
+                await heartbeat
+            except asyncio.CancelledError:
+                pass
 
         # Success - mark complete and release client for reuse
         stream.mark_complete(session_id=final_session_id)
