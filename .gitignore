@@ -26,3 +26,6 @@ bun.lockb
 playwright-report/
 test-results/
 screenshot-eval/
+
+# tests/pipeline/ harness output
+test-runs/
