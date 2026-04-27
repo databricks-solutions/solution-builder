@@ -2,7 +2,8 @@ import { ModeToggle } from "@/components/layout/mode-toggle";
 import { UserMenu } from "@/components/layout/user-menu";
 import Logo from "@/components/layout/logo";
 import { Link, useMatchRoute, useNavigate } from "@tanstack/react-router";
-import { Menu, Home, FolderOpen, Library, User, BookOpen } from "lucide-react";
+import { Menu, Home, FolderOpen, Library, User, BookOpen, HelpCircle } from "lucide-react";
+import { useGuide } from "@/components/guide/guide-modal";
 import { ReactNode } from "react";
 import { IS_ELECTRON } from "@/lib/config";
 import { cn } from "@/lib/utils";
@@ -32,6 +33,7 @@ interface NavbarProps {
 export function Navbar({ leftContent, rightContent, hideNav }: NavbarProps) {
   const navigate = useNavigate();
   const matchRoute = useMatchRoute();
+  const { open: openGuide } = useGuide();
 
   return (
     <header className={`z-50 bg-background/80 backdrop-blur-sm border-b border-border/80 ${IS_ELECTRON ? 'electron-drag' : ''}`} role="banner">
@@ -101,6 +103,16 @@ export function Navbar({ leftContent, rightContent, hideNav }: NavbarProps) {
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="w-8 h-8"
+            onClick={openGuide}
+            aria-label="Open guide"
+            title="Open guide"
+          >
+            <HelpCircle className="h-4 w-4" />
+          </Button>
           <ModeToggle />
           <UserMenu />
         </div>
