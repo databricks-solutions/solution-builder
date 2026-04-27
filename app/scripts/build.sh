@@ -23,6 +23,10 @@ cd "$APP_DIR"
 
 # --- 1. Build frontend ---
 if [[ "${1:-}" != "--skip-frontend" ]]; then
+    if [[ ! -d node_modules ]]; then
+        echo -e "${BLUE}[1/4] Installing frontend dependencies (bun install)...${NC}"
+        bun install
+    fi
     echo -e "${BLUE}[1/4] Building frontend...${NC}"
     bun run --cwd "$APP_DIR" vite build --config vite.config.ts
 else
