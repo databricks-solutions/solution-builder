@@ -28,7 +28,10 @@ sync:
 
 artifacts:
   default:
-    build: ./scripts/build.sh
+    # Pass the resolved lakebase instance into build.sh so it can substitute
+    # the DB_INSTANCE_NAME placeholder in .build/app.yml — keeps the runtime
+    # env in sync with var.lakebase_instance with no manual two-file edits.
+    build: ./scripts/build.sh --lakebase-instance ${var.lakebase_instance}
 
 resources:
   apps:

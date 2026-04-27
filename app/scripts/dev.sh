@@ -22,6 +22,21 @@ echo ""
 cd "$APP_DIR"
 
 # ============================================================================
+# CLI preflight — fail fast with a clear message if uv / bun are missing,
+# instead of an obscure error halfway through `uv sync` / `bun install`.
+# ============================================================================
+if ! command -v uv &> /dev/null; then
+    echo -e "${RED}ERROR: uv is not installed${NC}"
+    echo -e "  Install via: ${CYAN}curl -LsSf https://astral.sh/uv/install.sh | sh${NC}"
+    exit 1
+fi
+if ! command -v bun &> /dev/null; then
+    echo -e "${RED}ERROR: bun is not installed${NC}"
+    echo -e "  Install via: ${CYAN}curl -fsSL https://bun.sh/install | bash${NC}"
+    exit 1
+fi
+
+# ============================================================================
 # Parse arguments
 # ============================================================================
 # IMPORTANT: Using 'simplify-skills-remove-mcp' branch which removes MCP in favor of CLI tools
@@ -94,27 +109,24 @@ fi
 # Install frontend dependencies if missing — vite ships via node_modules,
 # not uv, so a fresh clone has nothing to run until `bun install` runs once.
 if [ ! -d node_modules ]; then
-    if ! command -v bun &> /dev/null; then
-        echo -e "${RED}ERROR: bun is not installed${NC}"
-        echo -e "  Install via: ${CYAN}curl -fsSL https://bun.sh/install | bash${NC}"
-        exit 1
-    fi
     echo -e "${CYAN}Installing frontend dependencies (bun install)...${NC}"
     bun install
 fi
 
 # ============================================================================
-# Check for .env file
+# Check for .env file — auto-bootstrap from .env.example so a fresh clone
+# can just run ./scripts/dev.sh. The example sets DATABRICKS_CONFIG_PROFILE=DEFAULT
+# which works against ~/.databrickscfg.
 # ============================================================================
 if [ ! -f .env ]; then
-    echo -e "${RED}ERROR: .env file not found!${NC}"
-    echo ""
-    echo -e "Create one from the example:"
-    echo -e "  ${CYAN}cp .env.example .env${NC}"
-    echo ""
-    echo -e "Then edit ${CYAN}.env${NC} and set the required values."
-    echo ""
-    exit 1
+    if [ -f .env.example ]; then
+        echo -e "${YELLOW}.env not found — copying from .env.example${NC}"
+        cp .env.example .env
+        echo -e "  Edit ${CYAN}.env${NC} if you need a non-default profile or direct token auth."
+    else
+        echo -e "${RED}ERROR: .env file not found and .env.example missing${NC}"
+        exit 1
+    fi
 fi
 
 # Load .env file

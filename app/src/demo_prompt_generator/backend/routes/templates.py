@@ -225,7 +225,7 @@ def get_template_file_content(
     headers: Dependencies.Headers,
     config: Dependencies.Config,
     request: Request,
-    ws: Dependencies.UserClient,
+    ws: Dependencies.Client,
 ):
     """Get content of a specific template file."""
     user_email = _get_user_email(headers)
@@ -278,7 +278,7 @@ def search_templates(
     body: SearchTemplatesRequest,
     session: Dependencies.Session,
     request: Request,
-    ws: Dependencies.UserClient,
+    ws: Dependencies.Client,
     config: Dependencies.Config,
 ):
     """Semantic search for templates using embeddings."""
@@ -319,7 +319,7 @@ def submit_template_from_project(
     session: Dependencies.Session,
     headers: Dependencies.Headers,
     request: Request,
-    ws: Dependencies.UserClient,
+    ws: Dependencies.Client,
     config: Dependencies.Config,
 ):
     """Submit a project as a template for review."""
@@ -370,7 +370,7 @@ def update_template_status(
     session: Dependencies.Session,
     headers: Dependencies.Headers,
     request: Request,
-    ws: Dependencies.UserClient,
+    ws: Dependencies.Client,
     config: Dependencies.Config,
 ):
     """Update template status (admin only)."""
@@ -418,7 +418,7 @@ def create_project_from_template(
     session: Dependencies.Session,
     headers: Dependencies.Headers,
     request: Request,
-    ws: Dependencies.UserClient,
+    ws: Dependencies.Client,
     config: Dependencies.Config,
 ):
     """Create a new project from a template."""
@@ -492,7 +492,7 @@ def get_template_by_project(
     session: Dependencies.Session,
     headers: Dependencies.Headers,
     request: Request,
-    ws: Dependencies.UserClient,
+    ws: Dependencies.Client,
     config: Dependencies.Config,
 ):
     """Get template linked to a project."""
@@ -544,7 +544,7 @@ def update_template_from_project(
     session: Dependencies.Session,
     headers: Dependencies.Headers,
     request: Request,
-    ws: Dependencies.UserClient,
+    ws: Dependencies.Client,
     config: Dependencies.Config,
 ):
     """Update template content from project files (owner only)."""
@@ -606,7 +606,7 @@ def open_template_project(
     session: Dependencies.Session,
     headers: Dependencies.Headers,
     request: Request,
-    ws: Dependencies.UserClient,
+    ws: Dependencies.Client,
     config: Dependencies.Config,
 ):
     """Get or create the source project for a template (owner only)."""
@@ -715,7 +715,7 @@ def delete_template(
     session: Dependencies.Session,
     headers: Dependencies.Headers,
     request: Request,
-    ws: Dependencies.UserClient,
+    ws: Dependencies.Client,
     config: Dependencies.Config,
 ):
     """Delete a template (admin or owner only)."""

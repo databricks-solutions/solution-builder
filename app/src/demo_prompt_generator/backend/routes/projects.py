@@ -233,13 +233,15 @@ def create_project(
     session: Dependencies.Session,
     headers: Dependencies.Headers,
     request: Request,
-    ws: Dependencies.UserClient,
+    ws: Dependencies.Client,
     config: Dependencies.Config,
 ):
     """Create a new project with default resources."""
     user_email = _get_user_email(headers)
 
-    # Use LLM to generate project name, description, and schema from user prompt
+    # LLM calls go through the SP client — Apps OBO tokens lack the model-serving
+    # scope vocabulary, so user-attributed serving-endpoint calls 403. The SP has
+    # CAN_QUERY on the LLM endpoints via the bundle resource bindings.
     llm_service = LLMService(ws, config)
     metadata = _generate_project_metadata(llm_service, body.description)
     project_name = metadata["name"]
