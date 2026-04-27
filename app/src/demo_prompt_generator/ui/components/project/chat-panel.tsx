@@ -111,6 +111,54 @@ function formatDuration(startedAt?: string, completedAt?: string): string | null
   return `${(ms / 1000).toFixed(1)}s`;
 }
 
+/** Compute total thinking duration from reasoning entries (earliest start → latest end). */
+function computeThinkingDurationFromEntries(entries: ReasoningEntry[]): string | null {
+  let earliest = Infinity;
+  let latest = -Infinity;
+  for (const entry of entries) {
+    if (entry.type === "tool" && entry.started_at) {
+      const t = new Date(entry.started_at).getTime();
+      if (t < earliest) earliest = t;
+    }
+    if (entry.type === "tool_result" && entry.completed_at) {
+      const t = new Date(entry.completed_at).getTime();
+      if (t > latest) latest = t;
+    }
+  }
+  if (earliest === Infinity || latest === -Infinity) return null;
+  const ms = latest - earliest;
+  if (ms < 0 || isNaN(ms)) return null;
+  if (ms < 1000) return `${ms}ms`;
+  if (ms < 60000) return `${Math.round(ms / 1000)}s`;
+  const mins = Math.floor(ms / 60000);
+  const secs = Math.round((ms % 60000) / 1000);
+  return `${mins}m ${secs}s`;
+}
+
+/** Compute total thinking duration from a tools Map. */
+function computeThinkingDurationFromMap(tools: Map<string, ToolInfo>): string | null {
+  let earliest = Infinity;
+  let latest = -Infinity;
+  for (const tool of tools.values()) {
+    if (tool.startedAt) {
+      const t = new Date(tool.startedAt).getTime();
+      if (t < earliest) earliest = t;
+    }
+    if (tool.completedAt) {
+      const t = new Date(tool.completedAt).getTime();
+      if (t > latest) latest = t;
+    }
+  }
+  if (earliest === Infinity || latest === -Infinity) return null;
+  const ms = latest - earliest;
+  if (ms < 0 || isNaN(ms)) return null;
+  if (ms < 1000) return `${ms}ms`;
+  if (ms < 60000) return `${Math.round(ms / 1000)}s`;
+  const mins = Math.floor(ms / 60000);
+  const secs = Math.round((ms % 60000) / 1000);
+  return `${mins}m ${secs}s`;
+}
+
 interface ReasoningInfo {
   thinking: string;
   tools: Map<string, ToolInfo>;
@@ -146,9 +194,9 @@ interface MessageBubbleProps {
 // HEAD + TAIL = visible content when collapsed; the threshold sits well above
 // HEAD+TAIL so collapsing only kicks in when there's enough hidden content to
 // be worth a click. Hiding 50 chars is pointless; hiding 250+ is useful.
-const COLLAPSE_HEAD = 350;
-const COLLAPSE_TAIL = 200;
-const COLLAPSE_CHAR_THRESHOLD = COLLAPSE_HEAD + COLLAPSE_TAIL + 250; // 800
+const COLLAPSE_HEAD = 1500;
+const COLLAPSE_TAIL = 500;
+const COLLAPSE_CHAR_THRESHOLD = COLLAPSE_HEAD + COLLAPSE_TAIL + 500; // 2500
 
 /** Slice to the last whitespace ≤ `limit` from the start so we don't cut mid-word. */
 function sliceHead(content: string, limit: number): string {
@@ -574,59 +622,54 @@ const CollapsibleReasoning = memo(function CollapsibleReasoning({ reasoning }: C
 
   if (!hasContent) return null;
 
+  const totalDuration = computeThinkingDurationFromMap(reasoning.tools);
+  const label = totalDuration ? `Thought for ${totalDuration}` : "Thinking";
+
   return (
-    <div className="mt-1">
+    <div className="rounded-lg bg-muted/30 border border-border/40 mb-2 overflow-hidden">
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center gap-1 text-xs text-muted-foreground/70 hover:text-muted-foreground transition-colors cursor-pointer"
+        className="flex items-center gap-2 w-full px-3 py-2 hover:bg-muted/50 transition-colors cursor-pointer text-left"
       >
-        {isOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-        <span>Reasoning ({reasoning.tools.size} tool{reasoning.tools.size !== 1 ? "s" : ""})</span>
+        <Brain className="h-3.5 w-3.5 text-amber-500 shrink-0" />
+        <span className="text-xs font-medium text-muted-foreground flex-1">{label}</span>
+        {isOpen ? <ChevronDown className="h-3 w-3 text-muted-foreground/60 shrink-0" /> : <ChevronRight className="h-3 w-3 text-muted-foreground/60 shrink-0" />}
       </button>
       {isOpen && (
         <TooltipProvider delayDuration={200}>
-          <div className="mt-2 space-y-2 pl-3 border-l-2 border-border/50">
+          <div className="px-3 pb-3 space-y-3">
             {reasoning.thinking && (
               <div className="text-xs text-muted-foreground">
-                <div className="flex items-center gap-1 font-medium text-amber-600 dark:text-amber-400 mb-1">
-                  <Brain className="h-3 w-3" />
-                  <span>Thinking</span>
-                </div>
-                <p className="whitespace-pre-wrap line-clamp-10">{reasoning.thinking}</p>
+                <p className="whitespace-pre-wrap line-clamp-10 leading-relaxed">{reasoning.thinking}</p>
               </div>
             )}
             {reasoning.tools.size > 0 && (
-              <div className="space-y-0.5">
+              <div className="space-y-1">
                 {Array.from(reasoning.tools.entries()).map(([toolId, tool]) => {
                   const description = getToolDescription(tool.name, tool.input);
                   const duration = formatDuration(tool.startedAt, tool.completedAt);
                   return (
                     <Tooltip key={toolId}>
                       <TooltipTrigger asChild>
-                        <div className="flex items-start gap-1.5 text-xs cursor-help hover:bg-muted/50 rounded-md px-1.5 -mx-1 py-0.5 transition-colors">
-                          <div className="shrink-0 mt-0.5">
+                        <div className="flex items-center gap-2 w-full px-2.5 py-1.5 bg-muted/40 rounded-lg text-xs cursor-help hover:bg-muted/60 transition-colors">
+                          <div className="shrink-0">
                             {tool.isError ? (
                               <X className="h-3 w-3 text-destructive" />
                             ) : (
                               <Check className="h-3 w-3 text-green-500" />
                             )}
                           </div>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-1.5">
-                              <span className="font-medium">{tool.name}</span>
-                              {description && (
-                                <span className="text-muted-foreground font-mono truncate">
-                                  {description}
-                                </span>
-                              )}
-                              {duration && (
-                                <span className="text-muted-foreground/60 text-[10px] tabular-nums shrink-0">
-                                  {duration}
-                                </span>
-                              )}
-                              <Info className="h-2.5 w-2.5 text-muted-foreground/40 shrink-0" />
-                            </div>
-                          </div>
+                          <span className="font-medium shrink-0">{tool.name}</span>
+                          {description && (
+                            <span className="text-muted-foreground font-mono truncate text-[10px] flex-1 min-w-0">
+                              {description}
+                            </span>
+                          )}
+                          {duration && (
+                            <span className="text-muted-foreground/60 text-[10px] tabular-nums shrink-0">
+                              {duration}
+                            </span>
+                          )}
                         </div>
                       </TooltipTrigger>
                       <TooltipContent side="left" align="start" className="max-w-md max-h-80 overflow-auto">
@@ -683,12 +726,6 @@ const CollapsibleReasoningFromMetadata = memo(function CollapsibleReasoningFromM
   // If we have inline entries and nothing to show, hide the toggle.
   if (initialEntries !== undefined && initialEntries.length === 0) return null;
 
-  const toolCount = entries ? entries.filter(e => e.type === "tool").length : 0;
-  // When tool count is unknown (entries not fetched yet), show a generic label.
-  const label = entries === null
-    ? "Reasoning"
-    : `Reasoning (${toolCount} tool${toolCount !== 1 ? "s" : ""})`;
-
   // Merge tool and tool_result entries for display
   const toolResults = new Map<string, { name: string; input: unknown; result?: string; isError?: boolean; startedAt?: string; completedAt?: string }>();
   for (const entry of entries ?? []) {
@@ -704,30 +741,35 @@ const CollapsibleReasoningFromMetadata = memo(function CollapsibleReasoningFromM
     }
   }
 
+  const totalDuration = entries ? computeThinkingDurationFromEntries(entries) : null;
+  const label = entries === null
+    ? "Thinking"
+    : totalDuration
+      ? `Thought for ${totalDuration}`
+      : "Thinking";
+
   return (
-    <div className="mt-1">
+    <div className="rounded-lg bg-muted/30 border border-border/40 mb-2 overflow-hidden">
       <button
         onClick={handleToggle}
-        className="flex items-center gap-1 text-xs text-muted-foreground/70 hover:text-muted-foreground transition-colors cursor-pointer"
+        className="flex items-center gap-2 w-full px-3 py-2 hover:bg-muted/50 transition-colors cursor-pointer text-left"
       >
-        {isOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-        <span>{label}</span>
+        <Brain className="h-3.5 w-3.5 text-amber-500 shrink-0" />
+        <span className="text-xs font-medium text-muted-foreground flex-1">{label}</span>
+        {isLoading && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground/60 shrink-0" />}
+        {isOpen ? <ChevronDown className="h-3 w-3 text-muted-foreground/60 shrink-0" /> : <ChevronRight className="h-3 w-3 text-muted-foreground/60 shrink-0" />}
       </button>
       {isOpen && isLoading && (
-        <div className="mt-2 pl-3 text-xs text-muted-foreground/70">Loading reasoning…</div>
+        <div className="px-3 pb-3 text-xs text-muted-foreground/70">Loading reasoning…</div>
       )}
       {isOpen && !isLoading && entries && (
         <TooltipProvider delayDuration={200}>
-          <div className="mt-2 space-y-2 pl-3 border-l-2 border-border/50">
+          <div className="px-3 pb-3 space-y-3">
             {entries.map((entry, idx) => {
               if (entry.type === "thinking") {
                 return (
                   <div key={`thinking-${idx}`} className="text-xs text-muted-foreground">
-                    <div className="flex items-center gap-1 font-medium text-amber-600 dark:text-amber-400 mb-1">
-                      <Brain className="h-3 w-3" />
-                      <span>Thinking</span>
-                    </div>
-                    <p className="whitespace-pre-wrap line-clamp-10">{entry.content}</p>
+                    <p className="whitespace-pre-wrap line-clamp-10 leading-relaxed">{entry.content}</p>
                   </div>
                 );
               }
@@ -740,30 +782,25 @@ const CollapsibleReasoningFromMetadata = memo(function CollapsibleReasoningFromM
                 return (
                   <Tooltip key={`tool-${entry.id}`}>
                     <TooltipTrigger asChild>
-                      <div className="flex items-start gap-1.5 text-xs cursor-help hover:bg-muted/50 rounded-md px-1.5 -mx-1 py-0.5 transition-colors">
-                        <div className="shrink-0 mt-0.5">
+                      <div className="flex items-center gap-2 w-full px-2.5 py-1.5 bg-muted/40 rounded-lg text-xs cursor-help hover:bg-muted/60 transition-colors">
+                        <div className="shrink-0">
                           {result?.isError ? (
                             <X className="h-3 w-3 text-destructive" />
                           ) : (
                             <Check className="h-3 w-3 text-green-500" />
                           )}
                         </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-1.5">
-                            <span className="font-medium">{entry.name}</span>
-                            {description && (
-                              <span className="text-muted-foreground font-mono truncate">
-                                {description}
-                              </span>
-                            )}
-                            {duration && (
-                              <span className="text-muted-foreground/60 text-[10px] tabular-nums shrink-0">
-                                {duration}
-                              </span>
-                            )}
-                            <Info className="h-2.5 w-2.5 text-muted-foreground/40 shrink-0" />
-                          </div>
-                        </div>
+                        <span className="font-medium shrink-0">{entry.name}</span>
+                        {description && (
+                          <span className="text-muted-foreground font-mono truncate text-[10px] flex-1 min-w-0">
+                            {description}
+                          </span>
+                        )}
+                        {duration && (
+                          <span className="text-muted-foreground/60 text-[10px] tabular-nums shrink-0">
+                            {duration}
+                          </span>
+                        )}
                       </div>
                     </TooltipTrigger>
                     <TooltipContent side="left" align="start" className="max-w-md max-h-80 overflow-auto">
@@ -943,20 +980,14 @@ export const ChatPanel = memo(function ChatPanel({
             return (
               <div key={msg.id}>
                 {hasInline && (
-                  <div className="mb-1.5 ml-0">
-                    <CollapsibleReasoningFromMetadata entries={inlineEntries} />
-                  </div>
+                  <CollapsibleReasoningFromMetadata entries={inlineEntries} />
                 )}
                 {hasLazy && (
-                  <div className="mb-1.5 ml-0">
-                    <CollapsibleReasoningFromMetadata messageId={msg.id} />
-                  </div>
+                  <CollapsibleReasoningFromMetadata messageId={msg.id} />
                 )}
                 {/* Fallback: show lastReasoning for the last assistant message if no reasoning_data */}
                 {!hasInline && !hasLazy && !isStreaming && lastReasoning && isLastAssistant && (
-                  <div className="mb-1.5">
-                    <CollapsibleReasoning reasoning={lastReasoning} />
-                  </div>
+                  <CollapsibleReasoning reasoning={lastReasoning} />
                 )}
                 <MessageBubble message={msg} />
               </div>
