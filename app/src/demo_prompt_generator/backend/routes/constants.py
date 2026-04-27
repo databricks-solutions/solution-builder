@@ -317,7 +317,7 @@ Output line-delimited JSON (idea lines first, then capabilities line)."""
 )
 def suggest_capabilities(
     body: SuggestCapabilitiesRequest,
-    ws: Dependencies.UserClient,
+    ws: Dependencies.Client,
     config: Dependencies.Config,
 ):
     """

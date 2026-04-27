@@ -3,32 +3,20 @@ from contextlib import asynccontextmanager
 
 # --- Python version guard ----------------------------------------------------
 # Run before any further imports so a wrong interpreter fails fast with a clear
-# message instead of a cryptic stack trace from a downstream dep. The app
-# targets 3.12 specifically (see pyproject.toml). 3.11 and 3.13+ are rejected
-# because we've only validated against 3.12 and don't want silent drift.
-_MIN = (3, 12)
+# message instead of a cryptic stack trace from a downstream dep. The Databricks
+# Apps platform currently runs 3.11; local dev is typically 3.12. We accept both.
+_MIN = (3, 11)
 _MAX_EXCLUSIVE = (3, 13)
 _v = sys.version_info
 if (_v.major, _v.minor) < _MIN or (_v.major, _v.minor) >= _MAX_EXCLUSIVE:
     raise RuntimeError(
-        f"\ndemo-prompt-generator requires Python 3.12 "
+        f"\ndemo-prompt-generator requires Python 3.11 or 3.12 "
         f"(got {_v.major}.{_v.minor}.{_v.micro} at {sys.executable}).\n"
         f"\n"
         f"Fix:\n"
-        f"  # 1. Make sure 3.12 is available\n"
         f"  uv python install 3.12\n"
-        f"\n"
-        f"  # 2. From the app/ directory, recreate the venv with 3.12\n"
-        f"  rm -rf .venv\n"
-        f"  uv venv --python 3.12\n"
-        f"  uv sync\n"
-        f"\n"
-        f"  # 3. Start the app — no need to 'activate' the venv;\n"
-        f"  #    dev.sh invokes .venv/bin/python directly.\n"
+        f"  rm -rf .venv && uv venv --python 3.12 && uv sync\n"
         f"  ./scripts/dev.sh\n"
-        f"\n"
-        f"  # Verify:\n"
-        f"  uv run python --version   # → Python 3.12.x\n"
     )
 
 from fastapi import APIRouter, FastAPI  # noqa: E402

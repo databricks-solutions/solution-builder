@@ -1,5 +1,15 @@
-command: ["uvicorn", "demo_prompt_generator.backend.app:app", "--workers", "2"]
+# --workers must stay at 1: ActiveStreamManager (services/active_stream.py)
+# is a per-process in-memory singleton. With multiple workers, the SSE GET
+# /api/stream_progress/<id> can hit a different worker than the POST that
+# created the stream and 404. To horizontally scale, move the stream
+# registry to Lakebase (LISTEN/NOTIFY) or Redis instead of bumping workers.
+command: ["uvicorn", "demo_prompt_generator.backend.app:app", "--workers", "1"]
 
+# DB_INSTANCE_NAME placeholder — substituted by scripts/build.sh from the
+# bundle variable `var.lakebase_instance` (databricks.yml) when copying this
+# file into .build/app.yml. The placeholder form `__DB_INSTANCE_NAME__` keeps
+# the file safe to edit by hand (no shell-style ${} that gets expanded by
+# accident). Single source of truth: edit `var.lakebase_instance` only.
 env:
   - name: "DB_INSTANCE_NAME"
-    value: "databricks-demos-shared"
+    value: "__DB_INSTANCE_NAME__"

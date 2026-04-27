@@ -21,8 +21,23 @@ NC='\033[0m'
 
 cd "$APP_DIR"
 
+# Parse args. --lakebase-instance is passed by the bundle artifact build
+# (databricks.yml) so .build/app.yml's DB_INSTANCE_NAME placeholder gets
+# replaced by var.lakebase_instance. When invoked by hand for local testing,
+# the placeholder is left in place — the wheel still builds and `databricks
+# bundle deploy` will rerun this script with the var resolved.
+SKIP_FRONTEND=""
+LAKEBASE_INSTANCE=""
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --skip-frontend) SKIP_FRONTEND=1; shift ;;
+        --lakebase-instance) LAKEBASE_INSTANCE="$2"; shift 2 ;;
+        *) shift ;;
+    esac
+done
+
 # --- 1. Build frontend ---
-if [[ "${1:-}" != "--skip-frontend" ]]; then
+if [[ -z "$SKIP_FRONTEND" ]]; then
     if [[ ! -d node_modules ]]; then
         echo -e "${BLUE}[1/4] Installing frontend dependencies (bun install)...${NC}"
         bun install
@@ -88,6 +103,15 @@ mkdir -p .build
 cp "$WHEEL" .build/
 cp dist/requirements.txt .build/
 cp app.yml .build/
+
+# Substitute __DB_INSTANCE_NAME__ in .build/app.yml from the bundle var. If the
+# arg is missing (manual `./scripts/build.sh`), leave the placeholder in place;
+# `databricks bundle deploy` will overwrite .build/app.yml on its own pass.
+if [[ -n "$LAKEBASE_INSTANCE" ]]; then
+    echo "  Substituting DB_INSTANCE_NAME=$LAKEBASE_INSTANCE in .build/app.yml"
+    sed -i.bak "s|__DB_INSTANCE_NAME__|$LAKEBASE_INSTANCE|g" .build/app.yml
+    rm -f .build/app.yml.bak
+fi
 
 # Bundle capability/domain/pattern blocks. The backend walks up from its
 # install location looking for .claude/skills/databricks-demo-generator/references/blocks.

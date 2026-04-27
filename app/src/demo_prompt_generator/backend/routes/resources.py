@@ -141,7 +141,7 @@ def _get_warehouse_sort_key(warehouse: WarehouseInfo) -> tuple[int, str]:
     response_model=list[ClusterInfo],
     operation_id="listClusters",
 )
-def list_clusters(ws: Dependencies.UserClient):
+def list_clusters(ws: Dependencies.Client):
     """List available Databricks clusters (cached, RUNNING first).
 
     Only lists interactive clusters (UI/API created), excludes job/pipeline clusters.
@@ -191,7 +191,7 @@ def list_clusters(ws: Dependencies.UserClient):
     response_model=list[WarehouseInfo],
     operation_id="listWarehouses",
 )
-def list_warehouses(ws: Dependencies.UserClient):
+def list_warehouses(ws: Dependencies.Client):
     """List available SQL warehouses (cached, RUNNING first)."""
     cache_key = "warehouses"
     cached = _resource_cache.get(cache_key)
@@ -234,7 +234,7 @@ def list_warehouses(ws: Dependencies.UserClient):
     operation_id="listCatalogs",
 )
 def list_catalogs(
-    ws: Dependencies.UserClient,
+    ws: Dependencies.Client,
     q: Optional[str] = Query(None, description="Search query (min 1 char)"),
 ):
     """List Unity Catalog catalogs (cached), optionally filtered by search query."""
@@ -269,7 +269,7 @@ def list_catalogs(
     operation_id="listSchemas",
 )
 def list_schemas(
-    ws: Dependencies.UserClient,
+    ws: Dependencies.Client,
     catalog: str = Query(..., description="Catalog name"),
     q: Optional[str] = Query(None, description="Search query (min 1 char)"),
 ):

@@ -210,10 +210,32 @@ Once published, all users will see the update notification in the app's Configur
 
 ## Deployment (Databricks Apps)
 
-Deploy to Databricks:
+Set `var.lakebase_instance` to point at an existing Lakebase instance the
+deployer owns (the default `databricks-demos-shared` only exists in some Field
+Eng workspaces). The bundle creates the app's service principal, grants it
+`CAN_CONNECT_AND_CREATE` on that instance, and the SP picks up its own schema.
 
 ```bash
-databricks bundle deploy -p <your-profile>
+databricks bundle deploy -t dev -p <your-profile> --var lakebase_instance=<your-instance>
+databricks bundle run demo-prompt-generator-app -t dev -p <your-profile>
+```
+
+### Known platform issues
+
+**1. First deploy may fail with `Role <client-id> not found` on the Lakebase grant.**
+The bundle creates the app SP and tries to grant it on Lakebase in the same
+Terraform pass; the SP's role is eventually-consistent and isn't visible to
+the grant call yet. Wait ~30–60s for the auto-cleanup, then re-run
+`databricks bundle deploy` — the second pass succeeds.
+
+**2. `Error: error downloading Terraform: ... openpgp: key expired`.**
+Older Databricks CLI builds still verify HashiCorp's rotated signing key.
+Install Terraform locally and point the CLI at it:
+
+```bash
+brew install hashicorp/tap/terraform
+export DATABRICKS_TF_EXEC_PATH="$(which terraform)"
+export DATABRICKS_TF_VERSION="$(terraform version -json | jq -r .terraform_version)"
 ```
 
 ---
