@@ -11,7 +11,9 @@ import {
   Puzzle,
   Shuffle,
   Bot,
-  Download,
+  Rocket,
+  Share2,
+  Library,
 } from "lucide-react";
 
 function DocsWithLayout() {
@@ -24,7 +26,7 @@ export const Route = createFileRoute("/docs")({
 
 function DocsPage() {
   return (
-    <div className="p-6 lg:p-8 space-y-14 max-w-4xl">
+    <div className="p-6 lg:p-8 space-y-14">
 
       {/* -- Hero ---------------------------------------------------- */}
       <section className="space-y-4">
@@ -57,12 +59,13 @@ function DocsPage() {
       <section className="space-y-5">
         <h2 className="text-xl font-semibold tracking-tight">Workflow</h2>
 
-        <div className="grid gap-4 md:grid-cols-4">
+        <div className="grid gap-4 md:grid-cols-5">
           {[
             { num: "1", icon: Puzzle, title: "Describe", text: "Industry, scenario, products" },
             { num: "2", icon: Bot, title: "Design", text: "Story, README, architecture" },
             { num: "3", icon: Layers, title: "Specify", text: "Spec files per component" },
-            { num: "4", icon: Download, title: "Export", text: "Build on workspace or download ZIP" },
+            { num: "4", icon: Rocket, title: "Build & Deploy", text: "Real assets on your workspace" },
+            { num: "5", icon: Share2, title: "Share", text: "Publish as a template or share directly" },
           ].map((step, idx) => (
             <div key={step.num} className="relative flex items-start gap-3 rounded-xl border bg-card p-4">
               <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground text-xs font-bold mt-0.5">
@@ -72,7 +75,7 @@ function DocsPage() {
                 <p className="text-sm font-medium">{step.title}</p>
                 <p className="text-xs text-muted-foreground mt-0.5">{step.text}</p>
               </div>
-              {idx < 3 && (
+              {idx < 4 && (
                 <div className="hidden md:flex absolute -right-3.5 top-1/2 -translate-y-1/2 z-10 text-muted-foreground/30">
                   <ArrowRight className="h-4 w-4" />
                 </div>
@@ -82,8 +85,11 @@ function DocsPage() {
         </div>
 
         <p className="text-xs text-muted-foreground leading-relaxed">
-          The agent stops after writing the README for your approval. Specification files
-          are only generated once you confirm the story direction.
+          The agent stops after writing the README for your approval — specification files
+          are only generated once you confirm the story direction. Behind the scenes the
+          project moves through stages — Drafting → Summarized → Architected → Specification
+          → Built → Bundled — gated by which files exist; the build stepper at the top of the
+          project page reflects where you are.
         </p>
       </section>
 
@@ -110,7 +116,9 @@ function DocsPage() {
               data entity schemas, and regulatory frameworks. Each domain declares{" "}
               <code className="text-[10px] bg-muted rounded px-1 py-0.5">suggested_patterns</code> and{" "}
               <code className="text-[10px] bg-muted rounded px-1 py-0.5">suggested_capabilities</code> so
-              the agent knows which story structures and products fit.
+              the agent knows which story structures and products fit. Pre-built blocks exist
+              for the four shown; Media &amp; Entertainment and Public Sector are also
+              selectable in the gallery and rely on the agent's general knowledge.
             </p>
             <div className="flex flex-wrap gap-1.5 sm:flex-col sm:gap-1 shrink-0">
               {["retail", "healthcare", "financial-services", "manufacturing"].map((d) => (
@@ -152,7 +160,7 @@ function DocsPage() {
               to other products in the stack.
             </p>
             <div className="flex flex-wrap gap-1.5">
-              {["aibi-dashboards", "genie", "sdp", "knowledge-assistant", "model-serving", "app-python"].map((c) => (
+              {["aibi-dashboards", "genie", "sdp", "vector-search", "unity-catalog", "databricks-apps"].map((c) => (
                 <span key={c} className="text-[10px] font-mono bg-muted rounded px-2 py-0.5 text-muted-foreground">{c}</span>
               ))}
             </div>
@@ -189,6 +197,48 @@ from aggregate metrics to a specific root cause in under 60 seconds.`}</code>
         </pre>
       </section>
 
+      {/* -- Templates & Sharing ------------------------------------ */}
+      <section className="space-y-4">
+        <div>
+          <h2 className="text-xl font-semibold tracking-tight">Templates &amp; Sharing</h2>
+          <p className="text-sm text-muted-foreground mt-1">
+            Finished projects don't have to be one-offs — publish them so others can fork
+            them, or share a project directly with a teammate.
+          </p>
+        </div>
+
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="rounded-xl border bg-card p-5 space-y-2">
+            <div className="flex items-center gap-2">
+              <Library className="h-4 w-4 text-primary" />
+              <span className="text-sm font-semibold">Templates</span>
+              <Badge variant="outline" className="text-[10px] ml-auto">Gallery</Badge>
+            </div>
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              Publish a project as a template snapshot. Templates go through an admin
+              review (<code className="text-[10px] bg-muted rounded px-1 py-0.5">REVIEW_REQUESTED</code>{" "}
+              → <code className="text-[10px] bg-muted rounded px-1 py-0.5">APPROVED</code>) before
+              they appear in the gallery, where semantic search (pgvector) helps users find
+              the closest match for their scenario. Forking a template seeds a new project
+              with the same files and resource config.
+            </p>
+          </div>
+
+          <div className="rounded-xl border bg-card p-5 space-y-2">
+            <div className="flex items-center gap-2">
+              <Share2 className="h-4 w-4 text-primary" />
+              <span className="text-sm font-semibold">Direct sharing</span>
+              <Badge variant="outline" className="text-[10px] ml-auto">Read-only</Badge>
+            </div>
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              Share a project with a specific user for read-only access — useful when you
+              want a teammate to review the generated files or follow along with the chat,
+              without forking a new copy. Manage shares from the project page.
+            </p>
+          </div>
+        </div>
+      </section>
+
       {/* -- Key concepts — compact table style --------------------- */}
       <section className="space-y-4">
         <h2 className="text-xl font-semibold tracking-tight">Glossary</h2>
@@ -198,9 +248,10 @@ from aggregate metrics to a specific root cause in under 60 seconds.`}</code>
               {[
                 ["Block", "A Markdown file with YAML frontmatter — the atomic unit of reusable context. Three types: domains, patterns, capabilities."],
                 ["Project", "A workspace with a chat session, generated files, and Databricks resource config. Produces README, architecture, and specification files."],
-                ["Template", "A published project snapshot. Fork it to start from a proven demo, then customize."],
+                ["Template", "A published project snapshot in the gallery. Fork it to start from a proven demo, then customize."],
                 ["Spec File", "A functional spec for one component — data schema, pipeline definition, dashboard layout, or Genie config. Detailed enough for the AI Dev Kit to execute."],
                 ["Architecture", "A JSON schema describing the data flow as columns, nodes, and edges. The UI renders it as an interactive diagram."],
+                ["Stage", "A project's progress through the build pipeline: Drafting → Summarized → Architected → Specification → Built → Bundled. Each stage is gated by which files exist."],
               ].map(([term, def]) => (
                 <tr key={term}>
                   <td className="px-4 py-3 font-medium text-foreground whitespace-nowrap align-top w-40">{term}</td>

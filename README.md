@@ -82,7 +82,7 @@ targets:
 
 Knowledge is decomposed into **blocks** — small, reusable Markdown files with YAML frontmatter stored in `.claude/skills/databricks-demo-generator/references/blocks/`. Blocks come in three categories:
 
-- **Domain** — industry vertical context (terminology, KPIs, personas, pain points). Examples: `financial-services`, `healthcare`, `manufacturing`, `retail`.
+- **Domain** — industry vertical context (terminology, KPIs, personas, pain points). Pre-built blocks: `financial-services`, `healthcare`, `manufacturing`, `retail`. The gallery also accepts `Media & Entertainment` and `Public Sector` scenarios, which currently rely on the agent's general knowledge rather than a dedicated block.
 - **Capability** — Databricks feature guidance (architecture patterns, configuration, best practices). Examples: `sdp`, `genie`, `aibi-dashboards`, `vector-search`, `lakebase`, `supervisor-agent`.
 - **Pattern** — cross-industry analytical patterns (methodology, algorithm choices, evaluation criteria). Examples: `anomaly-detection`, `customer-segmentation`, `predictive-maintenance`.
 
@@ -255,7 +255,7 @@ industry-demo-prompts/
 │   └── .env.example              # Environment variable template
 ├── .claude/skills/databricks-demo-generator/
 │   └── references/blocks/        # Context blocks
-│       ├── capabilities/         #   27 Databricks feature blocks
+│       ├── capabilities/         #   26 Databricks feature blocks
 │       ├── domains/              #   4 industry verticals
 │       └── patterns/             #   5 analytical patterns
 ├── tests/                        # Playwright E2E tests
