@@ -38,6 +38,8 @@ databricks-mcp-server = { path = "ai_dev_kit/databricks-mcp-server", editable = 
 [dependency-groups]
 dev = [
     "ty>=0.0.12",
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.24.0",
 ]
 
 [build-system]
