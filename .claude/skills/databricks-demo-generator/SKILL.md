@@ -51,7 +51,9 @@ No drawn-out status dumps — one line, then the work continues.
 
 ### Output discipline
 
-Between tool calls, write about the **problem**, not the file you're about to create. If a sentence describes what the file will contain, put it in the file (comments, code) instead — don't preview it in chat. Don't narrate the act of writing ("writing the script…", "finishing the join…", "still generating…") — the tool call does that.
+Between tool calls, write about the **problem**, not the file you're about to create. If a sentence describes what the file will contain, put it in the file (comments, code) instead — don't preview it in chat. Don't narrate the act of writing ("writing the script…", "finishing the join…", "still generating…", "Building the materialized view...", Building the query output..." "Writing the daily aggregation view" etc.) — the tool call does that.
+
+When spawning a subagent or handing off context, **point at files, don't paraphrase them.** Listing absolute paths is cheaper than summarizing what's inside — your paraphrase costs tokens and goes stale, the subagent's read is fast. Don't pre-digest the spec or the README so the subagent "doesn't have to re-read" — that's the wrong economy. Reading is cheap for them; rewriting is expensive for you.
 
 Real thinking (surprising results, tradeoffs, ambiguity, errors) is welcome. File previews and progress updates aren't.
 
@@ -92,7 +94,7 @@ You must keep this exact naming convention.
       "id": "xx"
     },
     "lakebase_project_id": "xxx",
-    "lakebase_branch": "xxx"
+    "lakebase_database": "xxx"
   }
 }
 ```

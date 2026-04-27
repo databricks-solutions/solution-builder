@@ -3,7 +3,7 @@ name: Lakebase
 category: apps-infra
 disabled: false
 buildable: true
-skill: databricks-lakebase-provisioned
+skill: databricks-lakebase-autoscale
 ---
 
 # Lakebase
@@ -19,11 +19,9 @@ Databricks-managed PostgreSQL for OLTP workloads. Relational database for operat
 
 ## Key Decisions
 
-1. **Instance type:** Provisioned for predictable workloads, Autoscaling for variable load. Autoscaling supports scale-to-zero.
-2. **Database schema:** 2-4 tables for operational state. Keep simple — cases, actions, users, config. Not analytical tables.
-3. **Sync configuration:** Synced tables flow data between Lakebase and Delta. Define direction (Delta->Lakebase for app reads, Lakebase->Delta for analytics).
-4. **Connection method:** Resource bindings in `app.yaml` or SDK credential generation — never expose raw connection strings.
-5. **Branching (Autoscale):** Database branches provide dev/test isolation without copying data.
+1. **Database schema:** 2-4 tables for operational state. Keep simple — cases, actions, users, config. Not analytical tables.
+2. **Sync configuration:** Synced tables flow data between Lakebase and Delta. Define direction (Delta->Lakebase for app reads, Lakebase->Delta for analytics).
+3. **Connection method:** Resource bindings in `app.yaml` or SDK credential generation — never expose raw connection strings.
 
 ## Pitfalls
 

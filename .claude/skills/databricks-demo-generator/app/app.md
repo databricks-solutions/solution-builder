@@ -86,115 +86,104 @@ read `resources.json` to get the available resource ids to use (ex: mas endpoint
 
 ### Step 4: Configure environment
 
-**lakebase: Use OAuth, not password.** The AppKit `lakebase()` plugin fetches and auto-refreshes 1-hour OAuth tokens (2-minute refresh buffer) and injects them into every `pg.Pool` connection. Code is just `createDb(appkit.lakebase.pool)`. **Do NOT create a password role, do NOT call `reveal_password`, do NOT set `PGPASSWORD`.**
+**Lakebase: use OAuth, not password.** The AppKit `lakebase()` plugin fetches and auto-refreshes 1-hour OAuth tokens (2-minute refresh buffer) and injects them into every `pg.Pool` connection. Code is just `createDb(appkit.lakebase.pool)`. Do not set `PGPASSWORD`.
 
 Identity: local dev = your Databricks user (`databricks auth describe`). Deployed = the app's service principal, auto-granted `CONNECT_AND_CREATE` via the `databricks.yml` Postgres resource.
 
-#### 4a. Provision your Lakebase project + database
+#### 4a. Provision your Lakebase database
 
-The flow is: reuse a shared project if one exists (cheap copy-on-write branch, ~5s), otherwise create your own (slow, ~minutes). Either way, finish by creating a fresh Postgres database via psycopg.
+Each app gets its own Postgres database on the shared project's `production` branch. If the shared project doesn't exist, fall back to creating your own.
 
-**Step 1 — Look for an existing shared project**
-
-```bash
-databricks postgres list-projects | jq -r '.[] | select(.name | startswith("projects/dbdemos-asset-generator")) | .name'
-```
-
-If this returns a name (e.g. `projects/dbdemos-asset-generator`), use it as `<SHARED_PROJECT_NAME>` in Step 2. If empty, skip to Step 3.
-
-**Step 2 — Create your own branch in the shared project** (preferred — fast, isolated)
+**Step 1 — Find (or create) the project**
 
 ```bash
-databricks postgres create-branch <SHARED_PROJECT_NAME>/branches/<your-branch> \
-    --json '{"spec": {"parent_branch": "production", "ttl_seconds": 604800}}'
+PROJECT=$(databricks postgres list-projects \
+  | jq -r '.[] | select(.name | startswith("projects/dbdemos-asset-generator")) | .name')
 ```
 
-- `<your-branch>`: lowercase + hyphens (e.g. your username). 7-day TTL auto-deletes; bump it if you need longer.
-- The branch is a copy-on-write fork of `production` — instant, no data copy, your own writeable Postgres.
-- **The creator is auto-granted `DATABRICKS_SUPERUSER` on the new branch.** No teammate-grant dance needed.
-- Save into `resources.json` (everything else — endpoint path, host — derives from these), then skip Step 3:
-  ```json
-  "lakebase_project_id": "dbdemos-asset-generator",
-  "lakebase_branch": "<your-branch>"
-  ```
-
-If branch creation fails (no quota, project locked, permission denied), fall through to Step 3.
-
-**Step 3 — Fallback: create your own project**
+If empty, create your own:
 
 ```bash
 databricks postgres create-project <PROJECT_ID> \
     --json '{"spec": {"display_name": "<Display Name>", "pg_version": "17"}}'
+PROJECT="projects/<PROJECT_ID>"
 ```
 
-- `PROJECT_ID`: lowercase + hyphens (e.g. `my-app`). Long-running — blocks until the default endpoint `primary` is `READY` (~minutes).
-- A fresh project comes with: branch `production`, endpoint `primary`, database `databricks_postgres`. Use `production` as your branch.
-- The creator is auto-granted `DATABRICKS_SUPERUSER` on `production`.
-- Save into `resources.json`:
-  ```json
-  "lakebase_project_id": "<PROJECT_ID>",
-  "lakebase_branch": "production"
-  ```
+(`create-project` blocks until the `primary` endpoint is `READY` — ~minutes. Shared-project case is instant.)
 
-**Step 4 — Create your Postgres database via psycopg**
+**Step 2 — Resolve the Postgres host**
 
-`databricks_postgres` exists by default but you want a fresh one for this app. There is no CLI for `CREATE DATABASE` — use psycopg directly with an OAuth token from `WorkspaceClient`:
+The branch's `primary` endpoint carries the DNS hostname. Only `get-endpoint` returns it.
+
+```bash
+PGHOST=$(databricks postgres get-endpoint "$PROJECT/branches/production/endpoints/primary" \
+  | jq -r '.status.hosts.host')
+```
+
+**Step 3 — Create your app's database**
+
+Name it `dbgen_<demo_short_name>` (e.g. `dbgen_luxebeauty`, `dbgen_windcore`). Keep it short, lowercase, underscores — same idea as the catalog name.
 
 ```python
 import psycopg
 from databricks.sdk import WorkspaceClient
 
 w = WorkspaceClient()
-host = "<PGHOST from get-endpoint>"  # see 4b
+host = "<PGHOST from Step 2>"
 user = w.current_user.me().user_name
 token = w.config.oauth_token().access_token
 
-# autocommit=True is MANDATORY — CREATE DATABASE cannot run in a transaction.
+# Connect to the default `databricks_postgres` DB just to run CREATE DATABASE
+# (Postgres requires you to be connected to *some* existing DB). After this,
+# your app connects to dbgen_<demo_short_name> instead.
+# autocommit=True is mandatory — CREATE DATABASE can't run in a transaction.
 with psycopg.connect(
     host=host, user=user, password=token,
     dbname="databricks_postgres", sslmode="require", autocommit=True,
 ) as conn:
-    conn.execute('CREATE DATABASE "<my_app_db>"')
+    conn.execute('CREATE DATABASE "dbgen_<demo_short_name>"')
 ```
 
-Save `<my_app_db>` into `resources.json` alongside the project + branch:
+Save into `resources.json`:
 
 ```json
-"lakebase_database": "<my_app_db>"
+"lakebase_project_id": "<project-id-from-PROJECT>",
+"lakebase_database": "dbgen_<demo_short_name>"
 ```
 
-**Gotchas (all live-verified earlier this session):**
-- `autocommit=True` is mandatory for `CREATE DATABASE` — psycopg's default opens a transaction, which Postgres rejects.
-- Don't `SET ROLE databricks_superuser` for the session — connect *as* yourself; the role membership is already in effect.
-- OAuth tokens have a **1h TTL**. For long-running scripts, refresh via `w.config.oauth_token().access_token` before each new connection.
-- `sslmode="require"` is mandatory — Lakebase rejects plaintext connections.
+**Gotchas:**
+- `autocommit=True` is required for `CREATE DATABASE`.
+- Connect as yourself — don't `SET ROLE databricks_superuser`.
+- OAuth tokens have a 1h TTL; refresh before each new connection in long-running scripts.
+- `sslmode="require"` is mandatory.
+
+**Cleanup**
+
+```sql
+-- From psycopg, connected to databricks_postgres
+DROP DATABASE "dbgen_<demo_short_name>";
+```
 
 #### 4b. Fill `.env` (local dev only)
 
-`<BRANCH_PATH>` below is whatever you set up in 4a:
-- Shared-project branch (Step 2): `projects/dbdemos-asset-generator/branches/<your-branch>`
-- Own project (Step 3): `projects/<PROJECT_ID>/branches/production`
-
-A branch always has a `primary` endpoint auto-created with it.
+The branch path is always `projects/<lakebase_project_id>/branches/production`.
 
 **Two Lakebase values, two roles — do not confuse them:**
 
 | Variable | What it is | Format / example |
 |----------|------------|------------------|
-| `LAKEBASE_ENDPOINT` | **Resource name** (a path). Used by AppKit to refresh OAuth tokens. | `<BRANCH_PATH>/endpoints/primary` |
+| `LAKEBASE_ENDPOINT` | **Resource name** (a path). Used by AppKit to refresh OAuth tokens. | `projects/<lakebase_project_id>/branches/production/endpoints/primary` |
 | `PGHOST` | **DNS hostname**. Used by psycopg/node-postgres to open the TCP connection. | `ep-small-dawn-d13fr9rm.database.us-west-2.cloud.databricks.com` |
 
-A common mistake is putting the hostname in both. If `LAKEBASE_ENDPOINT` has dots in it, it's wrong — it must start with `projects/`.
+If `LAKEBASE_ENDPOINT` has dots in it, it's wrong — it must start with `projects/`.
 
 Both values come from the same command:
 
 ```bash
-databricks postgres get-endpoint <BRANCH_PATH>/endpoints/primary
-# .name              → LAKEBASE_ENDPOINT  (e.g. "<BRANCH_PATH>/endpoints/primary")
-# .status.hosts.host → PGHOST             (e.g. "ep-small-dawn-d13fr9rm.database.us-west-2.cloud.databricks.com")
+databricks postgres get-endpoint projects/<lakebase_project_id>/branches/production/endpoints/primary
+# .name              → LAKEBASE_ENDPOINT
+# .status.hosts.host → PGHOST
 ```
-
-(`get-project` and `get-branch` don't return the host — you must use `get-endpoint`.)
 
 ```env
 # Databricks workspace
@@ -206,7 +195,7 @@ DATABRICKS_WAREHOUSE_ID=<warehouse-id>          # powers analytics + Delta→Lak
 LAKEBASE_ENDPOINT=<BRANCH_PATH>/endpoints/primary
 PGHOST=<host from .status.hosts.host — ends in .cloud.databricks.com>
 PGPORT=5432
-PGDATABASE=<my_app_db>                          # the database you created in 4a Step 4
+PGDATABASE=dbgen_<demo_short_name>                          # the database you created in 4a Step 4
 PGUSER=<your Databricks email>                  # local dev only
 PGSSLMODE=require
 # No PGPASSWORD.

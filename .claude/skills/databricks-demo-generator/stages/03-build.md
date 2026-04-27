@@ -29,61 +29,46 @@ Before creating any dashboard, Genie space, KA, or agent: verify every table/doc
 
 ## Parallelization with subagents — PARENT ONLY
 
-> **Subagents: skip this section.** It's the parent agent's responsibility to decide what to parallelize. If you're a subagent, stop reading here — your prompt told you exactly which resource to build.
+> **Subagents: skip this section.** Your prompt told you exactly which resource to build.
 
-Build time dominates this stage. Several resources are independent — run them in parallel with subagents. The table below is **one example** (matching the LuxeBeauty reference demo); adapt it to whatever resources your demo actually has. The principle is what matters: independent resources run in parallel; dependencies gate with the wait rules below, while avoiding having too many subagents running at once.
+**Subagents are expensive** — fresh context, re-reads of every spec they need, no shared state with you. Worth it only for tasks that are **long, self-contained, and parallelizable**. **Your main thread must always be doing real work** — never spawn a fan-out that leaves you idle waiting. If you'd be idle, pull one task back and build it yourself instead.
 
-| Stage | Run where | Runs in parallel with | Blocks on |
-|-------|-----------|-----------------------|-----------|
-| `01-lakeflow` A (synthetic data) | Main thread | — | — |
-| `01-lakeflow` B (SDP pipeline) | Main thread, after A | — | A (needs raw data) |
-| `01-lakeflow` C (unstructured docs — write HTML content + convert to PDF + upload) | Subagent, spawn with A | A + B | — |
-| `02-uc-governance` | Main thread | — | B (needs tables) |
-| `03-ai-bi` (Genie → Dashboard, sequential inside) | Subagent | `04-agent-bricks`, App | B |
-| `04-agent-bricks` (KA → MAS, sequential inside) | Subagent | `03-ai-bi`, App | 01.C for KA step; B for MAS step |
-| App generation | Subagent, spawn after 01.B | `03-ai-bi`, `04-agent-bricks` | 01.B (needs tables to wire the app), plus whatever resource IDs it embeds (dashboard id, MAS endpoint) — may need a brief wait at the end to fill those in |
+**Spawn a subagent for any of these:** App generation, unstructured-docs (HTML + PDF + upload), KA, MAS, Genie+Dashboard (paired, one subagent), ML training/serving. Pair sequential dependencies inside one subagent (Genie→Dashboard, KA→MAS) to save round-trips. Everything else stays on main: `01-lakeflow` A→B, `02-uc-governance`, single-CLI resources, validation.
 
-The example shows that a **long-running task like App generation can start as soon as its minimum dependency is met** (tables exist after 01.B), rather than waiting for the whole build to finish. Apply this logic to any resource in your demo: as soon as its upstream is ready, spawn it in parallel with anything independent.
+**Decision rule, applied at every checkpoint** (when unblocked tasks become available):
 
-**Unstructured-docs scope (PDF subagent):** the subagent owns the full job — **authoring the HTML content, converting it to PDF, and uploading to the UC Volume.** Writing the HTML is the slow LLM work (often 5–10 domain-specific documents); do NOT keep that on the main thread and hand only the conversion step to the subagent. The parent's only job here is to spawn the subagent with a pointer to `01-lakeflow.md` Section C (the content spec).
+1. Pick the smallest unblocked task for the main thread.
+2. Spawn the long parallelizable rest as subagents (one each).
+3. Main thread finishes → pick the next unblocked task. Don't wait.
+4. Don't spawn a subagent if it leaves you idle — do that work yourself.
 
-### Wait rules (non-negotiable)
+**Worked example — KA + MAS + App + Genie + Dashboard:**
+After 01-lakeflow B (tables exist), in parallel: spawn App (longest, ~5 min), spawn Genie+Dashboard, spawn unstructured-docs (early — independent of pipeline). Main thread builds KA→MAS itself once docs are done. 1 main + 3 subagents, no idling. Drop subagents whose work isn't in your demo; if everything fits on main thread without idling, spawn nothing.
 
-- **Every subagent must complete before you start a section that consumes its output.** Example: KA creation needs the PDFs; wait on 01.C.
-- **Do not declare the build complete (or summarize resource URLs) until ALL subagents have reported back.** If any are still running, tell the user you're waiting and stop the turn.
-- When you spawn a subagent, tell the user in one short line (e.g. *"Spinning up Genie + Dashboard in the background — ~2 min. Continuing with the agent resources meanwhile."*). Do not ask follow-up questions until results are in.
+**Wait rules:**
+- A consumer must wait for its producer (KA needs the docs subagent's PDFs).
+- Don't declare the build complete until **all** subagents have reported back.
+- One short line per spawn (e.g. *"App in background ~5 min, doing KA+MAS on main."*). No follow-up question until results return.
+
+**App late-fill:** the App embeds IDs still in flight (dashboard id, MAS endpoint). Tell the App subagent to finish template customization first and fill those at the end once the parent shares them.
 
 ## How to spawn a build subagent
 
-First **read `SKILL_DIR/stages/subagents.md`** — it has the shared prompt structure (framing, speed rules, scope boundaries, completion format). This section only fills in the build-subagent-specific parts.
+Read `SKILL_DIR/stages/subagents.md` for the shared playbook (reads list, project state, anti-patterns, completion format, gate rules). Build-specific additions only below.
 
-### Build-subagent — specifics to include in the prompt
+**Framing sentence:**
 
-**Framing sentence** (for section 1 of the shared template):
+> You are a subagent spawned by the `databricks-demo-generator` skill, executing **Stage 03 (build)** — specifically, creating the [resource name] described in `[spec file]`. Your single job: create this one resource, validate it, update `resources.json` with its ID, and return id + URL.
 
-> You are a subagent spawned by the `databricks-demo-generator` skill, executing **Stage 03 (build)** — specifically, creating the [resource name, e.g. "AI/BI dashboard"] described in `[spec file]`. Your single job: create this one resource, validate it, update `resources.json` with its ID, and return id + URL. Do not build any other resources.
+**Extra reads (on top of the standard set in `subagents.md`):**
+- `SKILLS/<skill-dir>/SKILL.md` — the ai-dev-kit skill for THIS resource type. Pick from the *Available Skills* index in the system prompt; `ls SKILLS/` if unsure. Non-negotiable — it has the CLI + verification steps.
+- `PROJECT/specifications/01-lakeflow.md` — table schemas (every build subagent references these).
+- `PROJECT/specifications/<relevant>.md` — the spec for THIS task.
+- Optional: `SKILL_DIR/references/blocks/capabilities/<block>.md` if the spec lacks positioning context.
 
-**Reads — substitute absolute paths**:
+**Don't include `stages/03-build.md`** — the subagent doesn't need the parent's parallelization logic.
 
-- `SKILLS/<skill-dir>/SKILL.md` — the ai-dev-kit skill for THIS resource type (pick from the *Available Skills* index in the system prompt; `ls SKILLS/` if unsure). Non-negotiable; it has the CLI + verification steps.
-- `PROJECT/README.md` — the story (narrative context).
-- `PROJECT/specifications/01-lakeflow.md` — data schemas (dashboards, Genie, KA, MAS all reference tables from here).
-- `PROJECT/specifications/<relevant>.md` — the actual spec for THIS task.
-- `SKILL_DIR/references/blocks/capabilities/<block>.md` — relevant capability block, if the spec skips positioning/pitfalls. Skip when the spec is self-sufficient.
-
-**Project state to inline:** warehouse_id, catalog, schema, workspace_folder (from `PROJECT/resources.json`), plus any already-built resource IDs the subagent must reference.
-
-**Blocking deps:** if the subagent depends on another in-flight subagent's output (e.g. KA needs PDFs from 01.C), tell it to wait before the blocking step.
-
-**Completion format:** *"Return: `resource_type`, `resource_id`, `resource_url`, and list of fields you updated in `resources.json`."*
-
-### Anti-patterns — do NOT do this
-
-- **Inline the spec content or the README narrative** (widget layout, SQL for every dataset, schema definitions, story summaries). The files are the source of truth; the subagent reads them. Inlining introduces drift, costs tokens, and pre-decides what the subagent should decide.
-- **Duplicate what a file says.** If it's in `app.md`, `TEMPLATE_MAP.md`, the ai-dev-kit skill, the spec, or the README — point at the file, don't re-type it in the prompt. When the file is updated, your prompt goes stale.
-- **Re-enumerate step-by-step CLI commands.** The `SKILLS/<skill-dir>/SKILL.md` / `app.md` the subagent reads knows how to build the resource.
-- **Pass unresolved placeholders.** Every `SKILL_DIR/…`, `PROJECT/…`, `SKILLS/…` in the prompt must be a real absolute path before you send it.
-- **Don't include `stages/03-build.md`** — the subagent doesn't need the parent's parallelization table. But **DO include `SKILL.md`** as the first read for most build subagents (gates, coherence, storytelling). Skip it only for truly narrow tasks like unstructured-docs generation where the content spec already exists in `01-lakeflow.md` and the subagent just needs to author the HTML, convert, and upload. See `SKILL_DIR/stages/subagents.md`.
+**Blocking deps:** if the subagent depends on another in-flight subagent's output (e.g. KA needs PDFs from the docs subagent), tell it to wait before the blocking step.
 
 ## App generation
 

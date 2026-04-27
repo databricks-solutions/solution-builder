@@ -37,6 +37,8 @@ CREATE TABLE "app"."messages" (
 	"content" text NOT NULL,
 	"position" integer NOT NULL,
 	"trace_id" text,
+	"thinking" jsonb DEFAULT '[]'::jsonb NOT NULL,
+	"error" text,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint

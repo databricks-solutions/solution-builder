@@ -34,7 +34,6 @@
       "id": "app-luxebeauty-1234"
     },
     "lakebase_project_id": "dbdemos-asset-generator",
-    "lakebase_branch": "luxebeauty-quentin",
-    "lakebase_database": "luxebeauty_app"
+    "lakebase_database": "dbgen_luxebeauty"
   }
 }

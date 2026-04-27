@@ -46,7 +46,14 @@ CORE_SKILLS: set[str] = {
 # - databricks-app-python: generic Streamlit/Gradio Python app skill.
 #   Our app is Node/React/FastAPI via app_template + app.md; this skill
 #   makes build subagents default to Streamlit. Kept out.
-EXCLUDE_SKILLS: set[str] = {"TEMPLATE", "databricks-app-python"}
+# - databricks-lakebase-provisioned: we use Lakebase Autoscaling
+#   (branch-based) via app.md's own provisioning flow.
+#   databricks-lakebase-autoscale is the one that applies.
+EXCLUDE_SKILLS: set[str] = {
+    "TEMPLATE",
+    "databricks-app-python",
+    "databricks-lakebase-provisioned",
+}
 
 # Map each capability id (see references/blocks/capabilities/*.md) to the
 # ai-dev-kit skill dirs it needs. Capabilities not listed contribute no extra
@@ -56,12 +63,13 @@ CAPABILITY_TO_SKILLS: dict[str, list[str]] = {
     "aibi-dashboards": ["databricks-aibi-dashboards"],
     # databricks-app-python intentionally NOT listed: it's the generic
     # Streamlit/Python-app skill; our app is Node/React/FastAPI via
-    # app_template + app.md.
-    "databricks-apps": ["databricks-lakebase-provisioned"],
+    # app_template + app.md. databricks-lakebase-provisioned also out —
+    # we use the autoscale (branch-based) flow documented in app.md.
+    "databricks-apps": ["databricks-lakebase-autoscale"],
     "genie": ["databricks-genie"],
     "information-extraction": ["databricks-ai-functions"],
     "knowledge-assistant": ["databricks-agent-bricks", "databricks-unstructured-pdf-generation"],
-    "lakebase": ["databricks-lakebase-provisioned", "databricks-lakebase-autoscale"],
+    "lakebase": ["databricks-lakebase-autoscale"],
     "lakeflow-jobs": ["databricks-jobs"],
     "metric-views": ["databricks-metric-views"],
     "model-serving": ["databricks-model-serving"],

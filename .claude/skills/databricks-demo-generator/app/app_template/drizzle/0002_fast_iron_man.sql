@@ -1,1 +1,0 @@
-ALTER TABLE "app"."messages" ADD COLUMN "error" text;

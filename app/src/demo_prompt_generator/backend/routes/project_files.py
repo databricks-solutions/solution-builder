@@ -31,6 +31,8 @@ logger = logging.getLogger(__name__)
 router = create_router()
 
 PROJECTS_BASE_DIR = os.getenv("PROJECTS_BASE_DIR", "./projects")
+# Resolved once at import — used on hot paths (cache, watcher events).
+_PROJECTS_BASE_RESOLVED = Path(PROJECTS_BASE_DIR).resolve()
 
 # Files/folders to exclude from listing. Keep in sync with
 # file_watcher.IGNORE_PATTERNS and file_sync.PRUNE_DIRS.
@@ -77,15 +79,21 @@ def _is_excluded_segment(segment: str) -> bool:
 # ---------------------------------------------------------------------------
 # In-memory file listing cache
 #
-# Keyed by project_id. Each entry is a dict[relative_path → file dict], so
-# watcher events can add / update / remove a single entry in O(1) without
-# re-walking the filesystem. Reads convert the dict to a sorted list.
+# Keyed by project_id. Each entry is a dict[relative_path → file dict].
+# Reads convert the dict to a sorted list.
 #
 # Invalidation:
 # - First read for a project: full walk populates the cache.
-# - Watcher 'created'/'modified' events: `cache_update_file` re-stats one path.
-# - Watcher 'deleted'/'moved' events: `cache_remove_file` pops the entry.
+# - Any watcher event: `cache_resync_dir` re-lists the parent directory from
+#   disk and replaces that dir's slice of the cache. This handles
+#   create/modify/delete/move uniformly: whatever disk shows wins.
 # - `?force=true` query param: evicts the entry, next read rebuilds.
+#
+# Why a directory resync (not single-path stat): atomic writes briefly leave
+# the destination path nonexistent (rename window). A single re-stat in that
+# window returns ENOENT and would wrongly drop the entry. Re-listing the
+# directory is robust — by the time we read it, the rename has settled and
+# disk reflects truth.
 # ---------------------------------------------------------------------------
 
 _file_cache: dict[str, dict[str, dict]] = {}
@@ -158,9 +166,9 @@ def _get_cached_files(project_id: str, project_dir: Path, force: bool = False) -
     # Slow path: walk outside the lock so we don't block other readers/watcher events.
     fresh = _build_cache_from_walk(project_id, project_dir)
 
-    # Publish. If a watcher event arrived between the pop and now, its update was
-    # applied to an already-removed entry (no-op path in cache_update_file when
-    # the project isn't cached). The walk we just did reflects current disk state,
+    # Publish. If a watcher event arrived between the pop and now, its resync
+    # ran against an empty cache (no-op path in cache_resync_dir when the
+    # project isn't cached). The walk we just did reflects current disk state,
     # so we're consistent.
     with _cache_lock:
         _file_cache[project_id] = fresh
@@ -169,44 +177,81 @@ def _get_cached_files(project_id: str, project_dir: Path, force: bool = False) -
     return sorted(files, key=lambda f: f["path"])
 
 
-def cache_update_file(project_id: str, relative_path: str) -> None:
-    """Watcher hook: file was created/modified. Re-stat one path and update the cache.
+def _list_dir_entries(project_dir: Path, dir_abs: Path) -> dict[str, dict]:
+    """Re-list the immediate non-recursive contents of one directory from disk.
 
-    If the entry ends up filtered out (excluded pattern / unreadable), it is removed.
-    No-op when the project hasn't been cached yet — the next read will build it from scratch.
+    Returns dict[relative_path → entry] for the live (non-excluded) files in
+    that directory. Files inside subdirectories of `dir_abs` are NOT included
+    — those have their own watcher events when they change.
     """
+    entries: dict[str, dict] = {}
+    if not dir_abs.is_dir():
+        return entries
+    try:
+        children = list(dir_abs.iterdir())
+    except OSError:
+        return entries
+    for child in children:
+        if not child.is_file():
+            continue
+        if _is_excluded_segment(child.name):
+            continue
+        entry = _make_file_entry(project_dir, child)
+        if entry is not None:
+            entries[entry["path"]] = entry
+    return entries
+
+
+def cache_resync_dir(project_id: str, relative_path: str) -> None:
+    """Watcher hook: a path under the project changed.
+
+    Rebuilds the cache slice for the directory containing `relative_path` by
+    listing it from disk (non-recursive). Any cached entry that previously
+    lived in that directory but no longer exists on disk is dropped — this
+    covers deletions, moves out, and atomic-replace cleanup naturally, with
+    no special-casing per event type.
+
+    No-op when the project hasn't been cached yet — the next GET /files does
+    a full walk and includes everything.
+    """
+    project_dir = _PROJECTS_BASE_RESOLVED / project_id
+
+    # Resolve the directory to resync. For a top-level file (no slash in
+    # rel_path) the parent is the project root itself.
+    rel_parent = str(Path(relative_path).parent)
+    if rel_parent == ".":
+        dir_abs = project_dir
+        dir_prefix = ""
+    else:
+        dir_abs = project_dir / rel_parent
+        dir_prefix = rel_parent + "/"
+
+    # Snapshot what's on disk now (outside the lock — disk I/O shouldn't
+    # block other readers / watcher events).
+    live = _list_dir_entries(project_dir, dir_abs)
+
     with _cache_lock:
         entries = _file_cache.get(project_id)
         if entries is None:
-            # Benign: no cache yet (cold start / post-restart / recent evict).
-            # The next GET /files will do a full walk and include this file.
-            logger.info(
-                f"[cache] cold for {project_id} — {relative_path} will be picked up "
-                f"on next full walk"
-            )
             return
-        project_dir = Path(PROJECTS_BASE_DIR).resolve() / project_id
-        entry = _make_file_entry(project_dir, project_dir / relative_path)
-        if entry is None:
-            had = entries.pop(relative_path, None) is not None
-            logger.info(
-                f"[cache] update {project_id}/{relative_path} → filtered/missing, "
-                f"{'removed' if had else 'no-op'} (cache size={len(entries)})"
-            )
-        else:
-            entries[relative_path] = entry
-            logger.info(
-                f"[cache] update {project_id}/{relative_path} → added/updated "
-                f"(cache size={len(entries)})"
-            )
 
+        # Drop cached entries that are immediate children of this directory,
+        # then merge in what disk shows. A path is an immediate child iff it
+        # starts with dir_prefix AND has no further slash beyond it.
+        dropped = 0
+        for cached_path in list(entries.keys()):
+            if not cached_path.startswith(dir_prefix):
+                continue
+            if "/" in cached_path[len(dir_prefix):]:
+                continue
+            del entries[cached_path]
+            dropped += 1
+        entries.update(live)
 
-def cache_remove_file(project_id: str, relative_path: str) -> None:
-    """Watcher hook: file was deleted. Drop the entry from the cache."""
-    with _cache_lock:
-        entries = _file_cache.get(project_id)
-        if entries is not None:
-            entries.pop(relative_path, None)
+        logger.info(
+            f"[cache] resync {project_id}/{rel_parent or '.'}: "
+            f"{dropped} dropped, {len(live)} from disk (project total {len(entries)})"
+        )
 
 
 def cache_evict_project(project_id: str) -> None:
@@ -234,11 +279,6 @@ def _get_user_project(session, project_id: str, user_email: str) -> Project:
     return row
 
 
-# (Old _list_files_from_filesystem removed — callers now use _get_cached_files,
-# which delegates to _build_cache_from_walk for the first read and keeps the
-# cache warm via watcher hooks.)
-
-
 @router.get(
     "/projects/{project_id}/files",
     response_model=list[ProjectFileOut],
@@ -261,7 +301,7 @@ def list_project_files(
         user_email = _get_user_email(headers)
         _get_user_project(session, project_id, user_email)
 
-        project_dir = Path(PROJECTS_BASE_DIR).resolve() / project_id
+        project_dir = _PROJECTS_BASE_RESOLVED / project_id
 
         # If folder doesn't exist, restore from DB first (and drop stale cache).
         if not project_dir.exists():
@@ -342,7 +382,7 @@ def download_project_as_zip(
     user_email = _get_user_email(headers)
     project = _get_user_project(session, project_id, user_email)
 
-    project_dir = Path(PROJECTS_BASE_DIR).resolve() / project_id
+    project_dir = _PROJECTS_BASE_RESOLVED / project_id
 
     # If folder doesn't exist, restore from DB first
     if not project_dir.exists():

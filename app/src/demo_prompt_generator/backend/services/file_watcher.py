@@ -205,24 +205,17 @@ class FileWatcherService:
             f"[watcher] {event_type} {project_id}/{relative_path}"
         )
 
-        # Update the file-listing cache in-place so the next /files call is fresh
-        # without having to re-walk the filesystem. Safe from a watchdog thread:
-        # the cache uses its own RLock.
+        # Refresh the file-listing cache by re-listing the directory containing
+        # the changed path. Single hook for any event type (created / modified /
+        # deleted / moved): whatever disk shows wins. Safe from a watchdog
+        # thread — the cache uses its own RLock.
         try:
-            from ..routes.project_files import cache_remove_file, cache_update_file
-            if event_type == "deleted":
-                cache_remove_file(project_id, relative_path)
-            else:
-                # created / modified / moved (src side) — re-stat the path. moved's
-                # dest side fires a separate 'created' event which we handle the
-                # same way.
-                cache_update_file(project_id, relative_path)
+            from ..routes.project_files import cache_resync_dir
+            cache_resync_dir(project_id, relative_path)
         except Exception as e:
-            # Cache update is best-effort, but if this ever fails the /files
-            # endpoint goes stale — so make it visible. The watcher itself
-            # keeps going regardless.
+            # Cache resync is best-effort. The watcher keeps going regardless.
             logger.warning(
-                f"[cache] update failed for {project_id}/{relative_path}: {e}",
+                f"[cache] resync failed for {project_id}/{relative_path}: {e}",
                 exc_info=True,
             )
 
