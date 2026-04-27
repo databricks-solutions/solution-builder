@@ -18,8 +18,8 @@ import {
 
 const navLinks = [
   { to: "/" as const, label: "Home", icon: Home },
-  { to: "/projects" as const, label: "Projects", icon: FolderOpen },
   { to: "/templates" as const, label: "Templates", icon: Library },
+  { to: "/projects" as const, label: "Projects", icon: FolderOpen },
   { to: "/about" as const, label: "About", icon: Info },
 ];
 
@@ -84,13 +84,13 @@ export function Navbar({ leftContent, rightContent, hideNav }: NavbarProps) {
                 <Home className="mr-2 h-4 w-4" />
                 Home
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => navigate({ to: "/projects" })} className="cursor-pointer">
-                <FolderOpen className="mr-2 h-4 w-4" />
-                My Projects
-              </DropdownMenuItem>
               <DropdownMenuItem onClick={() => navigate({ to: "/templates" })} className="cursor-pointer">
                 <Library className="mr-2 h-4 w-4" />
                 Templates
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => navigate({ to: "/projects" })} className="cursor-pointer">
+                <FolderOpen className="mr-2 h-4 w-4" />
+                My Projects
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={() => navigate({ to: "/about" })} className="cursor-pointer">
