@@ -29,3 +29,10 @@ screenshot-eval/
 
 # tests/pipeline/ harness output
 test-runs/
+
+# Python caches
+__pycache__/
+*.pyc
+
+# Local scratch space (screenshots, throwaway scripts, etc.)
+.scratch/

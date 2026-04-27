@@ -4,7 +4,7 @@
 
 import { memo } from "react";
 import { Badge } from "../ui/badge";
-import { Layers, ArrowUpRight } from "lucide-react";
+import { Layers, ArrowUpRight, CheckCircle, Clock, XCircle } from "lucide-react";
 import type { TemplateListItem, TemplateSearchResult } from "../../lib/custom-api";
 
 interface TemplateTileProps {
@@ -22,6 +22,8 @@ export const TemplateTile = memo(function TemplateTile({
 }: TemplateTileProps) {
   const similarity = "similarity" in template ? template.similarity : null;
   const status = "status" in template ? template.status : null;
+  const ownerEmail = "owner_email" in template ? template.owner_email : null;
+  const isSeeded = ownerEmail === "system@databricks.com";
 
   return (
     <button
@@ -65,12 +67,41 @@ export const TemplateTile = memo(function TemplateTile({
               <span>Template</span>
             )}
           </div>
-          {showStatus && status && status !== "APPROVED" && (
+          {showStatus && status && (
             <Badge
-              variant={status === "REVIEW_REQUESTED" ? "secondary" : "destructive"}
-              className="text-[10px] px-1.5 py-0 h-4"
+              variant={
+                status === "APPROVED"
+                  ? "default"
+                  : status === "REVIEW_REQUESTED"
+                    ? "secondary"
+                    : "destructive"
+              }
+              className={`text-[11px] px-2 py-0.5 h-5 gap-1 ${
+                status === "APPROVED"
+                  ? isSeeded
+                    ? "bg-primary/15 hover:bg-primary/20 text-primary border-primary/20"
+                    : "bg-green-600 hover:bg-green-700 text-white"
+                  : ""
+              }`}
             >
-              {status === "REVIEW_REQUESTED" ? "Pending" : "Rejected"}
+              {status === "APPROVED" ? (
+                isSeeded ? (
+                  <Layers className="h-3 w-3" />
+                ) : (
+                  <CheckCircle className="h-3 w-3" />
+                )
+              ) : status === "REVIEW_REQUESTED" ? (
+                <Clock className="h-3 w-3" />
+              ) : (
+                <XCircle className="h-3 w-3" />
+              )}
+              {status === "APPROVED"
+                ? isSeeded
+                  ? "Databricks"
+                  : "Approved"
+                : status === "REVIEW_REQUESTED"
+                  ? "Pending Review"
+                  : "Rejected"}
             </Badge>
           )}
         </div>

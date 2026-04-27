@@ -281,15 +281,18 @@ function ProjectsPage() {
   return (
     <div className="p-6 lg:p-8 space-y-6">
       {/* Header */}
-      <div className="flex items-center gap-3">
-        <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10">
-          <FolderOpen className="h-6 w-6 text-primary" />
-        </div>
-        <div>
-          <h1 className="text-2xl font-bold">My Projects</h1>
-          <p className="text-sm text-muted-foreground">
-            {totalCount} {totalCount === 1 ? "project" : "projects"} total
-          </p>
+      <div className="relative overflow-hidden rounded-2xl border border-blue-500/20 bg-gradient-to-br from-blue-500/10 via-blue-500/5 to-background p-6 sm:p-8">
+        <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-blue-500/40 to-transparent" />
+        <div className="flex items-start gap-5">
+          <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-blue-500/15 ring-1 ring-blue-500/30">
+            <FolderOpen className="h-7 w-7 text-blue-600 dark:text-blue-400" />
+          </div>
+          <div className="space-y-1.5">
+            <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">My Projects</h1>
+            <p className="text-base text-muted-foreground sm:text-lg">
+              Full custom demo packages generated per customer scenario · {totalCount} {totalCount === 1 ? "project" : "projects"} total
+            </p>
+          </div>
         </div>
       </div>
 

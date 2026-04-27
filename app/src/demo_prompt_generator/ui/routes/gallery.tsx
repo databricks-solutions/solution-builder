@@ -5,6 +5,7 @@
 
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useEffect } from "react";
+import { toast } from "sonner";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
@@ -126,12 +127,15 @@ function GalleryPage() {
   // Admin actions
   const handleApprove = async (templateId: string, e: React.MouseEvent) => {
     e.stopPropagation();
+    const name = templates.find((t) => t.id === templateId)?.name ?? "template";
     setActionLoading(templateId);
     try {
       await updateTemplateStatus(templateId, "APPROVED");
       await refreshTemplates();
+      toast.success(`Approved "${name}"`);
     } catch (error) {
       console.error("Failed to approve template:", error);
+      toast.error("Failed to approve template");
     } finally {
       setActionLoading(null);
     }
@@ -139,12 +143,15 @@ function GalleryPage() {
 
   const handleReject = async (templateId: string, e: React.MouseEvent) => {
     e.stopPropagation();
+    const name = templates.find((t) => t.id === templateId)?.name ?? "template";
     setActionLoading(templateId);
     try {
       await updateTemplateStatus(templateId, "REJECTED");
       await refreshTemplates();
+      toast.success(`Rejected "${name}"`);
     } catch (error) {
       console.error("Failed to reject template:", error);
+      toast.error("Failed to reject template");
     } finally {
       setActionLoading(null);
     }
@@ -152,14 +159,17 @@ function GalleryPage() {
 
   const handleDelete = async (templateId: string, e: React.MouseEvent) => {
     e.stopPropagation();
+    const name = templates.find((t) => t.id === templateId)?.name ?? "template";
     if (!confirm("Are you sure you want to delete this template?")) return;
 
     setActionLoading(templateId);
     try {
       await deleteTemplate(templateId);
       setTemplates((prev) => prev.filter((t) => t.id !== templateId));
+      toast.success(`Deleted "${name}"`);
     } catch (error) {
       console.error("Failed to delete template:", error);
+      toast.error("Failed to delete template");
     } finally {
       setActionLoading(null);
     }

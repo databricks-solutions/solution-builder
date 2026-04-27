@@ -4,6 +4,7 @@
 
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState, useEffect, useMemo } from "react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -126,6 +127,7 @@ function TemplatesPage() {
   // Admin actions
   const handleApprove = async (templateId: string, e: React.MouseEvent) => {
     e.stopPropagation();
+    const name = templates.find((t) => t.id === templateId)?.name ?? "template";
     setActionLoading(templateId);
     try {
       await updateTemplateStatus(templateId, "APPROVED");
@@ -133,8 +135,10 @@ function TemplatesPage() {
       const industry = industryFilter === "ALL" ? undefined : industryFilter;
       const updated = await listTemplates(status, industry);
       setTemplates(updated);
+      toast.success(`Approved "${name}"`);
     } catch (error) {
       console.error("Failed to approve template:", error);
+      toast.error("Failed to approve template");
     } finally {
       setActionLoading(null);
     }
@@ -142,6 +146,7 @@ function TemplatesPage() {
 
   const handleReject = async (templateId: string, e: React.MouseEvent) => {
     e.stopPropagation();
+    const name = templates.find((t) => t.id === templateId)?.name ?? "template";
     setActionLoading(templateId);
     try {
       await updateTemplateStatus(templateId, "REJECTED");
@@ -149,8 +154,10 @@ function TemplatesPage() {
       const industry = industryFilter === "ALL" ? undefined : industryFilter;
       const updated = await listTemplates(status, industry);
       setTemplates(updated);
+      toast.success(`Rejected "${name}"`);
     } catch (error) {
       console.error("Failed to reject template:", error);
+      toast.error("Failed to reject template");
     } finally {
       setActionLoading(null);
     }
@@ -158,14 +165,17 @@ function TemplatesPage() {
 
   const handleDelete = async (templateId: string, e: React.MouseEvent) => {
     e.stopPropagation();
+    const name = templates.find((t) => t.id === templateId)?.name ?? "template";
     if (!confirm("Are you sure you want to delete this template?")) return;
 
     setActionLoading(templateId);
     try {
       await deleteTemplate(templateId);
       setTemplates((prev) => prev.filter((t) => t.id !== templateId));
+      toast.success(`Deleted "${name}"`);
     } catch (error) {
       console.error("Failed to delete template:", error);
+      toast.error("Failed to delete template");
     } finally {
       setActionLoading(null);
     }
@@ -179,15 +189,18 @@ function TemplatesPage() {
   return (
     <div className="p-6 lg:p-8 space-y-6">
       {/* Header */}
-      <div className="flex items-center gap-3">
-        <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10">
-          <Library className="h-6 w-6 text-primary" />
-        </div>
-        <div>
-          <h1 className="text-2xl font-bold">Template Library</h1>
-          <p className="text-sm text-muted-foreground">
-            Browse and use pre-built demo templates
-          </p>
+      <div className="relative overflow-hidden rounded-2xl border border-emerald-500/20 bg-gradient-to-br from-emerald-500/10 via-emerald-500/5 to-background p-6 sm:p-8">
+        <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-emerald-500/40 to-transparent" />
+        <div className="flex items-start gap-5">
+          <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-emerald-500/15 ring-1 ring-emerald-500/30">
+            <Library className="h-7 w-7 text-emerald-600 dark:text-emerald-400" />
+          </div>
+          <div className="space-y-1.5">
+            <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">Template Library</h1>
+            <p className="text-base text-muted-foreground sm:text-lg">
+              Vetted blueprints for common Databricks use cases — fork one to start a new project.
+            </p>
+          </div>
         </div>
       </div>
 
@@ -257,6 +270,36 @@ function TemplatesPage() {
 
                 {/* Owner action buttons */}
                 <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                  {isAdmin && template.status === "REVIEW_REQUESTED" && (
+                    <>
+                      <Button
+                        size="icon"
+                        variant="default"
+                        className="h-7 w-7 bg-green-600 hover:bg-green-700"
+                        onClick={(e) => handleApprove(template.id, e)}
+                        disabled={actionLoading === template.id}
+                        aria-label="Approve template"
+                        title="Approve template"
+                      >
+                        {actionLoading === template.id ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Check className="h-3.5 w-3.5" />
+                        )}
+                      </Button>
+                      <Button
+                        size="icon"
+                        variant="destructive"
+                        className="h-7 w-7"
+                        onClick={(e) => handleReject(template.id, e)}
+                        disabled={actionLoading === template.id}
+                        aria-label="Reject template"
+                        title="Reject template"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </Button>
+                    </>
+                  )}
                   <Button
                     size="icon"
                     variant="default"

@@ -6,8 +6,8 @@ import { ReactNode } from "react";
 
 const sidebarLinks = [
   { to: "/" as const, label: "Home", icon: Home },
-  { to: "/projects" as const, label: "My Projects", icon: FolderOpen },
   { to: "/templates" as const, label: "Templates", icon: Library },
+  { to: "/projects" as const, label: "My Projects", icon: FolderOpen },
   { to: "/about" as const, label: "About", icon: Info },
   { to: "/profile" as const, label: "Profile", icon: User },
 ];
