@@ -61,17 +61,40 @@ JSON diagram following the schema in `SKILL_DIR/references/architecture.md`. Nod
 
 Same structure as `SKILL_DIR/references/example-luxebeauty/README.md`:
 
+- **Architecture at a glance** — a fenced ` ```glance ` block at the very top, immediately after the H1 title, before "The Story". This is the first thing the user sees in the Summary tab; it renders as a row of equal-width category columns with clickable products that link to Databricks docs.
 - **The Story** — summary table (company, protagonist, problem, journey, resolution, impact).
 - **Overview** — short paragraph.
 - **Key Numbers** — metrics table.
 - **Products Showcased** — product + what it does in this demo (must match `resources.json`).
 - **Demo Walkthrough** — concise bullet points a presenter can glance at.
 
+#### Authoring the `glance` block
+
+Format — one line per group, `Label: item1, item2, ...`. A line starting with `Foundation:` becomes a cross-cutting bar.
+
+````
+```glance
+Data Ingestion: Lakeflow Connect, Spark Declarative Pipelines
+AI: Knowledge Assistant, Prediction Model
+Data Analysis: Dashboard, Genie
+Analyst Layer: Databricks App
+Foundation: Unity Catalog
+```
+````
+
+Rules:
+
+- **Group order is fixed**: `Data Ingestion` → `AI` → `Data Analysis` → `Analyst Layer`. Use these exact labels (plain English, not the home-page picker categories).
+- **Only include groups that earn a node** — if the demo has no AI agents/models, drop the AI line. If there's no app, drop Analyst Layer.
+- **Item names should be the canonical product names** the renderer recognizes (so it can pick the right Databricks icon and docs link). See `SKILL_DIR/references/platform_architecture.md` "At-a-glance group mapping" for the canonical name per capability ID.
+- **Foundation** is for cross-cutting concerns. Always include `Unity Catalog` here when `unity-catalog` is in the demo's capabilities (almost always).
+- Keep each group to ~1-3 items. The block is a glance, not a checklist — leave the full list for **Products Showcased**.
+
 ## Coherence contract (you own it)
 
 You're writing all three files from the same plan in context, so:
 
-- **Products Showcased** in README ↔ **architecture nodes** ↔ **`resources.json` capabilities** must name the same set of products.
+- **Products Showcased** in README ↔ **architecture nodes** ↔ **`resources.json` capabilities** ↔ **`glance` block items** must name the same set of products. The glance block is allowed to be a curated subset (one or two headliners per group) but must not introduce products that aren't in the other three.
 - Every product in the story earns a narrative beat AND an architecture node AND a capability entry.
 - Parallel writes work because coherence comes from *your plan* — not from reading one file to write the next.
 

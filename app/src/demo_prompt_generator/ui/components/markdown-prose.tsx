@@ -1,7 +1,11 @@
-import { useEffect, useRef, useId, memo } from "react";
+import { useEffect, useRef, useId, memo, lazy, Suspense } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import mermaid from "mermaid";
+
+// Lazy-load the high-level architecture component so it doesn't pull
+// the icon set into every Markdown render.
+const HighLevelArchitecture = lazy(() => import("./project/high-level-architecture"));
 
 // Initialize mermaid once
 let mermaidInitialized = false;
@@ -83,12 +87,24 @@ export const Prose = memo(function Prose({
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
-          // Mermaid code blocks
+          // Mermaid + high-level architecture (`glance`) code blocks
           code({ className: codeClass, children: codeChildren }) {
-            const match = /language-mermaid/.exec(codeClass || "");
             const text = String(codeChildren).replace(/\n$/, "");
-            if (match) {
+            if (/language-mermaid/.exec(codeClass || "")) {
               return <MermaidBlock code={text} />;
+            }
+            if (/language-glance/.exec(codeClass || "")) {
+              return (
+                <Suspense
+                  fallback={
+                    <div className="my-4 rounded-lg border border-border/40 bg-muted/10 p-4 text-xs text-muted-foreground">
+                      Loading architecture overview…
+                    </div>
+                  }
+                >
+                  <HighLevelArchitecture source={text} />
+                </Suspense>
+              );
             }
             // Inline code (no className = no language = inline)
             if (!codeClass) {
@@ -100,8 +116,15 @@ export const Prose = memo(function Prose({
             }
             return <code className={codeClass}>{codeChildren}</code>;
           },
-          // Override pre for code blocks
+          // Override pre for code blocks. Mermaid + glance blocks render their
+          // own styled containers from the `code` handler — bypass the pre wrapper
+          // so we don't double-style or nest invalid block elements inside <pre>.
           pre({ children: preChildren }) {
+            const childClass =
+              (preChildren as { props?: { className?: string } } | null)?.props?.className ?? "";
+            if (/language-mermaid|language-glance/.test(childClass)) {
+              return <>{preChildren}</>;
+            }
             return (
               <pre className="overflow-x-auto rounded-lg bg-muted/60 p-3 text-sm leading-relaxed">
                 {preChildren}
