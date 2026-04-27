@@ -2,7 +2,7 @@ import { ModeToggle } from "@/components/layout/mode-toggle";
 import { UserMenu } from "@/components/layout/user-menu";
 import Logo from "@/components/layout/logo";
 import { Link, useMatchRoute, useNavigate } from "@tanstack/react-router";
-import { Menu, Home, FolderOpen, Library, User, BookOpen, HelpCircle } from "lucide-react";
+import { Menu, Home, FolderOpen, Library, User, Info, HelpCircle } from "lucide-react";
 import { useGuide } from "@/components/guide/guide-modal";
 import { ReactNode } from "react";
 import { IS_ELECTRON } from "@/lib/config";
@@ -20,7 +20,7 @@ const navLinks = [
   { to: "/" as const, label: "Home", icon: Home },
   { to: "/projects" as const, label: "Projects", icon: FolderOpen },
   { to: "/templates" as const, label: "Templates", icon: Library },
-  { to: "/docs" as const, label: "Docs", icon: BookOpen },
+  { to: "/about" as const, label: "About", icon: Info },
 ];
 
 interface NavbarProps {
@@ -93,9 +93,9 @@ export function Navbar({ leftContent, rightContent, hideNav }: NavbarProps) {
                 Templates
               </DropdownMenuItem>
               <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={() => navigate({ to: "/docs" })} className="cursor-pointer">
-                <BookOpen className="mr-2 h-4 w-4" />
-                Docs
+              <DropdownMenuItem onClick={() => navigate({ to: "/about" })} className="cursor-pointer">
+                <Info className="mr-2 h-4 w-4" />
+                About
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => navigate({ to: "/profile" })} className="cursor-pointer">
                 <User className="mr-2 h-4 w-4" />
