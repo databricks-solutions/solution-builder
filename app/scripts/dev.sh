@@ -82,6 +82,27 @@ fi
 echo -e "${CYAN}Syncing Python environment...${NC}"
 uv sync --quiet
 
+# Generate _metadata.py if missing — gitignored like _version.py, but unlike
+# _version.py there's no dynamic source, so a fresh clone has neither the
+# file nor a hatch hook run to produce one. Without this, uvicorn crashes
+# with `ModuleNotFoundError: demo_prompt_generator._metadata` on first start.
+if [ ! -f src/demo_prompt_generator/_metadata.py ]; then
+    echo -e "${CYAN}Generating _metadata.py...${NC}"
+    .venv/bin/python scripts/generate_metadata.py
+fi
+
+# Install frontend dependencies if missing — vite ships via node_modules,
+# not uv, so a fresh clone has nothing to run until `bun install` runs once.
+if [ ! -d node_modules ]; then
+    if ! command -v bun &> /dev/null; then
+        echo -e "${RED}ERROR: bun is not installed${NC}"
+        echo -e "  Install via: ${CYAN}curl -fsSL https://bun.sh/install | bash${NC}"
+        exit 1
+    fi
+    echo -e "${CYAN}Installing frontend dependencies (bun install)...${NC}"
+    bun install
+fi
+
 # ============================================================================
 # Check for .env file
 # ============================================================================
