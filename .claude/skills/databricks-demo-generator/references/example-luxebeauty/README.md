@@ -1,5 +1,13 @@
 # LuxeBeauty Co. — Returns Intelligence Demo
 
+```glance
+Data Ingestion: Lakeflow Connect, Spark Declarative Pipelines
+AI: Knowledge Assistant, Multi-Agent Supervisor
+Data Analysis: Dashboard, Genie
+Analyst Layer: Databricks App, Lakebase
+Foundation: Unity Catalog
+```
+
 ## The Story
 
 | | |
