@@ -6,6 +6,9 @@ bundle:
 #   databricks bundle deploy -t dev --var llm_endpoint=databricks-claude-sonnet-4
 # ---------------------------------------------------------------------------
 variables:
+  app_name:
+    description: "Workspace app name. Set this to an existing app's name to redeploy in-place (preserves SP, schema, and Lakebase data). Override per-workspace."
+    default: "demo-prompt-gen-cal"
   llm_endpoint:
     description: "Foundation Model serving endpoint for LLM calls"
     default: "databricks-claude-sonnet-4-6"
@@ -16,7 +19,7 @@ variables:
     description: "Serving endpoint for embeddings (template search)"
     default: "databricks-qwen3-embedding-0-6b"
   lakebase_instance:
-    description: "Existing Lakebase instance to reuse (SP gets its own schema)"
+    description: "Existing Lakebase instance to reuse (SP gets its own schema). Set to an existing instance name to share infra; the deploy will not recreate or wipe it."
     default: "databricks-demos-shared"
 
 sync:
@@ -36,7 +39,7 @@ artifacts:
 resources:
   apps:
     demo-prompt-generator-app:
-      name: "demo-prompt-gen-cal"
+      name: ${var.app_name}
       description: "Demo Prompt Generator — generates Databricks demo skill packages"
       source_code_path: ./.build
       resources:
@@ -65,6 +68,11 @@ resources:
 # Deploy:
 #   1. databricks auth login --host <workspace-url> --profile <name>
 #   2. cd app && databricks bundle deploy -t dev --profile <name>
+#
+# Redeploy onto an existing app + Lakebase (preserves data — same SP keeps the
+# same per-SP schema in Lakebase, and Alembic only runs additive migrations):
+#   databricks bundle deploy -t dev --profile <name> \
+#     --var "app_name=<existing-app>,lakebase_instance=<existing-lakebase>"
 #
 # The app uses Databricks Foundation Model API (FMAPI) to run Claude Code —
 # no Anthropic API key needed. The service principal authenticates via OAuth

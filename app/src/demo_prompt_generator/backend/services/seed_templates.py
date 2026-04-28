@@ -78,7 +78,10 @@ def seed_default_templates(engine: Engine) -> None:
     """
     templates_dir = _find_initial_templates_dir()
     if not templates_dir:
-        logger.info("No initial_templates/manifest.json found — skipping template seeding")
+        logger.warning(
+            "No initial_templates/manifest.json found — skipping template seeding "
+            f"(searched from {Path(__file__).resolve()})"
+        )
         return
 
     try:
