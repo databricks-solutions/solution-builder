@@ -78,6 +78,33 @@ def create_app(
             allow_headers=["*"],
         )
 
+    # Usage analytics for Databricks employees (filters to @databricks.com only).
+    # Disable by setting DEMO_PROMPT_GENERATOR_TRACKER_ENABLED=0 in .env
+    if os.environ.get("DEMO_PROMPT_GENERATOR_TRACKER_ENABLED", "1") != "0":
+        try:
+            from dbdemos_tracker import Tracker
+
+            Tracker.add_tracker_fastapi(
+                app,
+                demo_name="industry-demo-prompts",
+                patterns=[
+                    r"^/$",                              # landing page
+                    r"^/project/[^/]+$",                 # project workspace
+                    r"^/projects$",                      # project list
+                    r"^/templates$",                     # template management
+                    r"^/gallery$",                       # template gallery
+                    r"^/api/projects$",                  # create / list projects
+                    r"^/api/projects/[^/]+$",            # get / update project
+                    r"^/api/invoke_agent$",              # agent invocations
+                    r"^/api/templates(/.*)?$",           # template publish/fork/search
+                    r"^/api/block_factory(/.*)?$",       # block decomposition
+                ],
+            )
+            logger.info("dbdemos-tracker middleware registered (industry-demo-prompts)")
+        except Exception as e:
+            # Telemetry must never break the app boot.
+            logger.warning(f"Failed to register dbdemos-tracker: {e}")
+
     api_router: APIRouter = create_router()
     for dep in all_deps:
         for r in dep.get_routers():

@@ -62,7 +62,7 @@ JSON diagram following the schema in `SKILL_DIR/references/architecture.md`. Nod
 Same structure as `SKILL_DIR/references/example-luxebeauty/README.md`:
 
 - **Architecture at a glance** — a fenced ` ```glance ` block at the very top, immediately after the H1 title, before "The Story". This is the first thing the user sees in the Summary tab; it renders as a row of equal-width category columns with clickable products that link to Databricks docs.
-- **The Story** — summary table (company, protagonist, problem, journey, resolution, impact).
+- **The Story** — summary table (company, protagonist, challenge, journey, resolution, impact).
 - **Overview** — short paragraph.
 - **Key Numbers** — metrics table.
 - **Products Showcased** — product + what it does in this demo (must match `resources.json`).

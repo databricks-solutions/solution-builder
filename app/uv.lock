@@ -376,6 +376,18 @@ openai = [
 ]
 
 [[package]]
+name = "dbdemos-tracker"
+version = "0.1.12"
+source = { registry = "https://pypi-proxy.dev.databricks.com/simple/" }
+dependencies = [
+    { name = "databricks-sdk" },
+    { name = "requests" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/73/96/7f0068599558fe3d2feffe6e9a8b6e3fc4f3c1adb895e1d362463c86d658/dbdemos_tracker-0.1.12-py3-none-any.whl", hash = "sha256:2116a28402c25fc309284f1bb724e737ea57528f0fae197a7a7bf992b7522232", size = 10970, upload-time = "2025-12-07T19:11:25.413Z" },
+]
+
+[[package]]
 name = "demo-prompt-generator"
 source = { editable = "." }
 dependencies = [
@@ -383,6 +395,7 @@ dependencies = [
     { name = "claude-agent-sdk" },
     { name = "databricks-connect" },
     { name = "databricks-sdk", extra = ["openai"] },
+    { name = "dbdemos-tracker" },
     { name = "faker" },
     { name = "fastapi" },
     { name = "fastmcp" },
@@ -416,6 +429,7 @@ requires-dist = [
     { name = "claude-agent-sdk", specifier = ">=0.1.50" },
     { name = "databricks-connect", specifier = ">=16.1,<16.2" },
     { name = "databricks-sdk", extras = ["openai"], specifier = ">=0.74.0" },
+    { name = "dbdemos-tracker", specifier = ">=0.1.12" },
     { name = "faker", specifier = ">=30.0" },
     { name = "fastapi", specifier = ">=0.119.0" },
     { name = "fastmcp", specifier = "==3.1.1" },
