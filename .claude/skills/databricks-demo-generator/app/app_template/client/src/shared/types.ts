@@ -5,7 +5,36 @@
  * The app is small enough that hand-copying these is simpler than a
  * shared package. If this file grows past ~200 lines, consider a
  * proper shared lib.
- */
+ *
+ * ─────────────────────────────────────────────────────────────────────
+ * REPURPOSING THE TEMPLATE (single most important file to update)
+ * ─────────────────────────────────────────────────────────────────────
+ * This is the canonical schema for the *domain* — every page, fetch
+ * helper, badge, and SQL projection uses what's defined here. When you
+ * swap the data model:
+ *
+ *   1. Replace the entity types below (`ReturnRow`, `LotRow`,
+ *      `FacilityRow`, `CustomerOrder`, `ActivityEvent`, etc.) with the
+ *      shape your demo cares about.
+ *   2. Update the matching SQL/Drizzle queries in
+ *      `server/db/queries/returns.ts` so `/api/...` endpoints return
+ *      rows that match the new types. Rename the queries file too.
+ *   3. Update the fetch helpers in `client/src/lib/returns.ts` (rename
+ *      to match your domain — e.g. `lib/turbines.ts`).
+ *   4. The string-enum types (`ReturnStatus`, `Decision`, loyalty tier
+ *      names, region names) drive badges in `shared/badges.tsx` — keep
+ *      those two files aligned. Adding a new enum value means adding a
+ *      matching color mapping in `badges.tsx`.
+ *   5. The agent's tool argument schemas in
+ *      `server/agent/refundops.ts` reference these types implicitly
+ *      (the Zod schemas mirror `ReturnRow`/`LotRow` field names).
+ *      Update tool descriptions + Zod shapes when you swap entities.
+ *
+ * Search the codebase for each type name below to find all references
+ * before renaming. There is no compile-time guarantee that SQL projects
+ * the right columns — type-checking helps the client side, but the
+ * server queries are stringly-typed against the warehouse.
+ * ───────────────────────────────────────────────────────────────────── */
 
 export type ReturnStatus = 'pending' | 'approved' | 'rejected' | 'escalated';
 export type Decision = 'approved' | 'rejected' | 'escalated';

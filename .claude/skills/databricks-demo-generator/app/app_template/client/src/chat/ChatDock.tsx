@@ -20,9 +20,10 @@
  * identical between the two — only layout + which conversation they point
  * at differs.
  */
-import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { useLocation } from 'react-router';
 import { ArrowRight, ArrowUp, PenSquare, Sparkles, Square, X } from 'lucide-react';
+import { Spinner } from '@databricks/appkit-ui/react';
 import {
   fetchConfig,
   fetchDockConversation,
@@ -39,6 +40,13 @@ import { MessageBubble, type DisplayMessage } from './MessageBubble';
 import { pickNextStep } from './script';
 import { useChatTurn } from './useChatTurn';
 
+// localStorage key — remembers the conversation the user is actively
+// using IN THE DOCK so navigation between pages doesn't lose it. Cleared
+// when the user explicitly closes the dock with the X button. Per-tab is
+// fine; sessionStorage would lose it across reloads of the same tab,
+// which is the opposite of what we want.
+const DOCK_CONV_STORAGE_KEY = 'app:dock:active-conversation-id';
+
 export function ChatDock() {
   const location = useLocation();
 
@@ -48,7 +56,17 @@ export function ChatDock() {
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
   const [input, setInput] = useState('');
+  // Loading flags — keep the UI honest about what's happening:
+  //   • `loading`     → fetching an existing conversation's history
+  //   • `creatingNew` → POST /api/conversations is in flight
+  // Both render a Spinner so the user never sees "weird empty state".
+  const [loading, setLoading] = useState(false);
+  const [creatingNew, setCreatingNew] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  // "Stuck to bottom" — autoscroll on new messages, but only while the user
+  // hasn't scrolled up. Flips back on once they scroll back to the bottom.
+  // Same pattern as ThinkingPanel.
+  const stickToBottomRef = useRef(true);
   const pendingAutoSend = useRef<string | null>(null);
   // Tracks the last /c/:id we saw; if the user navigates away from that
   // route, the dock auto-adopts that conversation so the chat carries over.
@@ -63,8 +81,11 @@ export function ChatDock() {
 
   // Fetch a conversation's history and swap it into the dock. History is
   // set BEFORE conversationId so the pending-auto-send effect doesn't race
-  // against the fetch.
-  async function loadConversation(id: string): Promise<void> {
+  // against the fetch. Sets `loading` so the messages area shows a spinner
+  // while the request is in flight (avoids briefly rendering "Ask me
+  // anything" empty state during the swap).
+  const loadConversation = useCallback(async (id: string): Promise<void> => {
+    setLoading(true);
     try {
       const res = await fetch(`/api/conversations/${id}`);
       if (res.ok) {
@@ -78,32 +99,81 @@ export function ChatDock() {
           })),
         );
       } else {
+        console.error('[dock] load conversation HTTP', res.status);
         setMessages([]);
       }
       setConversationId(id);
+      // Reset to sticky on a fresh load so the new conversation lands at
+      // the bottom (state-of-the-art chat scroll behavior).
+      stickToBottomRef.current = true;
     } catch (e) {
       console.error('[dock] load conversation failed', e);
+    } finally {
+      setLoading(false);
     }
-  }
+  }, []);
 
-  // Create a brand-new conversation, clear the dock, adopt in place.
-  async function startNewConversation(title = 'New conversation') {
-    setMessages([]);
-    setConversationId(null);
-    try {
-      const convo = await conversationStore.create(title);
-      setConversationId(convo.id);
-      return convo.id;
-    } catch (e) {
-      console.error('[dock] new conversation failed', e);
-      return null;
-    }
-  }
+  // Create a brand-new conversation, clear the dock, adopt in place. Always
+  // creates a fresh row — the `creatingNew` flag drives a spinner so even
+  // if the POST is slow the user sees feedback instead of a frozen button.
+  //
+  // RACE NOTE: while the POST is in flight, `conversationId` is null AND
+  // `open` is true, which would otherwise trigger the "first open / restore"
+  // effect below. That effect would read the stale localStorage id and
+  // overwrite our state with the OLD conversation just before the new id
+  // arrives. Two protections:
+  //   1. We clear localStorage immediately so the restore effect can't pick
+  //      up a stale id, even if it fires during the POST.
+  //   2. The restore effect explicitly skips while `creatingNew` is true.
+  const startNewConversation = useCallback(
+    async (title = 'New conversation'): Promise<string | null> => {
+      setCreatingNew(true);
+      // Clear immediately — both UI state AND the restore-pointer — so
+      // nothing can resurrect the previous conversation while we wait.
+      try {
+        window.localStorage.removeItem(DOCK_CONV_STORAGE_KEY);
+      } catch { /* private mode / storage disabled — no-op */ }
+      setMessages([]);
+      setConversationId(null);
+      stickToBottomRef.current = true;
+      try {
+        const convo = await conversationStore.create(title);
+        setConversationId(convo.id);
+        try {
+          window.localStorage.setItem(DOCK_CONV_STORAGE_KEY, convo.id);
+        } catch { /* private mode / storage disabled — no-op */ }
+        return convo.id;
+      } catch (e) {
+        console.error('[dock] new conversation failed', e);
+        return null;
+      } finally {
+        setCreatingNew(false);
+      }
+    },
+    [],
+  );
 
-  // First open → resolve the persistent demo_dock conversation.
+  // First open → resolve which conversation to show. Priority order:
+  //   1. localStorage (the user was just chatting before a navigation)
+  //   2. /api/dock-conversation (the persistent demo_dock fallback)
+  // This is what makes "open dock → navigate → reopen dock" feel
+  // continuous rather than dropping back to the demo_dock conversation.
+  //
+  // Skip while `creatingNew` is true — see the RACE NOTE on
+  // startNewConversation. Otherwise this effect would race against the
+  // POST and adopt the stale localStorage id.
   useEffect(() => {
-    if (!open || conversationId) return;
+    if (!open || conversationId || creatingNew) return;
     void (async () => {
+      const stored = (() => {
+        try {
+          return window.localStorage.getItem(DOCK_CONV_STORAGE_KEY);
+        } catch { return null; }
+      })();
+      if (stored) {
+        await loadConversation(stored);
+        return;
+      }
       try {
         const convo = await fetchDockConversation();
         await loadConversation(convo.id);
@@ -111,6 +181,17 @@ export function ChatDock() {
         console.error('[dock] fetch demo_dock failed', e);
       }
     })();
+  }, [open, conversationId, creatingNew, loadConversation]);
+
+  // Persist the active conversation id whenever it changes while the dock
+  // is open — survives route changes (the dock unmounts on `/c/:id`) and
+  // tab reloads. We DON'T persist when the dock is closed because closing
+  // is the user's "I'm done" signal.
+  useEffect(() => {
+    if (!open || !conversationId) return;
+    try {
+      window.localStorage.setItem(DOCK_CONV_STORAGE_KEY, conversationId);
+    } catch { /* no-op */ }
   }, [open, conversationId]);
 
   // Track /c/:id in the URL — when the user leaves that route, adopt it.
@@ -124,6 +205,12 @@ export function ChatDock() {
       if (id !== conversationId) void loadConversation(id);
       setOpen(true);
     }
+    // We deliberately depend ONLY on location.pathname — adding
+    // `loadConversation` and `conversationId` would re-run this effect on
+    // every conversation switch, fighting against the user's intent. We
+    // only care about the route transition itself. `loadConversation` is
+    // stable (useCallback with []), so reading the latest one off the
+    // closure is safe.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.pathname]);
 
@@ -140,6 +227,15 @@ export function ChatDock() {
         void startNewConversation(title);
       }
     });
+  }, [startNewConversation]);
+
+  // Closing the dock is the user's "I'm done" signal — drop the persisted
+  // conversation pointer so the next open starts clean (demo_dock fallback).
+  const closeDock = useCallback(() => {
+    setOpen(false);
+    try {
+      window.localStorage.removeItem(DOCK_CONV_STORAGE_KEY);
+    } catch { /* no-op */ }
   }, []);
 
   // Use the shared send-turn engine. Handlers wire messages into local state.
@@ -197,15 +293,31 @@ export function ChatDock() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, conversationId]);
 
-  // Autoscroll on new messages / streaming tokens.
+  // Autoscroll on new messages / streaming tokens — but ONLY if the user
+  // hasn't scrolled up. Once they scroll up they break the stick; once
+  // they scroll back to the bottom it re-engages. State-of-the-art chat
+  // scroll: Slack / iMessage / ChatGPT all do this.
   useEffect(() => {
+    if (!stickToBottomRef.current) return;
     const el = scrollRef.current;
     if (!el) return;
-    requestAnimationFrame(() => el.scrollTo({ top: el.scrollHeight }));
-  }, [messages, turn.streaming]);
+    requestAnimationFrame(() => {
+      el.scrollTop = el.scrollHeight;
+    });
+  }, [messages, turn.streaming, loading]);
+
+  function onMessagesScroll(e: React.UIEvent<HTMLDivElement>) {
+    const el = e.currentTarget;
+    // 40px tolerance — "close enough to the bottom" still counts as stuck.
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+    stickToBottomRef.current = nearBottom;
+  }
 
   function onSubmit(e: FormEvent) {
     e.preventDefault();
+    // Sending always means the user is engaged with the latest reply →
+    // re-stick to bottom so the response streams into view.
+    stickToBottomRef.current = true;
     void turn.send(input);
     setInput('');
   }
@@ -258,15 +370,17 @@ export function ChatDock() {
             <div className="flex items-center gap-1">
               <button
                 onClick={() => void startNewConversation()}
-                disabled={turn.streaming}
+                // Disabled while a turn is streaming OR a previous "new"
+                // POST hasn't returned yet — prevents double-creates.
+                disabled={turn.streaming || creatingNew}
                 className="p-1.5 rounded hover:bg-[var(--on-primary-hover)] transition-colors disabled:opacity-40"
                 title="New conversation"
                 aria-label="New conversation"
               >
-                <PenSquare className="size-4" />
+                {creatingNew ? <Spinner /> : <PenSquare className="size-4" />}
               </button>
               <button
-                onClick={() => setOpen(false)}
+                onClick={closeDock}
                 className="p-1.5 rounded hover:bg-[var(--on-primary-hover)] transition-colors"
                 aria-label="Close"
               >
@@ -278,12 +392,23 @@ export function ChatDock() {
           {/* Messages */}
           <div
             ref={scrollRef}
+            onScroll={onMessagesScroll}
             className="flex-1 overflow-y-auto px-4 py-4 space-y-3 bg-background"
           >
-            {messages.length === 0 && !turn.streaming && (
+            {/* Conversation switch in flight — show a spinner so the user
+                never sees a stale-then-empty flash. */}
+            {loading && messages.length === 0 && (
+              <div className="h-full flex items-center justify-center">
+                <Spinner />
+              </div>
+            )}
+            {!loading && messages.length === 0 && !turn.streaming && !creatingNew && (
               <EmptyState
                 firstStep={config?.assistantScript?.[0] ?? null}
-                onPick={(p) => void turn.send(p)}
+                onPick={(p) => {
+                  stickToBottomRef.current = true;
+                  void turn.send(p);
+                }}
               />
             )}
             {messages.map((m, i) => {
@@ -298,7 +423,16 @@ export function ChatDock() {
                   variant="compact"
                   streaming={isStreamingLast}
                   workspaceUrl={me?.workspaceUrl ?? ''}
-                  experimentId={config?.mlflowExperimentId ?? null}
+                  // The agent's traces land in `agentMlflowExperimentId`
+                  // (the experiment we auto-create at server boot from
+                  // `agentMlflowExperimentPath`). Fall back to the
+                  // hardcoded `mlflowExperimentId` for setups that pin a
+                  // legacy experiment via config.
+                  experimentId={
+                    config?.agentMlflowExperimentId ??
+                    config?.mlflowExperimentId ??
+                    null
+                  }
                 />
               );
             })}
@@ -311,7 +445,10 @@ export function ChatDock() {
                 Suggested next
               </div>
               <button
-                onClick={() => void turn.send(nextStep.prompt)}
+                onClick={() => {
+                  stickToBottomRef.current = true;
+                  void turn.send(nextStep.prompt);
+                }}
                 className="w-full text-left rounded-md border border-border bg-card hover:border-foreground/30 hover:shadow-sm px-3 py-2 text-sm text-foreground transition-all flex items-center justify-between gap-2"
               >
                 <span className="truncate">

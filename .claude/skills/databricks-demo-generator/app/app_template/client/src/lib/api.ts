@@ -16,8 +16,10 @@ export type ScriptStep = {
 };
 
 export type AppConfig = {
-  agentEndpointName: string;
+  /** Pinned MLflow experiment id, used by AppHeader's "Experiment" link. */
   mlflowExperimentId: string | null;
+  /** Auto-created experiment that holds the agent's traces. The chat's
+   * "View trace" deep-link points here. See server/server.ts. */
   agentMlflowExperimentId: string | null;
   dashboardId: string;
   branding: { appName: string };

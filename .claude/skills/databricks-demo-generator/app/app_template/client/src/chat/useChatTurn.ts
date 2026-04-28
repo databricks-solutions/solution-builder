@@ -97,11 +97,24 @@ export function useChatTurn({
       if (!trimmed || streaming || !conversationId) return;
 
       const h = handlersRef.current;
+      // Build the payload BEFORE appending — `appendUser` is a setState that
+      // hasn't flushed yet, so `getMessages()` would return the stale list
+      // and the user's just-typed message would be missing from the payload
+      // (server then rejects with "Empty message"). Read prior messages,
+      // drop empty-content rows (failed prior turns leave an empty assistant
+      // bubble in state — see `appendAssistant` + `patchLast({error})`),
+      // then explicitly append the new user turn.
+      const prior = h
+        .getMessages()
+        .filter(
+          (m) =>
+            (m.role === 'user' || m.role === 'assistant') &&
+            typeof m.content === 'string' &&
+            m.content.trim().length > 0,
+        )
+        .map((m) => ({ role: m.role, content: m.content }));
+      const payload = [...prior, { role: 'user', content: trimmed }];
       h.appendUser(trimmed);
-      const payload = h.getMessages().map((m) => ({
-        role: m.role,
-        content: m.content,
-      }));
       h.appendAssistant();
 
       setStreaming(true);
@@ -176,7 +189,10 @@ export function useChatTurn({
                 thinking: thinkingEventsRef.current,
               });
             },
-            onError: (err) => h.patchLast({ content: `⚠️ ${err}` }),
+            // Surface the server-side error in the bubble's red panel
+            // (rendered by MessageBubble when `error` is set) — NOT inside
+            // `content`, which is the assistant's normal text.
+            onError: (err) => h.patchLast({ error: err }),
           },
         );
       } catch (e) {
@@ -189,7 +205,7 @@ export function useChatTurn({
             content: existing ? `${existing}\n\n_Stopped._` : '_Stopped._',
           });
         } else {
-          h.patchLast({ content: `⚠️ ${err.message}` });
+          h.patchLast({ error: err.message || String(err) });
         }
       } finally {
         abortRef.current = null;

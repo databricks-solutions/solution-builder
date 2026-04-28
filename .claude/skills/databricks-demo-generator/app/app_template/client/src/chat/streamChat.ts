@@ -1,13 +1,18 @@
 /**
  * Thin wrapper around POST /api/chat/stream that decodes the SSE taxonomy
- * and calls callbacks for each event kind. Used by both ChatView (full
- * page) and ChatDock (floating popover).
+ * and dispatches each event kind to a handler. Used by both ChatView
+ * (full page) and ChatDock (floating popover).
  *
- * Event taxonomy (matches what the server emits, see chat-stream/):
- *   response.output_text.delta   — text token
- *   response.output_item.done    — tool call / tool output / intermediate msg
- *   response.completed           — final turn event (carries trace_id)
- *   error                        — upstream error
+ * Event taxonomy (must match what the server emits — see
+ * server/chat-stream/agent-stream.ts):
+ *
+ *   response.output_text.delta              — final-answer text token
+ *   response.reasoning_summary_text.delta   — live reasoning summary token
+ *   response.reasoning_summary_text.done    — final reasoning summary text
+ *   response.output_item.done               — tool call / tool output /
+ *                                             intermediate message
+ *   response.completed                      — turn done (carries trace_id)
+ *   error                                   — server-side error string
  */
 
 export type StreamEventHandlers = {
@@ -47,29 +52,44 @@ export async function streamChat(
     }),
     signal: req.signal,
   });
-  if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
+  // On non-2xx, read the body (if any) so the user sees the real reason
+  // instead of a bare "HTTP 500". The server only returns non-2xx for
+  // request validation; runtime errors come back as `error` SSE events.
+  if (!res.ok || !res.body) {
+    const body = await res.text().catch(() => '');
+    throw new Error(
+      body ? `HTTP ${res.status}: ${body.slice(0, 500)}` : `HTTP ${res.status}`,
+    );
+  }
 
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let buf = '';
-  // eslint-disable-next-line no-constant-condition
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    buf += decoder.decode(value, { stream: true });
-    const parts = buf.split('\n\n');
-    buf = parts.pop() ?? '';
-    for (const part of parts) {
-      const line = part.split('\n').find((l) => l.startsWith('data: '));
-      if (!line) continue;
-      const data = line.slice(6).trim();
-      if (!data || data === '[DONE]') continue;
-      try {
-        dispatch(JSON.parse(data), handlers);
-      } catch {
-        /* skip non-JSON */
+  // try/finally so an abort or parse error always releases the reader's
+  // lock on the underlying connection. Otherwise the socket leaks and
+  // subsequent turns can hit `Failed to acquire lock`.
+  try {
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      const parts = buf.split('\n\n');
+      buf = parts.pop() ?? '';
+      for (const part of parts) {
+        const line = part.split('\n').find((l) => l.startsWith('data: '));
+        if (!line) continue;
+        const data = line.slice(6).trim();
+        if (!data || data === '[DONE]') continue;
+        try {
+          dispatch(JSON.parse(data), handlers);
+        } catch {
+          /* skip non-JSON event lines (heartbeats, comments) */
+        }
       }
     }
+  } finally {
+    try { reader.releaseLock(); } catch { /* already released */ }
   }
 }
 

@@ -22,14 +22,16 @@ import type { AppDb } from '../db/index.js';
 type Deps = {
   db: AppDb;
   appConfig: {
-    agentEndpointName: string;
+    /** MAS endpoint name. Template demo registers `ask_mas` against
+     * this; if your demo uses Genie, replace with `genieSpaceId` here
+     * and in refundops.ts. See server/agent/tools/{mas,genie}.ts. */
+    masEndpointName: string;
     agentModel?: string;
   };
-  formatCache: Map<string, 'agent' | 'chat_completion'>;
 };
 
 export function registerChatRoutes(app: Application, deps: Deps): void {
-  const { db, appConfig, formatCache } = deps;
+  const { db, appConfig } = deps;
 
   // --- Conversations CRUD -------------------------------------------------
   app.get('/api/conversations', async (req, res) => {
@@ -80,7 +82,6 @@ export function registerChatRoutes(app: Application, deps: Deps): void {
       res,
       db,
       config: appConfig,
-      formatCache,
     });
   });
 

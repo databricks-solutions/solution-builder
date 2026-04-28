@@ -165,15 +165,21 @@ echo "[start.sh] ports clear — starting dev server"
 # deployed mode and DATABRICKS_CONFIG_PROFILE in local mode. See AUTH.md
 # in the generator's backend. Knowing this up-front makes "why is my
 # agent unauthenticated" debugging instant.
-if [ -n "${DATABRICKS_CONFIG_FILE:-}" ]; then
+#
+# Standalone fallback: if neither var is set (running ./start.sh directly
+# for debugging, outside the Demo Prompt Generator launcher), default to
+# the DEFAULT profile in ~/.databrickscfg. This avoids the SDK's
+# host-collision error when multiple profiles share a host.
+if [ -z "${DATABRICKS_CONFIG_FILE:-}" ] && [ -z "${DATABRICKS_CONFIG_PROFILE:-}" ]; then
+  export DATABRICKS_CONFIG_PROFILE=DEFAULT
+  echo "[start.sh] auth: no DATABRICKS_CONFIG_FILE / _PROFILE injected — defaulting to DATABRICKS_CONFIG_PROFILE=DEFAULT (set one in your env to override)."
+elif [ -n "${DATABRICKS_CONFIG_FILE:-}" ]; then
   echo "[start.sh] auth: DATABRICKS_CONFIG_FILE=$DATABRICKS_CONFIG_FILE profile=${DATABRICKS_CONFIG_PROFILE:-DEFAULT}"
   if [ ! -r "$DATABRICKS_CONFIG_FILE" ]; then
     echo "[start.sh] WARNING: DATABRICKS_CONFIG_FILE is set but not readable — subprocess calls may 401."
   fi
-elif [ -n "${DATABRICKS_CONFIG_PROFILE:-}" ]; then
-  echo "[start.sh] auth: DATABRICKS_CONFIG_PROFILE=$DATABRICKS_CONFIG_PROFILE (from inherited ~/.databrickscfg)"
 else
-  echo "[start.sh] auth: no profile/file injected — relying on ambient Databricks auth env."
+  echo "[start.sh] auth: DATABRICKS_CONFIG_PROFILE=$DATABRICKS_CONFIG_PROFILE (from inherited ~/.databrickscfg)"
 fi
 
 # Dev-only: forward browser errors (ErrorBoundary, window.onerror,

@@ -84,6 +84,11 @@ Make sure you do an extensive review - no mention to the template specific use-c
 
 read `resources.json` to get the available resource ids to use (ex: mas endpoint)
 
+**`config/app.json` — `agentModel` and `agentEndpointName`:** the assistant talks to TWO things, don't conflate them.
+
+- `agentModel` — the Foundation Model endpoint backing the OpenAI Agents SDK loop (chat-completions). **Use the EXACT endpoint name from your workspace's Serving → Foundation Models page.** Default: `databricks-claude-sonnet-4-6`. Alternative: `databricks-gpt-5-4`. Never abbreviate (`databricks-claude-sonnet-4` does NOT exist → 400 from the chat-completions call). Read `SKILLS/databricks-model-serving/SKILL.md` if unsure.
+- `agentEndpointName` — only used when `mode='mas'` (raw MAS passthrough). For the agent loop it's a no-op label. If the demo has no MAS, leave it empty or set it to the Genie space description; routing happens in code.
+
 ### Step 4: Configure environment
 
 **Lakebase: use OAuth, not password.** The AppKit `lakebase()` plugin fetches and auto-refreshes 1-hour OAuth tokens (2-minute refresh buffer) and injects them into every `pg.Pool` connection. Code is just `createDb(appkit.lakebase.pool)`. Do not set `PGPASSWORD`.
@@ -243,7 +248,7 @@ done
 
 - Review `/tmp/app-smoke.log` for any errors. If the app crashed or logged fatal errors, fix them before reporting the build complete. Common issues: missing `DATABRICKS_HOST`, wrong catalog/schema, Lakebase endpoint not reachable, agent tool referencing a table column that doesn't exist yet.
 - Test the main endpoints (some get/create), make sure you test the chatbot / assistant endpoints as it's often having issue. 
-If you see errors, check the logs and fix the errors accordingly, the app should be functional once you finish
+If you see errors, check the logs and fix the errors accordingly, and restart the app until it's working. The app should be functional once you finish
 
 **Don't leave the app running.** From this point on, the **App** tab in the Demo Prompt Generator UI owns the process lifecycle — it spawns, supervises, proxies, and stops on idle / explicit Stop. A leftover smoke-test process would be untracked and could block the UI's own port. Verify with `lsof -iTCP:$PORT -sTCP:LISTEN` before reporting done.
 
@@ -256,55 +261,43 @@ Tell the user the build is complete and point them at the **App** tab to start i
 
 ### Step 6: Deploy the app (only on explicit user request)
 
-**Do NOT deploy the app by yourself.** When the user says "deploy resources" / "deploy the demo" / similar, that means everything *except* the app (pipeline, dashboard, Genie, KA, MAS, model, etc.). The app is deployed **only** when the user explicitly says something like "deploy the app" / "push the app to the workspace" / "create the Databricks App."
+**Trigger only on explicit ask** — "deploy the app" / "push the app" / "create the Databricks App". "Deploy resources" / "deploy the demo" means everything *except* the app.
 
-DO NOT OVERRIDE/DELETE another existing app. If you hit quota limits, just report to the user and save it in resource.json app.deployment_note.
-
-When they do ask, the flow is:
-
-```bash
-# 1. Create the app (once — name must be unique in the workspace)
-databricks apps create <app-name>
-
-# 2. Upload source code to a Workspace path
-databricks workspace mkdirs /Workspace/Users/<user>/apps/<app-name>
-databricks workspace import-dir . /Workspace/Users/<user>/apps/<app-name> --overwrite
-
-# 3. Deploy that source as a new app deployment
-databricks apps deploy <app-name> \
-  --source-code-path /Workspace/Users/<user>/apps/<app-name>
-
-# 4. Attach resources via the workspace UI
-#    (SQL warehouse, Lakebase, secrets — bind to the env vars referenced in app.yaml)
-
-# 5. Check status + get the URL
-databricks apps get <app-name>
-```
-
-**Redeploys** (after code changes):
+**Pick the app name from `resources.json`:**
+- If `created_resources.app.name` is set → that's our app from a previous deploy. Reuse it (this is a redeploy).
+- If not set → first-time deploy. Use `dbgen-<demo_short_name>` (e.g. `dbgen-luxebeauty`). Verify the name is free first — if `databricks apps get <app-name>` returns a result, **stop and ask the user**. It's someone else's app; never override.
 
 ```bash
-# Clean the workspace path then re-upload. `--overwrite` on import alone
-# doesn't prune removed/renamed files — delete first, re-import everything.
-# The `|| true` tolerates the first-time case where the dir doesn't exist yet.
-databricks workspace delete /Workspace/Users/<user>/apps/<app-name> --recursive 2>/dev/null || true
-databricks workspace import-dir . /Workspace/Users/<user>/apps/<app-name>
-databricks apps deploy <app-name> \
-  --source-code-path /Workspace/Users/<user>/apps/<app-name>
+APP=<resolved app-name>
+WS_PATH=/Workspace/Users/<user>/apps/$APP
+
+# Upload source code. We delete the WORKSPACE UPLOAD DIR (not the app) and
+# re-import — `--overwrite` alone doesn't prune removed/renamed files.
+# `|| true` tolerates the first-time case where the dir doesn't exist yet.
+databricks workspace delete "$WS_PATH" --recursive 2>/dev/null || true
+databricks workspace mkdirs "$WS_PATH"
+databricks workspace import-dir . "$WS_PATH"
+
+# Create the app resource if it doesn't exist yet (idempotent).
+databricks apps get "$APP" >/dev/null 2>&1 || databricks apps create "$APP"
+
+# Deploy the uploaded source.
+databricks apps deploy "$APP" --source-code-path "$WS_PATH"
+
+# Status + URL
+databricks apps get "$APP"
 ```
 
-**`app.yaml`** lives at the repo root and tells the runtime how to start. This template's `app.yaml` is Node-based (`command: ['npm', 'run', 'start']`) — don't change that unless you've also swapped the framework.
+`app.yaml` (repo root) tells the runtime how to start. The template is Node — `command: ['npm', 'run', 'start']`. Don't change unless you've swapped the framework. SQL warehouse / Lakebase / secrets are bound via the workspace UI after create (resource IDs differ per workspace; the template's `app.yaml` has the reference `env:` shape commented out).
 
-Environment variable bindings (`env:` block with `valueFrom: <resource-name>`) can be declared in `app.yaml` but are generally **attached via the UI after create** — that's cleaner for demos since resource IDs differ per workspace. The template's `app.yaml` ships with the reference shape commented out.
-
-**After deploying, record the app in `resources.json`.** Under `created_resources`, add (or update) the nested `app` object:
+**After deploying, record the app in `resources.json` `created_resources`:**
 
 ```json
 "app": {
-  "name": "<app-name>",                   // the argument you passed to `databricks apps create`
-  "id": "<id from `databricks apps get`>",// optional — the workspace-assigned app id, if needed for APIs
-  "deployment_note": "<one-liner>"        // free-form: deployed successfully / quota hit / etc.
+  "name": "<app-name>",
+  "id": "<from `databricks apps get`>",
+  "deployment_note": "<free-form: deployed OK / quota hit / etc.>"
 }
 ```
 
-The `deployment_note` is where you record any caveat — quota errors, partial deploys, "reused existing app", whatever's worth knowing on the next run. The UI's deployed-resources bar reads `app.name` to build the `/apps/<name>` link.
+The UI's deployed-resources bar reads `app.name` to build the `/apps/<name>` link. `deployment_note` is where you record caveats (quota errors, partial deploys) for next session.

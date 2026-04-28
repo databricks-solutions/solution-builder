@@ -14,12 +14,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ArrowUpRight, Factory } from 'lucide-react';
 import { Link } from 'react-router';
-import {
-  fetchFacilityLots,
-  fetchFacilitySummary,
-  type FacilityLotRow,
-  type FacilityRow,
-} from '@/lib/returns';
+import { fetchFacilityLots, fetchFacilitySummary } from '@/lib/returns';
+import type { FacilityLotRow, FacilityRow } from '@/shared/types';
 import { dataMutated } from '@/lib/events';
 
 export function FacilityPanel() {

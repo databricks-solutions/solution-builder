@@ -1,10 +1,21 @@
 {
-  "agentEndpointName": "mas-4bf872c5-endpoint",
-  "masId": "4bf872c5-6620-470d-9878-f387d167c188",
+  "_README": "App config — read by server/server.ts at boot, exposed (minus secrets) to the client via /api/config (server/routes/config.ts). JSON has no comments, so help text lives in `_*_help` keys; ignore them at runtime. Update one field at a time + restart the dev server (config is read once at boot).",
+
+  "_dataBackend_help": "The agent talks to ONE data backend. Template ships with MAS → server/agent/refundops.ts registers `ask_mas` (server/agent/tools/mas.ts). For Genie-only demos: set genieSpaceId, clear masEndpointName, swap to askGenieTool in refundops.ts AgentContext + makeTools. For demos with both: register both factories with distinct names + tell the model in instructions when to prefer each.",
+  "masEndpointName": "mas-4bf872c5-endpoint",
+  "genieSpaceId": "",
+
+  "_agentModel_help": "Foundation Model serving endpoint that powers the OpenAI Agents loop (server/agent/refundops.ts → configureAgentsSdk). Use the EXACT name from your workspace's Serving → Foundation Models page. Default: databricks-claude-sonnet-4-6. Alternative: databricks-gpt-5-4. NEVER abbreviate (e.g. databricks-claude-sonnet-4 does NOT exist → 400).",
+  "agentModel": "databricks-claude-sonnet-4-6",
+
+  "_mlflow_help": "Two MLflow IDs land in the AppHeader (client/src/shell/AppHeader.tsx). `mlflowExperimentId` is a pinned legacy id (optional). `agentMlflowExperimentPath` auto-creates the experiment at boot via lib/mlflow.ts and is what the chat 'View trace' link points at — REQUIRED, or every assistant message shows 'Trace pending…' forever. Path format: /Users/<email>/<app-name>-agent-traces (unique per app).",
   "mlflowExperimentId": "2447239766217002",
-  "agentMlflowExperimentPath": "/Users/quentin.ambard@databricks.com/mas-chat-demo-agent-traces",
-  "agentModel": "databricks-gpt-5-4",
+  "agentMlflowExperimentPath": "/Users/quentin.ambard@databricks.com/luxebeauty-operations-agent-traces",
+
+  "_dashboard_help": "AI/BI dashboard embedded as iframe on /dashboard route (client/src/dashboard/DashboardView.tsx). Set to the dashboard's UUID; remove the route + sidebar entry if your demo has none.",
   "dashboardId": "01f13cb336c11fd3a2e3f682fe0cf4ff",
+
+  "_data_help": "Delta source for the one-shot Lakebase mirror sync at boot (server/db/sync.ts). The `tables` keys are domain-specific — they match the columns of TS types in client/src/shared/types.ts and Drizzle schema in server/db/schema.ts. When swapping the data model, update all three together.",
   "data": {
     "catalog": "ai_demo_gen",
     "schema": "demo_demo_project",
@@ -17,9 +28,13 @@
       "productionLots": "bronze_production_lots"
     }
   },
+
+  "_branding_help": "App name surfaces in the dock header + page titles. White-label here, not in code.",
   "branding": {
     "appName": "LuxeBeauty Operations"
   },
+
+  "_assistantScript_help": "Scripted demo chain — the dock's 'Suggested next' chip walks this list. First step is always available; subsequent steps unlock once the previous assistant message contains any of the `triggerAfter` substrings. Picker logic lives in client/src/chat/script.ts.",
   "assistantScript": [
     {
       "prompt": "Why do I have so many returns?"

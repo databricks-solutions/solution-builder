@@ -39,12 +39,28 @@ export function ChatView() {
   const [config, setConfig] = useState<AppConfig | null>(null);
   const [me, setMe] = useState<Me | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  // "Stuck to bottom" — autoscroll on new messages, but only while the
+  // user hasn't scrolled up. Re-engages when they scroll back to the
+  // bottom. Same pattern as ChatDock + ThinkingPanel.
+  const stickToBottomRef = useRef(true);
   const pendingConsumed = useRef(false);
 
   useEffect(() => {
     fetchConfig().then(setConfig).catch(console.error);
     fetchMe().then(setMe).catch(console.error);
   }, []);
+
+  // Reset to sticky whenever we land on a new conversation route — old
+  // conversation's scroll position must NOT bleed into the new one.
+  useEffect(() => {
+    stickToBottomRef.current = true;
+  }, [conversationId]);
+
+  function onMessagesScroll(e: React.UIEvent<HTMLDivElement>) {
+    const el = e.currentTarget;
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+    stickToBottomRef.current = nearBottom;
+  }
 
   // Shared send-turn engine. Handlers bind to the global conversation store
   // so optimistic updates persist across remounts + show in the sidebar.
@@ -71,14 +87,28 @@ export function ChatView() {
         // Operations page + activity feed subscribe to `dataMutated` — kicks
         // them to refetch so the agent's writes show up immediately.
         dataMutated.emit();
-        requestAnimationFrame(() => {
-          scrollRef.current?.scrollTo({
-            top: scrollRef.current.scrollHeight,
+        // Final scroll-to-bottom only if the user hasn't scrolled away;
+        // respects the same stick rule as the streaming-update effect.
+        if (stickToBottomRef.current) {
+          requestAnimationFrame(() => {
+            scrollRef.current?.scrollTo({
+              top: scrollRef.current.scrollHeight,
+            });
           });
-        });
+        }
       },
     },
   });
+
+  // Autoscroll on new messages / streaming tokens — only when stuck.
+  useEffect(() => {
+    if (!stickToBottomRef.current) return;
+    const el = scrollRef.current;
+    if (!el) return;
+    requestAnimationFrame(() => {
+      el.scrollTop = el.scrollHeight;
+    });
+  }, [msgs, turn.streaming, loading]);
 
   // If navigated from home with a pending prompt, consume + send.
   useEffect(() => {
@@ -95,6 +125,8 @@ export function ChatView() {
 
   function onSubmit(e: FormEvent) {
     e.preventDefault();
+    // Sending always means the user wants to see the reply → re-engage stick.
+    stickToBottomRef.current = true;
     void turn.send(input);
     setInput('');
   }
@@ -121,7 +153,7 @@ export function ChatView() {
           <h2 className="font-medium text-foreground truncate">{title}</h2>
         </div>
       </div>
-      <div ref={scrollRef} className="flex-1 overflow-y-auto">
+      <div ref={scrollRef} onScroll={onMessagesScroll} className="flex-1 overflow-y-auto">
         <div className="max-w-4xl mx-auto px-8 py-6 space-y-6">
           {loading && msgs.length === 0 && (
             <div className="flex items-center justify-center py-16">
@@ -140,7 +172,10 @@ export function ChatView() {
                 </div>
               </div>
               <button
-                onClick={() => void turn.send(firstStep.prompt)}
+                onClick={() => {
+                  stickToBottomRef.current = true;
+                  void turn.send(firstStep.prompt);
+                }}
                 className="max-w-full rounded-full border border-border bg-card px-4 py-2 text-sm font-medium hover:border-foreground/30 hover:shadow-sm transition-all inline-flex items-center gap-2"
               >
                 <span className="truncate">
@@ -167,7 +202,15 @@ export function ChatView() {
                 variant="full"
                 streaming={isStreamingLast}
                 workspaceUrl={me?.workspaceUrl ?? ''}
-                experimentId={config?.mlflowExperimentId ?? null}
+                // The agent's traces land in `agentMlflowExperimentId`
+                // (auto-created at boot from `agentMlflowExperimentPath`).
+                // Fall back to the hardcoded `mlflowExperimentId` for
+                // setups that pin a legacy experiment via config.
+                experimentId={
+                  config?.agentMlflowExperimentId ??
+                  config?.mlflowExperimentId ??
+                  null
+                }
               />
             );
           })}
@@ -180,7 +223,10 @@ export function ChatView() {
               Suggested next
             </div>
             <button
-              onClick={() => void turn.send(nextStep.prompt)}
+              onClick={() => {
+                stickToBottomRef.current = true;
+                void turn.send(nextStep.prompt);
+              }}
               className="w-full text-left rounded-lg border border-border bg-card hover:border-foreground/30 hover:shadow-sm px-4 py-2.5 text-sm text-foreground transition-all flex items-center justify-between gap-2"
             >
               <span className="truncate">

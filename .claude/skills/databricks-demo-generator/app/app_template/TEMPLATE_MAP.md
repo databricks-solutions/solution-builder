@@ -9,7 +9,7 @@ This template is the **action surface** of a Databricks demo — the place where
 **Canonical demo arc** (LuxeBeauty example, but the shape is universal):
 1. User lands on Home, sees a protagonist with a problem (`$X at risk`, anomaly peaked weeks ago).
 2. User clicks a starter chip → opens the chat dock → asks the agent.
-3. Agent's `ask_data` tool hits MAS (or Genie) → investigates → identifies the bad batch.
+3. Agent's `ask_mas` (or `ask_genie`) tool hits the configured data backend → investigates → identifies the bad batch.
 4. User asks "can you fix it?" → agent drafts a batch action (emails + refunds) and **stops for approval**.
 5. User approves → agent writes to Lakebase → Operations page updates live (KPIs, status flips, timeline grows).
 6. (Optional) User inspects a single row → sees emails + audit trail in a drawer.
@@ -50,7 +50,7 @@ These fit the canonical arc (investigate → approve → act). They *usually* su
 | **`triggerAfter` keyword progression** on `assistantScript` | Linear demo script (SA clicks chips in order) | Free-form exploration demo → drop triggers, use plain prompts. |
 | **Append-only audit** (`emails[]` + `aiAuditTrail[]` JSONB on primary entity) | Demo shows "the AI did X at Y" timeline | No timeline tab, no action history needed → drop the JSONB columns. |
 | **`dataMutated` pub-sub** | Operations page should update live when the agent writes | Read-only demo, no writes to react to → harmless but dead weight. |
-| **`ask_data` → MAS** | Demo has MAS | No MAS → point `ask_data` at Genie directly; or drop the tool if no data lookup needed. |
+| **`ask_mas` (data backend)** | Demo has a MAS endpoint | Genie-only demo → swap to `askGenieTool` from `server/agent/tools/genie.ts` and use `genieSpaceId`. Both → register both factories with distinct names. No data lookup → drop the tool. |
 | **ChatDock + Home chips with script** | SA is the presenter; demo is scripted | End-user-driven demo → surface the chat on its own page, drop the dock's "next chip" mechanic. |
 
 ### Tier 3 — Always rewrite per demo (content, not infra)
@@ -58,9 +58,9 @@ These fit the canonical arc (investigate → approve → act). They *usually* su
 Every demo touches these. They're what makes your demo yours, not LuxeBeauty's.
 
 - **Persona/story/copy** — hardcoded constants at the top of `HomeView.tsx`. Replace wholesale: persona name, headline, situation, goal, starter questions, featured action.
-- **`config/app.json`** — `branding`, `assistantScript` steps, `data.tables`, `dashboardId`, `agentEndpointName`, `masId`, `mlflowExperimentId`, `agentModel`.
+- **`config/app.json`** — `branding`, `assistantScript` steps, `data.tables`, `dashboardId`, `masEndpointName` OR `genieSpaceId` (one of the two), `mlflowExperimentId`, `agentMlflowExperimentPath`, `agentModel`. Each field has a `_*_help` sibling explaining what it does + which file consumes it.
 - **Domain schema** (`server/db/schema.ts`) — the primary entity swaps (returns → tickets → accounts → whatever). If you keep Tier 2 audit columns, their shape is fixed; the surrounding columns are yours.
-- **Agent tools** (`server/agent/<name>.ts`) — the file is renamed per demo (`refundops.ts` → `supportops.ts`). Tool names and bodies swap; if you keep the 3-phase chain, the *shape* of the tools (read-only discovery tool + batch write tool + pure-function draft helper) is what's preserved.
+- **Agent tools** (`server/agent/<name>.ts`) — the file is renamed per demo (`refundops.ts` → `supportops.ts`) and the import in `chat-stream/agent-stream.ts` updated. Tool names and bodies swap; if you keep the 3-phase chain, the *shape* of the tools (read-only discovery tool + batch write tool + pure-function draft helper) is what's preserved. The data-backend tool comes from `server/agent/tools/{mas,genie}.ts` factories — pick one based on config.
 - **Domain CRUD** (`server/db/queries/<entity>.ts`, `server/routes/<entity>.ts`).
 - **Operations view** — table columns, drawer tab content, filter dimensions.
 - **Analytics SQL** in `config/queries/` — 2–4 queries aligned to the story's key numbers.
@@ -72,8 +72,9 @@ Not every demo has every Databricks capability. Drop surfaces that don't map:
 
 | If demo has no… | Do this |
 |-----------------|---------|
-| **MAS** | Point `ask_data` at Genie directly (same interface). Drop MAS-specific streaming events (`mas_narration` etc.) from ThinkingPanel. |
-| **Genie** | Agent does data work itself via SQL tool. `ask_data` becomes a thin wrapper around a warehouse query. |
+| **MAS** | Use `askGenieTool` from `server/agent/tools/genie.ts` instead of `askMasTool`. Update AgentContext field (`masEndpointName` → `genieSpaceId`) + config/app.json. Same `ToolProgressEvent` stream → no UI changes needed. |
+| **Genie** | Use `askMasTool` (the template default). |
+| **Both** | Register both factories in `makeTools` with distinct names (`ask_genie`, `ask_mas`); tell the model in agent instructions when to prefer each. |
 | **KA** | Skip the "investigate documents" phase. Arc shortens: discover via data → draft → execute. |
 | **Dashboard** | Remove `/dashboard` route + nav item + journey card. |
 | **Analytics charts** | Remove `/analytics` route; demo relies on the embedded dashboard instead. |
@@ -92,7 +93,13 @@ config/
 
 server/
   server.ts                 Boot: load config → AppKit app → migrations → syncFromDelta → MLflow init → routes
-  agent/refundops.ts    [D] Agent definition, tools, ~700-line system prompt (OpenAI Agents SDK)
+  agent/
+    refundops.ts        [D] Agent definition, tools, ~700-line system prompt (OpenAI Agents SDK).
+                            Renamed per demo (e.g. windops.ts, claimsops.ts). Update import in chat-stream/agent-stream.ts.
+    tools/
+      types.ts              Shared types for the data-backend tools (ToolProgressEvent, DataCallResult, DataToolContext)
+      mas.ts                askMasTool factory + callMasEndpoint helper — for demos with a MAS endpoint
+      genie.ts              askGenieTool factory + callGenieSpace helper — for demos with a Genie space
   db/
     schema.ts           [D] Lakebase tables (Drizzle ORM)
     sync.ts             [D] Delta → Lakebase sync queries
@@ -102,8 +109,8 @@ server/
       chat.ts               Conversation + message CRUD
       returns.ts        [D] Domain entity CRUD + bulk operations
   chat-stream/
-    agent-stream.ts         Responses API → SSE (reasoning + tool events)
-    mas-stream.ts           MAS passthrough streaming
+    agent-stream.ts         Drives the OpenAI Agents SDK loop, translates SDK events → SSE taxonomy
+    index.ts                /api/chat/stream entry point: persist user msg → sanitize history → streamAgentTurn
     sse.ts                  SSE helpers
   routes/
     chat.ts                 Conversations CRUD, streaming turns, feedback
@@ -115,7 +122,7 @@ server/
     auth.ts                 Databricks OBO auth headers
     mlflow.ts               Experiment get-or-create, feedback → assessments
     user.ts                 User identity from request headers
-    endpoint.ts             Endpoint utilities
+    endpoint.ts             fixMojibake helper (UTF-8 / Latin-1 re-decode for streaming gateway quirks)
     templates.ts        [D] Email template placeholder filling
 
 client/src/
@@ -155,18 +162,19 @@ One-shot at boot (skips if populated). Pulls via Databricks SQL Statements API �
 
 ## Agent (`server/agent/refundops.ts`)
 
-Context: `{db, userEmail, req, masEndpointName, databricksHost, model, onToolProgress?}`
+AgentContext: `{db, userEmail, req, masEndpointName, databricksHost, model, onToolProgress?, modelError?}`. For Genie demos, replace `masEndpointName` with `genieSpaceId`.
 
 | Tool | Input → Output | Effect |
 |------|---------------|--------|
-| `ask_data` | `{question}` → `{answer, trace_id}` | Calls MAS endpoint, streams sub-agent activity via onToolProgress → ThinkingPanel |
+| `ask_mas` | `{question}` → `{answer, trace_id}` | Streams MAS supervisor + sub-agents via onToolProgress → ThinkingPanel. From `tools/mas.ts`. |
+| `ask_genie` | `{question}` → `{answer, trace_id}` | Polls Genie REST conversation API; streams reasoning traces (April 2026 release) as narration. From `tools/genie.ts`. Pick this OR `ask_mas`, not both (unless you want both registered). |
 | `find_returns_for_lot` | `{lot}` → pending returns list | Read-only Lakebase query |
 | `create_coupon` | `{percent_off, reason}` → `{code, ...}` | Pure function, no DB write |
 | `process_return_batch` | `{lot, coupon_code, email_subject_template, email_body_template}` → `{email_count, approved_count, total_refund_usd}` | **WRITE**: renders templates per customer (`{firstname}`, `{lastname}`, `{product_name}`, `{coupon_code}`), appends emails + audit, flips to approved |
 
-SDK setup: OpenAI client → `${host}/serving-endpoints`, Responses API for reasoning summaries, custom fetch (Connection: close, strips long IDs >64 chars), MLflow tracing (not OpenAI).
+SDK setup: OpenAI client → `${host}/serving-endpoints`, Responses API for reasoning summaries, custom fetch (Connection: close, strips long IDs >64 chars + `annotations` arrays from assistant content for Bedrock-Anthropic compat), MLflow tracing (not OpenAI). On any non-2xx, the shim writes the response body into `ctx.modelError` so the catch block in agent-stream.ts can surface a real error message instead of "400 status code (no body)".
 
-Instructions: MODE A (investigation — single `ask_data` call) or MODE B (action — 3-phase: discover → draft+confirm → execute after approval).
+Instructions: MODE A (investigation — single `ask_mas`/`ask_genie` call) or MODE B (action — 3-phase: discover → draft+confirm → execute after approval).
 
 ## Routes
 
@@ -204,16 +212,22 @@ Persistent per-user conversation (`kind='demo_dock'`). Script progression from `
 
 ## config/app.json structure
 
+Every field has a `_*_help` sibling key in `app.json` that explains the field + names the file that consumes it. Open the file directly for inline docs; this section is the structural overview.
+
 ```json
 {
-  "agentEndpointName": "...", "masId": "...",
-  "mlflowExperimentId": "...", "agentMlflowExperimentPath": "...", "agentModel": "...",
-  "dashboardId": "...",
-  "data": { "catalog": "...", "schema": "...", "tables": { "returns": "silver_returns", "orders": "bronze_orders", ... } },
-  "branding": { "appName": "..." },
-  "assistantScript": [ { "prompt": "..." }, { "prompt": "...", "triggerAfter": ["keyword"] } ]
+  "_README": "...",
+  "_dataBackend_help": "...", "masEndpointName": "...", "genieSpaceId": "",
+  "_agentModel_help": "...", "agentModel": "databricks-claude-sonnet-4-6",
+  "_mlflow_help": "...", "mlflowExperimentId": "...", "agentMlflowExperimentPath": "/Users/<email>/<app>-agent-traces",
+  "_dashboard_help": "...", "dashboardId": "...",
+  "_data_help": "...", "data": { "catalog": "...", "schema": "...", "tables": { ... } },
+  "_branding_help": "...", "branding": { "appName": "..." },
+  "_assistantScript_help": "...", "assistantScript": [ { "prompt": "..." }, { "prompt": "...", "triggerAfter": ["keyword"] } ]
 }
 ```
+
+Set ONE of `masEndpointName` / `genieSpaceId` per demo (the other should be empty string). The `_help` keys are ignored at runtime — they're for the LLM customizing this template.
 
 Narrative copy (hero persona, headline, situation, goal, starter questions, featured-action CTA) lives **hardcoded at the top of `client/src/home/HomeView.tsx`** as constants — rewrite those for your demo. Only `assistantScript` + `branding` need to stay in config (script is reused by the chat dock, branding by the shell).
 
@@ -246,7 +260,7 @@ Uses `@openai/agents` SDK. Flow:
 6. Each event → `sseWrite(res, event)` to client
 7. On completion: emit `response.completed` with trace_id, persist thinking[] to message
 
-MAS events bubble up differently: `ask_data` tool's `onToolProgress` callback emits `ToolProgressEvent` (`mas_narration` | `mas_tool_call{callId, subAgent, query}` | `mas_tool_output{callId, subAgent, snippet}`) → these are also SSE-written and pushed to thinking[].
+Data-backend events bubble up via `ctx.onToolProgress`: the data-backend tools (`ask_mas` from `tools/mas.ts`, `ask_genie` from `tools/genie.ts`) emit `ToolProgressEvent` (`mas_narration` | `mas_tool_call{callId, subAgent, query}` | `mas_tool_output{callId, subAgent, snippet}`) — these are SSE-written and pushed to thinking[]. Naming is `mas_*` for historical reasons; both tools use the same shape so the UI is backend-agnostic.
 
 ## Thinking event flow (end-to-end)
 
@@ -302,5 +316,5 @@ Components use `var(--token)` via Tailwind arbitrary values (`bg-[var(--success-
 3. **3-phase action chain**: Discover → Draft+confirm (STOP) → Execute. Mandatory approval stop = demo trust moment.
 4. **Narrative split**: script steps + branding live in `config/app.json` (reused by dock/shell); home-page copy (persona, headline, situation, goal, starter questions, featured action) is hardcoded at the top of `HomeView.tsx` as constants — treat the template content as a reference to replace per demo.
 5. **Bulk update**: Single `UPDATE FROM VALUES` for N rows. Templates rendered server-side per customer.
-6. **MAS as tool**: `ask_data` → MAS endpoint. Sub-agent activity streams to ThinkingPanel via onToolProgress → SSE.
+6. **Data backend as a tool**: `ask_mas` (or `ask_genie`) is registered via factories in `server/agent/tools/{mas,genie}.ts`. Sub-agent / reasoning activity streams to ThinkingPanel via `onToolProgress` → SSE. Same `ToolProgressEvent` shape for both, so the UI doesn't care which backend powers it.
 7. **MLflow tracing**: Per-turn spans, tool child spans, trace ID on message → "View trace" link. Thumbs → human assessments.

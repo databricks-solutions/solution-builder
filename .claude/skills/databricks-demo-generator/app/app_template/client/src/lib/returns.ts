@@ -1,9 +1,14 @@
 /**
- * Fetch helpers for everything returns-related.
- * Types come from shared/types.ts (single source of truth).
+ * REST helpers for the operations domain (returns / lots / facilities /
+ * customers / activity feed).
+ *
+ * REPURPOSING THE TEMPLATE: when you swap data models, rename this file
+ * to match your domain (e.g. `lib/turbines.ts`, `lib/claims.ts`) and
+ * update the imports that reference it. The TYPES live in
+ * `shared/types.ts` — change those there, not here. This file should
+ * only contain `fetch` calls.
  */
 import type {
-  ActivityEvent,
   CustomerOrder,
   Decision,
   FacilityLotRow,
@@ -13,23 +18,8 @@ import type {
   ReturnRow,
   ReturnStatus,
   ReturnsSummary,
-} from '@/shared/types';
-
-// Re-export so existing imports of `@/lib/returns` keep working during the
-// refactor. New code should prefer importing from '@/shared/types' directly.
-export type {
   ActivityEvent,
-  CustomerOrder,
-  Decision,
-  FacilityLotRow,
-  FacilityRow,
-  LotRow,
-  ReturnDetail,
-  ReturnRow,
-  ReturnStatus,
-  ReturnsSummary,
 } from '@/shared/types';
-export type { EmailEntry, AuditEntry } from '@/shared/types';
 
 export async function fetchReturns(
   filters: { status?: ReturnStatus; lot?: string } = {},

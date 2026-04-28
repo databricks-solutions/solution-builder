@@ -214,8 +214,18 @@ function ThinkingEventRow({ event }: { event: MergedEvent }) {
       className="border-l-2 pl-3 space-y-1"
       style={{ borderColor: 'var(--accent)' }}
     >
-      <div className="flex items-baseline gap-1">
+      <div className="flex items-baseline gap-1.5">
         <span className="font-semibold text-foreground">🔧 {event.name}</span>
+        {event.output === undefined && (
+          // In-flight: matched tool_output hasn't arrived yet. The
+          // dispatcher fires tool_call immediately, then the long-running
+          // tool (MAS stream, Genie poll, DB query) eventually fires
+          // tool_output — so this spinner ticks while the call runs.
+          <span
+            aria-label="running"
+            className="inline-block h-3 w-3 rounded-full border-2 border-muted-foreground/40 border-t-foreground animate-spin"
+          />
+        )}
       </div>
       {event.args && (
         <div className="font-mono whitespace-pre-wrap break-words text-muted-foreground">

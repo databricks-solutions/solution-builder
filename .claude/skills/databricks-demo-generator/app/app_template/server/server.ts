@@ -15,10 +15,31 @@
  *      `mlflow.init(...)` so `@openai/agents` runs are recorded automatically.
  *   6. Register the Express routes (config, chat, domain CRUD, admin).
  *
- * Repurposing this template: you mostly change `config/app.json`, the
- * Delta-mirror tables referenced in `db/sync.ts`, the schema in
- * `db/schema.ts`, and the agent in `server/agent/<yourAgent>.ts`. The rest
- * of the wiring here is the same regardless of use case.
+ * ─────────────────────────────────────────────────────────────────────
+ * REPURPOSING THIS TEMPLATE
+ * ─────────────────────────────────────────────────────────────────────
+ * The structural wiring (boot order, plugin set, route registration) is
+ * use-case agnostic — leave it alone. Customization happens here:
+ *
+ *   • `config/app.json`              — branding, agent endpoint name OR
+ *                                       Genie space ID, MLflow experiment
+ *                                       path, dashboard id, Delta source
+ *                                       tables, scripted demo prompts.
+ *   • `db/schema.ts`                 — Lakebase OLTP tables (the writable
+ *                                       mirror the agent + UI both use).
+ *   • `db/sync.ts`                   — one-shot copy from Delta → Lakebase
+ *                                       at boot. Update the table list.
+ *   • `db/queries/returns.ts`        — domain queries; rename + rewrite.
+ *   • `agent/refundops.ts`           — the agent itself. Rename the file
+ *                                       to match your domain, update the
+ *                                       import below, and rewrite tools +
+ *                                       instructions.
+ *   • `routes/returns.ts`            — REST endpoints for the queue. Add
+ *                                       new routes for your domain.
+ *
+ * Cross-file: `client/src/shared/types.ts` is the single source of truth
+ * for the domain types and is the FIRST thing to update when swapping
+ * the data model.
  */
 import { installLogger } from './lib/logger.js';
 installLogger();
@@ -52,9 +73,37 @@ import { registerDevLogRoutes } from './routes/dev-log.js';
 // ============================================================================
 
 type AppConfig = {
-  agentEndpointName: string;
-  masId?: string;
+  /** MAS serving-endpoint name. Set this OR `genieSpaceId` (one of the
+   * two) — the agent registers `ask_mas` if this is set, `ask_genie`
+   * otherwise. See server/agent/tools/{mas,genie}.ts. */
+  masEndpointName?: string;
+  /** Genie space ID (32-char hex). Set this OR `masEndpointName`.
+   * The two are mutually-exclusive in the default template — if your
+   * demo really needs both, edit makeTools() to register both factories. */
+  genieSpaceId?: string;
+  /** Pinned MLflow experiment id, used by AppHeader's "Experiment" link.
+   * Optional — most demos rely on `agentMlflowExperimentPath` below to
+   * auto-create a per-app experiment instead of pinning a legacy one. */
   mlflowExperimentId?: string;
+  /** Workspace path where the agent's traces will be recorded. Auto-
+   * created at server boot if it doesn't exist; the resulting experiment
+   * id is published as `agentMlflowExperimentId` on /api/config and is
+   * what the chat "View trace" deep-link points at.
+   *
+   * IMPORTANT: leave this set in `config/app.json`. If empty, traces have
+   * nowhere to land and the chat shows "Trace pending…" forever — which
+   * is also why the previous version of this template had a real value
+   * baked in. The path should be unique per app (we use the app name)
+   * so multiple demos in the same workspace don't share an experiment.
+   *
+   * Format: `/Users/<email>/<app-name>-agent-traces`
+   * Example: `/Users/me@databricks.com/luxebeauty-operations-agent-traces`
+   *
+   * The path is created via the MLflow REST API (POST /api/2.0/mlflow/
+   * experiments/create); the running app's principal must have CAN_EDIT
+   * on the parent folder. In Databricks Apps the service principal owns
+   * its own /Users/<sp> folder, so the standard pattern works in prod
+   * too. See `lib/mlflow.ts` for the bootstrap. */
   agentMlflowExperimentPath?: string;
   agentModel?: string;
   dashboardId: string;
@@ -84,9 +133,6 @@ const appConfig = JSON.parse(
     'utf8',
   ),
 ) as AppConfig;
-
-// Per-process cache: which payload shape each MAS endpoint expects.
-const endpointFormatCache = new Map<string, 'agent' | 'chat_completion'>();
 
 // Populated by ensureMlflowExperiment() below; read by /api/config.
 let agentExperimentId: string | null = null;
@@ -163,13 +209,20 @@ appkit.server.extend((app) => {
     appConfig,
     getAgentExperimentId: () => agentExperimentId,
   });
+  // The template demo registers `ask_mas`. If your demo uses Genie
+  // instead, swap masEndpointName here for genieSpaceId and update
+  // refundops.ts AgentContext + makeTools() accordingly.
+  if (!appConfig.masEndpointName) {
+    console.warn(
+      '[boot] config.masEndpointName is empty — the agent won\'t have an ask_mas tool. Set it in config/app.json, or wire ask_genie if your demo uses Genie.',
+    );
+  }
   registerChatRoutes(app, {
     db,
     appConfig: {
-      agentEndpointName: appConfig.agentEndpointName,
+      masEndpointName: appConfig.masEndpointName ?? '',
       agentModel: appConfig.agentModel,
     },
-    formatCache: endpointFormatCache,
   });
   registerReturnsRoutes(app, { db });
   registerActivityRoutes(app, { db });
@@ -212,15 +265,30 @@ console.log(`[boot +${ms()}] Server listening — background init in progress…
 // but defer mlflow.init() until after sync — otherwise the SDK instruments
 // sync queries that have no parent span and produces noisy warnings.
 const mlflowIdPromise = (async () => {
-  if (!appConfig.agentMlflowExperimentPath) return null;
+  if (!appConfig.agentMlflowExperimentPath) {
+    // Loud warning so this never silently breaks the "View trace" link in
+    // the chat (the symptom is "Trace pending…" forever — see FeedbackRow).
+    // Set `agentMlflowExperimentPath` in config/app.json. See the field
+    // doc on AppConfig above for the recommended format.
+    console.warn(
+      '[boot] config.agentMlflowExperimentPath is empty — agent traces will NOT be recorded and the chat "View trace" link will show "Trace pending…". Set a path like "/Users/<your-email>/<app-name>-agent-traces" in config/app.json.',
+    );
+    return null;
+  }
   const host = (process.env.DATABRICKS_HOST ?? '').replace(/\/$/, '');
-  if (!host) return null;
+  if (!host) {
+    console.warn('[boot] DATABRICKS_HOST not set — skipping MLflow experiment bootstrap.');
+    return null;
+  }
   try {
     const id = await ensureMlflowExperiment(host, appConfig.agentMlflowExperimentPath);
-    console.log(`[boot +${ms()}] MLflow experiment resolved (id=${id})`);
+    console.log(`[boot +${ms()}] MLflow experiment resolved (id=${id}) — traces will land at ${appConfig.agentMlflowExperimentPath}`);
     return id;
   } catch (e) {
-    console.warn('[boot] MLflow experiment failed — "Agent traces" link will be hidden:', (e as Error).message);
+    console.warn(
+      `[boot] MLflow experiment bootstrap failed for ${appConfig.agentMlflowExperimentPath} — "View trace" link will show "Trace pending…":`,
+      (e as Error).message,
+    );
     return null;
   }
 })();

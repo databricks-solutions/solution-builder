@@ -49,6 +49,16 @@ export function FeedbackRow({
   const [error, setError] = useState<string | null>(null);
   const [downOpen, setDownOpen] = useState(false);
 
+  // The "View trace" deep-link needs THREE pieces, all from /api/config:
+  //   • traceId      — set on the assistant message after `response.completed`
+  //   • experimentId — `agentMlflowExperimentId` (auto-created at server boot
+  //                    from `agentMlflowExperimentPath`); falls back to the
+  //                    pinned legacy `mlflowExperimentId` if used.
+  //   • workspaceUrl — `Me.workspaceUrl` (window.location of the workspace)
+  // If any are missing the link is hidden and we render "Trace pending…".
+  // The most common cause of a stuck "Trace pending…" is `experimentId`
+  // being null — set `agentMlflowExperimentPath` in config/app.json so the
+  // server can auto-create the experiment. See server.ts AppConfig docs.
   const traceUrl =
     traceId && experimentId && workspaceUrl
       ? `${workspaceUrl.replace(/\/$/, '')}/ml/experiments/${experimentId}/traces?selectedEvaluationId=${traceId}`

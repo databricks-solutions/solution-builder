@@ -14,23 +14,47 @@ import { sseError, sseWrite } from './sse.js';
 type Msg = { role: string; content: string };
 
 /**
- * Drive the OpenAI Agents SDK loop (Responses API) and emit SSE events.
+ * Drive the OpenAI Agents SDK loop and emit SSE events.
  *
- * We tap the raw Responses API stream so we can distinguish reasoning
- * deltas from final-answer deltas:
+ * The agent runs against Databricks' Foundation Model serving via the
+ * OpenAI-compatible interface (configured in refundops.ts → configureAgentsSdk).
  *
- *   - response.reasoning_summary_text.delta  → reasoning tokens (Thinking panel, live)
- *   - response.output_text.delta             → final-answer tokens (main bubble, live)
- *   - tool_called / tool_output              → SDK-level tool activity (Thinking panel)
+ * We tap THREE event sources from the SDK and translate them to our SSE
+ * taxonomy:
  *
- * The persisted `thinking` trail captures the reasoning summaries + tool calls
- * so the "▸ Reasoning" toggle on old messages shows what the agent did.
+ *   1. SDK-normalized text deltas (`output_text_delta`)
+ *      → SSE `response.output_text.delta`
+ *      Works for BOTH Responses-API and Chat-Completions models. This is
+ *      our primary path; we don't read the duplicate `model`-wrapper event.
+ *
+ *   2. Responses-API reasoning summaries (Sonnet/GPT5/etc. with reasoning)
+ *      → SSE `response.reasoning_summary_text.{delta,done}`
+ *      Only fires when the model is configured with reasoning. Chat-
+ *      completions models simply don't emit these.
+ *
+ *   3. SDK-level tool events (`tool_called`, `tool_output`)
+ *      → SSE `response.output_item.done` (function_call / function_call_output)
+ *      Plus our own `ctx.onToolProgress` for sub-agent activity bubbled up
+ *      from inside `ask_data` (MAS sub-agents, Genie reasoning traces).
+ *
+ * The persisted `thinking` trail mirrors the SSE events so reload shows
+ * "▸ Reasoning · N tools" with the same content the user saw live.
+ *
+ * Error handling:
+ *   - The OpenAI SDK strips response bodies before throwing, so we install
+ *     a fetch shim in refundops.ts that captures the body to ctx.modelError.
+ *     The catch block below prefers that detail over the SDK's stripped
+ *     "400 status code (no body)" — what reaches the user is actionable.
+ *   - Whatever we put into the SSE `error` event is what the chat bubble
+ *     renders in its red panel (see useChatTurn → onError → patchLast).
  */
 export async function streamAgentTurn(args: {
   db: AppDb;
   req: Request;
   res: Response;
   userEmail: string;
+  /** MAS endpoint name. Replace with `genieSpaceId` if your demo uses
+   * Genie — see refundops.ts AgentContext for the matching change. */
   masEndpointName: string;
   databricksHost: string;
   model: string;
@@ -60,6 +84,15 @@ export async function streamAgentTurn(args: {
   });
   traceId = rootSpan.traceId ?? null;
 
+  // Captured by the OpenAI fetch shim in refundops.ts on any non-2xx
+  // response. The SDK throws a generic "400 status code (no body)" because
+  // it consumes the body for retry decisions; we read the body in the shim
+  // and stash the parsed error_code/message here so the outer catch can
+  // build a useful UI message instead of the cryptic SDK one.
+  const modelError: { current: import('../agent/refundops.js').ModelErrorDetail | null } = {
+    current: null,
+  };
+
   try {
     const ctx: AgentContext = {
       db: args.db,
@@ -68,6 +101,7 @@ export async function streamAgentTurn(args: {
       masEndpointName: args.masEndpointName,
       databricksHost: args.databricksHost,
       model: args.model,
+      modelError,
       // Forward sub-agent activity from the MAS tool (ask_data) live into
       // the outer Thinking panel. Each event is both persisted into
       // `thinking` (so it's in the saved reasoning trail) and streamed to
@@ -162,14 +196,19 @@ export async function streamAgentTurn(args: {
 
     for await (const ev of stream) {
       // ── Raw model events ────────────────────────────────────────────────
-      // The Agents SDK wraps OpenAI Responses events in two shapes:
-      //   { type: 'output_text_delta', delta: '...' }        (SDK-normalized)
-      //   { type: 'model', event: { type: 'response.<x>', ... } }
-      // For `response.output_text.delta` the SDK emits BOTH back-to-back;
-      // we want to process the underlying event exactly once. Unwrap the
-      // `model` variant and ignore the normalized `output_text_delta`
-      // duplicate — that way reasoning + text deltas all flow through the
-      // same switch.
+      // The Agents SDK emits multiple event shapes depending on the
+      // underlying API (Responses vs Chat Completions) and the model:
+      //   1. { data: { type: 'output_text_delta', delta: '...' } }
+      //      SDK-normalized text delta — ALWAYS available, regardless of
+      //      whether setOpenAIAPI is 'responses' or 'chat_completions'.
+      //      This is our canonical path for streaming the final answer.
+      //   2. { data: { type: 'model', event: { type: 'response.*', ... } } }
+      //      Responses-API raw events — carry reasoning summaries + the
+      //      duplicate of the text delta. We unwrap to read reasoning,
+      //      and DROP the text duplicate (#1 already handled it).
+      // The reasoning fields only exist on the Responses API; chat-
+      // completions models simply don't emit them, and the switch falls
+      // through harmlessly.
       if (ev.type === 'raw_model_stream_event') {
         const data = ev.data as {
           type?: string;
@@ -177,7 +216,23 @@ export async function streamAgentTurn(args: {
           text?: string;
           event?: { type?: string; delta?: string; text?: string };
         };
-        if (data.type === 'output_text_delta') continue; // handled via `model`
+
+        // SDK-normalized text delta — fires on every token for both APIs.
+        if (data.type === 'output_text_delta' && typeof data.delta === 'string' && data.delta.length > 0) {
+          const delta = fixMojibake(data.delta);
+          if (!sawFinalDelta) {
+            sawFinalDelta = true;
+            console.log(
+              `[agent-stream] first final-answer delta at +${Date.now() - runStartMs}ms`,
+            );
+          }
+          finalText += delta;
+          sseWrite(res, { type: 'response.output_text.delta', delta });
+          continue;
+        }
+
+        // `model`-wrapped Responses-API events — read reasoning fields,
+        // drop the duplicate output_text.delta (handled above).
         const inner = data.type === 'model' ? data.event ?? data : data;
         const t = inner.type;
 
@@ -198,17 +253,9 @@ export async function streamAgentTurn(args: {
             type: 'response.reasoning_summary_text.done',
             text,
           });
-        } else if (t === 'response.output_text.delta' && inner.delta) {
-          const delta = fixMojibake(inner.delta);
-          if (!sawFinalDelta) {
-            sawFinalDelta = true;
-            console.log(
-              `[agent-stream] first final-answer delta at +${Date.now() - runStartMs}ms`,
-            );
-          }
-          finalText += delta;
-          sseWrite(res, { type: 'response.output_text.delta', delta });
         }
+        // response.output_text.delta is intentionally NOT handled here —
+        // the SDK-normalized output_text_delta above already streamed it.
         continue;
       }
 
@@ -321,7 +368,19 @@ export async function streamAgentTurn(args: {
       elapsed_ms: runStartMs ? Date.now() - runStartMs : null,
     };
     console.error('[agent-stream] ERROR', JSON.stringify(dump, null, 2));
-    caughtError = err.message || 'Unknown error';
+
+    // Prefer the model-server's actual error message (captured by the fetch
+    // shim) over the SDK's stripped "400 status code (no body)". This is
+    // what the user sees in the chat error bubble — make it actionable.
+    const detail = modelError.current;
+    if (detail) {
+      const friendly = detail.message
+        ? `${detail.code ?? `HTTP ${detail.status}`}: ${detail.message}`
+        : `HTTP ${detail.status} from ${detail.url}: ${detail.bodyText.slice(0, 500)}`;
+      caughtError = friendly;
+    } else {
+      caughtError = err.message || 'Unknown error';
+    }
     sseError(res, caughtError);
   }
 

@@ -28,7 +28,8 @@ import {
   Zap,
 } from 'lucide-react';
 import { fetchConfig, type AppConfig, type ScriptStep } from '@/lib/api';
-import { fetchActivity, type ActivityEvent } from '@/lib/returns';
+import { fetchActivity } from '@/lib/returns';
+import type { ActivityEvent } from '@/shared/types';
 import { dataMutated } from '@/lib/events';
 import { dockController } from '@/chat/dockController';
 

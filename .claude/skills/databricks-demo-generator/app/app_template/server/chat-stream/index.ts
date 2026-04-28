@@ -6,36 +6,40 @@ import {
 } from '../db/queries/index.js';
 import { getCurrentUserEmail } from '../lib/user.js';
 import { streamAgentTurn } from './agent-stream.js';
-import { streamMasTurn } from './mas-stream.js';
 import type { ThinkingEntry } from '../db/schema.js';
 import { sseError } from './sse.js';
 
 type ChatConfig = {
-  agentEndpointName: string;
+  /** MAS endpoint name. Passed through to `streamAgentTurn` and from
+   * there into the AgentContext used by refundops.ts. Replace with
+   * `genieSpaceId` if your demo uses Genie. */
+  masEndpointName: string;
   agentModel?: string;
 };
 
 /**
- * Dispatches a /api/chat/stream request to the right backend:
- *   - mode='agent' (default) → OpenAI Agents SDK loop with tools
- *   - mode='mas'              → raw passthrough to the MAS serving endpoint
+ * /api/chat/stream entry point.
  *
- * In both paths we:
- *   1) persist the user's message at the top (so it survives partial failures)
- *   2) stream SSE events to the response
- *   3) persist the final assistant message when the stream ends
+ * Drives the OpenAI Agents SDK loop in agent-stream.ts. The agent's
+ * `ask_data` tool is what reaches the configured Databricks data backend
+ * (MAS endpoint OR Genie space — see refundops.ts dispatcher).
  *
- * The SSE event shape is identical across both paths so the browser only has
- * to parse one taxonomy. See agent-stream.ts and mas-stream.ts.
+ * Robustness:
+ *   1. Persist the user message FIRST so a crash mid-stream still leaves
+ *      the user's text on a page reload.
+ *   2. Sanitize history: drop empty content rows + non-user/assistant
+ *      roles. The Responses API rejects empty `output_text` items with
+ *      a misleading 502.
+ *   3. After the stream ends (success OR error) persist an assistant
+ *      row with finalText / errorText so reload shows what happened.
  */
 export async function handleChatStream(args: {
   req: Request;
   res: Response;
   db: AppDb;
   config: ChatConfig;
-  formatCache: Map<string, 'agent' | 'chat_completion'>;
 }): Promise<void> {
-  const { req, res, db, config, formatCache } = args;
+  const { req, res, db, config } = args;
 
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
@@ -44,10 +48,6 @@ export async function handleChatStream(args: {
 
   const userEmail = getCurrentUserEmail(req);
   const conversationId = (req.body?.conversationId as string) ?? null;
-  const mode =
-    (req.body?.mode as 'agent' | 'mas' | undefined) ??
-    (req.query.mode as 'agent' | 'mas' | undefined) ??
-    'agent';
   const messages = (req.body?.messages ?? []) as Array<{
     role: string;
     content: string;
@@ -107,40 +107,25 @@ export async function handleChatStream(args: {
     return;
   }
 
-  let finalText: string | null = null;
-  let traceId: string | null = null;
-  let thinking: ThinkingEntry[] = [];
-  let errorText: string | null = null;
-
-  if (mode === 'agent') {
-    const out = await streamAgentTurn({
-      db,
-      req,
-      res,
-      userEmail,
-      masEndpointName: config.agentEndpointName,
-      databricksHost: host,
-      model: config.agentModel ?? 'databricks-gpt-5-4',
-      messages: cleanMessages,
-    });
-    finalText = out.finalText;
-    traceId = out.traceId;
-    thinking = out.thinking;
-    errorText = out.error;
-  } else {
-    const out = await streamMasTurn({
-      req,
-      res,
-      host,
-      endpoint: config.agentEndpointName,
-      messages: cleanMessages,
-      formatCache,
-    });
-    finalText = out.finalText;
-    traceId = out.traceId;
-    thinking = out.thinking;
-    errorText = out.error;
-  }
+  const out = await streamAgentTurn({
+    db,
+    req,
+    res,
+    userEmail,
+    masEndpointName: config.masEndpointName,
+    databricksHost: host,
+    // Foundation Model endpoint name. Use the EXACT name as listed under
+    // Serving → Foundation Models in your workspace. Default is
+    // `databricks-claude-sonnet-4-6`; `databricks-gpt-5-4` is a fine
+    // alternative. Never abbreviate (`databricks-claude-sonnet-4` does NOT
+    // exist and produces a 400 from the chat-completions call below).
+    model: config.agentModel ?? 'databricks-claude-sonnet-4-6',
+    messages: cleanMessages,
+  });
+  const finalText: string | null = out.finalText;
+  const traceId: string | null = out.traceId;
+  const thinking: ThinkingEntry[] = out.thinking;
+  const errorText: string | null = out.error;
 
   res.write('data: [DONE]\n\n');
   res.end();

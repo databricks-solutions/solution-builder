@@ -20,9 +20,27 @@
  * assistant with a scripted prompt prefilled. Great for showing how the
  * assistant and the queue are two sides of the same data.
  *
- * Change the use case: swap `server/db/sync.ts`, rename `returns` → your
- * primary entity, update the tabs inside `ReturnDrawer`. The structural
- * pattern (KPIs + filterable table + detail drawer with timeline) holds.
+ * ─────────────────────────────────────────────────────────────────────
+ * REPURPOSING (when changing the data model)
+ * ─────────────────────────────────────────────────────────────────────
+ * The structural pattern (KPIs + filterable table + detail drawer with
+ * timeline) holds for almost any work-queue use case. To swap entities:
+ *
+ *   1. Update `client/src/shared/types.ts` (the canonical schema —
+ *      every page reads from there).
+ *   2. Replace `server/db/queries/returns.ts` with queries for the new
+ *      entity. Keep the file name aligned with the domain.
+ *   3. Rename / rewrite `client/src/lib/returns.ts` (the fetch helpers
+ *      that hit /api/returns, /api/lots, etc.).
+ *   4. Rename `routes/returns.ts` and update the `/api/...` paths if
+ *      you want them to match the new domain (optional — paths are not
+ *      semantic, but it's nicer when they read right).
+ *   5. Replace the three drawer tabs (Return / Customer / Activity) in
+ *      `tabs/` with whatever your entity's detail view needs.
+ *   6. If the demo doesn't have a "queue" use case at all, delete this
+ *      page from `App.tsx` routing + remove the sidebar entry.
+ *
+ * If your use case has NO queue/work-list, delete this whole folder.
  */
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router';

@@ -11,7 +11,6 @@ import { getCurrentUserInfo } from '../lib/user.js';
 // parse + validation step.
 type Deps = {
   appConfig: {
-    agentEndpointName: string;
     mlflowExperimentId?: string;
     dashboardId: string;
     branding: { appName: string };
@@ -25,11 +24,13 @@ type Deps = {
 };
 
 export function registerConfigRoutes(app: Application, deps: Deps): void {
-  // GET /api/config — branding, agent endpoint, dashboard id, script chain.
+  // GET /api/config — branding, dashboard id, MLflow links, script chain.
+  // The data-backend endpoint (MAS / Genie) lives server-side ONLY; the
+  // client never needs to know the name. Don't expose secrets/connection
+  // strings on this endpoint.
   app.get('/api/config', (_req, res) => {
     const { appConfig, getAgentExperimentId } = deps;
     res.json({
-      agentEndpointName: appConfig.agentEndpointName,
       mlflowExperimentId: appConfig.mlflowExperimentId ?? null,
       agentMlflowExperimentId: getAgentExperimentId(),
       dashboardId: appConfig.dashboardId,

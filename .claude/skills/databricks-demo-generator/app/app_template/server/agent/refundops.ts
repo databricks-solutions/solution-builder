@@ -24,8 +24,15 @@
  *   - Keep `configureAgentsSdk()` as-is — it handles the Databricks
  *     Responses API wiring, the `Connection: close` workaround for stale
  *     sockets, and the 64-char `input[*].id` strip (see comments below).
- *   - Keep `callMasAsTool()` as a reusable pattern for MAS passthrough +
- *     live progress forwarding via `AgentContext.onToolProgress`.
+ *   - The data-backend tool (`ask_mas` here) is registered via the
+ *     reusable factories in `agent/tools/{mas,genie}.ts`. Pick the one
+ *     that matches your demo:
+ *       • MAS only      → use `askMasTool(ctx, ctx.masEndpointName)`
+ *       • Genie only    → use `askGenieTool(ctx, ctx.genieSpaceId)`
+ *                          (and rename the AgentContext field accordingly)
+ *       • Both          → register both factories with distinct names,
+ *                          and tell the model in instructions when to
+ *                          prefer each.
  *
  * Name: the file is called `refundops` because this use case is refund
  * operations. Rename to match your own agent (e.g. `claimsops`,
@@ -50,201 +57,48 @@ import {
   listReturns,
   processReturnBatchForLot,
 } from '../db/queries/index.js';
+// Data-backend tool factories. The template demo uses MAS, but if your
+// demo has only a Genie space, swap `askMasTool` → `askGenieTool` and
+// update the AgentContext field below (masEndpointName → genieSpaceId).
+// If your demo has BOTH, register both tools and tell the model in the
+// agent instructions when to prefer each.
+import { askMasTool } from './tools/mas.js';
+export type { ToolProgressEvent } from './tools/types.js';
 
-/**
- * Build an agent scoped to one request. Tools capture `db` + `userEmail` via
- * closure so the agent's tool calls run with the viewer's identity.
- *
- * The OpenAI client is pointed at Databricks serving endpoints. Auth is
- * minted fresh per call via the SDK auth chain (authHeaders), so there's
- * no hardcoded token and tokens don't go stale.
- */
-/**
- * Progress events bubbled up from the MAS streaming tool to the outer UI.
- * The dispatcher on the outer server reads these and emits SSE events that
- * land in the floating Thinking panel as live updates.
- */
-export type ToolProgressEvent =
-  | { kind: 'mas_narration'; text: string; subAgent?: string }
-  | { kind: 'mas_tool_call'; callId: string; subAgent: string; query: string }
-  | { kind: 'mas_tool_output'; callId: string; subAgent: string; snippet: string };
+/** Captured detail of the last failing call to the model serving endpoint.
+ * The OpenAI SDK strips the response body before throwing, so we stash it
+ * here from the fetch shim and let the outer catch block read it to build a
+ * useful error message for the user. */
+export type ModelErrorDetail = {
+  status: number;
+  url: string;
+  bodyText: string;
+  /** Parsed `error_code` if the body was Databricks-style JSON. */
+  code?: string;
+  /** Parsed `message` if the body was Databricks-style JSON. */
+  message?: string;
+};
 
 export type AgentContext = {
   db: AppDb;
   userEmail: string;
   req: Request;
-  /** MAS endpoint name for the ask_data passthrough tool. */
+  /** MAS serving-endpoint name the `ask_mas` tool talks to. Set in
+   * `config/app.json` as `masEndpointName`. The template demo uses MAS;
+   * if your demo uses Genie instead, replace this field with
+   * `genieSpaceId: string` and swap `askMasTool` → `askGenieTool` in
+   * makeTools below. See server/agent/tools/{mas,genie}.ts. */
   masEndpointName: string;
   databricksHost: string;
   model: string;
   /** Called by long-running tools to surface progress to the UI. */
-  onToolProgress?: (ev: ToolProgressEvent) => void;
+  onToolProgress?: (ev: import('./tools/types.js').ToolProgressEvent) => void;
+  /** Mutated by the OpenAI fetch shim on any non-2xx so the outer catch
+   * block can surface Databricks' actual error_code/message instead of the
+   * SDK's stripped "400 status code (no body)". */
+  modelError?: { current: ModelErrorDetail | null };
 };
 
-type MasCallResult = { answer: string; trace_id: string | null };
-
-async function callMasAsTool(
-  ctx: AgentContext,
-  question: string,
-): Promise<MasCallResult> {
-  const headers = await authHeaders(ctx.req);
-  headers.set('Content-Type', 'application/json');
-  headers.set('Accept', 'text/event-stream');
-  const url = `${ctx.databricksHost}/serving-endpoints/${ctx.masEndpointName}/invocations`;
-  const resp = await fetch(url, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({
-      input: [{ role: 'user', content: question }],
-      databricks_options: { return_trace: true },
-      stream: true,
-    }),
-  });
-  if (!resp.ok || !resp.body) {
-    const t = await resp.text().catch(() => '');
-    console.error('[ask_data] MAS endpoint bad response', {
-      status: resp.status,
-      body: t.slice(0, 500),
-    });
-    throw new Error(`MAS call failed: ${resp.status} ${t}`);
-  }
-  console.log('[ask_data] MAS stream opened, reading events…');
-
-  const reader = resp.body.getReader();
-  const dec = new TextDecoder();
-  let buf = '';
-  let trace_id: string | null = null;
-  // Supervisor messages with a `step` number are the outer narration we want
-  // to keep as the final answer; the LAST such message is the synthesis.
-  let lastStepText: string | null = null;
-  // Track the sub-agent that "owns" the next message via the <name>X</name>
-  // routing tag the MAS inserts before each sub-agent response.
-  let currentSubAgent: string | null = null;
-  // Keep call_id → sub-agent name for pairing tool outputs.
-  const callSubAgent = new Map<string, string>();
-  // Track the most recent tool-call id so sub-agent messages that arrive as
-  // `message` items (without their own call_id) can be paired back to the
-  // triggering tool call in the UI.
-  let lastToolCallId: string | null = null;
-
-  function emit(ev: ToolProgressEvent) {
-    try {
-      ctx.onToolProgress?.(ev);
-    } catch {
-      /* never let a progress handler fail the tool */
-    }
-  }
-
-  // eslint-disable-next-line no-constant-condition
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    buf += dec.decode(value, { stream: true });
-    const parts = buf.split('\n\n');
-    buf = parts.pop() ?? '';
-    for (const p of parts) {
-      const line = p.split('\n').find((l) => l.startsWith('data: '));
-      if (!line) continue;
-      const data = line.slice(6);
-      if (!data || data === '[DONE]') continue;
-      let ev: {
-        type?: string;
-        item?: {
-          type?: string;
-          content?: Array<{ type?: string; text?: string }>;
-          name?: string;
-          arguments?: string;
-          call_id?: string;
-        };
-        step?: number;
-        databricks_output?: { trace?: { info?: { trace_id?: string } } };
-      };
-      try {
-        ev = JSON.parse(data);
-      } catch {
-        continue;
-      }
-
-      if (ev.type === 'response.completed') {
-        trace_id = ev.databricks_output?.trace?.info?.trace_id ?? trace_id;
-        continue;
-      }
-      if (ev.type !== 'response.output_item.done') continue;
-
-      const item = ev.item;
-      if (!item) continue;
-
-      if (item.type === 'message' && Array.isArray(item.content)) {
-        const text = item.content.find((c) => c?.type === 'output_text')?.text;
-        if (!text) continue;
-        // `<name>foo</name>` tag → upcoming message is from sub-agent "foo".
-        const tagMatch = text.trim().match(/^<name>([^<]+)<\/name>$/);
-        if (tagMatch) {
-          currentSubAgent = tagMatch[1];
-          continue;
-        }
-        if (typeof ev.step === 'number') {
-          // Supervisor narration (step N). Latest wins for the final answer.
-          lastStepText = text;
-          emit({ kind: 'mas_narration', text });
-          currentSubAgent = null;
-        } else {
-          // Sub-agent output (tool result / RAG response). Pair it with
-          // the last tool call so the UI can nest the output under the
-          // call that triggered it.
-          emit({
-            kind: 'mas_tool_output',
-            callId: lastToolCallId ?? `mas-orphan-${Date.now()}`,
-            subAgent: currentSubAgent ?? 'data',
-            snippet: text,
-          });
-          currentSubAgent = null;
-        }
-      } else if (item.type === 'function_call') {
-        // Supervisor delegating to a sub-agent. `name` here is e.g.
-        // 'data_analyst' / 'incident_expert'; the argument is the query.
-        const subAgent = item.name ?? 'data';
-        const callId = item.call_id ?? `mas-${Date.now()}-${Math.random()}`;
-        callSubAgent.set(callId, subAgent);
-        let query = '';
-        try {
-          const parsed = JSON.parse(item.arguments ?? '{}') as Record<
-            string,
-            string
-          >;
-          query =
-            parsed.genie_query ||
-            parsed.ka_query ||
-            parsed.query ||
-            parsed.question ||
-            item.arguments ||
-            '';
-        } catch {
-          query = item.arguments ?? '';
-        }
-        lastToolCallId = callId;
-        emit({ kind: 'mas_tool_call', callId, subAgent, query });
-      } else if (item.type === 'function_call_output' && item.call_id) {
-        const subAgent = callSubAgent.get(item.call_id) ?? 'data';
-        const out =
-          item.content?.find((c) => c?.type === 'output_text')?.text ?? '';
-        emit({
-          kind: 'mas_tool_output',
-          callId: item.call_id,
-          subAgent,
-          snippet: out,
-        });
-      }
-    }
-  }
-
-  console.log(
-    `[ask_data] MAS stream closed — answer=${
-      (lastStepText ?? '').length
-    }ch trace_id=${trace_id}`,
-  );
-  return { answer: lastStepText ?? '(no answer)', trace_id };
-}
 
 // ────────────────────────────────────────────────────────────────────────────
 // Adding / editing tools — read this before touching `parameters: z.object(...)`.
@@ -381,25 +235,14 @@ function makeTools(ctx: AgentContext) {
       ),
   });
 
-  const askData = tool({
-    name: 'ask_data',
-    description:
-      'Ask the multi-agent supervisor an open-ended question about returns, customer data, production incidents, or release notes. Use this for any "why" or investigative question. Returns the MAS final answer text.',
-    parameters: z.object({
-      question: z.string().describe('Natural-language question for the supervisor.'),
-    }),
-    execute: async ({ question }) =>
-      mlflow.withSpan(
-        async () => callMasAsTool(ctx, question),
-        {
-          name: 'ask_data',
-          spanType: mlflow.SpanType.TOOL,
-          inputs: { question },
-        },
-      ),
-  });
+  // The data-backend tool. The template demo uses a MAS endpoint;
+  // swap to `askGenieTool(ctx, ctx.genieSpaceId)` if your demo only has
+  // a Genie space (and update AgentContext + config/app.json to match).
+  // For a demo with both, register both tools — the model picks based
+  // on the descriptions in tools/{mas,genie}.ts.
+  const askMas = askMasTool(ctx, ctx.masEndpointName);
 
-  return [findReturnsForLot, createCouponTool, processBatch, askData];
+  return [findReturnsForLot, createCouponTool, processBatch, askMas];
 }
 
 export async function configureAgentsSdk(ctx: AgentContext): Promise<void> {
@@ -450,7 +293,7 @@ export async function configureAgentsSdk(ctx: AgentContext): Promise<void> {
     apiKey: bearer,
     baseURL: `${ctx.databricksHost}/serving-endpoints`,
     maxRetries: 4,
-    fetch: (input, init) => {
+    fetch: async (input, init) => {
       const headers = new Headers(init?.headers);
       headers.set('Connection', 'close');
       let body = init?.body;
@@ -458,7 +301,9 @@ export async function configureAgentsSdk(ctx: AgentContext): Promise<void> {
         try {
           const parsed = JSON.parse(body) as {
             input?: Array<Record<string, unknown>>;
+            messages?: Array<Record<string, unknown>>;
           };
+          // Responses-API: strip long opaque ids the SDK echoes back.
           if (Array.isArray(parsed.input)) {
             for (const item of parsed.input) {
               const id = item.id;
@@ -466,18 +311,78 @@ export async function configureAgentsSdk(ctx: AgentContext): Promise<void> {
                 delete item.id;
               }
             }
-            body = JSON.stringify(parsed);
           }
+          // Chat-completions: Anthropic-via-Bedrock rejects unknown keys
+          // on assistant message content parts. The SDK adds
+          // `annotations: []` to text parts when replaying assistant
+          // history (turn 2+ of an agent loop). Strip them.
+          //   400: "messages.N.content.0.text.annotations: Extra inputs are not permitted"
+          if (Array.isArray(parsed.messages)) {
+            for (const m of parsed.messages) {
+              const content = (m as { content?: unknown }).content;
+              if (Array.isArray(content)) {
+                for (const part of content as Array<Record<string, unknown>>) {
+                  if (part && typeof part === 'object') {
+                    delete part.annotations;
+                  }
+                }
+              }
+            }
+          }
+          body = JSON.stringify(parsed);
         } catch {
           /* not JSON — pass through */
         }
       }
-      return fetch(input as Parameters<typeof fetch>[0], {
-        ...init,
-        headers,
-        body,
-        keepalive: false,
-      });
+      // Always log the URL + status so failures show up in server logs.
+      // The OpenAI SDK rethrows non-2xx as `APIError(... no body)` because
+      // it consumes the body for retry decisions before we see it. Tee a
+      // clone of the body on error so we can log Databricks' actual reason.
+      const url =
+        typeof input === 'string'
+          ? input
+          : (input as URL | Request).toString?.() ?? String(input);
+      let resp: Response;
+      try {
+        resp = await fetch(input as Parameters<typeof fetch>[0], {
+          ...init,
+          headers,
+          body,
+          keepalive: false,
+        });
+      } catch (e) {
+        console.error('[openai-shim] fetch threw', { url, error: e });
+        throw e;
+      }
+      if (!resp.ok) {
+        try {
+          const text = await resp.clone().text();
+          let code: string | undefined;
+          let message: string | undefined;
+          try {
+            const parsed = JSON.parse(text) as { error_code?: string; message?: string };
+            code = parsed.error_code;
+            message = parsed.message;
+          } catch {
+            /* body wasn't JSON — keep raw text */
+          }
+          if (ctx.modelError) {
+            ctx.modelError.current = {
+              status: resp.status,
+              url,
+              bodyText: text,
+              code,
+              message,
+            };
+          }
+          console.error(
+            `[openai-shim] ${resp.status} from ${url}\n  request_body: ${typeof body === 'string' ? body.slice(0, 4000) : '(non-string)'}\n  response_body: ${text.slice(0, 4000)}`,
+          );
+        } catch (e) {
+          console.error('[openai-shim] failed to clone error response', e);
+        }
+      }
+      return resp;
     },
   });
   setDefaultOpenAIClient(client);
