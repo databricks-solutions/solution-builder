@@ -40,6 +40,8 @@ def _is_pglite_mode() -> bool:
     # Databricks App runtime sets client credentials for the service principal
     if os.environ.get("DATABRICKS_CLIENT_ID"):
         return False
+    if os.environ.get("LAKEBASE_AUTOSCALE_ENDPOINT"):
+        return False
     return not os.environ.get("LAKEBASE_PG_URL")
 
 
@@ -149,6 +151,16 @@ class DatabaseConfig(BaseSettings):
         default="demo-prompt-gen-lakebase",
         validation_alias="DB_INSTANCE_NAME",
     )
+    autoscale_endpoint: str | None = Field(
+        default=None,
+        description=(
+            "Lakebase Autoscaling endpoint resource path "
+            "(projects/<id>/branches/<id>/endpoints/<id>). When set, takes "
+            "precedence over instance_name and uses the Postgres API for "
+            "host resolution + OAuth token generation."
+        ),
+        validation_alias="LAKEBASE_AUTOSCALE_ENDPOINT",
+    )
 
 
 # --- Engine creation ---
@@ -176,16 +188,26 @@ def _build_engine_url(db_config: DatabaseConfig, ws: WorkspaceClient) -> str:
         logger.info("Using static LAKEBASE_PG_URL for database connection")
         return static_url
 
-    # Production mode: use Databricks Database
-    logger.info(f"Using Databricks database instance: {db_config.instance_name}")
-    instance = ws.database.get_database_instance(db_config.instance_name)
     prefix = "postgresql+psycopg"
-    host = instance.read_write_dns
     port = db_config.port
     database = db_config.database_name
     username = (
         ws.config.client_id if ws.config.client_id else ws.current_user.me().user_name
     )
+
+    # Autoscaling Lakebase: resolve host via Postgres API
+    if db_config.autoscale_endpoint:
+        logger.info(
+            f"Using Lakebase Autoscaling endpoint: {db_config.autoscale_endpoint}"
+        )
+        endpoint = ws.postgres.get_endpoint(name=db_config.autoscale_endpoint)
+        host = endpoint.status.hosts.host
+        return f"{prefix}://{username}:@{host}:{port}/{database}"
+
+    # Provisioned Lakebase: resolve host via Database API
+    logger.info(f"Using Databricks database instance: {db_config.instance_name}")
+    instance = ws.database.get_database_instance(db_config.instance_name)
+    host = instance.read_write_dns
     return f"{prefix}://{username}:@{host}:{port}/{database}"
 
 
@@ -237,9 +259,14 @@ def create_db_engine(db_config: DatabaseConfig, ws: WorkspaceClient) -> Engine:
     engine = create_engine(engine_url, **engine_kwargs)
 
     def before_connect(dialect, conn_rec, cargs, cparams):
-        cred = ws.database.generate_database_credential(
-            instance_names=[db_config.instance_name]
-        )
+        if db_config.autoscale_endpoint:
+            cred = ws.postgres.generate_database_credential(
+                endpoint=db_config.autoscale_endpoint
+            )
+        else:
+            cred = ws.database.generate_database_credential(
+                instance_names=[db_config.instance_name]
+            )
         cparams["password"] = cred.token
 
     def after_connect(dbapi_connection, connection_record):
@@ -270,6 +297,17 @@ def validate_db(engine: Engine, db_config: DatabaseConfig) -> None:
         static_url = _get_static_pg_url()
         if static_url:
             logger.info("Validating static LAKEBASE_PG_URL database connection")
+        elif db_config.autoscale_endpoint:
+            logger.info(
+                f"Validating autoscale endpoint {db_config.autoscale_endpoint}"
+            )
+            try:
+                ws = WorkspaceClient()
+                ws.postgres.get_endpoint(name=db_config.autoscale_endpoint)
+            except NotFound:
+                raise ValueError(
+                    f"Autoscale endpoint {db_config.autoscale_endpoint} does not exist"
+                )
         else:
             logger.info(
                 f"Validating database connection to instance {db_config.instance_name}"
@@ -293,6 +331,10 @@ def validate_db(engine: Engine, db_config: DatabaseConfig) -> None:
         logger.info("PGLite database connection validated successfully")
     elif _get_static_pg_url():
         logger.info("Static LAKEBASE_PG_URL database connection validated successfully")
+    elif db_config.autoscale_endpoint:
+        logger.info(
+            f"Autoscale endpoint {db_config.autoscale_endpoint} connection validated successfully"
+        )
     else:
         logger.info(
             f"Database connection to instance {db_config.instance_name} validated successfully"

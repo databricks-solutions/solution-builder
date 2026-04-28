@@ -28,10 +28,12 @@ cd "$APP_DIR"
 # bundle deploy` will rerun this script with the var resolved.
 SKIP_FRONTEND=""
 LAKEBASE_INSTANCE=""
+LAKEBASE_AUTOSCALE_ENDPOINT=""
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --skip-frontend) SKIP_FRONTEND=1; shift ;;
         --lakebase-instance) LAKEBASE_INSTANCE="$2"; shift 2 ;;
+        --lakebase-autoscale-endpoint) LAKEBASE_AUTOSCALE_ENDPOINT="$2"; shift 2 ;;
         *) shift ;;
     esac
 done
@@ -110,6 +112,17 @@ cp app.yml .build/
 if [[ -n "$LAKEBASE_INSTANCE" ]]; then
     echo "  Substituting DB_INSTANCE_NAME=$LAKEBASE_INSTANCE in .build/app.yml"
     sed -i.bak "s|__DB_INSTANCE_NAME__|$LAKEBASE_INSTANCE|g" .build/app.yml
+    rm -f .build/app.yml.bak
+fi
+
+if [[ -n "$LAKEBASE_AUTOSCALE_ENDPOINT" ]]; then
+    echo "  Substituting LAKEBASE_AUTOSCALE_ENDPOINT=$LAKEBASE_AUTOSCALE_ENDPOINT in .build/app.yml"
+    # sed escaping for forward slashes in the resource path
+    sed -i.bak "s|__LAKEBASE_AUTOSCALE_ENDPOINT__|$LAKEBASE_AUTOSCALE_ENDPOINT|g" .build/app.yml
+    rm -f .build/app.yml.bak
+else
+    # Leave empty rather than the placeholder string so DatabaseConfig parses None
+    sed -i.bak "s|__LAKEBASE_AUTOSCALE_ENDPOINT__||g" .build/app.yml
     rm -f .build/app.yml.bak
 fi
 

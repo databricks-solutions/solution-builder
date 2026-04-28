@@ -21,6 +21,9 @@ variables:
   lakebase_instance:
     description: "Existing Lakebase instance to reuse (SP gets its own schema). Set to an existing instance name to share infra; the deploy will not recreate or wipe it."
     default: "databricks-demos-shared"
+  lakebase_autoscale_endpoint:
+    description: "Lakebase Autoscaling endpoint resource path (projects/<id>/branches/<id>/endpoints/<id>). Use the dev-autoscale target when set — autoscale projects can't be bound via the Apps `database` resource yet, so the app talks to it directly via the Postgres SDK."
+    default: ""
 
 sync:
   include:
@@ -34,8 +37,15 @@ artifacts:
     # Pass the resolved lakebase instance into build.sh so it can substitute
     # the DB_INSTANCE_NAME placeholder in .build/app.yml — keeps the runtime
     # env in sync with var.lakebase_instance with no manual two-file edits.
-    build: ./scripts/build.sh --lakebase-instance ${var.lakebase_instance}
+    # The autoscale-endpoint flag is similarly substituted into app.yml so
+    # the app talks to a Lakebase Autoscaling project at runtime.
+    build: ./scripts/build.sh --lakebase-instance ${var.lakebase_instance} --lakebase-autoscale-endpoint ${var.lakebase_autoscale_endpoint}
 
+# Base app spec: serving endpoints + permissions only. The Lakebase binding
+# is target-specific because the Apps `database` resource only supports
+# Provisioned Lakebase (instances), not Autoscaling (projects). The `dev`
+# target appends a `db` resource for instances; `dev-autoscale` appends nothing
+# and the app reaches the autoscale project directly via LAKEBASE_AUTOSCALE_ENDPOINT.
 resources:
   apps:
     demo-prompt-generator-app:
@@ -43,11 +53,6 @@ resources:
       description: "Demo Prompt Generator — generates Databricks demo skill packages"
       source_code_path: ./.build
       resources:
-        - name: "db"
-          database:
-            database_name: "databricks_postgres"
-            instance_name: ${var.lakebase_instance}
-            permission: "CAN_CONNECT_AND_CREATE"
         - name: "llm"
           serving_endpoint:
             name: ${var.llm_endpoint}
@@ -83,9 +88,33 @@ resources:
 #   - A Foundation Model endpoint matching llm_endpoint (default: databricks-claude-sonnet-4-6)
 # ---------------------------------------------------------------------------
 targets:
+  # Provisioned Lakebase (Database Instance). Appends the `db` resource binding
+  # to the base app spec so Apps auto-grants the SP CAN_CONNECT_AND_CREATE on
+  # the named instance.
   dev:
     mode: development
     default: true
+    resources:
+      apps:
+        demo-prompt-generator-app:
+          resources:
+            - name: "db"
+              database:
+                database_name: "databricks_postgres"
+                instance_name: ${var.lakebase_instance}
+                permission: "CAN_CONNECT_AND_CREATE"
+
+  # Autoscaling Lakebase. Apps can't bind to autoscale projects via the
+  # `database` resource yet (per the Lakebase Autoscaling docs), so this target
+  # adds no `db` binding and the app reaches Lakebase directly using the
+  # Postgres SDK + LAKEBASE_AUTOSCALE_ENDPOINT env var (substituted into
+  # app.yml at build time).
+  #
+  # Post-deploy step: the app's SP needs a Postgres role on the autoscale
+  # branch. On a brand-new app the SP doesn't exist until first deploy, so
+  # deploy first, then grant the role, then restart the app.
+  dev-autoscale:
+    mode: development
 
   prod:
     mode: production

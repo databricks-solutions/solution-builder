@@ -13,3 +13,5 @@ command: ["uvicorn", "demo_prompt_generator.backend.app:app", "--workers", "1"]
 env:
   - name: "DB_INSTANCE_NAME"
     value: "__DB_INSTANCE_NAME__"
+  - name: "LAKEBASE_AUTOSCALE_ENDPOINT"
+    value: "__LAKEBASE_AUTOSCALE_ENDPOINT__"
