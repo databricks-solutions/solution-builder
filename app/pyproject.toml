@@ -29,6 +29,7 @@ dependencies = [
     "databricks-connect>=16.1,<16.2",
     "faker>=30.0",
     "holidays>=0.55",
+    "dbdemos-tracker>=0.1.12",
 ]
 
 # Local path dependencies for Databricks MCP tools

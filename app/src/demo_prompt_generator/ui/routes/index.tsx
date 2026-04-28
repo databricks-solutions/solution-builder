@@ -9,13 +9,13 @@ import { ProjectTile } from "@/components/project/project-tile";
 import { TemplateTile } from "@/components/template/template-tile";
 import { TemplateDetailPopup } from "@/components/template/template-detail-popup";
 import { ProductSelector } from "@/components/product-selector";
+import { DatabricksAnimatedLogo } from "@/components/databricks-animated-logo";
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { assetUrl } from "@/lib/config";
 import {
   Sparkles,
   ArrowRight,
@@ -432,8 +432,10 @@ function Index() {
               isHeroCollapsed ? "max-h-0 opacity-0 mb-0" : "max-h-[300px] opacity-100"
             }`}
           >
-            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/10 backdrop-blur-sm border border-primary/20">
-              <img src={assetUrl("/logo.svg")} alt="Databricks" className="h-10 w-10" />
+            <div className="group mx-auto flex h-20 w-20 items-center justify-center rounded-2xl bg-gradient-to-br from-primary/15 via-primary/5 to-primary/15 backdrop-blur-sm border border-primary/20 shadow-lg shadow-primary/10 relative overflow-hidden">
+              {/* Soft inner glow */}
+              <div className="pointer-events-none absolute inset-0 rounded-2xl bg-[radial-gradient(circle_at_30%_20%,rgba(255,120,80,0.18),transparent_60%)]" />
+              <DatabricksAnimatedLogo className="h-12 w-12 relative" />
             </div>
             <div className="space-y-1.5">
               <p className="text-xs font-semibold uppercase tracking-[0.2em] text-primary">

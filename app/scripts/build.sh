@@ -122,6 +122,13 @@ if [[ -d "../.claude" ]]; then
     cp -r "../.claude" .build/.claude
 fi
 
+# Bundle initial_templates/ so seed_templates can find them at runtime.
+# The backend walks up from its install location looking for initial_templates/manifest.json.
+if [[ -d "../initial_templates" ]]; then
+    echo "  Bundling initial_templates/ (default seed templates)..."
+    cp -r "../initial_templates" .build/initial_templates
+fi
+
 echo -e "${GREEN}Build complete!${NC}"
 echo -e "  ${BLUE}.build/${NC}"
 ls -lh .build/
