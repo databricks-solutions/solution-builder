@@ -20,6 +20,8 @@ Create `LuxeBeauty Operations Analytics` Genie Space.
 
 gold_daily_summary (trends), gold_returns_by_product (product-level rates), gold_returns_by_lot (lot tracing + feedback_samples), silver_returns (raw return_reason_text), bronze_products (catalog), bronze_production_lots (lot details).
 
+> In dataset SQL (Section B below), reference these as `{catalog}.{schema}.gold_daily_summary` etc. Bare names here are for readability only.
+
 ### Instructions
 
 ```
@@ -92,6 +94,25 @@ Date Range affects KPIs and trend charts (gold_daily_summary). Region and Catego
 ### Validation
 
 Return rate KPI shows ~24% (vs ~8% normal). Returns bar chart shows colored category breakdown with a clear spike ~3 weeks ago (~$180K peak, Skincare dominates the spike), then decay toward baseline in recent weeks. Revenue line shows steady trend with regional color breakdown. Products sorted (SKU-1001/1002/1003 at top ~30%). Region filter works (select "EU" → all widgets update). Category filter works (select "Skincare" → spike more pronounced).
+
+### Dataset SQL Must Be Fully Qualified (Critical)
+
+Every `queryLines` `FROM` clause MUST reference `{CATALOG}.{SCHEMA}.{table}` using the catalog and schema resolved in `01-lakeflow.md`. Never write bare `FROM table` or 2-part `FROM schema.table`.
+
+Reason: the Lakeview renderer does not reliably carry catalog/schema context onto datasets at query time, so unqualified names produce `TABLE_OR_VIEW_NOT_FOUND` and the widget fails. Do not rely on `--dataset-catalog` / `--dataset-schema` deploy flags — qualify inside the SQL.
+
+Example (luxebeauty):
+
+```json
+"queryLines": [
+  "SELECT date, SUM(returns_usd) AS returns_usd ",
+  "FROM luxebeauty.gold.gold_daily_summary ",
+  "WHERE date >= date_sub(current_date(), 180) ",
+  "GROUP BY date ORDER BY date"
+]
+```
+
+This rule composes with the trailing-whitespace rule in the next section — both must hold.
 
 ### SQL Formatting (Critical)
 
