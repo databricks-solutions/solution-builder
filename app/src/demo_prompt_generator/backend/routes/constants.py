@@ -347,8 +347,10 @@ def suggest_capabilities(
         # Load platform architecture for context
         platform_context = _load_platform_architecture()
 
-        # Build lists for the prompt
-        available_caps = load_capabilities()
+        # Exclude disabled caps from the LLM's candidate pool — talking-track-only
+        # governance features (data-classification, data-quality, abac) aren't
+        # relevant to most demos. User can still mandate them via show-hidden.
+        available_caps = [c for c in load_capabilities() if not c.get("disabled")]
         available_for_llm = [c for c in available_caps if c["id"] in to_decide]
         valid_ids = {c["id"] for c in available_caps}
 

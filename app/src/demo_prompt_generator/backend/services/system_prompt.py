@@ -8,6 +8,12 @@ Builds dynamic system prompts with injected context:
 from __future__ import annotations
 
 import os
+from pathlib import Path
+
+
+# Path to the shared databricks-connect venv provisioned by dev.sh.
+# Resolves to <repo>/app/.venv-dbconnect — same place dev.sh writes it.
+_DBCONNECT_VENV = Path(__file__).resolve().parents[4] / ".venv-dbconnect"
 
 
 def get_system_prompt(
@@ -19,8 +25,15 @@ def get_system_prompt(
     databricks_profile: str | None = None,
     skills: list[dict] | None = None,
     project_dir: str | None = None,
+    template_lineage: dict | None = None,
 ) -> str:
-    """Build the system prompt for the Demo Generator agent."""
+    """Build the system prompt for the Demo Generator agent.
+
+    template_lineage (optional): when the project was forked from a template,
+    a dict with keys ``name``, ``industry``, and ``capabilities`` (list[str]).
+    Adds a short context block telling the agent the user is adapting an
+    existing demo rather than authoring from scratch.
+    """
     p = project_dir or "."
 
     sections = [
@@ -32,6 +45,10 @@ def get_system_prompt(
         f"\nAll paths below use these references.",
         _PROMPT_TEMPLATE,
     ]
+
+    lineage = _build_template_lineage_section(template_lineage)
+    if lineage:
+        sections.append(lineage)
 
     if skills:
         lines = [
@@ -56,7 +73,65 @@ def get_system_prompt(
     if resources:
         sections.append(resources)
 
+    dbconnect = _build_dbconnect_section()
+    if dbconnect:
+        sections.append(dbconnect)
+
     return "\n\n".join(sections)
+
+
+def _build_template_lineage_section(lineage: dict | None) -> str | None:
+    """Tell the agent the project was forked from a template, so its replies
+    treat the work as adapt-in-place rather than generate-from-scratch."""
+    if not lineage:
+        return None
+    name = lineage.get("name")
+    if not name:
+        return None
+    industry = lineage.get("industry") or "unspecified industry"
+    caps = lineage.get("capabilities") or []
+    caps_str = ", ".join(caps) if caps else "see resources.json"
+
+    return (
+        "## Template lineage\n\n"
+        f"This project was **forked from the `{name}` template** "
+        f"(industry: {industry}; capabilities: {caps_str}). "
+        "The user is adapting an existing demo for their own scenario, not authoring one from scratch. "
+        "When they describe changes, **edit the inherited files in place** rather than creating parallel "
+        "structures. If the user is unclear about what to change, ask which dimension matters most: "
+        "industry/customer, data model, narrative, or capability mix — and offer the inherited values "
+        "as the current state."
+    )
+
+
+def _build_dbconnect_section() -> str | None:
+    """Inject pre-provisioned databricks-connect venv guidance when present.
+
+    Local dev runs `dev.sh` which provisions a single Python 3.12 venv with
+    databricks-connect installed. Without this section the agent falls into
+    a Python 3.14 → install loop on every new project. In production
+    deployments the venv won't exist, so the section is silently skipped.
+    """
+    venv_python = _DBCONNECT_VENV / "bin" / "python"
+    if not venv_python.exists():
+        return None
+
+    return (
+        "## Pre-provisioned databricks-connect venv\n\n"
+        f"A Python 3.12 venv with databricks-connect, faker, numpy, pandas, "
+        f"holidays, and pyarrow is already installed at:\n\n"
+        f"`{venv_python}`\n\n"
+        f"Use it directly for any data-gen / databricks-connect script:\n\n"
+        f"```bash\n"
+        f"{venv_python} path/to/script.py\n"
+        f"```\n\n"
+        f"**Do NOT** create a new venv, run `uv pip install databricks-connect`, "
+        f"or invoke the system Python. The system Python is 3.14, which "
+        f"databricks-connect does not support — every detour through it wastes "
+        f"~1-2 minutes per project. If a script needs an additional package, "
+        f"install it into this venv with "
+        f"`uv pip install --python {venv_python} <pkg>`."
+    )
 
 
 _PROMPT_TEMPLATE = """# Databricks Demo Generator

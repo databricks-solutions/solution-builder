@@ -9,6 +9,14 @@ import { Textarea } from "../ui/textarea";
 import { Prose } from "../markdown-prose";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../ui/tooltip";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "../ui/dialog";
+import {
   Loader2,
   Check,
   X,
@@ -22,6 +30,7 @@ import {
   MessageSquare,
   Sparkles,
   Square,
+  Zap,
 } from "lucide-react";
 import { getMessageReasoning, type Message, type ReasoningEntry } from "../../lib/custom-api";
 
@@ -179,6 +188,8 @@ interface ChatPanelProps {
   lastReasoning?: ReasoningInfo | null;
   onStop?: () => void;
   onClearSession?: () => void;
+  onAutoBuild?: () => void | Promise<void>;
+  canAutoBuild?: boolean;
   placeholder?: string;
   title?: string;
 }
@@ -931,11 +942,21 @@ export const ChatPanel = memo(function ChatPanel({
   lastReasoning,
   onStop,
   onClearSession,
+  onAutoBuild,
+  canAutoBuild = true,
   placeholder = "Ask the AI to help build your demo...",
   title = "Your AI Assistant",
 }: ChatPanelProps) {
   const [input, setInput] = useState("");
   const [userHasScrolledChat, setUserHasScrolledChat] = useState(false);
+  const [autoBuildConfirmOpen, setAutoBuildConfirmOpen] = useState(false);
+
+  const handleAutoBuildConfirm = useCallback(async () => {
+    setAutoBuildConfirmOpen(false);
+    if (onAutoBuild) {
+      await onAutoBuild();
+    }
+  }, [onAutoBuild]);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -1037,7 +1058,7 @@ export const ChatPanel = memo(function ChatPanel({
                   <p className="text-sm text-muted-foreground/60">Loading messages...</p>
                 </div>
               ) : (
-                <div className="flex flex-col items-center gap-4 max-w-[260px] text-center">
+                <div className="flex flex-col items-center gap-4 max-w-[280px] text-center">
                   <div className="flex items-center justify-center w-12 h-12 rounded-2xl bg-muted/60">
                     <MessageSquare className="h-6 w-6 text-muted-foreground/40" />
                   </div>
@@ -1047,6 +1068,17 @@ export const ChatPanel = memo(function ChatPanel({
                       Ask the AI to help you design and build your demo
                     </p>
                   </div>
+                  {onAutoBuild && (
+                    <button
+                      onClick={() => setAutoBuildConfirmOpen(true)}
+                      disabled={!canAutoBuild}
+                      className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium bg-primary/10 text-primary hover:bg-primary/15 transition-colors disabled:opacity-40 disabled:pointer-events-none"
+                      title="Run the full demo build end-to-end"
+                    >
+                      <Zap className="h-3.5 w-3.5" strokeWidth={2.5} />
+                      <span>Or run auto build</span>
+                    </button>
+                  )}
                 </div>
               )}
             </div>
@@ -1138,26 +1170,40 @@ export const ChatPanel = memo(function ChatPanel({
             <span className="text-[10px] text-muted-foreground/40 select-none pl-1.5">
               {isStreaming ? "Generating..." : "Enter to send"}
             </span>
-            {isStreaming ? (
-              <button
-                onClick={onStop}
-                className="flex items-center justify-center h-7 w-7 rounded-lg bg-destructive text-white hover:bg-destructive/90 transition-colors"
-                title="Stop generation"
-                aria-label="Stop generation"
-              >
-                <Square className="h-3 w-3 fill-current" />
-              </button>
-            ) : (
-              <button
-                onClick={handleSend}
-                disabled={!input.trim()}
-                className="flex items-center justify-center h-7 w-7 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-all disabled:opacity-30 disabled:pointer-events-none"
-                title="Send message"
-                aria-label="Send message"
-              >
-                <ArrowUp className="h-3.5 w-3.5" strokeWidth={2.5} />
-              </button>
-            )}
+            <div className="flex items-center gap-1.5">
+              {!isStreaming && onAutoBuild && (
+                <button
+                  onClick={() => setAutoBuildConfirmOpen(true)}
+                  disabled={!canAutoBuild}
+                  className="flex items-center gap-1 h-7 px-2.5 rounded-lg text-xs font-medium bg-muted/60 text-foreground/80 hover:bg-muted hover:text-foreground transition-colors disabled:opacity-40 disabled:pointer-events-none"
+                  title="Run the full demo build end-to-end"
+                  aria-label="Auto build"
+                >
+                  <Zap className="h-3 w-3" strokeWidth={2.5} />
+                  <span>Auto build</span>
+                </button>
+              )}
+              {isStreaming ? (
+                <button
+                  onClick={onStop}
+                  className="flex items-center justify-center h-7 w-7 rounded-lg bg-destructive text-white hover:bg-destructive/90 transition-colors"
+                  title="Stop generation"
+                  aria-label="Stop generation"
+                >
+                  <Square className="h-3 w-3 fill-current" />
+                </button>
+              ) : (
+                <button
+                  onClick={handleSend}
+                  disabled={!input.trim()}
+                  className="flex items-center justify-center h-7 w-7 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-all disabled:opacity-30 disabled:pointer-events-none"
+                  title="Send message"
+                  aria-label="Send message"
+                >
+                  <ArrowUp className="h-3.5 w-3.5" strokeWidth={2.5} />
+                </button>
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -1168,6 +1214,38 @@ export const ChatPanel = memo(function ChatPanel({
         thinking={streamingThinking || ""}
         tools={streamingTools || new Map()}
       />
+
+      {/* Auto build confirmation */}
+      <Dialog open={autoBuildConfirmOpen} onOpenChange={setAutoBuildConfirmOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Zap className="h-4 w-4 text-primary" strokeWidth={2.5} />
+              Run auto build?
+            </DialogTitle>
+            <DialogDescription className="pt-2 leading-relaxed">
+              This may take around 30 minutes. Once it starts, you'll need to wait for it to finish — re-prompting the chatbot to make changes after the run can take additional time. Are you sure?
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:gap-2">
+            <button
+              type="button"
+              onClick={() => setAutoBuildConfirmOpen(false)}
+              className="px-3 py-2 rounded-lg text-sm font-medium bg-muted text-foreground/80 hover:bg-muted/70 transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleAutoBuildConfirm}
+              className="px-3 py-2 rounded-lg text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors flex items-center gap-1.5"
+            >
+              <Zap className="h-3.5 w-3.5" strokeWidth={2.5} />
+              Start auto build
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 });

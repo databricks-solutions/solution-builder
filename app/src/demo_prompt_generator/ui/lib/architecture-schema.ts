@@ -7,6 +7,7 @@
 
 import { Node, Edge, MarkerType } from "@xyflow/react";
 import type { DatabricksIconName } from "../components/databricks-icons";
+import { getIconPalette, MEDALLION } from "./resource-palette";
 
 // =============================================================================
 // Schema Types (what the AI generates)
@@ -203,6 +204,7 @@ export function schemaToReactFlow(schema: ArchitectureSchema): { nodes: Node[]; 
 
   // Track node positions for edge color lookup
   const nodeIdToTier: Record<string, TierType> = {};
+  const nodeIdToIcon: Record<string, DatabricksIconName | undefined> = {};
 
   // Calculate row Y position
   const rowY = (row: number) => row * LAYOUT.rowHeight;
@@ -259,6 +261,7 @@ export function schemaToReactFlow(schema: ArchitectureSchema): { nodes: Node[]; 
       currentRow = row + 1; // Next auto-row
 
       nodeIdToTier[node.id] = node.tier;
+      nodeIdToIcon[node.id] = node.icon;
 
       nodes.push({
         id: node.id,
@@ -332,9 +335,16 @@ export function schemaToReactFlow(schema: ArchitectureSchema): { nodes: Node[]; 
   // Process edges
   schema.edges.forEach((edge, edgeIndex) => {
     const sourceTier = nodeIdToTier[edge.from] || "source";
+    const sourceIcon = nodeIdToIcon[edge.from];
 
-    // Determine edge color based on source tier
-    const edgeColor = TIER_CONFIG[sourceTier].stripe;
+    // Edge color tracks the source node's color: icon override wins over
+    // tier so an edge leaving a Genie node looks Genie-amber, not consumer-emerald.
+    let edgeColor = TIER_CONFIG[sourceTier].stripe;
+    if (sourceIcon) {
+      const override = getIconPalette(sourceIcon);
+      if (override?.kind === "medallion") edgeColor = MEDALLION.stripe;
+      else if (override?.kind === "color") edgeColor = override.color.stripe;
+    }
 
     // Determine handles based on typical flow (left-to-right, top-to-bottom)
     // This is a simplification - could be made smarter
@@ -354,6 +364,13 @@ export function schemaToReactFlow(schema: ArchitectureSchema): { nodes: Node[]; 
       }
     }
 
+    // "Lakeflow Connect" is a Databricks product, not a verb — when the
+    // schema author puts it as an edge label, sibling ingestion arrows
+    // overlap the text. Strip it so it stays a node-only concept; the AI
+    // can model the product as its own node when it matters.
+    const rawLabel = edge.label?.trim();
+    const label = rawLabel && /lakeflow\s*connect/i.test(rawLabel) ? undefined : rawLabel;
+
     edges.push({
       id: `e${edgeIndex + 1}`,
       source: edge.from,
@@ -361,11 +378,13 @@ export function schemaToReactFlow(schema: ArchitectureSchema): { nodes: Node[]; 
       sourceHandle,
       targetHandle,
       type: "smoothstep",
-      animated: edge.animated,
-      label: edge.label,
-      labelStyle: edge.label ? { fontSize: 11, fontWeight: 600, fill: edgeColor } : undefined,
-      labelBgStyle: edge.label ? { fill: "var(--color-background, white)", fillOpacity: 0.9 } : undefined,
-      labelBgPadding: edge.label ? [6, 3] as [number, number] : undefined,
+      // Animate every arrow by default — keeps the diagram alive and reads
+      // as data flowing. Schemas can still opt out with animated: false.
+      animated: edge.animated ?? true,
+      label,
+      labelStyle: label ? { fontSize: 11, fontWeight: 600, fill: edgeColor } : undefined,
+      labelBgStyle: label ? { fill: "var(--color-background, white)", fillOpacity: 0.9 } : undefined,
+      labelBgPadding: label ? [6, 3] as [number, number] : undefined,
       style: { stroke: edgeColor, strokeWidth: 1.5 },
       markerEnd: { type: MarkerType.ArrowClosed, color: edgeColor },
     });

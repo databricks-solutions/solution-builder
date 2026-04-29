@@ -198,7 +198,10 @@ function TemplatesPage() {
           <div className="space-y-1.5">
             <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">Template Library</h1>
             <p className="text-base text-muted-foreground sm:text-lg">
-              Vetted blueprints for common Databricks use cases — fork one to start a new project.
+              Vetted demo blueprints for Databricks scenarios.
+            </p>
+            <p className="text-sm text-muted-foreground/80 sm:text-base">
+              Fork one to get your own editable copy — then tell the AI what to change for your customer or industry.
             </p>
           </div>
         </div>

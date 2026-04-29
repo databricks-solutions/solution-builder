@@ -38,6 +38,7 @@ import {
   Check,
   X,
   FileEdit,
+  GitFork,
   MessageSquare,
   PanelLeft,
   LayoutTemplate,
@@ -65,6 +66,8 @@ import {
   type TemplateDetail,
   type DeployedResources,
 } from "@/lib/custom-api";
+import { AUTO_BUILD_KICKOFF } from "@/lib/auto-build-prompt";
+import { resourceKey } from "@/components/project/deployed-resources-bar";
 
 export const Route = createFileRoute("/project/$projectId")({
   component: ProjectPage,
@@ -89,6 +92,38 @@ function ProjectPage() {
   const [isCreatingArchitecture, setIsCreatingArchitecture] = useState(false);
   const [isPackagingDAB, setIsPackagingDAB] = useState(false);
   const [deployedResources, setDeployedResources] = useState<DeployedResources | null>(null);
+  const [newResourceIds, setNewResourceIds] = useState<Set<string>>(new Set());
+  // Tracks resource keys we've already shown. `null` means we haven't seen the
+  // first server response yet — used to avoid flashing every pill as "new" on
+  // initial mount.
+  const prevResourceKeysRef = useRef<Set<string> | null>(null);
+  const newResourceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const applyDeployedResources = useCallback((deployed: DeployedResources | null) => {
+    setDeployedResources(deployed);
+    const currentKeys = new Set((deployed?.resources ?? []).map(resourceKey));
+    if (prevResourceKeysRef.current === null) {
+      // Seed baseline on first response — no "new" highlighting on cold load.
+      prevResourceKeysRef.current = currentKeys;
+      return;
+    }
+    const fresh = new Set<string>();
+    for (const k of currentKeys) {
+      if (!prevResourceKeysRef.current.has(k)) fresh.add(k);
+    }
+    prevResourceKeysRef.current = currentKeys;
+    if (fresh.size === 0) return;
+    setNewResourceIds(fresh);
+    if (newResourceTimerRef.current) clearTimeout(newResourceTimerRef.current);
+    newResourceTimerRef.current = setTimeout(() => {
+      setNewResourceIds(new Set());
+      newResourceTimerRef.current = null;
+    }, 6000);
+  }, []);
+
+  useEffect(() => () => {
+    if (newResourceTimerRef.current) clearTimeout(newResourceTimerRef.current);
+  }, []);
 
   // Chat state
   const [messages, setMessages] = useState<Message[]>([]);
@@ -114,6 +149,7 @@ function ProjectPage() {
   // Template state
   const [linkedTemplate, setLinkedTemplate] = useState<TemplateDetail | null>(null);
   const [isTemplateDialogOpen, setIsTemplateDialogOpen] = useState(false);
+  const [forkBannerDismissed, setForkBannerDismissed] = useState(true);
 
   // Project name editing state
   const [isEditingName, setIsEditingName] = useState(false);
@@ -257,7 +293,14 @@ function ProjectPage() {
         setProject(proj);
         setFiles(fileList);
         setMessages(msgs);
-        setDeployedResources(deployed);
+        applyDeployedResources(deployed);
+
+        // Surface the "this is your editable copy" banner on forked projects
+        // until the user dismisses it (per-project, persisted in localStorage).
+        if (proj?.source_template_name) {
+          const dismissed = localStorage.getItem(`forkBannerDismissed:${projectId}`) === "1";
+          setForkBannerDismissed(dismissed);
+        }
 
         // Select README.md by default if it exists
         const readme = fileList.find((f) => f.path === "README.md");
@@ -381,6 +424,13 @@ function ProjectPage() {
           if (event.type === "text_delta") {
             fullContent += event.text;
             setStreamingContent(fullContent);
+          } else if (event.type === "text_block_start") {
+            // Insert a paragraph break between consecutive text blocks
+            // within a turn so they don't render as one wall of text.
+            if (fullContent.length > 0 && !fullContent.endsWith("\n\n")) {
+              fullContent += "\n\n";
+              setStreamingContent(fullContent);
+            }
           } else if (event.type === "text") {
             // Ignore final text event - we already have content from deltas
           } else if (event.type === "thinking_delta") {
@@ -457,7 +507,7 @@ function ProjectPage() {
           getDeployedResources(projectId).catch(() => null),
         ]);
         setFiles(fileList);
-        setDeployedResources(deployed);
+        applyDeployedResources(deployed);
 
         // Auto-select README.md if no file is currently selected
         let currentFile = selectedFileRef.current;
@@ -497,7 +547,7 @@ function ProjectPage() {
           ]);
           setMessages(msgs);
           setFiles(fileList);
-          setDeployedResources(deployed);
+          applyDeployedResources(deployed);
 
           // Auto-select README.md if no file is selected
           let fileToLoad = selectedFileRef.current;
@@ -583,6 +633,11 @@ function ProjectPage() {
         if (event.type === "text_delta") {
           fullContent += event.text;
           setStreamingContent(fullContent);
+        } else if (event.type === "text_block_start") {
+          if (fullContent.length > 0 && !fullContent.endsWith("\n\n")) {
+            fullContent += "\n\n";
+            setStreamingContent(fullContent);
+          }
         } else if (event.type === "thinking_delta") {
           fullThinking += event.thinking;
           setStreamingThinking(fullThinking);
@@ -619,7 +674,7 @@ function ProjectPage() {
       ]);
       setMessages(msgs);
       setFiles(fileList);
-      setDeployedResources(deployed);
+      applyDeployedResources(deployed);
 
       // Auto-select README.md if no file is selected
       let fileToLoad = selectedFileRef.current;
@@ -732,6 +787,23 @@ function ProjectPage() {
     })();
   }, [projectId, isLoadingProject, isLoadingMessages, isStreaming, project, messages, handleSendMessage]);
 
+  // Kick off the canned auto-build directive as a normal chat turn. The
+  // confirmation modal lives inside ChatPanel — by the time we get here
+  // the user has already opted in.
+  const handleAutoBuild = useCallback(async () => {
+    if (isStreaming) return;
+    await handleSendMessage(AUTO_BUILD_KICKOFF);
+  }, [handleSendMessage, isStreaming]);
+
+  const handleDismissForkBanner = useCallback(() => {
+    setForkBannerDismissed(true);
+    try {
+      localStorage.setItem(`forkBannerDismissed:${projectId}`, "1");
+    } catch {
+      // localStorage unavailable (private browsing); banner stays dismissed for the session
+    }
+  }, [projectId]);
+
   // Handle stopping the stream — tell the backend to cancel, then let the
   // SSE loop receive "stream.completed" naturally so the partial response
   // is saved. Only force-abort after a timeout as a safety net.
@@ -763,7 +835,7 @@ function ProjectPage() {
         getDeployedResources(projectId).catch(() => null),
       ]);
       setFiles(fileList);
-      setDeployedResources(deployed);
+      applyDeployedResources(deployed);
 
       if (selectedFile) {
         const content = await getProjectFile(projectId, selectedFile);
@@ -1325,6 +1397,39 @@ function ProjectPage() {
         </button>
       </div>
 
+      {/* Fork lineage banner — surfaces the "this is your editable copy" framing
+          until the user dismisses it (persisted per-project in localStorage). */}
+      {project?.source_template_name && !forkBannerDismissed && (
+        <div className="shrink-0 border-b border-border bg-primary/5">
+          <div className="flex items-center gap-3 px-5 py-2.5">
+            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-primary/15 text-primary">
+              <GitFork className="h-3.5 w-3.5" />
+            </div>
+            <div className="flex-1 min-w-0 text-sm">
+              <span className="font-medium">Forked from {project.source_template_name}</span>
+              <span className="text-muted-foreground">
+                {" "}— this is your editable copy. Tell the AI in the chat what to change for your scenario.
+              </span>
+            </div>
+            <Link
+              to="/templates"
+              className="hidden sm:inline text-xs text-primary hover:underline shrink-0"
+              title="Browse the template library"
+            >
+              View templates
+            </Link>
+            <button
+              onClick={handleDismissForkBanner}
+              className="shrink-0 p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+              aria-label="Dismiss banner"
+              title="Dismiss"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Main content */}
       <div ref={containerRef} className="flex flex-1 min-h-0">
         {/* File viewer (left side) */}
@@ -1352,6 +1457,7 @@ function ProjectPage() {
             onResourcesClick={() => setIsResourcesOpen(true)}
             deployedResources={deployedResources?.resources}
             deployedAt={deployedResources?.deployed_at}
+            newResourceIds={newResourceIds}
             onAutoFixSend={(msg) => handleSendMessage(msg, { isAutoFix: true })}
             autoFixApiRef={autoFixApiRef}
           />
@@ -1391,6 +1497,8 @@ function ProjectPage() {
             lastReasoning={lastReasoning}
             onStop={handleStop}
             onClearSession={handleClearSession}
+            onAutoBuild={handleAutoBuild}
+            canAutoBuild={!isStreaming}
           />
         </div>
       </div>

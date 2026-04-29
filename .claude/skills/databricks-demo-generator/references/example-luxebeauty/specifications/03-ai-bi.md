@@ -93,6 +93,15 @@ Date Range affects KPIs and trend charts (gold_daily_summary). Region and Catego
 
 Return rate KPI shows ~24% (vs ~8% normal). Returns bar chart shows colored category breakdown with a clear spike ~3 weeks ago (~$180K peak, Skincare dominates the spike), then decay toward baseline in recent weeks. Revenue line shows steady trend with regional color breakdown. Products sorted (SKU-1001/1002/1003 at top ~30%). Region filter works (select "EU" → all widgets update). Category filter works (select "Skincare" → spike more pronounced).
 
+### SQL Formatting (Critical)
+
+When the AI Dev Kit's `databricks-aibi-dashboards` skill writes dataset SQL into `queryLines`, every array element except the last MUST end with a trailing space or `\n`. The Lakeview renderer concatenates `queryLines` verbatim — no separator is inserted. Without trailing whitespace, SQL tokens collide (`SELECT *` + `FROM x` → `SELECT *FROM x`) and every widget fails with a SQL parse error.
+
+Acceptable forms:
+- Trailing space inside each element: `["SELECT col ", "FROM tbl ", "WHERE x = 1"]`
+- Explicit newlines: `["SELECT col\n", "FROM tbl\n", "WHERE x = 1"]`
+- Single element with the whole query: `["SELECT col FROM tbl WHERE x = 1"]`
+
 Add dashboard_id to `resources.json`.
 
 ---

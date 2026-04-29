@@ -12,6 +12,7 @@ import { Button } from "../ui/button";
 import type { ProjectFile, ProjectFileContent, DeployedResourceLink } from "../../lib/custom-api";
 import { DeployedResourcesBar } from "./deployed-resources-bar";
 import { AppPreviewTab } from "../../preview";
+import { cn } from "../../lib/utils";
 
 // Lazy load the architecture diagram to avoid loading ReactFlow on every page
 const ArchitectureDiagram = lazy(() => import("./architecture-diagram"));
@@ -50,6 +51,7 @@ interface FileViewerProps {
   onResourcesClick?: () => void;
   deployedResources?: DeployedResourceLink[];
   deployedAt?: string | null;
+  newResourceIds?: Set<string>;
   /** Wire auto-fix-from-logs on the App tab. Without this, the toggle is hidden. */
   onAutoFixSend?: (message: string) => void;
   autoFixApiRef?: import("../../preview").AutoFixApiRef;
@@ -459,6 +461,39 @@ interface TabBarProps {
   onTabChange: (tab: ViewTab) => void;
   resources?: ResourcesInfo;
   onResourcesClick?: () => void;
+  hasReadme: boolean;
+  hasArchitecture: boolean;
+  hasApp: boolean;
+}
+
+function tabClasses(isActive: boolean, isAvailable: boolean): string {
+  return cn(
+    "flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-medium transition-colors cursor-pointer",
+    isActive
+      ? "bg-background text-foreground shadow-sm"
+      : isAvailable
+        ? "text-foreground hover:text-foreground"
+        : "text-muted-foreground hover:text-foreground",
+  );
+}
+
+interface TabIconProps {
+  Icon: React.ComponentType<{ className?: string }>;
+  showDot: boolean;
+}
+
+function TabIcon({ Icon, showDot }: TabIconProps) {
+  return (
+    <span className="relative inline-flex items-center justify-center">
+      <Icon className="h-4 w-4" />
+      {showDot && (
+        <span
+          aria-hidden="true"
+          className="absolute -top-0.5 -right-0.5 h-1.5 w-1.5 rounded-full bg-primary"
+        />
+      )}
+    </span>
+  );
 }
 
 const TabBar = memo(function TabBar({
@@ -466,6 +501,9 @@ const TabBar = memo(function TabBar({
   onTabChange,
   resources,
   onResourcesClick,
+  hasReadme,
+  hasArchitecture,
+  hasApp,
 }: TabBarProps) {
   return (
     <div className="shrink-0 border-b border-border bg-muted/30">
@@ -476,13 +514,10 @@ const TabBar = memo(function TabBar({
             role="tab"
             aria-selected={activeTab === "readme"}
             onClick={() => onTabChange("readme")}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-medium transition-colors cursor-pointer ${
-              activeTab === "readme"
-                ? "bg-background text-foreground shadow-sm"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
+            title={hasReadme ? "Summary (generated)" : "Summary"}
+            className={tabClasses(activeTab === "readme", hasReadme)}
           >
-            <FileText className="h-4 w-4" />
+            <TabIcon Icon={FileText} showDot={hasReadme && activeTab !== "readme"} />
             Summary
           </button>
 
@@ -490,13 +525,10 @@ const TabBar = memo(function TabBar({
             role="tab"
             aria-selected={activeTab === "architecture"}
             onClick={() => onTabChange("architecture")}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-medium transition-colors cursor-pointer ${
-              activeTab === "architecture"
-                ? "bg-background text-foreground shadow-sm"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
+            title={hasArchitecture ? "Architecture (generated)" : "Architecture"}
+            className={tabClasses(activeTab === "architecture", hasArchitecture)}
           >
-            <Network className="h-4 w-4" />
+            <TabIcon Icon={Network} showDot={hasArchitecture && activeTab !== "architecture"} />
             Architecture
           </button>
 
@@ -504,13 +536,10 @@ const TabBar = memo(function TabBar({
             role="tab"
             aria-selected={activeTab === "app"}
             onClick={() => onTabChange("app")}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-medium transition-colors cursor-pointer ${
-              activeTab === "app"
-                ? "bg-background text-foreground shadow-sm"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
+            title={hasApp ? "App (generated)" : "App"}
+            className={tabClasses(activeTab === "app", hasApp)}
           >
-            <Globe className="h-4 w-4" />
+            <TabIcon Icon={Globe} showDot={hasApp && activeTab !== "app"} />
             App
           </button>
         </div>
@@ -570,6 +599,7 @@ export const FileViewer = memo(function FileViewer({
   onResourcesClick,
   deployedResources,
   deployedAt,
+  newResourceIds,
   onAutoFixSend,
   autoFixApiRef,
 }: FileViewerProps) {
@@ -586,6 +616,13 @@ export const FileViewer = memo(function FileViewer({
   // Check if architecture.md exists
   const hasArchitecture = useMemo(
     () => files.some((f) => f.path === "architecture.md"),
+    [files]
+  );
+
+  // Check if a runnable local app exists. Mirrors the backend's
+  // `has_start_script` rule (backend/preview/registry.py).
+  const hasApp = useMemo(
+    () => files.some((f) => f.path === "app/start.sh"),
     [files]
   );
 
@@ -645,11 +682,14 @@ export const FileViewer = memo(function FileViewer({
         onTabChange={handleTabChange}
         resources={resources}
         onResourcesClick={onResourcesClick}
+        hasReadme={hasReadme}
+        hasArchitecture={hasArchitecture}
+        hasApp={hasApp}
       />
 
       {/* Deployed resources links */}
       {deployedResources && deployedResources.length > 0 && (
-        <DeployedResourcesBar resources={deployedResources} deployedAt={deployedAt} />
+        <DeployedResourcesBar resources={deployedResources} deployedAt={deployedAt} newResourceIds={newResourceIds} />
       )}
 
       {/* Content area */}

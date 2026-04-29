@@ -97,6 +97,22 @@ fi
 echo -e "${CYAN}Syncing Python environment...${NC}"
 uv sync --quiet
 
+# ============================================================================
+# Provision a shared Python 3.12 venv for databricks-connect data-gen scripts.
+# The agent reuses this single venv across all projects instead of recreating
+# one per project (which fails on Python 3.14 and wastes ~1-2 min each time).
+# Path is hardcoded so system_prompt.py can find it; rm -rf to refresh.
+# ============================================================================
+if [ ! -x .venv-dbconnect/bin/python ]; then
+    echo -e "${CYAN}Provisioning shared databricks-connect venv (Python 3.12)...${NC}"
+    uv python install 3.12 --quiet
+    uv venv --python 3.12 .venv-dbconnect --quiet
+    uv pip install --python .venv-dbconnect/bin/python --quiet \
+        "databricks-connect>=16.4,<17.4" \
+        faker numpy pandas holidays pyarrow
+    echo -e "${GREEN}databricks-connect venv ready at .venv-dbconnect${NC}"
+fi
+
 # Generate _metadata.py if missing — gitignored like _version.py, but unlike
 # _version.py there's no dynamic source, so a fresh clone has neither the
 # file nor a hatch hook run to produce one. Without this, uvicorn crashes
