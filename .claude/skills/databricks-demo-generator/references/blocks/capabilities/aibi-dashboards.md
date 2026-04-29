@@ -137,6 +137,10 @@ The spec describes WHAT to show. The ai-dev-kit skill handles HOW to build the J
 - **Generic titles** — "Revenue" tells nothing. "Revenue Up 12% YoY" tells everything.
 - **Missing filter columns** — if a dataset lacks the filter column, that widget won't respond to the filter.
 - **Too-fine cardinality in charts** — 50 categories in a bar chart is unreadable, instead get the top ~6 then aggregate as "other" using a window function.
+- **`queryLines` without trailing whitespace** — when a SQL query is split across multiple `queryLines` array elements, every element except the last MUST end with a trailing space or `\n`. The dashboard renderer concatenates the array verbatim — no separator is inserted. Missing trailing whitespace produces broken SQL like `SELECT * FROM itemsWHERE x = 1` and every widget fails with a parse error. Three valid forms:
+  - Trailing space inside each element: `["SELECT * ", "FROM items ", "WHERE x = 1"]`
+  - Explicit newlines: `["SELECT *\n", "FROM items\n", "WHERE x = 1"]`
+  - Single element with the whole query: `["SELECT * FROM items WHERE x = 1"]`
 
 ## Connections
 

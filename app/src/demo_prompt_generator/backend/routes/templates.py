@@ -57,6 +57,21 @@ def _parse_capabilities(capabilities_json: Optional[str]) -> Optional[list[str]]
         return None
 
 
+def _build_fork_greeting(template_name: str) -> str:
+    """First-message greeting shown after a fork — frames the project as the user's own."""
+    return (
+        f"👋 I've cloned **{template_name}** into a fresh project for you — "
+        "this is your own editable copy.\n\n"
+        "Before I dig into the files, tell me what you'd like to adapt:\n\n"
+        "- **Different industry or customer?** (e.g. \"switch from Retail to Healthcare\")\n"
+        "- **Change the data model or scenarios?**\n"
+        "- **Add or remove capabilities?** (Genie, dashboards, agents, pipelines)\n"
+        "- **Just rename and rebrand?**\n\n"
+        "Reply with what you have in mind, or say \"explain the current demo\" "
+        "and I'll walk you through it first."
+    )
+
+
 @router.get(
     "/templates",
     response_model=list[TemplateListItem],
@@ -455,16 +470,17 @@ def create_project_from_template(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    # Persist the opening prompt so it renders as the first chat bubble on load.
-    message_count = 0
-    if body.initial_prompt and body.initial_prompt.strip():
-        session.add(Message(
-            project_id=project.id,
-            role="user",
-            content=body.initial_prompt,
-        ))
-        session.commit()
-        message_count = 1
+    # Seed an assistant greeting so the project opens with friendly framing
+    # ("this is your editable copy — what do you want to adapt?") instead of a
+    # canned user message that the user never typed.
+    greeting = _build_fork_greeting(template.name)
+    session.add(Message(
+        project_id=project.id,
+        role="assistant",
+        content=greeting,
+    ))
+    session.commit()
+    message_count = 1
 
     return ProjectOut(
         id=project.id,

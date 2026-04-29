@@ -657,10 +657,6 @@ class TemplateStatusUpdateRequest(BaseModel):
 class CreateProjectFromTemplateRequest(BaseModel):
     """Request to create a project from a template."""
     name: str = Field(..., description="Name for the new project")
-    initial_prompt: Optional[str] = Field(
-        None,
-        description="Opening chat message to persist as the first user Message on the new project (e.g. the template's customize prompt).",
-    )
 
 
 # ---------------------------------------------------------------------------

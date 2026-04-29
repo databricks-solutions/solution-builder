@@ -3,17 +3,19 @@
  * Rendered below the FileViewer TabBar when resources.json contains deployed IDs.
  */
 
-import { memo, type SVGProps } from "react";
+import { memo, useEffect, useRef, type SVGProps } from "react";
+import { motion } from "motion/react";
 import {
   Database,
   FolderOpen,
   Boxes,
   AppWindow,
   ExternalLink,
-  Radio,
   FlaskConical,
 } from "lucide-react";
 import type { DeployedResourceLink } from "@/lib/custom-api";
+import { cn } from "@/lib/utils";
+import { getPillPalette, MEDALLION } from "@/lib/resource-palette";
 
 // Databricks-native SVG icons for resource types
 function PipelineIcon(props: SVGProps<SVGSVGElement>) {
@@ -59,12 +61,36 @@ const RESOURCE_ICONS: Record<string, React.ElementType> = {
   workspace_folder: FolderOpen,
   catalog_explorer: Boxes,
   knowledge_assistant: AgentIcon,
-  knowledge_assistant_endpoint: Radio,
   multi_agent_supervisor: AgentIcon,
-  multi_agent_supervisor_endpoint: Radio,
   mlflow_experiment: FlaskConical,
   app: AppWindow,
 };
+
+interface PillStyle {
+  pillBg: string;
+  pillHover: string;
+  iconClass: string;
+}
+
+function pillStyle(resourceType: string): PillStyle {
+  const p = getPillPalette(resourceType);
+  if (p.kind === "medallion") {
+    return {
+      pillBg: MEDALLION.pillBg,
+      pillHover: MEDALLION.pillHover,
+      iconClass: MEDALLION.iconClass,
+    };
+  }
+  return {
+    pillBg: p.color.pillBg,
+    pillHover: p.color.pillHover,
+    iconClass: p.color.iconClass,
+  };
+}
+
+function resourceKey(r: DeployedResourceLink): string {
+  return `${r.resource_type}:${r.resource_id ?? r.label}`;
+}
 
 function formatRelativeTime(dateStr: string): string {
   const date = new Date(dateStr);
@@ -84,51 +110,144 @@ function formatRelativeTime(dateStr: string): string {
 interface DeployedResourcesBarProps {
   resources: DeployedResourceLink[];
   deployedAt?: string | null;
+  newResourceIds?: Set<string>;
+}
+
+interface PillProps {
+  resource: DeployedResourceLink;
+  isNew: boolean;
+  staggerIndex: number;
+  pillRef?: (el: HTMLElement | null) => void;
+}
+
+function ResourcePill({ resource, isNew, staggerIndex, pillRef }: PillProps) {
+  const Icon = RESOURCE_ICONS[resource.resource_type] ?? ExternalLink;
+  const style = pillStyle(resource.resource_type);
+  const isLink = !!resource.url;
+
+  const innerClass = cn(
+    "relative inline-flex items-center gap-2 text-sm font-medium rounded-md px-3 py-2 border group transition-colors",
+    style.pillBg,
+    isLink ? style.pillHover : "opacity-80",
+  );
+
+  const inner = isLink ? (
+    <a
+      href={resource.url!}
+      target="_blank"
+      rel="noopener noreferrer"
+      className={innerClass}
+      title={resource.label}
+    >
+      <Icon className={cn("h-4 w-4 shrink-0", style.iconClass)} />
+      <span>{resource.label}</span>
+      <ExternalLink className="h-3 w-3 text-muted-foreground shrink-0 transition-transform group-hover:translate-x-0.5" />
+      {isNew && (
+        <span className="absolute -top-1 -right-1 flex h-2 w-2">
+          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-75" />
+          <span className="relative inline-flex h-2 w-2 rounded-full bg-primary" />
+        </span>
+      )}
+    </a>
+  ) : (
+    <span
+      className={innerClass}
+      title={resource.resource_id ?? resource.label}
+    >
+      <Icon className={cn("h-4 w-4 shrink-0", style.iconClass)} />
+      <span className="font-medium">{resource.label}</span>
+      {isNew && (
+        <span className="absolute -top-1 -right-1 flex h-2 w-2">
+          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-75" />
+          <span className="relative inline-flex h-2 w-2 rounded-full bg-primary" />
+        </span>
+      )}
+    </span>
+  );
+
+  return (
+    <motion.div
+      ref={(el) => pillRef?.(el)}
+      initial={isNew ? { scale: 0.85, opacity: 0, y: -4 } : false}
+      animate={{ scale: 1, opacity: 1, y: 0 }}
+      transition={{ delay: isNew ? staggerIndex * 0.06 : 0, duration: 0.25, ease: "easeOut" }}
+      className="relative shrink-0"
+    >
+      {isNew ? (
+        // Gradient ring — 1.5px padding acts as a moving border around the pill
+        <div className="rounded-[8px] p-[1.5px] bg-gradient-to-r from-primary/70 via-primary/20 to-primary/70 animate-resource-shimmer">
+          {inner}
+        </div>
+      ) : (
+        inner
+      )}
+    </motion.div>
+  );
 }
 
 export const DeployedResourcesBar = memo(function DeployedResourcesBar({
   resources,
   deployedAt,
+  newResourceIds,
 }: DeployedResourcesBarProps) {
+  const newPillRef = useRef<HTMLElement | null>(null);
+  const newCount = newResourceIds?.size ?? 0;
+
+  // Auto-scroll the first new pill into view when newResourceIds changes.
+  useEffect(() => {
+    if (newCount === 0) return;
+    const el = newPillRef.current;
+    if (el && typeof el.scrollIntoView === "function") {
+      el.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
+    }
+  }, [newCount]);
+
   if (resources.length === 0) return null;
 
-  return (
-    <div className="shrink-0 border-b border-border bg-muted/20">
-      <div className="flex items-center gap-2 px-4 py-1.5 overflow-x-auto">
-        <span className="text-xs font-medium text-muted-foreground shrink-0">
-          Resources
-        </span>
-        <div className="h-3 w-px bg-border shrink-0" />
-        <div className="flex items-center gap-1.5 flex-wrap">
-          {resources.map((resource) => {
-            const Icon = RESOURCE_ICONS[resource.resource_type] ?? ExternalLink;
+  let staggerCounter = 0;
+  let firstNewSeen = false;
 
-            if (resource.url) {
-              return (
-                <a
-                  key={resource.resource_type}
-                  href={resource.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1.5 text-xs bg-background border border-border rounded-md px-2 py-1 hover:bg-accent hover:text-accent-foreground transition-colors"
-                  title={resource.label}
-                >
-                  <Icon className="h-3 w-3 shrink-0" />
-                  <span>{resource.label}</span>
-                  <ExternalLink className="h-2.5 w-2.5 text-muted-foreground shrink-0" />
-                </a>
-              );
-            }
+  return (
+    <div className="shrink-0 border-b border-primary/20 bg-gradient-to-r from-primary/[0.06] via-primary/[0.02] to-primary/[0.06]">
+      <div className="flex items-center gap-3 px-4 py-3 overflow-x-auto">
+        <div className="flex items-center gap-2 shrink-0">
+          <span
+            className="inline-flex h-2 w-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.6)]"
+            aria-hidden
+          />
+          <span className="text-xs font-semibold uppercase tracking-wider text-primary">
+            Live in workspace
+          </span>
+          <span className="text-xs font-medium text-muted-foreground">
+            · {resources.length}
+          </span>
+        </div>
+        {newCount > 0 && (
+          <motion.span
+            initial={{ opacity: 0, x: -4 }}
+            animate={{ opacity: 1, x: 0 }}
+            className="text-xs font-semibold text-primary shrink-0 px-2 py-0.5 rounded-full bg-primary/15 border border-primary/30"
+          >
+            +{newCount} new
+          </motion.span>
+        )}
+        <div className="h-4 w-px bg-primary/20 shrink-0" />
+        <div className="flex items-center gap-2 flex-wrap">
+          {resources.map((resource) => {
+            const key = resourceKey(resource);
+            const isNew = newResourceIds?.has(key) ?? false;
+            const stagger = isNew ? staggerCounter++ : 0;
+            const captureRef = isNew && !firstNewSeen;
+            if (captureRef) firstNewSeen = true;
 
             return (
-              <span
-                key={resource.resource_type}
-                className="inline-flex items-center gap-1.5 text-xs bg-background border border-border rounded-md px-2 py-1 text-muted-foreground"
-                title={resource.resource_id ?? resource.label}
-              >
-                <Icon className="h-3 w-3 shrink-0" />
-                <span>{resource.label}</span>
-              </span>
+              <ResourcePill
+                key={key}
+                resource={resource}
+                isNew={isNew}
+                staggerIndex={stagger}
+                pillRef={captureRef ? (el) => { newPillRef.current = el; } : undefined}
+              />
             );
           })}
         </div>
@@ -151,3 +270,5 @@ export const DeployedResourcesBar = memo(function DeployedResourcesBar({
 });
 
 export default DeployedResourcesBar;
+
+export { resourceKey };

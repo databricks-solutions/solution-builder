@@ -179,6 +179,7 @@ export interface SyncStats {
 export type AgentEvent =
   | { type: "text_delta"; text: string }
   | { type: "text"; text: string }
+  | { type: "text_block_start" }
   | { type: "thinking"; thinking: string }
   | { type: "thinking_delta"; thinking: string }
   | { type: "tool_use"; tool_id: string; tool_name: string; tool_input: unknown; timestamp?: string }
@@ -942,12 +943,11 @@ export async function updateTemplateStatus(
 export async function createProjectFromTemplate(
   templateId: string,
   name: string,
-  initialPrompt?: string,
 ): Promise<Project> {
   const resp = await fetch(apiUrl(`/api/templates/${templateId}/create-project`), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name, initial_prompt: initialPrompt }),
+    body: JSON.stringify({ name }),
   });
   if (!resp.ok) throw new Error(`Failed to create project from template: ${resp.status}`);
   return resp.json();

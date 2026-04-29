@@ -25,7 +25,7 @@ import {
   type TemplateFile,
 } from "../../lib/custom-api";
 import { Prose } from "../markdown-prose";
-import { Code, Clock, Download, Eye, FileText, Folder, Loader2, Sparkles } from "lucide-react";
+import { Code, Clock, Download, Eye, FileText, Folder, GitFork, Info, Loader2, Sparkles } from "lucide-react";
 
 interface TemplateDetailPopupProps {
   templateId: string | null;
@@ -96,13 +96,6 @@ export function TemplateDetailPopup({ templateId, onClose }: TemplateDetailPopup
       .finally(() => setIsLoadingFile(false));
   }, [templateId, selectedFile]);
 
-  // Customization prompt sent after cloning template
-  const CUSTOMIZATION_PROMPT = `I cloned a demo template locally. Please:
-1. Read the current content (README.md and other files) to understand the demo story
-2. Read the demo-generator skill documentation since this template is built on top of it
-
-I'm going to send you follow-up instructions to customize this demo. Once you've read and understood the content, let me know you're ready to receive my customization requirements.`;
-
   const handleCustomize = async () => {
     if (!template) return;
 
@@ -111,7 +104,6 @@ I'm going to send you follow-up instructions to customize this demo. Once you've
       const project = await createProjectFromTemplate(
         template.id,
         template.name,
-        CUSTOMIZATION_PROMPT,
       );
       onClose();
       navigate({
@@ -152,9 +144,9 @@ I'm going to send you follow-up instructions to customize this demo. Once you've
             <Sparkles className="absolute inset-0 m-auto h-8 w-8 text-primary animate-pulse" />
           </div>
           <div className="text-center space-y-2">
-            <h2 className="text-2xl font-semibold">Cloning Template</h2>
+            <h2 className="text-2xl font-semibold">Forking template…</h2>
             <p className="text-muted-foreground">
-              Creating your project from "{template?.name}"...
+              Setting up your editable copy of "{template?.name}".
             </p>
             <p className="text-sm text-muted-foreground/70">
               This may take a moment
@@ -203,6 +195,15 @@ I'm going to send you follow-up instructions to customize this demo. Once you've
             </div>
           )}
         </SheetHeader>
+
+        {/* Adaptation explainer strip */}
+        <div className="flex items-start gap-2 px-6 py-2.5 border-b bg-muted/30 text-xs text-muted-foreground">
+          <Info className="h-3.5 w-3.5 mt-0.5 shrink-0 text-primary/70" />
+          <span>
+            Preview the files below. When you fork, you'll get your own copy of this project — adapt the industry,
+            data model, and capabilities by chatting with the AI.
+          </span>
+        </div>
 
         <div className="flex-1 flex min-h-0">
           {/* File tree sidebar */}
@@ -304,28 +305,33 @@ I'm going to send you follow-up instructions to customize this demo. Once you've
               </>
             )}
           </Button>
-          <Button
-            onClick={handleCustomize}
-            disabled={isCreating || !template || !isApproved}
-            title={!isApproved && template ? "This template is pending approval and cannot be customized yet" : undefined}
-          >
-            {isCreating ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Creating...
-              </>
-            ) : !isApproved && template ? (
-              <>
-                <Clock className="mr-2 h-4 w-4" />
-                Template pending approval
-              </>
-            ) : (
-              <>
-                <Sparkles className="mr-2 h-4 w-4" />
-                Customize this template
-              </>
-            )}
-          </Button>
+          <div className="flex items-center gap-3 ml-auto sm:ml-0">
+            <span className="hidden sm:inline text-xs text-muted-foreground">
+              You'll get a private editable copy
+            </span>
+            <Button
+              onClick={handleCustomize}
+              disabled={isCreating || !template || !isApproved}
+              title={!isApproved && template ? "This template is pending approval and cannot be forked yet" : "Fork this template into a new project"}
+            >
+              {isCreating ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Forking…
+                </>
+              ) : !isApproved && template ? (
+                <>
+                  <Clock className="mr-2 h-4 w-4" />
+                  Template pending approval
+                </>
+              ) : (
+                <>
+                  <GitFork className="mr-2 h-4 w-4" />
+                  Fork & adapt
+                </>
+              )}
+            </Button>
+          </div>
         </SheetFooter>
       </SheetContent>
     </Sheet>

@@ -157,3 +157,13 @@
 .animate-progress-pulse {
   animation: progress-pulse 1.5s ease-in-out infinite;
 }
+
+/* Rotating gradient ring for newly-deployed resource pills */
+@keyframes resource-shimmer {
+  0%   { background-position: 0% 50%; }
+  100% { background-position: 200% 50%; }
+}
+.animate-resource-shimmer {
+  background-size: 200% 200%;
+  animation: resource-shimmer 2.4s linear infinite;
+}

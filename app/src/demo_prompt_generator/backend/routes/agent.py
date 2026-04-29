@@ -31,6 +31,7 @@ from ..models import (
     InvokeAgentResponse,
     Message,
     Project,
+    Template,
     User,
     compress_reasoning,
     generate_uuid,
@@ -113,9 +114,24 @@ async def invoke_agent(
         project = _get_user_project(session, body.project_id, user_email)
         user = session.exec(select(User).where(User.email == user_email)).first()
         databricks_profile = user.databricks_profile if user else "DEFAULT"
-        return project, databricks_profile
+        # Look up template lineage so the system prompt can frame the agent
+        # as adapting an existing demo rather than authoring from scratch.
+        template_lineage = None
+        if project.source_template_id:
+            tpl = session.get(Template, project.source_template_id)
+            if tpl:
+                try:
+                    caps = json.loads(tpl.capabilities) if tpl.capabilities else []
+                except (json.JSONDecodeError, TypeError):
+                    caps = []
+                template_lineage = {
+                    "name": tpl.name,
+                    "industry": tpl.industry,
+                    "capabilities": caps,
+                }
+        return project, databricks_profile, template_lineage
 
-    project, databricks_profile = await asyncio.to_thread(_load_initial)
+    project, databricks_profile, template_lineage = await asyncio.to_thread(_load_initial)
 
     manager = get_stream_manager()
 
@@ -176,6 +192,7 @@ async def invoke_agent(
                 default_schema=project.default_schema,
                 databricks_profile=databricks_profile,
                 session_id=session_id,
+                template_lineage=template_lineage,
             ):
                 collected_events.append(event)
         except asyncio.CancelledError:

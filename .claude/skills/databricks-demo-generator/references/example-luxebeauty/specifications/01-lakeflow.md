@@ -27,7 +27,7 @@ Important reminder: these are generated guidance for you to generate pyspark dat
 
 **Skill to use**: `databricks-synthetic-data-gen` — read `SKILLS/databricks-synthetic-data-gen/SKILL.md` before implementing.
 
-**Python runtime**: use **Python 3.12** for data-gen (matches Databricks serverless). Running 3.11 locally against serverless causes pickle/UDF mismatches.
+**Python runtime**: use the pre-provisioned databricks-connect venv (its path is in the system prompt under "Pre-provisioned databricks-connect venv"). Do NOT create a new venv or install databricks-connect — the shared venv already has Python 3.12, databricks-connect, faker, numpy, pandas, holidays, and pyarrow.
 
 **Important note**: when generating this file, ensure the math are correct if you use exact numbers - keep it approximative to avoid incoherences.
 

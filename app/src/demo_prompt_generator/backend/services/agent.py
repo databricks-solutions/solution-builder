@@ -231,6 +231,7 @@ async def stream_agent_response(
     default_schema: str | None = None,
     databricks_profile: str | None = None,
     session_id: str | None = None,
+    template_lineage: dict | None = None,
 ) -> AsyncIterator[dict]:
     """
     Stream Claude Code agent responses with client pooling.
@@ -294,6 +295,7 @@ async def stream_agent_response(
                 databricks_profile=databricks_profile,
                 skills=skills,
                 project_dir=str(project_dir),
+                template_lineage=template_lineage,
             )
 
             # Build allowed tools list
@@ -581,7 +583,16 @@ def _convert_sdk_message(msg: Any) -> Generator[dict, None, None]:
         event_data = msg.event
         event_type = event_data.get("type", "")
 
-        if event_type == "content_block_delta":
+        if event_type == "content_block_start":
+            # Emit a boundary event so the UI can insert a paragraph break
+            # between consecutive text blocks within a single turn (the
+            # model typically emits one TextBlock per "thought" between
+            # tool calls — without a separator they render as a wall of
+            # text glued together).
+            block = event_data.get("content_block", {})
+            if block.get("type") == "text":
+                yield {"type": "text_block_start"}
+        elif event_type == "content_block_delta":
             delta = event_data.get("delta", {})
             delta_type = delta.get("type", "")
             if delta_type == "text_delta":
@@ -626,20 +637,31 @@ def _process_tool_result(block) -> dict:
 def collect_text_response(events: list[dict]) -> str:
     """Collect full text response from a list of events.
 
-    Prefers the final 'text' event (complete message) over deltas.
-    Falls back to accumulating 'text_delta' events if no final text.
+    The SDK emits one 'text' event per TextBlock — and a single agent turn
+    may contain multiple TextBlocks (one between each tool call). Join them
+    with blank lines so the persisted message preserves the visual breaks
+    the user saw streaming. Falls back to text_delta accumulation, inserting
+    the same separator on each text_block_start boundary.
     """
-    # First, look for a final 'text' event (complete message)
-    for event in reversed(events):
-        if event.get("type") == "text":
-            return event.get("text", "")
+    text_blocks = [e.get("text", "") for e in events if e.get("type") == "text"]
+    text_blocks = [t for t in text_blocks if t]
+    if text_blocks:
+        return "\n\n".join(text_blocks)
 
-    # Fallback: accumulate text_delta events
-    text_parts = []
+    # Fallback: rebuild from deltas, splitting on text_block_start.
+    parts: list[str] = []
+    current: list[str] = []
     for event in events:
-        if event.get("type") == "text_delta":
-            text_parts.append(event.get("text", ""))
-    return "".join(text_parts)
+        etype = event.get("type")
+        if etype == "text_block_start":
+            if current:
+                parts.append("".join(current))
+                current = []
+        elif etype == "text_delta":
+            current.append(event.get("text", ""))
+    if current:
+        parts.append("".join(current))
+    return "\n\n".join(p for p in parts if p)
 
 
 def collect_reasoning(events: list[dict]) -> list[dict]:

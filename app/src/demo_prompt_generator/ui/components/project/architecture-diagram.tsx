@@ -32,6 +32,7 @@ import {
   type TierType,
   type ArchitectureSchema,
 } from "../../lib/architecture-schema";
+import { getIconPalette, MEDALLION } from "../../lib/resource-palette";
 import { getViewportForBounds } from "@xyflow/system";
 import { Button } from "@/components/ui/button";
 import { Download, ZoomIn, ZoomOut, Maximize2 } from "lucide-react";
@@ -97,6 +98,41 @@ interface CustomNodeData {
   description?: string;
 }
 
+// Resolve node colors: icon-specific palette takes precedence over tier
+// (so Genie always looks Genie-amber, Dashboard always Dashboard-violet,
+// regardless of which tier the AI placed it in). Generic icons (deltaTable,
+// data, unityCatalog, etc.) fall through to tier color so bronze/silver/gold
+// medallion layers stay visually distinct.
+function resolveNodeColors(icon: DatabricksIconName, tier: TierType) {
+  const override = getIconPalette(icon);
+  if (override?.kind === "medallion") {
+    return {
+      bg: MEDALLION.nodeBg,
+      border: MEDALLION.nodeBorder,
+      labelClass: MEDALLION.labelClass,
+      iconClass: MEDALLION.labelClass,
+      stripe: MEDALLION.stripe,
+    };
+  }
+  if (override?.kind === "color") {
+    return {
+      bg: override.color.nodeBg,
+      border: override.color.nodeBorder,
+      labelClass: override.color.labelClass,
+      iconClass: override.color.labelClass,
+      stripe: override.color.stripe,
+    };
+  }
+  const cfg = TIER_CONFIG[tier];
+  return {
+    bg: cfg.bg,
+    border: cfg.border,
+    labelClass: cfg.color,
+    iconClass: cfg.color,
+    stripe: cfg.stripe,
+  };
+}
+
 const CustomNode = memo(function CustomNode({
   data,
   selected
@@ -105,16 +141,16 @@ const CustomNode = memo(function CustomNode({
   selected?: boolean;
 }) {
   const Icon = DATABRICKS_ICONS[data.icon] || DATABRICKS_ICONS.data;
-  const cfg = TIER_CONFIG[data.tier || "source"];
+  const c = resolveNodeColors(data.icon, data.tier || "source");
 
   return (
     <div
-      className={`relative rounded-xl border ${cfg.border} ${cfg.bg} min-w-[170px] max-w-[220px] transition-all duration-200 dark:backdrop-blur-sm ${
+      className={`relative rounded-xl border ${c.border} ${c.bg} min-w-[170px] max-w-[220px] transition-all duration-200 dark:backdrop-blur-sm ${
         selected
           ? "shadow-lg shadow-primary/10 ring-2 ring-primary/50 -translate-y-0.5"
           : "shadow-md hover:shadow-lg hover:-translate-y-0.5"
       }`}
-      style={{ borderLeftWidth: '4px', borderLeftColor: cfg.stripe }}
+      style={{ borderLeftWidth: '4px', borderLeftColor: c.stripe }}
     >
       <div className="pl-3.5 pr-3.5 py-2.5">
         {/* Connection handles */}
@@ -137,11 +173,11 @@ const CustomNode = memo(function CustomNode({
 
         {/* Content */}
         <div className="flex items-center gap-2.5">
-          <div className={`shrink-0 ${cfg.color}`}>
+          <div className={`shrink-0 ${c.iconClass}`}>
             <Icon className="h-6 w-6" />
           </div>
           <div className="flex-1 min-w-0">
-            <div className={`text-[13px] font-semibold ${cfg.color} truncate leading-tight`}>
+            <div className={`text-[13px] font-semibold ${c.labelClass} truncate leading-tight`}>
               {data.label}
             </div>
             {data.description && (
@@ -296,8 +332,14 @@ const ArchitectureDiagramInner = memo(function ArchitectureDiagramInner({
   const onConnect = useCallback(
     (params: Connection) => {
       const sourceNode = nodes.find(n => n.id === params.source);
-      const sourceTier = ((sourceNode?.data as unknown) as CustomNodeData)?.tier || "source";
-      const edgeColor = TIER_CONFIG[sourceTier]?.stripe || "#64748b";
+      const sourceData = (sourceNode?.data as unknown) as CustomNodeData | undefined;
+      const sourceTier = sourceData?.tier || "source";
+      let edgeColor = TIER_CONFIG[sourceTier]?.stripe || "#64748b";
+      if (sourceData?.icon) {
+        const override = getIconPalette(sourceData.icon);
+        if (override?.kind === "medallion") edgeColor = MEDALLION.stripe;
+        else if (override?.kind === "color") edgeColor = override.color.stripe;
+      }
 
       setEdges((eds) =>
         addEdge(
@@ -431,6 +473,12 @@ const ArchitectureDiagramInner = memo(function ArchitectureDiagramInner({
             className="!bg-muted/50 !border-border"
             nodeColor={(node) => {
               const data = node.data as unknown as CustomNodeData | GroupNodeData | BarNodeData;
+              const icon = "icon" in data ? data.icon : undefined;
+              if (icon) {
+                const override = getIconPalette(icon);
+                if (override?.kind === "medallion") return MEDALLION.stripe;
+                if (override?.kind === "color") return override.color.stripe;
+              }
               const tier = 'tier' in data ? data.tier : undefined;
               return tier ? TIER_CONFIG[tier]?.stripe || "#64748b" : "#64748b";
             }}
