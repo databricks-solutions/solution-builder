@@ -93,12 +93,11 @@ resources:
       name: ${var.app_name}
       description: "Demo Prompt Generator — generates Databricks demo skill packages"
       source_code_path: ./.build
-      # NOTE on the Lakebase grant: tried `database: { instance_name: <project-name> }`
-      # but Apps' grant API rejects autoscaling project names ("Database instance
-      # X does not exist") — it only knows legacy Lakebase instances. So we
-      # don't declare a `database` grant here; the SP grant on the project is
-      # done once manually in the Lakebase UI. Runtime auth uses SDK OAuth
-      # tokens via core/lakebase.py.
+      # NOTE on the Lakebase grant: even with TF 1.15.0, Apps' grant API rejects
+      # autoscaling project slugs ("Database instance X does not exist") — it
+      # only knows legacy Lakebase Provisioned instances. So no `database`
+      # grant here; SP auth is wired via PG role + workspace CAN_USE grant
+      # done out-of-band (see deploy steps below).
       resources:
         - name: "ai-gateway"
           serving_endpoint:
