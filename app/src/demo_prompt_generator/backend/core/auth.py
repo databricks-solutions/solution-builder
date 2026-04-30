@@ -166,9 +166,17 @@ def subprocess_auth_env(
     """
     if mode == "deployed":
         auth_file = project_dir / AUTH_FILE_NAME
+        # Scrub OAuth-M2M creds the Databricks Apps runtime sets in the parent
+        # process. Without this, the subprocess inherits DATABRICKS_CLIENT_ID/
+        # SECRET and the SDK auth chain picks oauth-m2m (the app SP) over the
+        # PAT in our config file — so resources get created as the SP instead
+        # of the user. Pinning DATABRICKS_AUTH_TYPE=pat is belt-and-braces.
         return {
             "DATABRICKS_CONFIG_FILE": str(auth_file),
             "DATABRICKS_CONFIG_PROFILE": AUTH_FILE_PROFILE,
+            "DATABRICKS_AUTH_TYPE": "pat",
+            "DATABRICKS_CLIENT_ID": "",
+            "DATABRICKS_CLIENT_SECRET": "",
         }
 
     # local
