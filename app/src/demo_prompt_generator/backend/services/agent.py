@@ -39,7 +39,6 @@ except ImportError:
 
 # Constants
 KEEPALIVE_INTERVAL = 15  # seconds between keepalive events
-CLIENT_IDLE_TIMEOUT = 300  # 5 minutes before disconnecting idle clients
 
 
 async def _keepalive_loop(stream: ActiveStream, interval: float = KEEPALIVE_INTERVAL) -> None:
@@ -96,7 +95,11 @@ def _build_claude_env(
 
 
 # ---------------------------------------------------------------------------
-# Client Pool - keeps clients alive for session reuse
+# Client Pool - tracks the current SDK client per project so we can disconnect
+# it on errors or when starting a new turn. We do NOT reuse clients across
+# turns — a fresh client + options.resume=session_id gives reliable session
+# continuity, while reuse occasionally produced a degenerate "yes" ack on the
+# turn after a tool-heavy stage (root cause unclear, fix is to avoid reuse).
 # ---------------------------------------------------------------------------
 
 @dataclass
@@ -105,34 +108,15 @@ class PooledClient:
     client: Any  # ClaudeSDKClient
     project_id: str
     created_at: float = field(default_factory=time.time)
-    last_used_at: float = field(default_factory=time.time)
-    is_busy: bool = False
     session_id: str | None = None
-
-    def mark_used(self):
-        self.last_used_at = time.time()
-
-    def is_idle_expired(self) -> bool:
-        return time.time() - self.last_used_at > CLIENT_IDLE_TIMEOUT
 
 
 class ClientPool:
-    """Pool of ClaudeSDKClient instances keyed by project_id."""
+    """Tracks the current ClaudeSDKClient per project_id for cleanup."""
 
     def __init__(self):
         self._clients: dict[str, PooledClient] = {}
         self._lock = asyncio.Lock()
-
-    async def get_client(self, project_id: str) -> PooledClient | None:
-        """Get an existing client for a project if available and not busy."""
-        async with self._lock:
-            pooled = self._clients.get(project_id)
-            if pooled and not pooled.is_busy and not pooled.is_idle_expired():
-                pooled.is_busy = True
-                pooled.mark_used()
-                logger.info(f"Reusing pooled client for project {project_id}")
-                return pooled
-            return None
 
     async def register_client(
         self,
@@ -140,9 +124,8 @@ class ClientPool:
         client: Any,
         session_id: str | None = None,
     ) -> PooledClient:
-        """Register a new client in the pool."""
+        """Register a new client, disconnecting any prior one for this project."""
         async with self._lock:
-            # Disconnect any existing client first
             existing = self._clients.get(project_id)
             if existing:
                 await self._disconnect_client(existing)
@@ -151,25 +134,13 @@ class ClientPool:
                 client=client,
                 project_id=project_id,
                 session_id=session_id,
-                is_busy=True,
             )
             self._clients[project_id] = pooled
             logger.info(f"Registered new client for project {project_id}")
             return pooled
 
-    async def release_client(self, project_id: str, session_id: str | None = None):
-        """Mark a client as available for reuse."""
-        async with self._lock:
-            pooled = self._clients.get(project_id)
-            if pooled:
-                pooled.is_busy = False
-                pooled.mark_used()
-                if session_id:
-                    pooled.session_id = session_id
-                logger.debug(f"Released client for project {project_id}")
-
     async def remove_client(self, project_id: str):
-        """Remove and disconnect a client from the pool."""
+        """Remove and disconnect a client."""
         async with self._lock:
             pooled = self._clients.pop(project_id, None)
             if pooled:
@@ -253,83 +224,79 @@ async def stream_agent_response(
         return
 
     pool = get_client_pool()
-    pooled = await pool.get_client(project_id)
-    client = None
     final_session_id = None
-    created_new_client = False
 
     try:
-        if pooled:
-            # Reuse existing client - just send a new query
-            client = pooled.client
-            logger.info(f"Reusing client for project {project_id}")
-        else:
-            # Create new client with full options
-            created_new_client = True
-            skills = get_project_skills_list(project_id)
-            system_prompt = get_system_prompt(
-                cluster_id=cluster_id,
-                warehouse_id=warehouse_id,
-                default_catalog=default_catalog,
-                default_schema=default_schema,
-                workspace_url=get_workspace_url(),
-                databricks_profile=databricks_profile,
-                skills=skills,
-                project_dir=str(project_dir),
-                template_lineage=template_lineage,
-            )
+        # Always create a fresh client per turn. Reusing a long-lived client
+        # across turns occasionally produced a degenerate "yes" ack on the
+        # turn after a tool-heavy stage — the create-fresh + options.resume
+        # path below already worked reliably (it's what every second-attempt
+        # and post-idle-timeout invocation hit before), so we make it the
+        # only path.
+        skills = get_project_skills_list(project_id)
+        system_prompt = get_system_prompt(
+            cluster_id=cluster_id,
+            warehouse_id=warehouse_id,
+            default_catalog=default_catalog,
+            default_schema=default_schema,
+            workspace_url=get_workspace_url(),
+            databricks_profile=databricks_profile,
+            skills=skills,
+            project_dir=str(project_dir),
+            template_lineage=template_lineage,
+        )
 
-            # Build allowed tools list. `Skill` enables the agent's Skill tool
-            # so it can invoke skills declared in <cwd>/.claude/skills/ (notably
-            # databricks-demo-generator + the per-project ai-dev-kit skills).
-            allowed_tools = ["Skill", "Read", "Write", "Edit", "Glob", "Grep", "Bash"]
+        # Build allowed tools list. `Skill` enables the agent's Skill tool
+        # so it can invoke skills declared in <cwd>/.claude/skills/ (notably
+        # databricks-demo-generator + the per-project ai-dev-kit skills).
+        allowed_tools = ["Skill", "Read", "Write", "Edit", "Glob", "Grep", "Bash"]
 
-            # Configure agent options
-            # setting_sources=["project"] loads filesystem settings from the
-            # project's .claude/ — this is what the Agent SDK uses to discover
-            # skills (loading is gated on settingSources per the SDK docs). We
-            # deliberately exclude "user" so the agent doesn't pick up the host
-            # user's ~/.claude/ — and `mcp_servers={}` below stops it from
-            # inheriting MCP servers from any settings file regardless.
-            #
-            # env carries two things (see _build_claude_env + AUTH.md):
-            #   1. ANTHROPIC_* for FMAPI routing (deployed-as-app only)
-            #   2. DATABRICKS_CONFIG_* so subprocess `databricks ...` calls
-            #      authenticate as the user (file pointer in deployed mode,
-            #      profile name in local mode)
-            claude_env = _build_claude_env(
-                project_dir,
-                mode=mode,
-                local_profile=databricks_profile,
-            )
-            options = ClaudeAgentOptions(
-                cwd=str(project_dir),
-                allowed_tools=allowed_tools,
-                permission_mode="bypassPermissions",
-                system_prompt=system_prompt,
-                include_partial_messages=True,
-                setting_sources=["project"],
-                mcp_servers={},
-                env=claude_env,
-                # Default is 1 MB which is too tight for a coding agent — a
-                # `Read` on a moderate file or `Bash` stdout from a verbose
-                # command routinely exceeds it and kills the stdin reader.
-                max_buffer_size=25 * 1024 * 1024,
-            )
+        # Configure agent options
+        # setting_sources=["project"] loads filesystem settings from the
+        # project's .claude/ — this is what the Agent SDK uses to discover
+        # skills (loading is gated on settingSources per the SDK docs). We
+        # deliberately exclude "user" so the agent doesn't pick up the host
+        # user's ~/.claude/ — and `mcp_servers={}` below stops it from
+        # inheriting MCP servers from any settings file regardless.
+        #
+        # env carries two things (see _build_claude_env + AUTH.md):
+        #   1. ANTHROPIC_* for FMAPI routing (deployed-as-app only)
+        #   2. DATABRICKS_CONFIG_* so subprocess `databricks ...` calls
+        #      authenticate as the user (file pointer in deployed mode,
+        #      profile name in local mode)
+        claude_env = _build_claude_env(
+            project_dir,
+            mode=mode,
+            local_profile=databricks_profile,
+        )
+        options = ClaudeAgentOptions(
+            cwd=str(project_dir),
+            allowed_tools=allowed_tools,
+            permission_mode="bypassPermissions",
+            system_prompt=system_prompt,
+            include_partial_messages=True,
+            setting_sources=["project"],
+            mcp_servers={},
+            env=claude_env,
+            # Default is 1 MB which is too tight for a coding agent — a
+            # `Read` on a moderate file or `Bash` stdout from a verbose
+            # command routinely exceeds it and kills the stdin reader.
+            max_buffer_size=25 * 1024 * 1024,
+        )
 
-            # Resume previous session if provided
-            if session_id:
-                options.resume = session_id
-                options.continue_conversation = True
-                logger.info(f"Resuming Claude Code session: {session_id}")
+        # Resume previous session if provided
+        if session_id:
+            options.resume = session_id
+            options.continue_conversation = True
+            logger.info(f"Resuming Claude Code session: {session_id}")
 
-            # Create and connect new client
-            client = ClaudeSDKClient(options=options)
-            await client.connect()
-            logger.info(f"Created new client for project {project_id}")
+        # Create and connect new client
+        client = ClaudeSDKClient(options=options)
+        await client.connect()
+        logger.info(f"Created new client for project {project_id}")
 
-            # Register in pool
-            pooled = await pool.register_client(project_id, client, session_id)
+        # Register so we can disconnect on errors / next turn
+        await pool.register_client(project_id, client, session_id)
 
         # Send the message
         await client.query(message)
@@ -383,9 +350,9 @@ async def stream_agent_response(
             except asyncio.CancelledError:
                 pass
 
-        # Success - mark complete and release client for reuse
+        # Success - mark complete and disconnect the client.
         stream.mark_complete(session_id=final_session_id)
-        await pool.release_client(project_id, final_session_id)
+        await pool.remove_client(project_id)
         logger.info(f"Agent completed for project {project_id}")
 
     except Exception as e:
