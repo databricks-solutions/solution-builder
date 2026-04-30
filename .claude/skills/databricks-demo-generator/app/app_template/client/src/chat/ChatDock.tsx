@@ -67,6 +67,11 @@ export function ChatDock() {
   // hasn't scrolled up. Flips back on once they scroll back to the bottom.
   // Same pattern as ThinkingPanel.
   const stickToBottomRef = useRef(true);
+  // Forward-ref to the chat-turn `stop()` so `startNewConversation` can
+  // abort any in-flight stream BEFORE clearing UI state (otherwise the
+  // old turn keeps writing to setMessages of the new conversation).
+  // The actual fn is set right after useChatTurn() runs below.
+  const turnStopRef = useRef<(() => void) | null>(null);
   const pendingAutoSend = useRef<string | null>(null);
   // Tracks the last /c/:id we saw; if the user navigates away from that
   // route, the dock auto-adopts that conversation so the chat carries over.
@@ -127,6 +132,12 @@ export function ChatDock() {
   //   2. The restore effect explicitly skips while `creatingNew` is true.
   const startNewConversation = useCallback(
     async (title = 'New conversation'): Promise<string | null> => {
+      // Abort any in-flight stream FIRST. If a previous turn is still
+      // streaming, its reader keeps writing to setMessages — we'd see
+      // "first message arrives then stops" because the stale stream is
+      // overwriting the new conversation's empty state. Aborting also
+      // lets the auto-send effect fire (it waits for streaming=false).
+      turnStopRef.current?.();
       setCreatingNew(true);
       // Clear immediately — both UI state AND the restore-pointer — so
       // nothing can resurrect the previous conversation while we wait.
@@ -284,14 +295,25 @@ export function ChatDock() {
     },
   });
 
-  // Consume pending auto-send once the conversation is ready.
+  // Expose `turn.stop` to startNewConversation via a ref — see comment at
+  // turnStopRef declaration. Updates every render (cheap, just a ref write).
+  turnStopRef.current = turn.stop;
+
+  // Consume pending auto-send once the conversation is ready AND no
+  // previous turn is still streaming. Without the streaming check we'd
+  // silently lose the prompt: useChatTurn.send returns early when
+  // streaming is true (it can't run two turns concurrently), but the
+  // effect would still null out pendingAutoSend.current — the chip click
+  // would just disappear. Re-running on `streaming` flipping to false
+  // means the queued prompt fires the moment the previous turn ends.
   useEffect(() => {
     if (!open || !conversationId || !pendingAutoSend.current) return;
+    if (turn.streaming) return; // wait for in-flight turn to finish
     const prompt = pendingAutoSend.current;
     pendingAutoSend.current = null;
     void turn.send(prompt);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, conversationId]);
+  }, [open, conversationId, turn.streaming]);
 
   // Autoscroll on new messages / streaming tokens — but ONLY if the user
   // hasn't scrolled up. Once they scroll up they break the stick; once

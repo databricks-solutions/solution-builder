@@ -7,7 +7,7 @@ import React, { memo, useState, useMemo, useEffect, lazy, Suspense } from "react
 import { ScrollArea } from "../ui/scroll-area";
 import { Prose } from "../markdown-prose";
 import { Skeleton } from "../ui/skeleton";
-import { ChevronRight, ChevronDown, ChevronLeft, Folder, FolderOpen, FileText, FileCode, Braces, Settings, File, Sparkles, RefreshCw, Network, Database, Eye, Code, Server, Boxes, Globe } from "lucide-react";
+import { ChevronRight, ChevronDown, ChevronLeft, Folder, FolderOpen, FileText, FileCode, Braces, Settings, File, Sparkles, RefreshCw, Network, Database, Eye, EyeOff, Code, Server, Boxes, Globe } from "lucide-react";
 import { Button } from "../ui/button";
 import type { ProjectFile, ProjectFileContent, DeployedResourceLink } from "../../lib/custom-api";
 import { DeployedResourcesBar } from "./deployed-resources-bar";
@@ -39,6 +39,16 @@ interface FileViewerProps {
   fileContent: ProjectFileContent | null;
   onSelectFile: (path: string) => void;
   onSkillsClick?: () => void;
+  /** Toggle for "show hidden files" in the file tree. Hidden files
+   *  (`.databrickscfg`, `.claude/skills/`, `.preview.pgid`) are filtered
+   *  out by default so the everyday user doesn't see them. SAs flip
+   *  this to debug deployed-mode auth (e.g. confirm `.databrickscfg`
+   *  is being written to the project dir on each request).
+   *
+   *  The toggle is bound to a small EyeOff icon at the bottom of the
+   *  sidebar — discoverable but visually subtle. */
+  showHidden?: boolean;
+  onToggleShowHidden?: () => void;
   onRefresh?: () => void;
   isLoading?: boolean;
   architectureContent?: string | null;
@@ -164,7 +174,11 @@ const FolderItem = memo(function FolderItem({
   selectedFile,
   onSelectFile,
   depth,
-  defaultExpanded = true,
+  // Folders start collapsed by default — keeps the tree compact on
+  // first render. The user expands what they want; we still auto-show
+  // children of any folder containing the currently-selected file
+  // (see hasSelectedChild below) so deep-linking still surfaces it.
+  defaultExpanded = false,
 }: FolderItemProps) {
   const [isExpanded, setIsExpanded] = useState(defaultExpanded);
 
@@ -285,6 +299,8 @@ interface CollapsedSidebarProps {
   fileCount: number;
   onExpand: () => void;
   onSkillsClick?: () => void;
+  showHidden?: boolean;
+  onToggleShowHidden?: () => void;
   onRefresh?: () => void;
   activeTab: ViewTab;
 }
@@ -293,6 +309,8 @@ const CollapsedSidebar = memo(function CollapsedSidebar({
   fileCount,
   onExpand,
   onSkillsClick,
+  showHidden,
+  onToggleShowHidden,
   onRefresh,
   activeTab,
 }: CollapsedSidebarProps) {
@@ -363,6 +381,24 @@ const CollapsedSidebar = memo(function CollapsedSidebar({
             <span className="text-xs text-foreground/70 font-medium">Skills</span>
           </button>
         )}
+
+        {/* Show hidden files toggle — small, dim by default. When ON,
+             the file tree includes `.databrickscfg`, `.claude/skills/`,
+             etc. so SAs can debug deployed-mode auth shape. */}
+        {onToggleShowHidden && (
+          <button
+            onClick={onToggleShowHidden}
+            className={cn(
+              "flex flex-col items-center gap-0.5 p-1.5 rounded hover:bg-muted/50 transition-colors cursor-pointer",
+              showHidden ? "opacity-100 text-amber-600 dark:text-amber-400" : "opacity-60 hover:opacity-100",
+            )}
+            title={showHidden ? "Hide system files" : "Show all files (incl. hidden)"}
+            aria-label="Toggle hidden files"
+            aria-pressed={!!showHidden}
+          >
+            <EyeOff className="h-3.5 w-3.5" />
+          </button>
+        )}
       </div>
     </div>
   );
@@ -378,6 +414,8 @@ interface ExpandedSidebarProps {
   onSelectFile: (path: string) => void;
   onCollapse: () => void;
   onSkillsClick?: () => void;
+  showHidden?: boolean;
+  onToggleShowHidden?: () => void;
   onRefresh?: () => void;
 }
 
@@ -387,6 +425,8 @@ const ExpandedSidebar = memo(function ExpandedSidebar({
   onSelectFile,
   onCollapse,
   onSkillsClick,
+  showHidden,
+  onToggleShowHidden,
   onRefresh,
 }: ExpandedSidebarProps) {
   return (
@@ -441,6 +481,21 @@ const ExpandedSidebar = memo(function ExpandedSidebar({
           >
             <Sparkles className="h-4 w-4 text-foreground/70" />
             <span className="text-xs text-foreground/70 font-medium">Skills</span>
+          </button>
+        )}
+        {/* Show hidden files toggle — see CollapsedSidebar comment. */}
+        {onToggleShowHidden && (
+          <button
+            onClick={onToggleShowHidden}
+            className={cn(
+              "ml-auto flex items-center gap-1.5 px-2 py-1.5 rounded hover:bg-muted/50 transition-colors cursor-pointer",
+              showHidden ? "opacity-100 text-amber-600 dark:text-amber-400" : "opacity-60 hover:opacity-100",
+            )}
+            title={showHidden ? "Hide system files" : "Show all files (incl. hidden)"}
+            aria-label="Toggle hidden files"
+            aria-pressed={!!showHidden}
+          >
+            <EyeOff className="h-3.5 w-3.5" />
           </button>
         )}
       </div>
@@ -587,6 +642,8 @@ export const FileViewer = memo(function FileViewer({
   fileContent,
   onSelectFile,
   onSkillsClick,
+  showHidden,
+  onToggleShowHidden,
   onRefresh,
   isLoading = false,
   architectureContent,
@@ -713,6 +770,8 @@ export const FileViewer = memo(function FileViewer({
                 }}
                 onCollapse={() => setIsSidebarExpanded(false)}
                 onSkillsClick={onSkillsClick}
+                showHidden={showHidden}
+                onToggleShowHidden={onToggleShowHidden}
                 onRefresh={onRefresh}
               />
             ) : (
@@ -720,6 +779,8 @@ export const FileViewer = memo(function FileViewer({
                 fileCount={files.length}
                 onExpand={() => setIsSidebarExpanded(true)}
                 onSkillsClick={onSkillsClick}
+                showHidden={showHidden}
+                onToggleShowHidden={onToggleShowHidden}
                 onRefresh={onRefresh}
                 activeTab={activeTab}
               />
@@ -733,6 +794,8 @@ export const FileViewer = memo(function FileViewer({
             fileCount={files.length}
             onExpand={() => setIsSidebarExpanded(true)}
             onSkillsClick={onSkillsClick}
+            showHidden={showHidden}
+            onToggleShowHidden={onToggleShowHidden}
             onRefresh={onRefresh}
             activeTab={activeTab}
           />

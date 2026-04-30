@@ -57,8 +57,9 @@ def _should_include_in_template(relative_path: str) -> bool:
 
 def _store_embedding(session: Session, template_id: str, embedding: list[float]) -> None:
     """Store an embedding vector, gracefully skipping if pgvector is unavailable (PGLite)."""
-    # PGLite doesn't support the vector type — skip embedding storage
-    if not os.environ.get("LAKEBASE_PG_URL"):
+    # PGLite doesn't support the vector type — skip embedding storage.
+    # In Lakebase mode (the default), LAKEBASE_DATABASE_PATH is set.
+    if os.environ.get("USE_PGLITE") == "1" or not os.environ.get("LAKEBASE_DATABASE_PATH"):
         logger.debug("Skipping embedding storage (PGLite mode, no pgvector)")
         return
     session.execute(

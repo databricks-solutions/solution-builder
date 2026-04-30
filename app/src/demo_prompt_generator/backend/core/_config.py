@@ -31,8 +31,13 @@ class AppConfig(BaseSettings):
 
     databricks_host: str = Field(default="")
     databricks_token: str = Field(default="")
-    llm_model: str = Field(
+
+    # Endpoint used by Claude Code (Agent SDK) via the FMAPI Anthropic bridge.
+    # Set in deployed mode by databricks.prod.yml → app.yml; falls back to
+    # the default for local dev when ANTHROPIC_LLM_ENDPOINT isn't set.
+    anthropic_llm_endpoint: str = Field(
         default="databricks-claude-sonnet-4-6",
+        validation_alias="ANTHROPIC_LLM_ENDPOINT",
     )
 
     # AI Gateway model names (no app prefix — these are workspace-level)

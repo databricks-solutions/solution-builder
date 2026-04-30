@@ -37,18 +37,7 @@ Your system prompt defines `DEMO_SKILL` (absolute path to this file), `PROJECT`,
 
 ## Usage tracking
 
-This skill emits one fire-and-forget tracking event at each major lifecycle moment to the same dbdemos analytics endpoint the app middleware uses, so usage from both surfaces aggregates together. Databricks employees are tracked by email; non-Databricks users contribute only an anonymous "this ran" event.
-
-Run the helper at each anchor below as a single Bash call. It exits 0 in under ~1 s no matter what — never block on the result, never show its output to the user, never re-run on failure.
-
-| Anchor | Call |
-|--------|------|
-| Stage 0 → user intent confirmed (about to enter Stage 1) | `python3 SKILL_DIR/tools/track.py SKILL_START` |
-| Stage 1 gate → user approved the story | `python3 SKILL_DIR/tools/track.py STORY_APPROVED <demo-slug>` |
-| Stage 2 → all spec files written (before "Ready to build?" gate) | `python3 SKILL_DIR/tools/track.py SPECS_WRITTEN <demo-slug>` |
-| Stage 3 → resources.json populated with created_resources | `python3 SKILL_DIR/tools/track.py BUILD_COMPLETE <demo-slug>` |
-
-`<demo-slug>` is the project folder name or the `demo_name` from `resources.json` — whatever short identifier the demo is going by. Substitute the real `SKILL_DIR` path before running. Opt out via `DBDEMOS_TRACKER_DISABLED=1`.
+Each stage fires one tracking event so we can see how the skill is used. Calls are inlined per stage below — run them as a single Bash command, ignore the result, move on. Opt out via `DBDEMOS_TRACKER_DISABLED=1`.
 
 ---
 
@@ -208,8 +197,6 @@ First, assess the user's input — how much is already decided?
 
 ## Stage 1 — Design Story
 
-**Track:** `python3 SKILL_DIR/tools/track.py SKILL_START` — fire-and-forget, then continue.
-
 **Read `SKILL_DIR/stages/01-design-story.md` now** and follow it. Outputs: `resources.json`, `README.md`, `architecture.md` at the project root.
 
 **Gate — ask the user before continuing:**
@@ -225,7 +212,7 @@ Reply "yes" to continue, or let me know what to change.
 
 Wait for confirmation before starting stage 2.
 
-**Track (after user approves):** `python3 SKILL_DIR/tools/track.py STORY_APPROVED <demo-slug>` — fire-and-forget, then continue.
+**Track this stage:** run `python3 SKILL_DIR/tools/track.py STORY_APPROVED <demo-slug>` after the user approves; ignore the result and move on.
 
 ## Stage 2 — Write Specs
 
@@ -233,7 +220,7 @@ Wait for confirmation before starting stage 2.
 
 **Mental model before you start:** write `01-lakeflow.md` first (everything else depends on it). Then fan out — spawn the app subagent **and** batch-write 02 / 03 / 04 in the same parent turn. The other specs only depend on 01, never on each other, so serializing them is wasted time.
 
-**Track (after specs are all written, before the gate):** `python3 SKILL_DIR/tools/track.py SPECS_WRITTEN <demo-slug>` — fire-and-forget, then continue.
+**Track this stage:** run `python3 SKILL_DIR/tools/track.py SPECS_WRITTEN <demo-slug>` once specs are all written; ignore the result and move on.
 
 **Gate — ask the user before continuing:**
 Say for example (don't mention / describe all the files)
@@ -250,7 +237,7 @@ If the user confirms, **read `SKILL_DIR/stages/03-build.md` now** and follow it.
 
 **Mental model before you start:** build time dominates this stage. The pipeline is the only sequential gate (raw data → SDP → tables exist). Once tables exist, fan out — Genie/Dashboard, KA/MAS, and the App all run as parallel subagents. Never loop through resources one at a time on the main thread.
 
-**Track (after resources.json.created_resources is populated and the build has wrapped):** `python3 SKILL_DIR/tools/track.py BUILD_COMPLETE <demo-slug>` — fire-and-forget, then continue.
+**Track this stage:** run `python3 SKILL_DIR/tools/track.py BUILD_COMPLETE <demo-slug>` once `resources.json.created_resources` is populated; ignore the result and move on.
 
 ## Stage 4 — Package as a DAB (optional)
 

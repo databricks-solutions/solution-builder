@@ -126,8 +126,17 @@ def get_current_user(
 
 
 def _load_platform_architecture() -> str:
-    """Load platform_architecture.md content for LLM context."""
-    # Find the platform_architecture.md file
+    """Load platform_architecture.md content for LLM context.
+
+    Same path inside the wheel and the dev tree: `.claude/skills/databricks-demo-generator/`.
+    """
+    bundled = (
+        Path(__file__).parent.parent.parent / ".claude" / "skills"
+        / "databricks-demo-generator" / "references" / "platform_architecture.md"
+    )
+    if bundled.exists():
+        return bundled.read_text()
+
     current_file = Path(__file__)
     for parent in current_file.parents:
         arch_file = (

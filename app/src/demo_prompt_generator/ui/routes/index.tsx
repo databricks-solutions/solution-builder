@@ -179,21 +179,38 @@ function Index() {
     return () => clearTimeout(timer);
   }, [topic]);
 
-  // Streaming suggestion helper
+  // Streaming suggestion helper.
+  //
+  // RACE NOTE: this callback used to depend on `capabilities` and
+  // `explicitSelections`, which made its identity change whenever the user
+  // toggled a capability checkbox. The debounced effect below depends on
+  // it, so a checkbox toggle would re-run the effect's CLEANUP — and the
+  // cleanup aborts the in-flight stream. Symptom: ideas start arriving,
+  // user (or React's commit) bumps something, stream gets aborted
+  // mid-content. Fix: read `capabilities` + `explicitSelections` through
+  // refs so this callback's identity stays stable across those changes.
   const abortControllerRef = useRef<AbortController | null>(null);
+  const capabilitiesRef = useRef(capabilities);
+  const explicitSelectionsRef = useRef(explicitSelections);
+  useEffect(() => { capabilitiesRef.current = capabilities; }, [capabilities]);
+  useEffect(() => { explicitSelectionsRef.current = explicitSelections; }, [explicitSelections]);
 
   const runSuggestionStream = useCallback(async (
     promptText: string,
     refineIdea?: IdeaToRefine,
     refineComment?: string
   ) => {
+    // Read latest values via refs (see RACE NOTE above).
+    const caps = capabilitiesRef.current;
+    const explicit = explicitSelectionsRef.current;
+
     // Cancel any pending request
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
       abortControllerRef.current = null;
     }
 
-    if (!promptText.trim() || capabilities.length === 0) {
+    if (!promptText.trim() || caps.length === 0) {
       setIsSuggestingCapabilities(false);
       return;
     }
@@ -209,9 +226,9 @@ function Index() {
 
     try {
       // Build capability inputs
-      const capabilityInputs: CapabilityInput[] = capabilities.map((cap) => ({
+      const capabilityInputs: CapabilityInput[] = caps.map((cap) => ({
         id: cap.id,
-        status: explicitSelections.get(cap.id) ?? null,
+        status: explicit.get(cap.id) ?? null,
       }));
 
       // Stream events
@@ -232,13 +249,15 @@ function Index() {
           // Append idea as it arrives
           setIdeas((prev) => [...prev, event.data]);
         } else if (event.type === "capabilities") {
-          // Update capabilities with user overrides
+          // Update capabilities with user overrides — read latest
+          // explicit selections in case the user toggled mid-stream.
+          const explicitNow = explicitSelectionsRef.current;
           setSelectedProducts(() => {
             const next = new Set<string>();
             for (const capId of event.data.capabilities) {
               next.add(capId);
             }
-            for (const [capId, status] of explicitSelections) {
+            for (const [capId, status] of explicitNow) {
               if (status === "selected") next.add(capId);
               else if (status === "unselected") next.delete(capId);
             }
@@ -263,10 +282,16 @@ function Index() {
         setIsSuggestingCapabilities(false);
       }
     }
-  }, [capabilities, explicitSelections]);
+  }, []); // ← stable identity; deps are read via refs
 
-  // Debounced capability suggestion (1000ms) - only triggered by topic changes
+  // Debounced capability suggestion (1000ms) — fires when the topic
+  // changes. We deliberately depend ONLY on `topic` and a "capabilities
+  // ready" boolean, NOT on the full capabilities array or
+  // runSuggestionStream — otherwise the cleanup (which aborts the
+  // in-flight stream) would fire on every checkbox toggle and kill
+  // streams mid-way.
   const lastTopicRef = useRef("");
+  const capabilitiesReady = capabilities.length > 0;
   useEffect(() => {
     // Only trigger when topic actually changes
     if (topic.trim() === lastTopicRef.current) {
@@ -274,7 +299,7 @@ function Index() {
     }
     lastTopicRef.current = topic.trim();
 
-    if (topic.trim().length < 3 || capabilities.length === 0) {
+    if (topic.trim().length < 3 || !capabilitiesReady) {
       setIsSuggestingCapabilities(false);
       return;
     }
@@ -289,11 +314,13 @@ function Index() {
 
     return () => {
       clearTimeout(timer);
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
-      }
+      // Don't abort the in-flight stream here — the next call to
+      // runSuggestionStream() does it itself, and aborting here would
+      // also fire on unmount/StrictMode-double-mount and look like a
+      // mid-stream cancel to the user.
     };
-  }, [topic, capabilities, runSuggestionStream]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [topic, capabilitiesReady]);
 
   // Manual regenerate handler
   const handleRegenerate = useCallback(() => {

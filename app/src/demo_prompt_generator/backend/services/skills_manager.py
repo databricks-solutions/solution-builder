@@ -18,9 +18,21 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 # Configuration
-# Note: ai-dev-kit cloning/pulling is handled by dev.sh and build-electron.sh
-# These scripts manage branch checkout with proper git clean to avoid stale files
-AI_DEV_KIT_LOCAL = os.getenv("AI_DEV_KIT_PATH", "./ai_dev_kit")
+# ai-dev-kit cloning is handled by:
+#   - dev.sh (clones into ./ai_dev_kit/ for editable dev)
+#   - scripts/build.sh (clones into the wheel under demo_prompt_generator/ai_dev_kit/)
+# Resolution order (first hit wins): explicit AI_DEV_KIT_PATH env var, wheel-bundled
+# path inside the installed package, then ./ai_dev_kit/ relative to cwd (dev.sh setup).
+def _resolve_ai_dev_kit_local() -> str:
+    explicit = os.getenv("AI_DEV_KIT_PATH")
+    if explicit:
+        return explicit
+    bundled = Path(__file__).parent.parent.parent / "ai_dev_kit"
+    if bundled.exists():
+        return str(bundled)
+    return "./ai_dev_kit"
+
+AI_DEV_KIT_LOCAL = _resolve_ai_dev_kit_local()
 PROJECTS_BASE_DIR = os.getenv("PROJECTS_BASE_DIR", "./projects")
 
 # Skills to copy by default - None means copy ALL available skills
@@ -199,14 +211,22 @@ def _find_repo_root() -> Optional[Path]:
 
 
 def get_demo_generator_skill_path() -> Optional[Path]:
-    """Get the path to the demo-generator skill from this project."""
+    """Get the path to the demo-generator skill.
+
+    Wheel install: ``demo_prompt_generator/.claude/skills/databricks-demo-generator/``
+    is shipped inside the package by scripts/build.sh.
+    Editable dev install: walk up to the repo's ``.claude/skills/...``.
+    """
+    bundled = Path(__file__).parent.parent.parent / ".claude" / "skills" / "databricks-demo-generator"
+    if bundled.exists():
+        return bundled
+
     repo_root = _find_repo_root()
     if repo_root:
         demo_skill = repo_root / ".claude" / "skills" / "databricks-demo-generator"
         if demo_skill.exists():
             return demo_skill
 
-    # Fallback: look in parent directories
     current_file = Path(__file__)
     for parent in current_file.parents:
         candidate = parent / ".claude" / "skills" / "databricks-demo-generator"
@@ -463,16 +483,34 @@ def create_project_directory(
         readme_path = project_dir / "README.md"
         readme_path.write_text(initial_readme)
 
-    # Create .claude/settings.json that disables MCP inheritance
-    # Building uses ai-dev-kit CLI skills, not MCP tools
-    import json
-    claude_dir = project_dir / ".claude"
-    claude_dir.mkdir(parents=True, exist_ok=True)
-    settings_path = claude_dir / "settings.json"
-    settings_path.write_text(json.dumps({
-        "enableAllProjectMcpServers": False,
-        "mcpServers": {},
-    }, indent=2))
+    # Provision .claude/settings.json. Two paths depending on mode:
+    #   - Deployed (DATABRICKS_CLIENT_ID set): the FMAPI auth helper writes
+    #     settings.json with apiKeyHelper + ANTHROPIC_BASE_URL + MODEL +
+    #     enableAllProjectMcpServers=False, plus the helper script and the
+    #     initial token file. Background task (lifespan) keeps the token fresh.
+    #   - Local: minimal settings.json (just MCP-disable). Claude Code uses
+    #     whatever ANTHROPIC_API_KEY / `claude login` the dev has set up.
+    from ..core import fmapi_auth
+    from ..core._config import AppConfig
+    minted = fmapi_auth.mint_fmapi_token()
+    if minted is not None:
+        host, token = minted
+        cfg = AppConfig()
+        fmapi_auth.provision_project_files(
+            project_dir,
+            anthropic_base_url=f"{host}/serving-endpoints/anthropic",
+            anthropic_model=cfg.anthropic_llm_endpoint,
+            token=token,
+        )
+    else:
+        import json
+        claude_dir = project_dir / ".claude"
+        claude_dir.mkdir(parents=True, exist_ok=True)
+        settings_path = claude_dir / "settings.json"
+        settings_path.write_text(json.dumps({
+            "enableAllProjectMcpServers": False,
+            "mcpServers": {},
+        }, indent=2))
 
     # Copy skills — filter to capability-relevant set when capabilities provided.
     # Also pass raw capability IDs so the demo-generator's capability blocks

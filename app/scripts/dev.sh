@@ -41,7 +41,7 @@ fi
 # ============================================================================
 # IMPORTANT: Using 'simplify-skills-remove-mcp' branch which removes MCP in favor of CLI tools
 # TODO: Change back to 'main' once this branch is merged
-AI_DEV_KIT_BRANCH="${AI_DEV_KIT_BRANCH:-simplify-skills-remove-mcp}"
+AI_DEV_KIT_BRANCH="${AI_DEV_KIT_BRANCH:-experimental}"
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -122,12 +122,13 @@ if [ ! -f src/demo_prompt_generator/_metadata.py ]; then
     .venv/bin/python scripts/generate_metadata.py
 fi
 
-# Install frontend dependencies if missing — vite ships via node_modules,
-# not uv, so a fresh clone has nothing to run until `bun install` runs once.
-if [ ! -d node_modules ]; then
-    echo -e "${CYAN}Installing frontend dependencies (bun install)...${NC}"
-    bun install
-fi
+# Install / sync frontend dependencies. Run on every start (not just on
+# fresh clone) — otherwise pulling a branch that adds a dep silently
+# leaves node_modules stale and vite crashes mid-page-load with an
+# unhelpful "Failed to resolve import" error. Bun's lockfile-aware
+# install is near-instant when nothing changed, so the cost is fine.
+echo -e "${CYAN}Syncing frontend dependencies (bun install)...${NC}"
+bun install --silent
 
 # ============================================================================
 # Check for .env file — auto-bootstrap from .env.example so a fresh clone
@@ -185,21 +186,27 @@ fi
 echo -e "${GREEN}Configuration OK${NC}"
 echo ""
 
-# Database configuration
+# Database configuration. Two modes (mirror core/lakebase.py):
+#   - LAKEBASE_DATABASE_PATH set (and USE_PGLITE != 1) → real Lakebase via SDK
+#     OAuth. No password anywhere; SDK reads DATABRICKS_CONFIG_PROFILE.
+#   - Otherwise → PGLite (auto-provisioned local cluster in ~/.pglite/).
 echo -e "${CYAN}Database:${NC}"
-if [ -z "$LAKEBASE_PG_URL" ]; then
+if [ -n "$LAKEBASE_DATABASE_PATH" ] && [ "$USE_PGLITE" != "1" ]; then
+    echo -e "  ${GREEN}Lakebase (OAuth via Databricks SDK)${NC}"
+    echo -e "  Path: ${CYAN}$LAKEBASE_DATABASE_PATH${NC}"
+    echo -e "  Profile: ${CYAN}${DATABRICKS_CONFIG_PROFILE:-DEFAULT}${NC}"
+else
     echo -e "  ${YELLOW}Using PGLite (local PostgreSQL cluster)${NC}"
     echo -e "  Data stored in: ${GREEN}~/.pglite/${NC}"
     echo -e "  To reset: ${CYAN}RESET_DB=1 ./scripts/dev.sh${NC}"
 
-    # Check if PostgreSQL is installed (required for PGLite)
+    # PGLite needs a system PostgreSQL install for pg_ctl.
     if ! command -v pg_ctl &> /dev/null; then
         echo ""
         echo -e "  ${RED}PostgreSQL is not installed!${NC}"
         echo -e "  PGLite requires PostgreSQL to be installed locally."
         echo ""
 
-        # Detect OS and offer to install
         if [[ "$OSTYPE" == "darwin"* ]]; then
             echo -e "  Would you like to install PostgreSQL via Homebrew? (y/n)"
             read -r INSTALL_PG
@@ -213,26 +220,22 @@ if [ -z "$LAKEBASE_PG_URL" ]; then
                 echo -e "  To install manually, run:"
                 echo -e "    ${CYAN}brew install postgresql@16${NC}"
                 echo ""
-                echo -e "  Or set ${CYAN}LAKEBASE_PG_URL${NC} in .env to use a remote database."
+                echo -e "  Or set ${CYAN}LAKEBASE_DATABASE_PATH${NC} in .env to use Lakebase."
                 exit 1
             fi
         elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
             echo -e "  To install PostgreSQL on Ubuntu/Debian:"
             echo -e "    ${CYAN}sudo apt install postgresql${NC}"
             echo ""
-            echo -e "  Or set ${CYAN}LAKEBASE_PG_URL${NC} in .env to use a remote database."
+            echo -e "  Or set ${CYAN}LAKEBASE_DATABASE_PATH${NC} in .env to use Lakebase."
             exit 1
         else
-            echo -e "  Please install PostgreSQL manually or set ${CYAN}LAKEBASE_PG_URL${NC} in .env"
+            echo -e "  Please install PostgreSQL manually or set ${CYAN}LAKEBASE_DATABASE_PATH${NC} in .env"
             exit 1
         fi
     else
         echo -e "  ${GREEN}PostgreSQL detected:${NC} $(which pg_ctl)"
     fi
-else
-    # Show masked DB URL (hide password)
-    DB_DISPLAY=$(echo "$LAKEBASE_PG_URL" | sed 's|://[^:]*:[^@]*@|://****:****@|')
-    echo -e "  ${GREEN}$DB_DISPLAY${NC}"
 fi
 echo ""
 

@@ -1,0 +1,7 @@
+# Bundle sync exclusions. When this file exists, the bundle CLI uses it
+# instead of .gitignore for deciding what to upload — which is what we
+# want, since .gitignore excludes .build/ (correctly: build artifacts
+# shouldn't be committed) but the bundle DOES need to ship .build/.
+#
+# Empty body = "nothing to exclude" — `sync.paths: [.build]` in
+# databricks.yml already whitelists exactly what gets uploaded.

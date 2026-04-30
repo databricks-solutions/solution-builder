@@ -27,8 +27,10 @@ router = create_router()
 
 
 def _is_pglite_mode() -> bool:
-    """Check if using PGLite (local) database."""
-    return not os.environ.get("LAKEBASE_PG_URL")
+    """Mirror of core.lakebase._is_pglite_mode (kept inline to avoid a route→core import)."""
+    if os.environ.get("USE_PGLITE") == "1":
+        return True
+    return not os.environ.get("LAKEBASE_DATABASE_PATH")
 
 
 def _get_databricks_profiles() -> list[DatabricksProfile]:

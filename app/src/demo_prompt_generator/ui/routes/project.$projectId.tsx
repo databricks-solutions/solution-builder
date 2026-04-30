@@ -145,6 +145,12 @@ function ProjectPage() {
 
   // Skills popup state
   const [isSkillsOpen, setIsSkillsOpen] = useState(false);
+  // "Show hidden files" toggle — when true, the file tree includes
+  // .databrickscfg, .claude/skills/, .preview.pgid, etc. Triggered by
+  // the small EyeOff icon on the file viewer sidebar. Off by default
+  // because the everyday user doesn't need them; SAs use them to debug
+  // deployed-mode auth shape.
+  const [showHidden, setShowHidden] = useState(false);
 
   // Template state
   const [linkedTemplate, setLinkedTemplate] = useState<TemplateDetail | null>(null);
@@ -264,14 +270,30 @@ function ProjectPage() {
   const reasoningRef = useRef<{ thinking: string; tools: Map<string, { name: string; input: unknown; result?: string; isError?: boolean; startedAt?: string; completedAt?: string }> } | null>(null);
 
   // Debounced file list refresh — avoids N parallel /files calls when
-  // the agent writes multiple files in quick succession.
+  // the agent writes multiple files in quick succession. Reads
+  // `showHidden` via a ref so toggling the flag doesn't recreate the
+  // debouncer; the existing useEffect below covers the toggle case.
   const fileRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showHiddenRef = useRef(false);
   const debouncedRefreshFiles = useCallback(() => {
     if (fileRefreshTimerRef.current) clearTimeout(fileRefreshTimerRef.current);
     fileRefreshTimerRef.current = setTimeout(() => {
-      listProjectFiles(projectId).then(setFiles).catch(() => {});
+      listProjectFiles(projectId, { includeHidden: showHiddenRef.current })
+        .then(setFiles)
+        .catch(() => {});
     }, 500);
   }, [projectId]);
+
+  // Keep the ref in sync, and re-fetch whenever the user toggles
+  // "show hidden" so the file tree picks up .databrickscfg / .claude/
+  // immediately. The hidden walk is uncached on the server, so this
+  // always reflects current disk state.
+  useEffect(() => {
+    showHiddenRef.current = showHidden;
+    listProjectFiles(projectId, { includeHidden: showHidden })
+      .then(setFiles)
+      .catch(() => {});
+  }, [showHidden, projectId]);
 
   // Loading state for the entire page
   const [isLoadingProject, setIsLoadingProject] = useState(true);
@@ -285,7 +307,7 @@ function ProjectPage() {
         // Load all data in parallel
         const [proj, fileList, msgs, deployed] = await Promise.all([
           getProject(projectId),
-          listProjectFiles(projectId),
+          listProjectFiles(projectId, { includeHidden: showHidden }),
           listProjectMessages(projectId),
           getDeployedResources(projectId).catch(() => null),
         ]);
@@ -503,7 +525,7 @@ function ProjectPage() {
 
         // Refresh files and deployed resources (agent may have created new ones)
         const [fileList, deployed] = await Promise.all([
-          listProjectFiles(projectId),
+          listProjectFiles(projectId, { includeHidden: showHidden }),
           getDeployedResources(projectId).catch(() => null),
         ]);
         setFiles(fileList);
@@ -542,7 +564,7 @@ function ProjectPage() {
         try {
           const [msgs, fileList, deployed] = await Promise.all([
             listProjectMessages(projectId),
-            listProjectFiles(projectId),
+            listProjectFiles(projectId, { includeHidden: showHidden }),
             getDeployedResources(projectId).catch(() => null),
           ]);
           setMessages(msgs);
@@ -831,7 +853,7 @@ function ProjectPage() {
   const handleRefresh = useCallback(async () => {
     try {
       const [fileList, deployed] = await Promise.all([
-        listProjectFiles(projectId, { force: true }),
+        listProjectFiles(projectId, { force: true, includeHidden: showHidden }),
         getDeployedResources(projectId).catch(() => null),
       ]);
       setFiles(fileList);
@@ -1441,6 +1463,8 @@ function ProjectPage() {
             fileContent={fileContent}
             onSelectFile={setSelectedFile}
             onSkillsClick={() => setIsSkillsOpen(true)}
+            showHidden={showHidden}
+            onToggleShowHidden={() => setShowHidden((v) => !v)}
             onRefresh={handleRefresh}
             isLoading={isLoadingFile}
             architectureContent={architectureContent}

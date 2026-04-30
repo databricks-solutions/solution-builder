@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, AsyncIterator, Generator
 
-from ..core._config import AppConfig, logger
+from ..core._config import logger
 from ..core.auth import Mode, subprocess_auth_env
 from .active_stream import ActiveStream
 from .skills_manager import get_project_directory, get_project_skills_list
@@ -81,35 +81,16 @@ def _build_claude_env(
     """
     env: dict[str, str] = {}
 
-    # (1) Claude ↔ FMAPI routing (unchanged from before).
-    if os.environ.get("DATABRICKS_CLIENT_ID"):
-        from databricks.sdk import WorkspaceClient
+    # FMAPI routing for Claude Code is NO LONGER configured via env vars.
+    # Instead, <project_dir>/.claude/settings.json provides:
+    #   - apiKeyHelper → <project_dir>/get_anthropic_token.sh (prints token
+    #     from .anthropic_token, refreshed every ~15 min by lifespan task)
+    #   - env block: ANTHROPIC_BASE_URL, ANTHROPIC_MODEL, headers
+    # This keeps the subprocess env clean — the agent doesn't see the token
+    # in `os.environ` and can't accidentally copy it onto `databricks` CLI
+    # calls (which had been a real failure mode). See core/fmapi_auth.py.
 
-        ws = WorkspaceClient()
-        host = (ws.config.host or "").rstrip("/")
-        if not host:
-            logger.warning("DATABRICKS_HOST not set, Claude FMAPI routing disabled")
-        else:
-            headers = ws.config.authenticate()
-            token = headers.get("Authorization", "").removeprefix("Bearer ").strip()
-            if not token:
-                logger.warning("Could not obtain Databricks token, Claude FMAPI routing disabled")
-            else:
-                config = AppConfig()
-                anthropic_base_url = f"{host}/serving-endpoints/anthropic"
-                env.update({
-                    "ANTHROPIC_BASE_URL": anthropic_base_url,
-                    "ANTHROPIC_API_KEY": token,
-                    "ANTHROPIC_AUTH_TOKEN": token,
-                    "ANTHROPIC_MODEL": config.llm_model,
-                    "ANTHROPIC_CUSTOM_HEADERS": "x-databricks-use-coding-agent-mode: true",
-                    "CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS": "1",
-                })
-                logger.info(
-                    f"Configured FMAPI routing: {anthropic_base_url} (model: {config.llm_model})"
-                )
-
-    # (2) Databricks CLI/SDK auth for the agent's shell commands.
+    # Databricks CLI/SDK auth for the agent's shell commands.
     env.update(subprocess_auth_env(project_dir, mode=mode, local_profile=local_profile))
     return env
 
@@ -298,15 +279,18 @@ async def stream_agent_response(
                 template_lineage=template_lineage,
             )
 
-            # Build allowed tools list
-            # Note: "Skill" is a Claude Code CLI feature, not available in the SDK
-            # Skills are referenced in the system prompt and agent reads them directly
-            allowed_tools = ["Read", "Write", "Edit", "Glob", "Grep", "Bash"]
+            # Build allowed tools list. `Skill` enables the agent's Skill tool
+            # so it can invoke skills declared in <cwd>/.claude/skills/ (notably
+            # databricks-demo-generator + the per-project ai-dev-kit skills).
+            allowed_tools = ["Skill", "Read", "Write", "Edit", "Glob", "Grep", "Bash"]
 
             # Configure agent options
-            # setting_sources=[] prevents inheriting MCP servers from user/project
-            # settings files. Skills are still discovered from .claude/skills/ in the
-            # project CWD. Building uses Databricks CLI via skills, not MCP.
+            # setting_sources=["project"] loads filesystem settings from the
+            # project's .claude/ — this is what the Agent SDK uses to discover
+            # skills (loading is gated on settingSources per the SDK docs). We
+            # deliberately exclude "user" so the agent doesn't pick up the host
+            # user's ~/.claude/ — and `mcp_servers={}` below stops it from
+            # inheriting MCP servers from any settings file regardless.
             #
             # env carries two things (see _build_claude_env + AUTH.md):
             #   1. ANTHROPIC_* for FMAPI routing (deployed-as-app only)
@@ -324,7 +308,7 @@ async def stream_agent_response(
                 permission_mode="bypassPermissions",
                 system_prompt=system_prompt,
                 include_partial_messages=True,
-                setting_sources=[],
+                setting_sources=["project"],
                 mcp_servers={},
                 env=claude_env,
                 # Default is 1 MB which is too tight for a coding agent — a

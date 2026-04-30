@@ -1,91 +1,143 @@
 bundle:
   name: "demo-prompt-generator"
 
-# ---------------------------------------------------------------------------
-# Variables — override per-target or via CLI:
-#   databricks bundle deploy -t dev --var llm_endpoint=databricks-claude-sonnet-4
-# ---------------------------------------------------------------------------
+# ───────────────────────────────────────────────────────────────────────────
+# Per-environment config lives in databricks.<target>.yml (gitignored).
+# Copy databricks.prod.yml.example → databricks.prod.yml and fill in.
+# ───────────────────────────────────────────────────────────────────────────
+include:
+  - databricks.*.yml
+
+# Variables are declared here (no defaults) and resolved by databricks.prod.yml.
+# Splitting "what" (this file) from "which values" (per-target file) keeps
+# deployment-specific values out of the public repo.
 variables:
   app_name:
-    description: "Workspace app name. Set this to an existing app's name to redeploy in-place (preserves SP, schema, and Lakebase data). Override per-workspace."
-    default: "demo-prompt-gen-cal"
-  llm_endpoint:
-    description: "Foundation Model serving endpoint for LLM calls"
-    default: "databricks-claude-sonnet-4-6"
-  summarization_endpoint:
-    description: "Serving endpoint for summarization (cheap/fast model)"
-    default: "databricks-gpt-5-4-mini"
-  embedding_endpoint:
-    description: "Serving endpoint for embeddings (template search)"
-    default: "databricks-qwen3-embedding-0-6b"
-  lakebase_instance:
-    description: "Existing Lakebase instance to reuse (SP gets its own schema). Set to an existing instance name to share infra; the deploy will not recreate or wipe it."
-    default: "databricks-demos-shared"
+    description: "Workspace app name (existing or new)."
+  lakebase_project_id:
+    description: "Lakebase autoscaling project UID (the part after /lakebase/projects/ in the UI URL)."
+  lakebase_branch_id:
+    description: "Lakebase branch ID inside the project (e.g. `main`, or the auto-generated `br-...` slug)."
+  lakebase_database_name:
+    description: "Postgres database name on the branch. Must exist (CREATE DATABASE once per fresh env)."
+  anthropic_llm_endpoint:
+    description: "Model used by Claude Code (Agent SDK via FMAPI Anthropic bridge)."
+  ai_gateway:
+    description: "Direct chat-completions endpoint (LLMService 'normal' size)."
+  ai_gateway_mini:
+    description: "Direct chat-completions endpoint (LLMService 'mini' size)."
+  ai_gateway_embedding:
+    description: "Embedding endpoint (template search)."
+  app_env:
+    # Runtime env injected into .build/app.yml by scripts/build.sh — keys here
+    # become env vars in the deployed container. Add a key to databricks.prod.yml's
+    # `app_env:` and it appears in app.yml automatically; no other edits needed.
+    description: "Runtime env vars copied 1:1 into .build/app.yml's env: block."
+    type: complex
 
 sync:
-  include:
+  # `paths` whitelists what gets uploaded; `include` overrides .gitignore
+  # for specific patterns. .build/ is gitignored (it's a build artifact dir),
+  # so we explicitly include the four entries we ship.
+  paths:
     - .build
+  include:
     - .build/app.yml
     - .build/*.whl
     - .build/requirements.txt
+    - .build/.claude/**
+    - .build/initial_templates/**
 
 artifacts:
   default:
-    # Pass the resolved lakebase instance into build.sh so it can substitute
-    # the DB_INSTANCE_NAME placeholder in .build/app.yml — keeps the runtime
-    # env in sync with var.lakebase_instance with no manual two-file edits.
-    build: ./scripts/build.sh --lakebase-instance ${var.lakebase_instance}
+    # build.sh reads the resolved bundle target's `env:` block and writes
+    # .build/app.yml from it — the running container's env is a 1:1 copy of
+    # `targets.<target>.env` in databricks.prod.yml.
+    build: ./scripts/build.sh --target ${bundle.target}
 
 resources:
+  # ───────────────────────────────────────────────────────────────────────────
+  # Lakebase project + branch are NOT managed by this bundle today.
+  #
+  # Why: this workspace has hit the 1000-project Lakebase quota, and the
+  # `postgres_projects` resource only knows how to CREATE (project_id is a
+  # slug, not a UID — it can't bind to an existing project). The block below
+  # is the right shape for a fresh workspace; uncomment it and switch the
+  # vars to slugs (e.g. `demo-generator` / `production`) when quota allows.
+  #
+  # Until then, point at an existing project via UID in databricks.prod.yml's
+  # var.lakebase_project_id + var.lakebase_branch_id.
+  #
+  # Manual one-time setup per fresh deploy environment:
+  #   1. After the App is deployed (and the SP exists), grant it
+  #      CAN_CONNECT_AND_CREATE on the project via the Lakebase UI.
+  # The database itself is auto-created by core/lakebase.py on first boot
+  # (CREATE DATABASE via the always-present `databricks_postgres` maintenance DB).
+  # ───────────────────────────────────────────────────────────────────────────
+  # postgres_projects:
+  #   main:
+  #     project_id: ${var.lakebase_project_id}     # slug, e.g. demo-generator
+  #     display_name: ${var.app_name}
+  #     pg_version: 17
+  #     enable_pg_native_login: true
+  #
+  # postgres_branches:
+  #   prod:
+  #     parent: ${resources.postgres_projects.main.id}
+  #     branch_id: ${var.lakebase_branch_id}        # slug, e.g. production
+  #     is_protected: true
+  #     no_expiry: true
+
   apps:
     demo-prompt-generator-app:
       name: ${var.app_name}
       description: "Demo Prompt Generator — generates Databricks demo skill packages"
       source_code_path: ./.build
+      # NOTE on the Lakebase grant: tried `database: { instance_name: <project-name> }`
+      # but Apps' grant API rejects autoscaling project names ("Database instance
+      # X does not exist") — it only knows legacy Lakebase instances. So we
+      # don't declare a `database` grant here; the SP grant on the project is
+      # done once manually in the Lakebase UI. Runtime auth uses SDK OAuth
+      # tokens via core/lakebase.py.
       resources:
-        - name: "db"
-          database:
-            database_name: "databricks_postgres"
-            instance_name: ${var.lakebase_instance}
-            permission: "CAN_CONNECT_AND_CREATE"
-        - name: "llm"
+        - name: "ai-gateway"
           serving_endpoint:
-            name: ${var.llm_endpoint}
+            name: ${var.ai_gateway}
             permission: "CAN_QUERY"
-        - name: "summarization"
+        - name: "ai-gateway-mini"
           serving_endpoint:
-            name: ${var.summarization_endpoint}
+            name: ${var.ai_gateway_mini}
             permission: "CAN_QUERY"
-        - name: "embedding"
+        - name: "ai-gateway-embedding"
           serving_endpoint:
-            name: ${var.embedding_endpoint}
+            name: ${var.ai_gateway_embedding}
             permission: "CAN_QUERY"
       permissions:
         - level: "CAN_USE"
           group_name: "users"
 
-# ---------------------------------------------------------------------------
-# Deploy:
+# ───────────────────────────────────────────────────────────────────────────
+# Deploy (first time on a fresh workspace):
 #   1. databricks auth login --host <workspace-url> --profile <name>
-#   2. cd app && databricks bundle deploy -t dev --profile <name>
+#   2. cp databricks.prod.yml.example databricks.prod.yml ; fill it in.
+#   3. databricks bundle deploy           # creates project, branch, app
+#   4. psql against the branch's endpoint, run:
+#         CREATE DATABASE <lakebase_database_name>;
+#      (one-time, until DAB ships a postgres_databases resource).
+#   5. Lakebase UI → project → Permissions: grant the App's SP
+#      CAN_CONNECT_AND_CREATE.
+#   6. databricks bundle run demo-prompt-generator-app   # restart, table init.
 #
-# Redeploy onto an existing app + Lakebase (preserves data — same SP keeps the
-# same per-SP schema in Lakebase, and Alembic only runs additive migrations):
-#   databricks bundle deploy -t dev --profile <name> \
-#     --var "app_name=<existing-app>,lakebase_instance=<existing-lakebase>"
+# Subsequent deploys: just step 3.
 #
-# The app uses Databricks Foundation Model API (FMAPI) to run Claude Code —
-# no Anthropic API key needed. The service principal authenticates via OAuth
-# and routes through /serving-endpoints/anthropic on the workspace.
-#
-# Prerequisites:
-#   - Databricks CLI v0.239.0+
-#   - A Foundation Model endpoint matching llm_endpoint (default: databricks-claude-sonnet-4-6)
-# ---------------------------------------------------------------------------
+# Notes:
+# - ${var.anthropic_llm_endpoint} (Claude Code) does NOT need a CAN_QUERY
+#   grant — it routes through /serving-endpoints/anthropic, which all workspace
+#   users (including SPs) can call. It's only an env var in app_env.
+# - LAKEBASE_DATABASE_PATH inside app_env is composed from the three lakebase_*
+#   vars so the running container gets the full path with one substitution.
+# ───────────────────────────────────────────────────────────────────────────
 targets:
-  dev:
-    mode: development
-    default: true
-
   prod:
     mode: production
+    default: true

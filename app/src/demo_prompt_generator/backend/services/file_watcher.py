@@ -36,6 +36,12 @@ IGNORE_PATTERNS = [
     ".claude/settings*",  # Local settings
     ".databrickscfg",  # Per-project Databricks auth file — see backend/AUTH.md
     ".databrickscfg.*",  # Atomic-write temp variants
+    # Per-project FMAPI auth — token + helper script + settings.json. Refreshed
+    # by core/fmapi_auth.py; never backed up. See core/fmapi_auth.py.
+    ".anthropic_token",
+    ".anthropic_token.*",
+    "get_anthropic_token.sh",
+    ".get_anthropic_token.sh.*",
     # Language package/artifact dirs — never back these up.
     # Glob on dir segments: `.venv*/**` catches `.venv`, `.venv-datagen`,
     # `.venv-something`, etc. `venv*/**` covers bare `venv` variants.

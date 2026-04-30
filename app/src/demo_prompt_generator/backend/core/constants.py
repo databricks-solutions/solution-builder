@@ -35,10 +35,19 @@ CATEGORY_ORDER = ["lakeflow", "ai-bi", "agent-bricks", "uc-governance", "apps-in
 
 
 def _get_capabilities_folder() -> Optional[Path]:
-    """Find the capabilities folder in the demo-generator skill."""
-    current_file = Path(__file__)
+    """Find the capabilities folder in the demo-generator skill.
 
-    # Look in parent directories for .claude/skills/databricks-demo-generator
+    Same path inside the wheel and the dev tree: `.claude/skills/databricks-demo-generator/`.
+    """
+    bundled = (
+        Path(__file__).parent.parent.parent / ".claude" / "skills"
+        / "databricks-demo-generator" / "references" / "blocks" / "capabilities"
+    )
+    if bundled.exists():
+        return bundled
+
+    # Editable dev fallback — walk up to the repo's skill folder.
+    current_file = Path(__file__)
     for parent in current_file.parents:
         capabilities_dir = (
             parent / ".claude" / "skills" / "databricks-demo-generator"

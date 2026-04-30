@@ -15,6 +15,12 @@ src/demo_prompt_generator/_version.py
 # metadata file
 src/demo_prompt_generator/_metadata.py
 
+# Runtime data staged INTO the package by scripts/build.sh before `uv build`
+# (cleaned up by the build's EXIT trap; gitignored as a safety net).
+src/demo_prompt_generator/.claude/
+src/demo_prompt_generator/initial_templates/
+src/demo_prompt_generator/ai_dev_kit/
+
 # build files
 dist
 
@@ -34,6 +40,10 @@ node_modules/
 # DABs
 .databricks
 .build/
+
+# per-target deploy configs (e.g. databricks.prod.yml). Examples are committed.
+databricks.*.yml
+!databricks.*.yml.example
 
 # Legacy dev tooling
 .apx/

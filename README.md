@@ -4,70 +4,166 @@ A full-stack Databricks App for building personalized demo packages. Describe a 
 
 Built with FastAPI + React/Vite and deployed as a Databricks App with Lakebase (managed PostgreSQL) for persistence.
 
-## Quick start — deploy to Databricks
+## Running the app
 
-The entire app deploys as a [Databricks Asset Bundle](https://docs.databricks.com/dev-tools/bundles/index.html) — Lakebase database, Databricks App, and source code in one command.
+There are three ways to run the app, each with a different setup story:
+
+| Mode | Where it runs | Auth model | Use case |
+|------|---------------|------------|----------|
+| **Local dev** | Your laptop | Your `~/.databrickscfg` profile | Day-to-day development with hot reload |
+| **Databricks App** | A Databricks workspace | Service principal (OAuth) | Shared deployment for your team |
+| **Electron** | Your laptop, packaged | Your `~/.databrickscfg` profile | Standalone desktop app for end-users |
+
+The sections below walk through each.
+
+## 1. Local dev
+
+Hot-reload backend (uvicorn) + frontend (vite) for fast iteration. The dev script auto-provisions a local Postgres (PGLite) so there's no DB setup.
 
 ### Prerequisites
 
-- [Databricks CLI](https://docs.databricks.com/dev-tools/cli/index.html) v0.239.0+
-- A Databricks workspace with a Foundation Model serving endpoint (default: `databricks-claude-sonnet-4-6`)
+- [`uv`](https://docs.astral.sh/uv/) for Python deps
+- [`bun`](https://bun.sh/) for frontend deps
+- [Databricks CLI](https://docs.databricks.com/dev-tools/cli/index.html) v0.239.0+, authenticated to a workspace
 
-### Deploy
+### Setup
 
 ```bash
 git clone https://github.com/databricks-field-eng/industry-demo-prompts.git
 cd industry-demo-prompts/app
 
-# Authenticate with your workspace
+# Authenticate the CLI once (writes a profile to ~/.databrickscfg)
 databricks auth login --host https://<workspace-url> --profile MY_WORKSPACE
 
-# Deploy (creates Lakebase instance + Databricks App)
-databricks bundle deploy -t dev --profile MY_WORKSPACE
+# Configure local env
+cp .env.example .env
+# edit .env and set DATABRICKS_CONFIG_PROFILE=MY_WORKSPACE
 
-# Start the app
-databricks bundle run demo-prompt-generator-app -t dev --profile MY_WORKSPACE
+# Install deps
+uv sync          # Python (creates .venv)
+bun install      # Frontend
 ```
 
-### Verify
+### Run
 
 ```bash
-databricks apps get demo-asset-builder -p MY_WORKSPACE
-# app_status.state should be "RUNNING"
+./scripts/dev.sh   # Backend on :8000, frontend on :5173, opens http://localhost:5173
 ```
 
-The DAB configures `CAN_CONNECT_AND_CREATE` permission on the Lakebase database, so the app's service principal can create tables automatically on first startup.
-
-### Bundle variables
-
-Override per-target or via CLI:
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `llm_endpoint` | `databricks-claude-sonnet-4-6` | Foundation Model serving endpoint for LLM calls |
+PGLite stores its data in `app/.pglite/` (gitignored). To reset:
 
 ```bash
-# Example: use a different model endpoint
-databricks bundle deploy -t dev --var llm_endpoint=databricks-meta-llama-3-3-70b-instruct
+RESET_DB=1 ./scripts/dev.sh
 ```
 
-### Deploy targets
+To use real Lakebase locally instead of PGLite, set `LAKEBASE_PG_URL=postgresql://...` in `.env`.
 
-| Target | Mode | Use case |
-|--------|------|----------|
-| `dev` (default) | `development` | Personal development & testing |
-| `prod` | `production` | Shared production deployment |
+See `app/.env.example` for the full list of tunables (LLM endpoints, AI Dev Kit branch, analytics opt-out).
 
-Add workspace-specific targets by extending `databricks.yml`:
+## 2. Deploy to Databricks (production)
 
-```yaml
-targets:
-  my-workspace:
-    workspace:
-      profile: MY_WORKSPACE   # maps to [MY_WORKSPACE] in ~/.databrickscfg
-    variables:
-      llm_endpoint: "databricks-meta-llama-3-3-70b-instruct"
+The app deploys as a [Databricks Asset Bundle](https://docs.databricks.com/dev-tools/bundles/index.html) — Lakebase database, App resource, model-serving permissions, and source code in one command.
+
+### One-time setup
+
+```bash
+cd app
+
+# Authenticate (skip if you already did this for local dev)
+databricks auth login --host https://<workspace-url> --profile MY_WORKSPACE
+
+# Create your deploy config from the template
+cp databricks.prod.yml.example databricks.prod.yml
 ```
+
+`databricks.prod.yml` is **gitignored** — it holds workspace-specific values (profile, app name, Lakebase instance, model endpoints) that should not land in a public repo. Open it and fill in the three commented sections:
+
+1. **`workspace.profile`** — the `~/.databrickscfg` profile name from `databricks auth login`.
+2. **`variables`** — the resource identifiers in your workspace (`app_name`, `lakebase_instance`, model endpoint names).
+3. **`env`** — runtime env vars passed to the deployed container. Each line is `ENV_NAME: ${var.<bundle_var>}`; keep these as-is unless you're adding a new tunable.
+
+### Deploy
+
+```bash
+cd app
+databricks bundle deploy
+databricks bundle run demo-prompt-generator-app
+```
+
+Verify:
+
+```bash
+databricks apps get <your-app-name> --output json | jq -r '
+  "URL:    \(.url)",
+  "App:    \(.app_status.state)",
+  "Deploy: \(.active_deployment.status.state) — \(.active_deployment.status.message)"
+'
+# app_status.state should reach "RUNNING"
+```
+
+### One-time post-deploy: grant the app `all-apis` OAuth scope
+
+The app generates Databricks demos on behalf of the signed-in user — Unity Catalog tables, dashboards, Genie spaces, jobs, SQL warehouses, etc. By default, the OAuth integration the bundle creates only grants `iam.current-user:read`, which lets the agent identify the user but NOT create resources. Without this step, every resource-creation call returns 403 and the agent will try to work around it (e.g. by overriding env vars).
+
+Run **once per deployment**, after the first `bundle deploy`:
+
+```bash
+# 1. Find the OAuth integration ID for your app.
+databricks account custom-app-integration list | jq -r \
+  '.applications[] | select(.name | contains("<your-app-name>")) | "\(.integration_id)\t\(.name)"'
+
+# 2. Update its scopes (replace <INTEGRATION_ID> with the value from step 1).
+databricks account custom-app-integration update <INTEGRATION_ID> --json '{
+  "scopes": ["openid", "profile", "email", "all-apis", "offline_access", "iam.current-user"]
+}'
+```
+
+`all-apis` is the umbrella scope that lets the OAuth bearer call any workspace API. It's required because the agent dispatches across many resource types and we can't enumerate them up-front. After this update, sign-in flows mint tokens with the broader scope; existing sessions need to re-auth.
+
+### How config flows from `databricks.prod.yml` to the running container
+
+```
+databricks.prod.yml (env:)  →  build.sh reads via `databricks bundle summary`
+                            →  writes .build/app.yml (env: 1:1 copy)
+                            →  Databricks Apps runtime exports env vars into the container
+                            →  backend reads them via Pydantic Settings
+```
+
+`databricks.yml` is the generic shape (resource definitions, target stubs); `databricks.prod.yml` is the per-deployment values. Each model endpoint listed in `variables` gets a `CAN_QUERY` permission grant for the app's service principal automatically. The `anthropic_llm_endpoint` (Claude Code via FMAPI Anthropic bridge) does **not** need an explicit grant.
+
+### Bundle targets
+
+`databricks.yml` declares one target — `prod`, marked `default: true` — so plain `databricks bundle deploy` resolves to it. There is no `dev` target; local development uses `./scripts/dev.sh` (see §1) and never touches the bundle. To add a second deployment (e.g. staging), copy `databricks.prod.yml` to `databricks.<other>.yml` (the `include: databricks.*.yml` glob in `databricks.yml` picks it up) and add a matching `<other>:` target stub to `databricks.yml`.
+
+### Auth model (deployed)
+
+The app authenticates as a **service principal** that Databricks Apps creates and binds to the deployment. The SDK reads `DATABRICKS_CLIENT_ID` / `DATABRICKS_CLIENT_SECRET` from the runtime and mints OAuth tokens automatically — no PATs are stored anywhere.
+
+For Claude Code specifically, the backend writes a per-project `.claude/settings.json` containing `apiKeyHelper` + `ANTHROPIC_BASE_URL` pointing at the workspace's `/serving-endpoints/anthropic` FMAPI bridge. The helper script (`get_anthropic_token.sh`) reads a token file the backend rewrites every ~15 min via the SP's OAuth bearer. The subprocess sees no `ANTHROPIC_*` env vars — credentials live entirely in the project's `.claude/` and refresh on a schedule. End-users browsing the app authenticate via OAuth and the agent runs Databricks CLI commands on their behalf via `x-forwarded-access-token`.
+
+## 3. Build the Electron desktop app
+
+For users who want a standalone desktop app (e.g., on a laptop without dev tools). Bundles Python, the FastAPI backend, the React frontend, and Electron into a single `.dmg` / `.exe` / `.AppImage`.
+
+```bash
+cd app
+./scripts/build-electron.sh             # Build for current arch
+./scripts/build-electron.sh --arch arm64    # Apple Silicon
+./scripts/build-electron.sh --arch x64      # Intel Mac / Linux
+./scripts/build-electron.sh --arch universal  # Mac universal binary
+```
+
+Output lands in `app/dist-electron/`. The packaged app uses your local `~/.databrickscfg` profile at runtime — first launch prompts for a profile via the in-app config UI.
+
+To cut a versioned release and publish to GitHub Releases:
+
+```bash
+./scripts/release.sh patch         # 0.1.0 → 0.1.1
+./scripts/release.sh minor         # 0.1.0 → 0.2.0
+./scripts/release.sh 1.2.3         # explicit version
+```
+
+Requires the GitHub CLI authenticated with repo access. The release script bumps `package.json`, runs `build-electron.sh`, tags the commit, and uploads artifacts to a GitHub Release.
 
 ## How it works
 
@@ -102,19 +198,13 @@ gh repo clone databricks-field-eng/industry-demo-prompts /tmp/idp && /tmp/idp/in
 
 This installs the `databricks-demo-generator` skill to `.claude/skills/` in your current directory. Then run `claude` and the skill will be available automatically.
 
-## Local development
+## Type checking
 
 ```bash
 cd app
-./scripts/dev.sh          # Start backend (uvicorn:8000) + frontend (vite:5173)
-npx tsc --noEmit          # TypeScript type checking
-uv run mypy src           # Python type checking
-bun run build             # Production build
+npx tsc --noEmit          # TypeScript
+uv run mypy src           # Python
 ```
-
-The dev script automatically provisions a local PostgreSQL instance (PGLite) — no manual database setup needed. The app resolves Databricks credentials from the SDK (environment variables, `.env` file, or active CLI profile).
-
-See `app/.env.example` for all configuration options.
 
 ## Architecture
 
@@ -248,11 +338,12 @@ industry-demo-prompts/
 │   │       ├── lib/              # API clients, utilities, config
 │   │       ├── hooks/            # Custom React hooks
 │   │       └── styles/           # Tailwind CSS globals
-│   ├── databricks.yml            # DAB config (Lakebase + App resources)
+│   ├── databricks.yml            # DAB config — generic resource shape
+│   ├── databricks.prod.yml.example  # Per-deployment config template (copy → databricks.prod.yml, gitignored)
 │   ├── pyproject.toml            # Python deps (use uv, never pip)
 │   ├── package.json              # Frontend deps (use bun)
 │   ├── scripts/                  # dev.sh, build.sh, build-electron.sh, release.sh
-│   └── .env.example              # Environment variable template
+│   └── .env.example              # Local-dev environment variable template
 ├── .claude/skills/databricks-demo-generator/
 │   └── references/blocks/        # Context blocks
 │       ├── capabilities/         #   26 Databricks feature blocks

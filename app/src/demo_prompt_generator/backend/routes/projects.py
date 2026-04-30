@@ -350,15 +350,18 @@ def get_project(
     from pathlib import Path as _Path
     project_dir = _Path(PROJECTS_BASE_DIR) / project_id
 
-    # Only run the heavy restore when we actually need to.
-    needs_restore = not project_dir.exists() or not any(project_dir.iterdir())
-    if needs_restore:
-        file_sync: FileSyncService = request.app.state.file_sync
-        file_sync.restore_project_from_db(project_id, session=session)
-
-    # File metadata comes from the in-memory cache populated by the file watcher.
-    # No second DB SELECT; no disk walk in the hot path (cache hit → O(N) dict copy).
-    from .project_files import _get_cached_files
+    # Restore from DB if missing/empty. Serialized per-project (see
+    # ensure_project_files_restored) so concurrent loaders — frontend fires
+    # getProject + listProjectFiles in parallel — don't both restore and
+    # step on each other's cache, which would surface as an empty file list
+    # until the user force-refreshes.
+    from .project_files import ensure_project_files_restored, _get_cached_files
+    ensure_project_files_restored(
+        project_id,
+        project_dir,
+        request.app.state.file_sync,
+        session,
+    )
     file_entries = _get_cached_files(project_id, project_dir)
     file_paths = [f["path"] for f in file_entries]
     file_count = len(file_paths)
@@ -553,6 +556,12 @@ def delete_project(
     # Delete project
     session.delete(project)
     session.commit()
+
+    # Drop the per-project restore lock + file cache (best-effort cleanup).
+    from .project_files import _restore_locks, _restore_locks_lock, cache_evict_project
+    with _restore_locks_lock:
+        _restore_locks.pop(project_id, None)
+    cache_evict_project(project_id)
 
     try:
         project_dir = get_project_directory(project_id)

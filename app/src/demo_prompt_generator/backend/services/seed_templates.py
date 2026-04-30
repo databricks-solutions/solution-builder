@@ -29,7 +29,15 @@ logger = logging.getLogger(__name__)
 
 
 def _find_initial_templates_dir() -> Optional[Path]:
-    """Locate the initial_templates/ directory relative to the repo root."""
+    """Locate the initial_templates/ directory.
+
+    Same path inside the wheel and the dev tree:
+    `demo_prompt_generator/initial_templates/` (wheel) or `<repo>/initial_templates/` (dev).
+    """
+    bundled = Path(__file__).parent.parent.parent / "initial_templates"
+    if bundled.exists() and (bundled / "manifest.json").exists():
+        return bundled
+
     current_file = Path(__file__)
     # Direct: services/ -> backend/ -> demo_prompt_generator/ -> src/ -> app/ -> repo root
     repo_root = current_file.parent.parent.parent.parent.parent.parent
@@ -37,7 +45,6 @@ def _find_initial_templates_dir() -> Optional[Path]:
     if templates_dir.exists() and (templates_dir / "manifest.json").exists():
         return templates_dir
 
-    # Fallback: walk up looking for initial_templates/manifest.json
     for parent in current_file.parents:
         candidate = parent / "initial_templates"
         if candidate.exists() and (candidate / "manifest.json").exists():

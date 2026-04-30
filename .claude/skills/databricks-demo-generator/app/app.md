@@ -284,8 +284,15 @@ databricks apps get "$APP" >/dev/null 2>&1 || databricks apps create "$APP"
 # Deploy the uploaded source.
 databricks apps deploy "$APP" --source-code-path "$WS_PATH"
 
-# Status + URL
-databricks apps get "$APP"
+# Status + URL. `--output json` structure (don't poll `list-deployments`,
+# all fields are on `apps get`):
+#   .url, .app_status.state, .compute_status.state,
+#   .active_deployment.status.{state,message}
+databricks apps get "$APP" --output json | jq -r '
+  "URL:    \(.url)",
+  "App:    \(.app_status.state)",
+  "Deploy: \(.active_deployment.status.state) — \(.active_deployment.status.message)"
+'
 ```
 
 `app.yaml` (repo root) tells the runtime how to start. The template is Node — `command: ['npm', 'run', 'start']`. Don't change unless you've swapped the framework. SQL warehouse / Lakebase / secrets are bound via the workspace UI after create (resource IDs differ per workspace; the template's `app.yaml` has the reference `env:` shape commented out).
@@ -295,7 +302,7 @@ databricks apps get "$APP"
 ```json
 "app": {
   "name": "<app-name>",
-  "id": "<from `databricks apps get`>",
+  "id": "<from `databricks apps get $APP --output json | jq -r .id`>",
   "deployment_note": "<free-form: deployed OK / quota hit / etc.>"
 }
 ```

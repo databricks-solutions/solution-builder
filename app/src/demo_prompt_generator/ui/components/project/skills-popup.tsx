@@ -23,6 +23,7 @@ import {
   Code,
   Eye,
   Terminal,
+  KeyRound,
 } from "lucide-react";
 import { Prose } from "@/components/markdown-prose";
 import {
@@ -31,8 +32,10 @@ import {
   getSkillFileContent,
   refreshProjectSkills,
   getProjectSystemPrompt,
+  getProjectAgentEnv,
   type Skill,
   type SkillFile,
+  type AgentEnvSnapshot,
 } from "@/lib/custom-api";
 import { cn } from "@/lib/utils";
 
@@ -127,8 +130,9 @@ function FileTreeItem({
   );
 }
 
-// Special marker for system prompt selection
+// Special markers for non-skill entries in the left tree.
 const SYSTEM_PROMPT_MARKER = "__SYSTEM_PROMPT__";
+const AGENT_ENV_MARKER = "__AGENT_ENV__";
 
 export function SkillsPopup({ projectId, isOpen, onClose }: SkillsPopupProps) {
   const [skills, setSkills] = useState<Skill[]>([]);
@@ -148,9 +152,16 @@ export function SkillsPopup({ projectId, isOpen, onClose }: SkillsPopupProps) {
   const [showRaw, setShowRaw] = useState(false);
   const [systemPrompt, setSystemPrompt] = useState<string>("");
   const [isLoadingPrompt, setIsLoadingPrompt] = useState(false);
+  // Agent env snapshot — what env we'd hand to the next Claude Agent SDK
+  // subprocess. Useful for debugging deployed-mode auth (Claude LLM uses
+  // app SP, Databricks CLI uses user PAT — two identities at once). See
+  // backend/AUTH.md for the full model.
+  const [agentEnv, setAgentEnv] = useState<AgentEnvSnapshot | null>(null);
+  const [isLoadingEnv, setIsLoadingEnv] = useState(false);
 
-  // Check if system prompt is selected
+  // Check what's selected in the left tree.
   const isSystemPromptSelected = selectedFile?.skill === SYSTEM_PROMPT_MARKER;
+  const isAgentEnvSelected = selectedFile?.skill === AGENT_ENV_MARKER;
 
   // Check if current file is markdown (including system prompt which is markdown)
   const isMarkdownFile = useMemo(() => {
@@ -160,11 +171,12 @@ export function SkillsPopup({ projectId, isOpen, onClose }: SkillsPopupProps) {
     return selectedFile.path.endsWith(".md");
   }, [selectedFile, isSystemPromptSelected]);
 
-  // Load skills and system prompt when popup opens
+  // Load skills, system prompt, and agent env when popup opens.
   useEffect(() => {
     if (isOpen && projectId) {
       loadSkills();
       loadSystemPrompt();
+      loadAgentEnv();
       // Default to system prompt selected
       setSelectedFile({ skill: SYSTEM_PROMPT_MARKER, path: "SYSTEM_PROMPT" });
     }
@@ -192,6 +204,19 @@ export function SkillsPopup({ projectId, isOpen, onClose }: SkillsPopupProps) {
       setSystemPrompt("Failed to load system prompt");
     } finally {
       setIsLoadingPrompt(false);
+    }
+  }, [projectId]);
+
+  const loadAgentEnv = useCallback(async () => {
+    setIsLoadingEnv(true);
+    try {
+      const snap = await getProjectAgentEnv(projectId);
+      setAgentEnv(snap);
+    } catch (error) {
+      console.error("Failed to load agent env:", error);
+      setAgentEnv(null);
+    } finally {
+      setIsLoadingEnv(false);
     }
   }, [projectId]);
 
@@ -280,6 +305,10 @@ export function SkillsPopup({ projectId, isOpen, onClose }: SkillsPopupProps) {
     setSelectedFile({ skill: SYSTEM_PROMPT_MARKER, path: "SYSTEM_PROMPT" });
   }, []);
 
+  const handleSelectAgentEnv = useCallback(() => {
+    setSelectedFile({ skill: AGENT_ENV_MARKER, path: "AGENT_ENV" });
+  }, []);
+
   return (
     <Sheet open={isOpen} onOpenChange={(open) => !open && onClose()}>
       <SheetContent
@@ -317,12 +346,27 @@ export function SkillsPopup({ projectId, isOpen, onClose }: SkillsPopupProps) {
               <button
                 onClick={handleSelectSystemPrompt}
                 className={cn(
-                  "w-full flex items-center gap-2 p-2 rounded-md text-left hover:bg-accent transition-colors cursor-pointer mb-2",
+                  "w-full flex items-center gap-2 p-2 rounded-md text-left hover:bg-accent transition-colors cursor-pointer mb-1",
                   isSystemPromptSelected && "bg-accent"
                 )}
               >
                 <Terminal className="h-4 w-4 flex-shrink-0 text-primary" />
                 <span className="text-sm font-medium">SYSTEM_PROMPT</span>
+              </button>
+
+              {/* Agent env vars — debug surface for the SDK subprocess
+                   identity. Shows which Databricks/Anthropic env actually
+                   reaches the Claude SDK process. See AUTH.md. */}
+              <button
+                onClick={handleSelectAgentEnv}
+                className={cn(
+                  "w-full flex items-center gap-2 p-2 rounded-md text-left hover:bg-accent transition-colors cursor-pointer mb-2",
+                  isAgentEnvSelected && "bg-accent"
+                )}
+                title="Env vars passed to the Claude Agent SDK subprocess"
+              >
+                <KeyRound className="h-4 w-4 flex-shrink-0 text-primary" />
+                <span className="text-sm font-medium">AGENT_ENV</span>
               </button>
 
               <Separator className="my-2" />
@@ -408,10 +452,12 @@ export function SkillsPopup({ projectId, isOpen, onClose }: SkillsPopupProps) {
                 <p className="text-sm font-medium truncate">
                   {isSystemPromptSelected
                     ? "SYSTEM_PROMPT"
-                    : `${selectedFile.skill}/${selectedFile.path}`}
+                    : isAgentEnvSelected
+                      ? "AGENT_ENV"
+                      : `${selectedFile.skill}/${selectedFile.path}`}
                 </p>
                 {/* Show toggle for all markdown files including system prompt */}
-                {isMarkdownFile && (
+                {isMarkdownFile && !isAgentEnvSelected && (
                   <div className="flex items-center gap-1 bg-muted rounded-md p-0.5 flex-shrink-0 ml-2">
                     <Button
                       variant={!showRaw ? "secondary" : "ghost"}
@@ -438,7 +484,9 @@ export function SkillsPopup({ projectId, isOpen, onClose }: SkillsPopupProps) {
 
             {/* Scrollable content area */}
             <ScrollArea className="flex-1">
-              {isSystemPromptSelected ? (
+              {isAgentEnvSelected ? (
+                <AgentEnvView snapshot={agentEnv} loading={isLoadingEnv} onRefresh={loadAgentEnv} />
+              ) : isSystemPromptSelected ? (
                 // System prompt content - supports Preview/Raw toggle
                 isLoadingPrompt ? (
                   <div className="flex items-center justify-center py-8">
@@ -486,5 +534,104 @@ export function SkillsPopup({ projectId, isOpen, onClose }: SkillsPopupProps) {
         </div>
       </SheetContent>
     </Sheet>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// AgentEnvView — renders the env-snapshot returned by /api/projects/:id/agent-env
+//
+// Goal: let an SA debugging "the agent's databricks call 401d but the UI
+// works fine" see EXACTLY which identity the SDK subprocess will use.
+// In deployed mode there are TWO identities at once (Claude LLM = app
+// SP, Databricks CLI = user PAT in <project>/.databrickscfg) and the
+// notes line spells that out so people stop assuming.
+//
+// Token-shaped values are server-side redacted to first4…last4 — never
+// echo the full string here.
+// ---------------------------------------------------------------------------
+
+interface AgentEnvViewProps {
+  snapshot: AgentEnvSnapshot | null;
+  loading: boolean;
+  onRefresh: () => void;
+}
+
+function AgentEnvView({ snapshot, loading, onRefresh }: AgentEnvViewProps) {
+  if (loading && !snapshot) {
+    return (
+      <div className="flex items-center justify-center py-8">
+        <RefreshCw className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+  if (!snapshot) {
+    return (
+      <div className="text-sm text-muted-foreground p-4">
+        Failed to load agent env snapshot.
+      </div>
+    );
+  }
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-2">
+        <span
+          className={cn(
+            "px-2 py-0.5 rounded text-xs font-medium",
+            snapshot.mode === "deployed"
+              ? "bg-blue-500/15 text-blue-700 dark:text-blue-300"
+              : "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300",
+          )}
+        >
+          mode: {snapshot.mode}
+        </span>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={onRefresh}
+          disabled={loading}
+          className="h-7 px-2 ml-auto"
+        >
+          <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} />
+        </Button>
+      </div>
+
+      <div className="text-xs text-muted-foreground leading-relaxed border-l-2 border-muted pl-3">
+        {snapshot.notes}
+      </div>
+
+      <div className="rounded-md border bg-muted/20 divide-y">
+        {snapshot.vars.length === 0 ? (
+          <div className="p-3 text-xs text-muted-foreground italic">
+            (no env vars set — the agent inherits the parent process env)
+          </div>
+        ) : (
+          snapshot.vars.map((v) => (
+            <div
+              key={v.name}
+              className="grid grid-cols-[180px_1fr] gap-3 p-2 text-xs font-mono"
+            >
+              <div className="font-semibold text-foreground/80 flex items-center gap-1.5">
+                {v.name}
+                {v.redacted && (
+                  <span
+                    className="px-1 py-0 text-[9px] uppercase rounded bg-amber-500/15 text-amber-700 dark:text-amber-300 font-sans not-italic"
+                    title="Token-shaped value — only first/last 4 chars shown"
+                  >
+                    redacted
+                  </span>
+                )}
+              </div>
+              <div className="break-all text-muted-foreground select-text">
+                {v.value}
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+
+      <div className="text-[11px] text-muted-foreground italic">
+        See <code>backend/AUTH.md</code> for the full identity model.
+      </div>
+    </div>
   );
 }

@@ -6,9 +6,11 @@ from typing import Optional
 
 from fastapi import HTTPException
 from pydantic import BaseModel
+from sqlmodel import select
 
 from ..core import Dependencies, create_router
-from ..models import Project
+from ..core.auth import detect_mode
+from ..models import Project, User
 from ..services.skills_manager import (
     get_project_directory,
     get_project_skills_list,
@@ -171,3 +173,116 @@ def get_project_system_prompt(
     )
 
     return SystemPromptResponse(prompt=prompt)
+
+
+# ---------------------------------------------------------------------------
+# Agent env vars (debug surface)
+#
+# Surfaces exactly what `_build_claude_env` produces for this user/project
+# combination. Token-shaped values are redacted (first 4 + last 4 chars
+# only) — those tokens can mint requests as the SP, so leaking them in the
+# UI would be a real auth boundary violation. See backend/AUTH.md for the
+# full identity model (LLM = SP, Databricks CLI = user PAT, two identities
+# at once when deployed).
+# ---------------------------------------------------------------------------
+
+
+# Names whose values must be redacted in the UI. Treat conservatively: if
+# in doubt, redact. The user is troubleshooting auth shape, not value.
+_REDACT_KEYS = {
+    "ANTHROPIC_API_KEY",
+    "ANTHROPIC_AUTH_TOKEN",
+    "DATABRICKS_TOKEN",
+    "DATABRICKS_CLIENT_SECRET",
+    # Headers that carry tokens
+    "ANTHROPIC_CUSTOM_HEADERS",  # contains workspace coding-agent header — safe but log conservatively
+}
+
+
+def _redact(name: str, value: str) -> tuple[str, bool]:
+    """Return (display_value, was_redacted). For token-shaped names, show
+    only the first 4 + last 4 chars (or "***" if too short). The
+    coding-agent header is shown verbatim because it doesn't carry a token."""
+    if name == "ANTHROPIC_CUSTOM_HEADERS":
+        return value, False
+    if name in _REDACT_KEYS:
+        if len(value) <= 12:
+            return "***", True
+        return f"{value[:4]}…{value[-4:]}", True
+    return value, False
+
+
+class AgentEnvVar(BaseModel):
+    name: str
+    value: str
+    redacted: bool
+
+
+class AgentEnvResponse(BaseModel):
+    """Snapshot of the env passed to the Claude Agent SDK subprocess for
+    this project. Lets users / SAs verify which Databricks identity the
+    agent runs as (always the user via PAT for `databricks ...` calls;
+    always the SP for the Claude LLM itself when deployed)."""
+
+    mode: str  # "local" | "deployed"
+    notes: str
+    vars: list[AgentEnvVar]
+
+
+@router.get(
+    "/projects/{project_id}/agent-env",
+    response_model=AgentEnvResponse,
+    operation_id="getProjectAgentEnv",
+)
+def get_project_agent_env(
+    project_id: str,
+    session: Dependencies.Session,
+    headers: Dependencies.Headers,
+):
+    """Return the env dict that would be passed to the next agent run for
+    this project. Used by the Skills/Agent Configuration panel to debug
+    auth issues (e.g. "why does the agent's databricks call 401 when the
+    UI is fine?" — answer: LLM uses SP, CLI uses user PAT, and the PAT
+    expired)."""
+    # Imported here to avoid circular import (services/agent.py imports
+    # heavy modules at top level; this debug endpoint shouldn't pay that
+    # cost on cold start).
+    from ..services.agent import _build_claude_env
+
+    user_email = _get_user_email(headers)
+    _verify_project_access(session, project_id, user_email)
+
+    mode = detect_mode(headers)
+    user = session.exec(select(User).where(User.email == user_email)).first()
+    databricks_profile = user.databricks_profile if user else None
+    project_dir = get_project_directory(project_id)
+
+    raw_env = _build_claude_env(
+        project_dir,
+        mode=mode,
+        local_profile=databricks_profile,
+    )
+
+    items: list[AgentEnvVar] = []
+    for name in sorted(raw_env.keys()):
+        display, was_redacted = _redact(name, raw_env[name])
+        items.append(AgentEnvVar(name=name, value=display, redacted=was_redacted))
+
+    if mode == "deployed":
+        notes = (
+            "Deployed mode. The Claude LLM (ANTHROPIC_*) is authenticated as the "
+            "APP'S SERVICE PRINCIPAL — every Anthropic call's audit + billing rolls "
+            "up to the SP, not the human. The Databricks CLI/SDK calls the agent "
+            "makes (DATABRICKS_CONFIG_FILE) authenticate as the HUMAN USER via the "
+            "PAT in <project>/.databrickscfg. Middleware refreshes that file from "
+            "x-forwarded-access-token on every request; PATs are ~1h TTL. If a "
+            "databricks CLI call 401s mid-turn, reopen the tab to mint a fresh PAT."
+        )
+    else:
+        notes = (
+            "Local mode. The Claude LLM uses ANTHROPIC_API_KEY from your shell. "
+            "Databricks CLI/SDK calls run as the profile from /setup. Token "
+            "refresh is handled by the Databricks CLI's own OAuth cache."
+        )
+
+    return AgentEnvResponse(mode=mode, notes=notes, vars=items)

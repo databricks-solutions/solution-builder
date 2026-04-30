@@ -513,6 +513,10 @@ class ProjectFileOut(BaseModel):
     size: int
     last_modified: datetime
     synced_at: datetime
+    # True for files normally filtered out of the listing (.databrickscfg,
+    # .claude/skills/, hidden tempfiles). Only ever true when the request
+    # passed `?include_hidden=true`. Lets the UI badge these distinctly.
+    is_hidden: bool = False
 
 
 class ProjectFileContent(BaseModel):

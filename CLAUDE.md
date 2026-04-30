@@ -63,9 +63,9 @@ bun run build                 # Frontend -> src/demo_prompt_generator/ui/__dist_
 # Testing
 npx playwright test           # E2E tests (needs app running on :9000)
 
-# Deploy to Databricks
-databricks bundle deploy -t dev --profile <PROFILE>
-databricks bundle run demo-prompt-generator-app -t dev --profile <PROFILE>
+# Deploy to Databricks (one-time: cp databricks.prod.yml.example databricks.prod.yml, fill in)
+databricks bundle deploy
+databricks bundle run demo-prompt-generator-app
 
 # Database reset (drops all tables)
 RESET_DB=1 ./scripts/dev.sh
@@ -76,7 +76,8 @@ RESET_DB=1 ./scripts/dev.sh
 1. Copy `app/.env.example` to `app/.env` and configure:
    - `DATABRICKS_CONFIG_PROFILE` or `DATABRICKS_HOST`/`DATABRICKS_TOKEN` (required)
    - `LAKEBASE_PG_URL` (optional — omit to use PGLite, a local auto-provisioned PostgreSQL)
-   - `DEMO_PROMPT_GENERATOR_LLM_MODEL` (default: `databricks-claude-sonnet-4-6`)
+   - `ANTHROPIC_LLM_ENDPOINT` (default: `databricks-claude-sonnet-4-6`)
+   - For prod deploys also: `cp app/databricks.prod.yml.example app/databricks.prod.yml` and fill in.
 2. `bun install` in `app/` for frontend deps
 3. `uv sync` in `app/` for Python deps (creates `.venv`)
 4. The `ai_dev_kit/` directory is cloned automatically by `dev.sh`

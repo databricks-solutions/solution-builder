@@ -16,6 +16,7 @@ app/.claude/
 # ai-dev-kit (installed locally per user)
 .ai-dev-kit/
 
+
 # Node / test tooling (root-level, used for local Playwright testing)
 node_modules/
 package.json

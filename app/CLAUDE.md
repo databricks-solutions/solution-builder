@@ -272,7 +272,16 @@ uv run uvicorn demo_prompt_generator.backend.app:app --host 127.0.0.1 --port 900
 
 ### Build for deployment
 
+One-time setup: `cp databricks.prod.yml.example databricks.prod.yml` and fill in
+the three sections (workspace profile, bundle vars, runtime env). The file is
+gitignored so deployment-specific values never land in the public repo.
+
 ```bash
-bun run build                                    # Frontend
-databricks bundle deploy -t dev --profile <NAME> # Deploy to workspace
+bun run build                # Frontend
+databricks bundle deploy     # Resolves databricks.prod.yml + invokes build.sh
 ```
+
+`build.sh --target prod` reads the resolved `targets.prod.env` dict from
+`databricks bundle summary --output json` and writes `.build/app.yml` from it.
+The on-disk `app/app.yml` placeholder no longer exists — `databricks.prod.yml`
+is the single source of truth for both bundle vars and runtime env.

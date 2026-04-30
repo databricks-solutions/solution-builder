@@ -84,6 +84,10 @@ export interface ProjectFile {
   size: number;
   last_modified: string;
   synced_at: string;
+  /** True when the standard listing would normally hide this file
+   *  (.databrickscfg, .claude/skills/, hidden tempfiles). Only ever
+   *  present when listProjectFiles was called with includeHidden=true. */
+  is_hidden?: boolean;
 }
 
 export interface ProjectFileContent {
@@ -342,10 +346,15 @@ export async function updateProjectResources(
 
 export async function listProjectFiles(
   projectId: string,
-  opts: { force?: boolean } = {}
+  opts: { force?: boolean; includeHidden?: boolean } = {}
 ): Promise<ProjectFile[]> {
-  const qs = opts.force ? "?force=true" : "";
-  const resp = await fetch(apiUrl(`/api/projects/${projectId}/files${qs}`));
+  const params = new URLSearchParams();
+  if (opts.force) params.set("force", "true");
+  if (opts.includeHidden) params.set("include_hidden", "true");
+  const qs = params.toString();
+  const resp = await fetch(
+    apiUrl(`/api/projects/${projectId}/files${qs ? "?" + qs : ""}`),
+  );
   if (!resp.ok) throw new Error(`Failed to list files: ${resp.status}`);
   return resp.json();
 }
@@ -675,6 +684,32 @@ export async function getProjectSystemPrompt(projectId: string): Promise<string>
   if (!resp.ok) throw new Error(`Failed to get system prompt: ${resp.status}`);
   const data = await resp.json();
   return data.prompt;
+}
+
+/** A single env var that would be passed to the next Claude Agent SDK
+ *  subprocess run for this project. Token-shaped values are server-side
+ *  redacted (first4 + last4 only) — never echo `value` back to a place
+ *  where it could leak the token. */
+export interface AgentEnvVar {
+  name: string;
+  value: string;
+  redacted: boolean;
+}
+
+export interface AgentEnvSnapshot {
+  /** Deployment mode. "deployed" = Databricks Apps (multi-user, SP for
+   *  Claude, user PAT for `databricks ...` CLI). "local" = single-user
+   *  laptop. See backend/AUTH.md. */
+  mode: "local" | "deployed";
+  /** Human-readable summary of which identities the agent uses. */
+  notes: string;
+  vars: AgentEnvVar[];
+}
+
+export async function getProjectAgentEnv(projectId: string): Promise<AgentEnvSnapshot> {
+  const resp = await fetch(apiUrl(`/api/projects/${projectId}/agent-env`));
+  if (!resp.ok) throw new Error(`Failed to get agent env: ${resp.status}`);
+  return resp.json();
 }
 
 // ---------------------------------------------------------------------------

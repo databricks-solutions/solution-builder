@@ -73,6 +73,11 @@ def _is_excluded_segment(segment: str) -> bool:
         return True
     if segment == ".databrickscfg" or segment.startswith(".databrickscfg."):
         return True
+    # Per-project FMAPI auth files (see core/fmapi_auth.py).
+    if segment == ".anthropic_token" or segment.startswith(".anthropic_token."):
+        return True
+    if segment == "get_anthropic_token.sh" or segment.startswith(".get_anthropic_token.sh."):
+        return True
     return False
 
 
@@ -99,6 +104,53 @@ def _is_excluded_segment(segment: str) -> bool:
 _file_cache: dict[str, dict[str, dict]] = {}
 _cache_lock = threading.RLock()
 
+# Per-project restore locks. After a redeploy, project_dir is empty and any
+# request that touches it (GET /projects/<id>, GET /projects/<id>/files,
+# GET /projects/<id>/download) needs to restore from DB. The frontend fires
+# several of these in parallel (Promise.all in the route loader), so without
+# a lock two requests both decide to restore, and whichever one populates
+# the file cache while the other is still mid-write captures a partial
+# snapshot. The lock makes the first request do the restore + cache evict
+# atomically; the second request waits, then sees the populated dir and
+# falls through. Locks are pruned when projects are deleted.
+_restore_locks: dict[str, threading.Lock] = {}
+_restore_locks_lock = threading.Lock()
+
+
+def _get_restore_lock(project_id: str) -> threading.Lock:
+    """Return (creating if missing) the restore lock for one project."""
+    with _restore_locks_lock:
+        lock = _restore_locks.get(project_id)
+        if lock is None:
+            lock = threading.Lock()
+            _restore_locks[project_id] = lock
+        return lock
+
+
+def ensure_project_files_restored(
+    project_id: str,
+    project_dir: Path,
+    file_sync,
+    session,
+) -> None:
+    """Restore project files from DB if the project_dir is missing or empty.
+
+    Serialized per project so concurrent route handlers don't both run
+    `restore_project_from_db` and step on each other's cache. Always evicts
+    the file cache after a real restore so the next listing call walks fresh
+    disk state instead of returning a partial mid-restore snapshot.
+    """
+    needs_restore = not project_dir.exists() or not any(project_dir.iterdir())
+    if not needs_restore:
+        return
+    with _get_restore_lock(project_id):
+        # Re-check inside the lock — another request may have just finished.
+        if project_dir.exists() and any(project_dir.iterdir()):
+            return
+        logger.info(f"Project folder missing or empty, restoring from DB: {project_id}")
+        file_sync.restore_project_from_db(project_id, session=session)
+        cache_evict_project(project_id)
+
 
 def _make_file_entry(project_dir: Path, file_path: Path) -> dict | None:
     """Build a file entry dict from an absolute path, or None if ignored/missing."""
@@ -119,7 +171,78 @@ def _make_file_entry(project_dir: Path, file_path: Path) -> dict | None:
         "name": file_path.name,
         "size": stat.st_size,
         "last_modified": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
+        "is_hidden": False,
     }
+
+
+# Heavyweight directories we NEVER want to walk into even when "show
+# hidden" is on (would walk thousands of files). Different from
+# `_is_excluded_segment` which mixes truly-hidden-but-cheap entries
+# (.databrickscfg) with truly-bulky entries (node_modules) — for the
+# debug listing we want to see the cheap ones.
+_HIDDEN_WALK_PRUNE_DIRS = {
+    "node_modules",
+    "__pycache__", ".pytest_cache", ".ruff_cache", ".mypy_cache",
+    "dist", "build", ".next", ".turbo", ".parcel-cache", "__dist__",
+    ".git",
+}
+
+
+def _is_bulky_dir(segment: str) -> bool:
+    if segment in _HIDDEN_WALK_PRUNE_DIRS:
+        return True
+    # .venv*, venv*  — language virtualenvs that explode the listing.
+    if segment.startswith(".venv") or (
+        segment.startswith("venv") and (segment == "venv" or segment.startswith("venv-") or segment.startswith("venv."))
+    ):
+        return True
+    return False
+
+
+def _build_listing_with_hidden(project_dir: Path) -> list[dict]:
+    """Walk the project directory once for the debug "show all files" view.
+
+    Includes files normally filtered by `_is_excluded_segment` (e.g.
+    `.databrickscfg`, `.claude/skills/...`, hidden tempfiles) so users
+    can troubleshoot deployed-mode auth (the on-disk `.databrickscfg` IS
+    the user's PAT proxy in deployed mode — see backend/AUTH.md).
+
+    Skips bulky language artifact dirs (node_modules, .venv*, dist/) —
+    walking those would return tens of thousands of paths and freeze the
+    UI. Hidden walk does NOT touch the in-memory cache; the cache stays
+    domain-filtered for the hot path.
+
+    Each entry carries `is_hidden=True` if the standard listing would
+    have filtered it out, so the UI can badge / sort accordingly.
+    """
+    entries: list[dict] = []
+    if not project_dir.exists():
+        return entries
+    for root, dirs, filenames in os.walk(project_dir):
+        dirs[:] = [d for d in dirs if not _is_bulky_dir(d)]
+        root_path = Path(root)
+        for name in filenames:
+            file_path = root_path / name
+            try:
+                rel_path = file_path.relative_to(project_dir)
+            except ValueError:
+                continue
+            try:
+                stat = file_path.stat()
+            except OSError:
+                continue
+            # Mark as hidden if the standard filter would have dropped it.
+            is_hidden = any(
+                _is_excluded_segment(part) for part in rel_path.parts
+            )
+            entries.append({
+                "path": str(rel_path),
+                "name": name,
+                "size": stat.st_size,
+                "last_modified": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
+                "is_hidden": is_hidden,
+            })
+    return sorted(entries, key=lambda f: f["path"])
 
 
 def _build_cache_from_walk(project_id: str, project_dir: Path) -> dict[str, dict]:
@@ -290,12 +413,22 @@ def list_project_files(
     headers: Dependencies.Headers,
     request: Request,
     force: bool = False,
+    include_hidden: bool = False,
 ):
     """List all files in a project from the local filesystem.
 
-    Served from an in-memory cache that the file watcher keeps in sync with the
-    filesystem. Pass `?force=true` to evict and rebuild from a fresh `os.walk`
-    (useful when the UI's Refresh button is clicked, or if the cache is suspect).
+    Default mode is served from an in-memory cache that the file watcher
+    keeps in sync with the filesystem. Pass `?force=true` to evict and
+    rebuild from a fresh `os.walk` (useful when the UI's Refresh button
+    is clicked, or if the cache is suspect).
+
+    Pass `?include_hidden=true` for the debug "show all files" view —
+    it walks disk fresh and includes files normally filtered out
+    (`.databrickscfg`, `.claude/skills/...`, hidden tempfiles) with
+    `is_hidden=true`. This bypasses the cache entirely (the cache stays
+    domain-filtered for the hot path) and skips bulky language artifact
+    dirs (node_modules, .venv*, dist/) so it doesn't return tens of
+    thousands of paths.
     """
     try:
         user_email = _get_user_email(headers)
@@ -303,14 +436,18 @@ def list_project_files(
 
         project_dir = _PROJECTS_BASE_RESOLVED / project_id
 
-        # If folder doesn't exist, restore from DB first (and drop stale cache).
-        if not project_dir.exists():
-            logger.info(f"Project folder missing, restoring from DB: {project_id}")
-            file_sync: FileSyncService = request.app.state.file_sync
-            file_sync.restore_project_from_db(project_id, session=session)
-            cache_evict_project(project_id)
+        ensure_project_files_restored(
+            project_id,
+            project_dir,
+            request.app.state.file_sync,
+            session,
+        )
 
-        files = _get_cached_files(project_id, project_dir, force=force)
+        if include_hidden:
+            # Debug view — walk fresh, include hidden, do NOT cache.
+            files = _build_listing_with_hidden(project_dir)
+        else:
+            files = _get_cached_files(project_id, project_dir, force=force)
 
         return [
             ProjectFileOut(
@@ -319,6 +456,7 @@ def list_project_files(
                 size=f["size"],
                 last_modified=f["last_modified"],
                 synced_at=f["last_modified"],  # Use last_modified as synced_at for filesystem files
+                is_hidden=f.get("is_hidden", False),
             )
             for f in files
         ]
@@ -341,7 +479,18 @@ def get_project_file(
     headers: Dependencies.Headers,
     request: Request,
 ):
-    """Get the content of a specific file."""
+    """Get the content of a specific file.
+
+    Normal flow: read from the DB-synced view (file_sync), where the
+    watcher mirrors disk into Lakebase (filtered by IGNORE_PATTERNS).
+
+    Hidden-files fallback: if the file isn't in the DB but exists on
+    disk inside the project, read it from disk so users browsing the
+    "show all files" view can inspect contents (e.g. `.claude/skills/`,
+    `.preview.pgid`). `.databrickscfg` is special-cased — it carries the
+    workspace token in deployed mode, so we redact the token line
+    rather than leaking it to the UI.
+    """
     user_email = _get_user_email(headers)
     _get_user_project(session, project_id, user_email)
 
@@ -349,21 +498,72 @@ def get_project_file(
     # Pass session to avoid creating new connection (PGLite issue)
     content = file_sync.get_file_content(project_id, file_path, session=session)
 
-    if content is None:
-        raise HTTPException(status_code=404, detail="File not found")
-
-    # Get file metadata from DB
     file_record = session.exec(
         select(ProjectFile)
         .where(ProjectFile.project_id == project_id)
         .where(ProjectFile.relative_path == file_path)
     ).first()
 
+    # Hidden-files fallback — file isn't tracked in the DB but may exist
+    # on disk because the watcher filters it out. Read from disk so the
+    # debug listing's contents are viewable.
+    if content is None:
+        project_dir = _PROJECTS_BASE_RESOLVED / project_id
+        disk_path = (project_dir / file_path).resolve()
+        # Defense in depth: refuse path-escape attempts (`..` segments).
+        try:
+            disk_path.relative_to(project_dir)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid file path")
+        if not disk_path.is_file():
+            raise HTTPException(status_code=404, detail="File not found")
+        try:
+            raw = disk_path.read_text(encoding="utf-8", errors="replace")
+        except OSError as e:
+            raise HTTPException(status_code=500, detail=f"Read failed: {e}")
+        content = raw
+        try:
+            stat = disk_path.stat()
+            disk_size = stat.st_size
+            disk_mtime = datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc)
+        except OSError:
+            disk_size = len(content)
+            disk_mtime = None
+    else:
+        disk_size = None
+        disk_mtime = None
+
+    # Redact the `.databrickscfg` token line — in deployed mode this file
+    # holds the user's PAT (rewritten from x-forwarded-access-token by
+    # middleware). Showing the file's existence + host is fine for
+    # debugging auth shape; showing the token would be a real boundary
+    # violation since anyone with that token can act as the user.
+    basename = Path(file_path).name
+    if basename == ".databrickscfg" or basename.startswith(".databrickscfg."):
+        redacted_lines: list[str] = []
+        for line in content.splitlines():
+            stripped = line.strip()
+            if stripped.lower().startswith("token") and "=" in stripped:
+                redacted_lines.append(
+                    line.split("=", 1)[0] + "= [REDACTED — see backend/AUTH.md]"
+                )
+            else:
+                redacted_lines.append(line)
+        content = "\n".join(redacted_lines)
+    # `.anthropic_token` and `.claude/settings.json` (which embeds an
+    # apiKeyHelper path) — wholesale redaction. The token file's entire body
+    # is the bearer; settings.json doesn't contain the token directly but the
+    # path leaks where it lives. Show neither.
+    elif basename == ".anthropic_token" or basename.startswith(".anthropic_token."):
+        content = "[REDACTED — see backend/core/fmapi_auth.py]"
+    elif basename == "settings.json" and ".claude/" in file_path:
+        content = "[REDACTED apiKeyHelper path — see backend/core/fmapi_auth.py]"
+
     return ProjectFileContent(
         path=file_path,
         content=content,
-        size=file_record.file_size if file_record else len(content),
-        last_modified=file_record.last_modified if file_record else None,
+        size=file_record.file_size if file_record else (disk_size if disk_size is not None else len(content)),
+        last_modified=file_record.last_modified if file_record else disk_mtime,
     )
 
 
@@ -384,11 +584,12 @@ def download_project_as_zip(
 
     project_dir = _PROJECTS_BASE_RESOLVED / project_id
 
-    # If folder doesn't exist, restore from DB first
-    if not project_dir.exists():
-        logger.info(f"Project folder missing, restoring from DB: {project_id}")
-        file_sync: FileSyncService = request.app.state.file_sync
-        file_sync.restore_project_from_db(project_id, session=session)
+    ensure_project_files_restored(
+        project_id,
+        project_dir,
+        request.app.state.file_sync,
+        session,
+    )
 
     if not project_dir.exists():
         raise HTTPException(status_code=404, detail="Project directory not found")
