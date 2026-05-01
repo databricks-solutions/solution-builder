@@ -81,14 +81,41 @@ def _build_claude_env(
     """
     env: dict[str, str] = {}
 
-    # FMAPI routing for Claude Code is NO LONGER configured via env vars.
-    # Instead, <project_dir>/.claude/settings.json provides:
-    #   - apiKeyHelper → <project_dir>/get_anthropic_token.sh (prints token
-    #     from .anthropic_token, refreshed every ~15 min by lifespan task)
-    #   - env block: ANTHROPIC_BASE_URL, ANTHROPIC_MODEL, headers
-    # This keeps the subprocess env clean — the agent doesn't see the token
-    # in `os.environ` and can't accidentally copy it onto `databricks` CLI
-    # calls (which had been a real failure mode). See core/fmapi_auth.py.
+    # FMAPI routing for Claude Code via env vars. We DID try the
+    # `.claude/settings.json` apiKeyHelper approach (see core/fmapi_auth.py
+    # — the file infra is still around as a fallback) but it failed
+    # silently on Databricks Apps with no recoverable stderr. The env-var
+    # path is what works in deployed mode today.
+    #
+    # The agent is instructed in the system prompt NOT to copy these vars
+    # onto `databricks` CLI calls — see services/system_prompt.py.
+    if os.environ.get("DATABRICKS_CLIENT_ID"):
+        from databricks.sdk import WorkspaceClient
+        from ..core._config import AppConfig
+
+        ws = WorkspaceClient()
+        host = (ws.config.host or "").rstrip("/")
+        if not host:
+            logger.warning("DATABRICKS_HOST not set, Claude FMAPI routing disabled")
+        else:
+            headers = ws.config.authenticate()
+            token = headers.get("Authorization", "").removeprefix("Bearer ").strip()
+            if not token:
+                logger.warning("Could not obtain Databricks token, Claude FMAPI routing disabled")
+            else:
+                cfg = AppConfig()
+                anthropic_base_url = f"{host}/serving-endpoints/anthropic"
+                env.update({
+                    "ANTHROPIC_BASE_URL": anthropic_base_url,
+                    "ANTHROPIC_API_KEY": token,
+                    "ANTHROPIC_AUTH_TOKEN": token,
+                    "ANTHROPIC_MODEL": cfg.anthropic_llm_endpoint,
+                    "ANTHROPIC_CUSTOM_HEADERS": "x-databricks-use-coding-agent-mode: true",
+                    "CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS": "1",
+                })
+                logger.info(
+                    f"Configured FMAPI routing: {anthropic_base_url} (model: {cfg.anthropic_llm_endpoint})"
+                )
 
     # Databricks CLI/SDK auth for the agent's shell commands.
     env.update(subprocess_auth_env(project_dir, mode=mode, local_profile=local_profile))
@@ -361,13 +388,13 @@ async def stream_agent_response(
                 options.continue_conversation = True
                 logger.info(f"Resuming Claude Code session: {session_id}")
 
-            # Belt-and-braces: make sure the FMAPI auth files exist BEFORE
-            # spawning Claude Code. Idempotent + cheap (no-op when present
-            # and locally). Catches projects that predate the FMAPI feature
-            # OR projects whose dir was non-empty so restore_project_from_db
-            # short-circuited before the auto-provision could fire.
-            from .file_sync import ensure_fmapi_auth_files
-            ensure_fmapi_auth_files(project_dir, project_id)
+            # NOTE: we used to call ensure_fmapi_auth_files here so the
+            # subprocess could read its token from a file via apiKeyHelper.
+            # That path is currently disabled — Claude Code authenticates
+            # via ANTHROPIC_* env vars set by _build_claude_env above. The
+            # file infrastructure is still in place behind the scenes (see
+            # core/fmapi_auth.py + the lifespan refresher) so we can switch
+            # back without churn.
 
             # Create and connect new client
             client = ClaudeSDKClient(options=options)

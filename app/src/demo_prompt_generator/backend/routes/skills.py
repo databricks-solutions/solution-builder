@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from typing import Optional
 
 from fastapi import HTTPException
@@ -286,3 +287,131 @@ def get_project_agent_env(
         )
 
     return AgentEnvResponse(mode=mode, notes=notes, vars=items)
+
+
+# ---------------------------------------------------------------------------
+# Debug: spawn the bundled Claude CLI directly + capture stdout/stderr.
+# This bypasses ClaudeSDKClient so we can see what the binary actually says
+# when the SDK's connect path swallows its stderr.
+# ---------------------------------------------------------------------------
+
+
+class ClaudeDebugResponse(BaseModel):
+    cmd: list[str]
+    cwd: str
+    exit_code: int | None
+    stdout: str
+    stderr: str
+    error: str | None
+    env_keys: list[str]
+
+
+@router.get(
+    "/projects/{project_id}/debug-claude",
+    response_model=ClaudeDebugResponse,
+    operation_id="debugClaudeBinary",
+)
+def debug_claude_binary(
+    project_id: str,
+    session: Dependencies.Session,
+    headers: Dependencies.Headers,
+):
+    """Run `<bundled-claude> -v` as a subprocess and capture exit + stdout +
+    stderr. The SDK's normal path silently drops stderr when the subprocess
+    dies during connect; this hits the binary directly to see what it says."""
+    import subprocess
+    from pathlib import Path
+    user_email = _get_user_email(headers)
+    _verify_project_access(session, project_id, user_email)
+
+    mode = detect_mode(headers)
+    user = session.exec(select(User).where(User.email == user_email)).first()
+    databricks_profile = user.databricks_profile if user else None
+    project_dir = get_project_directory(project_id)
+
+    # Find the bundled CLI the same way the SDK does.
+    try:
+        from claude_agent_sdk._internal.transport.subprocess_cli import SubprocessCLITransport
+        # Build a transport stub just to call _find_cli — too brittle; do it inline.
+        import claude_agent_sdk
+        bundled = (
+            Path(claude_agent_sdk.__file__).parent / "_bundled" / "claude"
+        )
+        cli_path = str(bundled) if bundled.exists() else "claude"
+    except Exception as e:
+        return ClaudeDebugResponse(
+            cmd=[],
+            cwd=str(project_dir),
+            exit_code=None,
+            stdout="",
+            stderr="",
+            error=f"Could not locate bundled CLI: {e!r}",
+            env_keys=[],
+        )
+
+    from ..services.agent import _build_claude_env
+    env = _build_claude_env(project_dir, mode=mode, local_profile=databricks_profile)
+    # Merge with os.environ like the SDK does.
+    full_env = {**os.environ, **env, "CLAUDE_CODE_ENTRYPOINT": "sdk-py"}
+
+    # Mirror the SDK's exact base command (subprocess_cli._build_command).
+    # We pipe a single user message via stdin in stream-json format and let
+    # the binary write its full debug log to stderr. If the model is wrong
+    # / API key is rejected / endpoint URL is bad, the failure reason
+    # surfaces here.
+    cmd = [
+        cli_path,
+        "--output-format", "stream-json",
+        "--verbose",
+        "--input-format", "stream-json",
+        "--permission-mode", "bypassPermissions",
+        "--debug",
+    ]
+    try:
+        # Send one stream-json user message + EOF so the binary processes
+        # one turn and exits. The session_id can be anything — the binary
+        # generates one if it's missing from the message envelope.
+        import json as _json
+        stdin_payload = _json.dumps({
+            "type": "user",
+            "message": {"role": "user", "content": [{"type": "text", "text": "say hello"}]},
+            "session_id": "debug",
+        }) + "\n"
+        proc = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            cwd=str(project_dir),
+            env=full_env,
+            input=stdin_payload,
+            timeout=20,
+        )
+        return ClaudeDebugResponse(
+            cmd=cmd,
+            cwd=str(project_dir),
+            exit_code=proc.returncode,
+            stdout=proc.stdout[:5000],
+            stderr=proc.stderr[:5000],
+            error=None,
+            env_keys=sorted(full_env.keys()),
+        )
+    except subprocess.TimeoutExpired as e:
+        return ClaudeDebugResponse(
+            cmd=cmd,
+            cwd=str(project_dir),
+            exit_code=None,
+            stdout=(e.stdout or b"").decode(errors="replace")[:5000] if isinstance(e.stdout, bytes) else (e.stdout or "")[:5000],
+            stderr=(e.stderr or b"").decode(errors="replace")[:5000] if isinstance(e.stderr, bytes) else (e.stderr or "")[:5000],
+            error="timeout",
+            env_keys=sorted(full_env.keys()),
+        )
+    except Exception as e:
+        return ClaudeDebugResponse(
+            cmd=cmd,
+            cwd=str(project_dir),
+            exit_code=None,
+            stdout="",
+            stderr="",
+            error=f"{type(e).__name__}: {e}",
+            env_keys=sorted(full_env.keys()),
+        )

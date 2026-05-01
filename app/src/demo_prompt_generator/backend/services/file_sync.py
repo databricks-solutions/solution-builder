@@ -51,23 +51,32 @@ def ensure_fmapi_auth_files(project_dir: Path, project_id: str) -> None:
         from ..core import fmapi_auth
         from ..core._config import AppConfig
         if not fmapi_auth.is_deployed_mode():
+            logger.info(f"[fmapi-auth] {project_id}: not deployed mode, skip")
             return
-        if (project_dir / fmapi_auth.HELPER_SCRIPT_NAME).exists():
+        helper = project_dir / fmapi_auth.HELPER_SCRIPT_NAME
+        if helper.exists():
+            logger.info(f"[fmapi-auth] {project_id}: helper already exists at {helper}, skip")
             return
+        logger.info(f"[fmapi-auth] {project_id}: provisioning auth files at {project_dir}")
         minted = fmapi_auth.mint_fmapi_token()
         if minted is None:
-            logger.warning(f"[fmapi-auth] could not mint token for {project_id}")
+            logger.warning(f"[fmapi-auth] {project_id}: could not mint token")
             return
         host, token = minted
+        logger.info(f"[fmapi-auth] {project_id}: minted token (len={len(token)}), host={host}")
         fmapi_auth.provision_project_files(
             project_dir,
             anthropic_base_url=f"{host}/serving-endpoints/anthropic",
             anthropic_model=AppConfig().anthropic_llm_endpoint,
             token=token,
         )
-        logger.info(f"[fmapi-auth] provisioned auth files for {project_id}")
+        # Verify each file landed.
+        for name in ("get_anthropic_token.sh", ".anthropic_token", ".claude/settings.json"):
+            p = project_dir / name
+            logger.info(f"[fmapi-auth] {project_id}: post-write {name}: exists={p.exists()} size={p.stat().st_size if p.exists() else 'N/A'}")
     except Exception as e:
-        logger.warning(f"[fmapi-auth] provision failed for {project_id}: {e!r}")
+        import traceback
+        logger.warning(f"[fmapi-auth] {project_id}: provision failed: {e!r}\n{traceback.format_exc()}")
 
 
 def compute_file_hash(content: bytes) -> str:
