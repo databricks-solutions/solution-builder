@@ -176,6 +176,24 @@ class ClientPool:
                 await self._disconnect_client(pooled)
                 logger.info(f"Removed client for project {project_id}")
 
+    async def reap_idle(self) -> int:
+        """Disconnect + drop any pooled client that's idle past the timeout
+        and not busy. Run from a background task so subprocesses + pipes get
+        freed proactively instead of lingering until the next turn forces
+        eviction inside `get_client`. Returns the number reaped.
+        """
+        async with self._lock:
+            stale = [
+                pid for pid, p in self._clients.items()
+                if not p.is_busy and p.is_idle_expired()
+            ]
+            for pid in stale:
+                pooled = self._clients.pop(pid, None)
+                if pooled:
+                    await self._disconnect_client(pooled)
+                    logger.info(f"Reaped idle client for project {pid}")
+            return len(stale)
+
     async def _disconnect_client(self, pooled: PooledClient):
         """Safely disconnect a client."""
         try:

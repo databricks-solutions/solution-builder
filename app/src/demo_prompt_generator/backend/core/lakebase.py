@@ -515,6 +515,28 @@ class _LakebaseDependency(LifespanDependency):
             )
         app.state.fmapi_refresh_task = fmapi_task
 
+        # Idle-client reaper: walk the pool every 5 min, disconnect any client
+        # that's been unused longer than CLIENT_IDLE_TIMEOUT. This frees the
+        # SDK subprocess + pipes proactively. Without this the same eviction
+        # only happens on the NEXT turn that hits get_client(), so a project
+        # the user abandoned would hold its subprocess until the app restarts.
+        from ..services.agent import get_client_pool, CLIENT_IDLE_TIMEOUT
+
+        async def _client_reaper_loop():
+            pool = get_client_pool()
+            while True:
+                try:
+                    await pool.reap_idle()
+                except Exception as e:
+                    logger.warning(f"[client-pool] reaper error: {e!r}")
+                await asyncio.sleep(CLIENT_IDLE_TIMEOUT)
+
+        reaper_task = asyncio.create_task(_client_reaper_loop())
+        app.state.client_reaper_task = reaper_task
+        logger.info(
+            f"[client-pool] idle reaper started (every {CLIENT_IDLE_TIMEOUT}s)"
+        )
+
         yield
 
         db_future.result(timeout=30)
@@ -524,6 +546,8 @@ class _LakebaseDependency(LifespanDependency):
             app.state.file_watcher.stop()
         if fmapi_task is not None:
             fmapi_task.cancel()
+        if reaper_task is not None:
+            reaper_task.cancel()
         connector = getattr(engine, "_lakebase_connector", None)
         if connector is not None:
             connector.stop()

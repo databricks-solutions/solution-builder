@@ -193,29 +193,38 @@ async def clear_project_session(
     session: Dependencies.Session,
     headers: Dependencies.Headers,
 ):
-    """Clear project session: delete all messages and reset Claude SDK client.
+    """Clear project session: delete all messages, drop the SDK client,
+    and clear `project.session_id` so the next turn starts a brand-new
+    server-side conversation (no `options.resume`).
 
-    This completely resets the conversation state:
-    - Deletes all messages from the database
-    - Removes the Claude SDK client from the pool (clears session memory)
+    Three pieces of state get reset, in this order:
+      - All `messages` rows for the project (DB).
+      - `project.session_id` set to NULL — without this, routes/agent.py
+        keeps passing the old session_id into options.resume and the model
+        keeps replying in the prior conversation despite us pulling the
+        local client.
+      - The pooled SDK client (its subprocess + in-process state).
     """
     import asyncio
     user_email = _get_user_email(headers)
 
     # DB work on a worker thread — sync psycopg would otherwise block the loop.
-    def _delete_messages() -> int:
-        _get_user_project(session, project_id, user_email)
+    def _reset_db_state() -> int:
+        project = _get_user_project(session, project_id, user_email)
         messages = session.exec(
             select(Message).where(Message.project_id == project_id)
         ).all()
         for msg in messages:
             session.delete(msg)
+        # Forget the prior server-side session so the next turn is fresh.
+        project.session_id = None
+        session.add(project)
         session.commit()
         return len(messages)
 
-    deleted_count = await asyncio.to_thread(_delete_messages)
+    deleted_count = await asyncio.to_thread(_reset_db_state)
 
-    # Remove client from pool (this clears the SDK session)
+    # Remove client from pool (this clears the local SDK session).
     pool = get_client_pool()
     await pool.remove_client(project_id)
 
