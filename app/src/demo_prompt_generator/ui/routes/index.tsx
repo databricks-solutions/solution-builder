@@ -92,7 +92,7 @@ function Index() {
   const [projectsError, setProjectsError] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
-  const [autoMode, setAutoMode] = useState(false);
+  const [autoMode, setAutoMode] = useState(true);
   const [autoBuildConfirmOpen, setAutoBuildConfirmOpen] = useState(false);
   // Stashed args while waiting on the auto-build confirmation dialog.
   const [pendingAutoBuild, setPendingAutoBuild] = useState<{ idea?: UseCaseIdea } | null>(null);
