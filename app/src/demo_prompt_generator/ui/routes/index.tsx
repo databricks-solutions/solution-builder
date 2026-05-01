@@ -10,7 +10,6 @@ import { TemplateTile } from "@/components/template/template-tile";
 import { TemplateDetailPopup } from "@/components/template/template-detail-popup";
 import { ProductSelector } from "@/components/product-selector";
 import { DatabricksAnimatedLogo } from "@/components/databricks-animated-logo";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
   Tooltip,
   TooltipContent,
@@ -31,7 +30,6 @@ import {
   X,
   RefreshCw,
   AlertCircle,
-  Zap,
 } from "lucide-react";
 import {
   listProjects,
@@ -47,15 +45,6 @@ import {
   type UseCaseIdea,
   type IdeaToRefine,
 } from "@/lib/custom-api";
-import { AUTO_BUILD_KICKOFF } from "@/lib/auto-build-prompt";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 
 export const Route = createFileRoute("/")({
   component: Index,
@@ -92,10 +81,6 @@ function Index() {
   const [projectsError, setProjectsError] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
-  const [autoMode, setAutoMode] = useState(false);
-  const [autoBuildConfirmOpen, setAutoBuildConfirmOpen] = useState(false);
-  // Stashed args while waiting on the auto-build confirmation dialog.
-  const [pendingAutoBuild, setPendingAutoBuild] = useState<{ idea?: UseCaseIdea } | null>(null);
   const [selectedProducts, setSelectedProducts] = useState<Set<string>>(
     new Set(DEFAULT_SELECTED_PRODUCTS)
   );
@@ -344,24 +329,10 @@ function Index() {
     }
   }, [topic, runSuggestionStream]);
 
-  // Create new project and navigate. When the auto-mode toggle is on, the
-  // agent's first message is the standard topic header + AUTO_BUILD_KICKOFF, so
-  // it drives every stage end-to-end without pausing for confirmation. Auto
-  // mode opens a one-time confirm dialog before the project is actually created
-  // (it's a ~30 min commitment that provisions live workspace resources).
-  const handleCreateProject = async (
-    e?: React.FormEvent,
-    idea?: UseCaseIdea,
-    options?: { confirmedAutoBuild?: boolean },
-  ) => {
+  // Create new project and navigate
+  const handleCreateProject = async (e?: React.FormEvent, idea?: UseCaseIdea) => {
     e?.preventDefault();
     if (isCreating || !topic.trim()) return;
-
-    if (autoMode && !options?.confirmedAutoBuild) {
-      setPendingAutoBuild({ idea });
-      setAutoBuildConfirmOpen(true);
-      return;
-    }
 
     // Capabilities are always from selectedProducts (shared across all ideas)
     const capabilityIds = Array.from(selectedProducts);
@@ -405,15 +376,6 @@ function Index() {
         initialPrompt = `Help me build a databricks demo.\n\nDemo description:\n${topic.trim()}${authoritativeCapsLine}`;
       }
 
-      // Auto mode: append the kickoff directive so the agent runs every stage
-      // (DRAFTING → DEPLOYED) without prompting. The topic/idea header above
-      // gives the agent its build subject — AUTO_BUILD_KICKOFF alone would
-      // tell it to inspect existing project files, but on a fresh project
-      // nothing exists yet.
-      if (autoMode) {
-        initialPrompt += `\n\n---\n\n${AUTO_BUILD_KICKOFF}`;
-      }
-
       // Backend will generate name and schema from description using LLM.
       // Passing capabilityIds scopes which ai-dev-kit skills get copied into the project.
       // Passing initialPrompt persists the opening message as a real user Message so it
@@ -429,15 +391,6 @@ function Index() {
       setCreateError(error instanceof Error ? error.message : "Failed to create project. Please try again.");
       setIsCreating(false);
     }
-  };
-
-  // Confirm the auto-build dialog → re-fire handleCreateProject with the
-  // stashed idea (or no idea) and confirmedAutoBuild so it proceeds.
-  const handleAutoBuildConfirm = () => {
-    setAutoBuildConfirmOpen(false);
-    const pending = pendingAutoBuild;
-    setPendingAutoBuild(null);
-    void handleCreateProject(undefined, pending?.idea, { confirmedAutoBuild: true });
   };
 
   // Handle refining an idea
@@ -542,23 +495,6 @@ function Index() {
                   rows={1}
                   autoFocus
                 />
-
-                {/* Auto-build toggle — when on, picking a use case runs every stage end-to-end without prompts */}
-                <label
-                  className="flex items-center gap-2 cursor-pointer select-none text-xs text-muted-foreground hover:text-foreground transition-colors w-fit"
-                  title="When on, auto-build runs through every stage (DRAFTING → DEPLOYED) without pausing for confirmation. Takes ~30 min."
-                >
-                  <Checkbox
-                    checked={autoMode}
-                    onCheckedChange={(v) => setAutoMode(v === true)}
-                    aria-label="Enable auto build mode"
-                  />
-                  <Zap className="h-3 w-3 text-primary" strokeWidth={2.5} />
-                  <span className="font-medium">Auto mode</span>
-                  <span className="text-muted-foreground/70">
-                    — picks a story and runs every stage end-to-end (~30 min)
-                  </span>
-                </label>
 
                 {/* Ideas section - shows when we have ideas or loading */}
                 {isHeroCollapsed && (
@@ -967,47 +903,6 @@ function Index() {
         templateId={selectedTemplateId}
         onClose={() => setSelectedTemplateId(null)}
       />
-
-      {/* Auto-mode confirmation dialog */}
-      <Dialog
-        open={autoBuildConfirmOpen}
-        onOpenChange={(open) => {
-          setAutoBuildConfirmOpen(open);
-          if (!open) setPendingAutoBuild(null);
-        }}
-      >
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Zap className="h-4 w-4 text-primary" strokeWidth={2.5} />
-              Run in auto mode?
-            </DialogTitle>
-            <DialogDescription className="pt-2 leading-relaxed">
-              Auto mode runs through every stage (DRAFTING → DEPLOYED) without pausing for confirmation. This may take around 30 minutes and will provision live workspace resources. Re-prompting after the run can take additional time. Are you sure?
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter className="gap-2 sm:gap-2">
-            <button
-              type="button"
-              onClick={() => {
-                setAutoBuildConfirmOpen(false);
-                setPendingAutoBuild(null);
-              }}
-              className="px-3 py-2 rounded-lg text-sm font-medium bg-muted text-foreground/80 hover:bg-muted/70 transition-colors"
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              onClick={handleAutoBuildConfirm}
-              className="px-3 py-2 rounded-lg text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors flex items-center gap-1.5"
-            >
-              <Zap className="h-3.5 w-3.5" strokeWidth={2.5} />
-              Start auto build
-            </button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }
