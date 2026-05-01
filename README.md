@@ -101,24 +101,19 @@ databricks apps get <your-app-name> --output json | jq -r '
 # app_status.state should reach "RUNNING"
 ```
 
-### One-time post-deploy: grant the app `all-apis` OAuth scope
+### Post-deploy: grant the app `all-apis` OAuth scope
 
 The app generates Databricks demos on behalf of the signed-in user — Unity Catalog tables, dashboards, Genie spaces, jobs, SQL warehouses, etc. By default, the OAuth integration the bundle creates only grants `iam.current-user:read`, which lets the agent identify the user but NOT create resources. Without this step, every resource-creation call returns 403 and the agent will try to work around it (e.g. by overriding env vars).
 
-Run **once per deployment**, after the first `bundle deploy`:
+Each `databricks bundle deploy` may rotate the underlying OAuth integration ID, so re-run this whenever you redeploy:
 
 ```bash
-# 1. Find the OAuth integration ID for your app.
-databricks account custom-app-integration list | jq -r \
-  '.applications[] | select(.name | contains("<your-app-name>")) | "\(.integration_id)\t\(.name)"'
-
-# 2. Update its scopes (replace <INTEGRATION_ID> with the value from step 1).
-databricks account custom-app-integration update <INTEGRATION_ID> --json '{
-  "scopes": ["openid", "profile", "email", "all-apis", "offline_access", "iam.current-user"]
-}'
+cd app
+./scripts/set-app-oauth-scopes.sh                 # uses target=prod
+./scripts/set-app-oauth-scopes.sh --target prod   # explicit
 ```
 
-`all-apis` is the umbrella scope that lets the OAuth bearer call any workspace API. It's required because the agent dispatches across many resource types and we can't enumerate them up-front. After this update, sign-in flows mint tokens with the broader scope; existing sessions need to re-auth.
+The script reads the app name from `databricks.<target>.yml`, auto-detects your account-level CLI profile, finds the matching OAuth integration, and grants `all-apis`. Idempotent — re-running on a correctly-scoped integration is a no-op. After the update, existing user sessions still hold tokens with the old narrower scope; they need to sign out and back in (or wait for refresh) to pick up `all-apis`.
 
 ### How config flows from `databricks.prod.yml` to the running container
 

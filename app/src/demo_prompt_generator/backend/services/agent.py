@@ -320,6 +320,18 @@ async def stream_agent_response(
                 mode=mode,
                 local_profile=databricks_profile,
             )
+            # Surface Claude Code's stderr into our log stream. Without
+            # this the SDK swallows the subprocess's stderr and we get
+            # the unhelpful "Check stderr output for details" message
+            # when the subprocess dies during connect/initialize. Each
+            # line is logged at WARNING so it stands out without being
+            # an error in itself (Claude Code uses stderr for normal
+            # progress messages too).
+            def _claude_stderr(line: str) -> None:
+                stripped = line.rstrip()
+                if stripped:
+                    logger.warning(f"[claude-code stderr] {stripped}")
+
             options = ClaudeAgentOptions(
                 cwd=str(project_dir),
                 allowed_tools=allowed_tools,
@@ -329,6 +341,7 @@ async def stream_agent_response(
                 setting_sources=["project"],
                 mcp_servers={},
                 env=claude_env,
+                stderr=_claude_stderr,
                 # Default is 1 MB which is too tight for a coding agent — a
                 # `Read` on a moderate file or `Bash` stdout from a verbose
                 # command routinely exceeds it and kills the stdin reader.

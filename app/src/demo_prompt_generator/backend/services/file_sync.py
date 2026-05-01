@@ -174,6 +174,28 @@ class FileSyncService:
         from .skills_manager import ensure_project_skills
         ensure_project_skills(project_id)
 
+        # Ensure FMAPI auth files exist (deployed mode only). For projects
+        # created before this feature shipped — and for any project whose
+        # files were lost (container restart with no persistent volume) —
+        # provision them now so the Claude Code subprocess can authenticate
+        # against FMAPI on the next agent run. No-op locally.
+        try:
+            from ..core import fmapi_auth
+            from ..core._config import AppConfig
+            if fmapi_auth.is_deployed_mode() and not (project_dir / fmapi_auth.HELPER_SCRIPT_NAME).exists():
+                minted = fmapi_auth.mint_fmapi_token()
+                if minted is not None:
+                    host, token = minted
+                    fmapi_auth.provision_project_files(
+                        project_dir,
+                        anthropic_base_url=f"{host}/serving-endpoints/anthropic",
+                        anthropic_model=AppConfig().anthropic_llm_endpoint,
+                        token=token,
+                    )
+                    logger.info(f"[fmapi-auth] provisioned auth files for {project_id}")
+        except Exception as e:
+            logger.warning(f"[fmapi-auth] provision failed for {project_id}: {e!r}")
+
         def _restore(sess: Session) -> int:
             restored = 0
             files = sess.exec(

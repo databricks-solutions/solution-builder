@@ -117,11 +117,20 @@ class ProjectEventHandler(FileSystemEventHandler):
         except ValueError:
             return None
 
+    # Watchdog ≥ 5 enables inotify open/close events on Linux (`opened`,
+    # `closed`, `closed_no_write`). They fire on every read — `cat foo.json`,
+    # `Read`-tool invocations, etc. — and would resync the cache uselessly
+    # on every file access, flooding logs and CPU. We only care about
+    # mutations.
+    _MUTATION_EVENTS = frozenset({"created", "modified", "deleted", "moved"})
+
     def on_any_event(self, event: FileSystemEvent) -> None:
         if event.is_directory:
             return
 
-        event_type = event.event_type  # 'created', 'modified', 'deleted', 'moved'
+        event_type = event.event_type  # 'created', 'modified', 'deleted', 'moved' (or open/close on inotify)
+        if event_type not in self._MUTATION_EVENTS:
+            return
 
         # Move events have two paths. The src is where the file LEFT (often a
         # tempfile that we'd ignore); the dest is where the file landed — the
