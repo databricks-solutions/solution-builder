@@ -234,6 +234,20 @@ async def invoke_agent(
                             reasoning_data=reasoning_data,
                         )
                         db.add(assistant_msg)
+                    elif stream.is_error and stream.error_message:
+                        # The agent failed before producing any text or
+                        # reasoning — typical when the Claude Code subprocess
+                        # exits during connect/initialize. Persist the full
+                        # error (now includes stderr tail + traceback from
+                        # services/agent.py) as a system message so the
+                        # failure shows up on refresh and is debuggable.
+                        error_msg = Message(
+                            project_id=body.project_id,
+                            role="system",
+                            content=f"Agent error:\n\n{stream.error_message}",
+                            is_cancelled=False,
+                        )
+                        db.add(error_msg)
                     else:
                         logger.warning(f"Agent returned empty text response for project {body.project_id}")
 

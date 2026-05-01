@@ -276,6 +276,10 @@ async def stream_agent_response(
     final_session_id = None
     created_new_client = False
 
+    # Declared at function scope so the except handler can inspect it
+    # whether or not we made it into the create-new-client path.
+    stderr_buffer: list[str] = []
+
     try:
         if pooled:
             # Reuse existing client - just send a new query
@@ -320,17 +324,20 @@ async def stream_agent_response(
                 mode=mode,
                 local_profile=databricks_profile,
             )
-            # Surface Claude Code's stderr into our log stream. Without
-            # this the SDK swallows the subprocess's stderr and we get
-            # the unhelpful "Check stderr output for details" message
-            # when the subprocess dies during connect/initialize. Each
-            # line is logged at WARNING so it stands out without being
-            # an error in itself (Claude Code uses stderr for normal
-            # progress messages too).
+            # Capture Claude Code's stderr: log each line live AND buffer
+            # the tail so the except handler can attach it to the error
+            # surfaced to the user. Without this, ProcessError just says
+            # "Check stderr output for details" — we'd have to grep logs.
+            _STDERR_BUFFER_MAX = 200
+
             def _claude_stderr(line: str) -> None:
                 stripped = line.rstrip()
-                if stripped:
-                    logger.warning(f"[claude-code stderr] {stripped}")
+                if not stripped:
+                    return
+                logger.warning(f"[claude-code stderr] {stripped}")
+                stderr_buffer.append(stripped)
+                if len(stderr_buffer) > _STDERR_BUFFER_MAX:
+                    del stderr_buffer[: len(stderr_buffer) - _STDERR_BUFFER_MAX]
 
             options = ClaudeAgentOptions(
                 cwd=str(project_dir),
@@ -420,9 +427,20 @@ async def stream_agent_response(
         logger.info(f"Agent completed for project {project_id}")
 
     except Exception as e:
-        logger.exception(f"Agent error: {e}")
-        stream.mark_error(str(e))
-        yield {"type": "error", "error": str(e)}
+        # Build a richer error string: SDK message + last stderr tail (only
+        # populated when we created a fresh client this turn) + traceback.
+        # routes/agent.py persists this as a system Message so the failure
+        # survives a refresh and is debuggable from the UI.
+        import traceback as _tb
+        parts: list[str] = [f"{type(e).__name__}: {e}"]
+        if stderr_buffer:
+            tail = "\n".join(stderr_buffer[-30:])
+            parts.append(f"\n\n[claude-code stderr (last lines)]\n{tail}")
+        parts.append(f"\n\n[traceback]\n{_tb.format_exc()}")
+        full_error = "".join(parts)
+        logger.error(f"Agent error: {full_error}")
+        stream.mark_error(full_error)
+        yield {"type": "error", "error": full_error}
         # On error, remove the client from pool
         await pool.remove_client(project_id)
 
