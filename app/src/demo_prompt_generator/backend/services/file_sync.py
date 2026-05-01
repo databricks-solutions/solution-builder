@@ -32,6 +32,44 @@ logger = logging.getLogger(__name__)
 PROJECTS_BASE_DIR = os.getenv("PROJECTS_BASE_DIR", "./projects")
 
 
+def ensure_fmapi_auth_files(project_dir: Path, project_id: str) -> None:
+    """Idempotently provision (or refresh-and-provision-if-missing) the
+    Claude Code FMAPI auth files in `<project_dir>/`.
+
+    Called from any code path that's about to invoke the agent. Safe to
+    call on every turn — it's a no-op when the helper script already
+    exists. No-op in local dev. Tolerates failures (logs and continues
+    so the agent can still try `ANTHROPIC_API_KEY` from env if set).
+
+    Why this exists: projects created before this feature shipped never
+    got the helper/settings.json/token written. The provisioning lives
+    here (not in restore_project_from_db) so it runs even when the
+    project_dir is already populated and `ensure_project_files_restored`
+    short-circuits on the empty-dir check.
+    """
+    try:
+        from ..core import fmapi_auth
+        from ..core._config import AppConfig
+        if not fmapi_auth.is_deployed_mode():
+            return
+        if (project_dir / fmapi_auth.HELPER_SCRIPT_NAME).exists():
+            return
+        minted = fmapi_auth.mint_fmapi_token()
+        if minted is None:
+            logger.warning(f"[fmapi-auth] could not mint token for {project_id}")
+            return
+        host, token = minted
+        fmapi_auth.provision_project_files(
+            project_dir,
+            anthropic_base_url=f"{host}/serving-endpoints/anthropic",
+            anthropic_model=AppConfig().anthropic_llm_endpoint,
+            token=token,
+        )
+        logger.info(f"[fmapi-auth] provisioned auth files for {project_id}")
+    except Exception as e:
+        logger.warning(f"[fmapi-auth] provision failed for {project_id}: {e!r}")
+
+
 def compute_file_hash(content: bytes) -> str:
     """Compute SHA-256 hash of file content."""
     return hashlib.sha256(content).hexdigest()
@@ -173,28 +211,7 @@ class FileSyncService:
         # Lazy import to avoid a circular module load at startup.
         from .skills_manager import ensure_project_skills
         ensure_project_skills(project_id)
-
-        # Ensure FMAPI auth files exist (deployed mode only). For projects
-        # created before this feature shipped — and for any project whose
-        # files were lost (container restart with no persistent volume) —
-        # provision them now so the Claude Code subprocess can authenticate
-        # against FMAPI on the next agent run. No-op locally.
-        try:
-            from ..core import fmapi_auth
-            from ..core._config import AppConfig
-            if fmapi_auth.is_deployed_mode() and not (project_dir / fmapi_auth.HELPER_SCRIPT_NAME).exists():
-                minted = fmapi_auth.mint_fmapi_token()
-                if minted is not None:
-                    host, token = minted
-                    fmapi_auth.provision_project_files(
-                        project_dir,
-                        anthropic_base_url=f"{host}/serving-endpoints/anthropic",
-                        anthropic_model=AppConfig().anthropic_llm_endpoint,
-                        token=token,
-                    )
-                    logger.info(f"[fmapi-auth] provisioned auth files for {project_id}")
-        except Exception as e:
-            logger.warning(f"[fmapi-auth] provision failed for {project_id}: {e!r}")
+        ensure_fmapi_auth_files(project_dir, project_id)
 
         def _restore(sess: Session) -> int:
             restored = 0

@@ -361,6 +361,14 @@ async def stream_agent_response(
                 options.continue_conversation = True
                 logger.info(f"Resuming Claude Code session: {session_id}")
 
+            # Belt-and-braces: make sure the FMAPI auth files exist BEFORE
+            # spawning Claude Code. Idempotent + cheap (no-op when present
+            # and locally). Catches projects that predate the FMAPI feature
+            # OR projects whose dir was non-empty so restore_project_from_db
+            # short-circuited before the auto-provision could fire.
+            from .file_sync import ensure_fmapi_auth_files
+            ensure_fmapi_auth_files(project_dir, project_id)
+
             # Create and connect new client
             client = ClaudeSDKClient(options=options)
             await client.connect()

@@ -246,18 +246,22 @@ def delete_project_auth_file(project_dir: Path) -> None:
 
 
 def resolve_host(headers: DatabricksAppsHeaders) -> str | None:
-    """Best-effort resolve the workspace host for deployed-mode auth files.
+    """Resolve the WORKSPACE host (e.g. https://e2-demo-…cloud.databricks.com)
+    for the per-project .databrickscfg.
 
-    Order: X-Forwarded-Host header → DATABRICKS_HOST env → None. We don't
-    fall back to WorkspaceClient here because it would issue a blocking
-    SDK call on every authenticated request; the host is supposed to be
-    stable across a deployment and either the header or env has it.
+    `X-Forwarded-Host` (= `headers.host`) is the App's *public* hostname
+    (`<app>-<id>.aws.databricksapps.com`) — useless for Databricks API
+    calls. The workspace URL only lives in `DATABRICKS_HOST`, which the
+    Apps runtime sets in the container env. Prefer it.
     """
-    if headers.host:
-        return f"https://{headers.host}" if not headers.host.startswith("http") else headers.host
     env_host = os.environ.get("DATABRICKS_HOST")
     if env_host:
         return env_host.rstrip("/")
+    # Fallback: only useful in local dev where the request actually came
+    # from the workspace itself (rare). Skip the X-Forwarded-Host case
+    # entirely in deployed mode — it ALWAYS points at the App, not the WS.
+    if headers.host and "databricksapps.com" not in headers.host:
+        return f"https://{headers.host}" if not headers.host.startswith("http") else headers.host
     return None
 
 
