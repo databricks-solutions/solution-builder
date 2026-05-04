@@ -610,19 +610,21 @@ function AgentEnvView({ snapshot, loading, onRefresh }: AgentEnvViewProps) {
               key={v.name}
               className="grid grid-cols-[180px_1fr] gap-3 p-2 text-xs font-mono"
             >
-              <div className="font-semibold text-foreground/80 flex items-center gap-1.5">
+              <div className="font-semibold text-foreground/80">
                 {v.name}
+              </div>
+              <div className="flex items-center gap-1.5 min-w-0">
+                <span className="break-all text-muted-foreground select-text flex-1">
+                  {v.value}
+                </span>
                 {v.redacted && (
                   <span
-                    className="px-1 py-0 text-[9px] uppercase rounded bg-amber-500/15 text-amber-700 dark:text-amber-300 font-sans not-italic"
+                    className="shrink-0 px-1 py-0 text-[9px] uppercase rounded bg-amber-500/15 text-amber-700 dark:text-amber-300 font-sans not-italic"
                     title="Token-shaped value — only first/last 4 chars shown"
                   >
                     redacted
                   </span>
                 )}
-              </div>
-              <div className="break-all text-muted-foreground select-text">
-                {v.value}
               </div>
             </div>
           ))

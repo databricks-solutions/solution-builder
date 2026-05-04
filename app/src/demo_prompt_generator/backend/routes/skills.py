@@ -202,13 +202,15 @@ _REDACT_KEYS = {
 
 def _redact(name: str, value: str) -> tuple[str, bool]:
     """Return (display_value, was_redacted). For token-shaped names, show
-    only the first 4 + last 4 chars (or "***" if too short). The
-    coding-agent header is shown verbatim because it doesn't carry a token."""
+    only the first 4 + last 4 chars. The coding-agent header is shown
+    verbatim because it doesn't carry a token. Empty/None values render
+    as `(unset)` regardless of name — useful for vars we deliberately
+    nullify (e.g. DATABRICKS_CLIENT_ID/SECRET in the subprocess env)."""
+    if not value:
+        return "(unset)", False
     if name == "ANTHROPIC_CUSTOM_HEADERS":
         return value, False
     if name in _REDACT_KEYS:
-        if len(value) <= 12:
-            return "***", True
         return f"{value[:4]}…{value[-4:]}", True
     return value, False
 
