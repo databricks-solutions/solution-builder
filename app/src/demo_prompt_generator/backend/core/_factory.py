@@ -66,6 +66,14 @@ def create_app(
 
     app = FastAPI(title=app_name, lifespan=_composed_lifespan)
 
+    # Request logging + global exception handler. Registered first so it sees
+    # every other middleware's effect on the response and so its own row makes
+    # it into event_logs even when downstream middleware short-circuits.
+    from ._observability import RequestLoggingMiddleware, install_exception_handler
+
+    app.add_middleware(RequestLoggingMiddleware)
+    install_exception_handler(app)
+
     # Add CORS middleware for Electron mode (or local development)
     # In Electron, the frontend runs on a different origin than the backend
     if os.environ.get("ELECTRON_RUN") == "1" or os.environ.get("CORS_ENABLED") == "1":

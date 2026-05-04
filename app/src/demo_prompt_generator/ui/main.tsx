@@ -10,6 +10,9 @@ import {
   createHashHistory,
 } from "@tanstack/react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { installErrorReporter } from "@/lib/error-reporter";
+
+installErrorReporter();
 
 // Create a new query client instance
 const queryClient = new QueryClient();
