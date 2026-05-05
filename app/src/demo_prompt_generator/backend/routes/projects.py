@@ -11,6 +11,7 @@ from sqlmodel import func, select, text
 
 from ..core import Dependencies, create_router
 from ..core._config import logger
+from ..core.auth import is_admin
 from ..services.llm_service import LLMService, ModelSize
 from ..models import (
     Message,
@@ -142,14 +143,50 @@ def _get_user_project(session, project_id: str, user_email: str) -> Project:
     return row
 
 
+def _get_readable_project(
+    session, project_id: str, user_email: str, admin_emails: list[str]
+) -> Project:
+    """Fetch a project for read-only access — owner, share recipient, or admin.
+
+    Use for view endpoints. Mutations should still go through `_get_user_project`
+    (owner only).
+    """
+    row = session.get(Project, project_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Project not found")
+    if row.user_email == user_email:
+        return row
+    if is_admin(user_email, admin_emails):
+        return row
+    share = session.exec(
+        select(ProjectShare).where(
+            ProjectShare.project_id == project_id,
+            ProjectShare.shared_with_email == user_email,
+        )
+    ).first()
+    if share:
+        return row
+    raise HTTPException(status_code=404, detail="Project not found")
+
+
 @router.get(
     "/projects",
     response_model=list[ProjectListItem],
     operation_id="listProjects",
 )
-def list_projects(session: Dependencies.Session, headers: Dependencies.Headers):
-    """Return the current user's projects, newest first."""
+def list_projects(
+    session: Dependencies.Session,
+    headers: Dependencies.Headers,
+    config: Dependencies.Config,
+    include_all: bool = False,
+):
+    """Return the current user's projects, newest first.
+
+    When `include_all=true` and the caller is an admin, return every project
+    in the system instead — used by the admin "browse all" view.
+    """
     user_email = _get_user_email(headers)
+    admin_view = include_all and is_admin(user_email, config.template_admin_emails)
 
     # Get user's starred project IDs
     starred_ids = set(
@@ -158,12 +195,10 @@ def list_projects(session: Dependencies.Session, headers: Dependencies.Headers):
         ).all()
     )
 
-    # Get projects with counts
-    stmt = (
-        select(Project)
-        .where(Project.user_email == user_email)
-        .order_by(Project.created_at.desc())
-    )
+    # Get projects with counts. Admin "view all" skips the user_email filter.
+    stmt = select(Project).order_by(Project.created_at.desc())
+    if not admin_view:
+        stmt = stmt.where(Project.user_email == user_email)
     projects = session.exec(stmt).all()
 
     # Batch-resolve template names for projects created from templates
@@ -333,6 +368,7 @@ def get_project(
     project_id: str,
     session: Dependencies.Session,
     headers: Dependencies.Headers,
+    config: Dependencies.Config,
     request: Request,
 ):
     """Get a single project by ID.
@@ -342,7 +378,9 @@ def get_project(
     the expensive DB-to-disk reconcile and the redundant file-list SELECT.
     """
     user_email = _get_user_email(headers)
-    project = _get_user_project(session, project_id, user_email)
+    project = _get_readable_project(
+        session, project_id, user_email, config.template_admin_emails
+    )
 
     # Lazy import (avoids a module-level cycle with project_files which imports
     # service helpers itself).

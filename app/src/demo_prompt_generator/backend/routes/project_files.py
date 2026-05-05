@@ -17,6 +17,7 @@ from fastapi.responses import StreamingResponse
 from sqlmodel import select
 
 from ..core import Dependencies, create_router
+from ..core.auth import is_admin
 from ..models import (
     DeployedResourceLink,
     DeployedResourcesOut,
@@ -392,14 +393,16 @@ def _get_user_email(headers) -> str:
     return "anonymous@local"
 
 
-def _get_user_project(session, project_id: str, user_email: str) -> Project:
-    """Fetch a project by ID, verifying ownership."""
+def _get_readable_project(
+    session, project_id: str, user_email: str, admin_emails: list[str]
+) -> Project:
+    """Owner-or-admin read access. Use only on read endpoints."""
     row = session.get(Project, project_id)
     if not row:
         raise HTTPException(status_code=404, detail="Project not found")
-    if row.user_email != user_email:
-        raise HTTPException(status_code=404, detail="Project not found")
-    return row
+    if row.user_email == user_email or is_admin(user_email, admin_emails):
+        return row
+    raise HTTPException(status_code=404, detail="Project not found")
 
 
 @router.get(
@@ -411,6 +414,7 @@ def list_project_files(
     project_id: str,
     session: Dependencies.Session,
     headers: Dependencies.Headers,
+    config: Dependencies.Config,
     request: Request,
     force: bool = False,
     include_hidden: bool = False,
@@ -432,7 +436,9 @@ def list_project_files(
     """
     try:
         user_email = _get_user_email(headers)
-        _get_user_project(session, project_id, user_email)
+        _get_readable_project(
+            session, project_id, user_email, config.template_admin_emails
+        )
 
         project_dir = _PROJECTS_BASE_RESOLVED / project_id
 
@@ -477,6 +483,7 @@ def get_project_file(
     file_path: str,
     session: Dependencies.Session,
     headers: Dependencies.Headers,
+    config: Dependencies.Config,
     request: Request,
 ):
     """Get the content of a specific file.
@@ -492,7 +499,9 @@ def get_project_file(
     rather than leaking it to the UI.
     """
     user_email = _get_user_email(headers)
-    _get_user_project(session, project_id, user_email)
+    _get_readable_project(
+        session, project_id, user_email, config.template_admin_emails
+    )
 
     file_sync: FileSyncService = request.app.state.file_sync
     # Pass session to avoid creating new connection (PGLite issue)
@@ -576,11 +585,14 @@ def download_project_as_zip(
     project_id: str,
     session: Dependencies.Session,
     headers: Dependencies.Headers,
+    config: Dependencies.Config,
     request: Request,
 ):
     """Download all project files as a zip archive."""
     user_email = _get_user_email(headers)
-    project = _get_user_project(session, project_id, user_email)
+    project = _get_readable_project(
+        session, project_id, user_email, config.template_admin_emails
+    )
 
     project_dir = _PROJECTS_BASE_RESOLVED / project_id
 
@@ -712,11 +724,14 @@ def get_deployed_resources(
     session: Dependencies.Session,
     headers: Dependencies.Headers,
     ws: Dependencies.Client,
+    config: Dependencies.Config,
     request: Request,
 ):
     """Get deployed Databricks resource links parsed from resources.json."""
     user_email = _get_user_email(headers)
-    _get_user_project(session, project_id, user_email)
+    _get_readable_project(
+        session, project_id, user_email, config.template_admin_emails
+    )
 
     file_sync: FileSyncService = request.app.state.file_sync
     # Try root-level resources.json first (new convention), then legacy path

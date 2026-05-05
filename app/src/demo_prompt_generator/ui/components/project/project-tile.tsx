@@ -141,12 +141,14 @@ export const ProjectTile = memo(function ProjectTile({
           {project.description || "No description"}
         </p>
 
-        {/* Owner (for shared projects) */}
-        {showOwner && project.shared_by && (
+        {/* Owner (shared OR admin-browsing-other-people's-projects) */}
+        {showOwner && (project.shared_by || project.owner_email) && (
           <div className="flex items-center gap-1.5 mt-2">
             <User className="h-3 w-3 text-muted-foreground/50" />
             <span className="text-xs text-muted-foreground">
-              Shared by {formatEmail(project.shared_by)}
+              {project.shared_by
+                ? `Shared by ${formatEmail(project.shared_by)}`
+                : `Owned by ${formatEmail(project.owner_email!)}`}
             </span>
           </div>
         )}
