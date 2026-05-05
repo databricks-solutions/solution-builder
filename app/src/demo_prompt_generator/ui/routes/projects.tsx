@@ -18,6 +18,7 @@ import {
   shareProject,
   listProjectShares,
   unshareProject,
+  getCurrentUser,
   type ProjectListItem,
   type ProjectShareOut,
 } from "@/lib/custom-api";
@@ -31,6 +32,7 @@ import {
   Share2,
   X,
   Trash2,
+  Shield,
 } from "lucide-react";
 
 function ProjectsWithLayout() {
@@ -56,6 +58,9 @@ function ProjectsPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [sortBy, setSortBy] = useState<SortOption>("most-recent");
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [adminViewAll, setAdminViewAll] = useState(false);
+  const [currentUserEmail, setCurrentUserEmail] = useState<string>("");
 
   // Share dialog state
   const [shareDialogProject, setShareDialogProject] =
@@ -67,16 +72,33 @@ function ProjectsPage() {
   const [existingShares, setExistingShares] = useState<ProjectShareOut[]>([]);
   const [isLoadingShares, setIsLoadingShares] = useState(false);
 
-  // Load projects and shared projects on mount
+  // Resolve current user once so we know if the admin toggle should appear.
   useEffect(() => {
-    Promise.all([listProjects(), listSharedProjects()])
+    getCurrentUser()
+      .then((user) => {
+        setIsAdmin(user.is_admin);
+        setCurrentUserEmail(user.email);
+      })
+      .catch(() => {
+        // Non-fatal — the page still works for non-admins.
+      });
+  }, []);
+
+  // Load projects (and shared) when mount or admin toggle flips.
+  useEffect(() => {
+    setIsLoading(true);
+    setError(null);
+    Promise.all([
+      listProjects({ includeAll: adminViewAll }),
+      listSharedProjects(),
+    ])
       .then(([own, shared]) => {
         setProjects(own);
         setSharedProjects(shared);
       })
       .catch((err) => setError(err.message))
       .finally(() => setIsLoading(false));
-  }, []);
+  }, [adminViewAll]);
 
   // Debounce search input (300ms)
   useEffect(() => {
@@ -236,7 +258,10 @@ function ProjectsPage() {
             onClick={() => {
               setError(null);
               setIsLoading(true);
-              Promise.all([listProjects(), listSharedProjects()])
+              Promise.all([
+                listProjects({ includeAll: adminViewAll }),
+                listSharedProjects(),
+              ])
                 .then(([own, shared]) => {
                   setProjects(own);
                   setSharedProjects(shared);
@@ -287,12 +312,31 @@ function ProjectsPage() {
           <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-blue-500/15 ring-1 ring-blue-500/30">
             <FolderOpen className="h-7 w-7 text-blue-600 dark:text-blue-400" />
           </div>
-          <div className="space-y-1.5">
-            <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">My Projects</h1>
+          <div className="space-y-1.5 flex-1">
+            <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">
+              {adminViewAll ? "All Projects (Admin)" : "My Projects"}
+            </h1>
             <p className="text-base text-muted-foreground sm:text-lg">
-              Full custom demo packages generated per customer scenario · {totalCount} {totalCount === 1 ? "project" : "projects"} total
+              {adminViewAll
+                ? `Browsing every project in the system · ${totalCount} ${totalCount === 1 ? "project" : "projects"} total`
+                : `Full custom demo packages generated per customer scenario · ${totalCount} ${totalCount === 1 ? "project" : "projects"} total`}
             </p>
           </div>
+          {isAdmin && (
+            <button
+              type="button"
+              onClick={() => setAdminViewAll((v) => !v)}
+              className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
+                adminViewAll
+                  ? "bg-amber-500/15 border-amber-500/30 text-amber-700 dark:text-amber-300"
+                  : "bg-background border-border hover:bg-muted"
+              }`}
+              title="Admin: toggle between My Projects and All Projects"
+            >
+              <Shield className="h-4 w-4" />
+              {adminViewAll ? "Viewing all" : "View all (admin)"}
+            </button>
+          )}
         </div>
       </div>
 
@@ -354,7 +398,12 @@ function ProjectsPage() {
                 project={project}
                 onClick={() => handleOpenProject(project.id)}
                 onToggleStar={() => handleToggleStar(project)}
-                onShare={() => handleOpenShareDialog(project)}
+                onShare={
+                  project.owner_email === currentUserEmail
+                    ? () => handleOpenShareDialog(project)
+                    : undefined
+                }
+                showOwner={adminViewAll && project.owner_email !== currentUserEmail}
               />
             ))}
           </div>
@@ -408,7 +457,12 @@ function ProjectsPage() {
                 project={project}
                 onClick={() => handleOpenProject(project.id)}
                 onToggleStar={() => handleToggleStar(project)}
-                onShare={() => handleOpenShareDialog(project)}
+                onShare={
+                  project.owner_email === currentUserEmail
+                    ? () => handleOpenShareDialog(project)
+                    : undefined
+                }
+                showOwner={adminViewAll && project.owner_email !== currentUserEmail}
               />
             ))}
           </div>

@@ -73,6 +73,7 @@ class CurrentUser(BaseModel):
     email: str
     user_name: Optional[str] = None
     is_template_admin: bool
+    is_admin: bool
 
 
 @router.get(
@@ -116,12 +117,13 @@ def get_current_user(
     # Get email from headers (already falls back to Databricks SDK in dev mode)
     email = headers.user_email or "anonymous@local"
     user_name = headers.user_name
-    is_admin = email in config.template_admin_emails
+    admin_flag = email in config.template_admin_emails
 
     return CurrentUser(
         email=email,
         user_name=user_name,
-        is_template_admin=is_admin,
+        is_template_admin=admin_flag,
+        is_admin=admin_flag,
     )
 
 
