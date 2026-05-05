@@ -128,7 +128,29 @@ databricks.prod.yml (env:)  →  build.sh reads via `databricks bundle summary`
 
 ### Bundle targets
 
-`databricks.yml` declares one target — `prod`, marked `default: true` — so plain `databricks bundle deploy` resolves to it. There is no `dev` target; local development uses `./scripts/dev.sh` (see §1) and never touches the bundle. To add a second deployment (e.g. staging), copy `databricks.prod.yml` to `databricks.<other>.yml` (the `include: databricks.*.yml` glob in `databricks.yml` picks it up) and add a matching `<other>:` target stub to `databricks.yml`.
+`databricks.yml` declares two targets:
+
+- **`prod`** (`mode: production`, `default: true`) — bare `databricks bundle deploy` resolves here.
+- **`staging`** (`mode: development`, `presets.name_prefix: ""`) — `databricks bundle deploy -t staging`.
+
+There is no `dev` bundle target; local development uses `./scripts/dev.sh` (see §1) and never touches the bundle. The `include: databricks.*.yml` glob auto-picks-up any per-target file, so adding a third environment (e.g. `qa`) is two files: `databricks.qa.yml{,.example}` + a stub `targets.qa:` in `databricks.yml`.
+
+#### Staging-specific setup
+
+```bash
+cd app
+
+# 1. Copy the template + fill in your staging values (gitignored).
+cp databricks.staging.yml.example databricks.staging.yml
+
+# 2. Deploy + the same one-time post-deploy steps as prod, scoped to staging.
+databricks bundle deploy -t staging
+./scripts/set-app-oauth-scopes.sh --target staging
+# Lakebase UI: grant the new staging SP CAN_CONNECT_AND_CREATE on the project.
+databricks bundle run demo-prompt-generator-app -t staging
+```
+
+Recommended layout: same Lakebase project + branch as prod, different database name (e.g. `demo_generator_staging`). The app auto-creates the database on first boot, so you only need a unique `lakebase_database_name` in `databricks.staging.yml`. App resource gets a unique `app_name` (e.g. `dbdemos-generator-staging`) so prod and staging coexist.
 
 ### Auth model (deployed)
 

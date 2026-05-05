@@ -74,8 +74,15 @@ PKG_DIR="src/demo_prompt_generator"
 echo -e "${BLUE}[2/4] Staging runtime data inside $PKG_DIR/...${NC}"
 # Always clean up after build so dev iteration doesn't accumulate (and so
 # `git status` stays clean even if the build fails partway through).
+# `bin/` is excluded from cleanup so a cached CLI binary survives across
+# back-to-back builds (the version-check below skips re-download when fresh).
 trap 'rm -rf "$PKG_DIR/.claude" "$PKG_DIR/initial_templates" "$PKG_DIR/ai_dev_kit"' EXIT
 rm -rf "$PKG_DIR/.claude" "$PKG_DIR/initial_templates" "$PKG_DIR/ai_dev_kit"
+
+# NOTE: We do NOT ship the Databricks CLI inside the wheel — the App's
+# bundle-source export path has a 10 MB per-file cap and the CLI binary
+# alone is ~13 MB compressed. Instead, start.sh downloads + caches it
+# at container boot. See app/start.sh.
 
 # .claude/skills/databricks-demo-generator/ — the demo-generator skill itself.
 if [[ -d "../.claude/skills/databricks-demo-generator" ]]; then
@@ -165,16 +172,40 @@ mkdir -p "$BUILD_DIR"
 
 cp "$WHEEL" "$BUILD_DIR/"
 cp dist/requirements.txt "$BUILD_DIR/"
+# Startup wrapper — downloads the Databricks CLI at container boot, puts
+# it on PATH, then exec's uvicorn. See app/start.sh.
+#
+# Resolve the latest CLI release at build time and substitute it into the
+# DBCLI_VERSION line before copying. Each deploy thus pins to whatever was
+# latest at build time (predictable per-deploy, not per-cold-start). Falls
+# back to whatever value start.sh has hardcoded if the GitHub API is
+# unreachable.
+LATEST_CLI=$(curl -fsSL https://api.github.com/repos/databricks/cli/releases/latest 2>/dev/null \
+    | jq -r '.tag_name' 2>/dev/null \
+    | sed 's/^v//')
+if [[ -n "$LATEST_CLI" && "$LATEST_CLI" != "null" ]]; then
+    echo "  Latest Databricks CLI: v$LATEST_CLI (pinning into start.sh)"
+    sed "s/^DBCLI_VERSION=.*/DBCLI_VERSION=\"$LATEST_CLI\"/" start.sh > "$BUILD_DIR/start.sh"
+else
+    FALLBACK_CLI=$(grep '^DBCLI_VERSION=' start.sh | sed 's/.*"\(.*\)".*/\1/')
+    echo "  WARNING: could not resolve latest CLI from GitHub — falling back to v${FALLBACK_CLI:-unknown} hardcoded in app/start.sh" >&2
+    cp start.sh "$BUILD_DIR/"
+fi
+chmod +x "$BUILD_DIR/start.sh"
 
 # Generate $BUILD_DIR/app.yml from databricks.<target>.yml's `env:` dict.
-# When --target is passed (bundle artifact build), we ask the CLI for the
-# resolved target.env and dump it 1:1 into app.yml. When invoked by hand,
-# we write a minimal app.yml without env vars — the wheel still builds; the
-# real `databricks bundle deploy` invocation will rerun this with --target.
+# `command:` runs start.sh (NOT uvicorn directly) so we can prepend the
+# bundled CLI's bin dir to PATH. When --target is passed (bundle artifact
+# build), we ask the CLI for the resolved target.env and dump it 1:1 into
+# app.yml. When invoked by hand, we write a minimal app.yml without env
+# vars — the real `databricks bundle deploy` invocation reruns this with
+# --target.
 {
     echo "# --workers must stay at 1: ActiveStreamManager is a per-process singleton."
-    echo "# See app.yml generation logic in scripts/build.sh."
-    echo 'command: ["uvicorn", "demo_prompt_generator.backend.app:app", "--workers", "1"]'
+    echo "# start.sh prepends the bundled databricks CLI to PATH, then exec's uvicorn."
+    echo "# Apps runtime exec'd 'bash start.sh' from a cwd that didn't include the"
+    echo "# script — using an absolute path matches the deployed source_code_path."
+    echo 'command: ["bash", "/app/python/source_code/start.sh"]'
 } > "$BUILD_DIR/app.yml"
 
 if [[ -n "$TARGET" ]]; then

@@ -1,0 +1,55 @@
+# ============================================================================
+# Per-deployment configuration for the `staging` target.
+# ============================================================================
+# Copy this file to `databricks.staging.yml` (gitignored) and fill in the
+# three sections below. The bundle CLI auto-includes any `databricks.*.yml`
+# next to `databricks.yml` (see the `include:` directive there).
+#
+# Deploy:  databricks bundle deploy -t staging
+# (Different from prod — prod is the `default: true` target and runs with
+# bare `databricks bundle deploy`.)
+# ============================================================================
+
+targets:
+  staging:
+    # ────────────────────────────────────────────────────────────────────────
+    # Section 1 — workspace profile
+    # ────────────────────────────────────────────────────────────────────────
+    # The ~/.databrickscfg profile to deploy with. Set up once with:
+    #   databricks auth login --host <workspace-url> --profile <name>
+    # Most setups deploy staging to the SAME workspace as prod (just a
+    # different App resource + Lakebase database).
+    workspace:
+      profile: <your-staging-profile>
+
+    # ────────────────────────────────────────────────────────────────────────
+    # Section 2 — bundle variables
+    # ────────────────────────────────────────────────────────────────────────
+    # Same shape as databricks.prod.yml.example — see comments there for
+    # what each variable means. Recommended overrides for staging:
+    #   - app_name              ← unique per environment (e.g. -staging suffix)
+    #   - lakebase_database_name ← unique per environment (auto-created on first boot)
+    # The Lakebase project + branch can be shared with prod; only the
+    # database is environment-scoped.
+    variables:
+      app_name: <your-staging-app-name>
+      lakebase_project_id: <your-project-id>
+      lakebase_branch_id: <your-branch-id>
+      lakebase_database_name: <your-staging-db-name>
+      anthropic_llm_endpoint: databricks-claude-sonnet-4-6
+      ai_gateway: databricks-claude-opus-4-7
+      ai_gateway_mini: databricks-gpt-5-4-mini
+      ai_gateway_embedding: databricks-qwen3-embedding-0-6b
+
+      # ──────────────────────────────────────────────────────────────────────
+      # Section 3 — runtime environment
+      # ──────────────────────────────────────────────────────────────────────
+      # `build.sh` copies this dict 1:1 into `.build/app.yml`'s `env:` block.
+      # Add a new line here and it appears as a container env var on the next
+      # `databricks bundle deploy -t staging`. No other file needs editing.
+      app_env:
+        LAKEBASE_DATABASE_PATH: projects/${var.lakebase_project_id}/branches/${var.lakebase_branch_id}/databases/${var.lakebase_database_name}
+        ANTHROPIC_LLM_ENDPOINT: ${var.anthropic_llm_endpoint}
+        AI_GATEWAY: ${var.ai_gateway}
+        AI_GATEWAY_MINI: ${var.ai_gateway_mini}
+        AI_GATEWAY_EMBEDDING: ${var.ai_gateway_embedding}

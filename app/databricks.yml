@@ -43,6 +43,7 @@ sync:
     - .build
   include:
     - .build/app.yml
+    - .build/start.sh
     - .build/*.whl
     - .build/requirements.txt
     - .build/.claude/**
@@ -140,3 +141,12 @@ targets:
   prod:
     mode: production
     default: true
+  # Staging target. Use `databricks bundle deploy -t staging` (no default).
+  # `mode: development` is the canonical setting for non-prod targets — it
+  # relaxes some bundle-CLI checks. We override `presets.name_prefix` to
+  # empty so the App resource keeps its declared name (`dbdemos-generator-
+  # staging`) instead of getting auto-prefixed with `[dev <user>]`.
+  staging:
+    mode: development
+    presets:
+      name_prefix: ""
