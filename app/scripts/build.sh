@@ -174,7 +174,12 @@ cp dist/requirements.txt "$BUILD_DIR/"
 {
     echo "# --workers must stay at 1: ActiveStreamManager is a per-process singleton."
     echo "# See app.yml generation logic in scripts/build.sh."
-    echo 'command: ["uvicorn", "demo_prompt_generator.backend.app:app", "--workers", "1"]'
+    # opentelemetry-instrument wraps uvicorn so all stdlib `logging` records,
+    # FastAPI request/response spans, and OTel SDK exports flow to Databricks
+    # Apps' built-in OTLP collector → workspace `otel_logs` UC table. The
+    # Databricks runtime auto-injects OTEL_EXPORTER_OTLP_ENDPOINT etc. when
+    # App telemetry is configured under App Settings → App telemetry.
+    echo 'command: ["opentelemetry-instrument", "uvicorn", "demo_prompt_generator.backend.app:app", "--workers", "1"]'
 } > "$BUILD_DIR/app.yml"
 
 if [[ -n "$TARGET" ]]; then

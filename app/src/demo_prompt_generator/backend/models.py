@@ -415,54 +415,19 @@ class EventSeverity(str, Enum):
 
 
 class EventType(str, Enum):
+    """Stable string vocabulary for the `event_type` attribute on otel_logs.
+
+    These strings appear verbatim in `otel_logs.attributes['event_type']`,
+    so weekly queries grep on them. Adding a new top-level type is fine,
+    but prefer reusing DOMAIN_EVENT with a `meta_kind` discriminator for
+    one-off product events to keep the vocabulary tight.
+    """
     HTTP_REQUEST = "http_request"   # one row per non-skipped /api/* call
     EXCEPTION = "exception"         # unhandled error caught by global handler
     LLM_CALL = "llm_call"           # serving-endpoint chat/embedding outcome
     AGENT_RUN = "agent_run"         # invoke_agent lifecycle (start / end / error)
     CLIENT_ERROR = "client_error"   # frontend-reported error
     DOMAIN_EVENT = "domain_event"   # ad-hoc product events worth analyzing
-
-
-class EventLog(SQLModel, table=True):
-    """Append-only observability log for weekly analysis.
-
-    Single flat table by design: one SELECT can answer "what's broken this
-    week?" / "what's slow?" / "who's hitting it?" without joins.
-    """
-    __tablename__ = "event_logs"
-
-    id: str = SQLField(default_factory=generate_uuid, primary_key=True, max_length=50)
-    created_at: datetime = SQLField(default_factory=utc_now)
-
-    event_type: str = SQLField(max_length=50)
-    severity: str = SQLField(default=EventSeverity.INFO.value, max_length=20)
-
-    # Correlation
-    request_id: Optional[str] = SQLField(default=None, max_length=64)
-    user_email: Optional[str] = SQLField(default=None, max_length=255)
-    project_id: Optional[str] = SQLField(default=None, max_length=50)
-
-    # HTTP context (populated for http_request / exception)
-    method: Optional[str] = SQLField(default=None, max_length=10)
-    path: Optional[str] = SQLField(default=None, max_length=500)
-    status_code: Optional[int] = SQLField(default=None)
-    duration_ms: Optional[int] = SQLField(default=None)
-
-    # Error context
-    error_type: Optional[str] = SQLField(default=None, max_length=200)
-    error_message: Optional[str] = SQLField(default=None, sa_column=Column(Text))
-    stack_trace: Optional[str] = SQLField(default=None, sa_column=Column(Text))
-
-    # Free-form payload — model name, prompt size, browser UA, route name, etc.
-    event_metadata: Optional[dict] = SQLField(default=None, sa_column=Column(JSON))
-
-    __table_args__ = (
-        Index("ix_event_logs_created", "created_at"),
-        Index("ix_event_logs_type_created", "event_type", "created_at"),
-        Index("ix_event_logs_severity_created", "severity", "created_at"),
-        Index("ix_event_logs_user_created", "user_email", "created_at"),
-        Index("ix_event_logs_project_created", "project_id", "created_at"),
-    )
 
 
 # ---------------------------------------------------------------------------

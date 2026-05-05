@@ -1,57 +1,56 @@
-"""Safe-fail writer for the event_logs table.
+"""Structured event logging routed to Databricks Apps OTLP collector.
 
-Design rules:
-1. **Logging never breaks the app.** Every public function swallows its own
-   exceptions and logs them at WARNING level on the in-process logger.
-2. **No request-path latency.** `log_event` schedules the DB write as a
-   background task (`asyncio.create_task` + `to_thread`) so the response
-   returns before the row is committed. Use `log_event_sync` only from
-   contexts where you're already on a worker thread (e.g. inside a sync
-   service method).
-3. **Bounded payload.** Stack traces and error messages are truncated so a
-   pathological exception can't bloat the row. Free-form `metadata` is
-   passed through as-is — keep it small at the call site.
+The app is started via `opentelemetry-instrument` (see scripts/build.sh).
+The OTel Python distro attaches a LoggingHandler to the root logger that
+exports every record via OTLP — Databricks then lands them in the workspace's
+`otel_logs` UC table. Custom fields passed via `extra={}` flow through as
+attributes on the LogRecord, queryable as `attributes['<key>']` in SQL.
+
+Why this module still exists (instead of just `logger.info(...)` everywhere):
+- One choke point for the contract — every event_logs query downstream
+  expects the same set of attribute keys (`event_type`, `severity`,
+  `user_email`, `project_id`, `request_id`, `duration_ms`, ...).
+- Automatic exception → traceback formatting + truncation.
+- Failure isolation: a malformed `extra` dict shouldn't crash a request.
+
+Querying example (workspace otel table; `service_name = '<app-name>'`):
+
+    SELECT time, body, attributes['event_type'], attributes['user_email']
+    FROM <catalog>.<schema>.otel_logs
+    WHERE service_name = 'asset-generator-enrich'
+      AND attributes['event_type'] = 'agent_run'
+      AND attributes['phase'] = 'errored'
+      AND time > current_timestamp() - INTERVAL 7 DAYS;
 """
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import traceback
 from typing import Any, Optional
 
-from sqlalchemy import Engine
-from sqlmodel import Session
+from ..models import EventSeverity, EventType
 
-from ..models import EventLog, EventSeverity, EventType
+# Dedicated logger so handler config / level changes don't accidentally
+# affect the rest of the app's logging. The OTLP exporter wraps the ROOT
+# logger (via the OTel distro) so any child logger's records flow through.
+logger = logging.getLogger("demo-prompt-generator.events")
 
-logger = logging.getLogger(__name__)
-
-# Cap large fields so a runaway exception can't blow out a row.
+# Cap large fields so a runaway exception can't blow out a row. The
+# Databricks Apps log line size limit is 1 MB — we cap well below that to
+# leave headroom for trace context + attributes injected by the SDK.
 _MAX_MESSAGE_CHARS = 4_000
 _MAX_STACK_CHARS = 8_000
 
-# Lakebase engine registered once at startup by the lifespan. Lets services
-# (LLM, agent) call log_event() without threading the engine through every
-# call site. None means logging is a no-op (e.g. tests, local boot before DB
-# is ready).
-_ENGINE: Engine | None = None
-
-# Strong references to in-flight background log tasks. asyncio.create_task
-# returns a Task that the event loop only weakly references; without holding
-# our own reference the GC can collect (and cancel) the task mid-flight. We
-# add on schedule and remove on completion via add_done_callback.
-_IN_FLIGHT_TASKS: set[asyncio.Task[None]] = set()
-
-
-def register_engine(engine: Engine) -> None:
-    """Called by the Lakebase lifespan once the engine is built."""
-    global _ENGINE
-    _ENGINE = engine
-
-
-def _resolve_engine(engine: Engine | None) -> Engine | None:
-    return engine if engine is not None else _ENGINE
+# Severity → stdlib level. The OTel logging instrumentation maps stdlib
+# levels to OTLP severity_text values (INFO/WARN/ERROR), which become the
+# `severity_text` column in `otel_logs`. We ALSO put `severity` into
+# attributes so consumers can filter without trusting the level mapping.
+_SEVERITY_TO_LEVEL = {
+    EventSeverity.INFO.value: logging.INFO,
+    EventSeverity.WARNING.value: logging.WARNING,
+    EventSeverity.ERROR.value: logging.ERROR,
+}
 
 
 def _trunc(s: Optional[str], limit: int) -> Optional[str]:
@@ -70,19 +69,70 @@ def _format_exc(exc: BaseException) -> tuple[str, str, str]:
     return error_type, error_message, _trunc(tb, _MAX_STACK_CHARS) or ""
 
 
-def _write_row(engine: Engine, row: EventLog) -> None:
-    """Synchronously commit one event_logs row. Must NOT raise."""
-    try:
-        with Session(engine) as db:
-            db.add(row)
-            db.commit()
-    except Exception as e:
-        # Don't recurse — just write to stderr-style logger and move on.
-        logger.warning(f"event_logger: failed to persist {row.event_type} row: {e!r}")
+def _normalize(value: Any) -> Any:
+    """Coerce a value into something OTLP can serialize as an attribute.
+
+    OTLP attribute values are scalars (str / int / float / bool) or arrays
+    of scalars. Dicts and other complex types are stringified so they
+    round-trip cleanly into the `otel_logs.attributes` map.
+    """
+    if value is None:
+        return None
+    if isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, (list, tuple)):
+        return [_normalize(v) for v in value]
+    return str(value)
 
 
-def log_event_sync(
-    engine: Engine | None = None,
+def _build_extra(
+    *,
+    event_type: str,
+    severity: str,
+    user_email: Optional[str],
+    project_id: Optional[str],
+    request_id: Optional[str],
+    method: Optional[str],
+    path: Optional[str],
+    status_code: Optional[int],
+    duration_ms: Optional[int],
+    error_type: Optional[str],
+    error_message: Optional[str],
+    stack_trace: Optional[str],
+    metadata: Optional[dict[str, Any]],
+) -> dict[str, Any]:
+    extra: dict[str, Any] = {
+        "event_type": event_type,
+        "severity": severity,
+    }
+    # Populate only present fields — keeps the attributes map tight and
+    # makes existence-checks meaningful in queries (`WHERE attributes
+    # ? 'project_id'`).
+    optional = {
+        "user_email": user_email,
+        "project_id": project_id,
+        "request_id": request_id,
+        "method": method,
+        "path": path,
+        "status_code": status_code,
+        "duration_ms": duration_ms,
+        "error_type": error_type,
+        "error_message": error_message,
+        "stack_trace": stack_trace,
+    }
+    for k, v in optional.items():
+        if v is not None:
+            extra[k] = v
+    if metadata:
+        # Metadata dict is flattened into attributes with a `meta_` prefix
+        # so it doesn't collide with the canonical fields above. Nested
+        # dicts/lists get stringified by _normalize.
+        for k, v in metadata.items():
+            extra[f"meta_{k}"] = _normalize(v)
+    return extra
+
+
+def log_event(
     *,
     event_type: str | EventType,
     severity: str | EventSeverity = EventSeverity.INFO,
@@ -98,96 +148,68 @@ def log_event_sync(
     error_message: Optional[str] = None,
     metadata: Optional[dict[str, Any]] = None,
 ) -> None:
-    """Synchronous write — use from sync code paths or worker threads."""
+    """Emit a structured event log record.
+
+    The OTel handler buffers and exports asynchronously, so this is
+    effectively zero-cost on the request path — there's no DB write, no
+    network call inline. Wrapped in try/except as a belt-and-braces guard
+    against a malformed `metadata` dict.
+    """
     try:
-        eng = _resolve_engine(engine)
-        if eng is None:
-            return  # No engine yet (e.g., logging during boot before DB ready) — drop.
         et = event_type.value if isinstance(event_type, EventType) else event_type
         sev = severity.value if isinstance(severity, EventSeverity) else severity
 
         if error is not None:
-            error_type, error_message, stack = _format_exc(error)
+            error_type, error_message, stack_trace = _format_exc(error)
         else:
-            stack = None
+            stack_trace = None
             error_message = _trunc(error_message, _MAX_MESSAGE_CHARS)
 
-        row = EventLog(
+        extra = _build_extra(
             event_type=et,
             severity=sev,
             user_email=user_email,
             project_id=project_id,
             request_id=request_id,
             method=method,
-            path=_trunc(path, 500),
+            path=path,
             status_code=status_code,
             duration_ms=duration_ms,
             error_type=_trunc(error_type, 200),
             error_message=error_message,
-            stack_trace=stack,
-            event_metadata=metadata,
+            stack_trace=stack_trace,
+            metadata=metadata,
         )
-        _write_row(eng, row)
-    except Exception as e:
-        logger.warning(f"event_logger.log_event_sync failed: {e!r}")
+
+        level = _SEVERITY_TO_LEVEL.get(sev, logging.INFO)
+        # The body lands in `otel_logs.body` as a short summary; structured
+        # data is in `attributes`. Keep the body human-readable so the
+        # Databricks UI's log viewer is useful at a glance.
+        body = f"{et}"
+        if path:
+            body = f"{et} {method or ''} {path}".strip()
+        elif metadata and metadata.get("phase"):
+            body = f"{et} {metadata['phase']}"
+        logger.log(level, body, extra=extra)
+    except Exception as e:  # pragma: no cover — logging must never raise
+        # Last-ditch guard. Don't recurse via logger.warning(...) with
+        # extras — just write a plain message to stderr.
+        logging.getLogger(__name__).warning(
+            "event_logger.log_event failed: %r", e
+        )
 
 
-def log_event(
-    engine: Engine | None = None,
-    *,
-    event_type: str | EventType,
-    severity: str | EventSeverity = EventSeverity.INFO,
-    user_email: Optional[str] = None,
-    project_id: Optional[str] = None,
-    request_id: Optional[str] = None,
-    method: Optional[str] = None,
-    path: Optional[str] = None,
-    status_code: Optional[int] = None,
-    duration_ms: Optional[int] = None,
-    error: Optional[BaseException] = None,
-    error_type: Optional[str] = None,
-    error_message: Optional[str] = None,
-    metadata: Optional[dict[str, Any]] = None,
-) -> None:
-    """Fire-and-forget async write — safe to call from request handlers.
+# Back-compat alias for callers that already passed engine/used the sync API.
+# OTLP export is async behind the SDK's BatchLogRecordProcessor, so a
+# separate "sync" path no longer exists — both names just call log_event.
+log_event_sync = log_event
 
-    Schedules the row to be written on a worker thread so the calling
-    coroutine doesn't await the DB. Loses rows if there's no running event
-    loop (falls back to a sync write in that case).
+
+def register_engine(_engine: Any) -> None:
+    """Deprecated no-op — kept so callers in core/lakebase.py don't break.
+
+    The Lakebase engine is no longer used for event logging; OTLP export is
+    handled entirely by the OTel SDK auto-instrumentation. Safe to remove
+    this and the call site once nothing else references it.
     """
-    eng = _resolve_engine(engine)
-    if eng is None:
-        return
-    kwargs = dict(
-        event_type=event_type,
-        severity=severity,
-        user_email=user_email,
-        project_id=project_id,
-        request_id=request_id,
-        method=method,
-        path=path,
-        status_code=status_code,
-        duration_ms=duration_ms,
-        error=error,
-        error_type=error_type,
-        error_message=error_message,
-        metadata=metadata,
-    )
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        log_event_sync(eng, **kwargs)  # type: ignore[arg-type]
-        return
-
-    async def _run() -> None:
-        try:
-            await loop.run_in_executor(None, lambda: log_event_sync(eng, **kwargs))  # type: ignore[arg-type]
-        except Exception as e:
-            logger.warning(f"event_logger.log_event background task failed: {e!r}")
-
-    try:
-        task = loop.create_task(_run())
-        _IN_FLIGHT_TASKS.add(task)
-        task.add_done_callback(_IN_FLIGHT_TASKS.discard)
-    except Exception as e:
-        logger.warning(f"event_logger.log_event scheduling failed: {e!r}")
+    return None
