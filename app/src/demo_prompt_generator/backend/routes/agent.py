@@ -27,6 +27,8 @@ from ..core.auth import (
 )
 from ..services.skills_manager import get_project_directory
 from ..models import (
+    EventSeverity,
+    EventType,
     InvokeAgentRequest,
     InvokeAgentResponse,
     Message,
@@ -39,6 +41,7 @@ from ..models import (
 )
 from ..services.active_stream import get_stream_manager
 from ..services.agent import collect_text_response, collect_reasoning, stream_agent_response
+from ..services import event_logger
 
 router = create_router()
 
@@ -176,10 +179,28 @@ async def invoke_agent(
     # will be closed by the time run_agent's completion code executes)
     engine = request.app.state.engine
 
+    request_id = getattr(request.state, "request_id", None)
+    event_logger.log_event(
+        event_type=EventType.AGENT_RUN,
+        severity=EventSeverity.INFO,
+        user_email=user_email,
+        project_id=body.project_id,
+        request_id=request_id,
+        metadata={
+            "phase": "started",
+            "execution_id": execution_id,
+            "resumed": session_id is not None,
+            "message_chars": len(body.message or ""),
+            "mode": str(mode),
+        },
+    )
+    agent_run_started_at = time.time()
+
     # Start agent in background
     async def run_agent():
         collected_events = []
         was_cancelled = False
+        run_error: Exception | None = None
         try:
             async for event in stream_agent_response(
                 project_id=body.project_id,
@@ -202,6 +223,7 @@ async def invoke_agent(
             stream.is_cancelled = True
             logger.info(f"Agent execution {execution_id} cancelled by user")
         except Exception as e:
+            run_error = e
             logger.exception(f"Agent execution failed: {e}")
             stream.mark_error(str(e))
             # Fall through to save whatever we collected so far
@@ -270,6 +292,42 @@ async def invoke_agent(
                 logger.info(f"Persisted session_id for project {body.project_id}: {stream.session_id}")
         except Exception as e:
             logger.exception(f"Failed to save agent response for project {body.project_id}: {e}")
+
+        # Final agent_run event (success / cancel / failure) — captures the
+        # outcome of the long-running task that the request middleware can't
+        # see (the HTTP response returned ~immediately at invoke_agent time).
+        duration_ms = int((time.time() - agent_run_started_at) * 1000)
+        if run_error is not None:
+            event_logger.log_event(
+                event_type=EventType.AGENT_RUN,
+                severity=EventSeverity.ERROR,
+                user_email=user_email,
+                project_id=body.project_id,
+                request_id=request_id,
+                duration_ms=duration_ms,
+                error=run_error,
+                metadata={
+                    "phase": "errored",
+                    "execution_id": execution_id,
+                    "events_collected": len(collected_events),
+                },
+            )
+        else:
+            event_logger.log_event(
+                event_type=EventType.AGENT_RUN,
+                severity=EventSeverity.WARNING if was_cancelled else EventSeverity.INFO,
+                user_email=user_email,
+                project_id=body.project_id,
+                request_id=request_id,
+                duration_ms=duration_ms,
+                metadata={
+                    "phase": "cancelled" if was_cancelled else "completed",
+                    "execution_id": execution_id,
+                    "events_collected": len(collected_events),
+                    "response_chars": len(full_response) if full_response else 0,
+                    "produced_session_id": stream.session_id is not None,
+                },
+            )
 
     await manager.start_stream(stream, run_agent)
 
