@@ -533,6 +533,9 @@ def delete_project(
     request: Request,
 ):
     """Delete a project and all associated data."""
+    import asyncio
+    from ..services.agent import get_client_pool
+
     user_email = _get_user_email(headers)
     project = _get_user_project(session, project_id, user_email)
 
@@ -556,6 +559,12 @@ def delete_project(
     # Delete project
     session.delete(project)
     session.commit()
+
+    # Disconnect + drop the pooled SDK subprocess. Without this it would
+    # linger up to CLIENT_IDLE_TIMEOUT before the reaper sweeps it. Bridge
+    # the async pool API from this sync handler — the threadpool worker
+    # running this request has no event loop, so asyncio.run is safe.
+    asyncio.run(get_client_pool().remove_client(project_id))
 
     # Drop the per-project restore lock + file cache (best-effort cleanup).
     from .project_files import _restore_locks, _restore_locks_lock, cache_evict_project

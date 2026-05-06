@@ -7,12 +7,13 @@ import json
 import logging
 import os
 import threading
+import time
 import traceback
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import HTTPException, Request
+from fastapi import HTTPException, Request, Response
 from fastapi.responses import StreamingResponse
 from sqlmodel import select
 
@@ -25,7 +26,7 @@ from ..models import (
     ProjectFileContent,
     ProjectFileOut,
 )
-from ..services.file_sync import FileSyncService
+from ..services.file_sync import FileSyncService, decompress_content
 
 logger = logging.getLogger(__name__)
 router = create_router()
@@ -478,66 +479,98 @@ def get_project_file(
     session: Dependencies.Session,
     headers: Dependencies.Headers,
     request: Request,
+    response: Response,
 ):
     """Get the content of a specific file.
 
-    Normal flow: read from the DB-synced view (file_sync), where the
-    watcher mirrors disk into Lakebase (filtered by IGNORE_PATTERNS).
+    Disk is the source of truth. The DB is just a backup so projects can
+    be restored to disk after a container restart (see
+    `ensure_project_files_restored`). Read order:
+    1. Stat disk — if present, read it and stat() for size/mtime. Done.
+    2. Otherwise fall through to the DB (rare: file is gitignored by the
+       watcher, e.g. `.claude/skills/`, or the project hasn't been
+       restored yet on this container).
 
-    Hidden-files fallback: if the file isn't in the DB but exists on
-    disk inside the project, read it from disk so users browsing the
-    "show all files" view can inspect contents (e.g. `.claude/skills/`,
-    `.preview.pgid`). `.databrickscfg` is special-cased — it carries the
-    workspace token in deployed mode, so we redact the token line
-    rather than leaking it to the UI.
+    `.databrickscfg`, `.anthropic_token`, and `.claude/settings.json`
+    carry secrets and are redacted before being returned.
+
+    Perf debugging: response carries `Server-Timing` and `X-Debug-Timings`
+    headers naming each phase so we can see where the wall-clock goes.
     """
+    t0 = time.perf_counter()
+    timings: list[tuple[str, float]] = []
+
+    def mark(name: str) -> None:
+        nonlocal t0
+        t1 = time.perf_counter()
+        timings.append((name, (t1 - t0) * 1000.0))
+        t0 = t1
+
     user_email = _get_user_email(headers)
+    mark("user_email")
+
+    # Auth check — DB SELECT on Project for ownership. Covers pool checkout
+    # + pool_pre_ping SELECT 1 + the query itself on first session.exec().
     _get_user_project(session, project_id, user_email)
+    mark("auth_query")
 
-    file_sync: FileSyncService = request.app.state.file_sync
-    # Pass session to avoid creating new connection (PGLite issue)
-    content = file_sync.get_file_content(project_id, file_path, session=session)
+    project_dir = _PROJECTS_BASE_RESOLVED / project_id
+    disk_path = (project_dir / file_path).resolve()
+    # Defense in depth: refuse path-escape attempts (`..` segments).
+    try:
+        disk_path.relative_to(project_dir)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid file path")
 
-    file_record = session.exec(
-        select(ProjectFile)
-        .where(ProjectFile.project_id == project_id)
-        .where(ProjectFile.relative_path == file_path)
-    ).first()
+    content: str | None = None
+    file_size: int | None = None
+    file_mtime: datetime | None = None
 
-    # Hidden-files fallback — file isn't tracked in the DB but may exist
-    # on disk because the watcher filters it out. Read from disk so the
-    # debug listing's contents are viewable.
-    if content is None:
-        project_dir = _PROJECTS_BASE_RESOLVED / project_id
-        disk_path = (project_dir / file_path).resolve()
-        # Defense in depth: refuse path-escape attempts (`..` segments).
+    if disk_path.is_file():
+        # Hot path: serve straight from disk. No DB hit.
         try:
-            disk_path.relative_to(project_dir)
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid file path")
-        if not disk_path.is_file():
-            raise HTTPException(status_code=404, detail="File not found")
-        try:
-            raw = disk_path.read_text(encoding="utf-8", errors="replace")
+            content = disk_path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            import base64
+            content = base64.b64encode(disk_path.read_bytes()).decode("ascii")
         except OSError as e:
             raise HTTPException(status_code=500, detail=f"Read failed: {e}")
-        content = raw
         try:
             stat = disk_path.stat()
-            disk_size = stat.st_size
-            disk_mtime = datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc)
+            file_size = stat.st_size
+            file_mtime = datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc)
         except OSError:
-            disk_size = len(content)
-            disk_mtime = None
+            file_size = len(content)
+        mark("disk_read")
     else:
-        disk_size = None
-        disk_mtime = None
+        # Disk miss — fall back to DB. Either the project hasn't been
+        # restored on this container yet, or the file is one the watcher
+        # ignores by design (won't ever appear on disk). Last DB hit also
+        # gets us the metadata in the same query.
+        file_record = session.exec(
+            select(ProjectFile)
+            .where(ProjectFile.project_id == project_id)
+            .where(ProjectFile.relative_path == file_path)
+        ).first()
+        mark("db_fallback_query")
+        if file_record is None:
+            raise HTTPException(status_code=404, detail="File not found")
+        try:
+            raw = decompress_content(file_record.content_compressed)
+            content = raw.decode("utf-8")
+        except UnicodeDecodeError:
+            import base64
+            content = base64.b64encode(raw).decode("ascii")
+        except Exception as e:
+            logger.error(f"Failed to decompress {file_path}: {e}")
+            raise HTTPException(status_code=500, detail="Failed to decompress file")
+        file_size = file_record.file_size
+        file_mtime = file_record.last_modified
+        mark("db_fallback_decode")
 
-    # Redact the `.databrickscfg` token line — in deployed mode this file
-    # holds the user's PAT (rewritten from x-forwarded-access-token by
-    # middleware). Showing the file's existence + host is fine for
-    # debugging auth shape; showing the token would be a real boundary
-    # violation since anyone with that token can act as the user.
+    # Redact secrets. `.databrickscfg` keeps everything except the token
+    # line; the other two are wholesale-redacted because the entire body
+    # is sensitive (see backend/AUTH.md, backend/core/fmapi_auth.py).
     basename = Path(file_path).name
     if basename == ".databrickscfg" or basename.startswith(".databrickscfg."):
         redacted_lines: list[str] = []
@@ -550,20 +583,26 @@ def get_project_file(
             else:
                 redacted_lines.append(line)
         content = "\n".join(redacted_lines)
-    # `.anthropic_token` and `.claude/settings.json` (which embeds an
-    # apiKeyHelper path) — wholesale redaction. The token file's entire body
-    # is the bearer; settings.json doesn't contain the token directly but the
-    # path leaks where it lives. Show neither.
     elif basename == ".anthropic_token" or basename.startswith(".anthropic_token."):
         content = "[REDACTED — see backend/core/fmapi_auth.py]"
     elif basename == "settings.json" and ".claude/" in file_path:
         content = "[REDACTED apiKeyHelper path — see backend/core/fmapi_auth.py]"
+    mark("redact")
+
+    total_ms = sum(d for _, d in timings)
+    response.headers["Server-Timing"] = ", ".join(
+        f"{name};dur={dur:.1f}" for name, dur in timings
+    ) + f", total;dur={total_ms:.1f}"
+    response.headers["X-Debug-Timings"] = json.dumps(
+        {"steps": [{"name": n, "ms": round(d, 1)} for n, d in timings],
+         "total_ms": round(total_ms, 1)}
+    )
 
     return ProjectFileContent(
         path=file_path,
         content=content,
-        size=file_record.file_size if file_record else (disk_size if disk_size is not None else len(content)),
-        last_modified=file_record.last_modified if file_record else disk_mtime,
+        size=file_size if file_size is not None else len(content),
+        last_modified=file_mtime,
     )
 
 
