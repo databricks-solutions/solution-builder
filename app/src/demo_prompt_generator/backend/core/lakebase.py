@@ -437,12 +437,6 @@ class _LakebaseDependency(LifespanDependency):
         app.state.engine = engine
         app.state.db_ready = False
 
-        # Make the engine reachable from event_logger.log_event(...) without
-        # threading it through every service constructor. Set BEFORE any
-        # request can come in so middleware writes its first row.
-        from ..services.event_logger import register_engine
-        register_engine(engine)
-
         def init_db():
             try:
                 validate_db(engine)

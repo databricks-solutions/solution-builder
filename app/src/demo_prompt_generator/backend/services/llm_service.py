@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import json
 import logging
-import time
 from collections.abc import Iterator
 from enum import Enum
 from typing import Any, Literal
@@ -17,8 +16,6 @@ from typing import Any, Literal
 from databricks.sdk import WorkspaceClient
 
 from ..core._config import AppConfig
-from ..models import EventSeverity, EventType
-from . import event_logger
 
 logger = logging.getLogger(__name__)
 
@@ -78,39 +75,11 @@ class LLMService:
         if json_output:
             kwargs["response_format"] = {"type": "json_object"}
 
-        start = time.perf_counter()
         try:
             response = self._get_client().chat.completions.create(**kwargs)
-            duration_ms = int((time.perf_counter() - start) * 1000)
-            content = response.choices[0].message.content
-            usage = getattr(response, "usage", None)
-            event_logger.log_event_sync(
-                event_type=EventType.LLM_CALL,
-                severity=EventSeverity.INFO,
-                duration_ms=duration_ms,
-                metadata={
-                    "kind": "chat",
-                    "model": model,
-                    "size": size.value,
-                    "json_output": json_output,
-                    "max_tokens": max_tokens,
-                    "prompt_chars": len(prompt),
-                    "response_chars": len(content) if content else 0,
-                    "prompt_tokens": getattr(usage, "prompt_tokens", None),
-                    "completion_tokens": getattr(usage, "completion_tokens", None),
-                },
-            )
-            return content
+            return response.choices[0].message.content
         except Exception as e:
-            duration_ms = int((time.perf_counter() - start) * 1000)
             logger.error(f"Chat completion failed (model={model}): {e}")
-            event_logger.log_event_sync(
-                event_type=EventType.LLM_CALL,
-                severity=EventSeverity.ERROR,
-                duration_ms=duration_ms,
-                error=e,
-                metadata={"kind": "chat", "model": model, "size": size.value},
-            )
             raise
 
     def chat_json(
@@ -144,8 +113,6 @@ class LLMService:
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": prompt})
 
-        start = time.perf_counter()
-        total_chars = 0
         try:
             response = self._get_client().chat.completions.create(
                 model=model, messages=messages,
@@ -153,31 +120,9 @@ class LLMService:
             )
             for chunk in response:
                 if chunk.choices and chunk.choices[0].delta.content:
-                    delta = chunk.choices[0].delta.content
-                    total_chars += len(delta)
-                    yield delta
-            event_logger.log_event_sync(
-                event_type=EventType.LLM_CALL,
-                severity=EventSeverity.INFO,
-                duration_ms=int((time.perf_counter() - start) * 1000),
-                metadata={
-                    "kind": "chat_stream",
-                    "model": model,
-                    "size": size.value,
-                    "max_tokens": max_tokens,
-                    "prompt_chars": len(prompt),
-                    "response_chars": total_chars,
-                },
-            )
+                    yield chunk.choices[0].delta.content
         except Exception as e:
             logger.error(f"Chat stream failed (model={model}): {e}")
-            event_logger.log_event_sync(
-                event_type=EventType.LLM_CALL,
-                severity=EventSeverity.ERROR,
-                duration_ms=int((time.perf_counter() - start) * 1000),
-                error=e,
-                metadata={"kind": "chat_stream", "model": model, "size": size.value},
-            )
             raise
 
     def chat_stream_lines(
@@ -206,61 +151,26 @@ class LLMService:
         max_chars = 8000
         if len(text) > max_chars:
             text = text[:max_chars]
-        model = self.config.ai_gateway_embedding
-        start = time.perf_counter()
         try:
             response = self._get_client().embeddings.create(
-                model=model,
+                model=self.config.ai_gateway_embedding,
                 input=text,
-            )
-            event_logger.log_event_sync(
-                event_type=EventType.LLM_CALL,
-                severity=EventSeverity.INFO,
-                duration_ms=int((time.perf_counter() - start) * 1000),
-                metadata={"kind": "embedding", "model": model, "input_chars": len(text)},
             )
             return response.data[0].embedding
         except Exception as e:
             logger.error(f"Failed to get embedding: {e}")
-            event_logger.log_event_sync(
-                event_type=EventType.LLM_CALL,
-                severity=EventSeverity.ERROR,
-                duration_ms=int((time.perf_counter() - start) * 1000),
-                error=e,
-                metadata={"kind": "embedding", "model": model},
-            )
             return [0.0] * EMBEDDING_DIMENSION
 
     def get_embeddings_batch(self, texts: list[str]) -> list[list[float]]:
         max_chars = 8000
         truncated = [t[:max_chars] if len(t) > max_chars else t for t in texts]
-        model = self.config.ai_gateway_embedding
-        start = time.perf_counter()
         try:
             response = self._get_client().embeddings.create(
-                model=model,
+                model=self.config.ai_gateway_embedding,
                 input=truncated,
-            )
-            event_logger.log_event_sync(
-                event_type=EventType.LLM_CALL,
-                severity=EventSeverity.INFO,
-                duration_ms=int((time.perf_counter() - start) * 1000),
-                metadata={
-                    "kind": "embedding_batch",
-                    "model": model,
-                    "batch_size": len(texts),
-                    "total_chars": sum(len(t) for t in truncated),
-                },
             )
             return [item.embedding for item in response.data]
         except Exception as e:
             logger.error(f"Failed to get batch embeddings: {e}")
-            event_logger.log_event_sync(
-                event_type=EventType.LLM_CALL,
-                severity=EventSeverity.ERROR,
-                duration_ms=int((time.perf_counter() - start) * 1000),
-                error=e,
-                metadata={"kind": "embedding_batch", "model": model, "batch_size": len(texts)},
-            )
             return [[0.0] * EMBEDDING_DIMENSION for _ in texts]
 
