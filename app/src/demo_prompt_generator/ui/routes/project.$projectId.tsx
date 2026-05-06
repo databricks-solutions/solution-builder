@@ -906,19 +906,17 @@ function ProjectPage() {
     handleSendMessage(
       "Package this project as a Databricks Asset Bundle (DAB). Follow these steps:\n\n" +
       "1. **Load the `databricks-bundles` skill** for DAB syntax, resource types, and best practices.\n" +
-      "2. **Read the dab.md reference** at `.claude/skills/databricks-demo-generator/references/dab.md` for the demo-specific DAB workflow.\n" +
+      "2. **Read the dab.md reference** at `.claude/skills/databricks-demo-generator/references/dab/dab.md` and the complete working example at `.claude/skills/databricks-demo-generator/references/dab/example_databricks.yml` — the example shows the exact single-file layout to mirror.\n" +
       "3. **Analyze all project files** to identify components (SQL files, Python scripts, notebooks, dashboards, pipelines, Genie spaces, KAs, etc.).\n" +
-      "4. **Restructure into DAB layout** with proper `resources/*.yml` files and `src/` directory structure as described in the skill.\n" +
-      "5. **Create `databricks.yml`** at the project root with:\n" +
+      "4. **Create a single `databricks.yml`** at the project root containing everything (bundle, sync, variables, targets, AND all resources in one `resources:` block — do NOT split into multiple files):\n" +
       "   - `bundle.name` derived from the project\n" +
-      "   - `include: [resources/*.yml]`\n" +
-      "   - Variables for `catalog`, `schema`, and `warehouse_id` (using lookup)\n" +
+      "   - `sync.include` for code and static-file paths\n" +
+      "   - Variables for `catalog`, `schema`, and `warehouse_id`\n" +
       "   - `dev` and `prod` targets\n" +
-      "6. **Create resource YAML files** in `resources/` (jobs.yml, pipelines.yml, dashboards.yml, etc.) mapping each project component to the correct DAB resource type.\n" +
-      "7. **Create deployment scripts** in `src/deploy/` for components not natively supported by DAB (Genie Spaces, Knowledge Assistants, Multi-Agent Supervisors) using the patterns from dab.md.\n" +
-      "8. **Validate the bundle** by reading back the `databricks.yml` and all `resources/*.yml` files to confirm they have valid YAML syntax and correct path references (`../src/` from resources/).\n" +
-      "9. **Create `dab_instructions.md`** with deployment commands, variable descriptions, and a list of resources created.\n\n" +
-      "Do NOT skip the validation step — confirm the DAB is structurally correct before finishing."
+      "   - All resources (schemas, volumes, pipelines, dashboards, jobs) under one top-level `resources:` key, mirroring example_databricks.yml.\n" +
+      "6. **Create deployment scripts** in `src/deploy/` for components not natively supported by DAB (Genie Spaces, Knowledge Assistants, Multi-Agent Supervisors) using the patterns from dab.md.\n" +
+      "7. **Validate** with `databricks bundle validate` command.\n" +
+      "8. **Create `dab_instructions.md`** with deployment commands, variable descriptions, and a list of resources created.\n\n"
     );
   }, [isPackagingDAB, isStreaming, handleSendMessage]);
 
@@ -928,10 +926,10 @@ function ProjectPage() {
     handleSendMessage(
       "Update the existing DAB to include any new or changed project assets:\n\n" +
       "1. **Load the `databricks-bundles` skill** for current DAB syntax and resource types.\n" +
-      "2. **Read the dab.md reference** at `.claude/skills/databricks-demo-generator/references/dab.md`.\n" +
-      "3. **Compare project files against `databricks.yml` and `resources/*.yml`** — identify any components not yet included in the bundle.\n" +
-      "4. **Update resource YAML files** and add any missing deployment scripts.\n" +
-      "5. **Validate** by reading back all YAML files to confirm valid syntax and correct path references.\n" +
+      "2. **Read the dab.md reference** at `.claude/skills/databricks-demo-generator/references/dab/dab.md` and the complete working example at `.claude/skills/databricks-demo-generator/references/dab/example_databricks.yml`\n" +
+      "3. **Compare project files against `databricks.yml`** — identify any components not yet included in the bundle. The bundle is a single `databricks.yml` at the project root with all resources under one `resources:` block.\n" +
+      "4. **Update `databricks.yml`** in place (add/modify entries under `resources:`) and add any missing deployment scripts in `src/deploy/`.\n" +
+      "5. **Validate** with `databricks bundle validate` command.\n" +
       "6. **Update `dab_instructions.md`** to reflect any changes."
     );
   }, [isStreaming, handleSendMessage]);

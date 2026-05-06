@@ -124,9 +124,10 @@ dbutils.jobs.taskValues.set(key="genie_space_id", value=space_id)
 
 ## Step 6: Bundle Template
 
-Create a `databricks.yml` at the project root. See [example_databricks.yml](example_databricks.yml) for a complete working example.
+Create a **single `databricks.yml`** at the project root containing bundle metadata, sync config, variables, targets, and ALL resources under one top-level `resources:` block. See [example_databricks.yml](example_databricks.yml) for the complete working example to mirror.
 
 **Key points:**
+- One file — do NOT split into `resources/*.yml`. Keeping everything in `databricks.yml` is easier to read, edit, and maintain.
 - No hardcoded workspace hosts - use environment variables or CLI profiles
 - Variables for catalog/schema with sensible defaults
 - `sync.include` for static files (PDFs, etc.)
@@ -136,13 +137,8 @@ Create a `databricks.yml` at the project root. See [example_databricks.yml](exam
 
 ```
 project/
-├── databricks.yml              # Main bundle config (see example_databricks.yml)
+├── databricks.yml              # Single bundle config — all resources in one file (see example_databricks.yml)
 ├── dab_instructions.md         # Deployment instructions for users
-├── resources/
-│   ├── infrastructure.yml     # Schemas, volumes
-│   ├── jobs.yml               # Workflow definitions
-│   ├── pipelines.yml          # DLT pipeline definitions
-│   └── dashboards.yml         # Dashboard definitions
 ├── src/
 │   ├── data_generation/       # Data generation notebooks
 │   ├── deploy/                # SDK deployment notebooks (Genie, KA, MAS, file upload)
@@ -160,7 +156,7 @@ project/
 4. **Create infrastructure via DAB** - schemas and volumes in YAML, not Python
 5. **Use sync.include** for static file upload to workspace
 6. **SDK version matters** - `>=0.102.0` required for Genie/KA/MAS
-7. **Path resolution** - use `../src/` from `resources/*.yml`, `./src/` from `databricks.yml`
+7. **Path resolution** - all resource paths are relative to `databricks.yml`, so use `./src/...`, `./dashboard/...`, etc.
 8. **SDP SQL cannot parameterize `read_files` paths** - see Volume Path Parameterization below
 
 ## Volume Path Parameterization in SDP
