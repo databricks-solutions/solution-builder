@@ -13,7 +13,7 @@ Read the skill's `SKILL.md` BEFORE building — it contains the exact CLI comman
 For each capability the recipe is: **read `SKILLS/<skill-dir>/SKILL.md` → read the spec file → create the resource → validate → update `resources.json` with the resource ID**. Independent capabilities run **in parallel via subagents** — see the table below. Don't loop through resources sequentially; build time dominates this stage.
 
 Important capabilities with instructions for you to check if you need to build them: 
-Dashboard => read aibi-dashboards.md
+Dashboard => must read aibi-dashboards.md to know how to structure the dashboard
 Metric views => read metric-view.md
 ML model => read ml-training-serving.md (you must deploy it as a databricks serverless job, no spark connect)
 

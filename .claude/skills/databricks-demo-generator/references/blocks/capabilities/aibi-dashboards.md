@@ -27,15 +27,22 @@ Dashboards are SQL-backed: each widget draws from a dataset (a SQL query on Gold
 
 ### Widget Types
 
-**Counters (KPIs)**: Single headline number with comparison delta. Prefer comparative KPIS (ex: X% monthly growth) or period based vs absolute metrics (ex: MARR vs "sum of revenue""
+Every chart needs **two axes** — a dimension (what you group by) and a measure (the aggregated number). Specifying only one axis is invalid; the widget won't render. Vertical vs horizontal bar is just which axis carries the quantitative measure.
 
-**Charts**: Line (trends over time), bar (category comparison — horizontal for long labels), area (cumulative), stacked bar (composition), scatter/bubble (correlation), combo bar+line (dual metrics), choropleth map (geographic). All support color-by-category for series breakdown.
-
-**Tables**: Sortable, full-width detail view. Best for high-cardinality data (individual products, transactions, entities).
-
-**Text**: Markdown headers and descriptions. Use as section titles — "Fraud Rate 3x Above Baseline" not just "Fraud Rate."
-
-**Filters**: Date range picker, multi-select dropdown, single-select dropdown. Filters cross-apply to all widgets whose datasets contain the filter column.
+| Widget | Encodings | Use when |
+|--------|-----------|----------|
+| **Counter (KPI)** | one quantitative measure; comparison delta (optional) | single headline number; prefer comparative ("MoM growth %") over absolute ("sum of revenue") |
+| **Line** | x = temporal; y = quantitative; color = categorical (optional, multi-series) | trend over time |
+| **Bar (vertical)** | x = categorical/temporal; y = quantitative; color = categorical (optional, stacked or grouped) | category comparison; weekly trend with category split |
+| **Bar (horizontal)** | y = categorical; x = quantitative; color = categorical (optional) | long category labels; ranked breakdown |
+| **Area / Stacked bar** | x = temporal; y = quantitative; color = categorical (optional, composition) | composition over time, max 4-5 segments |
+| **Scatter / Bubble** | x = quantitative; y = quantitative; color = categorical (optional); size = quantitative (optional, bubble) | correlation between two measures |
+| **Combo (bar+line)** | x = dimension; y with two fields, one bar + one line | dual metrics on shared x-axis |
+| **Choropleth map** | geo dimension; measure; color scale with `scheme`/`mappings` (optional) | geographic distribution |
+| **Pie** | angle = quantitative; color = categorical | composition snapshot, ≤ 6 slices; usually a horizontal bar is clearer |
+| **Table** | columns; sort (optional) | high-cardinality detail view |
+| **Text** | markdown lines | section headers/answers ("Fraud Rate 3x Above Baseline") |
+| **Filter** | one column on each dataset to filter; default value (optional) | cross-applies to every widget whose dataset has the filter column |
 
 ### Built-in Aggregation
 
@@ -61,16 +68,17 @@ Common filter patterns:
 
 Dashboards can embed a "Ask Genie" button that links to a Genie Space — the natural handoff from structured visualization to natural-language investigation. Configured at the dashboard level, not as a widget.
 
-## 6-Column Grid Layout
+## Layout
 
-Every row must fill exactly 6 columns. Z-pattern scanning. Standard structure top to bottom:
+Talk in **columns out of 12** . Z-pattern scanning, standard structure top to bottom on the canvas page:
 
-| Tier | What | Typical Size | Notes |
-|------|------|-------------|-------|
-| 1. Filters | Date range + 2 dimensions | 2 wide × 2 tall each (3 = 6 cols) | Always first |
-| 2. Counters | 3 KPIs with comparison | 2 wide × 3 tall each | Never shorter than h=3 |
-| 3. Visualizations | Trend + breakdown | 3 wide × 5 tall each (pair = 6 cols) | Or 6 wide for focal chart |
-| 4. Detail table | Entity drill-down | 6 wide × 5-8 tall | Full width, sorted by key metric DESC |
+| Tier | What | Columns × rows | Notes |
+|------|------|----------------|-------|
+| 1. Counters | 3 KPIs with comparison | 4 cols × 3 each | Top of page, never shorter than 3 rows tall |
+| 2. Visualizations | Trend + breakdown | 6 cols × 5 each (two side-by-side) — or 12 cols for a focal chart | |
+| 3. Detail table | Entity drill-down | 12 cols × 5-8 | Full width, sorted by key metric DESC |
+
+**Filters live on a separate page** with `pageType: PAGE_TYPE_GLOBAL_FILTERS` (the dashboard renders it as a left-side filter panel, not a row on the canvas). Typical: 1 date-range picker + 2 single/multi-select filters. They cross-apply to every widget whose dataset contains the filter column.
 
 6-8 widgets per page max. If a widget can't map to a core question, cut it.
 
@@ -105,7 +113,7 @@ The anomaly is the whole point. Every design choice must make it impossible to m
 | Single headline number? | Counter | Always pair with comparison delta |
 | Geographic distribution? | Choropleth map | Needs region column |
 
-Avoid: pie charts (hard to compare slices), dual-axis lines (false correlations). Default to sorted horizontal bar when unsure.
+Prefer sorted horizontal bar over pie when in doubt — slices are hard to compare. Avoid dual-axis lines (false correlations).
 
 ## Upstream Data Requirements
 
@@ -121,26 +129,23 @@ Dashboard design decisions flow backward into the pipeline spec. When specifying
 
 When writing dashboard specifications, include:
 
-1. **Data Sources table**: Widget → Table → Filter Columns → Metric Columns
-2. **Layout diagram**: ASCII grid showing widget placement with sizes
-3. **Filters table**: Filter name → Column → Source Tables → Default value
-4. **Validation criteria**: What the user should see (spike visible, sort order, filters working)
+1. **Filters table**: Filter name → Column → Datasets it filters → Default value
+2. **Layout, top-to-bottom on the canvas page** — describe each row in one line as `Row N — <widget(s)>: <span> — <intent>`, e.g. `Row 1 — 3 KPIs side by side (4 cols each): Revenue, Orders, Return Rate ⚠️`. Use **column counts out of 12** ("4 cols", "6 cols each", "full width"). No ASCII grid; the skill assigns the actual `x`/`y`/`width`/`height`.
+3. **Per widget**: name (used as title-as-answer), source table, encodings (`x = …; y = …; color = …` for charts; `columns` for tables), and what the user should see (numbers, sort order, anomaly visibility).
+4. **Validation criteria**: KPI values, chart shape (spike position, decay), filter behavior (select X → all widgets update).
 
 The spec describes WHAT to show. The ai-dev-kit skill handles HOW to build the JSON. Don't put JSON or technical API details in the spec.
 
 ## Pitfalls
 
 - **"Everything is fine" dashboards** — ensure data shows the anomaly.
-- **Rows that don't fill 6** — w=4 leaves a gap; the grid breaks. Every row must sum to 6.
+- **Rows that don't fill 12** — gaps break the grid. Every row's widget widths must sum to 12.
 - **Counters without comparison** — "$1.8M" alone means nothing. Show vs. baseline or MRR or ARR.
 - **Inconsistent color** — same category = same color across all charts.
 - **Generic titles** — "Revenue" tells nothing. "Revenue Up 12% YoY" tells everything.
 - **Missing filter columns** — if a dataset lacks the filter column, that widget won't respond to the filter.
 - **Too-fine cardinality in charts** — 50 categories in a bar chart is unreadable, instead get the top ~6 then aggregate as "other" using a window function.
-- **`queryLines` without trailing whitespace** — when a SQL query is split across multiple `queryLines` array elements, every element except the last MUST end with a trailing space or `\n`. The dashboard renderer concatenates the array verbatim — no separator is inserted. Missing trailing whitespace produces broken SQL like `SELECT * FROM itemsWHERE x = 1` and every widget fails with a parse error. Three valid forms:
-  - Trailing space inside each element: `["SELECT * ", "FROM items ", "WHERE x = 1"]`
-  - Explicit newlines: `["SELECT *\n", "FROM items\n", "WHERE x = 1"]`
-  - Single element with the whole query: `["SELECT * FROM items WHERE x = 1"]`
+- **`queryLines` joined without whitespace** — array elements are concatenated verbatim. Each element except the last must end with a space or `\n`, e.g. `["SELECT * ", "FROM items ", "WHERE x = 1"]` (or use a single-element array).
 
 ## Connections
 
