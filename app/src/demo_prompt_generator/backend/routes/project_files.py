@@ -140,12 +140,16 @@ def ensure_project_files_restored(
     `restore_project_from_db` and step on each other's cache. Always evicts
     the file cache after a real restore so the next listing call walks fresh
     disk state instead of returning a partial mid-restore snapshot.
+
+    The check runs INSIDE the lock — checking outside first would be racy:
+    `restore_project_from_db` creates `.claude/skills/` and `.databrickscfg`
+    early in its work, so a concurrent call seeing `any(iterdir())` would
+    skip the wait and return mid-restore (cache walk sees only the helper
+    files, all of which are excluded → empty file list shown to user).
+    The lock is uncontended after the first restore, so the cost is a
+    microsecond-scale acquire — not worth the optimization.
     """
-    needs_restore = not project_dir.exists() or not any(project_dir.iterdir())
-    if not needs_restore:
-        return
     with _get_restore_lock(project_id):
-        # Re-check inside the lock — another request may have just finished.
         if project_dir.exists() and any(project_dir.iterdir()):
             return
         logger.info(f"Project folder missing or empty, restoring from DB: {project_id}")
