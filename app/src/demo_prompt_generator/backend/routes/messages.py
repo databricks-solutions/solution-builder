@@ -6,6 +6,7 @@ from fastapi import HTTPException
 from sqlmodel import select
 
 from ..core import Dependencies, create_router
+from ..core.auth import is_admin
 from ..models import (
     Message,
     MessageCreateRequest,
@@ -37,6 +38,18 @@ def _get_user_project(session, project_id: str, user_email: str) -> Project:
     return row
 
 
+def _get_readable_project(
+    session, project_id: str, user_email: str, admin_emails: list[str]
+) -> Project:
+    """Owner-or-admin read access. Use only on read endpoints."""
+    row = session.get(Project, project_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Project not found")
+    if row.user_email == user_email or is_admin(user_email, admin_emails):
+        return row
+    raise HTTPException(status_code=404, detail="Project not found")
+
+
 @router.get(
     "/projects/{project_id}/messages",
     response_model=list[MessageOut],
@@ -46,6 +59,7 @@ def list_project_messages(
     project_id: str,
     session: Dependencies.Session,
     headers: Dependencies.Headers,
+    config: Dependencies.Config,
     limit: int = 50,
 ):
     """List recent messages for a project, oldest first (limited to last N messages).
@@ -56,7 +70,9 @@ def list_project_messages(
     `has_reasoning: bool` tells the UI whether the toggle should appear.
     """
     user_email = _get_user_email(headers)
-    _get_user_project(session, project_id, user_email)
+    _get_readable_project(
+        session, project_id, user_email, config.template_admin_emails
+    )
 
     # Project specific columns — skipping `reasoning_data` means PG doesn't
     # stream potentially-MBs of compressed blobs to the app. We compute
@@ -102,11 +118,12 @@ def get_message_reasoning(
     message_id: int,
     session: Dependencies.Session,
     headers: Dependencies.Headers,
+    config: Dependencies.Config,
 ):
     """Fetch and decompress reasoning for a single message.
 
     Called on demand when the user expands the "Reasoning" toggle. Verified via
-    the owning project's user_email.
+    the owning project's user_email (or admin).
     """
     user_email = _get_user_email(headers)
 
@@ -118,7 +135,9 @@ def get_message_reasoning(
         raise HTTPException(status_code=404, detail="Message not found")
 
     project_id, reasoning_bytes = row
-    _get_user_project(session, project_id, user_email)  # raises 404 on mismatch
+    _get_readable_project(
+        session, project_id, user_email, config.template_admin_emails
+    )
 
     return {"reasoning_data": decompress_reasoning(reasoning_bytes)}
 
