@@ -9,6 +9,8 @@
 # 4. Task value passing: dbutils.jobs.taskValues.set() + {{tasks.*.values.*}}
 # 5. SDK environments: sdk_latest (>=0.102.0) required for Genie/KA/MAS APIs
 # 6. Dashboard dataset_catalog/dataset_schema: overrides catalog/schema at deploy time
+# 7. (Optional) Lakebase Postgres project/branch/endpoint for stateful demos
+# 8. (Optional) Databricks App with native resource bindings (Genie / SQL warehouse / Lakebase)
 
 bundle:
   name: demo-bundle
@@ -32,6 +34,22 @@ variables:
     description: "Schema within the catalog"
   warehouse_id:
     description: "SQL Warehouse ID for Genie Space"
+
+  # ── (Optional) Variables for the Databricks App + Lakebase blocks below ──
+  # Drop these (and the corresponding `apps:` / `postgres_*:` resources) if
+  # the demo doesn't ship an app or doesn't need Postgres.
+  app_name:
+    description: "Workspace app name (must be unique per workspace)"
+    default: "demo-app"
+  lakebase_project_id:
+    description: "Lakebase project slug (lowercase, dashes ok)"
+    default: "demo-lakebase"
+  lakebase_database_name:
+    description: "Postgres database name on the Lakebase branch"
+    default: "demo_db"
+  genie_space_id:
+    description: "Existing Genie Space ID to bind into the app (leave empty to skip)"
+    default: ""
 
 targets:
   dev:
@@ -227,4 +245,100 @@ resources:
 
       permissions:
         - level: CAN_VIEW
+          group_name: "users"
+
+  # ════════════════════════════════════════════════════════════════════════
+  # OPTIONAL: Lakebase Postgres (autoscaling)
+  # ────────────────────────────────────────────────────────────────────────
+  # Only include this section if the demo needs a managed Postgres database
+  # (e.g. powering an app's stateful workload).
+  #
+  # Three resources nest like a tree: project → branch → endpoint.
+  #   - postgres_projects: the top-level container (tenant in Lakebase).
+  #   - postgres_branches: a writable copy of the project's data. The CLI
+  #     auto-creates a default `production` branch on first deploy if you
+  #     don't declare one.
+  #   - postgres_endpoints: the actual scalable PG compute attached to a
+  #     branch. Suspension semantics are non-obvious — see comments below.
+  #
+  # The DATABASE inside the branch is NOT a DAB resource today (no
+  # `postgres_databases` resource type). Create it once via psql or via
+  # the app's first-boot code path.
+  # ════════════════════════════════════════════════════════════════════════
+  postgres_projects:
+    main:
+      project_id: ${var.lakebase_project_id}     # slug, e.g. "demo-lakebase"
+      display_name: "Demo Lakebase"
+      pg_version: 17
+      # Suspension is configured on the auto-created production endpoint:
+      #   - `suspend_timeout_duration: 300s` → endpoint scales to zero
+      #     after 5 min idle (saves cost; first query pays a wake-up).
+      #   - `no_suspension: true` is the OPT-OUT flag — set ONLY if you
+      #     need always-on. Omitting it leaves the endpoint suspendable.
+      default_endpoint_settings:
+        suspend_timeout_duration: 300s
+      # Lakebase projects are stateful; protect against `bundle destroy`
+      # accidentally wiping production data.
+      lifecycle:
+        prevent_destroy: true
+
+  # The default `production` branch is auto-created. Declare additional
+  # branches here if the demo needs dev/staging copies. Example:
+  # postgres_branches:
+  #   dev:
+  #     parent: ${resources.postgres_projects.main.id}
+  #     branch_id: dev
+  #     no_expiry: true     # default branches never expire; explicit dev
+  #                         # branches default to a 7-day TTL unless set.
+
+  # ════════════════════════════════════════════════════════════════════════
+  # OPTIONAL: Databricks App
+  # ────────────────────────────────────────────────────────────────────────
+  # Native DAB resource (CLI 0.239.0+). The `resources:` block under the
+  # app declares each downstream binding the app needs — Genie, SQL
+  # warehouse, Lakebase, serving endpoint, etc. The app's service
+  # principal automatically gets the listed `permission` on each binding.
+  #
+  # Bindings are typed: each entry has a `name` (handle the app code uses
+  # to look up the resource) and exactly ONE keyed object describing what
+  # it points at: `genie_space`, `sql_warehouse`, `serving_endpoint`,
+  # `postgres`, `secret`, `job`, `uc_securable`.
+  # ════════════════════════════════════════════════════════════════════════
+  apps:
+    demo_app:
+      name: ${var.app_name}
+      description: "Demo app powered by Genie + SQL warehouse + Lakebase"
+      source_code_path: ./app           # path to app source (or `.` for repo root)
+
+      # Stateful: don't let `bundle destroy` nuke the app — its config
+      # often includes manual secrets/grants set after first deploy.
+      lifecycle:
+        prevent_destroy: true
+
+      resources:
+        # Genie Space binding (existing space — pass the id as a var).
+        - name: genie-space
+          genie_space:
+            name: "Demo Genie Space"
+            space_id: ${var.genie_space_id}
+            permission: CAN_RUN
+
+        # SQL warehouse binding for any SQL the app issues.
+        - name: sql-warehouse
+          sql_warehouse:
+            id: ${var.warehouse_id}
+            permission: CAN_USE
+
+        # Lakebase binding — points at the project+branch declared above.
+        # `branch` is the full `projects/<id>/branches/<branch_id>` path.
+        # CAN_CONNECT_AND_CREATE lets the app create its own DB on first
+        # boot (handy when no `postgres_databases` resource exists yet).
+        - name: lakebase
+          postgres:
+            branch: projects/${var.lakebase_project_id}/branches/production
+            database: ${var.lakebase_database_name}
+            permission: CAN_CONNECT_AND_CREATE
+
+      permissions:
+        - level: CAN_USE
           group_name: "users"

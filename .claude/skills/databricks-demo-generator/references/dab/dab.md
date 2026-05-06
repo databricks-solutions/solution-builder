@@ -17,7 +17,9 @@ This example demonstrates:
 - Parallel workflow tasks (upload_pdfs + generate_data)
 - SDK version requirements for Genie/KA/MAS
 - Task value passing between workflow tasks
-- Remember: your job is to make a DAB that works for the current demo/story, it might have many more or less components, you must adapt this example to your story.
+- **Optional**: a Databricks App with native resource bindings (Genie / SQL warehouse / Lakebase)
+- **Optional**: a Lakebase Postgres project (autoscaling, scale-to-zero)
+- Remember: your job is to make a DAB that works for the current demo/story, it might have many more or less components, you must adapt this example to your story. Drop the optional sections (app, Lakebase) if the demo doesn't ship them.
 
 ## SDK Version Requirements
 
@@ -55,7 +57,8 @@ Examine the project files to identify:
 | Python scripts | `jobs` with `python_wheel_task` | Package as wheel first |
 | DLT/SDP pipelines | `pipelines` | Spark Declarative Pipelines |
 | Dashboards (.lvdash.json) | `dashboards` | AI/BI dashboards |
-| Apps | `apps` | Native DAB support (CLI 0.239.0+) |
+| Apps | `apps` | Native DAB (CLI 0.239.0+). Bindings in `resources:` — see App section below |
+| Lakebase Postgres | `postgres_projects` / `postgres_branches` / `postgres_endpoints` | Autoscaling PG. Use `lifecycle.prevent_destroy` for stateful demos |
 | Volumes | `volumes` | Use `grants` not `permissions` |
 | Schemas | `schemas` | Unity Catalog schemas |
 | Catalogs | `catalogs` | Unity Catalog catalogs |
@@ -122,6 +125,41 @@ dbutils.jobs.taskValues.set(key="genie_space_id", value=space_id)
 | Python only | `dbutils.jobs.taskValues.set/get` only works in Python notebooks |
 | Same job run scope | Task values cannot be read by tasks in a different job |
 
+## Step 5b: Optional — Databricks App + Lakebase Postgres
+
+If the demo ships a Databricks App or needs managed Postgres, both go in the same `databricks.yml`. Skip this section entirely if the demo is workflow-only.
+
+### Lakebase resource tree
+
+`postgres_projects` → (auto `production`) `postgres_branches` → `postgres_endpoints`. The CLI auto-creates a default `production` branch + endpoint on first deploy, so for most demos you only declare `postgres_projects`. Declare branches/endpoints explicitly only when you need additional dev/staging branches or non-default endpoint configs.
+
+| Field | Where | Why |
+|-------|-------|-----|
+| `default_endpoint_settings.suspend_timeout_duration: 300s` | `postgres_projects` | Endpoint scales to zero after 5 min idle. First query pays the wake-up. |
+| `no_suspension: true` | `postgres_projects` (rare) | Opt OUT of scale-to-zero. Always-on is more expensive — only use if first-query latency is unacceptable. |
+| `lifecycle.prevent_destroy: true` | `postgres_projects` AND `apps` | Blocks `bundle destroy` from wiping stateful resources. |
+| `pg_version: 17` | `postgres_projects` | Pin the major. Defaults change. |
+
+The DATABASE inside the branch is NOT a DAB resource (no `postgres_databases` type). Create it once via psql, or have the app's first-boot code do `CREATE DATABASE IF NOT EXISTS` against the maintenance DB.
+
+### App resource bindings
+
+The `apps.<name>.resources:` block declares each downstream resource the app can reach. Each entry has a `name` (handle for the app code to look up) and **exactly one** keyed object describing the target type:
+
+| Binding key | Purpose | Permission |
+|-------------|---------|------------|
+| `genie_space` | Bind an existing Genie Space (pass the id as a var) | `CAN_RUN` |
+| `sql_warehouse` | SQL warehouse for app-issued queries | `CAN_USE` |
+| `serving_endpoint` | Model-serving endpoint (LLM, embedding) | `CAN_QUERY` |
+| `postgres` | Lakebase branch — `branch: projects/<id>/branches/<branch_id>`, `database: <name>` | `CAN_CONNECT_AND_CREATE` |
+| `secret` | Workspace secret scope/key | `READ` |
+| `job` | Existing job (manage runs from app) | `CAN_MANAGE_RUN` |
+| `uc_securable` | UC catalog/schema/table (read-only browse) | `CAN_USE` |
+
+The app's auto-provisioned service principal gets the listed `permission` on each binding — no separate grant step needed.
+
+See the `apps:` block in [example_databricks.yml](example_databricks.yml) for the full shape including all three bindings (Genie + SQL warehouse + Lakebase).
+
 ## Step 6: Bundle Template
 
 Create a **single `databricks.yml`** at the project root containing bundle metadata, sync config, variables, targets, and ALL resources under one top-level `resources:` block. See [example_databricks.yml](example_databricks.yml) for the complete working example to mirror.
@@ -144,6 +182,7 @@ project/
 │   ├── deploy/                # SDK deployment notebooks (Genie, KA, MAS, file upload)
 │   └── pipeline/              # SDP/DLT pipeline code
 ├── dashboard/                  # .lvdash.json files
+├── app/                        # (Optional) Databricks App source — only if the demo ships an app
 └── raw_data/
     └── pdf/                   # PDFs to upload (synced via sync.include)
 ```
@@ -187,6 +226,9 @@ Mistakes that cause runtime failures after a successful `bundle deploy`:
 | `avg()` on a BOOLEAN column in PySpark | `DATATYPE_MISMATCH.UNEXPECTED_INPUT_TYPE` | Cast first: `F.avg(F.col("bool_col").cast("int"))` |
 | Dashboard `dataset_catalog`/`dataset_schema` on old CLI | Deploy fails or fields silently ignored | Require CLI v0.283.0+ |
 | Hardcoded volume paths in SDP SQL | Pipeline fails when deploying to non-default catalog/schema | Use Python bronze or match defaults (see above) |
+| App `postgres` binding rejecting an autoscaling Lakebase project slug | Deploy error "Database instance X does not exist" | Apps' grant API only knows legacy Provisioned Lakebase. Omit the `postgres` binding and grant the SP `CAN_CONNECT_AND_CREATE` via the Lakebase UI out-of-band. |
+| Workspace at the 1000-project Lakebase quota | `postgres_projects` deploy fails | `postgres_projects` has no "use existing" mode — `project_id` is a slug for CREATE. Comment out the `postgres_projects` block and pass an existing project's UID via vars. |
+| Missing `lifecycle.prevent_destroy` on app/Lakebase | `bundle destroy` wipes user data | Add `lifecycle: { prevent_destroy: true }` to any stateful resource. |
 
 For component-specific pitfalls (Genie API requirements, KA document formats, etc.), see the relevant capability block.
 
