@@ -202,8 +202,13 @@ export type AgentEvent =
 // Projects API
 // ---------------------------------------------------------------------------
 
-export async function listProjects(): Promise<ProjectListItem[]> {
-  const resp = await fetch(apiUrl("/api/projects"));
+export async function listProjects(
+  options?: { includeAll?: boolean }
+): Promise<ProjectListItem[]> {
+  const path = options?.includeAll
+    ? "/api/projects?include_all=true"
+    : "/api/projects";
+  const resp = await fetch(apiUrl(path));
   if (!resp.ok) throw new Error(`Failed to list projects: ${resp.status}`);
   return resp.json();
 }
@@ -1184,6 +1189,7 @@ export interface CurrentUser {
   email: string;
   user_name: string | null;
   is_template_admin: boolean;
+  is_admin: boolean;
 }
 
 export async function getCurrentUser(): Promise<CurrentUser> {

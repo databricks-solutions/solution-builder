@@ -83,6 +83,18 @@ def request_user_pat(headers: DatabricksAppsHeaders) -> str | None:
     return headers.token.get_secret_value()
 
 
+def is_admin(email: str | None, admin_emails: list[str]) -> bool:
+    """True if `email` is in the configured admin list (case-insensitive).
+
+    Admins get read access to any project (list/get/files/messages) so they
+    can support users debugging their own demos. Mutations remain owner-only.
+    """
+    if not email:
+        return False
+    needle = email.strip().lower()
+    return any(needle == e.strip().lower() for e in admin_emails)
+
+
 # ---------------------------------------------------------------------------
 # whoami
 # ---------------------------------------------------------------------------
@@ -345,6 +357,7 @@ __all__ = [
     "WhoAmI",
     "delete_project_auth_file",
     "detect_mode",
+    "is_admin",
     "make_project_auth_refresher",
     "request_user_pat",
     "resolve_host",
