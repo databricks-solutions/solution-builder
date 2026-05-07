@@ -100,10 +100,20 @@ resources:
       # grant here; SP auth is wired via PG role + workspace CAN_USE grant
       # done out-of-band (see deploy steps below).
       resources:
-        - name: "ai-gateway"
-          serving_endpoint:
-            name: ${var.ai_gateway}
-            permission: "CAN_QUERY"
+        # `ai-gateway` (the main chat endpoint) intentionally NOT bound here.
+        # The `serving_endpoint` resource binding only knows Mosaic AI Model
+        # Serving / FMAPI endpoints (at /api/2.0/serving-endpoints/...).
+        # Custom AI Gateway endpoints live under a separate API
+        # (/ai-gateway/...) and `bundle deploy` fails with "Endpoint with
+        # name 'X' does not exist." when the var points at one (we hit this
+        # with `demo-generator-do-not-delete`). Workaround: grant the App
+        # SP CAN_QUERY on the AI Gateway endpoint manually via the AI
+        # Gateway UI. The two bindings below are FMAPI endpoints, which
+        # ARE supported.
+        # - name: "ai-gateway"
+        #   serving_endpoint:
+        #     name: ${var.ai_gateway}
+        #     permission: "CAN_QUERY"
         - name: "ai-gateway-mini"
           serving_endpoint:
             name: ${var.ai_gateway_mini}
@@ -141,6 +151,13 @@ targets:
   prod:
     mode: production
     default: true
+    # Bundle-CLI recommends an explicit root_path for production targets
+    # so a re-deploy from a different machine / user / CI overwrites the
+    # SAME workspace tree instead of creating a shadow copy under the
+    # other user. The CLI lays out files/, state/, artifacts/ as subdirs
+    # under this path itself — don't include any of those segments here.
+    workspace:
+      root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}
   # Staging target. Use `databricks bundle deploy -t staging` (no default).
   # `mode: development` is the canonical setting for non-prod targets — it
   # relaxes some bundle-CLI checks. We override `presets.name_prefix` to
