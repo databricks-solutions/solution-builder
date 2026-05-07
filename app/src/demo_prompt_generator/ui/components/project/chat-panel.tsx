@@ -3,7 +3,7 @@
  * Displays conversation history and input for interacting with Claude.
  */
 
-import { memo, useRef, useEffect, useState, useCallback } from "react";
+import { memo, useRef, useEffect, useState, useCallback, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Textarea } from "../ui/textarea";
 import { Prose } from "../markdown-prose";
@@ -120,6 +120,108 @@ function formatDuration(startedAt?: string, completedAt?: string): string | null
   if (ms < 0 || isNaN(ms)) return null;
   if (ms < 1000) return `${ms}ms`;
   return `${(ms / 1000).toFixed(1)}s`;
+}
+
+/** Format a gap duration (ms) the model spent thinking between tool calls.
+ *  Returns null for trivial gaps so we don't clutter the timeline. */
+function formatGapDuration(ms: number): string | null {
+  if (!isFinite(ms) || ms < 150) return null;
+  if (ms < 1000) return `${ms}ms`;
+  if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
+  const mins = Math.floor(ms / 60000);
+  const secs = Math.round((ms % 60000) / 1000);
+  return `${mins}m ${secs}s`;
+}
+
+/** Tool duration in ms, or null if endpoints are missing. */
+function toolDurationMs(t: { startedAt?: string; completedAt?: string }): number | null {
+  if (!t.startedAt || !t.completedAt) return null;
+  const ms = new Date(t.completedAt).getTime() - new Date(t.startedAt).getTime();
+  return ms >= 0 && !isNaN(ms) ? ms : null;
+}
+
+/** Largest tool duration across a collection — used to normalize the inline
+ *  duration bars so the slowest tool always reads at full width. */
+function maxToolDurationMs(tools: Iterable<{ startedAt?: string; completedAt?: string }>): number {
+  let max = 0;
+  for (const t of tools) {
+    const d = toolDurationMs(t);
+    if (d !== null && d > max) max = d;
+  }
+  return max;
+}
+
+/** Inline horizontal bar showing tool duration relative to the slowest tool
+ *  in the same turn. Always renders at least an 8% sliver so even tiny tools
+ *  get a visible mark; in-flight tools get a striped/animated treatment. */
+const DurationBar = memo(function DurationBar({
+  ms,
+  maxMs,
+  inFlight = false,
+}: { ms: number | null; maxMs: number; inFlight?: boolean }) {
+  if (ms === null) return null;
+  const ratio = maxMs > 0 ? ms / maxMs : 0;
+  const pct = Math.max(8, Math.min(100, Math.round(ratio * 100)));
+  return (
+    <div
+      className="h-1.5 w-12 bg-muted-foreground/15 rounded-full overflow-hidden shrink-0 ring-1 ring-inset ring-border/40"
+      title={`${ms}ms`}
+      aria-label={`Duration ${ms} milliseconds`}
+    >
+      <div
+        className={`h-full rounded-full ${inFlight ? "bg-amber-500/60 animate-pulse" : "bg-amber-500"}`}
+        style={{ width: `${pct}%` }}
+      />
+    </div>
+  );
+});
+
+/** Compact "thinking gap" row rendered between two tool calls — visualizes
+ *  the time the model spent reasoning before invoking the next tool. */
+const ThinkingGapRow = memo(function ThinkingGapRow({ gapMs }: { gapMs: number }) {
+  const text = formatGapDuration(gapMs);
+  if (!text) return null;
+  return (
+    <div className="flex items-center gap-1.5 pl-3 py-0.5 select-none">
+      <div className="h-2.5 w-px bg-amber-500/40 shrink-0" />
+      <Brain className="h-2.5 w-2.5 text-amber-500/50 shrink-0" />
+      <span className="text-[10px] text-muted-foreground/70 italic tabular-nums">
+        thinking · {text}
+      </span>
+    </div>
+  );
+});
+
+/** Build the interleaved list of tool rows + thinking-gap rows used by every
+ *  reasoning view. Sorts by startedAt so out-of-order completions still
+ *  produce a coherent timeline. */
+type TimelineRow<T> =
+  | { kind: "tool"; id: string; tool: T }
+  | { kind: "gap"; key: string; gapMs: number };
+
+function buildToolTimeline<T extends { startedAt?: string; completedAt?: string }>(
+  entries: Array<[string, T]>,
+): TimelineRow<T>[] {
+  const sorted = [...entries].sort(([, a], [, b]) => {
+    const at = a.startedAt ? new Date(a.startedAt).getTime() : 0;
+    const bt = b.startedAt ? new Date(b.startedAt).getTime() : 0;
+    return at - bt;
+  });
+  const rows: TimelineRow<T>[] = [];
+  let prevEndMs: number | null = null;
+  for (const [id, tool] of sorted) {
+    if (tool.startedAt && prevEndMs !== null) {
+      const startMs = new Date(tool.startedAt).getTime();
+      const gap = startMs - prevEndMs;
+      if (gap > 0) rows.push({ kind: "gap", key: `gap-${id}`, gapMs: gap });
+    }
+    rows.push({ kind: "tool", id, tool });
+    if (tool.completedAt) {
+      const endMs = new Date(tool.completedAt).getTime();
+      if (prevEndMs === null || endMs > prevEndMs) prevEndMs = endMs;
+    }
+  }
+  return rows;
 }
 
 /** Compute total thinking duration from reasoning entries (earliest start → latest end). */
@@ -487,6 +589,15 @@ const LiveReasoningPopup = memo(function LiveReasoningPopup({
     }
   }, [isStreaming]);
 
+  // Live tick — re-render every 500ms while streaming so in-flight tool
+  // rows can show their running elapsed time (started_at → now).
+  const [, setTickNow] = useState(0);
+  useEffect(() => {
+    if (!isStreaming) return;
+    const id = window.setInterval(() => setTickNow(Date.now()), 500);
+    return () => window.clearInterval(id);
+  }, [isStreaming]);
+
   // Handle scroll - detect if user scrolled away from bottom
   const handleScroll = useCallback(() => {
     if (!scrollRef.current) return;
@@ -583,16 +694,47 @@ const LiveReasoningPopup = memo(function LiveReasoningPopup({
         )}
 
         {/* Tools */}
-        {displayTools.size > 0 && (
+        {displayTools.size > 0 && (() => {
+          // Normalize bar widths against the longest tool — including the
+          // running elapsed of any in-flight tool so the bar scales as time
+          // passes rather than jumping when the tool finally lands.
+          const nowMs = Date.now();
+          let maxMs = 0;
+          for (const t of displayTools.values()) {
+            const completed = toolDurationMs(t);
+            if (completed !== null && completed > maxMs) maxMs = completed;
+            else if (completed === null && t.startedAt) {
+              const live = nowMs - new Date(t.startedAt).getTime();
+              if (live > maxMs) maxMs = live;
+            }
+          }
+          const timeline = buildToolTimeline(Array.from(displayTools.entries()));
+          return (
           <TooltipProvider delayDuration={200}>
             <div className="space-y-1.5">
               <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
                 <Wrench className="h-3 w-3" />
                 <span>Tools ({displayTools.size})</span>
               </div>
-              {Array.from(displayTools.entries()).map(([toolId, tool]) => {
+              {timeline.map((entry) => {
+                if (entry.kind === "gap") {
+                  return <ThinkingGapRow key={entry.key} gapMs={entry.gapMs} />;
+                }
+                const { id: toolId, tool } = entry;
                 const description = getToolDescription(tool.name, tool.input);
-                const duration = formatDuration(tool.startedAt, tool.completedAt);
+                // For in-flight tools (no completedAt yet) compute a live
+                // elapsed time from startedAt → now so the user sees the
+                // clock running rather than a blank cell.
+                const inFlight = tool.result === undefined;
+                let durationMs = toolDurationMs(tool);
+                let duration = formatDuration(tool.startedAt, tool.completedAt);
+                if (durationMs === null && tool.startedAt) {
+                  const elapsed = Date.now() - new Date(tool.startedAt).getTime();
+                  if (elapsed >= 0) {
+                    durationMs = elapsed;
+                    duration = elapsed < 1000 ? `${elapsed}ms` : `${(elapsed / 1000).toFixed(1)}s`;
+                  }
+                }
                 const row = (
                   <div className="flex items-center gap-2 w-full px-2.5 py-1.5 bg-muted/40 rounded-lg text-xs hover:bg-muted/60 transition-colors">
                     <div className="shrink-0">
@@ -612,8 +754,9 @@ const LiveReasoningPopup = memo(function LiveReasoningPopup({
                         {description}
                       </span>
                     )}
+                    <DurationBar ms={durationMs} maxMs={maxMs} inFlight={inFlight} />
                     {duration && (
-                      <span className="text-muted-foreground/60 text-[10px] tabular-nums shrink-0">
+                      <span className="text-muted-foreground/60 text-[10px] tabular-nums shrink-0 w-14 text-right">
                         {duration}
                       </span>
                     )}
@@ -646,7 +789,8 @@ const LiveReasoningPopup = memo(function LiveReasoningPopup({
               })}
             </div>
           </TooltipProvider>
-        )}
+          );
+        })()}
       </div>
     </div>,
     document.body
@@ -704,10 +848,18 @@ const CollapsibleReasoning = memo(function CollapsibleReasoning({ reasoning }: C
                 <p className="whitespace-pre-wrap line-clamp-10 leading-relaxed">{reasoning.thinking}</p>
               </div>
             )}
-            {reasoning.tools.size > 0 && (
+            {reasoning.tools.size > 0 && (() => {
+              const maxMs = maxToolDurationMs(reasoning.tools.values());
+              const timeline = buildToolTimeline(Array.from(reasoning.tools.entries()));
+              return (
               <div className="space-y-1">
-                {Array.from(reasoning.tools.entries()).map(([toolId, tool]) => {
+                {timeline.map((entry) => {
+                  if (entry.kind === "gap") {
+                    return <ThinkingGapRow key={entry.key} gapMs={entry.gapMs} />;
+                  }
+                  const { id: toolId, tool } = entry;
                   const description = getToolDescription(tool.name, tool.input);
+                  const durationMs = toolDurationMs(tool);
                   const duration = formatDuration(tool.startedAt, tool.completedAt);
                   const row = (
                     <div className="flex items-center gap-2 w-full px-2.5 py-1.5 bg-muted/40 rounded-lg text-xs hover:bg-muted/60 transition-colors">
@@ -724,8 +876,9 @@ const CollapsibleReasoning = memo(function CollapsibleReasoning({ reasoning }: C
                           {description}
                         </span>
                       )}
+                      <DurationBar ms={durationMs} maxMs={maxMs} />
                       {duration && (
-                        <span className="text-muted-foreground/60 text-[10px] tabular-nums shrink-0">
+                        <span className="text-muted-foreground/60 text-[10px] tabular-nums shrink-0 w-12 text-right">
                           {duration}
                         </span>
                       )}
@@ -756,7 +909,8 @@ const CollapsibleReasoning = memo(function CollapsibleReasoning({ reasoning }: C
                   );
                 })}
               </div>
-            )}
+              );
+            })()}
           </div>
         </TooltipProvider>
       )}
@@ -855,7 +1009,10 @@ const CollapsibleReasoningFromMetadata = memo(function CollapsibleReasoningFromM
       {isOpen && isLoading && (
         <div className="px-3 pb-3 text-xs text-muted-foreground/70">Loading reasoning…</div>
       )}
-      {isOpen && !isLoading && entries && (
+      {isOpen && !isLoading && entries && (() => {
+        const maxMs = maxToolDurationMs(toolResults.values());
+        let prevEndMs: number | null = null;
+        return (
         <TooltipProvider delayDuration={200}>
           <div className="px-3 pb-3 space-y-3">
             {entries.map((entry, idx) => {
@@ -870,7 +1027,25 @@ const CollapsibleReasoningFromMetadata = memo(function CollapsibleReasoningFromM
                 const result = toolResults.get(entry.id);
                 const description = getToolDescription(entry.name, entry.input);
                 const toolData = result || { name: entry.name, input: entry.input };
+                const durationMs = result ? toolDurationMs(result) : null;
                 const duration = formatDuration(result?.startedAt, result?.completedAt);
+
+                // Compute thinking gap from the previous tool's end to this
+                // tool's start. Walk-order is chronological, so maintaining
+                // prevEndMs across iterations gives us the inter-tool latency.
+                let gapEl: ReactNode = null;
+                if (result?.startedAt && prevEndMs !== null) {
+                  const startMs = new Date(result.startedAt).getTime();
+                  const gap = startMs - prevEndMs;
+                  if (gap > 0) {
+                    gapEl = <ThinkingGapRow key={`gap-${entry.id}`} gapMs={gap} />;
+                  }
+                }
+                if (result?.completedAt) {
+                  const endMs = new Date(result.completedAt).getTime();
+                  if (prevEndMs === null || endMs > prevEndMs) prevEndMs = endMs;
+                }
+
                 const row = (
                   <div className="flex items-center gap-2 w-full px-2.5 py-1.5 bg-muted/40 rounded-lg text-xs hover:bg-muted/60 transition-colors">
                     <div className="shrink-0">
@@ -886,8 +1061,9 @@ const CollapsibleReasoningFromMetadata = memo(function CollapsibleReasoningFromM
                         {description}
                       </span>
                     )}
+                    <DurationBar ms={durationMs} maxMs={maxMs} />
                     {duration && (
-                      <span className="text-muted-foreground/60 text-[10px] tabular-nums shrink-0">
+                      <span className="text-muted-foreground/60 text-[10px] tabular-nums shrink-0 w-12 text-right">
                         {duration}
                       </span>
                     )}
@@ -896,6 +1072,7 @@ const CollapsibleReasoningFromMetadata = memo(function CollapsibleReasoningFromM
 
                 return (
                   <div key={`tool-${entry.id}`} className="space-y-1">
+                    {gapEl}
                     {showDetails ? row : (
                       <Tooltip>
                         <TooltipTrigger asChild>
@@ -920,7 +1097,8 @@ const CollapsibleReasoningFromMetadata = memo(function CollapsibleReasoningFromM
             })}
           </div>
         </TooltipProvider>
-      )}
+        );
+      })()}
     </div>
   );
 });
