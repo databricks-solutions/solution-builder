@@ -265,16 +265,28 @@ def resolve_host(headers: DatabricksAppsHeaders) -> str | None:
     (`<app>-<id>.aws.databricksapps.com`) — useless for Databricks API
     calls. The workspace URL only lives in `DATABRICKS_HOST`, which the
     Apps runtime sets in the container env. Prefer it.
+
+    Always returned with an `https://` scheme. Bundle CLI does naive
+    string-equality between the host in the profile and the host in
+    databricks.yml — `e2-demo…` vs `https://e2-demo…` fails the check
+    and breaks `databricks bundle …` from the agent's subprocess.
     """
     env_host = os.environ.get("DATABRICKS_HOST")
     if env_host:
-        return env_host.rstrip("/")
+        return _normalize_host(env_host)
     # Fallback: only useful in local dev where the request actually came
     # from the workspace itself (rare). Skip the X-Forwarded-Host case
     # entirely in deployed mode — it ALWAYS points at the App, not the WS.
     if headers.host and "databricksapps.com" not in headers.host:
-        return f"https://{headers.host}" if not headers.host.startswith("http") else headers.host
+        return _normalize_host(headers.host)
     return None
+
+
+def _normalize_host(host: str) -> str:
+    host = host.strip().rstrip("/")
+    if not host.startswith("http://") and not host.startswith("https://"):
+        host = f"https://{host}"
+    return host
 
 
 # Debounce window for the per-project auth file refresh. The proxy fires on
