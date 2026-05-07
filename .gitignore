@@ -23,6 +23,11 @@ package.json
 package-lock.json
 bun.lockb
 
+# …but the demo-generator's app_template/ ships package.json + lockfile
+# as part of the template — those files are content, not noise.
+!.claude/skills/databricks-demo-generator/app/app_template/package.json
+!.claude/skills/databricks-demo-generator/app/app_template/package-lock.json
+
 # Playwright artifacts
 playwright-report/
 test-results/

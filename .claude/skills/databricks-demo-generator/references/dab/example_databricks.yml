@@ -10,22 +10,49 @@
 # 5. SDK environments: sdk_latest (>=0.102.0) required for Genie/KA/MAS APIs
 # 6. Dashboard dataset_catalog/dataset_schema: overrides catalog/schema at deploy time
 # 7. (Optional) Lakebase Postgres project/branch/endpoint for stateful demos
-# 8. (Optional) Databricks App with native resource bindings (Genie / SQL warehouse / Lakebase)
+# 8. (Optional) Databricks App with build hook + sync overrides + env injection
 
 bundle:
   name: demo-bundle
 
 # ══════════════════════════════════════════════════════════════════════════════
-# PATTERN: Static file upload
-# Files listed here are synced to workspace. Use a workflow task (upload_pdfs.py)
-# to copy them to UC volumes. Workspace files accessible via /Workspace/... FUSE.
+# ARTIFACTS — pre-deploy build hook (only needed when shipping a Databricks App)
 # ══════════════════════════════════════════════════════════════════════════════
+# Runs LOCALLY before sync. The build script:
+#   1. `cd app && npm install --include=dev`        (build tooling installed)
+#   2. `npm run build:source`                       (produces app/dist/ + app/client/dist/)
+#   3. scripts/strip-internal-registry.sh           (rewrites lockfile URLs from
+#                                                    Databricks internal proxy
+#                                                    → public registry; needed
+#                                                    so the App container —
+#                                                    which can't reach the
+#                                                    internal proxy — can fetch
+#                                                    packages on its own
+#                                                    `npm install`)
+#
+# Without this, `databricks bundle deploy` ships the app with no built dist/
+# and a lockfile pointing at an unreachable proxy → the App container's
+# `npm install` hangs ~8 min then fails with "Exit handler never called!".
+#
+# Drop this block if the demo doesn't ship an app.
+artifacts:
+  default:
+    build: ./scripts/build-app.sh
+
+# ══════════════════════════════════════════════════════════════════════════════
+# SYNC — what gets uploaded to the workspace
+# ══════════════════════════════════════════════════════════════════════════════
+# `include` whitelists patterns past .gitignore. The app's dist/ + client/dist/
+# are gitignored (build outputs); we override here so the App container has
+# them after sync.
 sync:
   include:
     - "src/**"
     - "pipeline/**"
     - "dashboard/**"
-    - "raw_data/pdf/**"  # PDFs synced to workspace, copied to volume by task
+    - "raw_data/pdf/**"      # PDFs synced to workspace, copied to volume by task
+    - "app/dist/**"          # server bundle (tsdown output, runs as dist/server.js)
+    - "app/client/dist/**"   # client bundle (vite output, AppKit auto-serves it)
 
 variables:
   catalog:
@@ -295,14 +322,19 @@ resources:
   # OPTIONAL: Databricks App
   # ────────────────────────────────────────────────────────────────────────
   # Native DAB resource (CLI 0.239.0+). The `resources:` block under the
-  # app declares each downstream binding the app needs — Genie, SQL
-  # warehouse, Lakebase, serving endpoint, etc. The app's service
-  # principal automatically gets the listed `permission` on each binding.
+  # app declares each downstream binding the app needs. The app's
+  # service principal automatically gets the listed `permission` on
+  # each binding.
   #
-  # Bindings are typed: each entry has a `name` (handle the app code uses
-  # to look up the resource) and exactly ONE keyed object describing what
-  # it points at: `genie_space`, `sql_warehouse`, `serving_endpoint`,
-  # `postgres`, `secret`, `job`, `uc_securable`.
+  # IMPORTANT — bindings ≠ env vars. The Apps platform does NOT
+  # auto-inject env vars from these bindings. The app's `app.yaml`
+  # (under source_code_path) must contain explicit env entries with
+  # `valueFrom: <binding-name>` to surface each binding to the running
+  # container. See app.yaml's env block in the corresponding template.
+  #
+  # Binding types: `genie_space`, `sql_warehouse`, `serving_endpoint`,
+  # `postgres` (legacy Provisioned Lakebase only — see note below),
+  # `secret`, `job`, `uc_securable`.
   # ════════════════════════════════════════════════════════════════════════
   apps:
     demo_app:
@@ -329,15 +361,26 @@ resources:
             id: ${var.warehouse_id}
             permission: CAN_USE
 
-        # Lakebase binding — points at the project+branch declared above.
-        # `branch` is the full `projects/<id>/branches/<branch_id>` path.
-        # CAN_CONNECT_AND_CREATE lets the app create its own DB on first
-        # boot (handy when no `postgres_databases` resource exists yet).
-        - name: lakebase
-          postgres:
-            branch: projects/${var.lakebase_project_id}/branches/production
-            database: ${var.lakebase_database_name}
-            permission: CAN_CONNECT_AND_CREATE
+        # NOTE — Lakebase binding intentionally omitted.
+        # The `postgres` binding rejects autoscaling Lakebase project
+        # slugs (deploy fails with "Database instance X does not exist"
+        # / "Field 'name' expects projects/.../databases/..." format).
+        # Apps' postgres binding API only knows legacy Provisioned
+        # Lakebase. Workaround for autoscaling Lakebase:
+        #   1. Grant the App SP CAN_CONNECT_AND_CREATE on the Lakebase
+        #      project via the Lakebase UI (one-time, manual).
+        #   2. In app.yaml, hard-code PGHOST / PGDATABASE /
+        #      LAKEBASE_ENDPOINT / PGPORT / PGSSLMODE as plain `value:`
+        #      env entries (not `valueFrom:`). AppKit's lakebase plugin
+        #      reads them directly to mint OAuth tokens against the
+        #      endpoint.
+        # Uncomment the block below ONLY if using legacy Provisioned
+        # Lakebase (rare):
+        # - name: lakebase
+        #   postgres:
+        #     branch: projects/${var.lakebase_project_id}/branches/production
+        #     database: ${var.lakebase_database_name}
+        #     permission: CAN_CONNECT_AND_CREATE
 
       permissions:
         - level: CAN_USE

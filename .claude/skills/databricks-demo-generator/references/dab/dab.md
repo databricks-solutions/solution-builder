@@ -144,21 +144,59 @@ The DATABASE inside the branch is NOT a DAB resource (no `postgres_databases` ty
 
 ### App resource bindings
 
-The `apps.<name>.resources:` block declares each downstream resource the app can reach. Each entry has a `name` (handle for the app code to look up) and **exactly one** keyed object describing the target type:
+The `apps.<name>.resources:` block declares each downstream resource the app can reach. Each entry has a `name` (handle the app uses to look up the resource) and **exactly one** keyed object describing the target type:
 
 | Binding key | Purpose | Permission |
 |-------------|---------|------------|
 | `genie_space` | Bind an existing Genie Space (pass the id as a var) | `CAN_RUN` |
 | `sql_warehouse` | SQL warehouse for app-issued queries | `CAN_USE` |
 | `serving_endpoint` | Model-serving endpoint (LLM, embedding) | `CAN_QUERY` |
-| `postgres` | Lakebase branch — `branch: projects/<id>/branches/<branch_id>`, `database: <name>` | `CAN_CONNECT_AND_CREATE` |
+| `postgres` | Lakebase branch — **legacy Provisioned only, see pitfall below for autoscaling** | `CAN_CONNECT_AND_CREATE` |
 | `secret` | Workspace secret scope/key | `READ` |
 | `job` | Existing job (manage runs from app) | `CAN_MANAGE_RUN` |
 | `uc_securable` | UC catalog/schema/table (read-only browse) | `CAN_USE` |
 
 The app's auto-provisioned service principal gets the listed `permission` on each binding — no separate grant step needed.
 
-See the `apps:` block in [example_databricks.yml](example_databricks.yml) for the full shape including all three bindings (Genie + SQL warehouse + Lakebase).
+### Bindings ≠ env vars — `app.yaml` must wire them
+
+The Apps platform does **not** auto-inject env vars from these bindings. Each binding must be surfaced explicitly in the app's `app.yaml` (under `source_code_path`) via a `valueFrom: <binding-name>` entry that **references the binding's `name:` field exactly**:
+
+```yaml
+# app.yaml (sits at app/app.yaml inside the source tree)
+command: ['node', '--env-file-if-exists=.env', 'dist/server.js']
+env:
+  - name: NODE_ENV
+    value: production
+  - name: DATABRICKS_WAREHOUSE_ID
+    valueFrom: sql-warehouse        # matches `name: sql-warehouse` in databricks.yml
+  - name: DATABRICKS_GENIE_SPACE_ID
+    valueFrom: genie-space
+```
+
+If `app.yaml` is missing the `valueFrom:` entries, the app boots and crashes at runtime with `Warehouse ID not found / Please configure the DATABRICKS_WAREHOUSE_ID environment variable` (or the equivalent for whichever binding is missing).
+
+### Building + shipping the app — single-command deploy
+
+For Node-based apps (AppKit, etc.) shipping a built `dist/`, three things must happen on `databricks bundle deploy`:
+
+1. **Local build** — produce `app/dist/server.js` (server bundle) and `app/client/dist/` (vite client). Wire this through `artifacts.<name>.build:` in `databricks.yml` so the build runs automatically before sync.
+2. **Sync override** — `app/dist/` and `app/client/dist/` are gitignored. The bundle CLI honors `.gitignore`, so add explicit `sync.include` entries to whitelist them past the gitignore.
+3. **Lockfile registry rewrite** — `package-lock.json`'s `resolved` URLs are baked at install time. If the developer is on the Databricks VPN, their `~/.npmrc` resolves through `https://npm-proxy.dev.databricks.com/` and the lockfile gets those proxy URLs. The Apps container can't reach the internal proxy, so its `npm install` ETIMEDOUTs after 3 retries × ~2 min per package, looking like an 8-minute hang followed by `npm error Exit handler never called!`. Fix: a build-time `sed` step that rewrites proxy URLs → `registry.npmjs.org` in the lockfile. Idempotent (no-op for off-VPN users whose lockfiles already use the public registry).
+
+The `app_template` skill ships these as `scripts/build-app.sh` (does install + build + rewrite) and `scripts/strip-internal-registry.sh` (the lockfile rewrite). Reuse them in generated demos.
+
+### Container lifecycle for Node apps
+
+After `databricks bundle deploy` uploads source, the App container runs:
+
+1. `npm install` — uses our shipped `.npmrc` (`omit=dev` so only runtime deps install, `ignore-scripts=true` so postinstall doesn't try to run dev tooling).
+2. `npm run build` — Apps **always** runs this. Override the script in `package.json` to be a no-op echo (the real build already produced `dist/` locally and shipped it via sync.include). If `build` is left as the real build, it'll try to invoke `tsdown`/`vite` which aren't installed at runtime → exit 127.
+3. The `command:` from `app.yaml` runs.
+
+Move every frontend-only package (`react`, `tailwindcss-*`, `lucide-react`, `embla-carousel-react`, `next-themes`, `react-router`, `react-markdown`, `react-resizable-panels`, `remark-gfm`, `clsx`, `zod`, `@databricks/appkit-ui`, `@tailwindcss/typography`) from `dependencies` → `devDependencies`. They're bundled into `client/dist/` at build time and aren't needed at runtime; with `omit=dev` this drops the container install from ~700 packages to ~440.
+
+See the `apps:` block in [example_databricks.yml](example_databricks.yml) for the working bundle config.
 
 ## Step 6: Bundle Template
 
@@ -168,8 +206,9 @@ Create a **single `databricks.yml`** at the project root containing bundle metad
 - One file — do NOT split into `resources/*.yml`. Keeping everything in `databricks.yml` is easier to read, edit, and maintain.
 - No hardcoded workspace hosts - use environment variables or CLI profiles
 - Variables for catalog/schema with sensible defaults
-- `sync.include` for static files (PDFs, etc.)
+- `sync.include` for static files (PDFs, etc.) AND for the app's gitignored build outputs (`app/dist/**`, `app/client/dist/**`)
 - Two environments: `sdk_only` and `sdk_latest`
+- **If shipping an app**: `artifacts.default.build: ./scripts/build-app.sh` so a single `databricks bundle deploy` builds the frontend locally + ships the result.
 
 ## Step 7: Project Structure example
 
@@ -177,12 +216,22 @@ Create a **single `databricks.yml`** at the project root containing bundle metad
 project/
 ├── databricks.yml              # Single bundle config — all resources in one file (see example_databricks.yml)
 ├── dab_instructions.md         # Deployment instructions for users
+├── scripts/                    # (Optional, only if shipping an app)
+│   ├── build-app.sh           # Wired into artifacts.default.build — runs npm install + build + lockfile rewrite
+│   └── strip-internal-registry.sh  # Lockfile URL rewrite (proxy → public registry)
 ├── src/
 │   ├── data_generation/       # Data generation notebooks
 │   ├── deploy/                # SDK deployment notebooks (Genie, KA, MAS, file upload)
 │   └── pipeline/              # SDP/DLT pipeline code
 ├── dashboard/                  # .lvdash.json files
-├── app/                        # (Optional) Databricks App source — only if the demo ships an app
+├── app/                        # (Optional) Databricks App source
+│   ├── app.yaml               # `command:` + env wiring (valueFrom for each binding)
+│   ├── package.json           # build:source script + frontend deps in devDependencies
+│   ├── .npmrc                 # ignore-scripts=true, omit=dev
+│   ├── server/                # backend source (built to dist/server.js)
+│   ├── client/                # frontend source (built to client/dist/)
+│   ├── dist/                  # gitignored — built by scripts/build-app.sh, shipped via sync.include
+│   └── client/dist/           # gitignored — built by scripts/build-app.sh, shipped via sync.include
 └── raw_data/
     └── pdf/                   # PDFs to upload (synced via sync.include)
 ```
@@ -226,9 +275,14 @@ Mistakes that cause runtime failures after a successful `bundle deploy`:
 | `avg()` on a BOOLEAN column in PySpark | `DATATYPE_MISMATCH.UNEXPECTED_INPUT_TYPE` | Cast first: `F.avg(F.col("bool_col").cast("int"))` |
 | Dashboard `dataset_catalog`/`dataset_schema` on old CLI | Deploy fails or fields silently ignored | Require CLI v0.283.0+ |
 | Hardcoded volume paths in SDP SQL | Pipeline fails when deploying to non-default catalog/schema | Use Python bronze or match defaults (see above) |
-| App `postgres` binding rejecting an autoscaling Lakebase project slug | Deploy error "Database instance X does not exist" | Apps' grant API only knows legacy Provisioned Lakebase. Omit the `postgres` binding and grant the SP `CAN_CONNECT_AND_CREATE` via the Lakebase UI out-of-band. |
+| App `postgres` binding rejecting an autoscaling Lakebase project slug | Deploy error "Database instance X does not exist" / "Field 'name' expects projects/.../databases/..." | Apps' postgres binding API only knows legacy Provisioned Lakebase. For autoscaling Lakebase: omit the binding, grant the App SP `CAN_CONNECT_AND_CREATE` via the Lakebase UI, and inject `PGHOST` / `PGDATABASE` / `LAKEBASE_ENDPOINT` / `PGPORT` / `PGSSLMODE` directly via plain `value:` entries in `app.yaml`. |
 | Workspace at the 1000-project Lakebase quota | `postgres_projects` deploy fails | `postgres_projects` has no "use existing" mode — `project_id` is a slug for CREATE. Comment out the `postgres_projects` block and pass an existing project's UID via vars. |
 | Missing `lifecycle.prevent_destroy` on app/Lakebase | `bundle destroy` wipes user data | Add `lifecycle: { prevent_destroy: true }` to any stateful resource. |
+| App container `npm install` hangs ~8 min then fails with `npm error Exit handler never called!` | Looks like OOM, isn't | The shipped `package-lock.json` has `resolved` URLs pointing at `npm-proxy.dev.databricks.com` (developer's local VPN proxy). Container can't reach it; every fetch ETIMEDOUTs after 3 retries × ~2 min. Fix: `scripts/strip-internal-registry.sh` rewrites lockfile URLs → `registry.npmjs.org` in a build hook. |
+| App container `npm run build` fails with `sh: 1: tsdown: not found` (or `vite: not found`) | Apps platform always runs `npm run build` after `npm install` | With `omit=dev` in `.npmrc`, dev deps aren't installed. Make `package.json`'s `build` a no-op echo (the real build runs locally; rename the real one to `build:source`). Ship `dist/` + `client/dist/` via `sync.include`. |
+| App boot crashes with `Warehouse ID not found` / `PGHOST missing` despite resources being declared | Bindings declared in `databricks.yml` don't auto-inject env vars | Add matching `env: - name: X / valueFrom: <binding-name>` entries in `app.yaml` for each binding. |
+| App boot fails with `Error installing packages` and no stderr lines | Default Apps install logs are too quiet to debug | Add `loglevel=verbose` to the app's `.npmrc`. The container will dump per-package fetch progress to the platform logs so you can see exactly where install dies. |
+| App's `dist/` and `client/dist/` missing on the container after a successful deploy | Bundle CLI honored `.gitignore` and skipped them | Add `sync.include: ["app/dist/**", "app/client/dist/**"]` to override the gitignore. |
 
 For component-specific pitfalls (Genie API requirements, KA document formats, etc.), see the relevant capability block.
 

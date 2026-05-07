@@ -1,20 +1,47 @@
-# Databricks App manifest — read by the runtime when the app starts.
+# Databricks App manifest — read by the runtime when the container starts.
 #
-# For this template the start command is fixed: `npm run start` (defined in
-# package.json → kicks off the Node/React server + client build). Change it
-# only if you change the framework.
-#
-# Environment + resource bindings (SQL warehouse, Lakebase, secrets, etc.)
-# are attached to the app via the workspace UI after `databricks apps create`
-# — NOT listed here. The deployment flow in app.md spells out the steps.
-# Reference shape (left commented — add via UI, don't hard-code):
-#
-# env:
-#   - name: DATABRICKS_WAREHOUSE_ID
-#     valueFrom: sql-warehouse       # <— resource name you attach in the UI
-#   - name: LAKEBASE_ENDPOINT
-#     valueFrom: lakebase
-#   - name: USE_MOCK_BACKEND
-#     value: "false"
+# Lifecycle on the Apps container (in order):
+#   1. `npm install` runs against the shipped lockfile. .npmrc has
+#      `omit=dev` so only runtime deps install — fast and small.
+#   2. `npm run build` runs. Our package.json's `build` script is a
+#      no-op echo (the real build ran locally via scripts/build-app.sh
+#      and dist/server.js + client/dist/ are shipped via DAB sync).
+#      Apps platform requires this step to succeed; the no-op satisfies
+#      it while avoiding tsdown/vite which aren't installed at runtime.
+#   3. The `command:` below runs to start the server.
 
-command: ['npm', 'run', 'start']
+command: ['node', '--env-file-if-exists=.env', 'dist/server.js']
+
+env:
+  - name: NODE_ENV
+    value: production
+
+  # Resource bindings declared in databricks.yml's apps.<name>.resources
+  # don't auto-inject env vars. AppKit expects each binding's fields to
+  # be surfaced via `valueFrom` references here. The resource name on
+  # the right MUST match the `name:` of the corresponding entry in the
+  # bundle's `apps.<name>.resources:` list.
+  - name: DATABRICKS_WAREHOUSE_ID
+    valueFrom: sql-warehouse
+
+  # ── Lakebase wiring ──────────────────────────────────────────────────
+  # Apps' native `postgres:` resource binding rejects autoscaling
+  # Lakebase project slugs ("Database instance X does not exist" /
+  # "Field 'name' expects projects/.../databases/..." format) — its API
+  # only knows legacy Provisioned Lakebase. Workaround: grant the App
+  # SP CAN_CONNECT_AND_CREATE on the project via the Lakebase UI
+  # out-of-band, and inject the connection params here directly.
+  # AppKit's lakebase plugin reads these env vars to mint OAuth tokens.
+  #
+  # Replace these placeholders with the real Lakebase project values,
+  # or remove the whole block if the demo doesn't use Lakebase.
+  - name: PGHOST
+    value: REPLACE_WITH_LAKEBASE_PGHOST  # e.g. ep-xxx.database.<region>.cloud.databricks.com
+  - name: PGDATABASE
+    value: REPLACE_WITH_DATABASE_NAME
+  - name: LAKEBASE_ENDPOINT
+    value: projects/REPLACE_PROJECT_ID/branches/production/endpoints/primary
+  - name: PGPORT
+    value: "5432"
+  - name: PGSSLMODE
+    value: require

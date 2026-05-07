@@ -1,6 +1,11 @@
 node_modules/
 .venv/
+# Build outputs — produced locally by scripts/build-app.sh during
+# `databricks bundle deploy`. Both are whitelisted via sync.include in
+# databricks.yml so they ship to the App container despite being
+# gitignored.
 dist/
+client/dist/
 .env
 .env.local
 .env.*
