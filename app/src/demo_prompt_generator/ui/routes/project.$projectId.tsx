@@ -132,7 +132,7 @@ function ProjectPage() {
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamingContent, setStreamingContent] = useState("");
   const [streamingThinking, setStreamingThinking] = useState("");
-  const [streamingTools, setStreamingTools] = useState<Map<string, { name: string; input: unknown; result?: string; isError?: boolean }>>(new Map());
+  const [streamingTools, setStreamingTools] = useState<Map<string, { name: string; input: unknown; result?: string; isError?: boolean; startedAt?: string; completedAt?: string }>>(new Map());
   const [executionId, setExecutionId] = useState<string | null>(null);
   const [pendingUserMessage, setPendingUserMessage] = useState<string | null>(null);
   const [lastReasoning, setLastReasoning] = useState<{ thinking: string; tools: Map<string, { name: string; input: unknown; result?: string; isError?: boolean }> } | null>(null);
@@ -463,11 +463,12 @@ function ProjectPage() {
           } else if (event.type === "thinking") {
             // Ignore final thinking event - we already have content from deltas
           } else if (event.type === "tool_use") {
-            // Tool started - add with pending state
+            // Tool started - add with pending state. Fall back to client clock
+            // if the backend didn't stamp the event (older streams, replays).
             toolsMap.set(event.tool_id, {
               name: event.tool_name,
               input: event.tool_input,
-              startedAt: event.timestamp,
+              startedAt: event.timestamp || new Date().toISOString(),
             });
             setStreamingTools(new Map(toolsMap));
             // Update ref for use in finally
@@ -480,7 +481,7 @@ function ProjectPage() {
                 ...existing,
                 result: event.content,
                 isError: event.is_error ?? false,
-                completedAt: event.timestamp,
+                completedAt: event.timestamp || new Date().toISOString(),
               });
               setStreamingTools(new Map(toolsMap));
               // Update ref for use in finally
@@ -665,13 +666,13 @@ function ProjectPage() {
           setStreamingThinking(fullThinking);
           reasoningRef.current = { thinking: fullThinking, tools: new Map(toolsMap) };
         } else if (event.type === "tool_use") {
-          toolsMap.set(event.tool_id, { name: event.tool_name, input: event.tool_input, startedAt: event.timestamp });
+          toolsMap.set(event.tool_id, { name: event.tool_name, input: event.tool_input, startedAt: event.timestamp || new Date().toISOString() });
           setStreamingTools(new Map(toolsMap));
           reasoningRef.current = { thinking: fullThinking, tools: new Map(toolsMap) };
         } else if (event.type === "tool_result") {
           const existing = toolsMap.get(event.tool_use_id);
           if (existing) {
-            toolsMap.set(event.tool_use_id, { ...existing, result: event.content, isError: event.is_error ?? false, completedAt: event.timestamp });
+            toolsMap.set(event.tool_use_id, { ...existing, result: event.content, isError: event.is_error ?? false, completedAt: event.timestamp || new Date().toISOString() });
             setStreamingTools(new Map(toolsMap));
             reasoningRef.current = { thinking: fullThinking, tools: new Map(toolsMap) };
             if (!event.is_error && FILE_MUTATING_TOOLS.has(existing.name)) {
