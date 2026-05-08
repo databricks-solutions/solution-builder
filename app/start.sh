@@ -37,4 +37,28 @@ fi
 
 export PATH="$DBCLI_DIR:$PATH"
 
+# Front the venv on PATH so subprocesses (the agent's Bash tool, any `python`
+# / `python3` invocation in start scripts, etc.) inherit our 3.12 venv
+# interpreter instead of the OS-level /usr/bin/python3 (3.10 on Ubuntu 22.04).
+#
+# IMPORTANT: must be ABSOLUTE paths. The Apps container starts uvicorn with
+# `cwd = source_code_path` and `command -v uvicorn` resolves to the relative
+# `.venv/bin/uvicorn` — exporting that as PATH means subprocesses spawned
+# from a different cwd (e.g. the agent's bash running in projects/<uuid>/)
+# can't find the venv. Resolve to an absolute path before exporting.
+UVICORN_BIN="$(command -v uvicorn || true)"
+if [[ -n "$UVICORN_BIN" ]]; then
+    VENV_BIN="$(cd "$(dirname "$UVICORN_BIN")" && pwd)"
+    export PATH="$VENV_BIN:$PATH"
+    export VIRTUAL_ENV="$(dirname "$VENV_BIN")"
+fi
+
+# Confirm which Python the Apps install path picked. Useful when verifying
+# that the pyproject.toml + uv.lock pair (no requirements.txt) actually
+# steered uv onto our pinned 3.12 — the Apps default is pip + 3.11.
+# Apps containers don't ship a `python` symlink, only `python3`.
+echo "[start.sh] system python3: /usr/bin/python3 → $(/usr/bin/python3 --version 2>&1)"
+echo "[start.sh] PATH python3:   $(command -v python3) → $(python3 --version 2>&1)"
+echo "[start.sh] VIRTUAL_ENV:    ${VIRTUAL_ENV:-<unset>}"
+
 exec uvicorn demo_prompt_generator.backend.app:app --workers 1

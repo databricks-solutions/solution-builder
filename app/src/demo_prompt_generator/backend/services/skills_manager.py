@@ -498,7 +498,7 @@ def create_project_directory(
         cfg = AppConfig()
         fmapi_auth.provision_project_files(
             project_dir,
-            anthropic_base_url=f"{host}/serving-endpoints/anthropic",
+            anthropic_base_url=f"{host}/{cfg.anthropic_base_path.strip('/')}",
             anthropic_model=cfg.anthropic_llm_endpoint,
             token=token,
         )

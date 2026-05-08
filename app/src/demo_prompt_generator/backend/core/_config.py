@@ -32,12 +32,40 @@ class AppConfig(BaseSettings):
     databricks_host: str = Field(default="")
     databricks_token: str = Field(default="")
 
-    # Endpoint used by Claude Code (Agent SDK) via the FMAPI Anthropic bridge.
-    # Set in deployed mode by databricks.prod.yml → app.yml; falls back to
-    # the default for local dev when ANTHROPIC_LLM_ENDPOINT isn't set.
+    # Endpoint name passed as Anthropic `model` field by Claude Code
+    # (Agent SDK). For FMAPI default endpoints this is the
+    # workspace-shipped Anthropic-shape model name (e.g.
+    # databricks-claude-sonnet-4-6); for custom AI Gateway endpoints
+    # this is the AI Gateway endpoint name (e.g. demo-generator-do-not-delete).
+    # The model is dispatched by whatever bridge anthropic_base_path
+    # resolves to.
     anthropic_llm_endpoint: str = Field(
         default="databricks-claude-sonnet-4-6",
         validation_alias="ANTHROPIC_LLM_ENDPOINT",
+    )
+
+    # URL path segment appended to the workspace host to form
+    # ANTHROPIC_BASE_URL for Claude Code. Two real options today:
+    #
+    #   serving-endpoints/anthropic  → FMAPI Anthropic bridge. Routes by
+    #                                  the `model` field to a built-in
+    #                                  databricks-claude-* endpoint.
+    #                                  Default — works out of the box on
+    #                                  any workspace.
+    #
+    #   ai-gateway/anthropic         → AI Gateway Anthropic shim. Routes
+    #                                  by the `model` field to a custom
+    #                                  AI Gateway endpoint (you create
+    #                                  these in the AI Gateway UI). Use
+    #                                  this when you want Claude Code
+    #                                  to hit a routed/governed endpoint
+    #                                  with budgets, rate limits, etc.
+    #
+    # Full URL becomes: {host}/{anthropic_base_path}/v1/messages
+    # No leading or trailing slash — added by callers.
+    anthropic_base_path: str = Field(
+        default="serving-endpoints/anthropic",
+        validation_alias="ANTHROPIC_BASE_PATH",
     )
 
     # AI Gateway model names (no app prefix — these are workspace-level)

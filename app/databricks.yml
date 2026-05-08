@@ -21,7 +21,9 @@ variables:
   lakebase_database_name:
     description: "Postgres database name on the branch. Must exist (CREATE DATABASE once per fresh env)."
   anthropic_llm_endpoint:
-    description: "Model used by Claude Code (Agent SDK via FMAPI Anthropic bridge)."
+    description: "Model name passed as Anthropic `model` field by Claude Code. Built-in FMAPI (databricks-claude-*) or a custom AI Gateway endpoint name."
+  anthropic_base_path:
+    description: "URL path segment after the workspace host for Claude Code. `serving-endpoints/anthropic` for FMAPI built-ins, `ai-gateway/anthropic` for custom AI Gateway endpoints."
   ai_gateway:
     description: "Direct chat-completions endpoint (LLMService 'normal' size)."
   ai_gateway_mini:
@@ -38,14 +40,20 @@ variables:
 sync:
   # `paths` whitelists what gets uploaded; `include` overrides .gitignore
   # for specific patterns. .build/ is gitignored (it's a build artifact dir),
-  # so we explicitly include the four entries we ship.
+  # so we explicitly include the entries we ship.
+  #
+  # IMPORTANT: do NOT add .build/requirements.txt here. Apps' install path
+  # uses pip + Python 3.11 when requirements.txt is present, ignoring our
+  # pyproject.toml. We ship pyproject.toml + uv.lock so Apps uses uv +
+  # Python 3.12 (see scripts/build.sh).
   paths:
     - .build
   include:
     - .build/app.yml
     - .build/start.sh
     - .build/*.whl
-    - .build/requirements.txt
+    - .build/pyproject.toml
+    - .build/uv.lock
     - .build/.claude/**
     - .build/initial_templates/**
 
@@ -157,7 +165,7 @@ targets:
     # other user. The CLI lays out files/, state/, artifacts/ as subdirs
     # under this path itself — don't include any of those segments here.
     workspace:
-      root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}
+      root_path: /Workspace/Users/quentin.ambard@databricks.com/.bundle/${bundle.name}/${bundle.target}
   # Staging target. Use `databricks bundle deploy -t staging` (no default).
   # `mode: development` is the canonical setting for non-prod targets — it
   # relaxes some bundle-CLI checks. We override `presets.name_prefix` to
@@ -167,3 +175,5 @@ targets:
     mode: development
     presets:
       name_prefix: ""
+    workspace:
+      root_path: /Workspace/Users/quentin.ambard@databricks.com/.bundle/${bundle.name}_staging/${bundle.target}

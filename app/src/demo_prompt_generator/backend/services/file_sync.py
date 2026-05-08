@@ -64,10 +64,11 @@ def ensure_fmapi_auth_files(project_dir: Path, project_id: str) -> None:
             return
         host, token = minted
         logger.info(f"[fmapi-auth] {project_id}: minted token (len={len(token)}), host={host}")
+        cfg = AppConfig()
         fmapi_auth.provision_project_files(
             project_dir,
-            anthropic_base_url=f"{host}/serving-endpoints/anthropic",
-            anthropic_model=AppConfig().anthropic_llm_endpoint,
+            anthropic_base_url=f"{host}/{cfg.anthropic_base_path.strip('/')}",
+            anthropic_model=cfg.anthropic_llm_endpoint,
             token=token,
         )
         # Verify each file landed.
