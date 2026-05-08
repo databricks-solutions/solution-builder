@@ -11,9 +11,14 @@ import os
 from pathlib import Path
 
 
-# Path to the shared databricks-connect venv provisioned by dev.sh.
-# Resolves to <repo>/app/.venv-dbconnect — same place dev.sh writes it.
+# Path to the shared databricks-connect venv provisioned by dev.sh
+# (local dev only). Resolves to <repo>/app/.venv-dbconnect.
 _DBCONNECT_VENV = Path(__file__).resolve().parents[4] / ".venv-dbconnect"
+
+# Path to the app's main runtime venv. On prod this is the uv-managed
+# `/app/python/source_code/.venv`; locally it's `<repo>/app/.venv`. Both
+# are Python 3.12 (pinned in pyproject.toml's `requires-python`).
+_APP_VENV = Path(__file__).resolve().parents[4] / ".venv"
 
 
 def get_system_prompt(
@@ -105,32 +110,47 @@ def _build_template_lineage_section(lineage: dict | None) -> str | None:
 
 
 def _build_dbconnect_section() -> str | None:
-    """Inject pre-provisioned databricks-connect venv guidance when present.
+    """Tell the agent which Python venv to use for any local script work.
 
-    Local dev runs `dev.sh` which provisions a single Python 3.12 venv with
-    databricks-connect installed. Without this section the agent falls into
-    a Python 3.14 → install loop on every new project. In production
-    deployments the venv won't exist, so the section is silently skipped.
+    Two cases:
+    - Local dev: `dev.sh` provisions `.venv-dbconnect` (Python 3.12 with
+      databricks-connect, faker, numpy, pandas, holidays, pyarrow). If
+      that exists, point the agent at it directly — fastest for data-gen
+      scripts since the heavy deps are already installed.
+    - Prod (and local without the dbconnect venv): the app's main venv at
+      `.venv` is Python 3.12 (pinned via pyproject.toml's `requires-python`).
+      The agent should use `uv` against that venv when it needs an extra
+      package, NEVER reach for the system `python3` (Ubuntu 22.04 ships
+      3.10 which databricks-connect does not support).
+
+    Skips entirely if neither venv exists (defensive — shouldn't happen
+    in any normal deployment).
     """
-    venv_python = _DBCONNECT_VENV / "bin" / "python"
-    if not venv_python.exists():
+    dbconnect_python = _DBCONNECT_VENV / "bin" / "python"
+    app_python = _APP_VENV / "bin" / "python"
+
+    if dbconnect_python.exists():
+        venv_python = dbconnect_python
+        preinstalled = (
+            "with **databricks-connect**, faker, numpy, pandas, holidays, "
+            "and pyarrow already installed"
+        )
+    elif app_python.exists():
+        venv_python = app_python
+        preinstalled = (
+            "with the app's runtime deps installed. databricks-connect / "
+            "faker / pandas / etc. are NOT pre-installed — use `uv pip install` "
+            "against this venv to add them on first use"
+        )
+    else:
         return None
 
     return (
-        "## Pre-provisioned databricks-connect venv\n\n"
-        f"A Python 3.12 venv with databricks-connect, faker, numpy, pandas, "
-        f"holidays, and pyarrow is already installed at:\n\n"
-        f"`{venv_python}`\n\n"
-        f"Use it directly for any data-gen / databricks-connect script:\n\n"
-        f"```bash\n"
-        f"{venv_python} path/to/script.py\n"
-        f"```\n\n"
-        f"**Do NOT** create a new venv, run `uv pip install databricks-connect`, "
-        f"or invoke the system Python. The system Python is 3.14, which "
-        f"databricks-connect does not support — every detour through it wastes "
-        f"~1-2 minutes per project. If a script needs an additional package, "
-        f"install it into this venv with "
-        f"`uv pip install --python {venv_python} <pkg>`."
+        "## Python\n\n"
+        f"A Python 3.12 venv {preinstalled} is already active "
+        "(`VIRTUAL_ENV` is set). Use `uv` for installs and `python` to run "
+        "scripts. Don't create a new venv, don't use plain `pip`, don't "
+        "call `/usr/bin/python3`, don't messup the env as it's shared with other demos."
     )
 
 
@@ -187,13 +207,9 @@ default constructor / WorkspaceClient() and the SDK picks up the profile from en
 **Do NOT narrate your process.** When thinking, never output lines like "Story is clear", "Let me read the file…", "Now I'll write the README…", "Writing the architecture documentation... " etc. Just do it instead calling the tools. Only write final short text that is useful to the *user*: summaries of what you built, questions asking for clarification, or explanations of design choices.
 Keep all internal planning in your thinking blocks, not in your response text.
 
-## Tool-Use Efficiency (do not skip)
-    
-Tool calls emitted in the same assistant response run **concurrently**. Latency is dominated by LLM round-trips, not tool execution time.
+## Tool-Use Efficiency
 
-- Batch all independent reads into one response. When you need multiple reference files (domain block, pattern block, capability blocks, `platform_architecture.md`, `architecture.md` schema ref), issue all `Read` calls in a single turn — not one per turn.
-- Batch independent writes. `resources.json`, `README.md`, and `architecture.md` do NOT depend on each other's file contents — write them in parallel in the same response. Same for independent files in `instructions/`.
-- Sequential is only correct when a later call genuinely needs the *result* of an earlier one."""
+Tool calls in the same response run concurrently; latency is the LLM round-trip, not the tool. Batch independent reads (multiple reference files) and writes (`resources.json`, `README.md`, `architecture.md`, files in `instructions/`) into one turn. Only go sequential when a later call needs an earlier call's result."""
 
 
 def _build_resources_section(

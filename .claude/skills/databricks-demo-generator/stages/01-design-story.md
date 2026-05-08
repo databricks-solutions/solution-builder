@@ -10,7 +10,7 @@ Nail down the specifics. The exact structure depends on the story pattern, but d
 
 1. **The Protagonist** — Company name, industry, persona name and role, what they care about.
 2. **The Setup** — What's normal, what context the audience needs.
-3. **The Catalyst** — What triggers the demo flow (a spike, a question, a prediction, an alert).
+3. **The Catalyst** — What triggers the demo flow (a spike, a question, a prediction, an alert). This typically happened a few weeks ago, can now be resolved (typically with a decay) or still ongoing but should be clearly visible (not just happening for a few hours, it's not enough)
 4. **The Journey** — How the protagonist uses the platform to get from question to answer.
 5. **The Resolution** — What they learn, the business impact (in $), what action they take.
 6. **The Value** — One-sentence "so what" that lands with the audience.
@@ -21,14 +21,12 @@ Nail down the specifics. The exact structure depends on the story pattern, but d
 
 ## Context load — one message, batched reads
 
-Before writing any file, load all references in a single response. Emit all `Read` calls in one assistant message — the harness runs them concurrently, so you get every file back on the next turn instead of paying an LLM round-trip per read.
+Before writing any file, load all references in a single response. All reads in ONE turn.
 
 - `SKILL_DIR/references/architecture.md` — diagram schema
 - `SKILL_DIR/references/example-luxebeauty/README.md` — style reference
 - `SKILL_DIR/references/platform_architecture.md` — if not already in context
 - Any capability blocks you need for product positioning (skip if obvious from common knowledge; dashboard/KA blocks are often worth reading)
-
-All reads in ONE turn. If during the write step you realize you need another Read, go back and add it to this batch instead of interleaving reads and writes.
 
 ## Write the three files (single batched turn)
 

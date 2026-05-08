@@ -123,16 +123,7 @@ Read `SKILL_DIR/references/architecture.md` for the schema format (icons, tiers,
 
 **Always start by reading `SKILL_DIR/references/platform_architecture.md`** — it shows the complete Databricks platform capabilities with dependencies, all product IDs and categories, and when to use each capability.
 
-`SKILL_DIR/references/blocks/` contains reusable context. Explore them for: ideation (user has a vague use-case, you need to know common industry use-cases / best practices) or to better understand how to position Databricks features / how they work.
-
-| Folder | What's Inside | When to Read |
-|--------|---------------|--------------|
-| `domains/` | Industry verticals (retail, healthcare, finance, manufacturing) — terminology, KPIs, personas, pain points | When the demo targets a specific industry |
-| `patterns/` | Story structures (anomaly detection, segmentation, predictive, compliance, real-time) — narrative arc, data shape, wow-moment design | When designing the story flow |
-| `capabilities/` | Databricks products — selling points, positioning, how to showcase unique value, common pitfalls | When you need deep product knowledge for spec writing |
-
-Blocks cross-reference each other: domain blocks have `suggested_patterns` and `suggested_capabilities`, pattern blocks have `suggested_capabilities`, capability blocks have `related`.
-
+`SKILL_DIR/references/blocks/capabilities` details Databricks products — selling points, positioning, how to showcase unique value, common pitfalls. Read them when you need deeper product knowledge for story or spec writing (typically dashboards or ML model training)
 ---
 
 ## Storytelling Fundamentals
@@ -178,28 +169,26 @@ The coherence contract still applies: every change must ripple through all depen
 First, assess the user's input — how much is already decided?
 
 **Vague** ("retail demo", "something with IoT"): full ideation needed.
-1. Check `SKILL_DIR/references/blocks/domains/` for a matching domain block — read it for terminology, KPIs, personas, pain points. Note its `suggested_patterns` and `suggested_capabilities`. No match? Use general knowledge.
-2. Browse `SKILL_DIR/references/blocks/patterns/` — use the domain's `suggested_patterns` to pick the best fit. Read it for the narrative arc, data shape, wow moment, and suggested capabilities.
-3. Propose 2–3 story ideas combining domain terminology with the pattern's arc. Title format: "[Domain]'s [challenge]". Keep it brief — no product names yet.
+1. Propose 2–3 story ideas combining domain terminology with the pattern's arc. Title format: "[Domain]'s [challenge]". Keep it brief. If the user does a followup, consider you're now a Moderate
    ```
    1. **Regional bank's fraud spike** — VP of Fraud Ops sees card fraud losses jump 3x. Traces it to compromised POS terminals at a merchant chain.
    2. **Hospital system's readmission surge** — CMO investigates why heart failure patients keep returning within 30 days. Uncovers a discharge protocol gap.
    3. **Auto manufacturer's quality mystery** — Plant director sees defect rates climb on one line. Traces it to a worn bearing in Station 7.
-
-   Pick one, combine ideas, or describe something else.
+   Suggested stack: synthetic-data-gen, sdp, aibi-dashboards, genie  + lakeflow-connect, genie-code, databricks-one, unity-catalog
+   
+   Pick one, combine ideas, or describe something else / add capabilities.
    ```
 
-**Moderate** ("fraud detection demo for a bank, dashboards + Genie to investigate suspicious transactions"): story direction is clear but needs fleshing out.
-1. Read domain block if one exists. Read the matching pattern block.
-2. Confirm capabilities from `platform_architecture.md` and capability blocks when more detail is required — no need to propose alternatives.
+**Moderate** ("fraud detection demo for a bank using data from xx, with dashboards + Genie to investigate suspicious transactions"): story direction is clear but needs fleshing out.
+2. Propose a short story (~3-5 sentences, see below). Confirm the from `platform_architecture.md`, ask question if something isn't clear — no need to propose alternatives.
 
-**Detailed** (full PRD with protagonist, catalyst, narrative arc already defined): the user has done the thinking. Skip ideation — go straight to stage 1.
+**Detailed** (full PRD with protagonist, catalyst, narrative arc already defined): the user has done the thinking. Skip ideation — go straight to stage 1, making sure you have the right capabilities in mind.
 
 ## Stage 1 — Design Story
 
 **Read `SKILL_DIR/stages/01-design-story.md` now** and follow it. Outputs: `resources.json`, `README.md`, `architecture.md` at the project root.
 
-**Gate — ask the user before continuing:**
+**Gate — ask the user before continuing, unless instructed otherwise:**
 
 ```
 I've created the demo story in README.md and the architecture.
@@ -222,7 +211,7 @@ Wait for confirmation before starting stage 2.
 
 **Track this stage:** run `python3 SKILL_DIR/tools/track.py SPECS_WRITTEN <demo-slug>` once specs are all written; ignore the result and move on.
 
-**Gate — ask the user before continuing:**
+**Gate — ask the user before continuing unless instructed otherwise:**
 Say for example (don't mention / describe all the files)
 ```
 Demo specifications are ready in `./specifications/`  .
@@ -254,8 +243,8 @@ Browse `SKILL_DIR/references/` for worked examples showing file format, detail l
 ## Key Principles
 
 1. **Story first** — Start with "what question does the protagonist ask?" not "what components do we need?"
-2. **Coherence above all** — Data, pipeline, dashboard, Genie, agents must all align. One broken link ruins the demo.
-3. **5-second test** — The key insight must be obvious at a glance on any dashboard
+2. **Coherence above all** — Data, pipeline, dashboard, Genie, agents must all align: data must support the story and the story must be visible in the components (dashboard, genie etc). One broken link ruins the demo.
+3. **5-second test** — The key insight must be obvious at a glance on any dashboard. The story must be compelling ("something clearly happened" and we clearly see it)
 4. **Business metrics in $** — Revenue, cost, impact. Not row counts.
 5. **Match products to moments** — Every showcased product earns a clear beat in the walkthrough
 6. **Functional specs** — Describe outcomes, not implementation. No API calls or code in spec files.
