@@ -23,9 +23,9 @@ Nail down the specifics. The exact structure depends on the story pattern, but d
 
 Before writing any file, load all references in a single response. All reads in ONE turn.
 
-- `SKILL_DIR/references/architecture.md` — diagram schema
-- `SKILL_DIR/references/example-luxebeauty/README.md` — style reference
-- `SKILL_DIR/references/platform_architecture.md` — if not already in context
+- `DEMO_SKILL_DIR/references/architecture.md` — diagram schema
+- `DEMO_SKILL_DIR/references/example-luxebeauty/README.md` — style reference
+- `DEMO_SKILL_DIR/references/platform_architecture.md` — if not already in context
 - Any capability blocks you need for product positioning (skip if obvious from common knowledge; dashboard/KA blocks are often worth reading)
 
 ## Write the three files (single batched turn)
@@ -36,7 +36,7 @@ Emit `Write` calls for `resources.json`, `architecture.md`, and `README.md` **in
 
 The user's message may include a capabilities list — follow it unless something is missing or incoherent (e.g. user wants an app but it's not listed, or data gen is missing). In that case, adjust and note the adjustment. Avoid adding capabilities just for the sake of it.
 
-Structure mirrors `SKILL_DIR/references/example-luxebeauty/resources.json`:
+Structure mirrors `DEMO_SKILL_DIR/references/example-luxebeauty/resources.json`:
 
 ```json
 {
@@ -49,15 +49,15 @@ Structure mirrors `SKILL_DIR/references/example-luxebeauty/resources.json`:
 - **talking_track**: capabilities mentioned in the demo narrative but not requiring resource creation.
 - **created_resources**: left empty now; the build phase fills it in with IDs.
 
-Capability IDs come from `SKILL_DIR/references/platform_architecture.md`.
+Capability IDs come from `DEMO_SKILL_DIR/references/platform_architecture.md`.
 
 ### `./architecture.md`
 
-JSON diagram following the schema in `SKILL_DIR/references/architecture.md`. Nodes and edges must match the products in README and `resources.json`.
+JSON diagram following the schema in `DEMO_SKILL_DIR/references/architecture.md`. Nodes and edges must match the products in README and `resources.json`.
 
 ### `./README.md`
 
-Same structure as `SKILL_DIR/references/example-luxebeauty/README.md`:
+Same structure as `DEMO_SKILL_DIR/references/example-luxebeauty/README.md`:
 
 - **Architecture at a glance** — a fenced ` ```glance ` block at the very top, immediately after the H1 title, before "The Story". This is the first thing the user sees in the Summary tab; it renders as a row of equal-width category columns with clickable products that link to Databricks docs.
 - **The Story** — summary table (company, protagonist, challenge, journey, resolution, impact).
@@ -84,7 +84,7 @@ Rules:
 
 - **Group order is fixed**: `Data Ingestion` → `AI` → `Data Analysis` → `Analyst Layer`. Use these exact labels (plain English, not the home-page picker categories).
 - **Only include groups that earn a node** — if the demo has no AI agents/models, drop the AI line. If there's no app, drop Analyst Layer.
-- **Item names should be the canonical product names** the renderer recognizes (so it can pick the right Databricks icon and docs link). See `SKILL_DIR/references/platform_architecture.md` "At-a-glance group mapping" for the canonical name per capability ID.
+- **Item names should be the canonical product names** the renderer recognizes (so it can pick the right Databricks icon and docs link). See `DEMO_SKILL_DIR/references/platform_architecture.md` "At-a-glance group mapping" for the canonical name per capability ID.
 - **Foundation** is for cross-cutting concerns. Always include `Unity Catalog` here when `unity-catalog` is in the demo's capabilities (almost always).
 - Keep each group to ~1-3 items. The block is a glance, not a checklist — leave the full list for **Products Showcased**.
 

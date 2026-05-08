@@ -39,6 +39,7 @@ from ..models import (
 )
 from ..services.active_stream import get_stream_manager
 from ..services.agent import collect_text_response, collect_reasoning, stream_agent_response
+from .projects import _get_authorized_project
 
 router = create_router()
 
@@ -56,16 +57,6 @@ def _get_user_email(headers) -> str:
     return "anonymous@local"
 
 
-def _get_user_project(session, project_id: str, user_email: str) -> Project:
-    """Fetch a project by ID, verifying ownership."""
-    row = session.get(Project, project_id)
-    if not row:
-        raise HTTPException(status_code=404, detail="Project not found")
-    if row.user_email != user_email:
-        raise HTTPException(status_code=404, detail="Project not found")
-    return row
-
-
 @router.post(
     "/invoke_agent",
     response_model=InvokeAgentResponse,
@@ -75,6 +66,7 @@ async def invoke_agent(
     body: InvokeAgentRequest,
     session: Dependencies.Session,
     headers: Dependencies.Headers,
+    config: Dependencies.Config,
     request: Request,
 ):
     """
@@ -111,7 +103,9 @@ async def invoke_agent(
             )
     # DB reads (run on thread so we don't block the event loop on sync psycopg).
     def _load_initial():
-        project = _get_user_project(session, body.project_id, user_email)
+        project = _get_authorized_project(
+            session, body.project_id, user_email, config.template_admin_emails
+        )
         user = session.exec(select(User).where(User.email == user_email)).first()
         databricks_profile = user.databricks_profile if user else "DEFAULT"
         # Look up template lineage so the system prompt can frame the agent

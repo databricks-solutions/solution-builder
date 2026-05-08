@@ -7,14 +7,14 @@ Run this after the stage-1 user-review gate (user approved the story). Produces 
 ### 1. Copy META-PROMPT.md (don't write it)
 
 ```bash
-cp SKILL_DIR/references/META-PROMPT-TEMPLATE.md PROJECT/META-PROMPT.md
+cat DEMO_SKILL_DIR/references/META-PROMPT-TEMPLATE.md > PROJECT/META-PROMPT.md
 ```
 
 It's fully generic. Do not author a new one.
 
 ### 2. Write `specifications/*.md` — fan out after 01 is done
 
-One file per category. Read `SKILL_DIR/references/example-luxebeauty/specifications/*.md` for format + density reference.
+One file per category. Read `DEMO_SKILL_DIR/references/example-luxebeauty/specifications/*.md` for format + density reference.
 Only the subagent in charge of the app should read `example-luxebeauty/specifications/app/*.md` files.
 
 **Only generate files for categories the demo actually uses. Skip unused categories.**
@@ -49,7 +49,7 @@ Define shared values (affected SKUs, lot, persona, metrics) once in `01-lakeflow
 
 ## App specification subagent (only if `databricks-apps` in resources.json)
 
-Spawn a **subagent** as soon as `01-lakeflow.md` is written — it runs in parallel with the other specs. First **read `SKILL_DIR/stages/subagents.md`** — it has the shared prompt structure (framing, speed rules, scope boundaries, completion format). This section only fills in the app-spec-specific parts.
+Spawn a **subagent** as soon as `01-lakeflow.md` is written — it runs in parallel with the other specs. First **read `DEMO_SKILL_DIR/stages/subagents.md`** — it has the shared prompt structure (framing, speed rules, scope boundaries, completion format). This section only fills in the app-spec-specific parts.
 
 ### App-spec subagent — specifics to include in the prompt
 
@@ -61,29 +61,29 @@ Spawn a **subagent** as soon as `01-lakeflow.md` is written — it runs in paral
 
 **Critical framing for the subagent — include this verbatim in the prompt:**
 
-> The Databricks App for this demo starts from a **generic template** (at `SKILL_DIR/app/app_template/`). During Stage 3 (build), the template is copied into `PROJECT/app/` and customized per spec. You are NOT writing a spec from scratch — you are writing a spec that **describes how to adapt this template** to this demo's story. Your spec and the template must fit together.
+> The Databricks App for this demo starts from a **generic template** (at `DEMO_SKILL_DIR/app/app_template/`). During Stage 3 (build), the template is copied into `PROJECT/app/` and customized per spec. You are NOT writing a spec from scratch — you are writing a spec that **describes how to adapt this template** to this demo's story. Your spec and the template must fit together.
 >
 > You do NOT need to scan the template's actual source code. `TEMPLATE_MAP.md` already describes what the template ships with (surfaces, agent tools, Lakebase schema, streaming infra) — that's all you need. The luxebeauty app spec under `references/example-luxebeauty/specifications/app/` is the worked example showing what a spec looks like when that template has been adapted to a returns demo. Read `TEMPLATE_MAP.md` first so you understand the starting point, then read the luxebeauty spec to see how someone translated that starting point into a real demo, then design your own adaptation to this project's README.
 
 Group the reads by purpose:
 
 *Flow + standards:*
-- `SKILL_DIR/SKILL.md` — flow overview; confirms Stage 2, sibling specs, coherence rules.
-- `SKILL_DIR/stages/02-write-specs.md` — spec-writing standards (sections 3 "Writing good spec files" onward).
+- `DEMO_SKILL_DIR/SKILL.md` — flow overview; confirms Stage 2, sibling specs, coherence rules.
+- `DEMO_SKILL_DIR/stages/02-write-specs.md` — spec-writing standards (sections 3 "Writing good spec files" onward).
 
 *The template you'll be adapting (read before designing anything):*
-- `SKILL_DIR/app/app_template/TEMPLATE_MAP.md` — **the most important file.** Functional description of what the template ships with, the canonical demo arc it supports, surface-by-surface purpose, 3 tiers of what to preserve vs. rewrite, and minimal-viable-demo adjustments. This is your ground truth — the shape your spec must fit. Do not scan the template's source code; this map is the authoritative summary.
-- `SKILL_DIR/app/app.md` — how the template gets copied and customized during build (Lakebase OAuth, env config, smoke test). Lets you write specs the build subagent can actually execute.
+- `DEMO_SKILL_DIR/app/app_template/TEMPLATE_MAP.md` — **the most important file.** Functional description of what the template ships with, the canonical demo arc it supports, surface-by-surface purpose, 3 tiers of what to preserve vs. rewrite, and minimal-viable-demo adjustments. This is your ground truth — the shape your spec must fit. Do not scan the template's source code; this map is the authoritative summary.
+- `DEMO_SKILL_DIR/app/app.md` — how the template gets copied and customized during build (Lakebase OAuth, env config, smoke test). Lets you write specs the build subagent can actually execute.
 
 *A worked spec at the target density (reference, not a template to copy):*
-- All files under `SKILL_DIR/references/example-luxebeauty/specifications/app/` — the luxebeauty demo's spec. Shows what a spec looks like *after* someone adapted the template to a specific story. **LuxeBeauty's domain (returns) is NOT yours — read for format, file count, and density of detail. Never copy the narrative, persona, tool names, or page content.**
+- All files under `DEMO_SKILL_DIR/references/example-luxebeauty/specifications/app/` — the luxebeauty demo's spec. Shows what a spec looks like *after* someone adapted the template to a specific story. **LuxeBeauty's domain (returns) is NOT yours — read for format, file count, and density of detail. Never copy the narrative, persona, tool names, or page content.**
 
 *Your demo's sources of truth:*
 - `PROJECT/README.md` — demo story, persona, products, walkthrough. **You read this — the parent will not paraphrase it for you.**
 - `PROJECT/resources.json` — capabilities + current resource IDs (catalog, schema, warehouse_id).
 - `PROJECT/specifications/01-lakeflow.md` — table names, schemas, data shape that the app will sync/query.
 
-**Project state to inline:** catalog, schema, warehouse_id, workspace folder (pull from `resources.json`). Deterministic values only — do NOT paste story, persona, KPI numbers, page designs, tool lists, or demo flow. See `SKILL_DIR/stages/subagents.md` anti-patterns.
+**Project state to inline:** catalog, schema, warehouse_id, workspace folder (pull from `resources.json`). Deterministic values only — do NOT paste story, persona, KPI numbers, page designs, tool lists, or demo flow. See `DEMO_SKILL_DIR/stages/subagents.md` anti-patterns.
 
 **Output location:** `PROJECT/specifications/app/*.md` — file structure is flexible (example has 4 files: overview+home+assistant, operations, analytics+dashboard, data model — adapt as needed). **The subagent picks file count, names, pages, tools, demo flow** — derived from README + 01-lakeflow. Do not pre-decide these in the prompt. Write all outputs in a SINGLE batched turn.
 

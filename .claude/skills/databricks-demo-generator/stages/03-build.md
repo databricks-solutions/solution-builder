@@ -19,7 +19,7 @@ ML model => read ml-training-serving.md (you must deploy it as a databricks serv
 
 ## Build-order gates — do not skip
 
-Consumption resources depend on upstream data. The dependency graph is in `SKILL_DIR/references/platform_architecture.md`. The core rule:
+Consumption resources depend on upstream data. The dependency graph is in `DEMO_SKILL_DIR/references/platform_architecture.md`. The core rule:
 
 > **Never create a downstream resource before its upstream data exists and is verified.**
 
@@ -54,7 +54,7 @@ After 01-lakeflow B (tables exist), in parallel: spawn App (longest, ~5 min), sp
 
 ## How to spawn a build subagent
 
-Read `SKILL_DIR/stages/subagents.md` for the shared playbook (reads list, project state, anti-patterns, completion format, gate rules). Build-specific additions only below.
+Read `DEMO_SKILL_DIR/stages/subagents.md` for the shared playbook (reads list, project state, anti-patterns, completion format, gate rules). Build-specific additions only below.
 
 **Framing sentence:**
 
@@ -64,7 +64,7 @@ Read `SKILL_DIR/stages/subagents.md` for the shared playbook (reads list, projec
 - `SKILLS/<skill-dir>/SKILL.md` — the ai-dev-kit skill for THIS resource type. Pick from the *Available Skills* index in the system prompt; `ls SKILLS/` if unsure. Non-negotiable — it has the CLI + verification steps.
 - `PROJECT/specifications/01-lakeflow.md` — table schemas (every build subagent references these).
 - `PROJECT/specifications/<relevant>.md` — the spec for THIS task.
-- Optional: `SKILL_DIR/references/blocks/capabilities/<block>.md` if the spec lacks positioning context.
+- Optional: `DEMO_SKILL_DIR/references/blocks/capabilities/<block>.md` if the spec lacks positioning context.
 
 **Don't include `stages/03-build.md`** — the subagent doesn't need the parent's parallelization logic.
 
@@ -74,17 +74,17 @@ Read `SKILL_DIR/stages/subagents.md` for the shared playbook (reads list, projec
 
 If the demo includes a Databricks App (`databricks-apps` in `resources.json`), **spawn the app-build subagent automatically as soon as `01-lakeflow` B (the SDP pipeline) completes and the app spec exists** (tell the user it'll take a while). App generation is slow (~5 min) and can start before Genie / KA / MAS; kicking it off early lets it run in parallel with everything else.
 
-Follow the shared playbook in `SKILL_DIR/stages/subagents.md` plus the build-subagent specifics above. App-build-specific additions:
+Follow the shared playbook in `DEMO_SKILL_DIR/stages/subagents.md` plus the build-subagent specifics above. App-build-specific additions:
 
 **Framing sentence:**
 
 > You are a subagent spawned by the `databricks-demo-generator` skill, executing **Stage 03 (build)** — specifically, customizing and deploying the Databricks App for this demo. Your single job: copy the template, rewrite it for this demo's story, wire config to the built resources, and deploy.
 
-**Reads:** the core path is `SKILL_DIR/app/app.md` — it walks through copying the template, customizing it, and wiring config. Plus: `PROJECT/README.md`, `PROJECT/specifications/01-lakeflow.md`, all files under `PROJECT/specifications/app/`, and invoke the `fe-databricks-tools:databricks-apps` skill.
+**Reads:** the core path is `DEMO_SKILL_DIR/app/app.md` — it walks through copying the template, customizing it, and wiring config. Plus: `PROJECT/README.md`, `PROJECT/specifications/01-lakeflow.md`, all files under `PROJECT/specifications/app/`, and invoke the `fe-databricks-tools:databricks-apps` skill.
 
 **Late-fill rule:** if the app embeds IDs from resources still being built in parallel (dashboard id, MAS endpoint), the subagent finishes template customization first and fills those in at the end once those resources are ready.
 
-**Start only for the smoke test, then always stop.** The only time the agent runs `./start.sh` is the mandatory one-shot smoke test at the end of the build (see `SKILL_DIR/app/app.md` Step 5) — start it, let it boot up to ~60s, capture the log, then **unconditionally kill the process**. The UI owns the process lifecycle afterwards. A leftover `./start.sh` is an orphan the UI can't track. When the smoke test passes and is cleaned up, tell the user to open the **App** tab and click **Start**.
+**Start only for the smoke test, then always stop.** The only time the agent runs `./start.sh` is the mandatory one-shot smoke test at the end of the build (see `DEMO_SKILL_DIR/app/app.md` Step 5) — start it, let it boot up to ~60s, capture the log, then **unconditionally kill the process**. The UI owns the process lifecycle afterwards. A leftover `./start.sh` is an orphan the UI can't track. When the smoke test passes and is cleaned up, tell the user to open the **App** tab and click **Start**.
 
 **Small iterations:** subagents are only for the first generation. For small change requests from the user afterward, do everything on the main loop so the user can easily track your thinking.
 

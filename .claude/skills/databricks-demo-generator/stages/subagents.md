@@ -27,7 +27,7 @@ If you find yourself paraphrasing the README or listing pages / tools / data-mod
 - **Default: SKILL.md + the relevant `stages/NN-*.md` as the next two reads.** Gives the subagent flow, gates, coherence contracts, storytelling principles.
 - **Narrow exception** — skip SKILL.md only when the task is truly isolated (e.g. generating PDFs from an already-written spec). README.md is never the exception — always include it.
 - For build subagents, also include the relevant ai-dev-kit skill(s) at `SKILLS/<skill-dir>/SKILL.md` — you pick the dir-name from your *Available Skills* index.
-- All paths must be fully resolved — no `SKILL_DIR/…` placeholders (the subagent can't expand them).
+- All paths must be fully resolved — no `DEMO_SKILL_DIR/…` placeholders (the subagent can't expand them).
 
 **Include verbatim** (the worked example shows the exact wording):
 - **Speed rules** block — batching instruction.
@@ -55,7 +55,7 @@ If you find yourself paraphrasing the README or listing pages / tools / data-mod
 Parent is in Stage 2 and has just written `01-lakeflow.md`. Spawning the app-spec subagent in parallel with the other main-thread specs:
 
 ```
-Start by reading `SKILL_DIR/SKILL.md`, then `PROJECT/README.md` — that's the flow overview (what we're doing) and the specific demo's story we're working on. You've been spawned to write the `specifications/app/*.md` files for this demo's Databricks App, adapted to the demo's story. The parent is in Stage 2 and writing the other main-thread specs in parallel; your output must stay coherent with theirs.
+Start by reading `DEMO_SKILL_DIR/SKILL.md`, then `PROJECT/README.md` — that's the flow overview (what we're doing) and the specific demo's story we're working on. You've been spawned to write the `specifications/app/*.md` files for this demo's Databricks App, adapted to the demo's story. The parent is in Stage 2 and writing the other main-thread specs in parallel; your output must stay coherent with theirs.
 
 When done, return a quick, short summary of the job done and any error/issue you might have.
 Do not spawn further subagents. Do not ask the user questions — if something is ambiguous, make a reasonable choice and note it in your return.
@@ -64,20 +64,20 @@ Do not spawn further subagents. Do not ask the user questions — if something i
 
 **Paths (absolute):**
 - PROJECT = /abs/path/to/projects/abc-123
-- SKILL_DIR = /abs/path/to/projects/abc-123/.claude/skills/databricks-demo-generator
+- DEMO_SKILL_DIR = /abs/path/to/projects/abc-123/.claude/skills/databricks-demo-generator
 
 **Project state:**
 - catalog: `my_catalog` · schema: `my_schema` · warehouse_id: `abc123wh`, ...
 
 **Reads (all in one batched turn):**
 - Understand the context
-    - SKILL_DIR/SKILL.md — flow overview; you're in Stage 2; your output sits alongside other specs the parent is writing.
+    - DEMO_SKILL_DIR/SKILL.md — flow overview; you're in Stage 2; your output sits alongside other specs the parent is writing.
     - PROJECT/README.md — demo story, persona, walkthrough. READ THIS — do not rely on a summary.
 - Understand your specifci task:
-    - SKILL_DIR/stages/02-write-specs.md — spec-writing standards (sections 3 onward) - this describe your job / what you have to do.
-    - SKILL_DIR/app/app.md — app generation guide.
-    - SKILL_DIR/app/app_template/TEMPLATE_MAP.md — template structure.
-    - SKILL_DIR/references/example-luxebeauty/specifications/app/*.md — structure + density reference (all 4 files).
+    - DEMO_SKILL_DIR/stages/02-write-specs.md — spec-writing standards (sections 3 onward) - this describe your job / what you have to do.
+    - DEMO_SKILL_DIR/app/app.md — app generation guide.
+    - DEMO_SKILL_DIR/app/app_template/TEMPLATE_MAP.md — template structure.
+    - DEMO_SKILL_DIR/references/example-luxebeauty/specifications/app/*.md — structure + density reference (all 4 files).
     - PROJECT/resources.json
     - PROJECT/specifications/01-lakeflow.md — table names + schemas.
 

@@ -73,10 +73,20 @@ class AppConfig(BaseSettings):
     ai_gateway: str = Field(default="databricks-claude-opus-4-7", validation_alias="AI_GATEWAY")
     ai_gateway_embedding: str = Field(default="databricks-qwen3-embedding-0-6b", validation_alias="AI_GATEWAY_EMBEDDING")
 
-    # Admin emails for template review (comma-separated in env var)
-    template_admin_emails: list[str] = Field(
-        default=["cal.reynolds@databricks.com"]
+    # Admin emails for template review. Stored as a comma-separated string
+    # so pydantic-settings doesn't try to JSON-decode it (its default
+    # `list[str]` parser expects `["a","b"]` syntax and errors on a bare
+    # comma-list). Read via `template_admin_emails` (the property below)
+    # which returns the parsed list — every caller uses `email in config.template_admin_emails`
+    # which works against the parsed list unchanged.
+    template_admin_emails_raw: str = Field(
+        default="cal.reynolds@databricks.com",
+        validation_alias="DEMO_PROMPT_GENERATOR_TEMPLATE_ADMIN_EMAILS",
     )
+
+    @property
+    def template_admin_emails(self) -> list[str]:
+        return [e.strip() for e in self.template_admin_emails_raw.split(",") if e.strip()]
 
     @property
     def static_assets_path(self) -> Path:

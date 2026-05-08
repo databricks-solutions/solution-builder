@@ -133,39 +133,38 @@ def _resolve_template_name(session, source_template_id: str | None) -> str | Non
     return template.name if template else None
 
 
-def _get_user_project(session, project_id: str, user_email: str) -> Project:
-    """Fetch a project by ID, verifying ownership."""
-    row = session.get(Project, project_id)
-    if not row:
-        raise HTTPException(status_code=404, detail="Project not found")
-    if row.user_email != user_email:
-        raise HTTPException(status_code=404, detail="Project not found")
-    return row
-
-
-def _get_readable_project(
+def _get_authorized_project(
     session, project_id: str, user_email: str, admin_emails: list[str]
 ) -> Project:
-    """Fetch a project for read-only access — owner, share recipient, or admin.
+    """Fetch a project by ID, verifying owner OR admin OR share-recipient.
 
-    Use for view endpoints. Mutations should still go through `_get_user_project`
-    (owner only).
+    Used on every project-scoped endpoint, read AND mutation. Admins get
+    full access (read + write) so they can support users debugging their
+    own demos and clean up stuck state without playing impersonation
+    games. Share recipients keep their existing access.
+
+    One query: LEFT JOIN ProjectShare so a share grant is fetched in the
+    same round-trip. The in-memory owner/admin check still short-circuits
+    before we look at the share row.
     """
-    row = session.get(Project, project_id)
-    if not row:
-        raise HTTPException(status_code=404, detail="Project not found")
-    if row.user_email == user_email:
-        return row
-    if is_admin(user_email, admin_emails):
-        return row
-    share = session.exec(
-        select(ProjectShare).where(
-            ProjectShare.project_id == project_id,
-            ProjectShare.shared_with_email == user_email,
+    row = session.exec(
+        select(Project, ProjectShare)
+        .outerjoin(
+            ProjectShare,
+            (ProjectShare.project_id == Project.id)
+            & (ProjectShare.shared_with_email == user_email),
         )
+        .where(Project.id == project_id)
     ).first()
-    if share:
-        return row
+    if row is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+    project, share = row
+    if (
+        project.user_email == user_email
+        or is_admin(user_email, admin_emails)
+        or share is not None
+    ):
+        return project
     raise HTTPException(status_code=404, detail="Project not found")
 
 
@@ -378,7 +377,7 @@ def get_project(
     the expensive DB-to-disk reconcile and the redundant file-list SELECT.
     """
     user_email = _get_user_email(headers)
-    project = _get_readable_project(
+    project = _get_authorized_project(
         session, project_id, user_email, config.template_admin_emails
     )
 
@@ -445,10 +444,11 @@ def update_project(
     body: ProjectUpdateRequest,
     session: Dependencies.Session,
     headers: Dependencies.Headers,
+    config: Dependencies.Config,
 ):
     """Update a project's name or description."""
     user_email = _get_user_email(headers)
-    project = _get_user_project(session, project_id, user_email)
+    project = _get_authorized_project(session, project_id, user_email, config.template_admin_emails)
 
     if body.name is not None:
         project.name = body.name
@@ -503,10 +503,11 @@ def update_project_resources(
     body: ProjectResourcesUpdateRequest,
     session: Dependencies.Session,
     headers: Dependencies.Headers,
+    config: Dependencies.Config,
 ):
     """Update a project's resource settings (cluster, warehouse, catalog, schema)."""
     user_email = _get_user_email(headers)
-    project = _get_user_project(session, project_id, user_email)
+    project = _get_authorized_project(session, project_id, user_email, config.template_admin_emails)
 
     # Update only the provided fields
     if body.cluster_id is not None:
@@ -568,6 +569,7 @@ def delete_project(
     project_id: str,
     session: Dependencies.Session,
     headers: Dependencies.Headers,
+    config: Dependencies.Config,
     request: Request,
 ):
     """Delete a project and all associated data."""
@@ -575,7 +577,7 @@ def delete_project(
     from ..services.agent import get_client_pool
 
     user_email = _get_user_email(headers)
-    project = _get_user_project(session, project_id, user_email)
+    project = _get_authorized_project(session, project_id, user_email, config.template_admin_emails)
 
     # Clear source_project_id on any linked templates (don't delete the template)
     session.execute(
@@ -628,11 +630,12 @@ def sync_project(
     project_id: str,
     session: Dependencies.Session,
     headers: Dependencies.Headers,
+    config: Dependencies.Config,
     request: Request,
 ):
     """Trigger full bidirectional sync for a project."""
     user_email = _get_user_email(headers)
-    project = _get_user_project(session, project_id, user_email)
+    project = _get_authorized_project(session, project_id, user_email, config.template_admin_emails)
 
     file_sync: FileSyncService = request.app.state.file_sync
     # Pass session to avoid new connection
@@ -723,10 +726,11 @@ def share_project(
     body: ProjectShareRequest,
     session: Dependencies.Session,
     headers: Dependencies.Headers,
+    config: Dependencies.Config,
 ):
     """Share a project with another user via email."""
     user_email = _get_user_email(headers)
-    project = _get_user_project(session, project_id, user_email)
+    project = _get_authorized_project(session, project_id, user_email, config.template_admin_emails)
 
     if body.email.lower() == user_email.lower():
         raise HTTPException(status_code=400, detail="Cannot share a project with yourself")
@@ -770,10 +774,11 @@ def list_project_shares(
     project_id: str,
     session: Dependencies.Session,
     headers: Dependencies.Headers,
+    config: Dependencies.Config,
 ):
-    """List all users a project is shared with (owner only)."""
+    """List all users a project is shared with (owner or admin)."""
     user_email = _get_user_email(headers)
-    _get_user_project(session, project_id, user_email)
+    _get_authorized_project(session, project_id, user_email, config.template_admin_emails)
 
     shares = session.exec(
         select(ProjectShare).where(ProjectShare.project_id == project_id)
@@ -801,10 +806,11 @@ def unshare_project(
     share_id: int,
     session: Dependencies.Session,
     headers: Dependencies.Headers,
+    config: Dependencies.Config,
 ):
-    """Remove a share (owner only)."""
+    """Remove a share (owner or admin)."""
     user_email = _get_user_email(headers)
-    _get_user_project(session, project_id, user_email)
+    _get_authorized_project(session, project_id, user_email, config.template_admin_emails)
 
     share = session.exec(
         select(ProjectShare).where(

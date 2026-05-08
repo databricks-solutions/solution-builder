@@ -27,12 +27,12 @@ from ..core.auth import (
 from ..models import (
     DeployedResourceLink,
     DeployedResourcesOut,
-    Project,
     ProjectFile,
     ProjectFileContent,
     ProjectFileOut,
 )
 from ..services.file_sync import FileSyncService, decompress_content
+from .projects import _get_authorized_project
 
 logger = logging.getLogger(__name__)
 router = create_router()
@@ -437,16 +437,6 @@ def _ensure_project_databrickscfg(project_dir: Path, headers) -> None:
         )
 
 
-def _get_user_project(session, project_id: str, user_email: str) -> Project:
-    """Fetch a project by ID, verifying ownership."""
-    row = session.get(Project, project_id)
-    if not row:
-        raise HTTPException(status_code=404, detail="Project not found")
-    if row.user_email != user_email:
-        raise HTTPException(status_code=404, detail="Project not found")
-    return row
-
-
 @router.get(
     "/projects/{project_id}/files",
     response_model=list[ProjectFileOut],
@@ -456,6 +446,7 @@ def list_project_files(
     project_id: str,
     session: Dependencies.Session,
     headers: Dependencies.Headers,
+    config: Dependencies.Config,
     request: Request,
     force: bool = False,
     include_hidden: bool = False,
@@ -477,7 +468,7 @@ def list_project_files(
     """
     try:
         user_email = _get_user_email(headers)
-        _get_user_project(session, project_id, user_email)
+        _get_authorized_project(session, project_id, user_email, config.template_admin_emails)
 
         project_dir = _PROJECTS_BASE_RESOLVED / project_id
 
@@ -529,6 +520,7 @@ def get_project_file(
     file_path: str,
     session: Dependencies.Session,
     headers: Dependencies.Headers,
+    config: Dependencies.Config,
     request: Request,
     response: Response,
 ):
@@ -560,9 +552,9 @@ def get_project_file(
     user_email = _get_user_email(headers)
     mark("user_email")
 
-    # Auth check — DB SELECT on Project for ownership. Covers pool checkout
-    # + pool_pre_ping SELECT 1 + the query itself on first session.exec().
-    _get_user_project(session, project_id, user_email)
+    # Auth check — owner OR admin. Covers pool checkout + pool_pre_ping
+    # SELECT 1 + the query itself on first session.exec().
+    _get_authorized_project(session, project_id, user_email, config.template_admin_emails)
     mark("auth_query")
 
     project_dir = _PROJECTS_BASE_RESOLVED / project_id
@@ -666,11 +658,12 @@ def download_project_as_zip(
     project_id: str,
     session: Dependencies.Session,
     headers: Dependencies.Headers,
+    config: Dependencies.Config,
     request: Request,
 ):
     """Download all project files as a zip archive."""
     user_email = _get_user_email(headers)
-    project = _get_user_project(session, project_id, user_email)
+    project = _get_authorized_project(session, project_id, user_email, config.template_admin_emails)
 
     project_dir = _PROJECTS_BASE_RESOLVED / project_id
 
@@ -801,12 +794,13 @@ def get_deployed_resources(
     project_id: str,
     session: Dependencies.Session,
     headers: Dependencies.Headers,
+    config: Dependencies.Config,
     ws: Dependencies.Client,
     request: Request,
 ):
     """Get deployed Databricks resource links parsed from resources.json."""
     user_email = _get_user_email(headers)
-    _get_user_project(session, project_id, user_email)
+    _get_authorized_project(session, project_id, user_email, config.template_admin_emails)
 
     file_sync: FileSyncService = request.app.state.file_sync
     # Try root-level resources.json first (new convention), then legacy path

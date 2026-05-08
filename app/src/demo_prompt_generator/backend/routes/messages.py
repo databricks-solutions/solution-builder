@@ -6,15 +6,14 @@ from fastapi import HTTPException
 from sqlmodel import select
 
 from ..core import Dependencies, create_router
-from ..core.auth import is_admin
 from ..models import (
     Message,
     MessageCreateRequest,
     MessageOut,
-    Project,
     decompress_reasoning,
 )
 from ..services.agent import get_client_pool
+from .projects import _get_authorized_project
 
 router = create_router()
 
@@ -26,28 +25,6 @@ def _get_user_email(headers) -> str:
     if headers and headers.user_id:
         return headers.user_id
     return "anonymous@local"
-
-
-def _get_user_project(session, project_id: str, user_email: str) -> Project:
-    """Fetch a project by ID, verifying ownership."""
-    row = session.get(Project, project_id)
-    if not row:
-        raise HTTPException(status_code=404, detail="Project not found")
-    if row.user_email != user_email:
-        raise HTTPException(status_code=404, detail="Project not found")
-    return row
-
-
-def _get_readable_project(
-    session, project_id: str, user_email: str, admin_emails: list[str]
-) -> Project:
-    """Owner-or-admin read access. Use only on read endpoints."""
-    row = session.get(Project, project_id)
-    if not row:
-        raise HTTPException(status_code=404, detail="Project not found")
-    if row.user_email == user_email or is_admin(user_email, admin_emails):
-        return row
-    raise HTTPException(status_code=404, detail="Project not found")
 
 
 @router.get(
@@ -70,7 +47,7 @@ def list_project_messages(
     `has_reasoning: bool` tells the UI whether the toggle should appear.
     """
     user_email = _get_user_email(headers)
-    _get_readable_project(
+    _get_authorized_project(
         session, project_id, user_email, config.template_admin_emails
     )
 
@@ -135,7 +112,7 @@ def get_message_reasoning(
         raise HTTPException(status_code=404, detail="Message not found")
 
     project_id, reasoning_bytes = row
-    _get_readable_project(
+    _get_authorized_project(
         session, project_id, user_email, config.template_admin_emails
     )
 
@@ -152,10 +129,13 @@ def add_project_message(
     body: MessageCreateRequest,
     session: Dependencies.Session,
     headers: Dependencies.Headers,
+    config: Dependencies.Config,
 ):
     """Add a new message to a project."""
     user_email = _get_user_email(headers)
-    _get_user_project(session, project_id, user_email)
+    _get_authorized_project(
+        session, project_id, user_email, config.template_admin_emails
+    )
 
     msg = Message(
         project_id=project_id,
@@ -186,10 +166,13 @@ def clear_project_messages(
     project_id: str,
     session: Dependencies.Session,
     headers: Dependencies.Headers,
+    config: Dependencies.Config,
 ):
     """Delete all messages for a project."""
     user_email = _get_user_email(headers)
-    _get_user_project(session, project_id, user_email)
+    _get_authorized_project(
+        session, project_id, user_email, config.template_admin_emails
+    )
 
     messages = session.exec(
         select(Message).where(Message.project_id == project_id)
@@ -211,6 +194,7 @@ async def clear_project_session(
     project_id: str,
     session: Dependencies.Session,
     headers: Dependencies.Headers,
+    config: Dependencies.Config,
 ):
     """Clear project session: delete all messages, drop the SDK client,
     and clear `project.session_id` so the next turn starts a brand-new
@@ -229,7 +213,9 @@ async def clear_project_session(
 
     # DB work on a worker thread — sync psycopg would otherwise block the loop.
     def _reset_db_state() -> int:
-        project = _get_user_project(session, project_id, user_email)
+        project = _get_authorized_project(
+            session, project_id, user_email, config.template_admin_emails
+        )
         messages = session.exec(
             select(Message).where(Message.project_id == project_id)
         ).all()

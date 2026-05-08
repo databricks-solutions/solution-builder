@@ -89,9 +89,14 @@ function getToolDescription(name: string, input: unknown): string {
       break;
   }
 
-  // Remove common project path prefixes for readability
-  description = description.replace(/^(\/[^/]+)+\/projects\/[a-f0-9-]+\//, "");
-  description = description.replace(/^\.\/projects\/[a-f0-9-]+\//, "");
+  // Strip the long project-dir prefix from any path-like substring so the
+  // tool line stays readable. Matches:
+  //   /any/abs/.../projects/<uuid>/...   → strips through `<uuid>/`
+  //   ./projects/<uuid>/...
+  //   bare projects/<uuid>/...           (e.g. when the agent uses cwd-relative paths)
+  // No `^` anchor + `g` flag so we catch every occurrence on a multi-path
+  // command like `ls /a/projects/<id>/x /a/projects/<id>/y`.
+  description = description.replace(/(?:\.\/|\/(?:[^\s/]+\/)*)?projects\/[a-f0-9-]+\//g, "");
 
   return description;
 }
