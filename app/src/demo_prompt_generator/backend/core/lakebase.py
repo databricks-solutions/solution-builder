@@ -25,6 +25,7 @@ import os
 import shutil
 import threading
 from collections.abc import Generator
+from concurrent.futures import TimeoutError as FuturesTimeoutError
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -539,19 +540,80 @@ class _LakebaseDependency(LifespanDependency):
 
         yield
 
-        db_future.result(timeout=30)
-        executor.shutdown(wait=True)
+        # ── Shutdown — every step has a hard timeout. ────────────────────
+        # Apps platform sends SIGTERM and gives us ~15s before SIGKILL.
+        # We must exit promptly even when external handles are wedged
+        # (a Node SDK subprocess that won't die, a psycopg connection
+        # blocked on a Lakebase query, etc.). Order matters: cancel
+        # streams + agent subprocesses FIRST so nothing new lands in
+        # the executor, then drain the executor with a deadline.
 
-        if app.state.file_watcher:
-            app.state.file_watcher.stop()
-        if fmapi_task is not None:
-            fmapi_task.cancel()
-        if reaper_task is not None:
-            reaper_task.cancel()
+        # 1. Cancel all in-flight SSE streams + their agent tasks. This
+        #    flips them to "cancelled" so the SSE generator loops exit
+        #    on their next poll iteration instead of blocking on the
+        #    full SSE_WINDOW_SECONDS (~50 s).
+        try:
+            from ..services.active_stream import get_stream_manager
+            cancelled = get_stream_manager().cancel_all()
+            if cancelled:
+                logger.info(f"[shutdown] cancelled {cancelled} active stream(s)")
+        except Exception as e:
+            logger.warning(f"[shutdown] stream cancel failed: {e!r}")
+
+        # 2. Cancel background loops. cancel() is non-blocking; the
+        #    coroutines may not unwind synchronously but the event loop
+        #    is about to be torn down anyway.
+        for name, task in (("fmapi-refresh", fmapi_task), ("client-reaper", reaper_task)):
+            if task is not None:
+                task.cancel()
+                logger.info(f"[shutdown] cancelled {name} task")
+
+        # 3. Disconnect every pooled Claude SDK client with a per-client
+        #    timeout. SDK disconnect waits for the Node subprocess to
+        #    exit; if the subprocess is wedged, abandon it.
+        try:
+            dropped = await asyncio.wait_for(
+                get_client_pool().shutdown_all(timeout=3.0),
+                timeout=8.0,
+            )
+            if dropped:
+                logger.info(f"[shutdown] disconnected {dropped} pooled client(s)")
+        except asyncio.TimeoutError:
+            logger.warning("[shutdown] client pool shutdown overran 8s — abandoning")
+        except Exception as e:
+            logger.warning(f"[shutdown] client pool shutdown error: {e!r}")
+
+        # 4. Drain the executor used for DB init / sync writes. Bound
+        #    to 5s — anything still running gets dropped on the floor.
+        try:
+            db_future.result(timeout=5)
+        except FuturesTimeoutError:
+            logger.warning("[shutdown] db init future overran 5s — abandoning")
+        except Exception as e:
+            logger.warning(f"[shutdown] db init future raised: {e!r}")
+
+        executor.shutdown(wait=False, cancel_futures=True)
+
+        # 5. Stop the file watcher (filesystem observer thread).
+        try:
+            if app.state.file_watcher:
+                app.state.file_watcher.stop()
+        except Exception as e:
+            logger.warning(f"[shutdown] file watcher stop error: {e!r}")
+
+        # 6. Stop the Lakebase token-refresh thread + dispose the engine.
         connector = getattr(engine, "_lakebase_connector", None)
         if connector is not None:
-            connector.stop()
-        engine.dispose()
+            try:
+                connector.stop()
+            except Exception as e:
+                logger.warning(f"[shutdown] lakebase connector stop error: {e!r}")
+        try:
+            engine.dispose()
+        except Exception as e:
+            logger.warning(f"[shutdown] engine.dispose error: {e!r}")
+
+        logger.info("[shutdown] lifespan teardown complete")
 
     @staticmethod
     def __call__(request: Request) -> Generator[Session, None, None]:

@@ -187,6 +187,26 @@ class ActiveStreamManager:
         if to_remove:
             logger.info(f"Cleaned up {len(to_remove)} old streams")
 
+    def cancel_all(self) -> int:
+        """Mark every active stream as cancelled. Used at app shutdown
+        so the SSE generator loops in routes/agent.py exit on their next
+        poll iteration instead of blocking the lifespan teardown for the
+        full SSE_WINDOW_SECONDS (~50 s). The associated agent task is
+        also cancelled if still running.
+
+        Returns the number of streams cancelled.
+        """
+        cancelled = 0
+        for execution_id, stream in list(self._streams.items()):
+            if stream.is_complete or stream.is_error or stream.is_cancelled:
+                continue
+            stream.mark_cancelled()
+            task = getattr(stream, "task", None)
+            if task is not None and not task.done():
+                task.cancel()
+            cancelled += 1
+        return cancelled
+
 
 # Convenience function to get the manager
 def get_stream_manager() -> ActiveStreamManager:
