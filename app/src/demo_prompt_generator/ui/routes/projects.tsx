@@ -18,6 +18,7 @@ import {
   shareProject,
   listProjectShares,
   unshareProject,
+  deleteProject,
   getCurrentUser,
   type ProjectListItem,
   type ProjectShareOut,
@@ -33,6 +34,7 @@ import {
   X,
   Trash2,
   Shield,
+  CheckSquare,
 } from "lucide-react";
 
 function ProjectsWithLayout() {
@@ -71,6 +73,13 @@ function ProjectsPage() {
   const [shareError, setShareError] = useState<string | null>(null);
   const [existingShares, setExistingShares] = useState<ProjectShareOut[]>([]);
   const [isLoadingShares, setIsLoadingShares] = useState(false);
+
+  // Multi-select / bulk delete state
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   // Resolve current user once so we know if the admin toggle should appear.
   useEffect(() => {
@@ -164,6 +173,67 @@ function ProjectsPage() {
       to: "/project/$projectId",
       params: { projectId },
     });
+  };
+
+  // In selection mode, tile click toggles selection instead of navigating.
+  // Only owned projects (current user or admin override) can be selected.
+  const canSelect = useCallback(
+    (project: ProjectListItem) =>
+      adminViewAll || project.owner_email === currentUserEmail,
+    [adminViewAll, currentUserEmail]
+  );
+
+  const handleTileClick = (project: ProjectListItem) => {
+    if (selectionMode) {
+      if (!canSelect(project)) return;
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        if (next.has(project.id)) next.delete(project.id);
+        else next.add(project.id);
+        return next;
+      });
+      return;
+    }
+    handleOpenProject(project.id);
+  };
+
+  const exitSelectionMode = () => {
+    setSelectionMode(false);
+    setSelectedIds(new Set());
+    setDeleteError(null);
+  };
+
+  const handleConfirmBulkDelete = async () => {
+    if (selectedIds.size === 0) return;
+    setIsDeleting(true);
+    setDeleteError(null);
+    const ids = Array.from(selectedIds);
+    const failed: string[] = [];
+    await Promise.all(
+      ids.map(async (id) => {
+        try {
+          await deleteProject(id);
+        } catch (err) {
+          console.error(`Failed to delete project ${id}:`, err);
+          failed.push(id);
+        }
+      })
+    );
+    const succeeded = ids.filter((id) => !failed.includes(id));
+    if (succeeded.length > 0) {
+      setProjects((prev) => prev.filter((p) => !succeeded.includes(p.id)));
+      setSharedProjects((prev) => prev.filter((p) => !succeeded.includes(p.id)));
+    }
+    setIsDeleting(false);
+    if (failed.length > 0) {
+      setDeleteError(
+        `Failed to delete ${failed.length} of ${ids.length} project${ids.length === 1 ? "" : "s"}.`
+      );
+      setSelectedIds(new Set(failed));
+    } else {
+      setConfirmDeleteOpen(false);
+      exitSelectionMode();
+    }
   };
 
   const handleToggleStar = async (project: ProjectListItem) => {
@@ -340,8 +410,8 @@ function ProjectsPage() {
         </div>
       </div>
 
-      {/* Search and sort controls */}
-      <div className="flex flex-col sm:flex-row gap-3">
+      {/* Search, sort, and selection controls */}
+      <div className="flex flex-col sm:flex-row gap-3 sm:items-center">
         {/* Search input */}
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -379,6 +449,40 @@ function ProjectsPage() {
             <option value="most-messages">Most Messages</option>
           </select>
         </div>
+
+        {/* Selection controls */}
+        {!selectionMode ? (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setSelectionMode(true)}
+          >
+            <CheckSquare className="h-4 w-4 mr-2" />
+            Select
+          </Button>
+        ) : (
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-muted-foreground whitespace-nowrap">
+              {selectedIds.size} selected
+            </span>
+            <Button
+              variant="destructive"
+              size="sm"
+              disabled={selectedIds.size === 0}
+              onClick={() => {
+                setDeleteError(null);
+                setConfirmDeleteOpen(true);
+              }}
+            >
+              <Trash2 className="h-4 w-4 mr-2" />
+              Delete{selectedIds.size > 0 ? ` (${selectedIds.size})` : ""}
+            </Button>
+            <Button variant="outline" size="sm" onClick={exitSelectionMode}>
+              <X className="h-4 w-4 mr-2" />
+              Cancel
+            </Button>
+          </div>
+        )}
       </div>
 
       {/* Starred section */}
@@ -396,7 +500,7 @@ function ProjectsPage() {
               <ProjectTile
                 key={project.id}
                 project={project}
-                onClick={() => handleOpenProject(project.id)}
+                onClick={() => handleTileClick(project)}
                 onToggleStar={() => handleToggleStar(project)}
                 onShare={
                   project.owner_email === currentUserEmail
@@ -404,6 +508,8 @@ function ProjectsPage() {
                     : undefined
                 }
                 showOwner={adminViewAll && project.owner_email !== currentUserEmail}
+                selectable={selectionMode && canSelect(project)}
+                selected={selectedIds.has(project.id)}
               />
             ))}
           </div>
@@ -427,9 +533,11 @@ function ProjectsPage() {
               <ProjectTile
                 key={project.id}
                 project={project}
-                onClick={() => handleOpenProject(project.id)}
+                onClick={() => handleTileClick(project)}
                 onToggleStar={() => handleToggleStar(project)}
                 showOwner
+                selectable={selectionMode && canSelect(project)}
+                selected={selectedIds.has(project.id)}
               />
             ))}
           </div>
@@ -455,7 +563,7 @@ function ProjectsPage() {
               <ProjectTile
                 key={project.id}
                 project={project}
-                onClick={() => handleOpenProject(project.id)}
+                onClick={() => handleTileClick(project)}
                 onToggleStar={() => handleToggleStar(project)}
                 onShare={
                   project.owner_email === currentUserEmail
@@ -463,6 +571,8 @@ function ProjectsPage() {
                     : undefined
                 }
                 showOwner={adminViewAll && project.owner_email !== currentUserEmail}
+                selectable={selectionMode && canSelect(project)}
+                selected={selectedIds.has(project.id)}
               />
             ))}
           </div>
@@ -606,6 +716,60 @@ function ProjectsPage() {
               )}
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Bulk delete confirmation */}
+      <Dialog
+        open={confirmDeleteOpen}
+        onOpenChange={(open) => {
+          if (!isDeleting) setConfirmDeleteOpen(open);
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Trash2 className="h-5 w-5 text-destructive" />
+              Delete {selectedIds.size}{" "}
+              {selectedIds.size === 1 ? "project" : "projects"}?
+            </DialogTitle>
+            <DialogDescription>
+              This permanently removes the selected{" "}
+              {selectedIds.size === 1 ? "project" : "projects"}, including all
+              messages and on-disk project files. This cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+
+          {deleteError && (
+            <p className="text-sm text-destructive">{deleteError}</p>
+          )}
+
+          <div className="flex justify-end gap-2 pt-2">
+            <Button
+              variant="outline"
+              onClick={() => setConfirmDeleteOpen(false)}
+              disabled={isDeleting}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleConfirmBulkDelete}
+              disabled={isDeleting || selectedIds.size === 0}
+            >
+              {isDeleting ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Deleting...
+                </>
+              ) : (
+                <>
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  Delete {selectedIds.size}
+                </>
+              )}
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
     </div>

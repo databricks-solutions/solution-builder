@@ -14,6 +14,8 @@ from ..core._config import logger
 from ..core.auth import is_admin
 from ..services.llm_service import LLMService, ModelSize
 from ..models import (
+    DescriptionAiEditRequest,
+    DescriptionAiEditResponse,
     Message,
     Project,
     ProjectCreateRequest,
@@ -491,6 +493,66 @@ def update_project(
         source_template_id=project.source_template_id,
         source_template_name=_resolve_template_name(session, project.source_template_id),
     )
+
+
+@router.post(
+    "/projects/{project_id}/description/ai-edit",
+    response_model=DescriptionAiEditResponse,
+    operation_id="aiEditProjectDescription",
+)
+def ai_edit_project_description(
+    project_id: str,
+    body: DescriptionAiEditRequest,
+    session: Dependencies.Session,
+    headers: Dependencies.Headers,
+    config: Dependencies.Config,
+    ws: Dependencies.Client,
+):
+    """Ask the mini LLM to rewrite a project's description per a user instruction.
+
+    Returns the suggested description without saving — the client previews it
+    and decides whether to PATCH the project. SP client handles the model
+    serving call (OBO tokens lack the model-serving scope).
+    """
+    user_email = _get_user_email(headers)
+    project = _get_authorized_project(session, project_id, user_email, config.template_admin_emails)
+
+    instruction = (body.instruction or "").strip()
+    if not instruction:
+        raise HTTPException(status_code=400, detail="Instruction is required")
+
+    current = (body.current_description or project.description or "").strip()
+
+    system_prompt = (
+        "You rewrite short demo project descriptions. Reply with ONLY the new "
+        "description text — no quotes, no preamble, no markdown. Keep it under "
+        "400 characters unless the user explicitly asks for a longer version. "
+        "Stay factual to the existing description; do not invent capabilities."
+    )
+    user_prompt = (
+        f"Project name: {project.name}\n\n"
+        f"Current description:\n{current or '(empty)'}\n\n"
+        f"Instruction: {instruction}\n\n"
+        "Return the new description only."
+    )
+
+    llm = LLMService(ws, config)
+    try:
+        suggestion = llm.chat(
+            user_prompt,
+            size=ModelSize.MINI,
+            system_prompt=system_prompt,
+            max_tokens=500,
+        )
+    except Exception as e:
+        logger.error(f"AI description edit failed for project {project_id}: {e}")
+        raise HTTPException(status_code=502, detail="AI edit failed") from e
+
+    suggestion = (suggestion or "").strip().strip('"').strip("'").strip()
+    if not suggestion:
+        raise HTTPException(status_code=502, detail="AI returned an empty description")
+
+    return DescriptionAiEditResponse(description=suggestion)
 
 
 @router.patch(

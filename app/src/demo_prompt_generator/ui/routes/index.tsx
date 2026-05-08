@@ -538,7 +538,7 @@ function Index() {
                     setTopic(e.target.value);
                     adjustTextareaHeight();
                   }}
-                  className="min-h-12 text-base bg-background/60 resize-none overflow-hidden"
+                  className="min-h-12 text-lg md:text-lg bg-background/60 resize-none overflow-hidden"
                   rows={1}
                   autoFocus
                 />

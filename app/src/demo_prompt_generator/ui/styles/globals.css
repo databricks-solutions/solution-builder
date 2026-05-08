@@ -167,3 +167,20 @@
   background-size: 200% 200%;
   animation: resource-shimmer 2.4s linear infinite;
 }
+
+/* Subtle amber glow pulse for live reasoning panel — signals "actively
+ * streaming" without being noisy. Animates an outer box-shadow ring +
+ * inner border color so it reads on both light and dark backgrounds. */
+@keyframes reasoning-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(56, 189, 248, 0.0), 0 10px 25px -5px rgba(0, 0, 0, 0.15);
+    border-color: var(--border);
+  }
+  50% {
+    box-shadow: 0 0 0 4px rgba(56, 189, 248, 0.20), 0 10px 25px -5px rgba(56, 189, 248, 0.28);
+    border-color: rgba(56, 189, 248, 0.60);
+  }
+}
+.animate-reasoning-pulse {
+  animation: reasoning-pulse 2.4s ease-in-out infinite;
+}

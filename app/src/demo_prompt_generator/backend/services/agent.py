@@ -670,7 +670,20 @@ def _convert_sdk_message(msg: Any) -> Generator[dict, None, None]:
         if isinstance(msg_content, list):
             for block in msg_content:
                 if isinstance(block, ToolResultBlock):
-                    yield _process_tool_result(block)
+                    # The SDK delivers tool results back to the model as
+                    # UserMessages — this is the dominant tool_result path,
+                    # not the AssistantMessage branch above. Stamping
+                    # `timestamp` here is what gives every tool a
+                    # completed_at downstream: collect_reasoning reads it
+                    # for the persisted reasoning_data, and the SSE replay
+                    # surfaces it on reconnect (without it, the frontend's
+                    # `event.timestamp || new Date().toISOString()` fallback
+                    # collapses every replayed tool_result onto wall-clock
+                    # "now", inflating tool durations to "minutes" on any
+                    # reload of an in-flight project).
+                    result = _process_tool_result(block)
+                    result["timestamp"] = datetime.now(timezone.utc).isoformat()
+                    yield result
 
     elif isinstance(msg, StreamEvent):
         event_data = msg.event
@@ -695,7 +708,11 @@ def _convert_sdk_message(msg: Any) -> Generator[dict, None, None]:
             elif delta_type == "thinking_delta":
                 thinking = delta.get("thinking", "")
                 if thinking:
-                    yield {"type": "thinking_delta", "thinking": thinking}
+                    yield {
+                        "type": "thinking_delta",
+                        "thinking": thinking,
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                    }
 
     else:
         msg_type = type(msg).__name__
@@ -767,27 +784,53 @@ def collect_reasoning(events: list[dict]) -> list[dict]:
     - {"type": "tool_result", "tool_id": "...", "content": "...", "is_error": bool, "completed_at": "..."}
     """
     reasoning = []
-    current_thinking = []
+    current_thinking: list[str] = []
+    current_thinking_started_at: str | None = None
+    current_thinking_last_at: str | None = None
+
+    def _flush_thinking(close_ts: str | None = None) -> None:
+        """Emit the buffered thinking block as a single entry, with timestamps
+        when available. `close_ts` (e.g. the started_at of the next tool_use)
+        wins over the last delta's timestamp because it's a tighter upper
+        bound on when the thinking ended."""
+        nonlocal current_thinking, current_thinking_started_at, current_thinking_last_at
+        if not current_thinking:
+            current_thinking_started_at = None
+            current_thinking_last_at = None
+            return
+        text = "".join(current_thinking)
+        if text:
+            entry: dict = {"type": "thinking", "content": text}
+            if current_thinking_started_at:
+                entry["started_at"] = current_thinking_started_at
+            completed = close_ts or current_thinking_last_at
+            if completed:
+                entry["completed_at"] = completed
+            reasoning.append(entry)
+        current_thinking = []
+        current_thinking_started_at = None
+        current_thinking_last_at = None
 
     for event in events:
         event_type = event.get("type")
 
         if event_type == "thinking_delta":
             current_thinking.append(event.get("thinking", ""))
+            ts = event.get("timestamp")
+            if ts:
+                if current_thinking_started_at is None:
+                    current_thinking_started_at = ts
+                current_thinking_last_at = ts
 
         elif event_type == "thinking":
-            thinking_text = "".join(current_thinking) if current_thinking else event.get("thinking", "")
-            if thinking_text:
-                reasoning.append({"type": "thinking", "content": thinking_text})
-            current_thinking = []
+            # Final aggregated thinking block — flush whatever we buffered.
+            # If no deltas arrived (rare), fall back to the event's own text.
+            if not current_thinking and event.get("thinking"):
+                current_thinking.append(event["thinking"])
+            _flush_thinking()
 
         elif event_type == "tool_use":
-            if current_thinking:
-                thinking_text = "".join(current_thinking)
-                if thinking_text:
-                    reasoning.append({"type": "thinking", "content": thinking_text})
-                current_thinking = []
-
+            _flush_thinking(close_ts=event.get("timestamp"))
             entry = {
                 "type": "tool",
                 "id": event.get("tool_id"),
@@ -809,9 +852,5 @@ def collect_reasoning(events: list[dict]) -> list[dict]:
                 entry["completed_at"] = event["timestamp"]
             reasoning.append(entry)
 
-    if current_thinking:
-        thinking_text = "".join(current_thinking)
-        if thinking_text:
-            reasoning.append({"type": "thinking", "content": thinking_text})
-
+    _flush_thinking()
     return reasoning

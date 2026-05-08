@@ -84,7 +84,7 @@ const STAGE_META: Record<ProjectStage, StageMeta> = {
     label: "Built",
     shortLabel: "Built",
     icon: Hammer,
-    description: ".py/.sql code files",
+    description: "Resources deployed and live in the workspace",
   },
   BUNDLED: {
     label: "Bundle",
@@ -107,10 +107,14 @@ export interface StageInfo {
   hasArch: boolean;
   hasSpecifications: boolean;
   hasCode: boolean;
+  hasDeployedResources: boolean;
   hasDab: boolean;
 }
 
-export function detectStageFromFiles(files: ProjectFile[]): StageInfo {
+export function detectStageFromFiles(
+  files: ProjectFile[],
+  deployedResourceCount = 0,
+): StageInfo {
   const paths = files.map((f) => f.path);
   const fileMap = new Map(files.map((f) => [f.path, f]));
 
@@ -122,6 +126,9 @@ export function detectStageFromFiles(files: ProjectFile[]): StageInfo {
   const hasCode = paths.some(
     (p) => (p.endsWith(".py") || p.endsWith(".sql")) && !p.startsWith("src/deploy/")
   );
+  // BUILT now means resources are actually live in the workspace (visible
+  // in the deployed-resources bar), not merely that code files exist on disk.
+  const hasDeployedResources = deployedResourceCount > 0;
   const hasDab = fileMap.has("databricks.yml");
 
   const checks: Record<ProjectStage, StageCheck[]> = {
@@ -141,18 +148,21 @@ export function detectStageFromFiles(files: ProjectFile[]): StageInfo {
     BUILT: [
       { label: "specifications/*.md files exist", passed: hasSpecifications },
       { label: "Code files (.py or .sql) exist", passed: hasCode },
+      { label: "Resources deployed to workspace", passed: hasDeployedResources },
     ],
     BUNDLED: [
-      { label: "Code files (.py or .sql) exist", passed: hasCode },
+      { label: "Resources deployed to workspace", passed: hasDeployedResources },
       { label: "databricks.yml exists", passed: hasDab },
     ],
   };
 
-  // Determine current stage (most advanced that's reached)
+  // Determine current stage (most advanced that's reached). BUILT now
+  // requires actually-deployed resources, not just code on disk — code
+  // alone keeps the project in SPECIFICATION.
   let stage: ProjectStage = "DRAFTING";
   if (hasDab) {
     stage = "BUNDLED";
-  } else if (hasCode) {
+  } else if (hasDeployedResources) {
     stage = "BUILT";
   } else if (hasSpecifications) {
     stage = "SPECIFICATION";
@@ -162,7 +172,7 @@ export function detectStageFromFiles(files: ProjectFile[]): StageInfo {
     stage = "SUMMARIZED";
   }
 
-  return { stage, checks, hasReadme, hasArch, hasSpecifications, hasCode, hasDab };
+  return { stage, checks, hasReadme, hasArch, hasSpecifications, hasCode, hasDeployedResources, hasDab };
 }
 
 // ---------------------------------------------------------------------------
@@ -173,6 +183,9 @@ export interface BuildStepperProps {
   isStreaming: boolean;
   /** Project files — used to auto-detect current stage */
   files: ProjectFile[];
+  /** Count of resources currently deployed and visible in the resources bar.
+   *  BUILT stage requires this to be > 0 (code files alone are not enough). */
+  deployedResourceCount?: number;
   /** Callbacks for stage actions */
   onCreateArchitecture?: () => void;
   onUpdateArchitecture?: () => void;
@@ -193,6 +206,7 @@ export interface BuildStepperProps {
 export function BuildStepper({
   isStreaming,
   files,
+  deployedResourceCount = 0,
   onCreateArchitecture,
   onUpdateArchitecture,
   onCreateSpec,
@@ -204,8 +218,11 @@ export function BuildStepper({
   onDownloadDAB,
   onPublishTemplate,
 }: BuildStepperProps) {
-  // Auto-detect stage from files
-  const stageInfo = useMemo(() => detectStageFromFiles(files), [files]);
+  // Auto-detect stage from files + live deploy state
+  const stageInfo = useMemo(
+    () => detectStageFromFiles(files, deployedResourceCount),
+    [files, deployedResourceCount],
+  );
   const { stage: currentStage, checks, hasReadme, hasArch, hasSpecifications, hasCode, hasDab } = stageInfo;
   const currentIdx = PROJECT_STAGES.indexOf(currentStage);
 

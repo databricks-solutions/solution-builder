@@ -113,6 +113,12 @@ export interface DeployedResources {
 export interface ThinkingEntry {
   type: "thinking";
   content: string;
+  /** Wall-clock timestamps for the underlying ThinkingBlock. Optional —
+   *  legacy entries persisted before the timeline rewrite lack these,
+   *  in which case the UI falls back to inferring duration from the
+   *  surrounding tool calls (or just renders "Thought" without one). */
+  started_at?: string;
+  completed_at?: string;
 }
 
 export interface ToolEntry {
@@ -185,7 +191,7 @@ export type AgentEvent =
   | { type: "text"; text: string }
   | { type: "text_block_start" }
   | { type: "thinking"; thinking: string }
-  | { type: "thinking_delta"; thinking: string }
+  | { type: "thinking_delta"; thinking: string; timestamp?: string }
   | { type: "tool_use"; tool_id: string; tool_name: string; tool_input: unknown; timestamp?: string }
   | { type: "tool_result"; tool_use_id: string; content: string; is_error: boolean; timestamp?: string }
   | { type: "result"; session_id: string | null; duration_ms: number; total_cost_usd?: number; is_error?: boolean; num_turns?: number }
@@ -253,6 +259,29 @@ export async function updateProject(
 export async function deleteProject(projectId: string): Promise<void> {
   const resp = await fetch(apiUrl(`/api/projects/${projectId}`), { method: "DELETE" });
   if (!resp.ok) throw new Error(`Failed to delete project: ${resp.status}`);
+}
+
+export async function aiEditProjectDescription(
+  projectId: string,
+  currentDescription: string | null,
+  instruction: string,
+): Promise<{ description: string }> {
+  const resp = await fetch(
+    apiUrl(`/api/projects/${projectId}/description/ai-edit`),
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        current_description: currentDescription,
+        instruction,
+      }),
+    },
+  );
+  if (!resp.ok) {
+    const detail = await resp.text().catch(() => "");
+    throw new Error(detail || `AI edit failed: ${resp.status}`);
+  }
+  return resp.json();
 }
 
 export async function syncProject(projectId: string): Promise<SyncStats> {

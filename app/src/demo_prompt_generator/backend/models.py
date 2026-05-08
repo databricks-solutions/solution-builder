@@ -435,6 +435,17 @@ class ProjectUpdateRequest(BaseModel):
     description: Optional[str] = None
 
 
+class DescriptionAiEditRequest(BaseModel):
+    """Ask the LLM to rewrite a project description per a free-form instruction."""
+    current_description: Optional[str] = None
+    instruction: str = Field(..., description="What the user wants changed (e.g. 'make it shorter', 'add ROI angle').")
+
+
+class DescriptionAiEditResponse(BaseModel):
+    """Suggested description from the LLM. Caller decides whether to save it."""
+    description: str
+
+
 class ProjectResourcesUpdateRequest(BaseModel):
     """Request to update project resource settings."""
     cluster_id: Optional[str] = None
