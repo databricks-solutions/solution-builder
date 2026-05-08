@@ -90,6 +90,23 @@ def _build_claude_env(
     # `databricks` CLI calls (it sees them in `os.environ`), confusing the
     # auth chain. Settings-file mode keeps the subprocess env clean.
 
+    # Front the project's venv on PATH so the agent's Bash tool defaults to
+    # python3.12 (the .venv interpreter uv installed) instead of the system
+    # /usr/bin/python3 (3.10 on Ubuntu 22.04). start.sh already does this for
+    # the uvicorn process, but the Apps runtime injects something into the
+    # agent's bash subprocess env that demotes the venv path — explicitly
+    # pinning it here ensures the agent sees 3.12.
+    venv_bin = os.environ.get("VIRTUAL_ENV", "")
+    if venv_bin:
+        venv_bin = f"{venv_bin}/bin"
+    parent_path = os.environ.get("PATH", "/usr/bin:/bin")
+    if venv_bin and venv_bin not in parent_path.split(":"):
+        env["PATH"] = f"{venv_bin}:{parent_path}"
+    elif venv_bin:
+        # Already in PATH but not first — reorder so it wins.
+        parts = [venv_bin] + [p for p in parent_path.split(":") if p != venv_bin]
+        env["PATH"] = ":".join(parts)
+
     # Databricks CLI/SDK auth for the agent's shell commands.
     env.update(subprocess_auth_env(project_dir, mode=mode, local_profile=local_profile))
     return env
@@ -201,6 +218,32 @@ class ClientPool:
                 await pooled.client.disconnect()
         except Exception as e:
             logger.warning(f"Error disconnecting client: {e}")
+
+    async def shutdown_all(self, timeout: float = 5.0) -> int:
+        """Disconnect every pooled client at app shutdown, with a hard
+        per-client timeout. The Claude SDK's `disconnect()` awaits its
+        Node subprocess to exit; if the subprocess is wedged it can hang
+        the lifespan teardown indefinitely. Bound it.
+
+        Returns the number of clients we tried to drop. Errors and
+        timeouts are logged and swallowed — shutdown never raises.
+        """
+        async with self._lock:
+            entries = list(self._clients.items())
+            self._clients.clear()
+        for project_id, pooled in entries:
+            try:
+                await asyncio.wait_for(
+                    self._disconnect_client(pooled), timeout=timeout
+                )
+            except asyncio.TimeoutError:
+                logger.warning(
+                    f"[client-pool] disconnect of {project_id} timed out "
+                    f"after {timeout}s — abandoning subprocess"
+                )
+            except Exception as e:
+                logger.warning(f"[client-pool] disconnect error for {project_id}: {e!r}")
+        return len(entries)
 
 
 # Global client pool
@@ -353,6 +396,14 @@ async def stream_agent_response(
                 # `Read` on a moderate file or `Bash` stdout from a verbose
                 # command routinely exceeds it and kills the stdin reader.
                 max_buffer_size=25 * 1024 * 1024,
+                # Opus 4.7 + Sonnet 4.6 require the new `adaptive` thinking
+                # shape — they reject the SDK's default `thinking.type.enabled`
+                # with HTTP 400. Adaptive works on older models too, so we
+                # set it unconditionally. `effort="high"` matches the API
+                # default but pinning it keeps behavior predictable across
+                # model versions.
+                thinking={"type": "adaptive"},
+                effort="high",
             )
 
             # Resume previous session if provided

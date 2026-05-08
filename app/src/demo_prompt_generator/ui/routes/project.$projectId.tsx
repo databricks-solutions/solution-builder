@@ -434,6 +434,8 @@ function ProjectPage() {
         // Stream progress
         let fullContent = "";
         let fullThinking = "";
+        let streamErrorMessage: string | null = null;
+        let streamWasCancelled = false;
         const toolsMap = new Map<string, { name: string; input: unknown; result?: string; isError?: boolean; startedAt?: string; completedAt?: string }>();
 
         for await (const event of streamAgentProgress(
@@ -498,19 +500,51 @@ function ProjectPage() {
               setFileContentKey((k) => k + 1);
             }
           } else if (event.type === "error") {
+            // The agent failed (typically: Claude Code subprocess died,
+            // FMAPI 4xx, etc.). Stash the message so we can surface it
+            // as an error-styled assistant bubble instead of just
+            // disappearing into the console.
             console.error("Agent error:", event.error);
+            streamErrorMessage = event.error || "Agent error (no details)";
           } else if (event.type === "stream.completed") {
+            // Backend includes the terminal status here. Capture cancel
+            // too so a stream that was cancelled mid-flight (e.g. via
+            // /stop_stream) renders with the warning style.
+            if (event.is_error && !streamErrorMessage) {
+              streamErrorMessage = "Agent error (no details)";
+            }
+            if (event.is_cancelled) {
+              streamWasCancelled = true;
+            }
             break;
           }
         }
 
-        // Add assistant message locally (user message already added above)
+        // Add assistant message locally (user message already added above).
+        // Tear down the streaming UI state in the SAME React batch as
+        // appending the message — otherwise the streaming bubble (still
+        // rendered because isStreaming=true) and the new persisted
+        // bubble both render for one frame, producing a visible
+        // duplicate-then-flicker. The `finally` block keeps the same
+        // resets as a safety net for the error path.
+        // Compose the message body. Three cases:
+        //   - happy path: fullContent (the streamed text)
+        //   - error: prepend the error so the bubble has visible body
+        //     (the bubble's red `is_error` style needs content to render)
+        //   - cancel: fullContent (whatever streamed before /stop_stream
+        //     fired) is enough; the bubble appends "Canceled by user"
+        const messageContent = streamErrorMessage
+          ? (fullContent
+              ? `${fullContent}\n\n---\n\n**Agent error:** ${streamErrorMessage}`
+              : `**Agent error:** ${streamErrorMessage}`)
+          : fullContent;
         const assistantMsg: Message = {
           id: Date.now() + 1,
           project_id: projectId,
           role: "assistant",
-          content: fullContent,
-          is_error: false,
+          content: messageContent,
+          is_error: streamErrorMessage !== null,
+          is_cancelled: streamWasCancelled,
           reasoning_data: reasoningRef.current ? {
             reasoning: [
               ...(reasoningRef.current.thinking ? [{ type: "thinking" as const, content: reasoningRef.current.thinking }] : []),
@@ -522,9 +556,23 @@ function ProjectPage() {
           } : null,
           created_at: new Date().toISOString(),
         };
+        if (reasoningRef.current) {
+          setLastReasoning(reasoningRef.current);
+        }
+        setIsStreaming(false);
+        setStreamingContent("");
+        setStreamingThinking("");
+        setStreamingTools(new Map());
+        setPendingUserMessage(null);
         setMessages(prev => [...prev, assistantMsg]);
 
-        // Refresh files and deployed resources (agent may have created new ones)
+        // Refresh files + deployed resources lists — agent may have created
+        // new files or new resources (Genie spaces, dashboards, etc.).
+        // We deliberately don't re-fetch the currently-selected file here:
+        // the file watcher fires `file_changed` events during the stream
+        // for any file the agent wrote, which already bumps fileContentKey
+        // and triggers loadFileContent. The unconditional refetch we used
+        // to do here was producing a duplicate GET after every chat turn.
         const [fileList, deployed] = await Promise.all([
           listProjectFiles(projectId, { includeHidden: showHidden }),
           getDeployedResources(projectId).catch(() => null),
@@ -533,25 +581,12 @@ function ProjectPage() {
         applyDeployedResources(deployed);
 
         // Auto-select README.md if no file is currently selected
-        let currentFile = selectedFileRef.current;
-        if (!currentFile) {
+        if (!selectedFileRef.current) {
           const readme = fileList.find((f) => f.path === "README.md");
           if (readme) {
-            currentFile = "README.md";
             setSelectedFile("README.md");
           } else if (fileList.length > 0) {
-            currentFile = fileList[0].path;
             setSelectedFile(fileList[0].path);
-          }
-        }
-
-        // Refresh current file content
-        if (currentFile) {
-          try {
-            const content = await getProjectFile(projectId, currentFile);
-            setFileContent(content);
-          } catch {
-            // File may have been deleted
           }
         }
       } catch (error) {
@@ -594,7 +629,10 @@ function ProjectPage() {
           }
         } catch { /* ignore fetch errors during recovery */ }
       } finally {
-        // Save reasoning from ref BEFORE clearing streaming state
+        // Safety net for the error path. The success path already cleared
+        // these in the try block (in the same batch as appending the
+        // assistant message, to avoid a flicker). Calling again here is a
+        // no-op when state is already empty.
         if (reasoningRef.current) {
           setLastReasoning(reasoningRef.current);
         }
@@ -605,9 +643,6 @@ function ProjectPage() {
         setPendingUserMessage(null);
         setExecutionId(null);
         abortControllerRef.current = null;
-        // Bump key to force loadFileContent effect to re-fire, ensuring
-        // the file viewer always reflects what the agent wrote to disk.
-        setFileContentKey((k) => k + 1);
       }
     },
     [projectId, isStreaming]
@@ -689,35 +724,34 @@ function ProjectPage() {
         }
       }
 
-      // Refresh messages, files, and deployed resources from DB after agent completion
+      // Refresh messages, files, and deployed resources from DB after agent
+      // completion. Tear down streaming UI in the SAME React batch as
+      // applying messages so the streaming bubble doesn't co-render with
+      // the persisted bubble for a frame (= the duplicate-then-flicker).
+      // No unconditional getProjectFile here either: file_changed events
+      // during the stream already refreshed the selected file's content.
       const [msgs, fileList, deployed] = await Promise.all([
         listProjectMessages(projectId),
         listProjectFiles(projectId),
         getDeployedResources(projectId).catch(() => null),
       ]);
+      if (reasoningRef.current) setLastReasoning(reasoningRef.current);
+      setIsStreaming(false);
+      setStreamingContent("");
+      setStreamingThinking("");
+      setStreamingTools(new Map());
       setMessages(msgs);
       setFiles(fileList);
       applyDeployedResources(deployed);
 
       // Auto-select README.md if no file is selected
-      let fileToLoad = selectedFileRef.current;
-      if (!fileToLoad) {
+      if (!selectedFileRef.current) {
         const readme = fileList.find((f) => f.path === "README.md");
         if (readme) {
-          fileToLoad = "README.md";
           setSelectedFile("README.md");
         } else if (fileList.length > 0) {
-          fileToLoad = fileList[0].path;
           setSelectedFile(fileList[0].path);
         }
-      }
-
-      // Refresh selected file content
-      if (fileToLoad) {
-        try {
-          const content = await getProjectFile(projectId, fileToLoad);
-          setFileContent(content);
-        } catch { /* ignore */ }
       }
     } catch (error) {
       if ((error as Error).name !== "AbortError") {
@@ -725,6 +759,7 @@ function ProjectPage() {
         toast.error((error as Error).message || "Lost connection to agent");
       }
     } finally {
+      // Safety net — success path already cleared these.
       if (reasoningRef.current) setLastReasoning(reasoningRef.current);
       setIsStreaming(false);
       setStreamingContent("");
@@ -732,7 +767,6 @@ function ProjectPage() {
       setStreamingTools(new Map());
       setExecutionId(null);
       abortControllerRef.current = null;
-      setFileContentKey((k) => k + 1);
     }
   }, [projectId, debouncedRefreshFiles]);
 

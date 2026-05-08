@@ -18,6 +18,12 @@ from fastapi.responses import StreamingResponse
 from sqlmodel import select
 
 from ..core import Dependencies, create_router
+from ..core.auth import (
+    detect_mode,
+    request_user_pat,
+    resolve_host,
+    write_project_auth_file,
+)
 from ..models import (
     DeployedResourceLink,
     DeployedResourcesOut,
@@ -397,6 +403,40 @@ def _get_user_email(headers) -> str:
     return "anonymous@local"
 
 
+def _ensure_project_databrickscfg(project_dir: Path, headers) -> None:
+    """Refresh `<project_dir>/.databrickscfg` from the current request's
+    PAT. Deployed mode only — no-op locally.
+
+    Called from any project-scoped route the user might hit when
+    re-opening a project (list files, get file, deployed-resources, …).
+    Without this the file lands only when /invoke_agent fires, which
+    means a freshly-restored project (post-container-restart) has no
+    auth file until the user sends their first chat message — and any
+    `databricks` CLI call before that point fails.
+
+    Best-effort: errors are logged and swallowed so they never break
+    the request.
+    """
+    if detect_mode(headers) != "deployed":
+        return
+    pat = request_user_pat(headers)
+    if pat is None:
+        return
+    host = resolve_host(headers)
+    if not host:
+        logger.warning(
+            "deployed mode + PAT present but no host resolvable — "
+            "skipping .databrickscfg write for project_dir %s", project_dir,
+        )
+        return
+    try:
+        write_project_auth_file(project_dir, host, pat)
+    except Exception:
+        logger.exception(
+            "failed to write .databrickscfg for project_dir %s", project_dir,
+        )
+
+
 def _get_user_project(session, project_id: str, user_email: str) -> Project:
     """Fetch a project by ID, verifying ownership."""
     row = session.get(Project, project_id)
@@ -447,6 +487,13 @@ def list_project_files(
             request.app.state.file_sync,
             session,
         )
+        # Keep <project_dir>/.databrickscfg fresh on every project open in
+        # deployed mode. The agent route refreshes it again right before
+        # spawning, but doing it here too means the file exists from the
+        # moment the user opens a project — useful if anything before the
+        # first agent invocation (the user opening a terminal, manual psql,
+        # etc.) needs to authenticate.
+        _ensure_project_databrickscfg(project_dir, headers)
 
         if include_hidden:
             # Debug view — walk fresh, include hidden, do NOT cache.

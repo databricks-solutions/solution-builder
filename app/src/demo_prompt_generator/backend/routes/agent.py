@@ -226,25 +226,45 @@ async def invoke_agent(
                     if full_response or was_cancelled or reasoning:
                         raw_reasoning = {"reasoning": reasoning} if reasoning else None
                         reasoning_data = compress_reasoning(raw_reasoning)
+                        # If the stream errored AFTER producing some text or
+                        # reasoning, append the error to the body and flag
+                        # is_error so the bubble renders red. Without this the
+                        # partial answer would appear as a successful (but
+                        # truncated) reply.
+                        body_text = full_response
+                        is_error_flag = bool(stream.is_error and stream.error_message)
+                        if is_error_flag:
+                            err = stream.error_message or "Agent error (no details)"
+                            body_text = (
+                                f"{body_text}\n\n---\n\n**Agent error:** {err}"
+                                if body_text
+                                else f"**Agent error:** {err}"
+                            )
                         assistant_msg = Message(
                             project_id=body.project_id,
                             role="assistant",
-                            content=full_response,
+                            content=body_text,
+                            is_error=is_error_flag,
                             is_cancelled=was_cancelled,
                             reasoning_data=reasoning_data,
                         )
                         db.add(assistant_msg)
                     elif stream.is_error and stream.error_message:
                         # The agent failed before producing any text or
-                        # reasoning — typical when the Claude Code subprocess
-                        # exits during connect/initialize. Persist the full
-                        # error (now includes stderr tail + traceback from
-                        # services/agent.py) as a system message so the
-                        # failure shows up on refresh and is debuggable.
+                        # reasoning — typical when the Claude Code
+                        # subprocess exits during connect/initialize.
+                        # Persist as an assistant message with
+                        # is_error=True so the chat bubble renders it
+                        # with the destructive style on refresh (without
+                        # is_error the bubble would render as a normal
+                        # answer). Content uses the same shape the
+                        # frontend builds at stream-end so the in-memory
+                        # and reloaded views match.
                         error_msg = Message(
                             project_id=body.project_id,
-                            role="system",
-                            content=f"Agent error:\n\n{stream.error_message}",
+                            role="assistant",
+                            content=f"**Agent error:** {stream.error_message}",
+                            is_error=True,
                             is_cancelled=False,
                         )
                         db.add(error_msg)
