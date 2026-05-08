@@ -4,10 +4,19 @@
 # Creates .build/ (gitignored, but bundled via sync.include in databricks.yml) with:
 #   - app.yml          (Databricks App config — generated from databricks.<target>.yml's `env:` block)
 #   - *.whl            (Python wheel including frontend assets, .claude/skills, initial_templates)
-#   - requirements.txt (pinned dependencies)
+#   - pyproject.toml   (uv project file — pins `requires-python = ">=3.12,<3.13"` so the
+#                       Apps runtime uses Python 3.12 instead of the pip default 3.11.
+#                       References the wheel as a local-file dep.)
+#   - uv.lock          (uv-resolved transitive deps for the above pyproject)
 # Runtime data (.claude/skills/, initial_templates/) is inside the wheel —
 # the App downloads ONE file instead of ~200 loose files (which used to crash
 # the "downloading source code" step with a list-files timeout).
+#
+# Why uv (not pip + requirements.txt)? Apps' default install path uses pip on
+# Python 3.11. Shipping pyproject.toml + uv.lock with NO requirements.txt
+# switches Apps to uv, which honors `requires-python` and gives us 3.12.
+# IMPORTANT: this only works if requirements.txt is absent from .build/ —
+# Apps prefers requirements.txt when present and ignores pyproject.toml.
 #
 # Usage:
 #   ./scripts/build.sh                   # full build, no env injection (manual run)
@@ -156,14 +165,37 @@ rm -rf "$WHL_TMPDIR" "$WHEEL"
 WHEEL="$NEW_WHL"
 echo "  Wheel: $(basename "$WHEEL")"
 
-# --- 3. Export requirements ---
-echo -e "${BLUE}[3/4] Exporting requirements.txt...${NC}"
+# --- 3. Generate pyproject.toml + uv.lock for the deployed app ---
+echo -e "${BLUE}[3/4] Generating pyproject.toml + uv.lock for deploy...${NC}"
 WHEEL_BASENAME=$(basename "$WHEEL")
-# Export deps without hashes (hashes + local wheel breaks pip's --require-hashes mode),
-# drop the "." self-reference and editable installs, add the wheel instead
-uv export --no-dev --no-editable --frozen --no-hashes 2>/dev/null | \
-    grep -v '^-e ' | grep -v '^\.$' > dist/requirements.txt
-echo "./${WHEEL_BASENAME}" >> dist/requirements.txt
+# We ship a MINIMAL pyproject in .build/ that declares only the local wheel
+# as a dep — uv resolves the wheel's full dependency tree automatically when
+# it locks. This keeps the deployed-image pyproject decoupled from the dev
+# pyproject's [tool.*] sections (uv-workspace, hatch build hooks, etc.) which
+# don't apply at runtime.
+mkdir -p dist/uv-stage
+cat > dist/uv-stage/pyproject.toml <<EOF
+[project]
+name = "demo-prompt-generator-deploy"
+version = "0.0.0"
+# Pin the runtime to Python 3.12. Without this Apps' uv install picks 3.11
+# (its hardcoded default for older lockfiles); 3.11 is fine but a few of our
+# transitive deps ship 3.12-only optimisations and we want to track main.
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "demo-prompt-generator",
+]
+
+# Tell uv to satisfy demo-prompt-generator from the local wheel that ships
+# alongside this pyproject.toml. uv requires `file:` URLs for path deps in
+# [tool.uv.sources]; the leading "./" makes it relative to this file.
+[tool.uv.sources]
+demo-prompt-generator = { path = "./${WHEEL_BASENAME}" }
+EOF
+# Lock against this minimal pyproject. The wheel must be present in the same
+# dir for uv's file:// reference to resolve.
+cp "$WHEEL" "dist/uv-stage/"
+(cd dist/uv-stage && uv lock --quiet)
 
 # --- 4. Assemble $BUILD_DIR ---
 echo -e "${BLUE}[4/4] Assembling $BUILD_DIR ...${NC}"
@@ -171,7 +203,12 @@ rm -rf "$BUILD_DIR"
 mkdir -p "$BUILD_DIR"
 
 cp "$WHEEL" "$BUILD_DIR/"
-cp dist/requirements.txt "$BUILD_DIR/"
+cp dist/uv-stage/pyproject.toml "$BUILD_DIR/"
+cp dist/uv-stage/uv.lock "$BUILD_DIR/"
+# Belt-and-braces: ensure no stale requirements.txt sneaks into the upload.
+# Apps prefers requirements.txt when present and would silently fall back to
+# pip + Python 3.11, defeating this whole step.
+rm -f "$BUILD_DIR/requirements.txt"
 # Startup wrapper — downloads the Databricks CLI at container boot, puts
 # it on PATH, then exec's uvicorn. See app/start.sh.
 #

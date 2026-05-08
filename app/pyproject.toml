@@ -3,7 +3,7 @@ name = "demo-prompt-generator"
 dynamic = ["version"]
 description = "Add your description here"
 readme = "README.md"
-requires-python = ">=3.11,<3.13"
+requires-python = ">=3.12,<3.13"
 dependencies = [
     "fastapi>=0.119.0",
     "pydantic-settings>=2.11.0",
@@ -15,7 +15,12 @@ dependencies = [
     "httpx>=0.28.0",
     "python-docx>=1.1.0",
     "python-multipart>=0.0.22",
-    "claude-agent-sdk>=0.1.50",
+    # Newer SDK ships a newer bundled Claude Code CLI. Opus 4.7 needs CLI
+    # ≥2.1.111 (which is when 4.7 + the adaptive thinking shape landed);
+    # 0.1.50's bundled CLI was 2.1.81 → 4.7 returns HTTP 400 with
+    # "thinking.type.enabled is not supported for this model".
+    # 0.1.71 is the latest currently published on PyPI.
+    "claude-agent-sdk>=0.1.71",
     "pyyaml>=6.0",
     "watchdog>=4.0.0",
     # MCP tools dependencies
