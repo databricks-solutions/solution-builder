@@ -19,10 +19,11 @@ import { FileViewer } from "@/components/project/file-viewer";
 import type { AutoFixApi } from "@/preview";
 import { BuildStepper } from "@/components/project/build-stepper";
 import { useIsMobile } from "@/hooks/use-mobile";
-import { ChatPanel } from "@/components/project/chat-panel";
+import { ChatPanel, type ThinkingBlock } from "@/components/project/chat-panel";
 import { SkillsPopup } from "@/components/project/skills-popup";
 import { UserMenu } from "@/components/layout/user-menu";
 import { TemplatePublishDialog } from "@/components/project/template-publish-dialog";
+import { DescriptionEditDialog } from "@/components/project/description-edit-dialog";
 import {
   ResourcesPopover,
   type ProjectResources,
@@ -65,6 +66,7 @@ import {
   type Message,
   type TemplateDetail,
   type DeployedResources,
+  type ReasoningEntry,
 } from "@/lib/custom-api";
 import { AUTO_BUILD_KICKOFF } from "@/lib/auto-build-prompt";
 import { resourceKey } from "@/components/project/deployed-resources-bar";
@@ -75,6 +77,68 @@ export const Route = createFileRoute("/project/$projectId")({
 
 // Tool names that change files on disk — trigger a sidebar refresh on their tool_result.
 const FILE_MUTATING_TOOLS = new Set(["Write", "Edit", "MultiEdit", "NotebookEdit"]);
+
+/** Build the persisted reasoning_data array (the same shape the backend
+ *  emits via collect_reasoning) from the structured streaming state.
+ *  Interleaves thinking blocks and tool calls in chronological order so a
+ *  page reload — or any consumer reading reasoning_data — sees the same
+ *  timeline the user just watched stream in. */
+function buildChronologicalReasoning(
+  thinkingBlocks: ThinkingBlock[],
+  tools: Map<string, { name: string; input: unknown; result?: string; isError?: boolean; startedAt?: string; completedAt?: string }>,
+): ReasoningEntry[] {
+  type Row =
+    | { kind: "thinking"; t: number; block: ThinkingBlock }
+    | { kind: "tool"; t: number; id: string; tool: { name: string; input: unknown; result?: string; isError?: boolean; startedAt?: string; completedAt?: string } };
+  const rows: Row[] = [];
+  for (const b of thinkingBlocks) {
+    const t = b.startedAt ? new Date(b.startedAt).getTime() : 0;
+    rows.push({ kind: "thinking", t: isNaN(t) ? 0 : t, block: b });
+  }
+  for (const [id, tool] of tools.entries()) {
+    const t = tool.startedAt ? new Date(tool.startedAt).getTime() : 0;
+    rows.push({ kind: "tool", t: isNaN(t) ? 0 : t, id, tool });
+  }
+  rows.sort((a, b) => a.t - b.t);
+  const out: ReasoningEntry[] = [];
+  for (const r of rows) {
+    if (r.kind === "thinking") {
+      const entry: ReasoningEntry = { type: "thinking", content: r.block.content };
+      if (r.block.startedAt) entry.started_at = r.block.startedAt;
+      if (r.block.completedAt) entry.completed_at = r.block.completedAt;
+      out.push(entry);
+    } else {
+      out.push({ type: "tool", id: r.id, name: r.tool.name, input: r.tool.input, started_at: r.tool.startedAt });
+      if (r.tool.result !== undefined) {
+        out.push({
+          type: "tool_result",
+          tool_id: r.id,
+          content: r.tool.result,
+          is_error: r.tool.isError ?? false,
+          completed_at: r.tool.completedAt,
+        });
+      }
+    }
+  }
+  return out;
+}
+
+// First H1 of a markdown doc, skipping any leading YAML frontmatter block.
+function extractReadmeTitle(markdown: string): string | null {
+  const lines = markdown.split("\n");
+  let inFrontmatter = false;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (i === 0 && line.trim() === "---") { inFrontmatter = true; continue; }
+    if (inFrontmatter) {
+      if (line.trim() === "---") inFrontmatter = false;
+      continue;
+    }
+    const m = line.match(/^#\s+(.+?)\s*$/);
+    if (m) return m[1].trim();
+  }
+  return null;
+}
 
 function ProjectPage() {
   const { projectId } = Route.useParams();
@@ -131,11 +195,11 @@ function ProjectPage() {
   const [isClearingSession, setIsClearingSession] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamingContent, setStreamingContent] = useState("");
-  const [streamingThinking, setStreamingThinking] = useState("");
+  const [streamingThinkingBlocks, setStreamingThinkingBlocks] = useState<ThinkingBlock[]>([]);
   const [streamingTools, setStreamingTools] = useState<Map<string, { name: string; input: unknown; result?: string; isError?: boolean; startedAt?: string; completedAt?: string }>>(new Map());
   const [executionId, setExecutionId] = useState<string | null>(null);
   const [pendingUserMessage, setPendingUserMessage] = useState<string | null>(null);
-  const [lastReasoning, setLastReasoning] = useState<{ thinking: string; tools: Map<string, { name: string; input: unknown; result?: string; isError?: boolean }> } | null>(null);
+  const [lastReasoning, setLastReasoning] = useState<{ thinking: string; thinkingBlocks: ThinkingBlock[]; tools: Map<string, { name: string; input: unknown; result?: string; isError?: boolean }> } | null>(null);
 
   // Delete dialog state
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
@@ -162,10 +226,9 @@ function ProjectPage() {
   const [editedName, setEditedName] = useState("");
   const [isSavingName, setIsSavingName] = useState(false);
 
-  // Project description editing state
-  const [isEditingDescription, setIsEditingDescription] = useState(false);
-  const [editedDescription, setEditedDescription] = useState("");
-  const [isSavingDescription, setIsSavingDescription] = useState(false);
+  // Project description editing state — opens a modal that supports both
+  // manual edits and an AI-assist rewrite.
+  const [isDescriptionDialogOpen, setIsDescriptionDialogOpen] = useState(false);
 
   // Resources popover state
   const [isResourcesOpen, setIsResourcesOpen] = useState(false);
@@ -267,7 +330,7 @@ function ProjectPage() {
   const lastEventReceivedAtRef = useRef<number>(0);
 
   // Ref to capture reasoning during streaming (for saving in finally)
-  const reasoningRef = useRef<{ thinking: string; tools: Map<string, { name: string; input: unknown; result?: string; isError?: boolean; startedAt?: string; completedAt?: string }> } | null>(null);
+  const reasoningRef = useRef<{ thinking: string; thinkingBlocks: ThinkingBlock[]; tools: Map<string, { name: string; input: unknown; result?: string; isError?: boolean; startedAt?: string; completedAt?: string }> } | null>(null);
 
   // Debounced file list refresh — avoids N parallel /files calls when
   // the agent writes multiple files in quick succession. Reads
@@ -402,7 +465,7 @@ function ProjectPage() {
       reasoningRef.current = null;
       setIsStreaming(true);
       setStreamingContent("");
-      setStreamingThinking("");
+      setStreamingThinkingBlocks([]);
       setStreamingTools(new Map());
 
       try {
@@ -433,10 +496,37 @@ function ProjectPage() {
 
         // Stream progress
         let fullContent = "";
-        let fullThinking = "";
+        // Thinking is tracked as a list of discrete blocks (one per
+        // ThinkingBlock the model emits) so each "Thought for Xs" can be
+        // rendered inline at the spot it actually happened in the
+        // timeline. Any non-thinking event closes the open block.
+        const thinkingBlocks: ThinkingBlock[] = [];
+        let openBlockId: string | null = null;
+        let openBlockLastDeltaAt: string | null = null;
+        let blockCounter = 0;
+        const closeOpenThinking = () => {
+          if (openBlockId === null) return;
+          const idx = thinkingBlocks.findIndex((b) => b.id === openBlockId);
+          if (idx !== -1 && !thinkingBlocks[idx].completedAt) {
+            thinkingBlocks[idx] = {
+              ...thinkingBlocks[idx],
+              completedAt: openBlockLastDeltaAt ?? new Date().toISOString(),
+            };
+          }
+          openBlockId = null;
+          openBlockLastDeltaAt = null;
+        };
+        const snapshotThinking = () => thinkingBlocks.map((b) => ({ ...b }));
         let streamErrorMessage: string | null = null;
         let streamWasCancelled = false;
         const toolsMap = new Map<string, { name: string; input: unknown; result?: string; isError?: boolean; startedAt?: string; completedAt?: string }>();
+        const updateRef = () => {
+          reasoningRef.current = {
+            thinking: thinkingBlocks.map((b) => b.content).join("\n\n"),
+            thinkingBlocks: snapshotThinking(),
+            tools: new Map(toolsMap),
+          };
+        };
 
         for await (const event of streamAgentProgress(
           response.execution_id,
@@ -446,9 +536,11 @@ function ProjectPage() {
           // (incl. ones we don't render) proves the stream is alive.
           lastEventReceivedAtRef.current = Date.now();
           if (event.type === "text_delta") {
+            closeOpenThinking();
             fullContent += event.text;
             setStreamingContent(fullContent);
           } else if (event.type === "text_block_start") {
+            closeOpenThinking();
             // Insert a paragraph break between consecutive text blocks
             // within a turn so they don't render as one wall of text.
             if (fullContent.length > 0 && !fullContent.endsWith("\n\n")) {
@@ -458,13 +550,28 @@ function ProjectPage() {
           } else if (event.type === "text") {
             // Ignore final text event - we already have content from deltas
           } else if (event.type === "thinking_delta") {
-            fullThinking += event.thinking;
-            setStreamingThinking(fullThinking);
-            // Update ref for use in finally
-            reasoningRef.current = { thinking: fullThinking, tools: new Map(toolsMap) };
+            const ts = event.timestamp || new Date().toISOString();
+            if (openBlockId === null) {
+              const id = `tb-${++blockCounter}`;
+              thinkingBlocks.push({ id, content: event.thinking, startedAt: ts });
+              openBlockId = id;
+            } else {
+              const idx = thinkingBlocks.findIndex((b) => b.id === openBlockId);
+              if (idx !== -1) {
+                thinkingBlocks[idx] = { ...thinkingBlocks[idx], content: thinkingBlocks[idx].content + event.thinking };
+              }
+            }
+            openBlockLastDeltaAt = ts;
+            setStreamingThinkingBlocks(snapshotThinking());
+            updateRef();
           } else if (event.type === "thinking") {
-            // Ignore final thinking event - we already have content from deltas
+            // Final aggregated thinking block — close the current open one.
+            closeOpenThinking();
+            setStreamingThinkingBlocks(snapshotThinking());
+            updateRef();
           } else if (event.type === "tool_use") {
+            closeOpenThinking();
+            setStreamingThinkingBlocks(snapshotThinking());
             // Tool started - add with pending state. Fall back to client clock
             // if the backend didn't stamp the event (older streams, replays).
             toolsMap.set(event.tool_id, {
@@ -473,9 +580,9 @@ function ProjectPage() {
               startedAt: event.timestamp || new Date().toISOString(),
             });
             setStreamingTools(new Map(toolsMap));
-            // Update ref for use in finally
-            reasoningRef.current = { thinking: fullThinking, tools: new Map(toolsMap) };
+            updateRef();
           } else if (event.type === "tool_result") {
+            closeOpenThinking();
             // Tool completed - update with result
             const existing = toolsMap.get(event.tool_use_id);
             if (existing) {
@@ -486,8 +593,7 @@ function ProjectPage() {
                 completedAt: event.timestamp || new Date().toISOString(),
               });
               setStreamingTools(new Map(toolsMap));
-              // Update ref for use in finally
-              reasoningRef.current = { thinking: fullThinking, tools: new Map(toolsMap) };
+              updateRef();
               // Live-refresh the sidebar when a file-modifying tool succeeds
               if (!event.is_error && FILE_MUTATING_TOOLS.has(existing.name)) {
                 debouncedRefreshFiles();
@@ -520,6 +626,11 @@ function ProjectPage() {
           }
         }
 
+        // Close any still-open thinking block (e.g. loop ended on
+        // stream.completed without a trailing tool/text).
+        closeOpenThinking();
+        updateRef();
+
         // Add assistant message locally (user message already added above).
         // Tear down the streaming UI state in the SAME React batch as
         // appending the message — otherwise the streaming bubble (still
@@ -538,6 +649,7 @@ function ProjectPage() {
               ? `${fullContent}\n\n---\n\n**Agent error:** ${streamErrorMessage}`
               : `**Agent error:** ${streamErrorMessage}`)
           : fullContent;
+        const finalReasoning = reasoningRef.current as null | { thinking: string; thinkingBlocks: ThinkingBlock[]; tools: Map<string, { name: string; input: unknown; result?: string; isError?: boolean; startedAt?: string; completedAt?: string }> };
         const assistantMsg: Message = {
           id: Date.now() + 1,
           project_id: projectId,
@@ -545,15 +657,9 @@ function ProjectPage() {
           content: messageContent,
           is_error: streamErrorMessage !== null,
           is_cancelled: streamWasCancelled,
-          reasoning_data: reasoningRef.current ? {
-            reasoning: [
-              ...(reasoningRef.current.thinking ? [{ type: "thinking" as const, content: reasoningRef.current.thinking }] : []),
-              ...Array.from(reasoningRef.current.tools.entries()).flatMap(([id, tool]) => [
-                { type: "tool" as const, id, name: tool.name, input: tool.input, started_at: tool.startedAt },
-                ...(tool.result !== undefined ? [{ type: "tool_result" as const, tool_id: id, content: tool.result, is_error: tool.isError ?? false, completed_at: tool.completedAt }] : []),
-              ]),
-            ],
-          } : null,
+          reasoning_data: finalReasoning
+            ? { reasoning: buildChronologicalReasoning(finalReasoning.thinkingBlocks, finalReasoning.tools) }
+            : null,
           created_at: new Date().toISOString(),
         };
         if (reasoningRef.current) {
@@ -561,7 +667,7 @@ function ProjectPage() {
         }
         setIsStreaming(false);
         setStreamingContent("");
-        setStreamingThinking("");
+        setStreamingThinkingBlocks([]);
         setStreamingTools(new Map());
         setPendingUserMessage(null);
         setMessages(prev => [...prev, assistantMsg]);
@@ -638,7 +744,7 @@ function ProjectPage() {
         }
         setIsStreaming(false);
         setStreamingContent("");
-        setStreamingThinking("");
+        setStreamingThinkingBlocks([]);
         setStreamingTools(new Map());
         setPendingUserMessage(null);
         setExecutionId(null);
@@ -679,8 +785,31 @@ function ProjectPage() {
 
     try {
       let fullContent = "";
-      let fullThinking = "";
+      const thinkingBlocks: ThinkingBlock[] = [];
+      let openBlockId: string | null = null;
+      let openBlockLastDeltaAt: string | null = null;
+      let blockCounter = 0;
+      const closeOpenThinking = () => {
+        if (openBlockId === null) return;
+        const idx = thinkingBlocks.findIndex((b) => b.id === openBlockId);
+        if (idx !== -1 && !thinkingBlocks[idx].completedAt) {
+          thinkingBlocks[idx] = {
+            ...thinkingBlocks[idx],
+            completedAt: openBlockLastDeltaAt ?? new Date().toISOString(),
+          };
+        }
+        openBlockId = null;
+        openBlockLastDeltaAt = null;
+      };
+      const snapshotThinking = () => thinkingBlocks.map((b) => ({ ...b }));
       const toolsMap = new Map<string, { name: string; input: unknown; result?: string; isError?: boolean; startedAt?: string; completedAt?: string }>();
+      const updateRef = () => {
+        reasoningRef.current = {
+          thinking: thinkingBlocks.map((b) => b.content).join("\n\n"),
+          thinkingBlocks: snapshotThinking(),
+          tools: new Map(toolsMap),
+        };
+      };
 
       for await (const event of streamAgentProgress(
         exec.execution_id,
@@ -689,27 +818,47 @@ function ProjectPage() {
         // Heartbeat for the visibility-recovery handler.
         lastEventReceivedAtRef.current = Date.now();
         if (event.type === "text_delta") {
+          closeOpenThinking();
           fullContent += event.text;
           setStreamingContent(fullContent);
         } else if (event.type === "text_block_start") {
+          closeOpenThinking();
           if (fullContent.length > 0 && !fullContent.endsWith("\n\n")) {
             fullContent += "\n\n";
             setStreamingContent(fullContent);
           }
         } else if (event.type === "thinking_delta") {
-          fullThinking += event.thinking;
-          setStreamingThinking(fullThinking);
-          reasoningRef.current = { thinking: fullThinking, tools: new Map(toolsMap) };
+          const ts = event.timestamp || new Date().toISOString();
+          if (openBlockId === null) {
+            const id = `tb-${++blockCounter}`;
+            thinkingBlocks.push({ id, content: event.thinking, startedAt: ts });
+            openBlockId = id;
+          } else {
+            const idx = thinkingBlocks.findIndex((b) => b.id === openBlockId);
+            if (idx !== -1) {
+              thinkingBlocks[idx] = { ...thinkingBlocks[idx], content: thinkingBlocks[idx].content + event.thinking };
+            }
+          }
+          openBlockLastDeltaAt = ts;
+          setStreamingThinkingBlocks(snapshotThinking());
+          updateRef();
+        } else if (event.type === "thinking") {
+          closeOpenThinking();
+          setStreamingThinkingBlocks(snapshotThinking());
+          updateRef();
         } else if (event.type === "tool_use") {
+          closeOpenThinking();
+          setStreamingThinkingBlocks(snapshotThinking());
           toolsMap.set(event.tool_id, { name: event.tool_name, input: event.tool_input, startedAt: event.timestamp || new Date().toISOString() });
           setStreamingTools(new Map(toolsMap));
-          reasoningRef.current = { thinking: fullThinking, tools: new Map(toolsMap) };
+          updateRef();
         } else if (event.type === "tool_result") {
+          closeOpenThinking();
           const existing = toolsMap.get(event.tool_use_id);
           if (existing) {
             toolsMap.set(event.tool_use_id, { ...existing, result: event.content, isError: event.is_error ?? false, completedAt: event.timestamp || new Date().toISOString() });
             setStreamingTools(new Map(toolsMap));
-            reasoningRef.current = { thinking: fullThinking, tools: new Map(toolsMap) };
+            updateRef();
             if (!event.is_error && FILE_MUTATING_TOOLS.has(existing.name)) {
               debouncedRefreshFiles();
             }
@@ -723,6 +872,8 @@ function ProjectPage() {
           break;
         }
       }
+      closeOpenThinking();
+      updateRef();
 
       // Refresh messages, files, and deployed resources from DB after agent
       // completion. Tear down streaming UI in the SAME React batch as
@@ -738,7 +889,7 @@ function ProjectPage() {
       if (reasoningRef.current) setLastReasoning(reasoningRef.current);
       setIsStreaming(false);
       setStreamingContent("");
-      setStreamingThinking("");
+      setStreamingThinkingBlocks([]);
       setStreamingTools(new Map());
       setMessages(msgs);
       setFiles(fileList);
@@ -763,7 +914,7 @@ function ProjectPage() {
       if (reasoningRef.current) setLastReasoning(reasoningRef.current);
       setIsStreaming(false);
       setStreamingContent("");
-      setStreamingThinking("");
+      setStreamingThinkingBlocks([]);
       setStreamingTools(new Map());
       setExecutionId(null);
       abortControllerRef.current = null;
@@ -1070,6 +1221,52 @@ function ProjectPage() {
     }
   }, [isPackagingDAB, isStreaming]);
 
+  // After each stream completes, surface a one-time rename prompt if the
+  // README's H1 has drifted from the project name. The agent can rewrite
+  // README.md but has no way to mutate the project row — this closes the gap.
+  const prevIsStreamingRef = useRef(isStreaming);
+  const promptedTitlesRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    const wasStreaming = prevIsStreamingRef.current;
+    prevIsStreamingRef.current = isStreaming;
+    if (!wasStreaming || isStreaming) return;
+    if (!project) return;
+    if (!files.some((f) => f.path === "README.md")) return;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const { content } = await getProjectFile(projectId, "README.md");
+        if (cancelled) return;
+        const h1 = extractReadmeTitle(content);
+        if (!h1 || h1 === project.name) return;
+        if (promptedTitlesRef.current.has(h1)) return;
+        promptedTitlesRef.current.add(h1);
+
+        toast("README title differs from project name", {
+          description: `Rename project to "${h1}"?`,
+          duration: 12000,
+          action: {
+            label: "Rename",
+            onClick: async () => {
+              try {
+                const updated = await updateProject(projectId, { name: h1 });
+                setProject(updated);
+                toast.success(`Renamed to "${h1}"`);
+              } catch (e) {
+                console.error("Failed to rename project:", e);
+                toast.error("Failed to rename project");
+              }
+            },
+          },
+        });
+      } catch (e) {
+        console.error("Failed to check README title:", e);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [isStreaming, project, files, projectId]);
+
   // Handle delete project
   const handleDeleteConfirm = useCallback(async () => {
     setIsDeleting(true);
@@ -1142,31 +1339,15 @@ function ProjectPage() {
     setEditedName("");
   }, []);
 
-  // Handle project description editing
-  const handleStartEditDescription = useCallback(() => {
-    setEditedDescription(project?.description || "");
-    setIsEditingDescription(true);
-  }, [project?.description]);
-
-  const handleSaveDescription = useCallback(async () => {
-    if (isSavingDescription) return;
-
-    setIsSavingDescription(true);
-    try {
-      const updated = await updateProject(projectId, { description: editedDescription.trim() });
+  // Handle project description save (called from the modal). The modal
+  // owns the textarea state; we only need the persisted side here.
+  const handleSaveDescription = useCallback(
+    async (newDescription: string) => {
+      const updated = await updateProject(projectId, { description: newDescription });
       setProject(updated);
-      setIsEditingDescription(false);
-    } catch (error) {
-      console.error("Failed to update project description:", error);
-    } finally {
-      setIsSavingDescription(false);
-    }
-  }, [projectId, editedDescription, isSavingDescription]);
-
-  const handleCancelEditDescription = useCallback(() => {
-    setIsEditingDescription(false);
-    setEditedDescription("");
-  }, []);
+    },
+    [projectId],
+  );
 
   // Show error page if project not found
   if (projectNotFound) {
@@ -1315,6 +1496,7 @@ function ProjectPage() {
             <BuildStepper
               isStreaming={isStreaming}
               files={files}
+              deployedResourceCount={deployedResources?.resources.length ?? 0}
               onCreateArchitecture={handleCreateArchitecture}
               onUpdateArchitecture={handleUpdateArchitecture}
               onCreateSpec={handleCreateSpec}
@@ -1363,56 +1545,23 @@ function ProjectPage() {
           </div>
 
           {/* Metadata row */}
-          <div className="flex items-center gap-3 mt-2 flex-wrap">
-            {/* Description */}
-            {isEditingDescription ? (
-              <div className="flex items-center gap-1.5">
-                <Input
-                  value={editedDescription}
-                  onChange={(e) => setEditedDescription(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") handleSaveDescription();
-                    if (e.key === "Escape") handleCancelEditDescription();
-                  }}
-                  className="h-8 w-full max-w-80 text-sm"
-                  placeholder="Enter a description"
-                  autoFocus
-                  disabled={isSavingDescription}
-                />
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8"
-                  onClick={handleSaveDescription}
-                  disabled={isSavingDescription}
-                >
-                  {isSavingDescription ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Check className="h-4 w-4 text-green-600" />
-                  )}
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8"
-                  onClick={handleCancelEditDescription}
-                  disabled={isSavingDescription}
-                >
-                  <X className="h-4 w-4 text-muted-foreground" />
-                </Button>
-              </div>
-            ) : project?.description ? (
+          <div className="flex items-start gap-3 mt-2 flex-wrap">
+            {/* Description — opens a modal with manual + AI editing */}
+            {project?.description ? (
               <button
-                onClick={handleStartEditDescription}
-                className="text-sm text-muted-foreground hover:text-foreground transition-colors cursor-pointer truncate max-w-md"
-                title={project.description}
+                onClick={() => setIsDescriptionDialogOpen(true)}
+                className="group text-left text-sm text-muted-foreground hover:text-foreground transition-colors cursor-pointer max-w-2xl"
+                title="Click to edit description"
               >
-                {project.description.length > 150 ? `${project.description.slice(0, 150)}...` : project.description}
+                <span className="line-clamp-3 whitespace-pre-wrap">{project.description}</span>
+                <span className="inline-flex items-center gap-1 mt-0.5 text-xs text-muted-foreground/60 group-hover:text-primary transition-colors">
+                  <Pencil className="h-3 w-3" />
+                  Edit
+                </span>
               </button>
             ) : (
               <button
-                onClick={handleStartEditDescription}
+                onClick={() => setIsDescriptionDialogOpen(true)}
                 className="text-xs text-muted-foreground/60 hover:text-muted-foreground transition-colors cursor-pointer italic"
                 title="Add a description"
               >
@@ -1548,7 +1697,7 @@ function ProjectPage() {
             isLoadingMessages={isLoadingMessages}
             isClearingSession={isClearingSession}
             streamingContent={streamingContent}
-            streamingThinking={streamingThinking}
+            streamingThinkingBlocks={streamingThinkingBlocks}
             streamingTools={streamingTools}
             pendingUserMessage={pendingUserMessage}
             lastReasoning={lastReasoning}
@@ -1639,12 +1788,21 @@ function ProjectPage() {
         onResourcesChange={setResources}
       />
 
+      {/* Description Edit Dialog */}
+      <DescriptionEditDialog
+        projectId={projectId}
+        isOpen={isDescriptionDialogOpen}
+        initialDescription={project?.description || ""}
+        onClose={() => setIsDescriptionDialogOpen(false)}
+        onSave={handleSaveDescription}
+      />
+
       {/* Template Publish Dialog */}
       <TemplatePublishDialog
         projectId={projectId}
         projectName={project?.name || ""}
         projectDescription={project?.description || null}
-        fileCount={files.length}
+        fileCount={files.filter((f) => f.path.toLowerCase().endsWith(".md") && !f.path.startsWith(".claude/")).length}
         linkedTemplate={linkedTemplate}
         isOpen={isTemplateDialogOpen}
         onClose={() => setIsTemplateDialogOpen(false)}

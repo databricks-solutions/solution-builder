@@ -3,7 +3,7 @@
  * Displays conversation history and input for interacting with Claude.
  */
 
-import { memo, useRef, useEffect, useState, useCallback, type ReactNode } from "react";
+import { memo, useRef, useEffect, useState, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { Textarea } from "../ui/textarea";
 import { Prose } from "../markdown-prose";
@@ -21,7 +21,6 @@ import {
   Check,
   X,
   Brain,
-  Wrench,
   ChevronDown,
   ChevronRight,
   Trash2,
@@ -31,6 +30,8 @@ import {
   Sparkles,
   Square,
   Zap,
+  Minimize2,
+  Maximize2,
 } from "lucide-react";
 import { getMessageReasoning, type Message, type ReasoningEntry } from "../../lib/custom-api";
 
@@ -44,6 +45,18 @@ interface ToolInfo {
   result?: string;
   isError?: boolean;
   startedAt?: string;
+  completedAt?: string;
+}
+
+/** A single ThinkingBlock from the model — one contiguous run of
+ *  thinking_delta events bookended by either start-of-turn or a
+ *  non-thinking event (tool_use, text). Multiple blocks per turn are
+ *  expected; each is rendered as its own collapsible "Thought for Xs" pill
+ *  so the timeline reads chronologically instead of as one giant blob. */
+export interface ThinkingBlock {
+  id: string;
+  content: string;
+  startedAt: string;
   completedAt?: string;
 }
 
@@ -127,17 +140,6 @@ function formatDuration(startedAt?: string, completedAt?: string): string | null
   return `${(ms / 1000).toFixed(1)}s`;
 }
 
-/** Format a gap duration (ms) the model spent thinking between tool calls.
- *  Returns null for trivial gaps so we don't clutter the timeline. */
-function formatGapDuration(ms: number): string | null {
-  if (!isFinite(ms) || ms < 150) return null;
-  if (ms < 1000) return `${ms}ms`;
-  if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
-  const mins = Math.floor(ms / 60000);
-  const secs = Math.round((ms % 60000) / 1000);
-  return `${mins}m ${secs}s`;
-}
-
 /** Tool duration in ms, or null if endpoints are missing. */
 function toolDurationMs(t: { startedAt?: string; completedAt?: string }): number | null {
   if (!t.startedAt || !t.completedAt) return null;
@@ -181,53 +183,74 @@ const DurationBar = memo(function DurationBar({
   );
 });
 
-/** Compact "thinking gap" row rendered between two tool calls — visualizes
- *  the time the model spent reasoning before invoking the next tool. */
-const ThinkingGapRow = memo(function ThinkingGapRow({ gapMs }: { gapMs: number }) {
-  const text = formatGapDuration(gapMs);
-  if (!text) return null;
+/** Format a thinking-block duration the same way as tool durations elsewhere. */
+function formatThoughtDuration(ms: number): string {
+  if (ms < 1000) return `${ms}ms`;
+  if (ms < 60000) return `${Math.round(ms / 1000)}s`;
+  const mins = Math.floor(ms / 60000);
+  const secs = Math.round((ms % 60000) / 1000);
+  return `${mins}m ${secs}s`;
+}
+
+function thinkingBlockDurationMs(b: ThinkingBlock): number | null {
+  if (!b.completedAt) return null;
+  const ms = new Date(b.completedAt).getTime() - new Date(b.startedAt).getTime();
+  return ms >= 0 && !isNaN(ms) ? ms : null;
+}
+
+/** Collapsible "Thought for Xs" pill — closed by default. Header shows the
+ *  duration; expanding reveals the raw thinking text. Live blocks (no
+ *  completedAt yet) tick up against wall-clock and label as "Thinking…". */
+const ThinkingPill = memo(function ThinkingPill({
+  block,
+  isLive = false,
+  defaultOpen = false,
+}: { block: ThinkingBlock; isLive?: boolean; defaultOpen?: boolean }) {
+  const [isOpen, setIsOpen] = useState(defaultOpen);
+  const durationMs = thinkingBlockDurationMs(block);
+  // Only treat a block as "in-flight" if we're actively streaming AND it
+  // has no completedAt yet. Persisted entries lacking a completedAt (legacy
+  // reasoning_data without timestamps) should fall through as "Thought",
+  // not stick at "Thinking…".
+  const inFlight = isLive && !block.completedAt;
+  // Live tick for in-flight blocks so the duration updates as the model
+  // keeps thinking. The parent popup already tick-renders every 500ms while
+  // streaming; we just read Date.now() during render.
+  const startedMs = block.startedAt ? new Date(block.startedAt).getTime() : NaN;
+  const liveMs = inFlight && !isNaN(startedMs)
+    ? Math.max(0, Date.now() - startedMs)
+    : null;
+  const ms = durationMs ?? liveMs;
+  const label = inFlight
+    ? (ms !== null ? `Thinking · ${formatThoughtDuration(ms)}` : "Thinking…")
+    : (durationMs !== null ? `Thought for ${formatThoughtDuration(durationMs)}` : "Thought");
+
   return (
-    <div className="flex items-center gap-1.5 pl-3 py-0.5 select-none">
-      <div className="h-2.5 w-px bg-amber-500/40 shrink-0" />
-      <Brain className="h-2.5 w-2.5 text-amber-500/50 shrink-0" />
-      <span className="text-[10px] text-muted-foreground/70 italic tabular-nums">
-        thinking · {text}
-      </span>
+    <div className="rounded-md bg-amber-500/5 border border-amber-500/20 overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setIsOpen((v) => !v)}
+        className="flex items-center gap-1.5 w-full px-2.5 py-1.5 text-left hover:bg-amber-500/10 transition-colors cursor-pointer"
+        aria-expanded={isOpen}
+      >
+        <Brain className={`h-3 w-3 shrink-0 ${inFlight ? "text-amber-500 animate-pulse" : "text-amber-500/80"}`} />
+        <span className="text-[11px] italic text-muted-foreground/90 flex-1 tabular-nums">
+          {label}
+        </span>
+        {block.content && (
+          isOpen
+            ? <ChevronDown className="h-2.5 w-2.5 text-muted-foreground/60 shrink-0" />
+            : <ChevronRight className="h-2.5 w-2.5 text-muted-foreground/60 shrink-0" />
+        )}
+      </button>
+      {isOpen && block.content && (
+        <div className="px-2.5 pb-2 pt-1 text-[11px] leading-relaxed text-muted-foreground whitespace-pre-wrap border-t border-amber-500/15">
+          {block.content}
+        </div>
+      )}
     </div>
   );
 });
-
-/** Build the interleaved list of tool rows + thinking-gap rows used by every
- *  reasoning view. Sorts by startedAt so out-of-order completions still
- *  produce a coherent timeline. */
-type TimelineRow<T> =
-  | { kind: "tool"; id: string; tool: T }
-  | { kind: "gap"; key: string; gapMs: number };
-
-function buildToolTimeline<T extends { startedAt?: string; completedAt?: string }>(
-  entries: Array<[string, T]>,
-): TimelineRow<T>[] {
-  const sorted = [...entries].sort(([, a], [, b]) => {
-    const at = a.startedAt ? new Date(a.startedAt).getTime() : 0;
-    const bt = b.startedAt ? new Date(b.startedAt).getTime() : 0;
-    return at - bt;
-  });
-  const rows: TimelineRow<T>[] = [];
-  let prevEndMs: number | null = null;
-  for (const [id, tool] of sorted) {
-    if (tool.startedAt && prevEndMs !== null) {
-      const startMs = new Date(tool.startedAt).getTime();
-      const gap = startMs - prevEndMs;
-      if (gap > 0) rows.push({ kind: "gap", key: `gap-${id}`, gapMs: gap });
-    }
-    rows.push({ kind: "tool", id, tool });
-    if (tool.completedAt) {
-      const endMs = new Date(tool.completedAt).getTime();
-      if (prevEndMs === null || endMs > prevEndMs) prevEndMs = endMs;
-    }
-  }
-  return rows;
-}
 
 /** Compute total thinking duration from reasoning entries (earliest start → latest end). */
 function computeThinkingDurationFromEntries(entries: ReasoningEntry[]): string | null {
@@ -278,8 +301,43 @@ function computeThinkingDurationFromMap(tools: Map<string, ToolInfo>): string | 
 }
 
 interface ReasoningInfo {
+  /** Legacy aggregated thinking string. Kept for back-compat during the
+   *  transition; new code should prefer `thinkingBlocks` which preserves
+   *  per-block timing. */
   thinking: string;
+  thinkingBlocks?: ThinkingBlock[];
   tools: Map<string, ToolInfo>;
+}
+
+/** Unified timeline row: each thinking block or tool, sorted by startedAt
+ *  so the popup reads top-to-bottom in the order the model actually did
+ *  the work. Replaces the old "all thinking on top, then all tools below"
+ *  layout. */
+type UnifiedTimelineRow =
+  | { kind: "thinking"; block: ThinkingBlock }
+  | { kind: "tool"; id: string; tool: ToolInfo };
+
+function buildUnifiedTimeline(
+  thinkingBlocks: ThinkingBlock[],
+  toolEntries: Array<[string, ToolInfo]>,
+): UnifiedTimelineRow[] {
+  const rows: UnifiedTimelineRow[] = [];
+  for (const block of thinkingBlocks) {
+    rows.push({ kind: "thinking", block });
+  }
+  for (const [id, tool] of toolEntries) {
+    rows.push({ kind: "tool", id, tool });
+  }
+  rows.sort((a, b) => {
+    const ta = a.kind === "thinking"
+      ? new Date(a.block.startedAt).getTime()
+      : (a.tool.startedAt ? new Date(a.tool.startedAt).getTime() : 0);
+    const tb = b.kind === "thinking"
+      ? new Date(b.block.startedAt).getTime()
+      : (b.tool.startedAt ? new Date(b.tool.startedAt).getTime() : 0);
+    return ta - tb;
+  });
+  return rows;
 }
 
 interface ChatPanelProps {
@@ -289,7 +347,7 @@ interface ChatPanelProps {
   isLoadingMessages?: boolean;
   isClearingSession?: boolean;
   streamingContent: string;
-  streamingThinking?: string;
+  streamingThinkingBlocks?: ThinkingBlock[];
   streamingTools?: Map<string, ToolInfo>;
   pendingUserMessage?: string | null;
   lastReasoning?: ReasoningInfo | null;
@@ -473,13 +531,13 @@ const MessageBubble = memo(function MessageBubble({
 
 interface LiveReasoningPopupProps {
   isStreaming: boolean;
-  thinking: string;
+  thinkingBlocks: ThinkingBlock[];
   tools: Map<string, ToolInfo>;
 }
 
 const LiveReasoningPopup = memo(function LiveReasoningPopup({
   isStreaming,
-  thinking,
+  thinkingBlocks,
   tools,
 }: LiveReasoningPopupProps) {
   const [isVisible, setIsVisible] = useState(false);
@@ -487,13 +545,17 @@ const LiveReasoningPopup = memo(function LiveReasoningPopup({
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // Store content locally so it persists after streaming ends
-  const [storedThinking, setStoredThinking] = useState("");
+  const [storedThinkingBlocks, setStoredThinkingBlocks] = useState<ThinkingBlock[]>([]);
   const [storedTools, setStoredTools] = useState<Map<string, ToolInfo>>(new Map());
   const [userHasScrolled, setUserHasScrolled] = useState(false);
 
   // When on, expand each tool row inline with the full JSON payload —
   // useful for copying tool input/result without hovering tooltips.
   const [showDetails, setShowDetails] = useState(false);
+
+  // Minimized = collapsed pill that docks bottom-left. Position is preserved
+  // so re-expanding pops back to wherever the user had dragged the panel.
+  const [isMinimized, setIsMinimized] = useState(false);
 
   // Drag state
   const [position, setPosition] = useState<{ x: number; y: number } | null>(null);
@@ -554,13 +616,13 @@ const LiveReasoningPopup = memo(function LiveReasoningPopup({
     window.addEventListener("pointercancel", handleDragEnd);
   }, []);
 
-  const hasContent = thinking || tools.size > 0;
+  const hasContent = thinkingBlocks.length > 0 || tools.size > 0;
 
   // Always update stored content when we have live content
   useEffect(() => {
-    if (thinking) setStoredThinking(thinking);
+    if (thinkingBlocks.length > 0) setStoredThinkingBlocks(thinkingBlocks);
     if (tools.size > 0) setStoredTools(new Map(tools));
-  }, [thinking, tools]);
+  }, [thinkingBlocks, tools]);
 
   // Show when streaming with content
   useEffect(() => {
@@ -578,7 +640,7 @@ const LiveReasoningPopup = memo(function LiveReasoningPopup({
         setTimeout(() => {
           setIsVisible(false);
           setIsFadingOut(false);
-          setStoredThinking("");
+          setStoredThinkingBlocks([]);
           setStoredTools(new Map());
         }, 500);
       }, 3000);
@@ -591,6 +653,7 @@ const LiveReasoningPopup = memo(function LiveReasoningPopup({
     if (isStreaming) {
       setUserHasScrolled(false);
       setPosition(null);
+      setIsMinimized(false);
     }
   }, [isStreaming]);
 
@@ -616,10 +679,10 @@ const LiveReasoningPopup = memo(function LiveReasoningPopup({
     if (scrollRef.current && !userHasScrolled) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [thinking, tools, storedThinking, storedTools, userHasScrolled]);
+  }, [thinkingBlocks, tools, storedThinkingBlocks, storedTools, userHasScrolled]);
 
   // Use live content while streaming, stored content after
-  const displayThinking = isStreaming ? thinking : storedThinking;
+  const displayThinkingBlocks = isStreaming ? thinkingBlocks : storedThinkingBlocks;
   const displayTools = isStreaming ? tools : storedTools;
 
   if (!isVisible) return null;
@@ -629,10 +692,67 @@ const LiveReasoningPopup = memo(function LiveReasoningPopup({
     setTimeout(() => {
       setIsVisible(false);
       setIsFadingOut(false);
-      setStoredThinking("");
+      setIsMinimized(false);
+      setStoredThinkingBlocks([]);
       setStoredTools(new Map());
     }, 500);
   };
+
+  // Counts for the minimized pill summary.
+  const toolCount = displayTools.size;
+  let inFlightCount = 0;
+  for (const t of displayTools.values()) {
+    if (t.result === undefined) inFlightCount += 1;
+  }
+
+  // Minimized pill — same drag handle, same position memory, but compact.
+  // Click anywhere on the pill (except the restore/close buttons) to restore.
+  if (isMinimized) {
+    return createPortal(
+      <div
+        ref={panelRef}
+        style={{
+          ...(position ? { left: position.x, top: position.y, bottom: "auto" } : {}),
+        }}
+        onPointerDown={handleDragStart}
+        onClick={() => setIsMinimized(false)}
+        className={`fixed ${position ? "" : "bottom-4 left-4"} flex items-center gap-2 h-8 pl-2.5 pr-1.5 bg-background/95 backdrop-blur-xl border border-border/60 rounded-full shadow-xl z-50 cursor-grab active:cursor-grabbing select-none touch-none transition-opacity duration-500 ${
+          isFadingOut ? "opacity-0" : "opacity-100"
+        } ${isStreaming ? "animate-reasoning-pulse" : ""}`}
+        aria-label="Restore reasoning panel"
+      >
+        <div className="flex items-center justify-center w-5 h-5 rounded-md bg-amber-500/10 shrink-0">
+          <Brain className="h-3 w-3 text-amber-500" />
+        </div>
+        <span className="text-xs font-semibold tracking-wide uppercase text-muted-foreground">Live Reasoning</span>
+        {isStreaming && (
+          <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
+        )}
+        {toolCount > 0 && (
+          <span className="text-[10px] tabular-nums text-muted-foreground/80 px-1.5 py-0.5 rounded-full bg-muted/60">
+            {inFlightCount > 0 ? `${inFlightCount}/${toolCount} running` : `${toolCount} ${toolCount === 1 ? "tool" : "tools"}`}
+          </span>
+        )}
+        <button
+          onClick={(e) => { e.stopPropagation(); setIsMinimized(false); }}
+          onPointerDown={(e) => e.stopPropagation()}
+          className="text-muted-foreground/50 hover:text-foreground transition-colors rounded-md p-0.5 hover:bg-muted"
+          aria-label="Restore reasoning panel"
+        >
+          <Maximize2 className="h-3 w-3" />
+        </button>
+        <button
+          onClick={(e) => { e.stopPropagation(); handleClose(); }}
+          onPointerDown={(e) => e.stopPropagation()}
+          className="text-muted-foreground/50 hover:text-foreground transition-colors rounded-md p-0.5 hover:bg-muted"
+          aria-label="Close reasoning panel"
+        >
+          <X className="h-3 w-3" />
+        </button>
+      </div>,
+      document.body
+    );
+  }
 
   return createPortal(
     <div
@@ -644,7 +764,7 @@ const LiveReasoningPopup = memo(function LiveReasoningPopup({
       }}
       className={`fixed ${position ? "" : "bottom-4 left-4"} w-[560px] h-80 resize overflow-hidden bg-background/95 backdrop-blur-xl border border-border/60 rounded-xl shadow-xl z-50 flex flex-col transition-opacity duration-500 ${
         isFadingOut ? "opacity-0" : "opacity-100"
-      }`}
+      } ${isStreaming ? "animate-reasoning-pulse" : ""}`}
     >
       {/* Header — drag handle */}
       <div
@@ -674,6 +794,14 @@ const LiveReasoningPopup = memo(function LiveReasoningPopup({
             {showDetails ? "Hide details" : "Show details"}
           </button>
           <button
+            onClick={(e) => { e.stopPropagation(); setIsMinimized(true); }}
+            onPointerDown={(e) => e.stopPropagation()}
+            className="text-muted-foreground/50 hover:text-foreground transition-colors rounded-md p-0.5 hover:bg-muted"
+            aria-label="Minimize reasoning panel"
+          >
+            <Minimize2 className="h-3.5 w-3.5" />
+          </button>
+          <button
             onClick={handleClose}
             className="text-muted-foreground/50 hover:text-foreground transition-colors rounded-md p-0.5 hover:bg-muted"
             aria-label="Close reasoning panel"
@@ -683,116 +811,106 @@ const LiveReasoningPopup = memo(function LiveReasoningPopup({
         </div>
       </div>
 
-      {/* Content */}
-      <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto p-3.5 space-y-3">
-        {/* Thinking */}
-        {displayThinking && (
-          <div className="text-xs">
-            <div className="flex items-center gap-1.5 font-medium text-amber-600 dark:text-amber-400 mb-1.5">
-              <Brain className="h-3 w-3" />
-              <span>Thinking</span>
-            </div>
-            <p className="text-muted-foreground whitespace-pre-wrap leading-relaxed">
-              {displayThinking}
-            </p>
-          </div>
-        )}
-
-        {/* Tools */}
-        {displayTools.size > 0 && (() => {
-          // Normalize bar widths against the longest tool — including the
-          // running elapsed of any in-flight tool so the bar scales as time
-          // passes rather than jumping when the tool finally lands.
+      {/* Content — unified chronological timeline of thinking blocks + tool
+          calls. Each thinking block is a collapsible "Thought for Xs" pill,
+          inline at the spot it actually happened, instead of a single wall
+          of text glued on top of all the tool rows. */}
+      <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto p-3.5 space-y-1.5">
+        {(() => {
+          // Normalize tool bar widths against the longest tool, including
+          // the running elapsed of any in-flight tool so the bar scales as
+          // time passes rather than jumping when the tool finally lands.
           const nowMs = Date.now();
           let maxMs = 0;
           for (const t of displayTools.values()) {
             const completed = toolDurationMs(t);
             if (completed !== null && completed > maxMs) maxMs = completed;
-            else if (completed === null && t.startedAt) {
+            else if (completed === null && t.startedAt && t.result === undefined) {
               const live = nowMs - new Date(t.startedAt).getTime();
               if (live > maxMs) maxMs = live;
             }
           }
-          const timeline = buildToolTimeline(Array.from(displayTools.entries()));
+          const timeline = buildUnifiedTimeline(
+            displayThinkingBlocks,
+            Array.from(displayTools.entries()),
+          );
+          if (timeline.length === 0) return null;
           return (
           <TooltipProvider delayDuration={200}>
-            <div className="space-y-1.5">
-              <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-                <Wrench className="h-3 w-3" />
-                <span>Tools ({displayTools.size})</span>
-              </div>
-              {timeline.map((entry) => {
-                if (entry.kind === "gap") {
-                  return <ThinkingGapRow key={entry.key} gapMs={entry.gapMs} />;
-                }
-                const { id: toolId, tool } = entry;
-                const description = getToolDescription(tool.name, tool.input);
-                // For in-flight tools (no completedAt yet) compute a live
-                // elapsed time from startedAt → now so the user sees the
-                // clock running rather than a blank cell.
-                const inFlight = tool.result === undefined;
-                let durationMs = toolDurationMs(tool);
-                let duration = formatDuration(tool.startedAt, tool.completedAt);
-                if (durationMs === null && tool.startedAt) {
-                  const elapsed = Date.now() - new Date(tool.startedAt).getTime();
-                  if (elapsed >= 0) {
-                    durationMs = elapsed;
-                    duration = elapsed < 1000 ? `${elapsed}ms` : `${(elapsed / 1000).toFixed(1)}s`;
-                  }
-                }
-                const row = (
-                  <div className="flex items-center gap-2 w-full px-2.5 py-1.5 bg-muted/40 rounded-lg text-xs hover:bg-muted/60 transition-colors">
-                    <div className="shrink-0">
-                      {tool.result !== undefined ? (
-                        tool.isError ? (
-                          <X className="h-3 w-3 text-destructive" />
-                        ) : (
-                          <Check className="h-3 w-3 text-green-500" />
-                        )
-                      ) : (
-                        <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
-                      )}
-                    </div>
-                    <span className="font-medium shrink-0">{tool.name}</span>
-                    {description && (
-                      <span className="text-muted-foreground font-mono truncate text-[10px] flex-1 min-w-0">
-                        {description}
-                      </span>
-                    )}
-                    <DurationBar ms={durationMs} maxMs={maxMs} inFlight={inFlight} />
-                    {duration && (
-                      <span className="text-muted-foreground/60 text-[10px] tabular-nums shrink-0 w-14 text-right">
-                        {duration}
-                      </span>
-                    )}
-                    {!showDetails && <Info className="h-2.5 w-2.5 text-muted-foreground/40 shrink-0" />}
-                  </div>
-                );
+            {timeline.map((entry) => {
+              if (entry.kind === "thinking") {
                 return (
-                  <div key={toolId} className="space-y-1">
-                    {showDetails ? (
-                      row
+                  <ThinkingPill
+                    key={`think-${entry.block.id}`}
+                    block={entry.block}
+                    isLive={isStreaming}
+                  />
+                );
+              }
+              const { id: toolId, tool } = entry;
+              const description = getToolDescription(tool.name, tool.input);
+              const inFlight = tool.result === undefined;
+              let durationMs = toolDurationMs(tool);
+              let duration = formatDuration(tool.startedAt, tool.completedAt);
+              if (durationMs === null && tool.startedAt && inFlight) {
+                const elapsed = Date.now() - new Date(tool.startedAt).getTime();
+                if (elapsed >= 0) {
+                  durationMs = elapsed;
+                  duration = elapsed < 1000 ? `${elapsed}ms` : `${(elapsed / 1000).toFixed(1)}s`;
+                }
+              }
+              const row = (
+                <div className="flex items-center gap-2 w-full px-2.5 py-1.5 bg-muted/40 rounded-lg text-xs hover:bg-muted/60 transition-colors">
+                  <div className="shrink-0">
+                    {tool.result !== undefined ? (
+                      tool.isError ? (
+                        <X className="h-3 w-3 text-destructive" />
+                      ) : (
+                        <Check className="h-3 w-3 text-green-500" />
+                      )
                     ) : (
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <div className="cursor-help">{row}</div>
-                        </TooltipTrigger>
-                        <TooltipContent side="left" align="start" className="max-w-md max-h-60 overflow-auto">
-                          <pre className="text-[10px] font-mono whitespace-pre-wrap break-all">
-                            {formatToolJson(tool)}
-                          </pre>
-                        </TooltipContent>
-                      </Tooltip>
-                    )}
-                    {showDetails && (
-                      <pre className="text-[10px] font-mono whitespace-pre-wrap break-all bg-muted/20 border border-border/40 rounded-md p-2 max-h-60 overflow-auto select-text">
-                        {formatToolJson(tool)}
-                      </pre>
+                      <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
                     )}
                   </div>
-                );
-              })}
-            </div>
+                  <span className="font-medium shrink-0">{tool.name}</span>
+                  {description && (
+                    <span className="text-muted-foreground font-mono truncate text-[10px] flex-1 min-w-0">
+                      {description}
+                    </span>
+                  )}
+                  <DurationBar ms={durationMs} maxMs={maxMs} inFlight={inFlight} />
+                  {duration && (
+                    <span className="text-muted-foreground/60 text-[10px] tabular-nums shrink-0 w-14 text-right">
+                      {duration}
+                    </span>
+                  )}
+                  {!showDetails && <Info className="h-2.5 w-2.5 text-muted-foreground/40 shrink-0" />}
+                </div>
+              );
+              return (
+                <div key={`tool-${toolId}`} className="space-y-1">
+                  {showDetails ? (
+                    row
+                  ) : (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <div className="cursor-help">{row}</div>
+                      </TooltipTrigger>
+                      <TooltipContent side="left" align="start" className="max-w-md max-h-60 overflow-auto">
+                        <pre className="text-[10px] font-mono whitespace-pre-wrap break-all">
+                          {formatToolJson(tool)}
+                        </pre>
+                      </TooltipContent>
+                    </Tooltip>
+                  )}
+                  {showDetails && (
+                    <pre className="text-[10px] font-mono whitespace-pre-wrap break-all bg-muted/20 border border-border/40 rounded-md p-2 max-h-60 overflow-auto select-text">
+                      {formatToolJson(tool)}
+                    </pre>
+                  )}
+                </div>
+              );
+            })}
           </TooltipProvider>
           );
         })()}
@@ -813,7 +931,15 @@ interface CollapsibleReasoningProps {
 const CollapsibleReasoning = memo(function CollapsibleReasoning({ reasoning }: CollapsibleReasoningProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
-  const hasContent = reasoning.thinking || reasoning.tools.size > 0;
+  // Synthesize a thinking-blocks array: prefer the structured form, fall
+  // back to wrapping the legacy thinking string as a single un-timestamped
+  // pseudo-block so it still renders as a pill in the unified timeline.
+  const thinkingBlocks: ThinkingBlock[] = reasoning.thinkingBlocks && reasoning.thinkingBlocks.length > 0
+    ? reasoning.thinkingBlocks
+    : (reasoning.thinking
+        ? [{ id: "legacy", content: reasoning.thinking, startedAt: new Date(0).toISOString() }]
+        : []);
+  const hasContent = thinkingBlocks.length > 0 || reasoning.tools.size > 0;
 
   if (!hasContent) return null;
 
@@ -845,80 +971,73 @@ const CollapsibleReasoning = memo(function CollapsibleReasoning({ reasoning }: C
           </button>
         )}
       </div>
-      {isOpen && (
-        <TooltipProvider delayDuration={200}>
-          <div className="px-3 pb-3 space-y-3">
-            {reasoning.thinking && (
-              <div className="text-xs text-muted-foreground">
-                <p className="whitespace-pre-wrap line-clamp-10 leading-relaxed">{reasoning.thinking}</p>
-              </div>
-            )}
-            {reasoning.tools.size > 0 && (() => {
-              const maxMs = maxToolDurationMs(reasoning.tools.values());
-              const timeline = buildToolTimeline(Array.from(reasoning.tools.entries()));
-              return (
-              <div className="space-y-1">
-                {timeline.map((entry) => {
-                  if (entry.kind === "gap") {
-                    return <ThinkingGapRow key={entry.key} gapMs={entry.gapMs} />;
-                  }
-                  const { id: toolId, tool } = entry;
-                  const description = getToolDescription(tool.name, tool.input);
-                  const durationMs = toolDurationMs(tool);
-                  const duration = formatDuration(tool.startedAt, tool.completedAt);
-                  const row = (
-                    <div className="flex items-center gap-2 w-full px-2.5 py-1.5 bg-muted/40 rounded-lg text-xs hover:bg-muted/60 transition-colors">
-                      <div className="shrink-0">
-                        {tool.isError ? (
-                          <X className="h-3 w-3 text-destructive" />
-                        ) : (
-                          <Check className="h-3 w-3 text-green-500" />
-                        )}
-                      </div>
-                      <span className="font-medium shrink-0">{tool.name}</span>
-                      {description && (
-                        <span className="text-muted-foreground font-mono truncate text-[10px] flex-1 min-w-0">
-                          {description}
-                        </span>
-                      )}
-                      <DurationBar ms={durationMs} maxMs={maxMs} />
-                      {duration && (
-                        <span className="text-muted-foreground/60 text-[10px] tabular-nums shrink-0 w-12 text-right">
-                          {duration}
-                        </span>
-                      )}
-                    </div>
-                  );
+      {isOpen && (() => {
+        const maxMs = maxToolDurationMs(reasoning.tools.values());
+        const timeline = buildUnifiedTimeline(thinkingBlocks, Array.from(reasoning.tools.entries()));
+        return (
+          <TooltipProvider delayDuration={200}>
+            <div className="px-3 pb-3 space-y-1.5">
+              {timeline.map((entry) => {
+                if (entry.kind === "thinking") {
                   return (
-                    <div key={toolId} className="space-y-1">
-                      {showDetails ? (
-                        row
+                    <ThinkingPill key={`think-${entry.block.id}`} block={entry.block} />
+                  );
+                }
+                const { id: toolId, tool } = entry;
+                const description = getToolDescription(tool.name, tool.input);
+                const durationMs = toolDurationMs(tool);
+                const duration = formatDuration(tool.startedAt, tool.completedAt);
+                const row = (
+                  <div className="flex items-center gap-2 w-full px-2.5 py-1.5 bg-muted/40 rounded-lg text-xs hover:bg-muted/60 transition-colors">
+                    <div className="shrink-0">
+                      {tool.isError ? (
+                        <X className="h-3 w-3 text-destructive" />
                       ) : (
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <div className="cursor-help">{row}</div>
-                          </TooltipTrigger>
-                          <TooltipContent side="left" align="start" className="max-w-md max-h-80 overflow-auto">
-                            <pre className="text-[10px] font-mono whitespace-pre-wrap break-all">
-                              {formatToolJson(tool)}
-                            </pre>
-                          </TooltipContent>
-                        </Tooltip>
-                      )}
-                      {showDetails && (
-                        <pre className="text-[10px] font-mono whitespace-pre-wrap break-all bg-muted/20 border border-border/40 rounded-md p-2 max-h-60 overflow-auto select-text">
-                          {formatToolJson(tool)}
-                        </pre>
+                        <Check className="h-3 w-3 text-green-500" />
                       )}
                     </div>
-                  );
-                })}
-              </div>
-              );
-            })()}
-          </div>
-        </TooltipProvider>
-      )}
+                    <span className="font-medium shrink-0">{tool.name}</span>
+                    {description && (
+                      <span className="text-muted-foreground font-mono truncate text-[10px] flex-1 min-w-0">
+                        {description}
+                      </span>
+                    )}
+                    <DurationBar ms={durationMs} maxMs={maxMs} />
+                    {duration && (
+                      <span className="text-muted-foreground/60 text-[10px] tabular-nums shrink-0 w-12 text-right">
+                        {duration}
+                      </span>
+                    )}
+                  </div>
+                );
+                return (
+                  <div key={`tool-${toolId}`} className="space-y-1">
+                    {showDetails ? (
+                      row
+                    ) : (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <div className="cursor-help">{row}</div>
+                        </TooltipTrigger>
+                        <TooltipContent side="left" align="start" className="max-w-md max-h-80 overflow-auto">
+                          <pre className="text-[10px] font-mono whitespace-pre-wrap break-all">
+                            {formatToolJson(tool)}
+                          </pre>
+                        </TooltipContent>
+                      </Tooltip>
+                    )}
+                    {showDetails && (
+                      <pre className="text-[10px] font-mono whitespace-pre-wrap break-all bg-muted/20 border border-border/40 rounded-md p-2 max-h-60 overflow-auto select-text">
+                        {formatToolJson(tool)}
+                      </pre>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </TooltipProvider>
+        );
+      })()}
     </div>
   );
 });
@@ -1016,16 +1135,61 @@ const CollapsibleReasoningFromMetadata = memo(function CollapsibleReasoningFromM
       )}
       {isOpen && !isLoading && entries && (() => {
         const maxMs = maxToolDurationMs(toolResults.values());
-        let prevEndMs: number | null = null;
+        // Walk entries chronologically and infer thinking-block timestamps
+        // for legacy entries that don't carry their own. start = previous
+        // tool's completed_at; end = next tool's started_at. Gives "Thought
+        // for Xs" durations on persisted reasoning even before the backend
+        // started stamping thinking events directly.
+        let prevToolEndMs: number | null = null;
+        const inferredThinking = new Map<number, { startedAt?: string; completedAt?: string }>();
+        for (let i = 0; i < entries.length; i++) {
+          const e = entries[i];
+          if (e.type === "thinking") {
+            let startedAt = e.started_at;
+            let completedAt = e.completed_at;
+            if (!startedAt && prevToolEndMs !== null) {
+              startedAt = new Date(prevToolEndMs).toISOString();
+            }
+            if (!completedAt) {
+              for (let j = i + 1; j < entries.length; j++) {
+                const nxt = entries[j];
+                if (nxt.type === "tool" && nxt.started_at) {
+                  completedAt = nxt.started_at;
+                  break;
+                }
+                if (nxt.type === "thinking" && nxt.started_at) {
+                  completedAt = nxt.started_at;
+                  break;
+                }
+              }
+            }
+            inferredThinking.set(i, { startedAt, completedAt });
+          } else if (e.type === "tool_result" && e.completed_at) {
+            const t = new Date(e.completed_at).getTime();
+            if (!isNaN(t) && (prevToolEndMs === null || t > prevToolEndMs)) {
+              prevToolEndMs = t;
+            }
+          } else if (e.type === "tool" && e.started_at && prevToolEndMs === null) {
+            // Bootstrap so the first thinking block (which usually precedes
+            // any tool) at least has SOMETHING for its end if it lacks one.
+            const t = new Date(e.started_at).getTime();
+            if (!isNaN(t)) prevToolEndMs = t;
+          }
+        }
         return (
         <TooltipProvider delayDuration={200}>
-          <div className="px-3 pb-3 space-y-3">
+          <div className="px-3 pb-3 space-y-1.5">
             {entries.map((entry, idx) => {
               if (entry.type === "thinking") {
+                const inferred = inferredThinking.get(idx);
+                const block: ThinkingBlock = {
+                  id: `thinking-${idx}`,
+                  content: entry.content,
+                  startedAt: entry.started_at ?? inferred?.startedAt ?? "",
+                  completedAt: entry.completed_at ?? inferred?.completedAt,
+                };
                 return (
-                  <div key={`thinking-${idx}`} className="text-xs text-muted-foreground">
-                    <p className="whitespace-pre-wrap line-clamp-10 leading-relaxed">{entry.content}</p>
-                  </div>
+                  <ThinkingPill key={`think-${idx}`} block={block} />
                 );
               }
               if (entry.type === "tool") {
@@ -1034,22 +1198,6 @@ const CollapsibleReasoningFromMetadata = memo(function CollapsibleReasoningFromM
                 const toolData = result || { name: entry.name, input: entry.input };
                 const durationMs = result ? toolDurationMs(result) : null;
                 const duration = formatDuration(result?.startedAt, result?.completedAt);
-
-                // Compute thinking gap from the previous tool's end to this
-                // tool's start. Walk-order is chronological, so maintaining
-                // prevEndMs across iterations gives us the inter-tool latency.
-                let gapEl: ReactNode = null;
-                if (result?.startedAt && prevEndMs !== null) {
-                  const startMs = new Date(result.startedAt).getTime();
-                  const gap = startMs - prevEndMs;
-                  if (gap > 0) {
-                    gapEl = <ThinkingGapRow key={`gap-${entry.id}`} gapMs={gap} />;
-                  }
-                }
-                if (result?.completedAt) {
-                  const endMs = new Date(result.completedAt).getTime();
-                  if (prevEndMs === null || endMs > prevEndMs) prevEndMs = endMs;
-                }
 
                 const row = (
                   <div className="flex items-center gap-2 w-full px-2.5 py-1.5 bg-muted/40 rounded-lg text-xs hover:bg-muted/60 transition-colors">
@@ -1077,7 +1225,6 @@ const CollapsibleReasoningFromMetadata = memo(function CollapsibleReasoningFromM
 
                 return (
                   <div key={`tool-${entry.id}`} className="space-y-1">
-                    {gapEl}
                     {showDetails ? row : (
                       <Tooltip>
                         <TooltipTrigger asChild>
@@ -1119,7 +1266,7 @@ export const ChatPanel = memo(function ChatPanel({
   isLoadingMessages = false,
   isClearingSession = false,
   streamingContent,
-  streamingThinking,
+  streamingThinkingBlocks,
   streamingTools,
   pendingUserMessage,
   lastReasoning,
@@ -1164,7 +1311,7 @@ export const ChatPanel = memo(function ChatPanel({
     if (!userHasScrolledChat) {
       bottomRef.current?.scrollIntoView({ behavior: "smooth" });
     }
-  }, [messages, streamingContent, streamingThinking, streamingTools, userHasScrolledChat]);
+  }, [messages, streamingContent, streamingThinkingBlocks, streamingTools, userHasScrolledChat]);
 
   // Auto-resize textarea
   useEffect(() => {
@@ -1394,7 +1541,7 @@ export const ChatPanel = memo(function ChatPanel({
       {/* Live reasoning popup */}
       <LiveReasoningPopup
         isStreaming={isStreaming}
-        thinking={streamingThinking || ""}
+        thinkingBlocks={streamingThinkingBlocks || []}
         tools={streamingTools || new Map()}
       />
 

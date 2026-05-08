@@ -4,7 +4,7 @@
  */
 
 import { memo } from "react";
-import { FileText, MessageSquare, ArrowUpRight, Star, Share2, User, LayoutTemplate, CheckCircle2 } from "lucide-react";
+import { FileText, MessageSquare, ArrowUpRight, Star, Share2, User, LayoutTemplate, CheckCircle2, Check } from "lucide-react";
 import type { ProjectListItem } from "../../lib/custom-api";
 
 interface ProjectTileProps {
@@ -13,6 +13,8 @@ interface ProjectTileProps {
   onToggleStar?: (e: React.MouseEvent) => void;
   onShare?: (e: React.MouseEvent) => void;
   showOwner?: boolean;
+  selectable?: boolean;
+  selected?: boolean;
 }
 
 function formatDate(dateStr: string): string {
@@ -67,17 +69,33 @@ export const ProjectTile = memo(function ProjectTile({
   onToggleStar,
   onShare,
   showOwner = false,
+  selectable = false,
+  selected = false,
 }: ProjectTileProps) {
   return (
     <button
       type="button"
       onClick={onClick}
       className={`group relative text-left w-full rounded-xl border bg-card/60 backdrop-blur-lg shadow-sm overflow-hidden transition-all duration-200 hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring cursor-pointer ${
-        project.stage === "BUNDLED"
+        selected
+          ? "border-primary/60 shadow-primary/20 ring-2 ring-primary/40"
+          : project.stage === "BUNDLED"
           ? "border-green-500/20 shadow-green-500/[0.03] hover:shadow-lg hover:shadow-green-500/[0.08] hover:border-green-500/30"
           : "border-primary/[0.08] shadow-primary/[0.03] hover:shadow-lg hover:shadow-primary/[0.08] hover:border-primary/20"
       }`}
     >
+      {selectable && (
+        <div
+          className={`absolute top-2 left-2 z-10 flex h-5 w-5 items-center justify-center rounded border transition-colors ${
+            selected
+              ? "bg-primary border-primary text-primary-foreground"
+              : "bg-background/80 border-border group-hover:border-primary/50"
+          }`}
+          aria-hidden="true"
+        >
+          {selected && <Check className="h-3.5 w-3.5" strokeWidth={3} />}
+        </div>
+      )}
       <div className="p-4 pb-3">
         {/* Title row with star */}
         <div className="flex items-start justify-between gap-2">
