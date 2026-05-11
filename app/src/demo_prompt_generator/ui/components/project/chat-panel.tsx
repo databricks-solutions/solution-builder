@@ -368,109 +368,113 @@ interface MessageBubbleProps {
 // Collapsible long-message helper
 // ---------------------------------------------------------------------------
 
-// Messages longer than this get a middle-collapsed "[…] show more" toggle.
-// HEAD + TAIL = visible content when collapsed; the threshold sits well above
-// HEAD+TAIL so collapsing only kicks in when there's enough hidden content to
-// be worth a click. Hiding 50 chars is pointless; hiding 250+ is useful.
-const COLLAPSE_HEAD = 900;
-const COLLAPSE_TAIL = 200;
-const COLLAPSE_CHAR_THRESHOLD = COLLAPSE_HEAD + COLLAPSE_TAIL + 150; // 1250
+// Messages longer than this collapse into a card preview (first heading/line +
+// line count) instead of dumping the full wall of text into the bubble. The
+// auto-generated stage kickoff prompts are typically 2-10k characters — far
+// too noisy to display inline.
+const COLLAPSE_CHAR_THRESHOLD = 1200;
 
-/** Slice to the last whitespace ≤ `limit` from the start so we don't cut mid-word. */
-function sliceHead(content: string, limit: number): string {
-  if (content.length <= limit) return content;
-  const slice = content.slice(0, limit);
-  const lastBreak = Math.max(slice.lastIndexOf("\n"), slice.lastIndexOf(" "));
-  return slice.slice(0, lastBreak > limit - 80 ? lastBreak : limit);
-}
-
-/** Slice to the first whitespace ≥ `content.length - limit` so the tail starts at a word boundary. */
-function sliceTail(content: string, limit: number): string {
-  if (content.length <= limit) return content;
-  const start = content.length - limit;
-  const slice = content.slice(start);
-  const firstBreak = Math.min(
-    slice.indexOf("\n") === -1 ? Infinity : slice.indexOf("\n"),
-    slice.indexOf(" ") === -1 ? Infinity : slice.indexOf(" ")
-  );
-  return firstBreak < 80 ? slice.slice(firstBreak + 1) : slice;
+/** Pull a one-line preview: first markdown heading, else first non-empty line. */
+function previewLine(content: string): string {
+  const lines = content.split("\n");
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (!line) continue;
+    // Strip leading markdown heading markers (#, ##, ###...)
+    const heading = /^#{1,6}\s+(.+)$/.exec(line);
+    if (heading) return heading[1].trim();
+    // Skip code fences as preview
+    if (line.startsWith("```")) continue;
+    // Strip basic markdown emphasis for the preview only
+    return line.replace(/[*_`]+/g, "").slice(0, 120);
+  }
+  return content.slice(0, 120);
 }
 
 interface CollapsibleBodyProps {
   content: string;
-  /** "raw" = plain text (user bubble). "markdown" = render via Prose (assistant bubble). */
+  /** "raw" = plain text (user bubble, legacy). "markdown" = render via Prose. */
   mode: "raw" | "markdown";
   /** Disable collapsing (e.g. while the message is actively streaming). */
   disabled?: boolean;
+  /** Visual tone for the collapsed card — affects border/bg color. */
+  tone?: "user" | "assistant";
 }
 
-const CollapsibleBody = memo(function CollapsibleBody({ content, mode, disabled = false }: CollapsibleBodyProps) {
+const CollapsibleBody = memo(function CollapsibleBody({
+  content,
+  mode,
+  disabled = false,
+  tone = "assistant",
+}: CollapsibleBodyProps) {
   const [expanded, setExpanded] = useState(false);
   const shouldCollapse = !disabled && content.length > COLLAPSE_CHAR_THRESHOLD;
 
-  if (!shouldCollapse || expanded) {
-    // Full content — tack "Show less" on the end when expanded so the user
-    // can collapse back. Kept inline to avoid wasted vertical space.
+  const renderFull = () =>
+    mode === "markdown" ? (
+      <Prose
+        compact
+        tone={tone === "user" ? "onPrimary" : "default"}
+        className="text-inherit text-sm"
+      >
+        {content}
+      </Prose>
+    ) : (
+      <p className="text-sm whitespace-pre-wrap leading-snug">{content}</p>
+    );
+
+  if (!shouldCollapse) return renderFull();
+
+  if (expanded) {
     return (
       <>
-        {mode === "markdown" ? (
-          <Prose compact className="text-inherit text-sm">{content}</Prose>
-        ) : (
-          <p className="text-sm whitespace-pre-wrap leading-snug">{content}</p>
-        )}
-        {shouldCollapse && expanded && (
-          <button
-            type="button"
-            onClick={() => setExpanded(false)}
-            className="ml-1 text-xs opacity-70 hover:opacity-100 underline-offset-2 hover:underline cursor-pointer"
-          >
-            Show less
-          </button>
-        )}
+        {renderFull()}
+        <button
+          type="button"
+          onClick={() => setExpanded(false)}
+          className="mt-1.5 text-xs opacity-70 hover:opacity-100 underline-offset-2 hover:underline cursor-pointer"
+        >
+          Show less
+        </button>
       </>
     );
   }
 
-  // Collapsed: head + inline "[ … show more ] " + tail, all on one flow.
-  const head = sliceHead(content, COLLAPSE_HEAD);
-  const tail = sliceTail(content, COLLAPSE_TAIL);
-  const onExpand = () => setExpanded(true);
+  // Collapsed card preview.
+  const preview = previewLine(content);
+  const lineCount = content.split("\n").length;
+  const isUser = tone === "user";
 
-  // Shared marker: [ … **show more** … ] with the bold clickable label inside
-  // the brackets, so it reads as one visual unit no matter the rendering mode.
-  const marker = (
-    <span className="whitespace-nowrap opacity-80">
-      [ …{" "}
-      <button
-        type="button"
-        onClick={onExpand}
-        className="font-bold underline-offset-2 hover:underline cursor-pointer"
-      >
-        show more
-      </button>
-      {" "}… ]
-    </span>
-  );
-
-  if (mode === "markdown") {
-    // Markdown can't embed a React node mid-string, so we split head/tail into
-    // two Prose blocks with the marker in between. space-y-0 keeps them tight.
-    return (
-      <div className="space-y-0">
-        <Prose compact className="text-inherit text-sm">{head}</Prose>
-        <div className="text-sm my-0.5">{marker}</div>
-        <Prose compact className="text-inherit text-sm">{tail}</Prose>
-      </div>
-    );
-  }
-
-  // Raw mode (user bubble): marker inline in the paragraph flow.
   return (
-    <p className="text-sm whitespace-pre-wrap leading-snug">
-      {head}
-      {" "}{marker}{" "}
-      {tail}
-    </p>
+    <button
+      type="button"
+      onClick={() => setExpanded(true)}
+      className={`w-full text-left rounded-lg border px-2.5 py-1.5 transition-colors cursor-pointer group ${
+        isUser
+          ? "border-primary-foreground/25 bg-primary-foreground/10 hover:bg-primary-foreground/15"
+          : "border-border/50 bg-background/40 hover:bg-background/60"
+      }`}
+    >
+      <div className="flex items-start gap-2 min-w-0">
+        <ChevronRight
+          className={`h-3.5 w-3.5 mt-0.5 shrink-0 transition-transform group-hover:translate-x-0.5 ${
+            isUser ? "text-primary-foreground/70" : "text-muted-foreground"
+          }`}
+        />
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-medium leading-snug truncate">
+            {preview || "Prompt"}
+          </div>
+          <div
+            className={`text-[11px] mt-0.5 ${
+              isUser ? "text-primary-foreground/70" : "text-muted-foreground"
+            }`}
+          >
+            {lineCount.toLocaleString()} lines · {content.length.toLocaleString()} chars · click to expand
+          </div>
+        </div>
+      </div>
+    </button>
   );
 });
 
@@ -490,7 +494,7 @@ const MessageBubble = memo(function MessageBubble({
     return (
       <div className="flex justify-end">
         <div className="max-w-[85%] rounded-2xl rounded-br-md px-3.5 py-1.5 bg-primary text-primary-foreground shadow-sm">
-          <CollapsibleBody content={message.content} mode="raw" />
+          <CollapsibleBody content={message.content} mode="markdown" tone="user" />
         </div>
       </div>
     );
