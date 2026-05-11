@@ -519,6 +519,7 @@ function ProjectPage() {
         const snapshotThinking = () => thinkingBlocks.map((b) => ({ ...b }));
         let streamErrorMessage: string | null = null;
         let streamWasCancelled = false;
+        let sawStreamCompleted = false;
         const toolsMap = new Map<string, { name: string; input: unknown; result?: string; isError?: boolean; startedAt?: string; completedAt?: string }>();
         const updateRef = () => {
           reasoningRef.current = {
@@ -622,8 +623,20 @@ function ProjectPage() {
             if (event.is_cancelled) {
               streamWasCancelled = true;
             }
+            sawStreamCompleted = true;
             break;
           }
+        }
+
+        // If the loop ended without an explicit `stream.completed` (the
+        // SSE generator gave up retrying, network died, etc.), the agent
+        // may still be running server-side. Don't append a fake assistant
+        // bubble — kick the resume path so we re-attach and keep going.
+        if (!sawStreamCompleted && !streamErrorMessage) {
+          abortControllerRef.current = null;
+          setExecutionId(null);
+          setTimeout(() => { void tryResumeActiveExecution(); }, 0);
+          return;
         }
 
         // Close any still-open thinking block (e.g. loop ended on
@@ -751,6 +764,9 @@ function ProjectPage() {
         abortControllerRef.current = null;
       }
     },
+    // tryResumeActiveExecution is defined below in the same component
+    // scope — it's in the closure by the time this callback ever runs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [projectId, isStreaming]
   );
 
@@ -810,6 +826,7 @@ function ProjectPage() {
           tools: new Map(toolsMap),
         };
       };
+      let sawStreamCompleted = false;
 
       for await (const event of streamAgentProgress(
         exec.execution_id,
@@ -869,9 +886,21 @@ function ProjectPage() {
             setFileContentKey((k) => k + 1);
           }
         } else if (event.type === "stream.completed") {
+          sawStreamCompleted = true;
           break;
         }
       }
+
+      // Same defensive check as handleSendMessage: if the generator gave
+      // up retrying without a real terminator, the agent may still be
+      // running on the server. Re-attach instead of declaring it done.
+      if (!sawStreamCompleted) {
+        abortControllerRef.current = null;
+        setExecutionId(null);
+        setTimeout(() => { void tryResumeActiveExecution(); }, 0);
+        return;
+      }
+
       closeOpenThinking();
       updateRef();
 
@@ -931,21 +960,33 @@ function ProjectPage() {
     void tryResumeActiveExecution();
   }, [isLoadingProject, tryResumeActiveExecution]);
 
-  // Visibility-recovery: when the tab comes back to the foreground while we
-  // think we're streaming, the underlying fetch body may have been silently
-  // dropped by the browser (Chrome throttles backgrounded tabs aggressively
-  // and can abandon streaming responses after long inactivity). Detect that
-  // by checking whether we've received an event in the last few seconds; if
-  // not, abort the stale reader and re-attach via tryResumeActiveExecution.
+  // Stream-health recovery: while we think we're streaming, watch for the
+  // underlying fetch body going silent — either because the browser dropped
+  // the streaming response (common in backgrounded tabs after long throttling
+  // in Chrome) or because a proxy/network blip killed it without surfacing
+  // an error. Two triggers, same recovery path:
+  //   (a) `visibilitychange` → tab just came back to the foreground
+  //   (b) polling watchdog → tab stayed visible the whole time, but the
+  //       stream hasn't produced an event in too long
+  // In both cases: abort the stale reader, then ask the server if anything
+  // is still running and re-attach via tryResumeActiveExecution.
   useEffect(() => {
-    const SILENT_THRESHOLD_MS = 5_000;
-    const onVisibility = () => {
-      if (document.visibilityState !== "visible") return;
+    // Server's SSE window is ~50s before it sends `stream.reconnect`.
+    // Background tabs can be throttled to 1 event/min by Chrome, so the
+    // visibility trigger is more forgiving (~5s) since the tab is now
+    // foregrounded — events should be flowing. The polling watchdog uses
+    // a larger window to avoid false positives during legitimate quiet
+    // periods (a slow tool call, a long thinking block with no deltas).
+    const VISIBLE_SILENT_THRESHOLD_MS = 5_000;
+    const POLL_SILENT_THRESHOLD_MS = 90_000;
+    const POLL_INTERVAL_MS = 15_000;
+
+    const tryRecover = (silentThresholdMs: number) => {
       // Not streaming, or no controller — nothing to recover.
       if (!abortControllerRef.current) return;
       const lastEvent = lastEventReceivedAtRef.current;
       const silentMs = lastEvent === 0 ? Infinity : Date.now() - lastEvent;
-      if (silentMs < SILENT_THRESHOLD_MS) return;
+      if (silentMs < silentThresholdMs) return;
 
       // Stream looks dead — abort it and let the for-await catch+finally
       // run (clears `abortControllerRef.current`, refreshes the DB).
@@ -958,8 +999,21 @@ function ProjectPage() {
         void tryResumeActiveExecution();
       }, 0);
     };
+
+    const onVisibility = () => {
+      if (document.visibilityState !== "visible") return;
+      tryRecover(VISIBLE_SILENT_THRESHOLD_MS);
+    };
     document.addEventListener("visibilitychange", onVisibility);
-    return () => document.removeEventListener("visibilitychange", onVisibility);
+
+    const pollId = setInterval(() => {
+      tryRecover(POLL_SILENT_THRESHOLD_MS);
+    }, POLL_INTERVAL_MS);
+
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
+      clearInterval(pollId);
+    };
   }, [tryResumeActiveExecution]);
 
 
@@ -1090,19 +1144,13 @@ function ProjectPage() {
     if (isPackagingDAB || isStreaming) return;
     setIsPackagingDAB(true);
     handleSendMessage(
-      "Package this project as a Databricks Asset Bundle (DAB). Follow these steps:\n\n" +
-      "1. **Load the `databricks-bundles` skill** for DAB syntax, resource types, and best practices.\n" +
-      "2. **Read the dab.md reference** at `.claude/skills/databricks-demo-generator/references/dab/dab.md` and the complete working example at `.claude/skills/databricks-demo-generator/references/dab/example_databricks.yml` — the example shows the exact single-file layout to mirror.\n" +
-      "3. **Analyze all project files** to identify components (SQL files, Python scripts, notebooks, dashboards, pipelines, Genie spaces, KAs, etc.).\n" +
-      "4. **Create a single `databricks.yml`** at the project root containing everything (bundle, sync, variables, targets, AND all resources in one `resources:` block — do NOT split into multiple files):\n" +
-      "   - `bundle.name` derived from the project\n" +
-      "   - `sync.include` for code and static-file paths\n" +
-      "   - Variables for `catalog`, `schema`, and `warehouse_id`\n" +
-      "   - `dev` and `prod` targets\n" +
-      "   - All resources (schemas, volumes, pipelines, dashboards, jobs) under one top-level `resources:` key, mirroring example_databricks.yml.\n" +
-      "6. **Create deployment scripts** in `src/deploy/` for components not natively supported by DAB (Genie Spaces, Knowledge Assistants, Multi-Agent Supervisors) using the patterns from dab.md.\n" +
-      "7. **Validate** with `databricks bundle validate` command.\n" +
-      "8. **Create `dab_instructions.md`** with deployment commands, variable descriptions, and a list of resources created.\n\n"
+      "Package this project as a Databricks Asset Bundle. Follow these steps:\n\n" +
+      "1. **Read `.claude/skills/databricks-demo-generator/references/dab/dab.md`** for the authoring rules, then **mirror the layout of `.claude/skills/databricks-demo-generator/references/dab/example_databricks.yml`** — it's the canonical single-file shape (bundle / sync / variables / one `resources:` block / `dev` + `prod` targets).\n" +
+      "2. **Scan the project files** and map each one to a resource in `databricks.yml`: pipelines, dashboards, jobs (for SQL/notebooks), apps, UC schemas/volumes. Don't split into multiple yaml files.\n" +
+      "3. **For components not declarable in the bundle** (Genie Spaces, Knowledge Assistants, Multi-Agent Supervisors, PDF uploads): copy the matching reference script from `.claude/skills/databricks-demo-generator/references/dab/scripts/` into `src/deploy/` and wire it as a `notebook_task` (or `python_wheel_task`) in the bundle job.\n" +
+      "4. **If the project has a Databricks App + Lakebase**: the `app/scripts/` Lakebase scripts already ship — reference them in `dab_instructions.md` (run before/after `bundle deploy`). Do NOT declare `postgres_*` resources in `databricks.yml`.\n" +
+      "5. **Validate** with `databricks bundle validate`.\n" +
+      "6. **Write a short `dab_instructions.md`** — just the commands to run (setup script if needed → `databricks bundle deploy` → grant script if needed → `bundle run`). Don't restate what's already in `databricks.yml`.\n\n"
     );
   }, [isPackagingDAB, isStreaming, handleSendMessage]);
 
@@ -1110,13 +1158,12 @@ function ProjectPage() {
   const handleUpdateDAB = useCallback(() => {
     if (isStreaming) return;
     handleSendMessage(
-      "Update the existing DAB to include any new or changed project assets:\n\n" +
-      "1. **Load the `databricks-bundles` skill** for current DAB syntax and resource types.\n" +
-      "2. **Read the dab.md reference** at `.claude/skills/databricks-demo-generator/references/dab/dab.md` and the complete working example at `.claude/skills/databricks-demo-generator/references/dab/example_databricks.yml`\n" +
-      "3. **Compare project files against `databricks.yml`** — identify any components not yet included in the bundle. The bundle is a single `databricks.yml` at the project root with all resources under one `resources:` block.\n" +
-      "4. **Update `databricks.yml`** in place (add/modify entries under `resources:`) and add any missing deployment scripts in `src/deploy/`.\n" +
-      "5. **Validate** with `databricks bundle validate` command.\n" +
-      "6. **Update `dab_instructions.md`** to reflect any changes."
+      "Update the existing `databricks.yml` to cover any new or changed project assets:\n\n" +
+      "1. **Re-read `.claude/skills/databricks-demo-generator/references/dab/dab.md`** and skim `example_databricks.yml` for the resource shapes.\n" +
+      "2. **Diff the project tree against `databricks.yml`** — find any pipelines, dashboards, jobs, apps, or volumes that exist on disk but aren't declared.\n" +
+      "3. **Edit `databricks.yml` in place** (one file, one `resources:` block — don't split). For Genie/KA/MAS additions, drop the corresponding `references/dab/scripts/deploy_*.py` into `src/deploy/` and wire a new `notebook_task`.\n" +
+      "4. **Validate** with `databricks bundle validate`.\n" +
+      "5. **Update `dab_instructions.md`** only if the commands changed."
     );
   }, [isStreaming, handleSendMessage]);
 
