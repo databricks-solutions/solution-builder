@@ -328,12 +328,12 @@ export function BuildStepper({
             return (
               <div key={stage} className="flex items-center">
                 {idx > 0 && (
-                  <div className="relative h-px w-3 sm:w-6 mx-0.5">
+                  <div className="relative h-0.5 w-4 sm:w-7 mx-0.5 rounded-full overflow-hidden">
                     <div className={`absolute inset-0 ${
                       isCompleted || isCurrent ? "bg-primary" : "bg-border"
                     }`} />
                     {isNext && (
-                      <div className="absolute inset-0 overflow-hidden">
+                      <div className="absolute inset-0">
                         <div className="absolute inset-y-0 left-0 bg-primary animate-progress-pulse" />
                       </div>
                     )}
@@ -342,20 +342,20 @@ export function BuildStepper({
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <div
-                      className={`flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[11px] font-medium transition-colors ${
+                      className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${
                         isCompleted
-                          ? "bg-primary/10 text-primary"
+                          ? "bg-primary/10 text-primary border-primary/20"
                           : isCurrent
-                            ? "bg-primary text-primary-foreground"
-                            : "bg-muted text-muted-foreground/50"
+                            ? "bg-primary text-primary-foreground border-primary shadow-sm shadow-primary/20"
+                            : "bg-muted/60 text-muted-foreground/70 border-border"
                       }`}
                     >
                       {isCompleted ? (
-                        <Check className="h-2.5 w-2.5" />
+                        <Check className="h-3 w-3" />
                       ) : isCurrent ? (
-                        <Icon className="h-2.5 w-2.5" />
+                        <Icon className="h-3 w-3" />
                       ) : (
-                        <Circle className="h-2.5 w-2.5" />
+                        <Circle className="h-3 w-3" />
                       )}
                       <span className="hidden sm:inline">{meta.shortLabel}</span>
                     </div>

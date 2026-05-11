@@ -49,7 +49,7 @@ export const Route = createFileRoute("/projects")({
   component: ProjectsWithLayout,
 });
 
-type SortOption = "most-recent" | "oldest" | "most-files" | "most-messages";
+type SortOption = "most-recent" | "oldest";
 
 function ProjectsPage() {
   const navigate = useNavigate();
@@ -140,12 +140,6 @@ function ProjectsPage() {
               new Date(a.created_at).getTime() -
               new Date(b.created_at).getTime()
           );
-          break;
-        case "most-files":
-          sorted.sort((a, b) => b.file_count - a.file_count);
-          break;
-        case "most-messages":
-          sorted.sort((a, b) => b.message_count - a.message_count);
           break;
       }
       return sorted;
@@ -445,8 +439,6 @@ function ProjectsPage() {
           >
             <option value="most-recent">Most Recent</option>
             <option value="oldest">Oldest</option>
-            <option value="most-files">Most Files</option>
-            <option value="most-messages">Most Messages</option>
           </select>
         </div>
 

@@ -1507,16 +1507,16 @@ function ProjectPage() {
                   </Button>
                 </div>
               ) : (
-                <div className="flex items-center gap-1.5 min-w-0">
-                  <h1 className="font-bold text-lg tracking-tight truncate">
+                <div className="group/title flex items-center gap-2 min-w-0">
+                  <h1 className="font-bold text-xl tracking-tight truncate leading-tight">
                     {project?.name || "Loading..."}
                   </h1>
                   <button
                     onClick={handleStartEditName}
-                    className="opacity-40 hover:opacity-100 transition-opacity p-1 hover:bg-muted rounded shrink-0"
+                    className="opacity-0 group-hover/title:opacity-100 hover:bg-muted transition-opacity p-1 rounded shrink-0"
                     title="Edit project name"
                   >
-                    <Pencil className="h-3 w-3 text-muted-foreground" />
+                    <Pencil className="h-3.5 w-3.5 text-muted-foreground" />
                   </button>
                   {linkedTemplate && (
                     <Badge
@@ -1524,15 +1524,6 @@ function ProjectPage() {
                       className="text-[10px] px-1.5 py-0 shrink-0"
                     >
                       {linkedTemplate.status === "REVIEW_REQUESTED" ? "Pending" : linkedTemplate.status.toLowerCase()}
-                    </Badge>
-                  )}
-                  {project?.source_template_name && (
-                    <Badge
-                      variant="outline"
-                      className="text-[10px] px-1.5 py-0 shrink-0 gap-1 font-normal text-muted-foreground"
-                    >
-                      <LayoutTemplate className="h-2.5 w-2.5" />
-                      Based on: {project.source_template_name}
                     </Badge>
                   )}
                 </div>
@@ -1579,7 +1570,7 @@ function ProjectPage() {
                 variant="ghost"
                 size="sm"
                 onClick={() => setIsDeleteDialogOpen(true)}
-                className="h-7 gap-1.5 text-xs text-destructive hover:text-destructive hover:bg-destructive/10"
+                className="h-7 w-7 p-0 text-muted-foreground/60 hover:text-destructive hover:bg-destructive/10"
                 title="Delete project"
               >
                 <Trash2 className="h-3.5 w-3.5" />
@@ -1592,30 +1583,43 @@ function ProjectPage() {
           </div>
 
           {/* Metadata row */}
-          <div className="flex items-start gap-3 mt-2 flex-wrap">
-            {/* Description — opens a modal with manual + AI editing */}
+          <div className="flex items-center gap-2 mt-1 flex-wrap">
+            {project?.source_template_name && (
+              <span
+                className="inline-flex items-center gap-1 text-[11px] text-muted-foreground/80 shrink-0"
+                title={`Based on template: ${project.source_template_name}`}
+              >
+                <LayoutTemplate className="h-3 w-3" />
+                <span className="truncate max-w-[12rem]">Based on {project.source_template_name}</span>
+              </span>
+            )}
+            {project?.source_template_name && project?.description && (
+              <span className="text-muted-foreground/30">·</span>
+            )}
+            {/* Description — opens a modal with manual + AI editing.
+                Pencil affordance is hover-only to keep the row visually quiet. */}
             {project?.description ? (
               <button
                 onClick={() => setIsDescriptionDialogOpen(true)}
-                className="group text-left text-sm text-muted-foreground hover:text-foreground transition-colors cursor-pointer max-w-2xl"
+                className="group inline-flex items-start gap-1.5 text-left text-[13px] leading-snug text-muted-foreground hover:text-foreground transition-colors cursor-pointer max-w-3xl rounded-md -mx-1 px-1 py-0.5 hover:bg-muted/40"
                 title="Click to edit description"
               >
-                <span className="line-clamp-3 whitespace-pre-wrap">{project.description}</span>
-                <span className="inline-flex items-center gap-1 mt-0.5 text-xs text-muted-foreground/60 group-hover:text-primary transition-colors">
-                  <Pencil className="h-3 w-3" />
-                  Edit
-                </span>
+                <span className="line-clamp-2 whitespace-pre-wrap">{project.description}</span>
+                <Pencil
+                  className="h-3 w-3 mt-1 shrink-0 opacity-0 group-hover:opacity-60 transition-opacity"
+                  aria-hidden="true"
+                />
               </button>
             ) : (
               <button
                 onClick={() => setIsDescriptionDialogOpen(true)}
-                className="text-xs text-muted-foreground/60 hover:text-muted-foreground transition-colors cursor-pointer italic"
+                className="inline-flex items-center gap-1 text-[13px] text-muted-foreground/60 hover:text-muted-foreground transition-colors cursor-pointer italic"
                 title="Add a description"
               >
-                Add description...
+                <Pencil className="h-3 w-3" aria-hidden="true" />
+                Add description
               </button>
             )}
-
           </div>
         </div>
       </div>
