@@ -30,7 +30,7 @@ Full-stack web applications (FastAPI + React, Streamlit, or Gradio) deployed on 
 - Hardcoding warehouse IDs or endpoint URLs instead of resource bindings.
 - Forgetting OAuth token refresh — use SDK's built-in token management.
 - Over-scoping — demo app should have 2-4 screens, not 15.
-- Not testing deployment before the demo — `databricks apps deploy` can surface config issues.
+- Not testing deployment before the demo — `databricks apps deploy` can surface config issues; smoke-test once after the build.
 
 ## Connections
 

@@ -97,98 +97,36 @@ Identity: local dev = your Databricks user (`databricks auth describe`). Deploye
 
 #### 4a. Provision your Lakebase database
 
-Each app gets its own Postgres database on the shared project's `production` branch. If the shared project doesn't exist, fall back to creating your own.
-
-**Step 1 — Find (or create) the project**
+Run `./scripts/lakebase_setup_db.sh` once to ensure the Lakebase project + branch + endpoint + database exist (idempotent: reuses what's already there).
 
 ```bash
-PROJECT=$(databricks postgres list-projects \
-  | jq -r '.[] | select(.name | startswith("projects/dbdemos-asset-generator")) | .name')
+./scripts/lakebase_setup_db.sh --db-name dbgen_<demo_short_name>
+# or with project overrides: --project-id <id>  --branch-id <id>
 ```
 
-If empty, create your own:
+`<demo-short-name>` is short, lowercase, - (e.g. `dbge-luxebeauty`). The script derives the resource slug as `db-` + name with `_` → `-`. Branch defaults to `production`.
 
-```bash
-databricks postgres create-project <PROJECT_ID> \
-    --json '{"spec": {"display_name": "<Display Name>", "pg_version": "17"}}'
-PROJECT="projects/<PROJECT_ID>"
-```
+Without `--project-id` the script uses the shared `dbdemos-asset-generator` project (auto-bumps to `-2`, `-3`, … up to `-9` if full). Pass `--project-id` for a dedicated databricks lakebase project (no fallback — fails loudly if full).
 
-(`create-project` blocks until the `primary` endpoint is `READY` — ~minutes. Shared-project case is instant.)
+The script prints the connection values at the end — copy them straight into `.env` for local dev (see below).
 
-**Step 2 — Resolve the Postgres host**
-
-The branch's `primary` endpoint carries the DNS hostname. Only `get-endpoint` returns it.
-
-```bash
-PGHOST=$(databricks postgres get-endpoint "$PROJECT/branches/production/endpoints/primary" \
-  | jq -r '.status.hosts.host')
-```
-
-**Step 3 — Create your app's database**
-
-Name it `dbgen_<demo_short_name>` (e.g. `dbgen_luxebeauty`, `dbgen_windcore`). Keep it short, lowercase, underscores — same idea as the catalog name.
-
-```python
-import psycopg
-from databricks.sdk import WorkspaceClient
-
-w = WorkspaceClient()
-host = "<PGHOST from Step 2>"
-user = w.current_user.me().user_name
-token = w.config.oauth_token().access_token
-
-# Connect to the default `databricks_postgres` DB just to run CREATE DATABASE
-# (Postgres requires you to be connected to *some* existing DB). After this,
-# your app connects to dbgen_<demo_short_name> instead.
-# autocommit=True is mandatory — CREATE DATABASE can't run in a transaction.
-with psycopg.connect(
-    host=host, user=user, password=token,
-    dbname="databricks_postgres", sslmode="require", autocommit=True,
-) as conn:
-    conn.execute('CREATE DATABASE "dbgen_<demo_short_name>"')
-```
-
-Save into `resources.json`:
+Save the resolved project + database name into `resources.json`:
 
 ```json
-"lakebase_project_id": "<project-id-from-PROJECT>",
+"lakebase_project_id": "<resolved project_id from script output>",
 "lakebase_database": "dbgen_<demo_short_name>"
 ```
 
-**Gotchas:**
-- `autocommit=True` is required for `CREATE DATABASE`.
-- Connect as yourself — don't `SET ROLE databricks_superuser`.
-- OAuth tokens have a 1h TTL; refresh before each new connection in long-running scripts.
-- `sslmode="require"` is mandatory.
+**Cleanup:**
 
-**Cleanup**
-
-```sql
--- From psycopg, connected to databricks_postgres
-DROP DATABASE "dbgen_<demo_short_name>";
+```bash
+databricks postgres delete-database \
+    projects/<resolved project_id>/branches/production/databases/db-dbgen-<demo_short_name>
 ```
 
 #### 4b. Fill `.env` (local dev only)
 
-The branch path is always `projects/<lakebase_project_id>/branches/production`.
-
-**Two Lakebase values, two roles — do not confuse them:**
-
-| Variable | What it is | Format / example |
-|----------|------------|------------------|
-| `LAKEBASE_ENDPOINT` | **Resource name** (a path). Used by AppKit to refresh OAuth tokens. | `projects/<lakebase_project_id>/branches/production/endpoints/primary` |
-| `PGHOST` | **DNS hostname**. Used by psycopg/node-postgres to open the TCP connection. | `ep-small-dawn-d13fr9rm.database.us-west-2.cloud.databricks.com` |
-
-If `LAKEBASE_ENDPOINT` has dots in it, it's wrong — it must start with `projects/`.
-
-Both values come from the same command:
-
-```bash
-databricks postgres get-endpoint projects/<lakebase_project_id>/branches/production/endpoints/primary
-# .name              → LAKEBASE_ENDPOINT
-# .status.hosts.host → PGHOST
-```
+Copy the values printed by `lakebase_setup_db.sh` (Step 4a) into `.env`, plus the workspace + warehouse identifiers.
 
 ```env
 # Databricks workspace
@@ -196,21 +134,17 @@ DATABRICKS_HOST=https://<workspace>.cloud.databricks.com
 DATABRICKS_WORKSPACE_ID=<workspace-id>
 DATABRICKS_WAREHOUSE_ID=<warehouse-id>          # powers analytics + Delta→Lakebase sync
 
-# Lakebase — OAuth, NO password. LAKEBASE_ENDPOINT is a resource path; PGHOST is a hostname.
-LAKEBASE_ENDPOINT=<BRANCH_PATH>/endpoints/primary
-PGHOST=<host from .status.hosts.host — ends in .cloud.databricks.com>
-PGPORT=5432
-PGDATABASE=dbgen_<demo_short_name>                          # the database you created in 4a Step 4
-PGUSER=<your Databricks email>                  # local dev only
-PGSSLMODE=require
-# No PGPASSWORD.
+# Lakebase — values come from lakebase_setup_db.sh. AppKit's lakebase plugin
+# mints a short-lived OAuth token via the SDK auth chain (no PGUSER/PGPASSWORD).
+# LAKEBASE_ENDPOINT is a resource PATH; PGHOST is a DNS hostname — don't swap them.
+LAKEBASE_ENDPOINT=projects/<project_id>/branches/production/endpoints/primary
+PGHOST=ep-small-xxx-xxx.database.xxx.cloud.databricks.com
+PGDATABASE=dbgen_<demo_short_name>
 ```
 
-In production, every variable except `LAKEBASE_ENDPOINT` is auto-injected by the `databricks.yml` Postgres resource. The runtime injects `PGUSER` as the service principal's **application ID (UUID), not an email** — never hard-code `PGUSER` in anything that ships to prod.
+If the demo is later packaged as a DAB and deployed via `databricks bundle deploy`, every variable except `LAKEBASE_ENDPOINT` is auto-injected by the bundle's `postgres` resource binding. The runtime injects `PGUSER` as the service principal's application ID (UUID).
 
 The app's startup script validates required env vars and fails loudly if any are missing.
-
-**Sanity check before moving on**: `grep LAKEBASE_ENDPOINT .env` should show a value starting with `projects/`; `grep PGHOST .env` should show a value ending with `.cloud.databricks.com`. If either looks wrong, you'll get the `Endpoint name expects 'projects/{project_id}/branches/{branch_id}/endpoints/{endpoint_id}' format` error at app boot.
 
 ### Step 5: Validate
 
@@ -263,39 +197,21 @@ Tell the user the build is complete and point them at the **App** tab to start i
 
 **Trigger only on explicit ask** — "deploy the app" / "push the app" / "create the Databricks App". "Deploy resources" / "deploy the demo" means everything *except* the app.
 
+This is the **interactive** deploy path. We do NOT run `databricks bundle deploy` here — the project's `databricks.yml` is shipped in the source so the user can run a bundle deploy themselves later; the skill's job is the live push.
+
 **Pick the app name from `resources.json`:**
-- If `created_resources.app.name` is set → that's our app from a previous deploy. Reuse it (this is a redeploy).
-- If not set → first-time deploy. Use `dbgen-<demo_short_name>` (e.g. `dbgen-luxebeauty`). Verify the name is free first — if `databricks apps get <app-name>` returns a result, **stop and ask the user**. It's someone else's app; never override.
+- If `created_resources.app.name` is set → reuse it (redeploy).
+- If not set → first-time. Use `dbgen-<demo_short_name>` (e.g. `dbgen-luxebeauty`). Verify the name is free first — if `databricks apps get <name>` returns a result, **stop and ask the user**.
+
+Make sure `.env` has `APP_NAME` set to the resolved name and the Lakebase values from Step 4a are populated (LAKEBASE_PROJECT_ID, LAKEBASE_ENDPOINT, PGHOST, PGDATABASE). Then run the wrapper:
 
 ```bash
-APP=<resolved app-name>
-WS_PATH=/Workspace/Users/<user>/apps/$APP
-
-# Upload source code. We delete the WORKSPACE UPLOAD DIR (not the app) and
-# re-import — `--overwrite` alone doesn't prune removed/renamed files.
-# `|| true` tolerates the first-time case where the dir doesn't exist yet.
-databricks workspace delete "$WS_PATH" --recursive 2>/dev/null || true
-databricks workspace mkdirs "$WS_PATH"
-databricks workspace import-dir . "$WS_PATH"
-
-# Create the app resource if it doesn't exist yet (idempotent).
-databricks apps get "$APP" >/dev/null 2>&1 || databricks apps create "$APP"
-
-# Deploy the uploaded source.
-databricks apps deploy "$APP" --source-code-path "$WS_PATH"
-
-# Status + URL. `--output json` structure (don't poll `list-deployments`,
-# all fields are on `apps get`):
-#   .url, .app_status.state, .compute_status.state,
-#   .active_deployment.status.{state,message}
-databricks apps get "$APP" --output json | jq -r '
-  "URL:    \(.url)",
-  "App:    \(.app_status.state)",
-  "Deploy: \(.active_deployment.status.state) — \(.active_deployment.status.message)"
-'
+./scripts/deploy.sh
 ```
 
-`app.yaml` (repo root) tells the runtime how to start. The template is Node — `command: ['npm', 'run', 'start']`. Don't change unless you've swapped the framework. SQL warehouse / Lakebase / secrets are bound via the workspace UI after create (resource IDs differ per workspace; the template's `app.yaml` has the reference `env:` shape commented out).
+The script reads `.env` and does it all: uploads source to `/Workspace/Users/<me>/apps/<APP_NAME>`, creates the App if missing, deploys the source, waits for the App's Postgres SP role to appear in Lakebase, calls `lakebase_grant_app_credential.sh` to GRANT the SP CREATE+USAGE on schema `public`, starts the App so the container is warm, then prints URL + status + the `databricks apps logs` tail command. Idempotent on every step. Common failures (workspace Apps quota hit, name already taken, permission denied) surface as one-line actionable errors.
+
+**`app.yaml` runtime note** (no action needed): the template's `valueFrom: sql-warehouse` and `valueFrom: postgres` references resolve only when deployed via DAB. With this interactive path, AppKit reads the same values from `.env` (which `deploy.sh` ships with the source), so no UI binding step is required.
 
 **After deploying, record the app in `resources.json` `created_resources`:**
 
@@ -308,3 +224,7 @@ databricks apps get "$APP" --output json | jq -r '
 ```
 
 The UI's deployed-resources bar reads `app.name` to build the `/apps/<name>` link. `deployment_note` is where you record caveats (quota errors, partial deploys) for next session.
+
+#### When the user wants to ship the demo as a bundle
+
+Separate from the interactive deploy above: if the user asks for "a DAB / bundle" or "let me deploy this myself," the project's `databricks.yml` plus `scripts/lakebase_setup_db.sh` and `scripts/lakebase_grant_app_credential.sh` are already in place. Point them at those — the user runs them on their own machine. The skill does NOT run `databricks bundle deploy`.

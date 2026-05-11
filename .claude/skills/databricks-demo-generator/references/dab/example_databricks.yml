@@ -19,16 +19,11 @@ bundle:
 # ARTIFACTS — pre-deploy build hook (only needed when shipping a Databricks App)
 # ══════════════════════════════════════════════════════════════════════════════
 # Runs LOCALLY before sync. The build script:
-#   1. `cd app && npm install --include=dev`        (build tooling installed)
-#   2. `npm run build:source`                       (produces app/dist/ + app/client/dist/)
-#   3. scripts/strip-internal-registry.sh           (rewrites lockfile URLs from
-#                                                    Databricks internal proxy
-#                                                    → public registry; needed
-#                                                    so the App container —
-#                                                    which can't reach the
-#                                                    internal proxy — can fetch
-#                                                    packages on its own
-#                                                    `npm install`)
+#   1. `cd app && npm install --include=dev`  (build tooling installed)
+#   2. `npm run build:source`                 (produces app/dist/ + app/client/dist/)
+#   3. rewrite package-lock.json `resolved` URLs from the Databricks
+#      internal proxy to the public registry — the App container can't
+#      reach the internal proxy, so its own `npm install` would hang.
 #
 # Without this, `databricks bundle deploy` ships the app with no built dist/
 # and a lockfile pointing at an unreachable proxy → the App container's
@@ -68,12 +63,25 @@ variables:
   app_name:
     description: "Workspace app name (must be unique per workspace)"
     default: "demo-app"
+  # Lakebase: default to the shared `dbdemos-asset-generator` project — each
+  # demo gets its own database inside it (saves the workspace's per-project
+  # quota). Override `lakebase_project_id` if a demo needs a dedicated project.
   lakebase_project_id:
-    description: "Lakebase project slug (lowercase, dashes ok)"
-    default: "demo-lakebase"
+    description: "Lakebase project — reused if it already exists"
+    default: "dbdemos-asset-generator"
+  lakebase_branch_id:
+    description: "Lakebase branch within the project"
+    default: "production"
   lakebase_database_name:
-    description: "Postgres database name on the Lakebase branch"
-    default: "demo_db"
+    description: "Postgres database name. Convention: dbgen_<demo_short_name>"
+    default: "dbgen_demo"
+  lakebase_database_id:
+    description: |
+      Lakebase database resource ID (slug used in the App's `postgres`
+      binding path). Convention: `db-` + database_name with underscores
+      replaced by hyphens. app/scripts/lakebase_setup_db.sh passes this to
+      `--database-id` when creating the database.
+    default: "db-dbgen-demo"
   genie_space_id:
     description: "Existing Genie Space ID to bind into the app (leave empty to skip)"
     default: ""
@@ -289,25 +297,41 @@ resources:
   #     branch. Suspension semantics are non-obvious — see comments below.
   #
   # The DATABASE inside the branch is NOT a DAB resource today (no
-  # `postgres_databases` resource type). Create it once via psql or via
-  # the app's first-boot code path.
+  # `postgres_databases` resource type as of CLI v0.299.1). The skill
+  # template ships `app/scripts/lakebase_setup_db.sh` which creates the
+  # project + branch + endpoint + database idempotently — run it once
+  # before `databricks bundle deploy`. After deploy, run
+  # `app/scripts/lakebase_grant_app_credential.sh` to grant the App SP role
+  # CREATE on schema `public` (the binding only grants CONNECT — without
+  # this Drizzle migrations fail with `pg=42501`).
   # ════════════════════════════════════════════════════════════════════════
-  postgres_projects:
-    main:
-      project_id: ${var.lakebase_project_id}     # slug, e.g. "demo-lakebase"
-      display_name: "Demo Lakebase"
-      pg_version: 17
-      # Suspension is configured on the auto-created production endpoint:
-      #   - `suspend_timeout_duration: 300s` → endpoint scales to zero
-      #     after 5 min idle (saves cost; first query pays a wake-up).
-      #   - `no_suspension: true` is the OPT-OUT flag — set ONLY if you
-      #     need always-on. Omitting it leaves the endpoint suspendable.
-      default_endpoint_settings:
-        suspend_timeout_duration: 300s
-      # Lakebase projects are stateful; protect against `bundle destroy`
-      # accidentally wiping production data.
-      lifecycle:
-        prevent_destroy: true
+  #
+  # NOTE — when reusing the shared `dbdemos-asset-generator` project (the
+  # default), DO NOT declare `postgres_projects:` here. The project
+  # already exists workspace-wide; declaring it as a bundle resource
+  # makes `bundle deploy` try to create it and fail. The setup script
+  # is the only place that touches the project.
+  #
+  # Only declare `postgres_projects:` below if the demo needs a
+  # DEDICATED Lakebase project (rare — most demos share). Same for
+  # `postgres_branches:` / `postgres_endpoints:`.
+  # ════════════════════════════════════════════════════════════════════════
+  # postgres_projects:                              # uncomment for dedicated project
+  #   main:
+  #     project_id: ${var.lakebase_project_id}     # slug, e.g. "demo-lakebase"
+  #     display_name: "Demo Lakebase"
+  #     pg_version: 17
+  #     # Suspension is configured on the auto-created production endpoint:
+  #     #   - `suspend_timeout_duration: 300s` → endpoint scales to zero
+  #     #     after 5 min idle (saves cost; first query pays a wake-up).
+  #     #   - `no_suspension: true` is the OPT-OUT flag — set ONLY if you
+  #     #     need always-on. Omitting it leaves the endpoint suspendable.
+  #     default_endpoint_settings:
+  #       suspend_timeout_duration: 300s
+  #     # Lakebase projects are stateful; protect against `bundle destroy`
+  #     # accidentally wiping production data.
+  #     lifecycle:
+  #       prevent_destroy: true
 
   # The default `production` branch is auto-created. Declare additional
   # branches here if the demo needs dev/staging copies. Example:
@@ -333,8 +357,9 @@ resources:
   # container. See app.yaml's env block in the corresponding template.
   #
   # Binding types: `genie_space`, `sql_warehouse`, `serving_endpoint`,
-  # `postgres` (legacy Provisioned Lakebase only — see note below),
-  # `secret`, `job`, `uc_securable`.
+  # `postgres` (Lakebase autoscaling — note that `database:` MUST be a
+  # full slugged resource path, see binding below), `secret`, `job`,
+  # `uc_securable`.
   # ════════════════════════════════════════════════════════════════════════
   apps:
     demo_app:
@@ -361,26 +386,24 @@ resources:
             id: ${var.warehouse_id}
             permission: CAN_USE
 
-        # NOTE — Lakebase binding intentionally omitted.
-        # The `postgres` binding rejects autoscaling Lakebase project
-        # slugs (deploy fails with "Database instance X does not exist"
-        # / "Field 'name' expects projects/.../databases/..." format).
-        # Apps' postgres binding API only knows legacy Provisioned
-        # Lakebase. Workaround for autoscaling Lakebase:
-        #   1. Grant the App SP CAN_CONNECT_AND_CREATE on the Lakebase
-        #      project via the Lakebase UI (one-time, manual).
-        #   2. In app.yaml, hard-code PGHOST / PGDATABASE /
-        #      LAKEBASE_ENDPOINT / PGPORT / PGSSLMODE as plain `value:`
-        #      env entries (not `valueFrom:`). AppKit's lakebase plugin
-        #      reads them directly to mint OAuth tokens against the
-        #      endpoint.
-        # Uncomment the block below ONLY if using legacy Provisioned
-        # Lakebase (rare):
-        # - name: lakebase
-        #   postgres:
-        #     branch: projects/${var.lakebase_project_id}/branches/production
-        #     database: ${var.lakebase_database_name}
-        #     permission: CAN_CONNECT_AND_CREATE
+        # Lakebase binding (autoscaling). Grants App SP
+        # CAN_CONNECT_AND_CREATE and the platform auto-injects PGHOST /
+        # PGDATABASE / PGSSLMODE / PGUSER / PGPORT / PGAPPNAME at
+        # container start. Only LAKEBASE_ENDPOINT needs `valueFrom: postgres`
+        # in app.yaml.
+        #
+        # `database:` MUST be the full slugged resource path (the API
+        # rejects a plain DB name). The slug is created by
+        # app/scripts/lakebase_setup_db.sh — pre-deploy step. After deploy,
+        # run app/scripts/lakebase_grant_app_credential.sh to grant the SP
+        # role CREATE on schema public.
+        #
+        # Drop this block if the demo doesn't use Lakebase.
+        - name: postgres
+          postgres:
+            branch: projects/${var.lakebase_project_id}/branches/${var.lakebase_branch_id}
+            database: projects/${var.lakebase_project_id}/branches/${var.lakebase_branch_id}/databases/${var.lakebase_database_id}
+            permission: CAN_CONNECT_AND_CREATE
 
       permissions:
         - level: CAN_USE

@@ -1,114 +1,67 @@
-# Databricks Asset Bundles (DAB) Reference
+# Databricks Asset Bundles (DAB) — authoring guide
 
-When asked to package a demo as a DAB, follow this guide to create a `databricks.yml` that enables deployment to any workspace.
+When asked to package a demo as a DAB, produce a single `databricks.yml` at the project root + a short `dab_instructions.md`. Both shapes are demonstrated in [example_databricks.yml](example_databricks.yml) — **read it first**, then adapt to the demo at hand. Drop optional sections (App, Lakebase) if the demo doesn't ship them.
 
-## Prerequisites
+## Prerequisites for the deploying user
 
-- **Databricks CLI v0.283.0+** — Required for dashboard `dataset_catalog`/`dataset_schema` fields (which rewrite dataset queries at deploy time). Older CLI versions will fail on dashboard deployment.
-
-## Important: Read the Complete Example First
-
-**Before creating any DAB, read the complete working example:**
-- [example_databricks.yml](example_databricks.yml) - Consolidated DAB showing all patterns
-
-This example demonstrates:
-- Infrastructure (schemas, volumes) created by DAB deploy
-- Static file sync (PDFs) via `sync.include`
-- Parallel workflow tasks (upload_pdfs + generate_data)
-- SDK version requirements for Genie/KA/MAS
-- Task value passing between workflow tasks
-- **Optional**: a Databricks App with native resource bindings (Genie / SQL warehouse / Lakebase)
-- **Optional**: a Lakebase Postgres project (autoscaling, scale-to-zero)
-- Remember: your job is to make a DAB that works for the current demo/story, it might have many more or less components, you must adapt this example to your story. Drop the optional sections (app, Lakebase) if the demo doesn't ship them.
-
-## SDK Version Requirements
-
-Genie, KA, and MAS APIs require `databricks-sdk>=0.102.0`. Use `environment_key: sdk_latest` for those tasks (see example_databricks.yml).
-
-## Key Patterns
-
-All patterns are demonstrated in [example_databricks.yml](example_databricks.yml) with inline comments.
-
-1. **Infrastructure in YAML** — Schemas/volumes declared in DAB, not Python scripts
-2. **Static files via sync.include** — PDFs synced to workspace, then copied to volume by task
-3. **Parallel tasks and dependencies** — Tasks without `depends_on` run in parallel, respect the resource dependencies
-4. **Task value passing** — Use `dbutils.jobs.taskValues.set()` + `{{tasks.*.values.*}}` to pass the ID of asset created when there is a dependency (ex: MAS needs the KA + Genie id)
+- Databricks CLI **v0.283.0+** (dashboard `dataset_catalog`/`dataset_schema` rewriting requires it).
+- SDK `databricks-sdk>=0.102.0` for any task that touches Genie / KA / MAS APIs — wire via `environment_key: sdk_latest`.
 
 ---
 
-## Step 1: Read the DAB Skill
+## Resource types (what to put in `databricks.yml`)
 
-Before proceeding, read the **databricks-bundles** skill from the ai-dev-kit for comprehensive DAB syntax and best practices.
+| Demo asset | DAB resource | Notes |
+|------------|--------------|-------|
+| SQL files | `jobs.<key>.sql_task` | |
+| Python notebooks | `jobs.<key>.notebook_task` | |
+| SDP/DLT pipeline | `pipelines` | |
+| AI/BI dashboard (`.lvdash.json`) | `dashboards` | Set `dataset_catalog` + `dataset_schema` so queries rebind per-target. |
+| Databricks App | `apps` | Native (CLI 0.239.0+). Bindings under `apps.<key>.resources:` — see App section. |
+| Lakebase Postgres | `postgres_projects` / `postgres_branches` / `postgres_endpoints` | Bundle-declarable. **But** prefer the script approach (see Lakebase section). |
+| UC schemas / volumes / catalogs | `schemas` / `volumes` / `catalogs` | Use `grants` on volumes, not `permissions`. |
 
-## Step 2: Documentation Reference
+**Not declarable in DAB** — deploy via SDK notebook tasks in the day workflow. Reference scripts ship under [`scripts/`](scripts/):
 
-For the latest configuration options:
-- [DABs Settings Reference](https://docs.databricks.com/aws/en/dev-tools/bundles/settings)
-- [Supported Resource Types](https://docs.databricks.com/aws/en/dev-tools/bundles/resources#resource-types)
+| Component | Reference script | SDK version |
+|-----------|------------------|-------------|
+| Genie Spaces | [`scripts/deploy_genie.py`](scripts/deploy_genie.py) | `>=0.102.0` |
+| Knowledge Assistants | [`scripts/deploy_ka.py`](scripts/deploy_ka.py) | `>=0.102.0` |
+| Multi-Agent Supervisors | [`scripts/deploy_mas.py`](scripts/deploy_mas.py) | `>=0.102.0` |
+| File upload to volume | [`scripts/upload_pdfs.py`](scripts/upload_pdfs.py) | upload to workspace, then `dbutils.fs.cp` |
 
-## Step 3: Analyze Project Components
+Each script is idempotent (get-then-create) and parameterized via `argparse` — copy into the project `src/deploy/` and wire as a `notebook_task` (or `python_wheel_task`) in the bundle job.
 
-Examine the project files to identify:
+---
 
-| Component Type | DAB Resource | Notes |
-|---------------|--------------|-------|
-| SQL files | `jobs` with `sql_task` | Schedule via workflow |
-| Python notebooks | `jobs` with `notebook_task` | Direct DAB support |
-| Python scripts | `jobs` with `python_wheel_task` | Package as wheel first |
-| DLT/SDP pipelines | `pipelines` | Spark Declarative Pipelines |
-| Dashboards (.lvdash.json) | `dashboards` | AI/BI dashboards |
-| Apps | `apps` | Native DAB (CLI 0.239.0+). Bindings in `resources:` — see App section below |
-| Lakebase Postgres | `postgres_projects` / `postgres_branches` / `postgres_endpoints` | Autoscaling PG. Use `lifecycle.prevent_destroy` for stateful demos |
-| Volumes | `volumes` | Use `grants` not `permissions` |
-| Schemas | `schemas` | Unity Catalog schemas |
-| Catalogs | `catalogs` | Unity Catalog catalogs |
+## Bundle skeleton — what `databricks.yml` must have
 
-## Step 4: Components NOT Directly Supported in DAB
+One file at project root, all resources under one top-level `resources:` block.
 
-Some Databricks components cannot be declared in DAB YAML. Deploy them via **SDK notebook tasks** in the workflow. The capability blocks in `blocks/capabilities/` have the API-specific details for each component (serialized_space structure, required fields, SDK patterns). The DAB just wires them into the workflow.
+- **Variables** for catalog, schema, warehouse_id — never hardcode. No workspace host — rely on CLI profile.
+- **`sync.include`** for static files (PDFs) AND the app's gitignored build outputs (`app/dist/**`, `app/client/dist/**`).
+- **Paths** are relative to `databricks.yml` — `./src/...`, `./dashboard/...`.
+- **Two `environments:`** in any job that calls SDK APIs: `sdk_only` (default) and `sdk_latest` (`databricks-sdk>=0.102.0`) for Genie/KA/MAS tasks.
+- **`artifacts.default.build: ./app/scripts/build-app.sh`** if shipping an App (build runs before sync).
+- **`lifecycle.prevent_destroy: true`** on any stateful resource (Lakebase project, the App).
 
-| Component | Workaround | Capability Block | SDK Requirement |
-|-----------|------------|-----------------|-----------------|
-| **Genie Spaces** | SDK notebook task | `genie.md` | `>=0.102.0` |
-| **Knowledge Assistants** | SDK notebook task | `knowledge-assistant.md` | `>=0.102.0` |
-| **Supervisor Agents** | SDK notebook task | `supervisor-agent.md` | `>=0.102.0` |
-| **PDF/File Upload to Volume** | Notebook task | N/A — use `dbutils.fs.cp` | Pre-installed |
+---
 
-### SDK Deployment Task Pattern
+## Workflow patterns (inside the bundle's `jobs:`)
 
-Every SDK deployment notebook follows the same structure:
+### Parallel + dependent tasks
+Tasks without `depends_on` run in parallel. Use `depends_on` only where a real dependency exists (downstream needs upstream's output).
+
+### Passing IDs between tasks (task values)
+When task B needs an ID created by task A (e.g. MAS needs the Genie space id):
 
 ```python
-# 1. Accept parameters via widgets
-dbutils.widgets.text("catalog", "", "Catalog")
-dbutils.widgets.text("schema", "", "Schema")
-catalog = dbutils.widgets.get("catalog")
-schema = dbutils.widgets.get("schema")
-
-# 2. Initialize SDK client
-from databricks.sdk import WorkspaceClient
-w = WorkspaceClient()
-
-# 3. Idempotent create-or-update (check for existing, update or create)
-# ... component-specific logic from the capability block ...
-
-# 4. Output IDs for downstream tasks
-dbutils.jobs.taskValues.set(key="component_id", value=created_id)
-```
-
-The **capability block** defines steps 2-3 (what API to call, what fields are required). The **DAB** defines how the task is wired in (environment, dependencies, parameter passing).
-
-## Step 5: Task Value Passing Between Workflow Tasks
-
-When deploying components that depend on each other, use **task values** to pass IDs.
-
-### Producer Task
-```python
+# Producer (Python notebook only — task values are Python-only)
 dbutils.jobs.taskValues.set(key="genie_space_id", value=space_id)
 ```
 
-### Consumer Task Configuration
 ```yaml
+# Consumer
 - task_key: deploy_mas
   depends_on:
     - task_key: deploy_genie
@@ -117,204 +70,174 @@ dbutils.jobs.taskValues.set(key="genie_space_id", value=space_id)
       genie_space_id: "{{tasks.deploy_genie.values.genie_space_id}}"
 ```
 
-### Key Constraints
+Task values only work within a single job run; cross-job sharing requires another channel.
 
-| Constraint | Detail |
-|------------|--------|
-| Task dependency required | Consumer task must `depends_on` the producer task |
-| Python only | `dbutils.jobs.taskValues.set/get` only works in Python notebooks |
-| Same job run scope | Task values cannot be read by tasks in a different job |
+### SDP `read_files` paths
+SDP SQL `read_files(...)` can't interpolate Spark conf vars. Two options:
+- **Python bronze** (recommended): `spark.conf.get("demo.volume_path")` + `spark.readStream...load(f"{volume_path}/...")`.
+- **SQL bronze with hardcoded paths**: must match the DAB's default `${var.catalog}/${var.schema}` — note this in `dab_instructions.md`.
 
-## Step 5b: Optional — Databricks App + Lakebase Postgres
+---
 
-If the demo ships a Databricks App or needs managed Postgres, both go in the same `databricks.yml`. Skip this section entirely if the demo is workflow-only.
+## App-specific sections
 
-### Lakebase resource tree
+### Build pipeline (Node apps)
 
-`postgres_projects` → (auto `production`) `postgres_branches` → `postgres_endpoints`. The CLI auto-creates a default `production` branch + endpoint on first deploy, so for most demos you only declare `postgres_projects`. Declare branches/endpoints explicitly only when you need additional dev/staging branches or non-default endpoint configs.
+For AppKit / Node apps shipping a built `dist/`, three things must happen on every `databricks bundle deploy`:
 
-| Field | Where | Why |
-|-------|-------|-----|
-| `default_endpoint_settings.suspend_timeout_duration: 300s` | `postgres_projects` | Endpoint scales to zero after 5 min idle. First query pays the wake-up. |
-| `no_suspension: true` | `postgres_projects` (rare) | Opt OUT of scale-to-zero. Always-on is more expensive — only use if first-query latency is unacceptable. |
-| `lifecycle.prevent_destroy: true` | `postgres_projects` AND `apps` | Blocks `bundle destroy` from wiping stateful resources. |
-| `pg_version: 17` | `postgres_projects` | Pin the major. Defaults change. |
+1. **Local build** — produces `app/dist/server.js` + `app/client/dist/`. Wire via `artifacts.default.build: ./app/scripts/build-app.sh`.
+2. **Sync override** — both `dist/` dirs are gitignored. Whitelist via `sync.include: ["app/dist/**", "app/client/dist/**"]`.
+3. **Lockfile registry rewrite** — local installs on VPN bake `npm-proxy.dev.databricks.com` into `package-lock.json`; the App container can't reach that proxy. `build-app.sh` rewrites those URLs to `registry.npmjs.org` (idempotent — no-op off-VPN).
 
-The DATABASE inside the branch is NOT a DAB resource (no `postgres_databases` type). Create it once via psql, or have the app's first-boot code do `CREATE DATABASE IF NOT EXISTS` against the maintenance DB.
+The app ships `app/scripts/build-app.sh` covering all three. Reuse it.
+
+### App container lifecycle
+
+After bundle deploy, the container runs `npm install` → `npm run build` → `command:` from `app.yaml`. Two non-obvious requirements:
+- `npm run build` is **always** invoked by the platform. Override `package.json`'s `build` to a no-op `echo` (the real build is local). Rename the real script to `build:source`. Otherwise the container tries to invoke `tsdown`/`vite` which aren't installed (`omit=dev` strips them).
+- Frontend-only packages (`react`, `tailwindcss-*`, `lucide-react`, etc.) belong in `devDependencies`, not `dependencies` — they're bundled into `client/dist/` at build time. With `omit=dev` this cuts the container install from ~700 to ~440 packages.
 
 ### App resource bindings
 
-The `apps.<name>.resources:` block declares each downstream resource the app can reach. Each entry has a `name` (handle the app uses to look up the resource) and **exactly one** keyed object describing the target type:
+Each downstream resource the app uses goes under `apps.<key>.resources:`. The app SP automatically gets the listed `permission` on the binding — no separate grant step needed for those.
 
-| Binding key | Purpose | Permission |
-|-------------|---------|------------|
-| `genie_space` | Bind an existing Genie Space (pass the id as a var) | `CAN_RUN` |
-| `sql_warehouse` | SQL warehouse for app-issued queries | `CAN_USE` |
-| `serving_endpoint` | Model-serving endpoint (LLM, embedding) | `CAN_QUERY` |
-| `postgres` | Lakebase branch — **legacy Provisioned only, see pitfall below for autoscaling** | `CAN_CONNECT_AND_CREATE` |
-| `secret` | Workspace secret scope/key | `READ` |
-| `job` | Existing job (manage runs from app) | `CAN_MANAGE_RUN` |
-| `uc_securable` | UC catalog/schema/table (read-only browse) | `CAN_USE` |
+| Binding key | Permission |
+|-------------|------------|
+| `genie_space` | `CAN_RUN` |
+| `sql_warehouse` | `CAN_USE` |
+| `serving_endpoint` | `CAN_QUERY` |
+| `postgres` | `CAN_CONNECT_AND_CREATE` (Lakebase — see below) |
+| `secret` | `READ` |
+| `job` | `CAN_MANAGE_RUN` |
+| `uc_securable` | `CAN_USE` |
 
-The app's auto-provisioned service principal gets the listed `permission` on each binding — no separate grant step needed.
+### Bindings ≠ env vars — `app.yaml` wires them through
 
-### Bindings ≠ env vars — `app.yaml` must wire them
-
-The Apps platform does **not** auto-inject env vars from these bindings. Each binding must be surfaced explicitly in the app's `app.yaml` (under `source_code_path`) via a `valueFrom: <binding-name>` entry that **references the binding's `name:` field exactly**:
+The Apps platform does NOT auto-inject env vars from bindings. Each binding needs a matching entry in `app/app.yaml`:
 
 ```yaml
-# app.yaml (sits at app/app.yaml inside the source tree)
-command: ['node', '--env-file-if-exists=.env', 'dist/server.js']
 env:
-  - name: NODE_ENV
-    value: production
   - name: DATABRICKS_WAREHOUSE_ID
     valueFrom: sql-warehouse        # matches `name: sql-warehouse` in databricks.yml
-  - name: DATABRICKS_GENIE_SPACE_ID
-    valueFrom: genie-space
+  - name: LAKEBASE_ENDPOINT
+    valueFrom: postgres
 ```
 
-If `app.yaml` is missing the `valueFrom:` entries, the app boots and crashes at runtime with `Warehouse ID not found / Please configure the DATABRICKS_WAREHOUSE_ID environment variable` (or the equivalent for whichever binding is missing).
+Missing `valueFrom` entries → app boots and crashes with `Warehouse ID not found` / `PGHOST missing`.
 
-### Building + shipping the app — single-command deploy
+---
 
-For Node-based apps (AppKit, etc.) shipping a built `dist/`, three things must happen on `databricks bundle deploy`:
+## Lakebase (special handling)
 
-1. **Local build** — produce `app/dist/server.js` (server bundle) and `app/client/dist/` (vite client). Wire this through `artifacts.<name>.build:` in `databricks.yml` so the build runs automatically before sync.
-2. **Sync override** — `app/dist/` and `app/client/dist/` are gitignored. The bundle CLI honors `.gitignore`, so add explicit `sync.include` entries to whitelist them past the gitignore.
-3. **Lockfile registry rewrite** — `package-lock.json`'s `resolved` URLs are baked at install time. If the developer is on the Databricks VPN, their `~/.npmrc` resolves through `https://npm-proxy.dev.databricks.com/` and the lockfile gets those proxy URLs. The Apps container can't reach the internal proxy, so its `npm install` ETIMEDOUTs after 3 retries × ~2 min per package, looking like an 8-minute hang followed by `npm error Exit handler never called!`. Fix: a build-time `sed` step that rewrites proxy URLs → `registry.npmjs.org` in the lockfile. Idempotent (no-op for off-VPN users whose lockfiles already use the public registry).
+Two gaps in the bundle CLI (v0.299.1) force a two-script wrap:
 
-The `app_template` skill ships these as `scripts/build-app.sh` (does install + build + rewrite) and `scripts/strip-internal-registry.sh` (the lockfile rewrite). Reuse them in generated demos.
+1. **No `postgres_databases` resource type** → the database can't be declared in YAML, so it must exist before `bundle deploy`. The `postgres` binding in the App requires the full slugged path (`projects/<id>/branches/<branch>/databases/db-<slug>`).
+2. **No post-deploy hook** → the App SP's auto-created Postgres role only has CONNECT. Drizzle migrations fail with `pg=42501 permission denied for schema public` without a GRANT.
 
-### Container lifecycle for Node apps
+**The recommended pattern: do NOT declare any `postgres_*` resources in `databricks.yml`.** Use the two scripts the App template ships:
 
-After `databricks bundle deploy` uploads source, the App container runs:
+- `app/scripts/lakebase_setup_db.sh` — creates project + branch + endpoint + database via CLI. Defaults to the shared `dbdemos-asset-generator` project (each demo gets its own DB inside; auto-bumps to `-2`, `-3`, ... if full). Run **before** `bundle deploy`.
+- `app/scripts/lakebase_grant_app_credential.sh` — GRANTs the App SP CREATE+USAGE on `public`. Run **after** `bundle deploy`.
 
-1. `npm install` — uses our shipped `.npmrc` (`omit=dev` so only runtime deps install, `ignore-scripts=true` so postinstall doesn't try to run dev tooling).
-2. `npm run build` — Apps **always** runs this. Override the script in `package.json` to be a no-op echo (the real build already produced `dist/` locally and shipped it via sync.include). If `build` is left as the real build, it'll try to invoke `tsdown`/`vite` which aren't installed at runtime → exit 127.
-3. The `command:` from `app.yaml` runs.
+Same scripts work for the interactive `databricks apps deploy` path too — single source of truth.
 
-Move every frontend-only package (`react`, `tailwindcss-*`, `lucide-react`, `embla-carousel-react`, `next-themes`, `react-router`, `react-markdown`, `react-resizable-panels`, `remark-gfm`, `clsx`, `zod`, `@databricks/appkit-ui`, `@tailwindcss/typography`) from `dependencies` → `devDependencies`. They're bundled into `client/dist/` at build time and aren't needed at runtime; with `omit=dev` this drops the container install from ~700 packages to ~440.
+When both ship (a future DAB version), fold all four resources back into `databricks.yml` in one change.
 
-See the `apps:` block in [example_databricks.yml](example_databricks.yml) for the working bundle config.
+### App `postgres` binding shape (when present)
 
-## Step 6: Bundle Template
+```yaml
+- name: postgres
+  postgres:
+    branch: projects/${var.lakebase_project_id}/branches/${var.lakebase_branch_id}
+    database: projects/${var.lakebase_project_id}/branches/${var.lakebase_branch_id}/databases/${var.lakebase_database_id}
+    permission: CAN_CONNECT_AND_CREATE
+```
 
-Create a **single `databricks.yml`** at the project root containing bundle metadata, sync config, variables, targets, and ALL resources under one top-level `resources:` block. See [example_databricks.yml](example_databricks.yml) for the complete working example to mirror.
+`lakebase_database_id` is derived by `lakebase_setup_db.sh` as `db-` + DB name with underscores → hyphens (e.g. `dbgen_luxebeauty` → `db-dbgen-luxebeauty`).
 
-**Key points:**
-- One file — do NOT split into `resources/*.yml`. Keeping everything in `databricks.yml` is easier to read, edit, and maintain.
-- No hardcoded workspace hosts - use environment variables or CLI profiles
-- Variables for catalog/schema with sensible defaults
-- `sync.include` for static files (PDFs, etc.) AND for the app's gitignored build outputs (`app/dist/**`, `app/client/dist/**`)
-- Two environments: `sdk_only` and `sdk_latest`
-- **If shipping an app**: `artifacts.default.build: ./scripts/build-app.sh` so a single `databricks bundle deploy` builds the frontend locally + ships the result.
+With the binding in place, `app.yaml` only needs `LAKEBASE_ENDPOINT: valueFrom: postgres` — the platform auto-injects `PGHOST` / `PGDATABASE` / `PGSSLMODE` / `PGUSER` / `PGPORT` / `PGAPPNAME`.
 
-## Step 7: Project Structure example
+---
+
+## Project structure
 
 ```
 project/
-├── databricks.yml              # Single bundle config — all resources in one file (see example_databricks.yml)
-├── dab_instructions.md         # Deployment instructions for users
-├── scripts/                    # (Optional, only if shipping an app)
-│   ├── build-app.sh           # Wired into artifacts.default.build — runs npm install + build + lockfile rewrite
-│   └── strip-internal-registry.sh  # Lockfile URL rewrite (proxy → public registry)
+├── databricks.yml              # Single bundle config — see example_databricks.yml
+├── dab_instructions.md         # Short deploy commands (see "Generate dab_instructions.md" below)
 ├── src/
-│   ├── data_generation/       # Data generation notebooks
-│   ├── deploy/                # SDK deployment notebooks (Genie, KA, MAS, file upload)
-│   └── pipeline/              # SDP/DLT pipeline code
+│   ├── data_generation/        # Data generation notebooks
+│   ├── deploy/                 # SDK deployment notebooks (Genie, KA, MAS, file upload)
+│   └── pipeline/               # SDP/DLT pipeline code
 ├── dashboard/                  # .lvdash.json files
-├── app/                        # (Optional) Databricks App source
-│   ├── app.yaml               # `command:` + env wiring (valueFrom for each binding)
-│   ├── package.json           # build:source script + frontend deps in devDependencies
-│   ├── .npmrc                 # ignore-scripts=true, omit=dev
-│   ├── server/                # backend source (built to dist/server.js)
-│   ├── client/                # frontend source (built to client/dist/)
-│   ├── dist/                  # gitignored — built by scripts/build-app.sh, shipped via sync.include
-│   └── client/dist/           # gitignored — built by scripts/build-app.sh, shipped via sync.include
-└── raw_data/
-    └── pdf/                   # PDFs to upload (synced via sync.include)
+├── raw_data/pdf/               # PDFs to upload (synced via sync.include)
+└── app/                        # (Optional) Databricks App source
+    ├── app.yaml                # `command:` + env wiring (valueFrom for each binding)
+    ├── package.json            # `build` is a no-op echo; real build is `build:source` (dev only)
+    ├── .npmrc                  # ignore-scripts=true, omit=dev, loglevel=verbose
+    ├── .env / .env.template    # Local dev: APP_NAME + Lakebase values
+    ├── scripts/
+    │   ├── build-app.sh                     # Wired into artifacts.default.build (install + build + lockfile rewrite)
+    │   ├── deploy.sh                        # One-shot interactive `databricks apps deploy` (uploads, creates, grants, starts)
+    │   ├── lakebase_setup_db.sh             # Lakebase project/branch/endpoint/db — run BEFORE bundle deploy
+    │   └── lakebase_grant_app_credential.sh # GRANT App SP on schema public — run AFTER bundle deploy
+    ├── server/                 # backend source (built to dist/server.js)
+    ├── client/                 # frontend source (built to client/dist/)
+    ├── dist/                   # gitignored — built locally, shipped via sync.include
+    └── client/dist/            # gitignored — same
 ```
 
-## Key Guidelines
+---
 
-1. **Use variables** for catalog, schema, and warehouse
-2. **Parameterize everything** that differs between environments
-3. **No hardcoded workspace hosts** - rely on CLI profile or environment variables
-4. **Create infrastructure via DAB** - schemas and volumes in YAML, not Python
-5. **Use sync.include** for static file upload to workspace
-6. **SDK version matters** - `>=0.102.0` required for Genie/KA/MAS
-7. **Path resolution** - all resource paths are relative to `databricks.yml`, so use `./src/...`, `./dashboard/...`, etc.
-8. **SDP SQL cannot parameterize `read_files` paths** - see Volume Path Parameterization below
+## Generate `dab_instructions.md`
 
-## Volume Path Parameterization in SDP
+Short, command-driven. Tell the user what to run; don't restate `databricks.yml`'s contents.
 
-SDP SQL files (`CREATE STREAMING TABLE ... AS SELECT ... FROM STREAM read_files(...)`) **cannot use Spark conf variables** in the `read_files()` path. Even though the pipeline configuration passes `demo.volume_path`, SQL has no syntax to interpolate it.
+**Template when the demo ships an App + Lakebase:**
 
-**Two approaches:**
+````markdown
+# Deploy — <Demo Name>
 
-| Approach | Tradeoff |
-|----------|----------|
-| **Python bronze notebook** (recommended) | Uses `spark.conf.get("demo.volume_path")` to build the path dynamically. Fully parameterized. |
-| **SQL with hardcoded defaults** | Simpler, but the volume path must match `${var.catalog}/${var.schema}`. Only works when deploying with default variable values. |
-
-If using SQL bronze (simpler demos), ensure the hardcoded path uses the **same default values** as the DAB variables, and document in `dab_instructions.md` that changing catalog/schema requires editing the SQL files.
-
-If using Python bronze, the notebook should read the path from Spark conf:
-```python
-volume_path = spark.conf.get("demo.volume_path")
-df = spark.readStream.format("cloudFiles").option("cloudFiles.format", "parquet").load(f"{volume_path}/table_name")
-```
-
-## Common Pitfalls
-
-Mistakes that cause runtime failures after a successful `bundle deploy`:
-
-| Pitfall | Symptom | Fix |
-|---------|---------|-----|
-| `avg()` on a BOOLEAN column in PySpark | `DATATYPE_MISMATCH.UNEXPECTED_INPUT_TYPE` | Cast first: `F.avg(F.col("bool_col").cast("int"))` |
-| Dashboard `dataset_catalog`/`dataset_schema` on old CLI | Deploy fails or fields silently ignored | Require CLI v0.283.0+ |
-| Hardcoded volume paths in SDP SQL | Pipeline fails when deploying to non-default catalog/schema | Use Python bronze or match defaults (see above) |
-| App `postgres` binding rejecting an autoscaling Lakebase project slug | Deploy error "Database instance X does not exist" / "Field 'name' expects projects/.../databases/..." | Apps' postgres binding API only knows legacy Provisioned Lakebase. For autoscaling Lakebase: omit the binding, grant the App SP `CAN_CONNECT_AND_CREATE` via the Lakebase UI, and inject `PGHOST` / `PGDATABASE` / `LAKEBASE_ENDPOINT` / `PGPORT` / `PGSSLMODE` directly via plain `value:` entries in `app.yaml`. |
-| Workspace at the 1000-project Lakebase quota | `postgres_projects` deploy fails | `postgres_projects` has no "use existing" mode — `project_id` is a slug for CREATE. Comment out the `postgres_projects` block and pass an existing project's UID via vars. |
-| Missing `lifecycle.prevent_destroy` on app/Lakebase | `bundle destroy` wipes user data | Add `lifecycle: { prevent_destroy: true }` to any stateful resource. |
-| App container `npm install` hangs ~8 min then fails with `npm error Exit handler never called!` | Looks like OOM, isn't | The shipped `package-lock.json` has `resolved` URLs pointing at `npm-proxy.dev.databricks.com` (developer's local VPN proxy). Container can't reach it; every fetch ETIMEDOUTs after 3 retries × ~2 min. Fix: `scripts/strip-internal-registry.sh` rewrites lockfile URLs → `registry.npmjs.org` in a build hook. |
-| App container `npm run build` fails with `sh: 1: tsdown: not found` (or `vite: not found`) | Apps platform always runs `npm run build` after `npm install` | With `omit=dev` in `.npmrc`, dev deps aren't installed. Make `package.json`'s `build` a no-op echo (the real build runs locally; rename the real one to `build:source`). Ship `dist/` + `client/dist/` via `sync.include`. |
-| App boot crashes with `Warehouse ID not found` / `PGHOST missing` despite resources being declared | Bindings declared in `databricks.yml` don't auto-inject env vars | Add matching `env: - name: X / valueFrom: <binding-name>` entries in `app.yaml` for each binding. |
-| App boot fails with `Error installing packages` and no stderr lines | Default Apps install logs are too quiet to debug | Add `loglevel=verbose` to the app's `.npmrc`. The container will dump per-package fetch progress to the platform logs so you can see exactly where install dies. |
-| App's `dist/` and `client/dist/` missing on the container after a successful deploy | Bundle CLI honored `.gitignore` and skipped them | Add `sync.include: ["app/dist/**", "app/client/dist/**"]` to override the gitignore. |
-
-For component-specific pitfalls (Genie API requirements, KA document formats, etc.), see the relevant capability block.
-
-## Step 8: Create dab_instructions.md
-
-Create a short `dab_instructions.md` with deployment commands. Keep it concise. Include:
-- **Prerequisite**: Databricks CLI v0.283.0+ (`databricks --version` to check)
-- Deploy and run commands with variable overrides
-- Variable reference table
-- Resources created list
-
-## Step 9: Typical Demo Workflow
-
-See [example_databricks.yml](example_databricks.yml) for the complete workflow pattern.
-
-### Execution Sequence
-
-| Step | Task | Purpose | Dependencies | Outputs |
-|------|------|---------|--------------|---------|
-| 1a | `upload_pdfs` | Copy PDFs to volume | None | Files in volume |
-| 1b | `generate_data` | Create synthetic data | None (parallel) | Tables in UC |
-| 2 | `run_pipeline` | Run SDP pipeline | Data tables exist | Processed tables |
-| 3 | `deploy_genie` | Create Genie Space | Tables exist | `genie_space_id` |
-| 4 | `deploy_ka` | Create Knowledge Assistant | PDFs in volume | `ka_tile_id` |
-| 5 | `deploy_mas` | Create Multi-Agent Supervisor | KA + Genie exist | `mas_tile_id` |
-
-### Deployment Commands
+Three commands. The two Lakebase scripts wrap what the bundle CLI (v0.299.1) can't do yet — no `postgres_databases` resource type and no post-deploy hook.
 
 ```bash
-# Deploy all resources (creates schema, volumes, registers jobs)
-databricks bundle deploy --var="warehouse_id=abc123"
-
-# Run the setup workflow (executes all tasks in order)
-databricks bundle run demo_setup
+./app/scripts/lakebase_setup_db.sh --db-name <db> --project-id <id>
+databricks bundle deploy
+./app/scripts/lakebase_grant_app_credential.sh --app-name <name> --project-id <id> --db-name <db>
 ```
+
+Start the app: `databricks bundle run <app-resource-key>`.
+
+## First-time setup (cold-start only — skip on redeploys)
+
+(Include only what this demo actually needs.)
+- `python data/generate_data.py` — synthetic data into UC volumes.
+- `python src/deploy/deploy_genie.py --catalog ... --schema ... --warehouse-id ...` — create the Genie space. Save the returned `space_id` into `resources.json` and `app/config/app.json`.
+
+## Teardown
+`databricks bundle destroy --auto-approve`
+(Does not drop UC tables/volumes or the Genie space.)
+````
+
+**When the demo has no App (workflow-only):** just `databricks bundle deploy` + the per-demo `bundle run` commands. No Lakebase scripts needed.
+
+---
+
+## Common pitfalls (after a successful `bundle deploy`)
+
+| Symptom | Cause + fix |
+|---------|-------------|
+| `DATATYPE_MISMATCH.UNEXPECTED_INPUT_TYPE` on a BOOLEAN | `avg()` doesn't accept boolean — cast: `F.avg(F.col("bool_col").cast("int"))`. |
+| Dashboard deploy silently ignores `dataset_catalog`/`dataset_schema` | CLI < 0.283.0. Require v0.283.0+. |
+| Pipeline fails on non-default catalog/schema | Hardcoded paths in SDP SQL bronze. Use Python bronze or document the constraint. |
+| App deploy "Field 'name' expects projects/.../databases/..." | `postgres` binding's `database:` needs the full slugged path. Use `${var.lakebase_database_id}`. |
+| App migrations fail with `pg=42501` | Binding grants CONNECT only. Run `app/scripts/lakebase_grant_app_credential.sh` post-deploy. |
+| `postgres_projects` deploy fails with "workspace projects limit exceeded" | Workspace at 1000-project Lakebase quota. Use the shared `dbdemos-asset-generator` project via `lakebase_setup_db.sh` (auto-bumps to `-2`, `-3`, ...). |
+| `bundle destroy` wiped Lakebase or the App | Missing `lifecycle.prevent_destroy: true`. Add to any stateful resource. |
+| App container `npm install` hangs ~8 min then fails with `Exit handler never called!` | Lockfile has `npm-proxy.dev.databricks.com` URLs (VPN-baked). `scripts/build-app.sh` rewrites them — make sure the artifact hook is wired. |
+| App container `npm run build` fails with `tsdown: not found` | `omit=dev` strips build tools. Make `package.json`'s `build` a no-op echo; real build runs as `build:source` locally. |
+| App boots crashes with `Warehouse ID not found` / `PGHOST missing` | Binding declared but `app.yaml` is missing the matching `valueFrom: <binding-name>` entry. |
+| App boot fails with `Error installing packages` and no stderr | Container install logs are too quiet. Add `loglevel=verbose` to `.npmrc` to see per-package fetch progress. |
+| `dist/` / `client/dist/` missing on container after deploy | Bundle CLI honored `.gitignore`. Add `sync.include: ["app/dist/**", "app/client/dist/**"]`. |
+
+For component-specific pitfalls (Genie API requirements, KA document formats), see the reference scripts in [`scripts/`](scripts/).

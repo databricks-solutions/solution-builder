@@ -25,23 +25,11 @@ env:
     valueFrom: sql-warehouse
 
   # ── Lakebase wiring ──────────────────────────────────────────────────
-  # Apps' native `postgres:` resource binding rejects autoscaling
-  # Lakebase project slugs ("Database instance X does not exist" /
-  # "Field 'name' expects projects/.../databases/..." format) — its API
-  # only knows legacy Provisioned Lakebase. Workaround: grant the App
-  # SP CAN_CONNECT_AND_CREATE on the project via the Lakebase UI
-  # out-of-band, and inject the connection params here directly.
-  # AppKit's lakebase plugin reads these env vars to mint OAuth tokens.
-  #
-  # Replace these placeholders with the real Lakebase project values,
-  # or remove the whole block if the demo doesn't use Lakebase.
-  - name: PGHOST
-    value: REPLACE_WITH_LAKEBASE_PGHOST  # e.g. ep-xxx.database.<region>.cloud.databricks.com
-  - name: PGDATABASE
-    value: REPLACE_WITH_DATABASE_NAME
+  # The `postgres` binding declared in databricks.yml auto-injects
+  # PGHOST / PGDATABASE / PGSSLMODE / PGUSER / PGPORT / PGAPPNAME when
+  # the App container starts. Only LAKEBASE_ENDPOINT must be wired
+  # explicitly so AppKit's lakebase plugin can mint OAuth tokens
+  # against the right endpoint. Drop this entry if the demo doesn't
+  # use Lakebase.
   - name: LAKEBASE_ENDPOINT
-    value: projects/REPLACE_PROJECT_ID/branches/production/endpoints/primary
-  - name: PGPORT
-    value: "5432"
-  - name: PGSSLMODE
-    value: require
+    valueFrom: postgres

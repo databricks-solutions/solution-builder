@@ -15,8 +15,8 @@ This reference shows how ALL Databricks capabilities connect. Most demos use a s
 | `delta-sharing` | Delta Sharing | No | Zero-copy sharing of live data from partners, consortiums, other orgs | Shares from external Databricks workspaces |
 | `marketplace` | Databricks Marketplace | No | Subscribe to third-party datasets, AI models, solution accelerators | Subscribes to marketplace providers |
 | **Compute — Infrastructure that runs workloads** |||||
-| `serverless-compute` | Serverless Compute | No | On-demand compute for notebooks, ML training. No cluster management | Powers `sdp`, `model-training-mlflow`, notebooks |
-| `sql-warehouse` | SQL Warehouse | No | Serverless data warehouse. Photon engine for fast queries | Powers `dashboards`, `genie` |
+| `serverless-compute` | Serverless Compute | No | On-demand compute for notebooks, ML training. No cluster management | Powers `sdp`, `ml-training-serving`, notebooks |
+| `sql-warehouse` | SQL Warehouse | No | Serverless data warehouse. Photon engine for fast queries | Powers `aibi-dashboards`, `genie` |
 | `classic-compute` | Classic Compute | No | Traditional clusters with manual sizing. Legacy — prefer `serverless-compute` | Legacy alternative |
 | **Data Processing — Transform raw data into analytics-ready tables** |||||
 | `sdp` | SDP (Spark Declarative Pipelines) | Yes | Declarative ETL: Bronze → Silver → Gold. Streaming + batch, auto-optimization. Uses Auto Loader for incremental cloud storage ingestion | Consumes from ingestion |
