@@ -4,8 +4,9 @@
  */
 
 import { memo } from "react";
-import { FileText, MessageSquare, ArrowUpRight, Star, Share2, User, LayoutTemplate, CheckCircle2, Check } from "lucide-react";
+import { ArrowUpRight, Star, Share2, User, LayoutTemplate, Check } from "lucide-react";
 import type { ProjectListItem } from "../../lib/custom-api";
+import { projectStatusFromStage, STATUS_META } from "../../lib/project-status";
 
 interface ProjectTileProps {
   project: ProjectListItem;
@@ -72,6 +73,8 @@ export const ProjectTile = memo(function ProjectTile({
   selectable = false,
   selected = false,
 }: ProjectTileProps) {
+  const status = projectStatusFromStage(project.stage);
+  const statusMeta = STATUS_META[status];
   return (
     <button
       type="button"
@@ -79,7 +82,7 @@ export const ProjectTile = memo(function ProjectTile({
       className={`group relative text-left w-full rounded-xl border bg-card/60 backdrop-blur-lg shadow-sm overflow-hidden transition-all duration-200 hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring cursor-pointer ${
         selected
           ? "border-primary/60 shadow-primary/20 ring-2 ring-primary/40"
-          : project.stage === "BUNDLED"
+          : status === "ready"
           ? "border-green-500/20 shadow-green-500/[0.03] hover:shadow-lg hover:shadow-green-500/[0.08] hover:border-green-500/30"
           : "border-primary/[0.08] shadow-primary/[0.03] hover:shadow-lg hover:shadow-primary/[0.08] hover:border-primary/20"
       }`}
@@ -182,32 +185,19 @@ export const ProjectTile = memo(function ProjectTile({
         )}
       </div>
 
-      {/* Footer: stats + date on same line */}
+      {/* Footer: status pill + date */}
       <div className={`px-4 py-2.5 border-t flex items-center justify-between ${
-        project.stage === "BUNDLED"
+        status === "ready"
           ? "border-green-500/[0.08] bg-green-500/[0.02]"
           : "border-primary/[0.06] bg-primary/[0.02]"
       }`}>
-        <div className="flex items-center gap-3 text-[11px] text-muted-foreground/70">
-          <span className="flex items-center gap-1">
-            <FileText className="h-3 w-3 opacity-50" />
-            {project.file_count}
-          </span>
-          <span className="flex items-center gap-1">
-            <MessageSquare className="h-3 w-3 opacity-50" />
-            {project.message_count}
-          </span>
-        </div>
-        {project.stage === "BUNDLED" ? (
-          <span className={`inline-flex items-center gap-1 text-[11px] font-medium ${stalenessColor(project.updated_at)}`}>
-            <CheckCircle2 className="h-3 w-3" />
-            Ready &middot; {formatDate(project.updated_at)}
-          </span>
-        ) : (
-          <span className="text-[11px] text-muted-foreground/70">
-            {formatDate(project.updated_at)}
-          </span>
-        )}
+        <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-medium ${statusMeta.pill}`}>
+          <span className={`h-1.5 w-1.5 rounded-full ${statusMeta.dot}`} aria-hidden="true" />
+          {statusMeta.label}
+        </span>
+        <span className={`text-[11px] ${status === "ready" ? stalenessColor(project.updated_at) : "text-muted-foreground/70"}`}>
+          {formatDate(project.updated_at)}
+        </span>
       </div>
     </button>
   );
