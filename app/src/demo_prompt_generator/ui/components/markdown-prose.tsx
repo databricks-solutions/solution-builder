@@ -69,18 +69,62 @@ interface ProseProps {
   className?: string;
   /** Compact = tighter spacing for card interiors */
   compact?: boolean;
+  /**
+   * Visual tone. "default" uses themed foreground/muted/primary colors (for
+   * assistant bubbles on muted bg). "onPrimary" forces text-inherit/current
+   * for all elements so markdown renders legibly inside the primary-colored
+   * user bubble.
+   */
+  tone?: "default" | "onPrimary";
 }
 
 export const Prose = memo(function Prose({
   children,
   className = "",
   compact = false,
+  tone = "default",
 }: ProseProps) {
   if (!children) return null;
 
   const base = compact
     ? "leading-relaxed"
     : "prose prose-base dark:prose-invert max-w-none";
+
+  const onPrimary = tone === "onPrimary";
+  const strongCls = onPrimary ? "font-semibold" : "font-semibold text-foreground";
+  const emCls = onPrimary ? "italic" : "italic text-foreground/90";
+  const inlineCodeCls = onPrimary
+    ? "rounded bg-primary-foreground/15 px-1.5 py-0.5 text-sm font-mono"
+    : "rounded bg-muted px-1.5 py-0.5 text-sm font-mono text-primary/80";
+  const preCls = onPrimary
+    ? "overflow-x-auto rounded-lg bg-primary-foreground/10 p-3 text-sm leading-relaxed"
+    : "overflow-x-auto rounded-lg bg-muted/60 p-3 text-sm leading-relaxed";
+  const linkCls = onPrimary
+    ? "underline decoration-current/40 hover:decoration-current/80 transition-colors"
+    : "text-primary underline decoration-primary/30 hover:decoration-primary/60 transition-colors";
+  const blockquoteCls = onPrimary
+    ? "my-3 border-l-2 border-current/40 pl-3 italic opacity-90"
+    : "my-3 border-l-2 border-primary/30 pl-3 italic text-muted-foreground";
+  const h2Cls = onPrimary
+    ? "text-lg font-bold mt-3 mb-1.5 border-b border-current/20 pb-1"
+    : "text-lg font-bold mt-3 mb-1.5 border-b border-border/30 pb-1";
+  const h4Cls = onPrimary
+    ? "text-sm font-semibold mt-2 mb-1 opacity-80"
+    : "text-sm font-semibold mt-2 mb-1 text-muted-foreground";
+  const bulletCls = onPrimary ? "shrink-0 mt-0.5 opacity-60" : "shrink-0 mt-0.5 text-primary/40";
+  const tableWrapCls = onPrimary
+    ? "my-3 overflow-x-auto rounded-lg border border-current/25"
+    : "my-3 overflow-x-auto rounded-lg border border-border/40";
+  const theadCls = onPrimary
+    ? "bg-primary-foreground/10 text-left"
+    : "bg-muted/40 text-left";
+  const thCls = onPrimary
+    ? "px-3 py-2 font-semibold border-b border-current/20"
+    : "px-3 py-2 font-semibold text-foreground border-b border-border/40";
+  const tdCls = onPrimary
+    ? "px-3 py-2 border-b border-current/15"
+    : "px-3 py-2 text-foreground/80 border-b border-border/20";
+  const hrCls = onPrimary ? "my-4 border-current/20" : "my-4 border-border/30";
 
   return (
     <div className={`${base} ${className}`}>
@@ -108,11 +152,7 @@ export const Prose = memo(function Prose({
             }
             // Inline code (no className = no language = inline)
             if (!codeClass) {
-              return (
-                <code className="rounded bg-muted px-1.5 py-0.5 text-sm font-mono text-primary/80">
-                  {codeChildren}
-                </code>
-              );
+              return <code className={inlineCodeCls}>{codeChildren}</code>;
             }
             return <code className={codeClass}>{codeChildren}</code>;
           },
@@ -125,17 +165,13 @@ export const Prose = memo(function Prose({
             if (/language-mermaid|language-glance/.test(childClass)) {
               return <>{preChildren}</>;
             }
-            return (
-              <pre className="overflow-x-auto rounded-lg bg-muted/60 p-3 text-sm leading-relaxed">
-                {preChildren}
-              </pre>
-            );
+            return <pre className={preCls}>{preChildren}</pre>;
           },
           // Headings
           h1: ({ children: h }) => <h1 className="text-xl font-bold mt-4 mb-1.5">{h}</h1>,
-          h2: ({ children: h }) => <h2 className="text-lg font-bold mt-3 mb-1.5 border-b border-border/30 pb-1">{h}</h2>,
+          h2: ({ children: h }) => <h2 className={h2Cls}>{h}</h2>,
           h3: ({ children: h }) => <h3 className="text-base font-semibold mt-3 mb-1">{h}</h3>,
-          h4: ({ children: h }) => <h4 className="text-sm font-semibold mt-2 mb-1 text-muted-foreground">{h}</h4>,
+          h4: ({ children: h }) => <h4 className={h4Cls}>{h}</h4>,
           // Paragraphs
           p: ({ children: p }) => <p className="my-1 text-sm leading-relaxed">{p}</p>,
           // Lists
@@ -143,36 +179,34 @@ export const Prose = memo(function Prose({
           ol: ({ children: o }) => <ol className="my-1.5 ml-1 space-y-0.5 list-none counter-reset-item">{o}</ol>,
           li: ({ children: l }) => (
             <li className="flex gap-1.5 text-sm leading-relaxed">
-              <span className="shrink-0 mt-0.5 text-primary/40">{"\u2022"}</span>
+              <span className={bulletCls}>{"\u2022"}</span>
               <span className="flex-1">{l}</span>
             </li>
           ),
           // Tables
           table: ({ children: t }) => (
-            <div className="my-3 overflow-x-auto rounded-lg border border-border/40">
+            <div className={tableWrapCls}>
               <table className="w-full text-sm">{t}</table>
             </div>
           ),
-          thead: ({ children: th }) => <thead className="bg-muted/40 text-left">{th}</thead>,
-          th: ({ children: thc }) => <th className="px-3 py-2 font-semibold text-foreground border-b border-border/40">{thc}</th>,
-          td: ({ children: tdc }) => <td className="px-3 py-2 text-foreground/80 border-b border-border/20">{tdc}</td>,
+          thead: ({ children: th }) => <thead className={theadCls}>{th}</thead>,
+          th: ({ children: thc }) => <th className={thCls}>{thc}</th>,
+          td: ({ children: tdc }) => <td className={tdCls}>{tdc}</td>,
           // Blockquotes
           blockquote: ({ children: bq }) => (
-            <blockquote className="my-3 border-l-2 border-primary/30 pl-3 italic text-muted-foreground">
-              {bq}
-            </blockquote>
+            <blockquote className={blockquoteCls}>{bq}</blockquote>
           ),
           // Links
           a: ({ children: ac, href }) => (
-            <a href={href} className="text-primary underline decoration-primary/30 hover:decoration-primary/60 transition-colors" target="_blank" rel="noopener noreferrer">
+            <a href={href} className={linkCls} target="_blank" rel="noopener noreferrer">
               {ac}
             </a>
           ),
           // Horizontal rule
-          hr: () => <hr className="my-4 border-border/30" />,
+          hr: () => <hr className={hrCls} />,
           // Strong / emphasis
-          strong: ({ children: s }) => <strong className="font-semibold text-foreground">{s}</strong>,
-          em: ({ children: e }) => <em className="italic text-foreground/90">{e}</em>,
+          strong: ({ children: s }) => <strong className={strongCls}>{s}</strong>,
+          em: ({ children: e }) => <em className={emCls}>{e}</em>,
           // Task list items (GFM)
           input: ({ checked }) => (
             <input
