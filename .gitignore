@@ -13,6 +13,9 @@
 app/.claude/
 *.code-workspace
 
+# Locally-installed Databricks AI Dev Kit skill packs (per-user; not part of this repo)
+.github/skills/
+
 # ai-dev-kit (installed locally per user)
 .ai-dev-kit/
 

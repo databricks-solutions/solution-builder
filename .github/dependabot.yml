@@ -1,0 +1,21 @@
+version: 2
+updates:
+  # Keep GitHub Actions pinned SHAs up to date
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+
+  # Keep Python dependencies up to date
+  - package-ecosystem: "pip"
+    directory: "/app"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+
+  # Keep npm dependencies up to date
+  - package-ecosystem: "npm"
+    directory: "/app"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10

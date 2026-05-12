@@ -61,9 +61,9 @@ function AboutPage() {
         title="Stay in your terminal, or use this app — both are first-class."
         body={
           <>
-            Prefer <span className="font-medium text-foreground">go/vibe</span> or another
-            LLM terminal? Generate specs from the command line. Want a guided UI with chat
-            and files? Use this app. Same library, same outputs.
+            <span className="font-medium text-foreground">Use as a skill on your CLI</span>{" "}
+            with any LLM-aware terminal — generate specs from the command line. Want a
+            guided UI with chat and files? Use this app. Same library, same outputs.
           </>
         }
         visual={<TwoSurfacesVisual />}
@@ -436,7 +436,7 @@ function TwoSurfacesVisual() {
             <span className="h-2 w-2 rounded-full bg-red-400/70" />
             <span className="h-2 w-2 rounded-full bg-amber-400/70" />
             <span className="h-2 w-2 rounded-full bg-emerald-400/70" />
-            <span className="ml-2 text-[10px] text-muted-foreground">go/vibe</span>
+            <span className="ml-2 text-[10px] text-muted-foreground">CLI</span>
           </div>
           <p className="font-mono text-[10px] text-muted-foreground leading-snug min-h-[2.4em]">
             {TERMINAL_LINE.slice(0, typed)}

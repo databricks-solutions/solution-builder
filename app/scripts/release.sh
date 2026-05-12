@@ -218,7 +218,7 @@ main() {
     echo "Users will automatically receive the update notification."
     echo ""
     echo "View the release at:"
-    echo "  https://github.com/databricks-field-eng/industry-demo-prompts/releases/tag/v$new_version"
+    echo "  https://github.com/databricks-solutions/databricks-solution-builder/releases/tag/v$new_version"
 }
 
 main "$@"

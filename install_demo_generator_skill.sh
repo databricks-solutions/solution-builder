@@ -2,7 +2,7 @@
 # Install the databricks-demo-generator skill into your local project
 #
 # Usage (requires gh CLI authenticated):
-#   gh repo clone databricks-field-eng/industry-demo-prompts /tmp/idp && /tmp/idp/install_demo_generator_skill.sh && rm -rf /tmp/idp
+#   gh repo clone databricks-solutions/databricks-solution-builder /tmp/dsb && /tmp/dsb/install_demo_generator_skill.sh && rm -rf /tmp/dsb
 #
 # Or if you have the repo cloned:
 #   ./install_demo_generator_skill.sh

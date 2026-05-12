@@ -165,7 +165,7 @@ targets:
     # other user. The CLI lays out files/, state/, artifacts/ as subdirs
     # under this path itself — don't include any of those segments here.
     workspace:
-      root_path: /Workspace/Users/quentin.ambard@databricks.com/.bundle/${bundle.name}/${bundle.target}
+      root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}
   # Staging target. Use `databricks bundle deploy -t staging` (no default).
   # `mode: development` is the canonical setting for non-prod targets — it
   # relaxes some bundle-CLI checks. We override `presets.name_prefix` to
@@ -176,4 +176,4 @@ targets:
     presets:
       name_prefix: ""
     workspace:
-      root_path: /Workspace/Users/quentin.ambard@databricks.com/.bundle/${bundle.name}_staging/${bundle.target}
+      root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.name}_staging/${bundle.target}

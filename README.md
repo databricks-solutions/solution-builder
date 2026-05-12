@@ -64,8 +64,8 @@ Every solution becomes context for the next. Reskin one industry for another; sw
 
 ```bash
 # 1. Clone
-git clone https://github.com/databricks-field-eng/industry-demo-prompts.git
-cd industry-demo-prompts/app
+git clone https://github.com/databricks-solutions/databricks-solution-builder.git
+cd databricks-solution-builder/app
 
 # 2. Authenticate the Databricks CLI (one-time)
 databricks auth login --host https://<workspace-url> --profile MY_WORKSPACE
@@ -105,9 +105,12 @@ All of these live in `app/.env` (copy from [`app/.env.example`](app/.env.example
 | **`AI_GATEWAY_MINI`** | ✅ | `databricks-gpt-5-4-mini` | Cheap/fast endpoint for utility calls |
 | **`AI_GATEWAY_EMBEDDING`** | ✅ | `databricks-qwen3-embedding-0-6b` | Embedding endpoint for template semantic search |
 | `AI_DEV_KIT_BRANCH` | optional | `experimental` | Branch of [ai-dev-kit](https://github.com/databricks-solutions/ai-dev-kit) that `dev.sh` clones |
-| `DEMO_PROMPT_GENERATOR_TRACKER_ENABLED` | optional | `1` | Aggregated `@databricks.com` analytics — set to `0` to disable |
+| `DEMO_PROMPT_GENERATOR_TRACKER_ENABLED` | optional | `1` | Anonymous usage analytics — see the privacy note below; set to `0` to opt out |
 
 See [`app/.env.example`](app/.env.example) for the full annotated list with inline guidance.
+
+> **📊 Anonymous usage analytics are on by default.**
+> We collect aggregated, anonymized events (page views, feature usage counts) **only to understand what's working and what needs improvement** — never for sales contact. The underlying [`dbdemos-tracker`](https://pypi.org/project/dbdemos-tracker/) package filters at the source so events fire only for `@databricks.com` users; external installations send nothing. See [`PRIVACY.md`](PRIVACY.md) for the full list of fields. Opt out anytime with `DEMO_PROMPT_GENERATOR_TRACKER_ENABLED=0`.
 
 </details>
 
@@ -231,9 +234,9 @@ To cut a versioned release:
 You don't need the app to benefit from the curated context. Install the skill into any Claude Code project and the same Databricks solution patterns are available from your CLI:
 
 ```bash
-gh repo clone databricks-field-eng/industry-demo-prompts /tmp/idp && \
-  /tmp/idp/install_demo_generator_skill.sh && \
-  rm -rf /tmp/idp
+gh repo clone databricks-solutions/databricks-solution-builder /tmp/dsb && \
+  /tmp/dsb/install_demo_generator_skill.sh && \
+  rm -rf /tmp/dsb
 ```
 
 This installs the `databricks-demo-generator` skill to `.claude/skills/` in your current directory. Then run `claude` and the skill is available automatically. Pair it with the [AI Dev Kit](https://github.com/databricks-solutions/ai-dev-kit) for the full builder experience from the terminal.
@@ -367,7 +370,7 @@ Tables are auto-created on startup via SQLModel + DDL migrations in `lakebase.py
 <br>
 
 ```
-industry-demo-prompts/
+databricks-solution-builder/
 ├── app/                          # Full-stack application (see app/CLAUDE.md)
 │   ├── src/demo_prompt_generator/
 │   │   ├── backend/
@@ -430,11 +433,11 @@ Blocks on disk are automatically available to the agent's system prompt for all 
 
 ## ⭐ Star history
 
-<a href="https://star-history.com/#databricks-field-eng/industry-demo-prompts&Date">
+<a href="https://star-history.com/#databricks-solutions/databricks-solution-builder&Date">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=databricks-field-eng/industry-demo-prompts&type=Date&theme=dark" />
-    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=databricks-field-eng/industry-demo-prompts&type=Date" />
-    <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=databricks-field-eng/industry-demo-prompts&type=Date" />
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=databricks-solutions/databricks-solution-builder&type=Date&theme=dark" />
+    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=databricks-solutions/databricks-solution-builder&type=Date" />
+    <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=databricks-solutions/databricks-solution-builder&type=Date" />
   </picture>
 </a>
 
@@ -445,7 +448,7 @@ Blocks on disk are automatically available to the agent's system prompt for all 
 
 <br>
 
-This project is internal to Databricks Field Engineering. Built on top of and powered by the following open-source projects.
+Licensed under the [Databricks License](LICENSE). Built on top of and powered by the following open-source projects.
 
 ### Core runtimes & SDKs
 

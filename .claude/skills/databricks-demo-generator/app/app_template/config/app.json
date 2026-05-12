@@ -8,12 +8,12 @@
   "_agentModel_help": "Foundation Model serving endpoint that powers the OpenAI Agents loop (server/agent/refundops.ts → configureAgentsSdk). Use the EXACT name from your workspace's Serving → Foundation Models page. Default: databricks-claude-sonnet-4-6. Alternative: databricks-gpt-5-4. NEVER abbreviate (e.g. databricks-claude-sonnet-4 does NOT exist → 400).",
   "agentModel": "databricks-claude-sonnet-4-6",
 
-  "_mlflow_help": "Two MLflow IDs land in the AppHeader (client/src/shell/AppHeader.tsx). `mlflowExperimentId` is a pinned legacy id (optional). `agentMlflowExperimentPath` auto-creates the experiment at boot via lib/mlflow.ts and is what the chat 'View trace' link points at — REQUIRED, or every assistant message shows 'Trace pending…' forever. Path format: /Users/<email>/<app-name>-agent-traces (unique per app).",
-  "mlflowExperimentId": "2447239766217002",
-  "agentMlflowExperimentPath": "/Users/quentin.ambard@databricks.com/luxebeauty-operations-agent-traces",
+  "_mlflow_help": "Two MLflow IDs land in the AppHeader (client/src/shell/AppHeader.tsx). `mlflowExperimentId` is a pinned legacy id (optional). `agentMlflowExperimentPath` auto-creates the experiment at boot via lib/mlflow.ts and is what the chat 'View trace' link points at — REQUIRED, or every assistant message shows 'Trace pending…' forever. Path format: /Users/<your-email>/<app-name>-agent-traces (unique per app).",
+  "mlflowExperimentId": "",
+  "agentMlflowExperimentPath": "/Users/<your-email>/<app-name>-agent-traces",
 
   "_dashboard_help": "AI/BI dashboard embedded as iframe on /dashboard route (client/src/dashboard/DashboardView.tsx). Set to the dashboard's UUID; remove the route + sidebar entry if your demo has none.",
-  "dashboardId": "01f13cb336c11fd3a2e3f682fe0cf4ff",
+  "dashboardId": "",
 
   "_data_help": "Delta source for the one-shot Lakebase mirror sync at boot (server/db/sync.ts). The `tables` keys are domain-specific — they match the columns of TS types in client/src/shared/types.ts and Drizzle schema in server/db/schema.ts. When swapping the data model, update all three together.",
   "data": {
@@ -31,7 +31,7 @@
 
   "_branding_help": "App name surfaces in the dock header + page titles. White-label here, not in code.",
   "branding": {
-    "appName": "LuxeBeauty Operations"
+    "appName": "My Demo App"
   },
 
   "_assistantScript_help": "Scripted demo chain — the dock's 'Suggested next' chip walks this list. First step is always available; subsequent steps unlock once the previous assistant message contains any of the `triggerAfter` substrings. Picker logic lives in client/src/chat/script.ts.",

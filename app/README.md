@@ -211,9 +211,10 @@ Once published, all users will see the update notification in the app's Configur
 ## Deployment (Databricks Apps)
 
 Set `var.lakebase_instance` to point at an existing Lakebase instance the
-deployer owns (the default `databricks-demos-shared` only exists in some Field
-Eng workspaces). The bundle creates the app's service principal, grants it
-`CAN_CONNECT_AND_CREATE` on that instance, and the SP picks up its own schema.
+deployer owns (create one from the Databricks UI: **Compute → Lakebase**, or
+via `databricks lakebase databases create`). The bundle creates the app's
+service principal, grants it `CAN_CONNECT_AND_CREATE` on that instance, and
+the SP picks up its own schema.
 
 ```bash
 databricks bundle deploy -t dev -p <your-profile> --var lakebase_instance=<your-instance>

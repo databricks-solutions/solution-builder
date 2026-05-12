@@ -7,7 +7,7 @@
     "author": "Databricks Field Engineering",
     "repository": {
         "type": "git",
-        "url": "https://github.com/databricks-field-eng/industry-demo-prompts.git"
+        "url": "https://github.com/databricks-solutions/databricks-solution-builder.git"
     },
     "scripts": {
         "dev": "./scripts/dev.sh",
@@ -116,8 +116,8 @@
         ],
         "publish": {
             "provider": "github",
-            "owner": "databricks-field-eng",
-            "repo": "industry-demo-prompts",
+            "owner": "databricks-solutions",
+            "repo": "databricks-solution-builder",
             "releaseType": "release"
         },
         "mac": {
