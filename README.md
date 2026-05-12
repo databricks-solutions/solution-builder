@@ -39,7 +39,7 @@ Describe what you want to build and an AI agent designs, writes, and ships it fo
 > | Your **workspace** entitlements | Runaway compute cost |
 > | The app's **OAuth scopes** | Subtle correctness bugs in generated code |
 >
-> Review before destructive ops. Use separate dev/prod catalogs. Software provided "as is" — see [LICENSE](LICENSE).
+> Review before applying changes. Use separate dev/prod catalogs. Software provided "as is" — see [LICENSE](LICENSE).
 
 ---
 
