@@ -226,36 +226,6 @@ To cut a versioned release:
 
 ---
 
-## 🔄 How it works
-
-```mermaid
-stateDiagram-v2
-    [*] --> DRAFTING: scenario described
-    DRAFTING --> SUMMARIZED: scope locked
-    SUMMARIZED --> ARCHITECTED: diagram + components
-    ARCHITECTED --> SPECIFICATION: instruction specs written
-    SPECIFICATION --> BUILT: code generated
-    BUILT --> BUNDLED: DAB packaged
-    BUNDLED --> [*]: deployed to workspace
-```
-
-1. **Describe what you want to build** — a use-case (*"churn risk for a regional payer"*), a target pattern, your data sources (synthetic or real). Or fork an existing template from the gallery.
-2. **Project workspace is provisioned** — compute auto-assigned, Demo Generator Skill + AI Dev Kit linked in, file tree initialized.
-3. **Chat with the agent** — Claude (via the Agent SDK) designs the solution interactively: README, architecture diagram, instruction specs, source code, DAB bundle. Every step is gated and inspectable.
-4. **Agent deploys to your workspace** — using AI Dev Kit's executable tools. Deployed resources (dashboards, pipelines, Genie spaces, jobs, endpoints) are tracked and linked from the UI.
-5. **Iterate, share, reuse** — refine in chat, publish as a template, fork into a new project for a different industry or dataset. The library compounds.
-
-### The two-engine model
-
-| Engine | What it provides | How to find it |
-|--------|-----------------|----------------|
-| **[Demo Generator Skill](.claude/skills/databricks-demo-generator)** | Curated Markdown context — Databricks industry domains, capability patterns, analytical methodologies. Composes into the agent's system prompt. | `.claude/skills/databricks-demo-generator/` (Claude Code skill, also usable standalone) |
-| **[Databricks AI Dev Kit](https://github.com/databricks-solutions/ai-dev-kit)** | 75+ executable tools that already know the right way to do every Databricks thing — Lakeflow, Genie, AI/BI, Vector Search, Lakebase, UC, MLflow, serving. | `databricks-solutions/ai-dev-kit` on GitHub — Certified Gold Project |
-
-The Solution Builder app wires both together behind a chat UI. The skill teaches the agent *what good looks like* for your scenario; the AI Dev Kit gives it the hands to actually build it.
-
----
-
 ## 🧰 Standalone: use the Demo Generator Skill from any terminal
 
 You don't need the app to benefit from the curated context. Install the skill into any Claude Code project and the same Databricks solution patterns are available from your CLI:

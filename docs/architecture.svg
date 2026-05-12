@@ -86,10 +86,4 @@
   <!-- Title -->
   <text x="500" y="56" text-anchor="middle" font-size="26" font-weight="700" fill="#0F172A">From an idea to a running solution.</text>
   <text x="500" y="86" text-anchor="middle" font-size="15" fill="#64748B">On Databricks. With best practices, by construction.</text>
-
-  <!-- Footer micro-callout -->
-  <g transform="translate(500, 388)" text-anchor="middle">
-    <rect x="-150" y="-18" width="300" height="32" rx="16" fill="#FFFFFF" stroke="#FECDD3"/>
-    <text y="3" font-size="12" font-weight="600" fill="#9F1239">★  Powered by the AI Dev Kit</text>
-  </g>
 </svg>

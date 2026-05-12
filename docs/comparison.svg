@@ -8,10 +8,6 @@
       <stop offset="0%" stop-color="#FCD34D"/>
       <stop offset="100%" stop-color="#D97706"/>
     </linearGradient>
-    <linearGradient id="bRibbon" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#F59E0B"/>
-      <stop offset="100%" stop-color="#B45309"/>
-    </linearGradient>
     <radialGradient id="bGlow" cx="0.5" cy="0.5" r="0.5">
       <stop offset="0%" stop-color="#F59E0B" stop-opacity="0.22"/>
       <stop offset="100%" stop-color="#F59E0B" stop-opacity="0"/>
@@ -35,15 +31,12 @@
 
   <!-- Gold medal -->
   <g transform="translate(280, 200)">
-    <!-- ribbons -->
-    <path d="M -36 -60 L -16 30 L -28 30 L -48 -55 Z" fill="url(#bRibbon)"/>
-    <path d="M 36 -60 L 16 30 L 28 30 L 48 -55 Z" fill="url(#bRibbon)"/>
     <g filter="url(#bShadow)">
-      <circle r="70" fill="url(#bGold)"/>
-      <circle r="58" fill="#FBBF24" opacity="0.5"/>
-      <circle r="50" fill="url(#bGold)"/>
+      <circle r="78" fill="url(#bGold)"/>
+      <circle r="64" fill="#FBBF24" opacity="0.55"/>
+      <circle r="54" fill="url(#bGold)"/>
       <!-- star -->
-      <path d="M 0 -28 L 8 -8 L 30 -6 L 13 8 L 18 28 L 0 18 L -18 28 L -13 8 L -30 -6 L -8 -8 Z" fill="#FFFFFF"/>
+      <path d="M 0 -30 L 9 -9 L 32 -7 L 14 8 L 19 30 L 0 19 L -19 30 L -14 8 L -32 -7 L -9 -9 Z" fill="#FFFFFF"/>
     </g>
   </g>
 
