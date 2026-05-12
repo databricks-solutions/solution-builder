@@ -30,6 +30,16 @@ Describe what you want to build and an AI agent designs, writes, and ships it fo
 
 > **In one line:** describe it, ship it, iterate on what actually matters.
 
+> ### ⚠️ Use at your own risk
+>
+> Databricks Solution Builder is **vibecoding software** — an AI agent that writes code and creates resources on your behalf. Like all vibecoding tools, it will sometimes behave in surprising ways: misread your intent, generate code that doesn't compile on the first try, create the wrong shape of asset, or take a path you wouldn't have. Treat its output as a starting point, not a finished product. **Always review what it's about to do before deploying to anything you care about.**
+>
+> **What constrains the agent.** Every action runs as *you* — bounded by your Unity Catalog permissions, your workspace entitlements, and the OAuth scopes the app is granted. It can't read tables you can't read, write to catalogs you don't own, or escape into a workspace you don't have access to. UC is the safety net.
+>
+> **What it doesn't protect you from.** UC permissions don't stop the agent from creating extra resources you didn't ask for, deleting things by accident inside catalogs you *do* own, racking up compute cost on a runaway job, or generating code with subtle correctness bugs. The Databricks License (see [`LICENSE`](LICENSE)) provides this software "as is" with no warranty.
+>
+> If you're going to point this at production data or a customer-facing workspace, take the same precautions you'd take with any AI-assisted tooling: separate dev/prod catalogs, review generated SQL and DAB configs before deploy, and keep a human in the loop on the destructive operations.
+
 ---
 
 ## 💡 Why you'll love it
