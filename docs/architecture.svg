@@ -1,0 +1,95 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 420" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, sans-serif">
+  <defs>
+    <linearGradient id="hBg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#FFF7F4"/>
+      <stop offset="100%" stop-color="#FFFFFF"/>
+    </linearGradient>
+    <linearGradient id="hBrick" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#FF6B47"/>
+      <stop offset="100%" stop-color="#E83A1F"/>
+    </linearGradient>
+    <linearGradient id="hAmber" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#FBBF24"/>
+      <stop offset="100%" stop-color="#D97706"/>
+    </linearGradient>
+    <linearGradient id="hGreen" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#34D399"/>
+      <stop offset="100%" stop-color="#059669"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0%" stop-color="#FF6B47" stop-opacity="0.25"/>
+      <stop offset="100%" stop-color="#FF6B47" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="hShadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="8"/>
+      <feOffset dx="0" dy="6" result="off"/>
+      <feComponentTransfer><feFuncA type="linear" slope="0.22"/></feComponentTransfer>
+      <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <rect width="1000" height="420" fill="url(#hBg)"/>
+
+  <!-- Decorative glow behind center -->
+  <ellipse cx="500" cy="220" rx="320" ry="160" fill="url(#glow)"/>
+
+  <!-- Flow curve connecting the three stages -->
+  <path d="M 220 220 Q 360 140 500 220 T 780 220" stroke="#FECDD3" stroke-width="3" stroke-dasharray="6 8" fill="none" stroke-linecap="round"/>
+
+  <!-- ===== Stage 1: Describe ===== -->
+  <g transform="translate(160, 220)">
+    <g filter="url(#hShadow)">
+      <circle r="68" fill="#FFFFFF" stroke="#FED7AA" stroke-width="2"/>
+      <!-- chat bubble glyph -->
+      <g transform="translate(-26, -22)">
+        <path d="M 4 4 h 44 a 6 6 0 0 1 6 6 v 24 a 6 6 0 0 1 -6 6 h -28 l -12 10 v -10 h -4 a 6 6 0 0 1 -6 -6 v -24 a 6 6 0 0 1 6 -6 z" fill="url(#hAmber)"/>
+        <circle cx="16" cy="22" r="2.4" fill="#fff"/>
+        <circle cx="26" cy="22" r="2.4" fill="#fff"/>
+        <circle cx="36" cy="22" r="2.4" fill="#fff"/>
+      </g>
+    </g>
+    <text x="0" y="108" text-anchor="middle" font-size="22" font-weight="700" fill="#0F172A">Describe</text>
+    <text x="0" y="134" text-anchor="middle" font-size="13" fill="#64748B">What do you want to build?</text>
+  </g>
+
+  <!-- ===== Stage 2: Build ===== -->
+  <g transform="translate(500, 220)">
+    <g filter="url(#hShadow)">
+      <circle r="86" fill="url(#hBrick)"/>
+      <!-- sparkle glyph -->
+      <g transform="translate(-30, -32)" fill="#FFFFFF">
+        <path d="M 30 0 L 36 22 L 58 28 L 36 34 L 30 56 L 24 34 L 2 28 L 24 22 Z"/>
+        <path d="M 56 4 L 58 12 L 66 14 L 58 16 L 56 24 L 54 16 L 46 14 L 54 12 Z" opacity="0.7"/>
+        <path d="M 6 42 L 8 50 L 16 52 L 8 54 L 6 62 L 4 54 L -4 52 L 4 50 Z" opacity="0.5"/>
+      </g>
+    </g>
+    <text x="0" y="126" text-anchor="middle" font-size="22" font-weight="700" fill="#0F172A">Build</text>
+    <text x="0" y="152" text-anchor="middle" font-size="13" fill="#64748B">An AI agent designs and writes it for you.</text>
+  </g>
+
+  <!-- ===== Stage 3: Ship ===== -->
+  <g transform="translate(840, 220)">
+    <g filter="url(#hShadow)">
+      <circle r="68" fill="#FFFFFF" stroke="#A7F3D0" stroke-width="2"/>
+      <!-- rocket glyph -->
+      <g transform="translate(-22, -26)" fill="url(#hGreen)">
+        <path d="M 22 2 C 30 8 36 18 36 32 L 36 44 L 28 44 L 28 52 L 16 52 L 16 44 L 8 44 L 8 32 C 8 18 14 8 22 2 Z"/>
+        <circle cx="22" cy="22" r="5" fill="#FFFFFF"/>
+        <path d="M 4 48 L 12 38 L 12 48 Z" opacity="0.6"/>
+        <path d="M 40 48 L 32 38 L 32 48 Z" opacity="0.6"/>
+      </g>
+    </g>
+    <text x="0" y="108" text-anchor="middle" font-size="22" font-weight="700" fill="#0F172A">Ship</text>
+    <text x="0" y="134" text-anchor="middle" font-size="13" fill="#64748B">Live on Databricks. Yours.</text>
+  </g>
+
+  <!-- Title -->
+  <text x="500" y="56" text-anchor="middle" font-size="26" font-weight="700" fill="#0F172A">From an idea to a running solution.</text>
+  <text x="500" y="86" text-anchor="middle" font-size="15" fill="#64748B">On Databricks. With best practices, by construction.</text>
+
+  <!-- Footer micro-callout -->
+  <g transform="translate(500, 388)" text-anchor="middle">
+    <rect x="-150" y="-18" width="300" height="32" rx="16" fill="#FFFFFF" stroke="#FECDD3"/>
+    <text y="3" font-size="12" font-weight="600" fill="#9F1239">★  Powered by the AI Dev Kit</text>
+  </g>
+</svg>

@@ -1,96 +1,157 @@
-# Demo Asset Builder
+<p align="center">
+  <img src="https://img.shields.io/badge/Databricks-Certified%20Gold%20Project-FFD700?style=for-the-badge&logo=databricks&logoColor=black" alt="Databricks Certified Gold Project">
+</p>
 
-A full-stack Databricks App for building personalized demo packages. Describe a customer scenario and an AI agent — powered by the [Claude Agent SDK](https://github.com/anthropics/claude-agent-sdk) and [Databricks AI Dev Kit](https://github.com/databricks/ai-dev-kit) — designs the architecture, generates specification files, writes code, and deploys real assets (tables, pipelines, dashboards, agents) on a live workspace.
+<p align="center">
+  <img src="https://img.shields.io/badge/Claude-Agent%20SDK-D97706?style=flat-square&logo=anthropic&logoColor=white" alt="Claude Agent SDK">
+  <img src="https://img.shields.io/badge/AI%20Dev%20Kit-Powered-7C3AED?style=flat-square&logo=python&logoColor=white" alt="AI Dev Kit">
+  <img src="https://img.shields.io/badge/FastAPI-009688?style=flat-square&logo=fastapi&logoColor=white" alt="FastAPI">
+  <img src="https://img.shields.io/badge/React_19-61DAFB?style=flat-square&logo=react&logoColor=black" alt="React 19">
+  <img src="https://img.shields.io/badge/Tailwind_v4-06B6D4?style=flat-square&logo=tailwindcss&logoColor=white" alt="Tailwind v4">
+  <img src="https://img.shields.io/badge/Lakebase-Postgres-336791?style=flat-square&logo=postgresql&logoColor=white" alt="Lakebase Postgres">
+  <img src="https://img.shields.io/badge/uv-managed-DE5FE9?style=flat-square&logo=python&logoColor=white" alt="uv">
+  <img src="https://img.shields.io/badge/bun-managed-FBF0DF?style=flat-square&logo=bun&logoColor=black" alt="bun">
+</p>
 
-Built with FastAPI + React/Vite and deployed as a Databricks App with Lakebase (managed PostgreSQL) for persistence.
+<h1 align="center">Databricks Solution Builder</h1>
 
-## Running the app
+<p align="center">
+  <b>Build your use-case on Databricks — with the assurance you're using Databricks best practices.</b><br>
+  <sub>On synthetic data, or on your own real data. Same engine. Same patterns.</sub>
+</p>
 
-There are three ways to run the app, each with a different setup story:
+<p align="center">
+  <img src="docs/architecture.svg" alt="From an idea to a running solution, on Databricks" width="900">
+</p>
 
-| Mode | Where it runs | Auth model | Use case |
-|------|---------------|------------|----------|
-| **Local dev** | Your laptop | Your `~/.databrickscfg` profile | Day-to-day development with hot reload |
-| **Databricks App** | A Databricks workspace | Service principal (OAuth) | Shared deployment for your team |
-| **Electron** | Your laptop, packaged | Your `~/.databrickscfg` profile | Standalone desktop app for end-users |
+---
 
-The sections below walk through each.
+Describe what you want to build and an AI agent designs, writes, and ships it for you — on Databricks, the way Databricks intends. Customer-facing demo, internal POC, pilot on your own production data: same engine. Whether you start with synthetic data or point at your real tables, what comes out is a real, running solution in your workspace — yours to inspect, edit, and own.
 
-## 1. Local dev
+> **In one line:** describe it, ship it, iterate on what actually matters.
 
-Hot-reload backend (uvicorn) + frontend (vite) for fast iteration. The dev script auto-provisions a local Postgres (PGLite) so there's no DB setup.
+---
 
-### Prerequisites
+## 💡 Why you'll love it
 
-- [`uv`](https://docs.astral.sh/uv/) for Python deps
-- [`bun`](https://bun.sh/) for frontend deps
-- [Databricks CLI](https://docs.databricks.com/dev-tools/cli/index.html) v0.239.0+, authenticated to a workspace
+### `01` &nbsp; Bring your own data, or start with ours
 
-### Setup
+<p align="center">
+  <img src="docs/composition.svg" alt="Synthetic or your real data — same engine, same result" width="900">
+</p>
+
+Trying an idea? The agent fabricates realistic synthetic data and gives you something to click through in minutes. Bringing your own? Point at the tables you already have. **You don't switch tools when you graduate from sandbox to production** — same engine, same patterns, same result.
+
+### `02` &nbsp; Done the Databricks way — every time
+
+<p align="center">
+  <img src="docs/comparison.svg" alt="Reliable, governed, yours — every time" width="900">
+</p>
+
+No improvisation. No "I hope this is the right pattern." The agent works from a curated library and hands off to an interface that already knows the right way to do every Databricks thing. You can show the result to your customer on Monday with confidence.
+
+### `03` &nbsp; Two surfaces, one library
+
+Prefer your terminal? Install the [Demo Generator Skill](.claude/skills/databricks-demo-generator) into any Claude Code project and use it from the CLI. Want a guided UI with chat, file viewer, and live diagrams? Use this app. **Same library, same outputs, same deploys** — pick whichever surface fits the moment.
+
+### `04` &nbsp; Reuse and remix
+
+Every solution becomes context for the next. Reskin one industry for another; swap one pattern for a related one; recombine for a new pitch. Publish finished projects as templates that anyone in your org can fork from the gallery. The library compounds.
+
+---
+
+## 🚀 Quickstart (local dev)
 
 ```bash
+# 1. Clone
 git clone https://github.com/databricks-field-eng/industry-demo-prompts.git
 cd industry-demo-prompts/app
 
-# Authenticate the CLI once (writes a profile to ~/.databrickscfg)
+# 2. Authenticate the Databricks CLI (one-time)
 databricks auth login --host https://<workspace-url> --profile MY_WORKSPACE
 
-# Configure local env
+# 3. Configure env
 cp .env.example .env
-# edit .env and set DATABRICKS_CONFIG_PROFILE=MY_WORKSPACE
+# edit .env → DATABRICKS_CONFIG_PROFILE=MY_WORKSPACE
 
-# Install deps
+# 4. Install deps
 uv sync          # Python (creates .venv)
 bun install      # Frontend
+
+# 5. Run (backend :8000 + frontend :5173, hot reload, opens browser)
+./scripts/dev.sh
 ```
 
-### Run
+PGLite auto-provisions a local Postgres — no DB setup required. Reset with `RESET_DB=1 ./scripts/dev.sh`.
+
+**Prerequisites:** [`uv`](https://docs.astral.sh/uv/) · [`bun`](https://bun.sh/) · [Databricks CLI](https://docs.databricks.com/dev-tools/cli/index.html) v0.239.0+ authenticated to a workspace.
+
+<details>
+<summary><b>🔧 Environment variables — click to expand</b></summary>
+
+<br>
+
+All of these live in `app/.env` (copy from [`app/.env.example`](app/.env.example)). The bold ones are the minimum to boot.
+
+| Variable | Required | Default | Purpose |
+|----------|:---:|----------|---------|
+| **`DATABRICKS_CONFIG_PROFILE`** | ✅ | `DEFAULT` | Profile from `~/.databrickscfg` (set via `databricks auth login`) |
+| `DATABRICKS_HOST` / `DATABRICKS_TOKEN` | alt | — | Direct token auth (CI/CD); use *instead of* the profile |
+| `LAKEBASE_DATABASE_PATH` | optional | — | `projects/<id>/branches/<id>/databases/<name>` — omit to use PGLite |
+| `USE_PGLITE` | optional | — | Force PGLite even if `LAKEBASE_DATABASE_PATH` is set |
+| **`ANTHROPIC_LLM_ENDPOINT`** | ✅ | `databricks-claude-sonnet-4-6` | Model the agent talks to (via FMAPI Anthropic bridge) |
+| **`ANTHROPIC_BASE_PATH`** | ✅ | `serving-endpoints/anthropic` | FMAPI bridge path — switch to `ai-gateway/anthropic` for AI Gateway endpoints |
+| **`AI_GATEWAY`** | ✅ | `databricks-claude-opus-4-7` | Primary AI Gateway endpoint for the backend |
+| **`AI_GATEWAY_MINI`** | ✅ | `databricks-gpt-5-4-mini` | Cheap/fast endpoint for utility calls |
+| **`AI_GATEWAY_EMBEDDING`** | ✅ | `databricks-qwen3-embedding-0-6b` | Embedding endpoint for template semantic search |
+| `AI_DEV_KIT_BRANCH` | optional | `experimental` | Branch of [ai-dev-kit](https://github.com/databricks-solutions/ai-dev-kit) that `dev.sh` clones |
+| `DEMO_PROMPT_GENERATOR_TRACKER_ENABLED` | optional | `1` | Aggregated `@databricks.com` analytics — set to `0` to disable |
+
+See [`app/.env.example`](app/.env.example) for the full annotated list with inline guidance.
+
+</details>
+
+**Type checking:**
 
 ```bash
-./scripts/dev.sh   # Backend on :8000, frontend on :5173, opens http://localhost:5173
+cd app
+npx tsc --noEmit          # TypeScript
+uv run mypy src           # Python
 ```
 
-PGLite stores its data in `app/.pglite/` (gitignored). To reset:
+---
 
-```bash
-RESET_DB=1 ./scripts/dev.sh
-```
+## 🛠️ Three ways to run
 
-To use real Lakebase locally instead of PGLite, set `LAKEBASE_PG_URL=postgresql://...` in `.env`.
+| Mode | Where it runs | Auth model | Use case |
+|------|---------------|------------|----------|
+| **Local dev** | Your laptop | `~/.databrickscfg` profile | Day-to-day development with hot reload |
+| **Databricks App** | A Databricks workspace | App service principal (OAuth) | Shared deployment for your team |
+| **Electron** | Your laptop, packaged | `~/.databrickscfg` profile | Standalone desktop app for end-users |
 
-See `app/.env.example` for the full list of tunables (LLM endpoints, AI Dev Kit branch, analytics opt-out).
+<details>
+<summary><b>📦 Deploy to Databricks (production) — click to expand</b></summary>
 
-## 2. Deploy to Databricks (production)
+<br>
 
 The app deploys as a [Databricks Asset Bundle](https://docs.databricks.com/dev-tools/bundles/index.html) — Lakebase database, App resource, model-serving permissions, and source code in one command.
 
-### One-time setup
-
 ```bash
 cd app
 
-# Authenticate (skip if you already did this for local dev)
+# One-time setup
 databricks auth login --host https://<workspace-url> --profile MY_WORKSPACE
-
-# Create your deploy config from the template
 cp databricks.prod.yml.example databricks.prod.yml
-```
+# fill in workspace.profile, variables, env
 
-`databricks.prod.yml` is **gitignored** — it holds workspace-specific values (profile, app name, Lakebase instance, model endpoints) that should not land in a public repo. Open it and fill in the three commented sections:
-
-1. **`workspace.profile`** — the `~/.databrickscfg` profile name from `databricks auth login`.
-2. **`variables`** — the resource identifiers in your workspace (`app_name`, `lakebase_instance`, model endpoint names).
-3. **`env`** — runtime env vars passed to the deployed container. Each line is `ENV_NAME: ${var.<bundle_var>}`; keep these as-is unless you're adding a new tunable.
-
-### Deploy
-
-```bash
-cd app
+# Deploy
 databricks bundle deploy
 databricks bundle run demo-prompt-generator-app
 ```
 
-Verify:
+`databricks.prod.yml` is **gitignored** — it holds workspace-specific values (profile, app name, Lakebase instance, model endpoints).
+
+**Verify:**
 
 ```bash
 databricks apps get <your-app-name> --output json | jq -r '
@@ -101,21 +162,16 @@ databricks apps get <your-app-name> --output json | jq -r '
 # app_status.state should reach "RUNNING"
 ```
 
-### Post-deploy: grant the app `all-apis` OAuth scope
-
-The app generates Databricks demos on behalf of the signed-in user — Unity Catalog tables, dashboards, Genie spaces, jobs, SQL warehouses, etc. By default, the OAuth integration the bundle creates only grants `iam.current-user:read`, which lets the agent identify the user but NOT create resources. Without this step, every resource-creation call returns 403 and the agent will try to work around it (e.g. by overriding env vars).
-
-Each `databricks bundle deploy` may rotate the underlying OAuth integration ID, so re-run this whenever you redeploy:
+**Post-deploy: grant the app `all-apis` OAuth scope.** Each `databricks bundle deploy` may rotate the OAuth integration ID, so re-run this whenever you redeploy:
 
 ```bash
-cd app
 ./scripts/set-app-oauth-scopes.sh                 # uses target=prod
 ./scripts/set-app-oauth-scopes.sh --target prod   # explicit
 ```
 
-The script reads the app name from `databricks.<target>.yml`, auto-detects your account-level CLI profile, finds the matching OAuth integration, and grants `all-apis`. Idempotent — re-running on a correctly-scoped integration is a no-op. After the update, existing user sessions still hold tokens with the old narrower scope; they need to sign out and back in (or wait for refresh) to pick up `all-apis`.
+The script reads the app name from `databricks.<target>.yml`, auto-detects your account-level CLI profile, finds the matching OAuth integration, and grants `all-apis`. Idempotent.
 
-### How config flows from `databricks.prod.yml` to the running container
+**Config flow:**
 
 ```
 databricks.prod.yml (env:)  →  build.sh reads via `databricks bundle summary`
@@ -124,55 +180,41 @@ databricks.prod.yml (env:)  →  build.sh reads via `databricks bundle summary`
                             →  backend reads them via Pydantic Settings
 ```
 
-`databricks.yml` is the generic shape (resource definitions, target stubs); `databricks.prod.yml` is the per-deployment values. Each model endpoint listed in `variables` gets a `CAN_QUERY` permission grant for the app's service principal automatically. The `anthropic_llm_endpoint` (Claude Code via FMAPI Anthropic bridge) does **not** need an explicit grant.
+**Bundle targets:** `prod` (default) and `staging`. Add a third with two files: `databricks.qa.yml{,.example}` + a stub `targets.qa:` in `databricks.yml`.
 
-### Bundle targets
-
-`databricks.yml` declares two targets:
-
-- **`prod`** (`mode: production`, `default: true`) — bare `databricks bundle deploy` resolves here.
-- **`staging`** (`mode: development`, `presets.name_prefix: ""`) — `databricks bundle deploy -t staging`.
-
-There is no `dev` bundle target; local development uses `./scripts/dev.sh` (see §1) and never touches the bundle. The `include: databricks.*.yml` glob auto-picks-up any per-target file, so adding a third environment (e.g. `qa`) is two files: `databricks.qa.yml{,.example}` + a stub `targets.qa:` in `databricks.yml`.
-
-#### Staging-specific setup
+**Staging-specific setup:**
 
 ```bash
 cd app
-
-# 1. Copy the template + fill in your staging values (gitignored).
 cp databricks.staging.yml.example databricks.staging.yml
-
-# 2. Deploy + the same one-time post-deploy steps as prod, scoped to staging.
 databricks bundle deploy -t staging
 ./scripts/set-app-oauth-scopes.sh --target staging
 # Lakebase UI: grant the new staging SP CAN_CONNECT_AND_CREATE on the project.
 databricks bundle run demo-prompt-generator-app -t staging
 ```
 
-Recommended layout: same Lakebase project + branch as prod, different database name (e.g. `demo_generator_staging`). The app auto-creates the database on first boot, so you only need a unique `lakebase_database_name` in `databricks.staging.yml`. App resource gets a unique `app_name` (e.g. `dbdemos-generator-staging`) so prod and staging coexist.
+**Auth model (deployed):** The app authenticates as a service principal that Databricks Apps creates and binds to the deployment. The SDK reads `DATABRICKS_CLIENT_ID` / `DATABRICKS_CLIENT_SECRET` from the runtime and mints OAuth tokens automatically — no PATs are stored anywhere. End-users browsing the app authenticate via OAuth and the agent runs Databricks CLI commands on their behalf via `x-forwarded-access-token`.
 
-### Auth model (deployed)
+</details>
 
-The app authenticates as a **service principal** that Databricks Apps creates and binds to the deployment. The SDK reads `DATABRICKS_CLIENT_ID` / `DATABRICKS_CLIENT_SECRET` from the runtime and mints OAuth tokens automatically — no PATs are stored anywhere.
+<details>
+<summary><b>🖥️ Build the Electron desktop app — click to expand</b></summary>
 
-For Claude Code specifically, the backend writes a per-project `.claude/settings.json` containing `apiKeyHelper` + `ANTHROPIC_BASE_URL` pointing at the workspace's `/serving-endpoints/anthropic` FMAPI bridge. The helper script (`get_anthropic_token.sh`) reads a token file the backend rewrites every ~15 min via the SP's OAuth bearer. The subprocess sees no `ANTHROPIC_*` env vars — credentials live entirely in the project's `.claude/` and refresh on a schedule. End-users browsing the app authenticate via OAuth and the agent runs Databricks CLI commands on their behalf via `x-forwarded-access-token`.
+<br>
 
-## 3. Build the Electron desktop app
-
-For users who want a standalone desktop app (e.g., on a laptop without dev tools). Bundles Python, the FastAPI backend, the React frontend, and Electron into a single `.dmg` / `.exe` / `.AppImage`.
+Bundles Python, the FastAPI backend, the React frontend, and Electron into a single `.dmg` / `.exe` / `.AppImage`.
 
 ```bash
 cd app
-./scripts/build-electron.sh             # Build for current arch
-./scripts/build-electron.sh --arch arm64    # Apple Silicon
-./scripts/build-electron.sh --arch x64      # Intel Mac / Linux
+./scripts/build-electron.sh                   # Build for current arch
+./scripts/build-electron.sh --arch arm64      # Apple Silicon
+./scripts/build-electron.sh --arch x64        # Intel Mac / Linux
 ./scripts/build-electron.sh --arch universal  # Mac universal binary
 ```
 
-Output lands in `app/dist-electron/`. The packaged app uses your local `~/.databrickscfg` profile at runtime — first launch prompts for a profile via the in-app config UI.
+Output lands in `app/dist-electron/`. First launch prompts for a profile via the in-app config UI.
 
-To cut a versioned release and publish to GitHub Releases:
+To cut a versioned release:
 
 ```bash
 ./scripts/release.sh patch         # 0.1.0 → 0.1.1
@@ -180,52 +222,60 @@ To cut a versioned release and publish to GitHub Releases:
 ./scripts/release.sh 1.2.3         # explicit version
 ```
 
-Requires the GitHub CLI authenticated with repo access. The release script bumps `package.json`, runs `build-electron.sh`, tags the commit, and uploads artifacts to a GitHub Release.
+</details>
 
-## How it works
+---
 
-1. **Describe a scenario** — enter a customer use case (e.g., "predictive maintenance for wind turbines") or start from a template in the gallery.
-2. **Project creation** — the app creates a project workspace, auto-assigns compute resources, and provisions a local directory with AI Dev Kit skills.
-3. **Chat with the agent** — an AI agent (Claude via the Agent SDK) designs the demo interactively. It generates a README, architecture diagram, instruction specs, source code, and a DAB bundle — all as files in the project.
-4. **Build pipeline** — the project progresses through stages: `DRAFTING` → `SUMMARIZED` → `ARCHITECTED` → `SPECIFICATION` → `BUILT` → `BUNDLED`. Each stage is gated by the presence of specific files.
-5. **Deploy** — the agent deploys assets to your Databricks workspace using the AI Dev Kit CLI tools. Deployed resources (dashboards, pipelines, Genie spaces, etc.) are tracked and linked from the UI.
-6. **Share & reuse** — publish finished projects as templates that others can fork from the gallery.
+## 🔄 How it works
 
-### Context blocks
-
-Knowledge is decomposed into **blocks** — small, reusable Markdown files with YAML frontmatter stored in `.claude/skills/databricks-demo-generator/references/blocks/`. Blocks come in three categories:
-
-- **Domain** — industry vertical context (terminology, KPIs, personas, pain points). Pre-built blocks: `financial-services`, `healthcare`, `manufacturing`, `retail`. The gallery also accepts `Media & Entertainment` and `Public Sector` scenarios, which currently rely on the agent's general knowledge rather than a dedicated block.
-- **Capability** — Databricks feature guidance (architecture patterns, configuration, best practices). Examples: `sdp`, `genie`, `aibi-dashboards`, `vector-search`, `lakebase`, `supervisor-agent`.
-- **Pattern** — cross-industry analytical patterns (methodology, algorithm choices, evaluation criteria). Examples: `anomaly-detection`, `customer-segmentation`, `predictive-maintenance`.
-
-Blocks are injected into the agent's system prompt as structured context, giving it deep knowledge of Databricks features and industry domains without fine-tuning.
-
-### Templates
-
-The gallery contains reusable templates — published project snapshots that can be forked as a starting point. Templates go through an admin review workflow (`REVIEW_REQUESTED` → `APPROVED`) before appearing in the gallery. Semantic search (via pgvector embeddings) helps users find relevant templates.
-
-## Claude Code skill (standalone)
-
-The demo generator is also available as a standalone Claude Code skill. Install it in any project to access the context blocks directly from the command line:
-
-```bash
-gh repo clone databricks-field-eng/industry-demo-prompts /tmp/idp && /tmp/idp/install_demo_generator_skill.sh && rm -rf /tmp/idp
+```mermaid
+stateDiagram-v2
+    [*] --> DRAFTING: scenario described
+    DRAFTING --> SUMMARIZED: scope locked
+    SUMMARIZED --> ARCHITECTED: diagram + components
+    ARCHITECTED --> SPECIFICATION: instruction specs written
+    SPECIFICATION --> BUILT: code generated
+    BUILT --> BUNDLED: DAB packaged
+    BUNDLED --> [*]: deployed to workspace
 ```
 
-This installs the `databricks-demo-generator` skill to `.claude/skills/` in your current directory. Then run `claude` and the skill will be available automatically.
+1. **Describe what you want to build** — a use-case (*"churn risk for a regional payer"*), a target pattern, your data sources (synthetic or real). Or fork an existing template from the gallery.
+2. **Project workspace is provisioned** — compute auto-assigned, Demo Generator Skill + AI Dev Kit linked in, file tree initialized.
+3. **Chat with the agent** — Claude (via the Agent SDK) designs the solution interactively: README, architecture diagram, instruction specs, source code, DAB bundle. Every step is gated and inspectable.
+4. **Agent deploys to your workspace** — using AI Dev Kit's executable tools. Deployed resources (dashboards, pipelines, Genie spaces, jobs, endpoints) are tracked and linked from the UI.
+5. **Iterate, share, reuse** — refine in chat, publish as a template, fork into a new project for a different industry or dataset. The library compounds.
 
-## Type checking
+### The two-engine model
+
+| Engine | What it provides | How to find it |
+|--------|-----------------|----------------|
+| **[Demo Generator Skill](.claude/skills/databricks-demo-generator)** | Curated Markdown context — Databricks industry domains, capability patterns, analytical methodologies. Composes into the agent's system prompt. | `.claude/skills/databricks-demo-generator/` (Claude Code skill, also usable standalone) |
+| **[Databricks AI Dev Kit](https://github.com/databricks-solutions/ai-dev-kit)** | 75+ executable tools that already know the right way to do every Databricks thing — Lakeflow, Genie, AI/BI, Vector Search, Lakebase, UC, MLflow, serving. | `databricks-solutions/ai-dev-kit` on GitHub — Certified Gold Project |
+
+The Solution Builder app wires both together behind a chat UI. The skill teaches the agent *what good looks like* for your scenario; the AI Dev Kit gives it the hands to actually build it.
+
+---
+
+## 🧰 Standalone: use the Demo Generator Skill from any terminal
+
+You don't need the app to benefit from the curated context. Install the skill into any Claude Code project and the same Databricks solution patterns are available from your CLI:
 
 ```bash
-cd app
-npx tsc --noEmit          # TypeScript
-uv run mypy src           # Python
+gh repo clone databricks-field-eng/industry-demo-prompts /tmp/idp && \
+  /tmp/idp/install_demo_generator_skill.sh && \
+  rm -rf /tmp/idp
 ```
 
-## Architecture
+This installs the `databricks-demo-generator` skill to `.claude/skills/` in your current directory. Then run `claude` and the skill is available automatically. Pair it with the [AI Dev Kit](https://github.com/databricks-solutions/ai-dev-kit) for the full builder experience from the terminal.
 
-### Lakebase tables
+---
+
+## 🏗️ Architecture reference
+
+<details>
+<summary><b>Lakebase tables</b></summary>
+
+<br>
 
 | Table | Purpose |
 |-------|---------|
@@ -241,9 +291,12 @@ uv run mypy src           # Python
 
 Tables are auto-created on startup via SQLModel + DDL migrations in `lakebase.py`.
 
-### API surface
+</details>
 
-All routes are prefixed with `/api`.
+<details>
+<summary><b>API surface (all routes prefixed with <code>/api</code>)</b></summary>
+
+<br>
 
 **Projects**
 
@@ -253,7 +306,7 @@ All routes are prefixed with `/api`.
 | `POST` | `/projects` | Create a new project (LLM generates name/description) |
 | `GET` | `/projects/{id}` | Get project details |
 | `PATCH` | `/projects/{id}` | Update project name/description |
-| `PATCH` | `/projects/{id}/resources` | Update compute resources (cluster, warehouse, catalog, schema) |
+| `PATCH` | `/projects/{id}/resources` | Update compute resources |
 | `DELETE` | `/projects/{id}` | Delete a project and its files |
 | `POST` | `/projects/{id}/sync` | Sync files between disk and database |
 | `POST` | `/projects/{id}/star` | Toggle starred status |
@@ -278,7 +331,7 @@ All routes are prefixed with `/api`.
 | `GET` | `/projects/{id}/messages` | Get message history |
 | `POST` | `/projects/{id}/messages` | Add a message |
 | `DELETE` | `/projects/{id}/messages` | Clear message history |
-| `POST` | `/projects/{id}/session/clear` | Clear agent session (reset conversation) |
+| `POST` | `/projects/{id}/session/clear` | Clear agent session |
 
 **Agent**
 
@@ -336,7 +389,12 @@ All routes are prefixed with `/api`.
 | `POST` | `/capabilities/suggest` | AI-powered capability suggestions for a scenario |
 | `POST` | `/block-factory/process` | Decompose a document into context blocks |
 
-## Project structure
+</details>
+
+<details>
+<summary><b>Project structure</b></summary>
+
+<br>
 
 ```
 industry-demo-prompts/
@@ -356,24 +414,28 @@ industry-demo-prompts/
 │   │       ├── hooks/            # Custom React hooks
 │   │       └── styles/           # Tailwind CSS globals
 │   ├── databricks.yml            # DAB config — generic resource shape
-│   ├── databricks.prod.yml.example  # Per-deployment config template (copy → databricks.prod.yml, gitignored)
+│   ├── databricks.prod.yml.example  # Per-deployment config template (gitignored when filled in)
 │   ├── pyproject.toml            # Python deps (use uv, never pip)
 │   ├── package.json              # Frontend deps (use bun)
 │   ├── scripts/                  # dev.sh, build.sh, build-electron.sh, release.sh
 │   └── .env.example              # Local-dev environment variable template
 ├── .claude/skills/databricks-demo-generator/
-│   └── references/blocks/        # Context blocks
-│       ├── capabilities/         #   26 Databricks feature blocks
-│       ├── domains/              #   4 industry verticals
-│       └── patterns/             #   5 analytical patterns
+│   └── references/blocks/        # Context blocks (Demo Generator Skill)
+│       ├── capabilities/         #   26+ Databricks feature blocks
+│       ├── domains/              #   Industry verticals
+│       └── patterns/             #   Analytical patterns
+├── docs/                         # Diagrams + screenshots used in this README
 ├── tests/                        # Playwright E2E tests
 ├── install_demo_generator_skill.sh  # Standalone skill installer
 └── playwright.config.ts          # Test config (targets localhost:9000)
 ```
 
-## How to extend
+</details>
 
-### Adding a context block
+<details>
+<summary><b>Extending — adding a context block</b></summary>
+
+<br>
 
 Create a Markdown file in the appropriate `.claude/skills/databricks-demo-generator/references/blocks/` subdirectory (`domains/`, `capabilities/`, or `patterns/`) with YAML frontmatter:
 
@@ -392,3 +454,85 @@ Block content goes here — terminology, best practices, configuration guidance,
 
 Blocks on disk are automatically available to the agent's system prompt for all new projects.
 
+</details>
+
+---
+
+## ⭐ Star history
+
+<a href="https://star-history.com/#databricks-field-eng/industry-demo-prompts&Date">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=databricks-field-eng/industry-demo-prompts&type=Date&theme=dark" />
+    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=databricks-field-eng/industry-demo-prompts&type=Date" />
+    <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=databricks-field-eng/industry-demo-prompts&type=Date" />
+  </picture>
+</a>
+
+---
+
+<details>
+<summary><b>📜 License &amp; attribution — click to expand</b></summary>
+
+<br>
+
+This project is internal to Databricks Field Engineering. Built on top of and powered by the following open-source projects.
+
+### Core runtimes & SDKs
+
+| Package | License | Project |
+|---------|---------|---------|
+| [claude-agent-sdk](https://github.com/anthropics/claude-agent-sdk) | MIT | https://github.com/anthropics/claude-agent-sdk |
+| [databricks-sdk](https://github.com/databricks/databricks-sdk-py) | Apache-2.0 | https://github.com/databricks/databricks-sdk-py |
+| [databricks-connect](https://docs.databricks.com/dev-tools/databricks-connect.html) | Databricks | https://docs.databricks.com/dev-tools/databricks-connect.html |
+| [ai-dev-kit](https://github.com/databricks-solutions/ai-dev-kit) | Databricks | https://github.com/databricks-solutions/ai-dev-kit |
+
+### Backend (Python)
+
+| Package | License | Project |
+|---------|---------|---------|
+| [fastapi](https://github.com/fastapi/fastapi) | MIT | https://github.com/fastapi/fastapi |
+| [uvicorn](https://github.com/encode/uvicorn) | BSD-3-Clause | https://github.com/encode/uvicorn |
+| [pydantic-settings](https://github.com/pydantic/pydantic-settings) | MIT | https://github.com/pydantic/pydantic-settings |
+| [sqlmodel](https://github.com/tiangolo/sqlmodel) | MIT | https://github.com/tiangolo/sqlmodel |
+| [sqlalchemy](https://github.com/sqlalchemy/sqlalchemy) | MIT | https://github.com/sqlalchemy/sqlalchemy |
+| [alembic](https://github.com/sqlalchemy/alembic) | MIT | https://github.com/sqlalchemy/alembic |
+| [psycopg](https://github.com/psycopg/psycopg) | LGPL-3.0 | https://github.com/psycopg/psycopg |
+| [pglite](https://github.com/electric-sql/pglite) | Apache-2.0 | https://github.com/electric-sql/pglite |
+| [httpx](https://github.com/encode/httpx) | BSD-3-Clause | https://github.com/encode/httpx |
+| [watchdog](https://github.com/gorakhargosh/watchdog) | Apache-2.0 | https://github.com/gorakhargosh/watchdog |
+| [pyyaml](https://github.com/yaml/pyyaml) | MIT | https://github.com/yaml/pyyaml |
+| [python-docx](https://github.com/python-openxml/python-docx) | MIT | https://github.com/python-openxml/python-docx |
+| [mcp](https://github.com/modelcontextprotocol/python-sdk) | MIT | https://github.com/modelcontextprotocol/python-sdk |
+| [fastmcp](https://github.com/jlowin/fastmcp) | Apache-2.0 | https://github.com/jlowin/fastmcp |
+| [sqlglot](https://github.com/tobymao/sqlglot) | MIT | https://github.com/tobymao/sqlglot |
+| [sqlfluff](https://github.com/sqlfluff/sqlfluff) | MIT | https://github.com/sqlfluff/sqlfluff |
+| [plutoprint](https://github.com/plutoprint/plutoprint) | MIT | https://github.com/plutoprint/plutoprint |
+| [faker](https://github.com/joke2k/faker) | MIT | https://github.com/joke2k/faker |
+
+### Frontend (TypeScript)
+
+| Package | License | Project |
+|---------|---------|---------|
+| [react](https://github.com/facebook/react) | MIT | https://github.com/facebook/react |
+| [vite](https://github.com/vitejs/vite) | MIT | https://github.com/vitejs/vite |
+| [@tanstack/react-router](https://github.com/TanStack/router) | MIT | https://github.com/TanStack/router |
+| [@tanstack/react-query](https://github.com/TanStack/query) | MIT | https://github.com/TanStack/query |
+| [tailwindcss](https://github.com/tailwindlabs/tailwindcss) | MIT | https://github.com/tailwindlabs/tailwindcss |
+| [@radix-ui/*](https://github.com/radix-ui/primitives) | MIT | https://github.com/radix-ui/primitives |
+| [shadcn/ui](https://github.com/shadcn-ui/ui) | MIT | https://github.com/shadcn-ui/ui |
+| [motion](https://github.com/motiondivision/motion) | MIT | https://github.com/motiondivision/motion |
+| [lucide-react](https://github.com/lucide-icons/lucide) | ISC | https://github.com/lucide-icons/lucide |
+| [@xyflow/react](https://github.com/xyflow/xyflow) | MIT | https://github.com/xyflow/xyflow |
+| [@monaco-editor/react](https://github.com/suren-atoyan/monaco-react) | MIT | https://github.com/suren-atoyan/monaco-react |
+| [embla-carousel-react](https://github.com/davidjerleke/embla-carousel) | MIT | https://github.com/davidjerleke/embla-carousel |
+| [electron](https://github.com/electron/electron) | MIT | https://github.com/electron/electron |
+| [playwright](https://github.com/microsoft/playwright) | Apache-2.0 | https://github.com/microsoft/playwright |
+
+</details>
+
+---
+
+<p align="center">
+  <i>Built by Databricks Field Engineering.</i><br>
+  <sub>Describe it. Ship it. Iterate on what matters.</sub>
+</p>
