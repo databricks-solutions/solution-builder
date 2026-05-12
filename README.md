@@ -35,8 +35,8 @@ Describe what you want to build and an AI agent designs, writes, and ships it fo
 >
 > | 🛡️ &nbsp; What constrains it | ⚠️ &nbsp; What it won't catch |
 > |---|---|
-> | Your **Unity Catalog** permissions | Accidental deletes inside catalogs you own |
-> | Your **workspace** entitlements | Runaway compute cost |
+> | Your **Unity Catalog** permissions | Unintended changes to assets you own |
+> | Your **workspace** entitlements | Higher-than-expected compute cost |
 > | The app's **OAuth scopes** | Subtle correctness bugs in generated code |
 >
 > Review before applying changes. Use separate dev/prod catalogs. Software provided "as is" — see [LICENSE](LICENSE).
