@@ -26,7 +26,8 @@
         "electron-updater": "^6.8.3",
         "embla-carousel-react": "^8.6.0",
         "fix-path": "^3.0.0",
-        "html-to-image": "^1.11.13"
+        "html-to-image": "^1.11.13",
+        "recharts": "^3.8.1"
     },
     "devDependencies": {
         "@opentelemetry/api-logs": "^0.214.0",

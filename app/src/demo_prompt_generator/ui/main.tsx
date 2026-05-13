@@ -2,7 +2,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 
 import "@/styles/globals.css";
-import { routeTree } from "@/types/routeTree.gen";
+import { routeTree } from "@/routeTree.gen";
 
 import {
   RouterProvider,

@@ -1,6 +1,6 @@
 import { Link, useMatchRoute } from "@tanstack/react-router";
 import Navbar from "@/components/layout/navbar";
-import { FolderOpen, User, Library, Info, Home } from "lucide-react";
+import { FolderOpen, User, Library, Info, Home, BarChart3 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ReactNode } from "react";
 
@@ -8,6 +8,7 @@ const sidebarLinks = [
   { to: "/" as const, label: "Home", icon: Home },
   { to: "/templates" as const, label: "Templates", icon: Library },
   { to: "/projects" as const, label: "My Projects", icon: FolderOpen },
+  { to: "/stats" as const, label: "Stats", icon: BarChart3 },
   { to: "/about" as const, label: "About", icon: Info },
   { to: "/profile" as const, label: "Profile", icon: User },
 ];

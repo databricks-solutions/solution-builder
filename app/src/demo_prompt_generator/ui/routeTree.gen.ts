@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as TemplatesRouteImport } from './routes/templates'
+import { Route as StatsRouteImport } from './routes/stats'
 import { Route as SetupRouteImport } from './routes/setup'
 import { Route as ProjectsRouteImport } from './routes/projects'
 import { Route as ProfileRouteImport } from './routes/profile'
@@ -21,6 +22,11 @@ import { Route as ProjectProjectIdRouteImport } from './routes/project.$projectI
 const TemplatesRoute = TemplatesRouteImport.update({
   id: '/templates',
   path: '/templates',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const StatsRoute = StatsRouteImport.update({
+  id: '/stats',
+  path: '/stats',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SetupRoute = SetupRouteImport.update({
@@ -66,6 +72,7 @@ export interface FileRoutesByFullPath {
   '/profile': typeof ProfileRoute
   '/projects': typeof ProjectsRoute
   '/setup': typeof SetupRoute
+  '/stats': typeof StatsRoute
   '/templates': typeof TemplatesRoute
   '/project/$projectId': typeof ProjectProjectIdRoute
 }
@@ -76,6 +83,7 @@ export interface FileRoutesByTo {
   '/profile': typeof ProfileRoute
   '/projects': typeof ProjectsRoute
   '/setup': typeof SetupRoute
+  '/stats': typeof StatsRoute
   '/templates': typeof TemplatesRoute
   '/project/$projectId': typeof ProjectProjectIdRoute
 }
@@ -87,6 +95,7 @@ export interface FileRoutesById {
   '/profile': typeof ProfileRoute
   '/projects': typeof ProjectsRoute
   '/setup': typeof SetupRoute
+  '/stats': typeof StatsRoute
   '/templates': typeof TemplatesRoute
   '/project/$projectId': typeof ProjectProjectIdRoute
 }
@@ -99,6 +108,7 @@ export interface FileRouteTypes {
     | '/profile'
     | '/projects'
     | '/setup'
+    | '/stats'
     | '/templates'
     | '/project/$projectId'
   fileRoutesByTo: FileRoutesByTo
@@ -109,6 +119,7 @@ export interface FileRouteTypes {
     | '/profile'
     | '/projects'
     | '/setup'
+    | '/stats'
     | '/templates'
     | '/project/$projectId'
   id:
@@ -119,6 +130,7 @@ export interface FileRouteTypes {
     | '/profile'
     | '/projects'
     | '/setup'
+    | '/stats'
     | '/templates'
     | '/project/$projectId'
   fileRoutesById: FileRoutesById
@@ -130,6 +142,7 @@ export interface RootRouteChildren {
   ProfileRoute: typeof ProfileRoute
   ProjectsRoute: typeof ProjectsRoute
   SetupRoute: typeof SetupRoute
+  StatsRoute: typeof StatsRoute
   TemplatesRoute: typeof TemplatesRoute
   ProjectProjectIdRoute: typeof ProjectProjectIdRoute
 }
@@ -141,6 +154,13 @@ declare module '@tanstack/react-router' {
       path: '/templates'
       fullPath: '/templates'
       preLoaderRoute: typeof TemplatesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/stats': {
+      id: '/stats'
+      path: '/stats'
+      fullPath: '/stats'
+      preLoaderRoute: typeof StatsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/setup': {
@@ -202,6 +222,7 @@ const rootRouteChildren: RootRouteChildren = {
   ProfileRoute: ProfileRoute,
   ProjectsRoute: ProjectsRoute,
   SetupRoute: SetupRoute,
+  StatsRoute: StatsRoute,
   TemplatesRoute: TemplatesRoute,
   ProjectProjectIdRoute: ProjectProjectIdRoute,
 }

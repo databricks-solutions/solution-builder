@@ -1228,6 +1228,75 @@ export async function getCurrentUser(): Promise<CurrentUser> {
 }
 
 // ---------------------------------------------------------------------------
+// Stats API
+// ---------------------------------------------------------------------------
+
+export interface StatsDayCount {
+  date: string; // YYYY-MM-DD
+  count: number;
+}
+
+export interface StatsOwnerCount {
+  user_email: string;
+  project_count: number;
+  last_active: string | null;
+}
+
+export interface StatsStageCount {
+  stage: string;
+  count: number;
+}
+
+export interface StatsProjectRow {
+  id: string;
+  name: string;
+  user_email: string;
+  stage: string;
+  project_type: string;
+  message_count: number;
+  has_active_execution: boolean;
+  source_template_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Stats {
+  total_projects: number;
+  total_users: number;
+  total_messages: number;
+  projects_last_7d: number;
+  projects_last_30d: number;
+  active_executions: number;
+  projects_per_day: StatsDayCount[];
+  messages_per_day: StatsDayCount[];
+  by_stage: StatsStageCount[];
+  top_owners: StatsOwnerCount[];
+  projects: StatsProjectRow[];
+  page: number;
+  page_size: number;
+  total_pages: number;
+}
+
+export interface StatsQuery {
+  days?: number;
+  page?: number;
+  page_size?: number;
+  owner_filter?: string;
+}
+
+export async function getStats(query: StatsQuery = {}): Promise<Stats> {
+  const params = new URLSearchParams();
+  if (query.days != null) params.set("days", String(query.days));
+  if (query.page != null) params.set("page", String(query.page));
+  if (query.page_size != null) params.set("page_size", String(query.page_size));
+  if (query.owner_filter) params.set("owner_filter", query.owner_filter);
+  const qs = params.toString();
+  const resp = await fetch(apiUrl(`/api/stats${qs ? `?${qs}` : ""}`));
+  if (!resp.ok) throw new Error(`Failed to load stats: ${resp.status}`);
+  return resp.json();
+}
+
+// ---------------------------------------------------------------------------
 // Configuration API
 // ---------------------------------------------------------------------------
 

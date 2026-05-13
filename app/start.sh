@@ -15,6 +15,24 @@
 
 set -euo pipefail
 
+# ── Refuse to run outside the deployed Apps container. ────────────────────
+# The script's downloads, PATH munging, and venv assumptions are all
+# tailored to the Apps runtime (Linux amd64, pre-baked .venv on PATH,
+# no pre-installed Databricks CLI). Running it on a dev laptop produces
+# the wrong CLI binary (Linux exec'd on macOS) AND picks up whatever
+# Python happens to be active (conda base, system Python), giving
+# `ModuleNotFoundError: demo_prompt_generator` because that interpreter
+# doesn't have the project installed.
+#
+# For local development use `./scripts/dev.sh` instead — that script
+# starts uvicorn from the project's .venv and Vite alongside it, with
+# hot reload on both.
+if [[ "$(uname -s)" != "Linux" ]]; then
+    echo "[start.sh] This script is the deployed-container entrypoint and only runs on Linux." >&2
+    echo "[start.sh] For local development, run ./scripts/dev.sh instead." >&2
+    exit 1
+fi
+
 DBCLI_VERSION="0.299.0"
 DBCLI_DIR="/tmp/databricks-cli-v${DBCLI_VERSION}"
 DBCLI_BIN="$DBCLI_DIR/databricks"
