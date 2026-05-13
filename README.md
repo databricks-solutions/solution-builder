@@ -30,8 +30,12 @@ Describe what you want to build and an AI agent designs, writes, and ships it fo
 
 > **In one line:** describe it, ship it, iterate on what actually matters.
 
+> **Two ways in.** Run the **[full app](#-quickstart-local-dev)** for chat + UI + gallery, or install just the **[CLI skill](#-use-it-from-the-cli--no-app-required)** into `~/.claude/` and drive everything from any terminal. Same library, same outputs.
+
 > [!CAUTION]
 > **Use at your own risk.** This is **vibecoding software** — an AI agent writing code and creating resources on your behalf. Expect occasional surprises; treat its output as a starting point.
+>
+> **Shared container, real write access.** When deployed as a Databricks App, every user's session runs Claude Code inside the **same container** with **write access to your Databricks resources** — Unity Catalog objects, jobs, pipelines, dashboards, and anything else your identity can reach. Treat it like handing an over-eager intern a shell on your workspace: powerful, useful, and capable of doing real damage if you're not paying attention.
 >
 > | 🛡️ &nbsp; What constrains it | ⚠️ &nbsp; What it won't catch |
 > |---|---|
@@ -39,7 +43,7 @@ Describe what you want to build and an AI agent designs, writes, and ships it fo
 > | Your **workspace** entitlements | Higher-than-expected compute cost |
 > | The app's **OAuth scopes** | Subtle correctness bugs in generated code |
 >
-> Review before applying changes. Use separate dev/prod catalogs. Software provided "as is" — see [LICENSE](LICENSE).
+> Review before applying changes. Use separate dev/prod catalogs. Don't point it at production data you can't afford to lose. Software provided "as is" — see [LICENSE](LICENSE).
 
 ---
 
@@ -240,17 +244,26 @@ To cut a versioned release:
 
 ---
 
-## 🧰 Standalone: use the Demo Generator Skill from any terminal
+## 🧰 Use it from the CLI — no app required
 
-You don't need the app to benefit from the curated context. Install the skill into any Claude Code project and the same Databricks solution patterns are available from your CLI:
+Install the Demo Generator skill (and, optionally, the [AI Dev Kit](https://github.com/databricks-solutions/ai-dev-kit)) into your `~/.claude/` once, then drive everything from any terminal:
 
 ```bash
-gh repo clone databricks-solutions/databricks-solution-builder /tmp/dsb && \
-  /tmp/dsb/install_demo_generator_skill.sh && \
-  rm -rf /tmp/dsb
+bash <(curl -sL https://raw.githubusercontent.com/databricks-solutions/databricks-solution-builder/main/install.sh)
 ```
 
-This installs the `databricks-demo-generator` skill to `.claude/skills/` in your current directory. Then run `claude` and the skill is available automatically. Pair it with the [AI Dev Kit](https://github.com/databricks-solutions/ai-dev-kit) for the full builder experience from the terminal.
+`cd` into any project, run `claude`, and the skill loads automatically — the agent can design, write, and build Databricks assets end-to-end from the terminal.
+
+**Flags:**
+
+| Flag | Behavior |
+|------|----------|
+| _(none)_ | Installs skill to `~/.claude/skills/` and the AI Dev Kit globally |
+| `--project` | Installs the skill into `./.claude/skills/` in the current directory instead |
+| `--skill-only` | Skips the AI Dev Kit step (skill only) |
+| `--branch <name>` | Pulls the skill from a non-`main` branch |
+
+Same library as the app, same outputs — pick whichever surface fits the moment. Use the app when you want chat + file viewer + gallery; use the CLI when you want to stay in your terminal.
 
 ---
 
