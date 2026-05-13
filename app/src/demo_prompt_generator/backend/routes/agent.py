@@ -38,7 +38,7 @@ from ..models import (
     utc_now,
 )
 from ..services.active_stream import get_stream_manager
-from ..services.agent import collect_text_response, collect_reasoning, stream_agent_response
+from ..services.agent import collect_text_response, collect_reasoning, is_stale_session_error, stream_agent_response
 from .projects import _get_authorized_project
 
 router = create_router()
@@ -172,33 +172,74 @@ async def invoke_agent(
 
     # Start agent in background
     async def run_agent():
+        nonlocal session_id
         collected_events = []
         was_cancelled = False
+
+        async def _run_once(effective_session_id: str | None) -> None:
+            nonlocal was_cancelled
+            try:
+                async for event in stream_agent_response(
+                    project_id=body.project_id,
+                    message=body.message,
+                    stream=stream,
+                    mode=mode,
+                    cluster_id=project.cluster_id,
+                    warehouse_id=project.warehouse_id,
+                    default_catalog=project.default_catalog,
+                    default_schema=project.default_schema,
+                    databricks_profile=databricks_profile,
+                    session_id=effective_session_id,
+                    template_lineage=template_lineage,
+                ):
+                    collected_events.append(event)
+            except asyncio.CancelledError:
+                was_cancelled = True
+                stream.is_cancelled = True
+                logger.info(f"Agent execution {execution_id} cancelled by user")
+                raise
+            except Exception as e:
+                logger.exception(f"Agent execution failed: {e}")
+                stream.mark_error(str(e))
+
         try:
-            async for event in stream_agent_response(
-                project_id=body.project_id,
-                message=body.message,
-                stream=stream,
-                mode=mode,
-                cluster_id=project.cluster_id,
-                warehouse_id=project.warehouse_id,
-                default_catalog=project.default_catalog,
-                default_schema=project.default_schema,
-                databricks_profile=databricks_profile,
-                session_id=session_id,
-                template_lineage=template_lineage,
-            ):
-                collected_events.append(event)
+            await _run_once(session_id)
+
+            # Safety net for stale resume: if the SDK bailed because
+            # project.session_id pointed at a transcript that no longer
+            # exists on disk (e.g. transcript not yet restored from PG,
+            # forked project, or CLAUDE_CONFIG_DIR introduced after the
+            # session was created), clear the stale id and retry once
+            # with a fresh session. Same execution_id, same SSE stream —
+            # transparent to the client.
+            if session_id and is_stale_session_error(stream.error_message):
+                stale = session_id
+                logger.warning(
+                    f"Stale session_id {stale} for project {body.project_id} — "
+                    f"clearing and retrying with a fresh session."
+                )
+                from sqlmodel import Session as SQLSession
+
+                def _clear_stale() -> None:
+                    with SQLSession(engine) as db:
+                        proj = db.get(Project, body.project_id)
+                        if proj and proj.session_id == stale:
+                            proj.session_id = None
+                            db.add(proj)
+                            db.commit()
+
+                await asyncio.to_thread(_clear_stale)
+
+                # Reset the stream's error state so the retry's events
+                # aren't masked by the prior failure marker.
+                stream.is_error = False
+                stream.error_message = None
+                collected_events.clear()
+                session_id = None
+                await _run_once(None)
         except asyncio.CancelledError:
-            # User hit stop: persist what we have so the partial result and
-            # reasoning are still visible on refresh.
-            was_cancelled = True
-            stream.is_cancelled = True
-            logger.info(f"Agent execution {execution_id} cancelled by user")
-        except Exception as e:
-            logger.exception(f"Agent execution failed: {e}")
-            stream.mark_error(str(e))
-            # Fall through to save whatever we collected so far
+            # Already handled inside _run_once; fall through to persist.
+            pass
 
         # Save assistant response, session_id, and clear active_execution_id.
         # This runs even if the browser disconnected — the task is decoupled

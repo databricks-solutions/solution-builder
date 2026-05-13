@@ -466,14 +466,20 @@ class _LakebaseDependency(LifespanDependency):
             await file_sync.sync_files_to_db(project_id, paths)
             from ..services.active_stream import get_stream_manager
             stream = get_stream_manager().get_project_stream(project_id)
-            if stream:
+            # .claude/projects/** holds Claude Code session transcripts. We
+            # sync them to PG (so the SDK can resume after a container
+            # restart) but we don't want them surfaced to the UI — they
+            # aren't user-facing project files and would clutter the file
+            # viewer / refresh logic.
+            ui_paths = [p for p in paths if not p.startswith(".claude/")]
+            if stream and ui_paths:
                 logger.info(
-                    f"[watcher] emitting {len(paths)} file_changed event(s) "
-                    f"for project {project_id} (exec {stream.execution_id}): {paths}"
+                    f"[watcher] emitting {len(ui_paths)} file_changed event(s) "
+                    f"for project {project_id} (exec {stream.execution_id}): {ui_paths}"
                 )
-                for path in paths:
+                for path in ui_paths:
                     stream.add_event({"type": "file_changed", "path": path})
-            else:
+            elif not stream:
                 logger.info(
                     f"[watcher] no active stream for project {project_id} — "
                     f"{len(paths)} file change(s) NOT pushed to UI: {paths}"

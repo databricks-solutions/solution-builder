@@ -109,6 +109,14 @@ def _build_claude_env(
 
     # Databricks CLI/SDK auth for the agent's shell commands.
     env.update(subprocess_auth_env(project_dir, mode=mode, local_profile=local_profile))
+
+    # Relocate Claude Code's "user-scope" config tree from ~/.claude/ to
+    # <project>/.claude/ so transcripts land inside the project dir. The
+    # SDK honors this env var (see claude_agent_sdk/_internal/sessions.py:
+    # _get_claude_config_home_dir) and propagates it to the CLI subprocess.
+    # Without this, on app restart the ~/.claude/projects/ tree is gone and
+    # every resume hits "No conversation found with session ID".
+    env["CLAUDE_CONFIG_DIR"] = str(project_dir / ".claude")
     return env
 
 
@@ -503,6 +511,19 @@ async def stream_agent_response(
         yield {"type": "error", "error": full_error}
         # On error, remove the client from pool
         await pool.remove_client(project_id)
+
+
+# Substring detector for the SDK's "stale resume" failure. The CLI's exact
+# message is "No conversation found with session ID: <uuid>" (see Claude
+# Code's session loader). routes/agent.py uses this to decide whether to
+# clear the persisted session_id and retry once with a fresh session.
+STALE_SESSION_ERROR_MARKER = "No conversation found with session ID"
+
+
+def is_stale_session_error(error_message: str | None) -> bool:
+    if not error_message:
+        return False
+    return STALE_SESSION_ERROR_MARKER in error_message
 
 
 # Threshold for logging an oversized SDK message. The SDK hard-fails at

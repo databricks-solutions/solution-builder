@@ -363,25 +363,37 @@ class FileSyncService:
                 ).all()
             }
 
-            # Get local files (excluding ignored patterns). Rules in sync with
-            # routes.project_files._is_excluded_segment and
-            # services.file_watcher.IGNORE_PATTERNS.
-            from ..routes.project_files import _is_excluded_segment
+            # Get local files (excluding ignored patterns). Use the SYNC
+            # variant — it lets `.claude/projects/**` (Claude Code
+            # transcripts) through so session resume survives restarts.
+            # The listing UI still hides them via _is_hidden_from_listing.
+            from ..routes.project_files import _is_excluded_from_sync
             local_files = set()
             for root, dirs, files in os.walk(project_dir):
-                dirs[:] = [d for d in dirs if not _is_excluded_segment(d)]
+                root_path = Path(root)
+                # Prune dirs using full relative paths so we descend into
+                # .claude/ and pick up its projects/ subtree even though
+                # .claude/ itself is otherwise ignored.
+                kept = []
+                for d in dirs:
+                    child_rel = (root_path / d).relative_to(project_dir)
+                    if _is_excluded_from_sync(child_rel):
+                        continue
+                    kept.append(d)
+                dirs[:] = kept
 
                 for fname in files:
-                    if _is_excluded_segment(fname):
+                    abs_path = root_path / fname
+                    rel_path = abs_path.relative_to(project_dir)
+                    if _is_excluded_from_sync(rel_path):
                         continue
-                    abs_path = Path(root) / fname
-                    rel_path = str(abs_path.relative_to(project_dir))
-
-                    # Skip hidden files and common ignores (backstop — the
-                    # segment check already handles most of this, but leave
-                    # the .pyc / leading-dot guard for parity with legacy).
-                    if not fname.startswith(".") and not fname.endswith(".pyc"):
-                        local_files.add(rel_path)
+                    if fname.endswith(".pyc"):
+                        continue
+                    # Top-level dot-files that are NOT inside .claude/ (e.g.
+                    # a stray `.env.local`) — keep skipping for legacy parity.
+                    if fname.startswith(".") and ".claude" not in rel_path.parts:
+                        continue
+                    local_files.add(str(rel_path))
 
             # Restore missing local files
             for rel_path, db_record in db_files.items():

@@ -88,6 +88,53 @@ def _is_excluded_segment(segment: str) -> bool:
     return False
 
 
+# Two kinds of exclusion. The listing UI is stricter than the on-disk /
+# Lakebase sync layer:
+#
+#   _is_excluded_from_sync(rel_path) — what to keep off Lakebase entirely.
+#     Allows `.claude/projects/**` (Claude Code transcripts: needed for
+#     session resume across container restarts) but rejects every other
+#     `.claude/` child (settings.json, skills/, .credentials.json,
+#     statsig/, todos/, ide/ — auth material or per-container caches).
+#
+#   _is_hidden_from_listing(rel_path) — what to hide from the file viewer.
+#     Adds `.claude/**` to the deny list: transcripts are an
+#     implementation detail of session resume, not a user-facing file.
+#
+# Most callsites want _is_hidden_from_listing. The sync layer
+# (file_sync.py, the watcher) is the only place that should use the
+# more permissive _is_excluded_from_sync.
+def _is_excluded_from_sync(rel_path: str | Path) -> bool:
+    """Sync-layer exclusion. Use this when deciding what to send to
+    Lakebase. Permits `.claude/projects/**` so transcripts persist."""
+    parts = Path(rel_path).parts
+    if not parts:
+        return False
+    if parts[0] == ".claude":
+        if len(parts) >= 2 and parts[1] == "projects":
+            # Skip the literal `.claude/projects/` prefix when checking
+            # the rest of the path.
+            return any(_is_excluded_segment(p) for p in parts[2:])
+        return True
+    return any(_is_excluded_segment(p) for p in parts)
+
+
+def _is_hidden_from_listing(rel_path: str | Path) -> bool:
+    """Listing/UI exclusion. Stricter than _is_excluded_from_sync — we
+    don't want transcripts (or anything else under `.claude/`) showing up
+    in the file viewer."""
+    parts = Path(rel_path).parts
+    if not parts:
+        return False
+    if parts[0] == ".claude":
+        return True
+    return any(_is_excluded_segment(p) for p in parts)
+
+
+# Kept for back-compat — most callers want the stricter listing rule.
+_is_excluded_path = _is_hidden_from_listing
+
+
 # ---------------------------------------------------------------------------
 # In-memory file listing cache
 #
@@ -169,10 +216,10 @@ def _make_file_entry(project_dir: Path, file_path: Path) -> dict | None:
         rel_path = file_path.relative_to(project_dir)
     except ValueError:
         return None
-    # Reject if any path segment (dir or basename) matches an exclusion rule.
-    for part in rel_path.parts:
-        if _is_excluded_segment(part):
-            return None
+    # Path-aware exclusion so .claude/projects/** is kept (transcripts) while
+    # the rest of .claude/ is filtered.
+    if _is_excluded_path(rel_path):
+        return None
     try:
         stat = file_path.stat()
     except OSError:
@@ -243,9 +290,9 @@ def _build_listing_with_hidden(project_dir: Path) -> list[dict]:
             except OSError:
                 continue
             # Mark as hidden if the standard filter would have dropped it.
-            is_hidden = any(
-                _is_excluded_segment(part) for part in rel_path.parts
-            )
+            # Path-aware so .claude/projects/** (transcripts, kept) isn't
+            # mis-flagged as hidden even though .claude/ is normally hidden.
+            is_hidden = _is_excluded_path(rel_path)
             entries.append({
                 "path": str(rel_path),
                 "name": name,
@@ -262,11 +309,17 @@ def _build_cache_from_walk(project_id: str, project_dir: Path) -> dict[str, dict
     if not project_dir.exists():
         return entries
     for root, dirs, filenames in os.walk(project_dir):
-        dirs[:] = [d for d in dirs if not _is_excluded_segment(d)]
         root_path = Path(root)
-        for name in filenames:
-            if _is_excluded_segment(name):
+        # Prune sub-dirs using full relative paths so we can keep
+        # .claude/projects/** while still skipping .claude/skills/ etc.
+        kept_dirs = []
+        for d in dirs:
+            child_rel = (root_path / d).relative_to(project_dir)
+            if _is_excluded_path(child_rel):
                 continue
+            kept_dirs.append(d)
+        dirs[:] = kept_dirs
+        for name in filenames:
             entry = _make_file_entry(project_dir, root_path / name)
             if entry is not None:
                 entries[entry["path"]] = entry
@@ -328,8 +381,9 @@ def _list_dir_entries(project_dir: Path, dir_abs: Path) -> dict[str, dict]:
     for child in children:
         if not child.is_file():
             continue
-        if _is_excluded_segment(child.name):
-            continue
+        # _make_file_entry already runs the full path-aware filter (so
+        # .claude/projects/**/x.jsonl is kept while .claude/settings.json
+        # is dropped). No need to re-check segment here.
         entry = _make_file_entry(project_dir, child)
         if entry is not None:
             entries[entry["path"]] = entry
@@ -685,9 +739,10 @@ def download_project_as_zip(
             if file_path.is_dir():
                 continue
 
-            # Skip excluded patterns
+            # Skip excluded patterns — but keep .claude/projects/** so the
+            # download bundles the transcript alongside the project sources.
             rel_path = file_path.relative_to(project_dir)
-            if any(part in EXCLUDED_PATTERNS for part in rel_path.parts):
+            if _is_excluded_path(rel_path):
                 continue
 
             # Add file to zip

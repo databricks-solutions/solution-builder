@@ -31,9 +31,19 @@ PROJECTS_BASE_DIR = os.getenv("PROJECTS_BASE_DIR", "./projects")
 # Patterns to ignore from sync (these paths are managed elsewhere, or would thrash
 # the DB with thousands of events during `npm install`, `uv sync`, builds, etc.)
 IGNORE_PATTERNS = [
-    # Managed elsewhere
+    # Managed elsewhere. `.claude/projects/**` (Claude Code transcripts)
+    # is deliberately NOT here — we DO sync those so a container restart
+    # doesn't break `--resume`. Everything else under `.claude/` is
+    # either regenerated per-container, re-copied on project create, or
+    # contains auth/cache material we never want in Lakebase.
     ".claude/skills/**",  # Skills managed by skills_manager
     ".claude/settings*",  # Local settings
+    ".claude/.credentials*",  # Keychain spillover from CLAUDE_CONFIG_DIR
+    ".claude/statsig/**",  # Telemetry / feature-flag cache
+    ".claude/.shell-snapshots/**",  # Per-container shell state
+    ".claude/todos/**",  # Local todo state
+    ".claude/ide/**",  # IDE lock files
+    ".claude/.claude.json*",  # Top-level config blob (PII risk)
     ".databrickscfg",  # Per-project Databricks auth file — see backend/AUTH.md
     ".databrickscfg.*",  # Atomic-write temp variants
     # Per-project FMAPI auth — token + helper script + settings.json. Refreshed
