@@ -111,6 +111,10 @@ interface DeployedResourcesBarProps {
   resources: DeployedResourceLink[];
   deployedAt?: string | null;
   newResourceIds?: Set<string>;
+  /** Non-null when the backend's resources.json extractor failed. We
+   *  surface this as a warning bar so users don't see an empty list
+   *  and assume the build produced nothing. */
+  extractionError?: string | null;
 }
 
 interface PillProps {
@@ -189,6 +193,7 @@ export const DeployedResourcesBar = memo(function DeployedResourcesBar({
   resources,
   deployedAt,
   newResourceIds,
+  extractionError,
 }: DeployedResourcesBarProps) {
   const newPillRef = useRef<HTMLElement | null>(null);
   const newCount = newResourceIds?.size ?? 0;
@@ -202,6 +207,24 @@ export const DeployedResourcesBar = memo(function DeployedResourcesBar({
     }
   }, [newCount]);
 
+  // No resources + extraction error → surface the error so the user
+  // knows the build may have produced things but our parser couldn't
+  // figure out what they are. Without this, the empty bar looks
+  // identical to "nothing was ever built."
+  if (resources.length === 0 && extractionError) {
+    return (
+      <div className="shrink-0 border-b border-amber-500/30 bg-amber-500/[0.06]">
+        <div className="flex items-center gap-2 px-4 py-2 text-xs">
+          <span className="font-semibold text-amber-700 dark:text-amber-300 shrink-0">
+            ⚠ Resource extraction failed
+          </span>
+          <span className="text-muted-foreground truncate" title={extractionError}>
+            {extractionError}
+          </span>
+        </div>
+      </div>
+    );
+  }
   if (resources.length === 0) return null;
 
   let staggerCounter = 0;

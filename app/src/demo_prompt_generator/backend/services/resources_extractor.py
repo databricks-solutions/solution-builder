@@ -22,8 +22,13 @@ import logging
 import threading
 from typing import Any
 
+from typing import TYPE_CHECKING
+
 from ..core._config import AppConfig
 from .llm_service import LLMService, ModelSize
+
+if TYPE_CHECKING:
+    from databricks.sdk import WorkspaceClient
 
 logger = logging.getLogger(__name__)
 
@@ -105,20 +110,19 @@ def _empty_extraction() -> dict[str, str]:
 def extract_resources(
     project_id: str,
     raw_json_text: str,
+    ws: "WorkspaceClient",
     config: AppConfig,
-) -> dict[str, str]:
-    """Return the canonical flat resource dict for this project.
+) -> tuple[dict[str, str], str | None]:
+    """Return (canonical flat resource dict, error message).
 
-    Reads from the in-process cache when the content hasn't changed since
-    the last extraction. On miss, calls LLMService.mini and stores the
-    result.
-
-    On any LLM error, returns an empty extraction (every field "") rather
-    than raising — the deployed-resources page should still render the
-    other UI even when extraction fails.
+    On success, `error` is None. On any LLM failure (auth, missing model,
+    network), returns an empty extraction AND the error message so the
+    caller can surface it to the UI instead of silently rendering zero
+    resources. Caches successful extractions by content hash so the LLM
+    only fires when resources.json actually changes.
     """
     if not raw_json_text or not raw_json_text.strip():
-        return _empty_extraction()
+        return _empty_extraction(), None
 
     content_hash = _hash_content(raw_json_text)
 
@@ -126,7 +130,7 @@ def extract_resources(
     with _cache_lock:
         cached = _cache.get(project_id)
     if cached and cached[0] == content_hash:
-        return cached[1]
+        return cached[1], None
 
     # Miss: call mini. Cap the input — pathological resources.json files
     # bloated with the model's tangential notes can run to thousands of
@@ -136,24 +140,25 @@ def extract_resources(
     prompt = _EXTRACTOR_PROMPT + snippet
 
     try:
-        llm = LLMService(config)
+        llm = LLMService(ws, config)
         raw = llm.chat_json(
             prompt,
             size=ModelSize.MINI,
             max_tokens=800,
         )
     except Exception as e:  # noqa: BLE001
+        msg = f"{type(e).__name__}: {e}"
         logger.warning(
-            f"[resources_extractor] LLM extraction failed for {project_id}: {e}"
+            f"[resources_extractor] LLM extraction failed for {project_id}: {msg}"
         )
-        return _empty_extraction()
+        return _empty_extraction(), msg
 
     extracted = _normalize_extraction(raw)
 
     with _cache_lock:
         _cache[project_id] = (content_hash, extracted)
 
-    return extracted
+    return extracted, None
 
 
 def _normalize_extraction(raw: Any) -> dict[str, str]:

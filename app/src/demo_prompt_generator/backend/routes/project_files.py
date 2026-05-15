@@ -874,8 +874,8 @@ def get_deployed_resources(
         raw_text = content.decode("utf-8") if isinstance(content, (bytes, bytearray)) else content
     except UnicodeDecodeError:
         logger.warning(f"resources.json for project {project_id} is not UTF-8")
-        return DeployedResourcesOut()
-    resources = extract_resources(project_id, raw_text, config)
+        return DeployedResourcesOut(extraction_error="resources.json is not valid UTF-8")
+    resources, extraction_error = extract_resources(project_id, raw_text, ws, config)
 
     # Get workspace host
     host = None
@@ -908,4 +908,8 @@ def get_deployed_resources(
     if file_record:
         deployed_at = file_record.last_modified
 
-    return DeployedResourcesOut(resources=links, deployed_at=deployed_at)
+    return DeployedResourcesOut(
+        resources=links,
+        deployed_at=deployed_at,
+        extraction_error=extraction_error,
+    )

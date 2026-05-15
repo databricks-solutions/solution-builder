@@ -107,6 +107,10 @@ export interface DeployedResourceLink {
 export interface DeployedResources {
   resources: DeployedResourceLink[];
   deployed_at: string | null;
+  /** Non-null when the LLM-based resources.json extractor failed (auth,
+   *  model unavailable, malformed response). Surface this so users don't
+   *  see an empty list and assume nothing was deployed. */
+  extraction_error?: string | null;
 }
 
 // Reasoning entry types for ordered thinking/tool display

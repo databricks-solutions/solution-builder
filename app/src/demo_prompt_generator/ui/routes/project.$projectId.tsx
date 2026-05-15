@@ -1715,6 +1715,7 @@ function ProjectPage() {
             deployedResources={deployedResources?.resources}
             deployedAt={deployedResources?.deployed_at}
             newResourceIds={newResourceIds}
+            deployedExtractionError={deployedResources?.extraction_error}
             onAutoFixSend={(msg) => handleSendMessage(msg, { isAutoFix: true })}
             autoFixApiRef={autoFixApiRef}
           />

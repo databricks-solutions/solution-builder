@@ -62,6 +62,7 @@ interface FileViewerProps {
   deployedResources?: DeployedResourceLink[];
   deployedAt?: string | null;
   newResourceIds?: Set<string>;
+  deployedExtractionError?: string | null;
   /** Wire auto-fix-from-logs on the App tab. Without this, the toggle is hidden. */
   onAutoFixSend?: (message: string) => void;
   autoFixApiRef?: import("../../preview").AutoFixApiRef;
@@ -657,6 +658,7 @@ export const FileViewer = memo(function FileViewer({
   deployedResources,
   deployedAt,
   newResourceIds,
+  deployedExtractionError,
   onAutoFixSend,
   autoFixApiRef,
 }: FileViewerProps) {
@@ -744,9 +746,15 @@ export const FileViewer = memo(function FileViewer({
         hasApp={hasApp}
       />
 
-      {/* Deployed resources links */}
-      {deployedResources && deployedResources.length > 0 && (
-        <DeployedResourcesBar resources={deployedResources} deployedAt={deployedAt} newResourceIds={newResourceIds} />
+      {/* Deployed resources links. Render even when empty if there's an
+          extraction error — the bar shows the warning row in that case. */}
+      {((deployedResources && deployedResources.length > 0) || deployedExtractionError) && (
+        <DeployedResourcesBar
+          resources={deployedResources ?? []}
+          deployedAt={deployedAt}
+          newResourceIds={newResourceIds}
+          extractionError={deployedExtractionError}
+        />
       )}
 
       {/* Content area */}

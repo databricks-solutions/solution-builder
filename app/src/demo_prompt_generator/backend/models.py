@@ -547,9 +547,16 @@ class DeployedResourceLink(BaseModel):
 
 
 class DeployedResourcesOut(BaseModel):
-    """All deployed resources for a project, parsed from resources.json."""
+    """All deployed resources for a project, parsed from resources.json.
+
+    `extraction_error` is set when the LLM-based resources.json extractor
+    fails (auth, model unavailable, malformed response, etc.). The UI
+    should surface this so users don't see an empty list and assume nothing
+    was deployed when in reality the extraction step blew up.
+    """
     resources: list[DeployedResourceLink] = Field(default_factory=list)
     deployed_at: Optional[datetime] = None
+    extraction_error: Optional[str] = None
 
 
 class MessageOut(BaseModel):
