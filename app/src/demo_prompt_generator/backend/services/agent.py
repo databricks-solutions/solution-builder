@@ -423,11 +423,57 @@ async def stream_agent_response(
                 if len(stderr_buffer) > _STDERR_BUFFER_MAX:
                     del stderr_buffer[: len(stderr_buffer) - _STDERR_BUFFER_MAX]
 
+            # File-access scope: keep Read/Write/Edit confined to the project
+            # directory. Without this the agent has occasionally written to
+            # /tmp or other paths. Every per-project credential (Databricks
+            # CLI cfg, Anthropic token, helper script, Claude Code transcripts
+            # via CLAUDE_CONFIG_DIR) is already nested under project_dir, so
+            # the allowlist collapses to one entry — project_dir itself.
+            #
+            # Bash is intentionally NOT path-filtered here. The smoke test and
+            # several skill workflows write to /tmp via shell commands; parsing
+            # arbitrary Bash for filesystem access would be a regex arms race.
+            # Locking Bash is a separate, harder follow-up.
+            from claude_agent_sdk import (
+                PermissionResultAllow,
+                PermissionResultDeny,
+            )
+            _PATH_TOOLS = {"Read", "Write", "Edit"}
+            _project_root = project_dir.resolve()
+
+            async def _can_use_tool(tool_name, tool_input, _context):
+                if tool_name not in _PATH_TOOLS:
+                    return PermissionResultAllow()
+                raw = tool_input.get("file_path", "")
+                if not raw:
+                    return PermissionResultAllow()
+                try:
+                    target = Path(raw).resolve()
+                except (OSError, ValueError):
+                    return PermissionResultDeny(
+                        message=f"Invalid path: {raw!r}",
+                    )
+                if target.is_relative_to(_project_root):
+                    return PermissionResultAllow()
+                logger.warning(
+                    f"[{project_id}] denied {tool_name} outside project: {target}"
+                )
+                return PermissionResultDeny(
+                    message=(
+                        f"File access outside the project directory is not allowed. "
+                        f"Use a path under {_project_root} (your cwd)."
+                    ),
+                )
+
             options = ClaudeAgentOptions(
                 cwd=str(project_dir),
                 allowed_tools=allowed_tools,
                 disallowed_tools=disallowed_tools,
-                permission_mode="bypassPermissions",
+                # "dontAsk" + a can_use_tool callback gives us programmatic
+                # control without ever prompting a human. bypassPermissions
+                # would skip the callback entirely.
+                permission_mode="dontAsk",
+                can_use_tool=_can_use_tool,
                 system_prompt=system_prompt,
                 include_partial_messages=True,
                 setting_sources=["project"],

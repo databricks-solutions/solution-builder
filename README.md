@@ -33,17 +33,12 @@ Describe what you want to build and an AI agent designs, writes, and ships it fo
 > **Two ways in.** Run the **[full app](#-quickstart-local-dev)** for chat + UI + gallery, or install just the **[CLI skill](#-use-it-from-the-cli--no-app-required)** into `~/.claude/` and drive everything from any terminal. Same library, same outputs.
 
 > [!CAUTION]
-> **Use at your own risk.** This is **vibecoding software** — an AI agent writing code and creating resources on your behalf. Expect occasional surprises; treat its output as a starting point.
+> **Use at your own risk.** Databricks Solution Builder spanws AI agents writing code and creating resources on your behalf with full permission.
 >
-> **Shared container, real write access.** When deployed as a Databricks App, every user's session runs Claude Code inside the **same container** with **write access to your Databricks resources** — Unity Catalog objects, jobs, pipelines, dashboards, and anything else your identity can reach. Treat it like handing an over-eager intern a shell on your workspace: powerful, useful, and capable of doing real damage if you're not paying attention.
+> **Shared container.** When deployed as a Databricks App, every user's session runs AI Agents inside the **same container** with **full access to your Databricks resources** — The Unity Catalog objects, jobs, pipelines, dashboards, and anything else your identity can reach. The AI Agent can easily escape the project. Share the app to users you trust, or deploy 1 app instance per user (this will be improved soon).
 >
-> | 🛡️ &nbsp; What constrains it | ⚠️ &nbsp; What it won't catch |
-> |---|---|
-> | Your **Unity Catalog** permissions | Unintended changes to assets you own |
-> | Your **workspace** entitlements | Higher-than-expected compute cost |
-> | The app's **OAuth scopes** | Subtle correctness bugs in generated code |
->
-> Review before applying changes. Use separate dev/prod catalogs. Don't point it at production data you can't afford to lose. Software provided "as is" — see [LICENSE](LICENSE).
+> Deploy on an isolated workspace, don't deploy and use this app on a sensitive, production-grade workspace.
+> Don't point it at production data you can't afford to lose. Software provided "as is" — see [LICENSE](LICENSE).
 
 ---
 
