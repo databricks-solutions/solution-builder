@@ -138,6 +138,7 @@ The spec describes WHAT to show. The ai-dev-kit skill handles HOW to build the J
 
 ## Pitfalls
 
+- **Don't put catalog/schema in the queries and always set the --dataset-catalog and --dataset-schema flag creating a lakeview dashboard** 
 - **"Everything is fine" dashboards** — ensure data shows the anomaly.
 - **Rows that don't fill 12** — gaps break the grid. Every row's widget widths must sum to 12.
 - **Counters without comparison** — "$1.8M" alone means nothing. Show vs. baseline or MRR or ARR.

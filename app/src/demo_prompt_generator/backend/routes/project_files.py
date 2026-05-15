@@ -763,14 +763,14 @@ def download_project_as_zip(
     )
 
 
-# URL patterns for deployed Databricks resources: key -> (url_template, label)
-# The `app` resource is nested (object with name/id/deployment_note), handled
-# separately in _build_deployed_links; not included here.
+# URL patterns indexed by the canonical key produced by resources_extractor.
+# The extractor flattens the agent's free-form resources.json into this
+# shape, so the URL builder doesn't need to know about format drift.
 _RESOURCE_URL_PATTERNS: dict[str, tuple[str, str]] = {
     "pipeline_id": ("{host}/pipelines/{id}", "Pipeline"),
     "dashboard_id": ("{host}/sql/dashboardsv3/{id}", "Dashboard"),
     "genie_space_id": ("{host}/genie/rooms/{id}", "Genie Space"),
-    "sql_warehouse_id": ("{host}/sql/warehouses/{id}", "SQL Warehouse"),
+    "warehouse_id": ("{host}/sql/warehouses/{id}", "SQL Warehouse"),
     "knowledge_assistant_id": ("{host}/ml/bricks/ka/configure/{id}", "Knowledge Assistant"),
     "multi_agent_supervisor_id": ("{host}/ml/bricks/sa/configure/{id}", "Multi-Agent Supervisor"),
     "mlflow_experiment_path": ("{host}#workspace{id}", "MLflow Experiment"),
@@ -778,17 +778,10 @@ _RESOURCE_URL_PATTERNS: dict[str, tuple[str, str]] = {
 
 
 def _build_deployed_links(
-    data: dict, host: str | None
+    resources: dict[str, str], host: str | None
 ) -> list[DeployedResourceLink]:
-    """Build deployed resource links from resources.json data.
-
-    Supports the created_resources nested object with *_id keys,
-    and the legacy flat format where resource IDs are top-level.
-    """
-    # New format nests resource IDs under "created_resources";
-    # fall back to the top-level dict for the legacy flat format.
-    resources = data.get("created_resources", data)
-
+    """Build deployed resource links from the LLM-normalized flat dict
+    (output of services.resources_extractor.extract_resources)."""
     links: list[DeployedResourceLink] = []
     host = (host or "").rstrip("/")
 
@@ -824,17 +817,16 @@ def _build_deployed_links(
             resource_id=str(resource_id),
         ))
 
-    # Databricks App — stored as a nested object { name, id, deployment_note }.
-    # The canonical URL uses the app name (human-readable), not the internal id.
-    app = resources.get("app")
-    if isinstance(app, dict) and app.get("name"):
-        name = app["name"]
-        url = f"{host}/apps/{name}" if host else None
+    # Databricks App — extractor gives us app_name + app_id separately.
+    # The canonical URL uses the app name (human-readable).
+    app_name = resources.get("app_name")
+    if app_name:
+        url = f"{host}/apps/{app_name}" if host else None
         links.append(DeployedResourceLink(
             resource_type="app",
             label="App",
             url=url,
-            resource_id=str(name),
+            resource_id=str(app_name),
         ))
 
     return links
@@ -874,11 +866,16 @@ def get_deployed_resources(
     if content is None:
         return DeployedResourcesOut()
 
+    # Extract a canonical flat dict via the mini LLM (cached by content
+    # hash). The agent writes resources.json in unpredictable shapes;
+    # the LLM normalizes them into the keys our URL builder expects.
+    from ..services.resources_extractor import extract_resources
     try:
-        data = json.loads(content)
-    except (json.JSONDecodeError, TypeError):
-        logger.warning(f"Invalid resources.json for project {project_id}")
+        raw_text = content.decode("utf-8") if isinstance(content, (bytes, bytearray)) else content
+    except UnicodeDecodeError:
+        logger.warning(f"resources.json for project {project_id} is not UTF-8")
         return DeployedResourcesOut()
+    resources = extract_resources(project_id, raw_text, config)
 
     # Get workspace host
     host = None
@@ -887,7 +884,7 @@ def get_deployed_resources(
     except Exception:
         logger.warning("Could not resolve workspace host for resource URLs")
 
-    links = _build_deployed_links(data, host)
+    links = _build_deployed_links(resources, host)
 
     # Get deployment timestamp from the file record (check both paths)
     deployed_at = None

@@ -70,8 +70,9 @@ Read `DEMO_SKILL_DIR/stages/subagents.md` for the shared playbook (reads list, p
 
 **Blocking deps:** if the subagent depends on another in-flight subagent's output (e.g. KA needs PDFs from the docs subagent), tell it to wait before the blocking step.
 
-## App generation
+## App creation and generation
 
+Apps are cloned from an existing react+fastAPI template using appkit, all-ready to use and customized. The details are in the `DEMO_SKILL_DIR/app/app.md` page.
 If the demo includes a Databricks App (`databricks-apps` in `resources.json`), **spawn the app-build subagent automatically as soon as `01-lakeflow` B (the SDP pipeline) completes and the app spec exists** (tell the user it'll take a while). App generation is slow (~5 min) and can start before Genie / KA / MAS; kicking it off early lets it run in parallel with everything else.
 
 Follow the shared playbook in `DEMO_SKILL_DIR/stages/subagents.md` plus the build-subagent specifics above. App-build-specific additions:

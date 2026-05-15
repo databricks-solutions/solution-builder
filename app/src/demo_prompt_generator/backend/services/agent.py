@@ -355,7 +355,40 @@ async def stream_agent_response(
             # Build allowed tools list. `Skill` enables the agent's Skill tool
             # so it can invoke skills declared in <cwd>/.claude/skills/ (notably
             # databricks-demo-generator + the per-project ai-dev-kit skills).
-            allowed_tools = ["Skill", "Read", "Write", "Edit", "Glob", "Grep", "Bash"]
+            # `Task` lets the agent spawn subagents — the demo-generator skill's
+            # Stage 2 fan-out (app-spec subagent + 02/03/04 batched) and
+            # Stage 3 build parallelization (Genie/Dashboard + KA/MAS + App
+            # subagents) rely on it. Without `Task` enabled the agent
+            # serializes everything and the parallelization prose in
+            # SKILL.md / stages/*.md is dead text.
+            allowed_tools = ["Skill", "Task", "Read", "Write", "Edit", "Glob", "Grep", "Bash"]
+
+            # Hard-disable tools that don't behave in the Agent-SDK execution
+            # model. Each group is here for a specific failure we've seen:
+            #
+            #   Scheduler family — assumes an interactive Claude Code session
+            #     with a long-lived "/loop" pacer that re-wakes the agent at
+            #     the scheduled time. Under the SDK we run a single
+            #     client.receive_response() call; ScheduleWakeup returns
+            #     success, the SDK emits ResultMessage, the session ends, and
+            #     half the build silently never runs.
+            #
+            #   AskUserQuestion — under auto-build the demo skill explicitly
+            #     promises "no asks, no gates" and the harness blocks the
+            #     question anyway. Worse: when the question IS blocked, the
+            #     agent commits to whatever default it had in mind. In the
+            #     wild this produced a hand-rolled Streamlit app instead of
+            #     the documented Node/React template. Force the agent to
+            #     make its own choices from the skill instead of waiting.
+            disallowed_tools = [
+                "ScheduleWakeup",
+                "CronCreate",
+                "CronList",
+                "CronDelete",
+                "RemoteTrigger",
+                "PushNotification",
+                "AskUserQuestion",
+            ]
 
             # Configure agent options
             # setting_sources=["project"] loads filesystem settings from the
@@ -393,6 +426,7 @@ async def stream_agent_response(
             options = ClaudeAgentOptions(
                 cwd=str(project_dir),
                 allowed_tools=allowed_tools,
+                disallowed_tools=disallowed_tools,
                 permission_mode="bypassPermissions",
                 system_prompt=system_prompt,
                 include_partial_messages=True,

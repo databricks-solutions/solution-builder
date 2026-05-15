@@ -25,7 +25,7 @@ The main loop lives in this file (SKILL.md) — it describes **the flow**: stage
 
 **Cross-cutting (not a stage):**
 - **Spawning subagents** — shared prompt structure, speed rules, scope: `DEMO_SKILL_DIR/stages/subagents.md`
-- **App customization** — folded into stages 2 + 3: `DEMO_SKILL_DIR/app/app.md`
+- **App creation** — folded into stages 2 + 3: `DEMO_SKILL_DIR/app/app.md`
 
 ## Paths
 

@@ -194,12 +194,7 @@ You help Databricks Solution Architects create compelling, working demos.
 
 Databricks auth is already configured via `DATABRICKS_CONFIG_FILE` (per-project
 `.databrickscfg`) and `DATABRICKS_CONFIG_PROFILE` — the CLI/SDK auth chain
-reads them automatically. Just call CLI/SDK directly:
-
-  ✅ `databricks lakeview create --help`
-  ❌ `DATABRICKS_HOST=... DATABRICKS_TOKEN=... databricks lakeview create --help`
-
-Never set `DATABRICKS_HOST` or `DATABRICKS_TOKEN` yourself — neither prefixed
+reads them automatically. Just call CLI/SDK directly, set `DATABRICKS_HOST` or `DATABRICKS_TOKEN` yourself — neither prefixed
 on a command nor exported in a script. Same for the python sdk, just use the
 default constructor / WorkspaceClient() and the SDK picks up the profile from env.
 
