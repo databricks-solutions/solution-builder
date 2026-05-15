@@ -247,7 +247,7 @@ def _build_resources_section(
         parts.append(f"- **Schema:** `{default_schema}`")
 
     if default_catalog and default_schema:
-        parts.append(f"\nUse `{default_catalog}.{default_schema}` as the default location for all tables.")
+        parts.append(f"\nUse `{default_catalog}.{default_schema}` as the default location for all the demos.")
 
     if workspace_url:
         parts.append(f"\n**Workspace:** {workspace_url}")
