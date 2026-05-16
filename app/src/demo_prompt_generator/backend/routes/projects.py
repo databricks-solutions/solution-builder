@@ -257,7 +257,9 @@ def list_projects(
         ).all()
         template_name_map = {t.id: t.name for t in templates}
 
-    # Batch-load file paths and counts for all projects in one query
+    # Batch-load file paths in one query — stage derivation needs the
+    # full list (looks for `databricks.yml`, `.py`/`.sql` files, etc., all
+    # of which are user-visible).
     project_ids = [p.id for p in projects]
     files_by_project: dict[str, list[str]] = {pid: [] for pid in project_ids}
     if project_ids:
@@ -268,14 +270,25 @@ def list_projects(
         for pid, path in rows:
             files_by_project[pid].append(path)
 
+    # Batch message counts: one GROUP BY query instead of N round-trips.
+    msg_count_by_project: dict[str, int] = {pid: 0 for pid in project_ids}
+    if project_ids:
+        msg_rows = session.exec(
+            select(Message.project_id, func.count(Message.id))
+            .where(Message.project_id.in_(project_ids))  # type: ignore[attr-defined]
+            .group_by(Message.project_id)
+        ).all()
+        for pid, cnt in msg_rows:
+            msg_count_by_project[pid] = int(cnt)
+
+    # The tile's file count should match what the user sees in the
+    # file viewer — exclude .databrickscfg, .claude/skills/, etc.
+    from .project_files import _is_hidden_from_listing
+
     result = []
     for p in projects:
-        # Get message count
-        msg_count = session.exec(
-            select(func.count()).select_from(Message).where(Message.project_id == p.id)
-        ).one()
-
         file_paths = files_by_project.get(p.id, [])
+        visible_file_count = sum(1 for f in file_paths if not _is_hidden_from_listing(f))
         stage = compute_project_stage(file_paths)
 
         # Persist stage if it changed
@@ -292,8 +305,8 @@ def list_projects(
                 stage=stage,
                 created_at=p.created_at,
                 updated_at=p.updated_at,
-                message_count=msg_count,
-                file_count=len(file_paths),
+                message_count=msg_count_by_project.get(p.id, 0),
+                file_count=visible_file_count,
                 is_starred=p.id in starred_ids,
                 owner_email=p.user_email,
                 source_template_id=p.source_template_id,

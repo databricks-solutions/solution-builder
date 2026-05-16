@@ -4,7 +4,7 @@
  */
 
 import { memo } from "react";
-import { ArrowUpRight, Star, Share2, User, LayoutTemplate, Check } from "lucide-react";
+import { ArrowUpRight, Star, Share2, User, LayoutTemplate, Check, FileText, MessageSquare } from "lucide-react";
 import type { ProjectListItem } from "../../lib/custom-api";
 import { projectStatusFromStage, STATUS_META } from "../../lib/project-status";
 
@@ -50,18 +50,6 @@ function formatEmail(email: string): string {
   return name
     .replace(/[._-]/g, " ")
     .replace(/\b\w/g, (c) => c.toUpperCase());
-}
-
-/** Returns a color class for how stale a completed project is. */
-function stalenessColor(dateStr: string): string {
-  const normalizedDateStr = dateStr.endsWith("Z") || dateStr.includes("+") || dateStr.includes("-", 10)
-    ? dateStr
-    : dateStr + "Z";
-  const date = new Date(normalizedDateStr);
-  const diffDays = Math.round((Date.now() - date.getTime()) / (1000 * 60 * 60 * 24));
-  if (diffDays <= 7) return "text-green-600 dark:text-green-400";
-  if (diffDays <= 30) return "text-amber-600 dark:text-amber-400";
-  return "text-orange-600 dark:text-orange-400";
 }
 
 export const ProjectTile = memo(function ProjectTile({
@@ -185,17 +173,34 @@ export const ProjectTile = memo(function ProjectTile({
         )}
       </div>
 
-      {/* Footer: status pill + date */}
-      <div className={`px-4 py-2.5 border-t flex items-center justify-between ${
+      {/* Footer: status pill + counts on the left, date on the right.
+          Counts use the same filtering as the file viewer
+          (.databrickscfg / .claude/skills/ excluded) so they match what
+          the user sees inside the project. */}
+      <div className={`px-4 py-2.5 border-t flex items-center justify-between gap-2 ${
         status === "ready"
           ? "border-green-500/[0.08] bg-green-500/[0.02]"
           : "border-primary/[0.06] bg-primary/[0.02]"
       }`}>
-        <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-medium ${statusMeta.pill}`}>
-          <span className={`h-1.5 w-1.5 rounded-full ${statusMeta.dot}`} aria-hidden="true" />
-          {statusMeta.label}
-        </span>
-        <span className={`text-[11px] ${status === "ready" ? stalenessColor(project.updated_at) : "text-muted-foreground/70"}`}>
+        <div className="flex items-center gap-3 min-w-0">
+          <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-medium shrink-0 ${statusMeta.pill}`}>
+            <span className={`h-1.5 w-1.5 rounded-full ${statusMeta.dot}`} aria-hidden="true" />
+            {statusMeta.label}
+          </span>
+          {project.file_count > 0 && (
+            <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground/70 shrink-0">
+              <FileText className="h-3 w-3" />
+              {project.file_count}
+            </span>
+          )}
+          {project.message_count > 0 && (
+            <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground/70 shrink-0">
+              <MessageSquare className="h-3 w-3" />
+              {project.message_count}
+            </span>
+          )}
+        </div>
+        <span className="text-[11px] text-muted-foreground/70 shrink-0">
           {formatDate(project.updated_at)}
         </span>
       </div>
