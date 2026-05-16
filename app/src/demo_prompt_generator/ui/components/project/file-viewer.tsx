@@ -6,11 +6,11 @@
 import React, { memo, useState, useMemo, useEffect, lazy, Suspense } from "react";
 import { ScrollArea } from "../ui/scroll-area";
 import { Prose } from "../markdown-prose";
+import { DemoOverviewCard } from "./demo-overview-card";
 import { Skeleton } from "../ui/skeleton";
 import { ChevronRight, ChevronDown, ChevronLeft, Folder, FolderOpen, FileText, FileCode, Braces, Settings, File, Sparkles, RefreshCw, Network, Database, Eye, EyeOff, Code, Server, Boxes, Globe } from "lucide-react";
 import { Button } from "../ui/button";
 import type { ProjectFile, ProjectFileContent, DeployedResourceLink } from "../../lib/custom-api";
-import { DeployedResourcesBar } from "./deployed-resources-bar";
 import { AppPreviewTab } from "../../preview";
 import { cn } from "../../lib/utils";
 
@@ -60,9 +60,11 @@ interface FileViewerProps {
   resources?: ResourcesInfo;
   onResourcesClick?: () => void;
   deployedResources?: DeployedResourceLink[];
-  deployedAt?: string | null;
-  newResourceIds?: Set<string>;
   deployedExtractionError?: string | null;
+  /** Parsed from the project's `resources.json` — drives the DemoOverviewCard
+   *  shown above the README. The card joins these slugs against
+   *  deployedResources to flip pills from pending → live. */
+  capabilities?: { buildable: string[]; talking_track: string[] } | null;
   /** Wire auto-fix-from-logs on the App tab. Without this, the toggle is hidden. */
   onAutoFixSend?: (message: string) => void;
   autoFixApiRef?: import("../../preview").AutoFixApiRef;
@@ -656,9 +658,8 @@ export const FileViewer = memo(function FileViewer({
   resources,
   onResourcesClick,
   deployedResources,
-  deployedAt,
-  newResourceIds,
   deployedExtractionError,
+  capabilities,
   onAutoFixSend,
   autoFixApiRef,
 }: FileViewerProps) {
@@ -746,16 +747,9 @@ export const FileViewer = memo(function FileViewer({
         hasApp={hasApp}
       />
 
-      {/* Deployed resources links. Render even when empty if there's an
-          extraction error — the bar shows the warning row in that case. */}
-      {((deployedResources && deployedResources.length > 0) || deployedExtractionError) && (
-        <DeployedResourcesBar
-          resources={deployedResources ?? []}
-          deployedAt={deployedAt}
-          newResourceIds={newResourceIds}
-          extractionError={deployedExtractionError}
-        />
-      )}
+      {/* The merged products + deployed-resources card lives inside the
+          README/Summary view below — not as a floating bar here. See the
+          ScrollArea render path further down. */}
 
       {/* Content area */}
       <div className="flex flex-1 min-h-0">
@@ -973,6 +967,13 @@ export const FileViewer = memo(function FileViewer({
                 ) : (
                   <ScrollArea className="flex-1">
                     <div className="p-6">
+                      {selectedFile === "README.md" && capabilities && (
+                        <DemoOverviewCard
+                          capabilities={capabilities}
+                          deployed={deployedResources ?? []}
+                          extractionError={deployedExtractionError}
+                        />
+                      )}
                       <Prose>{fileContent.content}</Prose>
                     </div>
                   </ScrollArea>

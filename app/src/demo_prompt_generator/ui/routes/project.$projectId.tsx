@@ -3,7 +3,7 @@
  */
 
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -69,7 +69,6 @@ import {
   type ReasoningEntry,
 } from "@/lib/custom-api";
 import { AUTO_BUILD_KICKOFF } from "@/lib/auto-build-prompt";
-import { resourceKey } from "@/components/project/deployed-resources-bar";
 
 export const Route = createFileRoute("/project/$projectId")({
   component: ProjectPage,
@@ -156,37 +155,13 @@ function ProjectPage() {
   const [isCreatingArchitecture, setIsCreatingArchitecture] = useState(false);
   const [isPackagingDAB, setIsPackagingDAB] = useState(false);
   const [deployedResources, setDeployedResources] = useState<DeployedResources | null>(null);
-  const [newResourceIds, setNewResourceIds] = useState<Set<string>>(new Set());
-  // Tracks resource keys we've already shown. `null` means we haven't seen the
-  // first server response yet — used to avoid flashing every pill as "new" on
-  // initial mount.
-  const prevResourceKeysRef = useRef<Set<string> | null>(null);
-  const newResourceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Capabilities parsed from `resources.json` — drives the DemoOverviewCard.
+  // We can't pull this off `project.capabilities` because that's a flat
+  // list without the buildable/talking_track split.
+  const [capabilities, setCapabilities] = useState<{ buildable: string[]; talking_track: string[] } | null>(null);
 
   const applyDeployedResources = useCallback((deployed: DeployedResources | null) => {
     setDeployedResources(deployed);
-    const currentKeys = new Set((deployed?.resources ?? []).map(resourceKey));
-    if (prevResourceKeysRef.current === null) {
-      // Seed baseline on first response — no "new" highlighting on cold load.
-      prevResourceKeysRef.current = currentKeys;
-      return;
-    }
-    const fresh = new Set<string>();
-    for (const k of currentKeys) {
-      if (!prevResourceKeysRef.current.has(k)) fresh.add(k);
-    }
-    prevResourceKeysRef.current = currentKeys;
-    if (fresh.size === 0) return;
-    setNewResourceIds(fresh);
-    if (newResourceTimerRef.current) clearTimeout(newResourceTimerRef.current);
-    newResourceTimerRef.current = setTimeout(() => {
-      setNewResourceIds(new Set());
-      newResourceTimerRef.current = null;
-    }, 6000);
-  }, []);
-
-  useEffect(() => () => {
-    if (newResourceTimerRef.current) clearTimeout(newResourceTimerRef.current);
   }, []);
 
   // Chat state
@@ -1237,6 +1212,48 @@ function ProjectPage() {
     );
   }, [isStreaming, handleSendMessage]);
 
+  // Fetch + parse resources.json whenever it appears in or changes on the
+  // file list. Drives the DemoOverviewCard in the Summary tab. `fileContentKey`
+  // bumps after any file_changed event so a resources.json rewrite during
+  // build flips pending pills to live without a refresh.
+  const hasResourcesJson = useMemo(
+    () => files.some((f) => f.path === "resources.json"),
+    [files],
+  );
+  useEffect(() => {
+    if (!hasResourcesJson) {
+      setCapabilities(null);
+      return;
+    }
+    let cancelled = false;
+    getProjectFile(projectId, "resources.json")
+      .then((file) => {
+        if (cancelled) return;
+        try {
+          const parsed = JSON.parse(file.content) as {
+            capabilities?: { buildable?: string[]; talking_track?: string[] };
+          };
+          const caps = parsed.capabilities;
+          if (caps && (Array.isArray(caps.buildable) || Array.isArray(caps.talking_track))) {
+            setCapabilities({
+              buildable: caps.buildable ?? [],
+              talking_track: caps.talking_track ?? [],
+            });
+          } else {
+            setCapabilities(null);
+          }
+        } catch {
+          setCapabilities(null);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setCapabilities(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId, hasResourcesJson, fileContentKey]);
+
   // After streaming completes when creating architecture, load the content
   useEffect(() => {
     if (isCreatingArchitecture && !isStreaming) {
@@ -1713,9 +1730,8 @@ function ProjectPage() {
             }}
             onResourcesClick={() => setIsResourcesOpen(true)}
             deployedResources={deployedResources?.resources}
-            deployedAt={deployedResources?.deployed_at}
-            newResourceIds={newResourceIds}
             deployedExtractionError={deployedResources?.extraction_error}
+            capabilities={capabilities}
             onAutoFixSend={(msg) => handleSendMessage(msg, { isAutoFix: true })}
             autoFixApiRef={autoFixApiRef}
           />

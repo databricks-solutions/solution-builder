@@ -778,10 +778,17 @@ _RESOURCE_URL_PATTERNS: dict[str, tuple[str, str]] = {
 
 
 def _build_deployed_links(
-    resources: dict[str, str], host: str | None
+    resources: dict[str, str],
+    host: str | None,
+    workspace_id: int | str | None = None,
 ) -> list[DeployedResourceLink]:
     """Build deployed resource links from the LLM-normalized flat dict
-    (output of services.resources_extractor.extract_resources)."""
+    (output of services.resources_extractor.extract_resources).
+
+    `workspace_id` is required for the Apps v2 URL (the `?o=` query param
+    is what scopes the page to the user's workspace). Other resource URLs
+    don't need it.
+    """
     links: list[DeployedResourceLink] = []
     host = (host or "").rstrip("/")
 
@@ -818,10 +825,16 @@ def _build_deployed_links(
         ))
 
     # Databricks App — extractor gives us app_name + app_id separately.
-    # The canonical URL uses the app name (human-readable).
+    # Apps v2 URL is /apps-v2/app/<name>/overview?o=<workspace_id>.
+    # workspace_id is plumbed in by the caller (it has the WorkspaceClient).
     app_name = resources.get("app_name")
     if app_name:
-        url = f"{host}/apps/{app_name}" if host else None
+        if host and workspace_id:
+            url = f"{host}/apps-v2/app/{app_name}/overview?o={workspace_id}"
+        elif host:
+            url = f"{host}/apps-v2/app/{app_name}/overview"
+        else:
+            url = None
         links.append(DeployedResourceLink(
             resource_type="app",
             label="App",
@@ -877,14 +890,22 @@ def get_deployed_resources(
         return DeployedResourcesOut(extraction_error="resources.json is not valid UTF-8")
     resources, extraction_error = extract_resources(project_id, raw_text, ws, config)
 
-    # Get workspace host
+    # Get workspace host + numeric ID. workspace_id powers the Apps v2
+    # `?o=<id>` query param (the page redirects to a login screen without
+    # it). Best-effort: if the SDK call fails, app links work but omit
+    # the param.
     host = None
+    workspace_id: int | str | None = None
     try:
         host = str(ws.config.host).rstrip("/") if ws.config.host else None
     except Exception:
         logger.warning("Could not resolve workspace host for resource URLs")
+    try:
+        workspace_id = ws.get_workspace_id()
+    except Exception:
+        logger.warning("Could not resolve workspace_id; app links will omit ?o=")
 
-    links = _build_deployed_links(resources, host)
+    links = _build_deployed_links(resources, host, workspace_id)
 
     # Get deployment timestamp from the file record (check both paths)
     deployed_at = None

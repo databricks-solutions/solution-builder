@@ -50,45 +50,6 @@ This reference shows how ALL Databricks capabilities connect. Most demos use a s
 
 ---
 
-## At-a-glance group mapping
-
-For the README's ` ```glance ` block. Maps capability IDs to one of four plain-English flow groups, with the canonical product name the renderer's icon and docs lookup recognize.
-
-| Capability ID | Group | Canonical name in `glance` |
-|---|---|---|
-| `lakeflow-connect` | Data Ingestion | Lakeflow Connect |
-| `sdp` | Data Ingestion | Spark Declarative Pipelines |
-| `zerobus-ingest` | Data Ingestion | Zerobus Ingest |
-| `synthetic-data-gen` | Data Ingestion | (omit — implementation-only) |
-| `delta-sharing` | Data Ingestion | Delta Sharing |
-| `knowledge-assistant` | AI | Knowledge Assistant |
-| `supervisor-agent` | AI | Multi-Agent Supervisor |
-| `ml-training-serving` | AI | Prediction Model |
-| `vector-search` | AI | Vector Search |
-| `information-extraction` | AI | Information Extraction |
-| `ai-gateway` | AI | AI Gateway |
-| `aibi-dashboards` | Data Analysis | Dashboard |
-| `genie` | Data Analysis | Genie |
-| `metric-views` | Data Analysis | Metric Views |
-| `notebooks-eda` | Data Analysis | Notebooks |
-| `databricks-apps` | Analyst Layer | Databricks App |
-| `lakebase` | Analyst Layer | Lakebase |
-| `databricks-one` | Analyst Layer | Databricks One |
-| `unity-catalog` | Foundation | Unity Catalog |
-| `data-quality` | Foundation | Data Quality |
-| `abac` | Foundation | ABAC |
-| `data-classification` | Foundation | Data Classification |
-
-Rules of thumb when authoring the glance block:
-
-- **One headliner per group is enough.** The block is glanceable, not exhaustive. The full list belongs in **Products Showcased**.
-- **Synthetic data gen, AI Functions, Genie Code** etc. are implementation-only / talking-track concerns — don't surface them in `glance`.
-- **Metric views** belong in Data Analysis when they're the BI semantic layer.
-- **Lakebase** belongs in Analyst Layer (it's how the app holds operational state), not Data Ingestion.
-- **Foundation** is multi-item only when the demo emphasizes a governance angle. Default is just `Unity Catalog`.
-
----
-
 ## Default Demo Combination
 
 **Buildable:** `synthetic-data-gen`, `sdp`, `aibi-dashboards`, `genie`

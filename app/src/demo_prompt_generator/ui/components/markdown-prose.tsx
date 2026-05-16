@@ -1,11 +1,7 @@
-import { useEffect, useRef, useId, memo, lazy, Suspense } from "react";
+import { useEffect, useRef, useId, memo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import mermaid from "mermaid";
-
-// Lazy-load the high-level architecture component so it doesn't pull
-// the icon set into every Markdown render.
-const HighLevelArchitecture = lazy(() => import("./project/high-level-architecture"));
 
 // Initialize mermaid once
 let mermaidInitialized = false;
@@ -131,24 +127,19 @@ export const Prose = memo(function Prose({
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
-          // Mermaid + high-level architecture (`glance`) code blocks
+          // Mermaid code blocks → custom renderer. Everything else falls
+          // through to <code> / <pre> defaults.
           code({ className: codeClass, children: codeChildren }) {
             const text = String(codeChildren).replace(/\n$/, "");
             if (/language-mermaid/.exec(codeClass || "")) {
               return <MermaidBlock code={text} />;
             }
+            // Legacy `glance` blocks live in older project READMEs. The
+            // DemoOverviewCard replaces them now; suppress the raw markdown
+            // so it doesn't render as a stray code block. New READMEs
+            // don't author them.
             if (/language-glance/.exec(codeClass || "")) {
-              return (
-                <Suspense
-                  fallback={
-                    <div className="my-4 rounded-lg border border-border/40 bg-muted/10 p-4 text-xs text-muted-foreground">
-                      Loading architecture overview…
-                    </div>
-                  }
-                >
-                  <HighLevelArchitecture source={text} />
-                </Suspense>
-              );
+              return null;
             }
             // Inline code (no className = no language = inline)
             if (!codeClass) {
@@ -156,8 +147,8 @@ export const Prose = memo(function Prose({
             }
             return <code className={codeClass}>{codeChildren}</code>;
           },
-          // Override pre for code blocks. Mermaid + glance blocks render their
-          // own styled containers from the `code` handler — bypass the pre wrapper
+          // Override pre for code blocks. Mermaid blocks render their own
+          // styled container from the `code` handler — bypass the pre wrapper
           // so we don't double-style or nest invalid block elements inside <pre>.
           pre({ children: preChildren }) {
             const childClass =

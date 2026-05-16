@@ -1,13 +1,5 @@
 # LuxeBeauty Co. — Returns Intelligence Demo
 
-```glance
-Data Ingestion: Lakeflow Connect, Spark Declarative Pipelines
-AI: Knowledge Assistant, Multi-Agent Supervisor
-Data Analysis: Dashboard, Genie
-Analyst Layer: Databricks App, Lakebase
-Foundation: Unity Catalog
-```
-
 ## The Story
 
 | | |
@@ -43,26 +35,6 @@ The platform traces it through structured data (returns → products → lot) an
 | Affected lot | (dynamic — LOT-{YYYY}-{MMDD} at runtime) |
 | Affected SKUs | SKU-1001, SKU-1002, SKU-1003 |
 | Return rate for affected products | ~30% vs 8% normal |
-
----
-
-## Products Showcased
-
-"Build" = a resource we provision in the workspace. "Talk track" = a platform capability we mention live but don't build per-demo (already there or auto-included).
-
-| Product | Mode | What it does in this demo |
-|---------|------|---------------------------|
-| **Lakeflow Connect** | Talk track | Pulls Shopify orders, Zendesk returns, and ERP production data into the lakehouse — no custom pipelines, so the spike is visible the morning it happens |
-| **SDP Pipeline** | Build | Turns those raw feeds into the Gold tables (returns, products, lots) the dashboard, Genie, and the app all read from |
-| **Databricks Apps** | Build | Hosts the Returns Console where Claire's team works — full-stack React/FastAPI, OAuth + resource bindings out of the box, no separate hosting |
-| **Lakebase** | Build | The serverless Postgres behind the app — holds the live returns queue, refund approvals, and audit timeline that ticks during the demo |
-| **AI/BI Dashboard** | Build | The $180K spike at a glance — built in clicks, embedded in both the app and Databricks One |
-| **AI/BI Genie** | Build | Cracks the *"why so many returns?"* question by tracing the spike to one production lot across three SKUs |
-| **Knowledge Assistant** | Build | Surfaces the homogenizer incident report — connects the data anomaly to the manufacturing root cause |
-| **Multi-Agent Supervisor** | Build | The brain inside the app's chat — routes Claire's questions to Genie (the data) or KA (the docs) without her thinking about it |
-| **MLflow** | Talk track | Auto-traces every Genie / KA / MAS call — replay any agent decision later, no wiring needed |
-| **Unity Catalog** | Talk track | One permission model from Shopify ingestion all the way to the agent's tool calls — Claire only sees what she's allowed to see, everywhere |
-| **Databricks One** | Talk track | Where the rest of the company lands — the CEO, finance, marketing get the same dashboard + Genie answers, no app required |
 
 ---
 
@@ -125,3 +97,23 @@ Show the same dashboard from the app, ask Genie the same `Why so many returns?` 
 > That's the bet Databricks lets you make: **ingest from anywhere, then act on it any way you need.** Lakeflow Connect pulls from 200+ sources with no custom plumbing. SDP shapes it into Gold tables. From there, the *acting* layer is wide open: AI/BI dashboards for the read-only audience, Databricks One for the no-code crowd, Genie + KA + MAS for the agentic experiences, Lakebase + Databricks Apps when your team needs a real product to operate the business. Unity Catalog underneath all of it — one permission model, one source of truth.
 >
 > **Ingest everything. Then build whatever you need on top — BI, apps, agents — without re-stitching the data each time.**
+
+---
+
+## Products Showcased
+
+"Build" = a resource we provision in the workspace. "Talk track" = a platform capability we mention live but don't build per-demo (already there or auto-included).
+
+| Product | Mode | What it does in this demo |
+|---------|------|---------------------------|
+| **Lakeflow Connect** | Talk track | Pulls Shopify orders, Zendesk returns, and ERP production data into the lakehouse — no custom pipelines, so the spike is visible the morning it happens |
+| **SDP Pipeline** | Build | Turns those raw feeds into the Gold tables (returns, products, lots) the dashboard, Genie, and the app all read from |
+| **Databricks Apps** | Build | Hosts the Returns Console where Claire's team works — full-stack React/FastAPI, OAuth + resource bindings out of the box, no separate hosting |
+| **Lakebase** | Build | The serverless Postgres behind the app — holds the live returns queue, refund approvals, and audit timeline that ticks during the demo |
+| **AI/BI Dashboard** | Build | The $180K spike at a glance — built in clicks, embedded in both the app and Databricks One |
+| **AI/BI Genie** | Build | Cracks the *"why so many returns?"* question by tracing the spike to one production lot across three SKUs |
+| **Knowledge Assistant** | Build | Surfaces the homogenizer incident report — connects the data anomaly to the manufacturing root cause |
+| **Multi-Agent Supervisor** | Build | The brain inside the app's chat — routes Claire's questions to Genie (the data) or KA (the docs) without her thinking about it |
+| **MLflow** | Talk track | Auto-traces every Genie / KA / MAS call — replay any agent decision later, no wiring needed |
+| **Unity Catalog** | Talk track | One permission model from Shopify ingestion all the way to the agent's tool calls — Claire only sees what she's allowed to see, everywhere |
+| **Databricks One** | Talk track | Where the rest of the company lands — the CEO, finance, marketing get the same dashboard + Genie answers, no app required |
