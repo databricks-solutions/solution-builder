@@ -774,6 +774,10 @@ _RESOURCE_URL_PATTERNS: dict[str, tuple[str, str]] = {
     "knowledge_assistant_id": ("{host}/ml/bricks/ka/configure/{id}", "Knowledge Assistant"),
     "multi_agent_supervisor_id": ("{host}/ml/bricks/sa/configure/{id}", "Multi-Agent Supervisor"),
     "mlflow_experiment_path": ("{host}#workspace{id}", "MLflow Experiment"),
+    # Lakebase project URL — the project UUID powers the entire DB page
+    # (DBs, branches, settings). Example URL:
+    #   {host}/lakebase/projects/002f3c65-5c96-4773-874c-1c39faae0974
+    "lakebase_project_id": ("{host}/lakebase/projects/{id}", "Lakebase"),
 }
 
 
@@ -792,6 +796,11 @@ def _build_deployed_links(
     links: list[DeployedResourceLink] = []
     host = (host or "").rstrip("/")
 
+    # Workspace scope query param — every Catalog Explorer / Apps link
+    # needs `?o=<workspace_id>` to land on the right workspace when the
+    # user has access to multiple. Plumbed in by the caller.
+    o_param = f"?o={workspace_id}" if workspace_id else ""
+
     # Catalog Explorer link (combined catalog + schema)
     catalog = resources.get("catalog")
     schema = resources.get("schema")
@@ -799,7 +808,7 @@ def _build_deployed_links(
         links.append(DeployedResourceLink(
             resource_type="catalog_explorer",
             label="Catalog Explorer",
-            url=f"{host}/explore/data/{catalog}/{schema}",
+            url=f"{host}/explore/data/{catalog}/{schema}{o_param}",
         ))
 
     # Workspace folder link
@@ -810,6 +819,20 @@ def _build_deployed_links(
             label="Workspace",
             url=f"{host}#workspace{workspace_folder}",
         ))
+
+    # Metric View entity page (Catalog Explorer). Agent writes
+    # `metric_view_name` as a fully-qualified `catalog.schema.name`.
+    metric_view_name = resources.get("metric_view_name")
+    if metric_view_name and host:
+        parts = metric_view_name.split(".")
+        if len(parts) == 3:
+            mv_cat, mv_schema, mv_name = parts
+            links.append(DeployedResourceLink(
+                resource_type="metric_view",
+                label="Metric View",
+                url=f"{host}/explore/data/{mv_cat}/{mv_schema}/{mv_name}{o_param}",
+                resource_id=metric_view_name,
+            ))
 
     # Standard ID-based resources
     for key, (url_template, label) in _RESOURCE_URL_PATTERNS.items():

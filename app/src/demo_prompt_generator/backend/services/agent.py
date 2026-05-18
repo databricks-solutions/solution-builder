@@ -116,7 +116,15 @@ def _build_claude_env(
     # _get_claude_config_home_dir) and propagates it to the CLI subprocess.
     # Without this, on app restart the ~/.claude/projects/ tree is gone and
     # every resume hits "No conversation found with session ID".
-    env["CLAUDE_CONFIG_DIR"] = str(project_dir / ".claude")
+    #
+    # Deployed-mode only: locally, the user's `claude login` credentials
+    # live in ~/.claude/ (or, on macOS, in the Keychain under the bundle
+    # identity that ~/.claude maps to). Relocating the config dir cuts
+    # the agent off from those creds → "Not logged in · Please run /login".
+    # ~/.claude/ persists across local app restarts anyway, so the resume
+    # problem the relocation solves only happens in container deployments.
+    if mode == "deployed":
+        env["CLAUDE_CONFIG_DIR"] = str(project_dir / ".claude")
     return env
 
 
@@ -487,11 +495,17 @@ async def stream_agent_response(
                 # Opus 4.7 + Sonnet 4.6 require the new `adaptive` thinking
                 # shape — they reject the SDK's default `thinking.type.enabled`
                 # with HTTP 400. Adaptive works on older models too, so we
-                # set it unconditionally. `effort="high"` matches the API
-                # default but pinning it keeps behavior predictable across
-                # model versions.
+                # set it unconditionally.
+                #
+                # `effort` is intentionally unset → the model's default
+                # (`medium` on Opus 4.7) wins. `effort="high"` produces
+                # multi-minute thinking blocks where the model re-derives
+                # math the spec already worked out and re-plans the same
+                # decision repeatedly. For "follow the spec, call the tool"
+                # work that dominates this app, medium is the right cost.
+                # Use `/effort high` mid-session if a turn genuinely needs
+                # deeper reasoning (debugging, code review).
                 thinking={"type": "adaptive"},
-                effort="high",
             )
 
             # Resume previous session if provided

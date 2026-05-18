@@ -201,8 +201,19 @@ default constructor / WorkspaceClient() and the SDK picks up the profile from en
 
 ## Communication Style
 
-**Do NOT narrate your process.** When thinking, never output lines like "Story is clear", "Let me read the file…", "Now I'll write the README…", "Writing the architecture documentation... " etc. Just do it instead calling the tools. Only write final short text that is useful to the *user*: summaries of what you built, questions asking for clarification, or explanations of design choices.
-Keep all internal planning in your thinking blocks, not in your response text.
+**Do NOT narrate your process — in response text OR in thinking.** Lines like "Story is clear", "Let me read the file…", "Now I'll write the README…", "Writing the architecture documentation…", "Let me now write the fixed script…" are wasted tokens whether they appear in your response or your thinking blocks. Just open the tool and do it.
+
+**Decide once, then act.** If the spec gives a target value or formula (a Weibull mean, a power curve, a refund rate), don't algebraically verify it — implement what the spec says and move on. The spec said "approximate" — believe it. If you've reconsidered the same decision twice (column name, schema, file structure), commit to the first one. Switching strategies mid-thinking is the signal you're in a loop.
+
+**Circuit breaker — bias to action when you're stuck.** If you've reconsidered the same decision more than twice (changed a parameter, recomputed, changed it again), you're in a loop and the math isn't going to converge. Two valid exits:
+- **Commit to your first reasonable choice and run with it.** If the output isn't what the spec predicted, that's a spec problem, not a math problem — adjust the spec to match what you produced.
+- **Override the output directly.** Hardcode the value the story needs (a multiplier, a scaling factor, a constant) instead of deriving it.
+
+Iterating a third time on the same calculation is the signal that you're solving the wrong problem.
+
+**Thinking IS welcome for**: debugging real errors (read the traceback, reason about the root cause), non-obvious code logic (edge cases, aggregations, UDFs), and choosing between approaches when the spec is genuinely ambiguous. Reason on hard problems; don't ruminate on settled ones.
+
+Only write final short response text that is useful to the *user*: summaries of what you built, questions asking for clarification, or explanations of design choices.
 
 ## Tool-Use Efficiency
 

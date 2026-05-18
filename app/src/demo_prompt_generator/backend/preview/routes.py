@@ -36,12 +36,14 @@ from .registry import (
     Status,
 )
 from ..core import Dependencies
+from ..core._config import logger
 from ..core.auth import (
     detect_mode,
     make_project_auth_refresher,
     subprocess_auth_env,
 )
 from ..models import User
+from ..services.llm_service import LLMService, ModelSize
 from sqlmodel import select
 from fastapi import Depends
 
@@ -56,6 +58,32 @@ class PreviewStateOut(BaseModel):
     pid: int | None
     last_seq: int
     has_start_script: bool
+
+
+class AnalyzeLogsLine(BaseModel):
+    seq: int
+    stream: str
+    text: str
+
+
+class AnalyzeLogsIn(BaseModel):
+    """Request body for log-analysis endpoint.
+
+    Frontend sends a recent window of log lines (typically the new lines
+    since the last analysis, plus a small head-room of preceding context).
+    """
+    lines: list[AnalyzeLogsLine]
+
+
+class DetectedError(BaseModel):
+    summary: str
+    snippet: str
+    severity: str  # "low" | "medium" | "high"
+
+
+class AnalyzeLogsOut(BaseModel):
+    """Zero or more errors detected in the window. Empty list = nothing to fix."""
+    errors: list[DetectedError]
 
 
 def _to_out(state: PreviewState, has_start_script: bool) -> PreviewStateOut:
@@ -177,6 +205,102 @@ def register_routes(
         state = registry.get(project_id)
         state.bump_activity()
         return {"ok": "true"}
+
+    @router.post(
+        "/api/preview/{project_id}/analyze-logs",
+        operation_id="previewAnalyzeLogs",
+        response_model=AnalyzeLogsOut,
+    )
+    async def analyze_logs(
+        project_id: str,
+        body: AnalyzeLogsIn,
+        client: Dependencies.Client,
+        config: Dependencies.Config,
+    ) -> AnalyzeLogsOut:
+        """Mini-LLM judge: scan a window of recent log lines and report any
+        real errors that warrant a code fix. Replaces the old regex-based
+        `isErrorLine` heuristic which fired on any stderr write (e.g. `npm
+        verbose`)."""
+        # Verify the project exists; throws if it doesn't.
+        registry.get(project_id)
+
+        if not body.lines:
+            return AnalyzeLogsOut(errors=[])
+
+        # Format the lines compactly for the LLM. Keep seqs so the model
+        # can reference specific spans in its snippets.
+        lines_block = "\n".join(
+            f"[{ln.seq} {ln.stream}] {ln.text}" for ln in body.lines
+        )
+
+        system_prompt = (
+            "You are watching live logs from a developer's local app. Decide "
+            "whether the lines indicate a real runtime/build error that "
+            "requires a code fix.\n\n"
+            "ONLY report an error when one of:\n"
+            "  (a) the app failed to start (crash, exit code != 0, fatal "
+            "config error like missing env var that prevents boot),\n"
+            "  (b) a runtime exception occurred during a real operation "
+            "(stack trace, unhandled rejection, DB error, HTTP 5xx server "
+            "error, type error from user code),\n"
+            "  (c) a build/compile failure (TypeScript error, syntax error, "
+            "module not found).\n\n"
+            "NEVER report as errors:\n"
+            "  - `npm verbose`, `npm info`, `npm notice`, npm warning lines\n"
+            "  - tsc/tsx watch progress (`Found 0 errors`, `Starting compilation`)\n"
+            "  - normal startup chatter (route registration, plugin init, "
+            "OAuth token mint, listening on port, ready in Xms)\n"
+            "  - logs on stderr that are just status output\n"
+            "  - HTTP 4xx (those are client problems, not app bugs)\n"
+            "  - dev-mode warnings (e.g. resource-registry 'missing required "
+            "resources' warnings; React StrictMode double-render notices)\n"
+            "  - SSL/TLS connection retries that eventually succeed\n\n"
+            "If the window is mid-flight (an error starts but its stack "
+            "trace is cut off), still report it — the agent can fix what's "
+            "visible.\n\n"
+            "Output JSON ONLY in this shape:\n"
+            '{"errors": [{"summary": "<one-line description>", "snippet": '
+            '"<the relevant raw log lines, verbatim, joined by newlines>", '
+            '"severity": "low" | "medium" | "high"}]}\n\n'
+            "Multiple distinct errors in the same window → multiple entries. "
+            "Empty list when nothing to fix. Severity: high = app broken / "
+            "won't start, medium = recoverable runtime error, low = "
+            "diagnostic noise that's still worth a look."
+        )
+
+        prompt = (
+            f"Analyze these log lines from project {project_id}:\n\n"
+            f"```\n{lines_block}\n```"
+        )
+
+        llm = LLMService(client, config)
+        try:
+            result = llm.chat_json(
+                prompt,
+                size=ModelSize.MINI,
+                system_prompt=system_prompt,
+                max_tokens=2000,
+            )
+        except Exception as e:
+            # Don't fail the request — auto-fix is best-effort. Log + return
+            # empty so the UI quietly skips this window.
+            logger.warning(f"[analyze-logs] {project_id}: LLM call failed: {e!r}")
+            return AnalyzeLogsOut(errors=[])
+
+        raw_errors = result.get("errors", []) if isinstance(result, dict) else []
+        parsed: list[DetectedError] = []
+        for e in raw_errors:
+            if not isinstance(e, dict):
+                continue
+            summary = str(e.get("summary", "")).strip()
+            snippet = str(e.get("snippet", "")).strip()
+            severity = str(e.get("severity", "medium")).strip().lower()
+            if severity not in {"low", "medium", "high"}:
+                severity = "medium"
+            if not summary or not snippet:
+                continue
+            parsed.append(DetectedError(summary=summary, snippet=snippet, severity=severity))
+        return AnalyzeLogsOut(errors=parsed)
 
     # ---- SSE stream: state + logs from a cursor ----------------------------
 
