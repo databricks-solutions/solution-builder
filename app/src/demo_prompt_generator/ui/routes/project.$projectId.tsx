@@ -524,7 +524,17 @@ function ProjectPage() {
               setStreamingContent(fullContent);
             }
           } else if (event.type === "text") {
-            // Ignore final text event - we already have content from deltas
+            // Final aggregated text event. In the normal streaming case the
+            // deltas already gave us the same content — skip. But when the
+            // backend short-circuits (e.g. "Not logged in" before streaming
+            // starts) this event arrives with no preceding deltas, so we
+            // must render it; otherwise the user only sees the error after
+            // a page refresh (DB has it, live UI doesn't).
+            if (fullContent.length === 0) {
+              closeOpenThinking();
+              fullContent += event.text;
+              setStreamingContent(fullContent);
+            }
           } else if (event.type === "thinking_delta") {
             const ts = event.timestamp || new Date().toISOString();
             if (openBlockId === null) {
@@ -817,6 +827,14 @@ function ProjectPage() {
           closeOpenThinking();
           if (fullContent.length > 0 && !fullContent.endsWith("\n\n")) {
             fullContent += "\n\n";
+            setStreamingContent(fullContent);
+          }
+        } else if (event.type === "text") {
+          // See live-stream path: render the aggregated text only when no
+          // deltas preceded it (short-circuit / error cases).
+          if (fullContent.length === 0) {
+            closeOpenThinking();
+            fullContent += event.text;
             setStreamingContent(fullContent);
           }
         } else if (event.type === "thinking_delta") {

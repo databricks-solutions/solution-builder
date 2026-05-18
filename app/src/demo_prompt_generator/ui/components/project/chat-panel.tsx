@@ -131,33 +131,6 @@ function formatToolJson(tool: { name: string; input: unknown; result?: string; i
   return JSON.stringify(data, null, 2);
 }
 
-/** Format duration between two ISO timestamps as a human-readable string. */
-function formatDuration(startedAt?: string, completedAt?: string): string | null {
-  if (!startedAt || !completedAt) return null;
-  const ms = new Date(completedAt).getTime() - new Date(startedAt).getTime();
-  if (ms < 0 || isNaN(ms)) return null;
-  if (ms < 1000) return `${ms}ms`;
-  return `${(ms / 1000).toFixed(1)}s`;
-}
-
-/** Tool duration in ms, or null if endpoints are missing. */
-function toolDurationMs(t: { startedAt?: string; completedAt?: string }): number | null {
-  if (!t.startedAt || !t.completedAt) return null;
-  const ms = new Date(t.completedAt).getTime() - new Date(t.startedAt).getTime();
-  return ms >= 0 && !isNaN(ms) ? ms : null;
-}
-
-/** Largest tool duration across a collection — used to normalize the inline
- *  duration bars so the slowest tool always reads at full width. */
-function maxToolDurationMs(tools: Iterable<{ startedAt?: string; completedAt?: string }>): number {
-  let max = 0;
-  for (const t of tools) {
-    const d = toolDurationMs(t);
-    if (d !== null && d > max) max = d;
-  }
-  return max;
-}
-
 /** Inline horizontal bar showing tool duration relative to the slowest tool
  *  in the same turn. Always renders at least an 8% sliver so even tiny tools
  *  get a visible mark; in-flight tools get a striped/animated treatment. */
@@ -338,6 +311,63 @@ function buildUnifiedTimeline(
     return ta - tb;
   });
   return rows;
+}
+
+/** Compute "elapsed time" per tool from a unified timeline.
+ *
+ *  Why not just `tool.completedAt - tool.startedAt`? That's the tool's
+ *  pure execution time, which is misleading: a `Write` call writing 12KB
+ *  of content takes ~400ms to *execute*, but the model spent ~30s
+ *  *generating* that content (and the tool call) before execution
+ *  started. Users see "Write: 400ms" and think the file write was fast —
+ *  but they actually waited 30s.
+ *
+ *  This helper anchors each tool's duration against the **end of the
+ *  previous timeline event** (prior tool's `completedAt`, or the
+ *  thinking block immediately before it). The result is "time elapsed
+ *  since the agent last produced something visible" — which folds in
+ *  generation/thinking time and gives a duration the user actually felt.
+ *
+ *  Thinking blocks keep their native start→end duration (already
+ *  accurate). The very first row has no anchor, so we fall back to
+ *  the tool's own execution time. */
+function computeAdjustedToolDurations(
+  timeline: UnifiedTimelineRow[],
+): Map<string, number> {
+  const result = new Map<string, number>();
+  let prevEndMs: number | null = null;
+  for (const row of timeline) {
+    if (row.kind === "thinking") {
+      const end = row.block.completedAt ?? row.block.startedAt;
+      const t = end ? new Date(end).getTime() : NaN;
+      if (!isNaN(t)) prevEndMs = t;
+      continue;
+    }
+    const { id, tool } = row;
+    if (!tool.completedAt) continue;
+    const endMs = new Date(tool.completedAt).getTime();
+    if (isNaN(endMs)) continue;
+    // Anchor: previous timeline event's end, or fall back to the tool's
+    // own start (first row in the turn, nothing to compare against).
+    let anchorMs = prevEndMs;
+    if (anchorMs === null && tool.startedAt) {
+      const s = new Date(tool.startedAt).getTime();
+      if (!isNaN(s)) anchorMs = s;
+    }
+    if (anchorMs !== null) {
+      const ms = endMs - anchorMs;
+      if (ms >= 0) result.set(id, ms);
+    }
+    prevEndMs = endMs;
+  }
+  return result;
+}
+
+/** Format an arbitrary millisecond duration the way the tool rows do.
+ *  Mirrors the inline `${(ms/1000).toFixed(1)}s` shape. */
+function formatMs(ms: number): string {
+  if (ms < 1000) return `${ms}ms`;
+  return `${(ms / 1000).toFixed(1)}s`;
 }
 
 interface ChatPanelProps {
@@ -821,24 +851,29 @@ const LiveReasoningPopup = memo(function LiveReasoningPopup({
           of text glued on top of all the tool rows. */}
       <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto p-3.5 space-y-1.5">
         {(() => {
-          // Normalize tool bar widths against the longest tool, including
-          // the running elapsed of any in-flight tool so the bar scales as
-          // time passes rather than jumping when the tool finally lands.
-          const nowMs = Date.now();
-          let maxMs = 0;
-          for (const t of displayTools.values()) {
-            const completed = toolDurationMs(t);
-            if (completed !== null && completed > maxMs) maxMs = completed;
-            else if (completed === null && t.startedAt && t.result === undefined) {
-              const live = nowMs - new Date(t.startedAt).getTime();
-              if (live > maxMs) maxMs = live;
-            }
-          }
           const timeline = buildUnifiedTimeline(
             displayThinkingBlocks,
             Array.from(displayTools.entries()),
           );
           if (timeline.length === 0) return null;
+          // Each tool's displayed duration is "time since the previous
+          // timeline event finished" — includes generation/thinking time
+          // that produced the tool call, not just its execution.
+          const adjustedDurations = computeAdjustedToolDurations(timeline);
+          // Normalize tool bar widths against the longest *adjusted*
+          // duration, plus the running elapsed of any in-flight tool so
+          // the bar scales as time passes.
+          const nowMs = Date.now();
+          let maxMs = 0;
+          for (const ms of adjustedDurations.values()) {
+            if (ms > maxMs) maxMs = ms;
+          }
+          for (const t of displayTools.values()) {
+            if (t.result === undefined && t.startedAt) {
+              const live = nowMs - new Date(t.startedAt).getTime();
+              if (live > maxMs) maxMs = live;
+            }
+          }
           return (
           <TooltipProvider delayDuration={200}>
             {timeline.map((entry) => {
@@ -854,13 +889,16 @@ const LiveReasoningPopup = memo(function LiveReasoningPopup({
               const { id: toolId, tool } = entry;
               const description = getToolDescription(tool.name, tool.input);
               const inFlight = tool.result === undefined;
-              let durationMs = toolDurationMs(tool);
-              let duration = formatDuration(tool.startedAt, tool.completedAt);
+              // Completed tools: prefer the adjusted duration (includes
+              // generation time). In-flight tools: tick against wall clock
+              // anchored at the tool's own startedAt — we have no end yet.
+              let durationMs: number | null = adjustedDurations.get(toolId) ?? null;
+              let duration: string | null = durationMs !== null ? formatMs(durationMs) : null;
               if (durationMs === null && tool.startedAt && inFlight) {
                 const elapsed = Date.now() - new Date(tool.startedAt).getTime();
                 if (elapsed >= 0) {
                   durationMs = elapsed;
-                  duration = elapsed < 1000 ? `${elapsed}ms` : `${(elapsed / 1000).toFixed(1)}s`;
+                  duration = formatMs(elapsed);
                 }
               }
               const row = (
@@ -976,8 +1014,12 @@ const CollapsibleReasoning = memo(function CollapsibleReasoning({ reasoning }: C
         )}
       </div>
       {isOpen && (() => {
-        const maxMs = maxToolDurationMs(reasoning.tools.values());
         const timeline = buildUnifiedTimeline(thinkingBlocks, Array.from(reasoning.tools.entries()));
+        const adjustedDurations = computeAdjustedToolDurations(timeline);
+        let maxMs = 0;
+        for (const ms of adjustedDurations.values()) {
+          if (ms > maxMs) maxMs = ms;
+        }
         return (
           <TooltipProvider delayDuration={200}>
             <div className="px-3 pb-3 space-y-1.5">
@@ -989,8 +1031,8 @@ const CollapsibleReasoning = memo(function CollapsibleReasoning({ reasoning }: C
                 }
                 const { id: toolId, tool } = entry;
                 const description = getToolDescription(tool.name, tool.input);
-                const durationMs = toolDurationMs(tool);
-                const duration = formatDuration(tool.startedAt, tool.completedAt);
+                const durationMs = adjustedDurations.get(toolId) ?? null;
+                const duration = durationMs !== null ? formatMs(durationMs) : null;
                 const row = (
                   <div className="flex items-center gap-2 w-full px-2.5 py-1.5 bg-muted/40 rounded-lg text-xs hover:bg-muted/60 transition-colors">
                     <div className="shrink-0">
@@ -1138,7 +1180,6 @@ const CollapsibleReasoningFromMetadata = memo(function CollapsibleReasoningFromM
         <div className="px-3 pb-3 text-xs text-muted-foreground/70">Loading reasoning…</div>
       )}
       {isOpen && !isLoading && entries && (() => {
-        const maxMs = maxToolDurationMs(toolResults.values());
         // Walk entries chronologically and infer thinking-block timestamps
         // for legacy entries that don't carry their own. start = previous
         // tool's completed_at; end = next tool's started_at. Gives "Thought
@@ -1180,6 +1221,33 @@ const CollapsibleReasoningFromMetadata = memo(function CollapsibleReasoningFromM
             if (!isNaN(t)) prevToolEndMs = t;
           }
         }
+        // Build a unified timeline so adjusted tool durations include
+        // the generation/thinking time that preceded each tool call —
+        // same logic as the live view.
+        const histTimeline: UnifiedTimelineRow[] = [];
+        for (let i = 0; i < entries.length; i++) {
+          const e = entries[i];
+          if (e.type === "thinking") {
+            const inferred = inferredThinking.get(i);
+            histTimeline.push({
+              kind: "thinking",
+              block: {
+                id: `thinking-${i}`,
+                content: e.content,
+                startedAt: e.started_at ?? inferred?.startedAt ?? "",
+                completedAt: e.completed_at ?? inferred?.completedAt,
+              },
+            });
+          } else if (e.type === "tool") {
+            const result = toolResults.get(e.id);
+            if (result) histTimeline.push({ kind: "tool", id: e.id, tool: result });
+          }
+        }
+        const adjustedDurations = computeAdjustedToolDurations(histTimeline);
+        let maxMs = 0;
+        for (const ms of adjustedDurations.values()) {
+          if (ms > maxMs) maxMs = ms;
+        }
         return (
         <TooltipProvider delayDuration={200}>
           <div className="px-3 pb-3 space-y-1.5">
@@ -1200,8 +1268,8 @@ const CollapsibleReasoningFromMetadata = memo(function CollapsibleReasoningFromM
                 const result = toolResults.get(entry.id);
                 const description = getToolDescription(entry.name, entry.input);
                 const toolData = result || { name: entry.name, input: entry.input };
-                const durationMs = result ? toolDurationMs(result) : null;
-                const duration = formatDuration(result?.startedAt, result?.completedAt);
+                const durationMs = adjustedDurations.get(entry.id) ?? null;
+                const duration = durationMs !== null ? formatMs(durationMs) : null;
 
                 const row = (
                   <div className="flex items-center gap-2 w-full px-2.5 py-1.5 bg-muted/40 rounded-lg text-xs hover:bg-muted/60 transition-colors">

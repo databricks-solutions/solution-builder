@@ -43,7 +43,7 @@ export const CAPABILITY_META: Record<string, CapabilityMeta> = {
 
   // ── Data Processing ───────────────────────────────────────────────
   "ai-functions":  { group: "Data Processing", display: "AI Functions", icon: "aiFunctions" },
-  "metric-views":  { group: "Data Processing", display: "Metric Views", icon: "metricViews" },
+  "metric-views":  { group: "Data Processing", display: "Metric Views", icon: "metricViews", deployed_type: "metric_view" },
   "lakeflow-jobs": { group: "Data Processing", display: "Lakeflow Jobs", icon: "sdpPipeline" },
 
   // ── AI ────────────────────────────────────────────────────────────
@@ -62,7 +62,7 @@ export const CAPABILITY_META: Record<string, CapabilityMeta> = {
 
   // ── Analyst Layer ─────────────────────────────────────────────────
   "databricks-apps": { group: "Analyst Layer", display: "Databricks App", icon: "databricksApps", deployed_type: "app" },
-  "lakebase":        { group: "Analyst Layer", display: "Lakebase", icon: "lakebase" },
+  "lakebase":        { group: "Analyst Layer", display: "Lakebase", icon: "lakebase", deployed_type: "lakebase_project" },
   "databricks-one":  { group: "Analyst Layer", display: "Databricks One", icon: "businessUser" },
 
   // ── Foundation ────────────────────────────────────────────────────

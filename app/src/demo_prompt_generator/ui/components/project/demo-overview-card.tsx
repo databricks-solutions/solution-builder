@@ -1,53 +1,85 @@
 /**
  * DemoOverviewCard — capability grid at the top of the Summary tab.
  *
- * Renders every capability declared in `resources.json` (buildable +
- * talking_track) EXCEPT pure implementation details (synthetic-data-gen
- * is the only one today) — it's always present, has no story value to
- * the audience.
+ * Only renders the demo's **buildable** capabilities, plus Unity Catalog
+ * if it appears in the capabilities (talking_track or buildable) or has
+ * been deployed. Non-buildable talking-track items are intentionally
+ * hidden so the card stays focused on assets the user can actually click
+ * through to.
  *
  * Pill states:
  *   - LIVE    — `deployed_type` matches an entry in the deployed list →
- *               primary tint, clickable, opens the workspace URL.
- *   - PENDING — declared in capabilities but not yet built (or has no
- *               clickable workspace surface, e.g. Lakeflow Connect /
- *               Databricks One) → muted, non-clickable, hover tooltip.
+ *               clickable; renders with a prominent primary "Open" button.
+ *   - PENDING — declared as buildable but not yet built → muted,
+ *               non-clickable.
  *
  * Visual: horizontal columns (Data Ingestion / Data Processing / AI / Data
  * Analysis / Analyst Layer), Foundation row at the bottom.
  */
 
-/** Capabilities that exist in resources.json but we don't render in the
- *  overview card. Either implementation-only (synthetic-data-gen) or
- *  workspace-surfaces that don't produce a per-demo resource and just
- *  add noise to the card (databricks-one, genie-code). */
+/** Slugs that are intentionally never shown — implementation-only or
+ *  workspace surfaces that don't map to a clickable demo asset. */
 const HIDDEN_SLUGS = new Set([
   "synthetic-data-gen",
   "databricks-one",
   "genie-code",
 ]);
+
+/** Slugs that we surface even if they're talking-track-only (i.e. not
+ *  in `buildable`). Currently just Unity Catalog — it's foundational
+ *  enough that users expect to see it on the card, and the deployed
+ *  `catalog_explorer` link makes it clickable. */
+const TALKING_TRACK_ALLOWLIST = new Set(["unity-catalog"]);
 import { memo, useMemo } from "react";
 import { ExternalLink } from "lucide-react";
 import { DATABRICKS_ICONS } from "@/components/databricks-icons";
 import { TIER_CONFIG, type TierType } from "@/lib/architecture-schema";
 import {
   CAPABILITY_META,
-  GROUP_ORDER,
   type CapabilityGroup,
   type CapabilityMeta,
 } from "@/lib/capabilities";
 import type { DeployedResourceLink } from "@/lib/custom-api";
 
-// Map our display-group names to the architecture-schema tier palette so
-// the column headers reuse the same color vocabulary as the detailed
-// ReactFlow architecture diagram.
-const GROUP_TIER: Record<CapabilityGroup, TierType> = {
-  "Data Ingestion": "sdp",
-  "Data Processing": "gold",
+// Display groups — what we actually render on the card. We merge the
+// capabilities.ts "Data Ingestion" + "Data Processing" groups into one
+// "Data Pipelines" column since both are pipeline-shaped concerns to a
+// presales audience and a separate column for each was cluttering the
+// card.
+type DisplayGroup =
+  | "Data Pipelines"
+  | "AI"
+  | "Data Analysis"
+  | "Analyst Layer"
+  | "Foundation";
+
+const DISPLAY_GROUP_ORDER: DisplayGroup[] = [
+  "Data Pipelines",
+  "AI",
+  "Data Analysis",
+  "Analyst Layer",
+];
+
+const SOURCE_TO_DISPLAY: Record<CapabilityGroup, DisplayGroup> = {
+  "Data Ingestion": "Data Pipelines",
+  "Data Processing": "Data Pipelines",
+  "AI": "AI",
+  "Data Analysis": "Data Analysis",
+  "Analyst Layer": "Analyst Layer",
+  "Foundation": "Foundation",
+};
+
+// Tier palette for each display group. Reused by both the column header
+// and the per-pill "Open" button so the visual hierarchy stays coherent.
+const DISPLAY_GROUP_TIER: Record<DisplayGroup, TierType> = {
+  "Data Pipelines": "sdp",
   "AI": "ai",
   "Data Analysis": "analytics",
   "Analyst Layer": "consumer",
-  "Foundation": "governance",
+  // Unity Catalog reads as the "blue" platform spine in the corporate
+  // deck — use the ingest blue palette here so the UC Open button stands
+  // out instead of getting the muted slate "governance" treatment.
+  "Foundation": "ingest",
 };
 
 type PillKind = "live" | "pending";
@@ -73,13 +105,12 @@ function buildPills(
   buildable: string[],
   talkingTrack: string[],
   deployed: DeployedResourceLink[],
-): { groups: Record<CapabilityGroup, Pill[]>; foundation: Pill[] } {
+): { groups: Record<DisplayGroup, Pill[]>; foundation: Pill[] } {
   const byType = new Map<string, DeployedResourceLink>();
   for (const r of deployed) byType.set(r.resource_type, r);
 
-  const groups: Record<CapabilityGroup, Pill[]> = {
-    "Data Ingestion": [],
-    "Data Processing": [],
+  const groups: Record<DisplayGroup, Pill[]> = {
+    "Data Pipelines": [],
     "AI": [],
     "Data Analysis": [],
     "Analyst Layer": [],
@@ -88,9 +119,12 @@ function buildPills(
   const foundation: Pill[] = [];
   const seen = new Set<string>();
 
-  // Render buildable + talking_track in declared order. Dedupe in case a
-  // slug shows up in both (shouldn't happen but cheap to guard).
-  for (const slug of [...buildable, ...talkingTrack]) {
+  // Render buildable first, then any allowlisted talking-track slugs
+  // (currently just Unity Catalog) that weren't already in buildable.
+  // Non-buildable, non-allowlisted talking-track items are skipped — the
+  // user can't click anything on them and they clutter the card.
+  const allowedFromTalking = talkingTrack.filter((s) => TALKING_TRACK_ALLOWLIST.has(s));
+  for (const slug of [...buildable, ...allowedFromTalking]) {
     if (seen.has(slug) || HIDDEN_SLUGS.has(slug)) continue;
     seen.add(slug);
     const meta = CAPABILITY_META[slug];
@@ -102,8 +136,9 @@ function buildPills(
         pill = { slug, meta, kind: "live", url: live.url };
       }
     }
-    if (meta.group === "Foundation") foundation.push(pill);
-    else groups[meta.group].push(pill);
+    const display = SOURCE_TO_DISPLAY[meta.group];
+    if (display === "Foundation") foundation.push(pill);
+    else groups[display].push(pill);
   }
 
   return { groups, foundation };
@@ -118,14 +153,9 @@ const PillItem = memo(function PillItem({ pill, tier }: { pill: Pill; tier: Tier
   const Icon = DATABRICKS_ICONS[pill.meta.icon];
   const isLive = pill.kind === "live";
 
-  const inner = (
-    <span
-      className={`group flex items-center gap-2 px-2 py-1.5 rounded-md transition-colors text-[13px] font-medium ${
-        isLive ? "hover:bg-primary/10" : ""
-      }`}
-    >
-      {/* 1.5px dot for live pills; invisible spacer of the same width on
-          non-live pills so every icon column aligns at the same x. */}
+  const row = (
+    <span className="group flex items-center gap-2 px-2 py-1.5 rounded-md text-[13px] font-medium">
+      {/* live indicator dot (or invisible spacer to keep icon columns aligned) */}
       <span
         className={`inline-flex h-1.5 w-1.5 rounded-full shrink-0 ${
           isLive
@@ -135,11 +165,28 @@ const PillItem = memo(function PillItem({ pill, tier }: { pill: Pill; tier: Tier
         aria-hidden
       />
       <Icon className={`h-4 w-4 shrink-0 ${cfg.color}`} />
-      <span className="text-foreground/85 group-hover:text-foreground truncate flex-1 min-w-0">
+      <span className="text-foreground/85 truncate flex-1 min-w-0">
         {pill.meta.display}
       </span>
       {isLive && (
-        <ExternalLink className="h-3 w-3 text-muted-foreground/60 shrink-0 group-hover:text-foreground/70" />
+        <span
+          className="
+            shrink-0 inline-flex items-center gap-1
+            px-2 py-0.5 rounded-full
+            text-[11px] font-semibold tracking-wide text-white
+            shadow-sm
+            transition-transform
+            group-hover:scale-[1.03]
+          "
+          style={{
+            backgroundColor: cfg.stripe,
+            boxShadow: `0 1px 2px ${cfg.stripe}33`,
+          }}
+          aria-hidden
+        >
+          Open
+          <ExternalLink className="h-3 w-3" />
+        </span>
       )}
     </span>
   );
@@ -150,26 +197,30 @@ const PillItem = memo(function PillItem({ pill, tier }: { pill: Pill; tier: Tier
         href={pill.url}
         target="_blank"
         rel="noopener noreferrer"
-        className="no-underline block"
+        className="no-underline block rounded-md transition-colors"
+        style={{ ['--tier' as string]: cfg.stripe }}
+        onMouseEnter={(e) =>
+          (e.currentTarget.style.backgroundColor = `${cfg.stripe}14`)
+        }
+        onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "")}
         title={`${pill.meta.display} — open in workspace`}
       >
-        {inner}
+        {row}
       </a>
     );
   }
-  // Non-live: decorative, no link, no tooltip. The user reads it as
-  // "this capability is part of the demo" — that's all we claim.
-  return <div>{inner}</div>;
+  // Pending: decorative, no link.
+  return <div>{row}</div>;
 });
 
 const GroupColumn = memo(function GroupColumn({
   group,
   pills,
 }: {
-  group: CapabilityGroup;
+  group: DisplayGroup;
   pills: Pill[];
 }) {
-  const tier = GROUP_TIER[group];
+  const tier = DISPLAY_GROUP_TIER[group];
   const cfg = TIER_CONFIG[tier];
 
   return (
@@ -190,7 +241,7 @@ const GroupColumn = memo(function GroupColumn({
 });
 
 const FoundationRow = memo(function FoundationRow({ pills }: { pills: Pill[] }) {
-  const cfg = TIER_CONFIG[GROUP_TIER.Foundation];
+  const cfg = TIER_CONFIG[DISPLAY_GROUP_TIER.Foundation];
   return (
     <div className="mt-5 pt-3 border-t border-dashed border-border/50 flex flex-wrap items-center gap-x-1 gap-y-1">
       <div
@@ -199,7 +250,7 @@ const FoundationRow = memo(function FoundationRow({ pills }: { pills: Pill[] }) 
         Foundation
       </div>
       {pills.map((pill) => (
-        <PillItem key={pill.slug} pill={pill} tier={GROUP_TIER.Foundation} />
+        <PillItem key={pill.slug} pill={pill} tier={DISPLAY_GROUP_TIER.Foundation} />
       ))}
     </div>
   );
@@ -224,7 +275,7 @@ export const DemoOverviewCard = memo(function DemoOverviewCard({
     [capabilities.buildable, capabilities.talking_track, deployed],
   );
 
-  const populatedGroups = GROUP_ORDER.filter((g) => groups[g].length > 0);
+  const populatedGroups = DISPLAY_GROUP_ORDER.filter((g) => groups[g].length > 0);
 
   // If everything is empty (no capabilities, no resources, no error) render
   // nothing. The Summary tab can flow without us.

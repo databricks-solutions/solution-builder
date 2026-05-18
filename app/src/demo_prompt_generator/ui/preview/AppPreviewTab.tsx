@@ -47,6 +47,7 @@ export function AppPreviewTab({ projectId, onAutoFixSend, isStreaming = false, a
   const appRunning = state?.status === "ready";
 
   const { budgetRemaining, resetBudget } = useAutoFixErrors({
+    projectId,
     // Still require the app to be running before we START sending fixes —
     // otherwise pre-start logs (the handful of INFO lines from dev.sh) would
     // never trigger, but stopping mid-session shouldn't silently disable.

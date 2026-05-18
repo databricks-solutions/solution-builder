@@ -74,7 +74,12 @@ export function useAppPreview(projectId: string): UseAppPreviewReturn {
 
   const replaceState = useCallback((next: PreviewState) => {
     setState(next);
-    cursorRef.current = Math.max(cursorRef.current, next.last_seq);
+    // Do NOT advance cursorRef from state.last_seq here. The state event
+    // reports the backend's latest log seq at emission time, but log events
+    // for seqs ≤ last_seq may still be in-flight on the subscriber queue.
+    // Advancing the cursor here causes those still-pending logs to be
+    // filtered as "already seen" when they arrive. The cursor is for logs
+    // only — let appendLog be the sole place it moves.
   }, []);
 
   // --- SSE reader loop --------------------------------------------------

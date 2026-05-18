@@ -4,7 +4,32 @@
  */
 
 import { apiUrl } from "@/lib/config";
-import type { PreviewState } from "./types";
+import type { PreviewLogLine, PreviewState } from "./types";
+
+export interface DetectedError {
+  summary: string;
+  snippet: string;
+  severity: "low" | "medium" | "high";
+}
+
+export interface AnalyzeLogsResponse {
+  errors: DetectedError[];
+}
+
+/** Mini-LLM judge: scan a recent window of log lines and report real errors.
+ *  Replaces the old regex-based isErrorLine heuristic in useAutoFixErrors. */
+export async function analyzePreviewLogs(
+  projectId: string,
+  lines: PreviewLogLine[],
+): Promise<AnalyzeLogsResponse> {
+  const r = await fetch(apiUrl(`/api/preview/${projectId}/analyze-logs`), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ lines }),
+  });
+  if (!r.ok) throw await _err(r, "analyze-logs");
+  return r.json();
+}
 
 export async function startPreview(projectId: string): Promise<PreviewState> {
   const r = await fetch(apiUrl(`/api/preview/${projectId}/start`), {
