@@ -70,6 +70,12 @@ For nested objects with an "id" field, extract just the id. Ignore
 free-form fields like demo_numbers, tables, retry_command, deployment
 notes, etc. — keep ONLY the canonical fields.
 
+If a field is plural in the input (e.g. `metric_views: [...]`, `pipelines: [...]`),
+pick the FIRST item — the canonical shape is singular. For metric views
+specifically, the agent often emits `metric_views` as an array of
+fully-qualified names like `"catalog.schema.name"`; map the first entry to
+`metric_view_name`.
+
 Output STRICTLY this JSON shape:
 
 {
@@ -182,9 +188,11 @@ def _normalize_extraction(raw: Any) -> dict[str, str]:
             out[k] = ""
         elif isinstance(v, (dict, list)):
             # LLM disregarded the "flat" instruction. Try a last-ditch
-            # rescue: if it gave us a dict with an "id", use that.
+            # rescue: dict with an "id" → use it; list → first scalar item.
             if isinstance(v, dict) and "id" in v:
                 out[k] = str(v["id"])
+            elif isinstance(v, list) and v and isinstance(v[0], (str, int, float)):
+                out[k] = str(v[0])
             else:
                 out[k] = ""
         else:
