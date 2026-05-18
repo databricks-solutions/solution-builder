@@ -103,14 +103,30 @@ export function ChatDock() {
             error: m.error ?? null,
           })),
         );
-      } else {
-        console.error('[dock] load conversation HTTP', res.status);
-        setMessages([]);
+        setConversationId(id);
+        // Reset to sticky on a fresh load so the new conversation lands at
+        // the bottom (state-of-the-art chat scroll behavior).
+        stickToBottomRef.current = true;
+        return;
       }
-      setConversationId(id);
-      // Reset to sticky on a fresh load so the new conversation lands at
-      // the bottom (state-of-the-art chat scroll behavior).
-      stickToBottomRef.current = true;
+      // 404 (or other non-OK): the cached id points to a row that no
+      // longer exists — e.g. the DB was wiped or the row was deleted
+      // between sessions. Do NOT adopt this id; that would cause every
+      // chat turn to FK-violate on insert into app.messages. Drop the
+      // cache and fall back to the demo_dock conversation so the dock
+      // has a valid row to write into.
+      console.warn(`[dock] conversation ${id} not found (HTTP ${res.status}) — clearing cache and re-resolving dock conversation`);
+      try { window.localStorage.removeItem(DOCK_CONV_STORAGE_KEY); } catch { /* no-op */ }
+      setMessages([]);
+      try {
+        const convo = await fetchDockConversation();
+        setConversationId(convo.id);
+        stickToBottomRef.current = true;
+      } catch (e) {
+        console.error('[dock] fallback to demo_dock failed', e);
+        // Leave conversationId null — the first user send will create one
+        // via the explicit startNewConversation path.
+      }
     } catch (e) {
       console.error('[dock] load conversation failed', e);
     } finally {

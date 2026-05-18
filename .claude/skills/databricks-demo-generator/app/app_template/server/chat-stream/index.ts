@@ -63,7 +63,29 @@ export async function handleChatStream(args: {
           last.content.slice(0, 48) + (last.content.length > 48 ? '…' : '');
         await renameConversationIfDefault(db, conversationId, title);
       } catch (e) {
-        console.error('[db] persist user message failed', e);
+        // Drizzle wraps the pg error; the real cause has the SQLSTATE code
+        // and detail/hint that diagnose the actual schema or FK issue.
+        const cause = (e as { cause?: unknown }).cause as
+          | {
+              code?: string;
+              detail?: string;
+              hint?: string;
+              schema?: string;
+              table?: string;
+              column?: string;
+              message?: string;
+            }
+          | undefined;
+        console.error('[db] persist user message failed', {
+          drizzle_message: (e as Error).message,
+          pg_code: cause?.code,
+          pg_detail: cause?.detail,
+          pg_hint: cause?.hint,
+          pg_schema: cause?.schema,
+          pg_table: cause?.table,
+          pg_column: cause?.column,
+          pg_message: cause?.message,
+        });
       }
     }
   }
@@ -144,7 +166,16 @@ export async function handleChatStream(args: {
         errorText ?? undefined,
       );
     } catch (e) {
-      console.error('[db] persist assistant message failed', e);
+      const cause = (e as { cause?: unknown }).cause as
+        | { code?: string; detail?: string; hint?: string; message?: string }
+        | undefined;
+      console.error('[db] persist assistant message failed', {
+        drizzle_message: (e as Error).message,
+        pg_code: cause?.code,
+        pg_detail: cause?.detail,
+        pg_hint: cause?.hint,
+        pg_message: cause?.message,
+      });
     }
   }
 }

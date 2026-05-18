@@ -126,7 +126,7 @@ server/
     templates.ts        [D] Email template placeholder filling
 
 client/src/
-  App.tsx                   Routes: / (Home), /c/:id (Chat), /operations, /analytics, /dashboard
+  App.tsx                   Routes: / (Home), /c/:id (Chat), /operations, /analytics, /dashboard, /platform
   shared/types.ts       [D] Domain entity types (ReturnRow, ReturnDetail, LotRow, etc.)
   shell/                    AppSidebar (nav), AppHeader (chrome)
   home/HomeView.tsx     [D] Story section, journey diagram, starter chips, featured action, activity feed
@@ -135,6 +135,7 @@ client/src/
   operations/           [D] OperationsView, KpiCards, ReturnsTable, ReturnDrawer, tabs/ (Return, Customer, Activity)
   analytics/            [D] AnalyticsView (charts), FacilityPanel (drill-down)
   dashboard/                DashboardView (embedded AI/BI iframe from config.dashboardId)
+  platform/                 PlatformView — "Databricks Data + AI" corporate pitch page (do not edit, generic)
   lib/
     api.ts                  Config + user fetch wrappers
     conversations.ts        Client conversation store (useSyncExternalStore)
@@ -172,7 +173,9 @@ AgentContext: `{db, userEmail, req, masEndpointName, databricksHost, model, onTo
 | `create_coupon` | `{percent_off, reason}` → `{code, ...}` | Pure function, no DB write |
 | `process_return_batch` | `{lot, coupon_code, email_subject_template, email_body_template}` → `{email_count, approved_count, total_refund_usd}` | **WRITE**: renders templates per customer (`{firstname}`, `{lastname}`, `{product_name}`, `{coupon_code}`), appends emails + audit, flips to approved |
 
-SDK setup: OpenAI client → `${host}/serving-endpoints`, Responses API for reasoning summaries, custom fetch (Connection: close, strips long IDs >64 chars + `annotations` arrays from assistant content for Bedrock-Anthropic compat), MLflow tracing (not OpenAI). On any non-2xx, the shim writes the response body into `ctx.modelError` so the catch block in agent-stream.ts can surface a real error message instead of "400 status code (no body)".
+SDK setup: OpenAI client → `${host}/serving-endpoints`, **Responses API** (SDK default — we don't call `setOpenAIAPI`), custom fetch (Connection: close, strips long IDs >64 chars + `annotations` arrays from assistant content for compat), MLflow tracing (not OpenAI). On any non-2xx, the shim writes the response body into `ctx.modelError` so the catch block in agent-stream.ts can surface a real error message instead of "400 status code (no body)".
+
+> **Model constraint: `databricks-gpt-5-4` only.** The Agents SDK defaults to `/responses`, and Databricks gates that route per-model. GPT-5-4 is the only Databricks-hosted model with `openai/v1/responses` in its `api_types` today. Anthropic models (Sonnet 4.6, etc.) return 400 BAD_REQUEST: *"Responses API passthrough is not supported for model …"*. Supporting Claude would require switching to chat-completions AND parsing Anthropic thinking blocks ourselves (~60-100 lines, not done). Keep `agentModel: "databricks-gpt-5-4"` in `config/app.json`.
 
 Instructions: MODE A (investigation — single `ask_mas`/`ask_genie` call) or MODE B (action — 3-phase: discover → draft+confirm → execute after approval).
 

@@ -194,7 +194,18 @@ const t0 = Date.now();
 const ms = () => `${Date.now() - t0}ms`;
 
 const appkit = await createApp({
-  plugins: [server({ autoStart: false }), lakebase(), analytics({})],
+  plugins: [
+    server({ autoStart: false }),
+    // Pass full resource paths so AppKit's resource registry can resolve
+    // permissions + bundle bindings (suppresses the dev-mode "missing
+    // required resources" warning). The actual pg.Pool connection still
+    // uses PGHOST/PGDATABASE/PGPORT/PGSSLMODE from env.
+    lakebase({
+      branch: process.env.LAKEBASE_BRANCH,
+      database: process.env.LAKEBASE_DATABASE,
+    }),
+    analytics({}),
+  ],
 });
 console.log(`[boot +${ms()}] AppKit created`);
 
@@ -310,5 +321,29 @@ const mlflowIdPromise = (async () => {
   if (agentExperimentId) {
     mlflow.init({ trackingUri: 'databricks', experimentId: agentExperimentId });
     console.log(`[boot +${ms()}] MLflow tracing active`);
+
+    // Silence one specific mlflow-tracing warning that fires for every
+    // Lakebase query made outside an agent turn (route handlers persisting
+    // messages, list endpoints, etc.). The Lakebase pool auto-creates an
+    // OTel `lakebase.query` span on every pool.query call; when there's
+    // no parent mlflow trace (because the call isn't inside withSpan),
+    // mlflow-tracing's exporter logs "No trace ID found for span
+    // lakebase.query. Skipping." once per query.
+    //
+    // This is intentional behavior — those queries don't belong in an
+    // agent trace — but it produces log noise on every chat-stream
+    // request (~3 queries before the agent runs). Inside an agent turn,
+    // queries DO get adopted via withSpan (see chat-stream/agent-stream.ts).
+    const origWarn = console.warn.bind(console);
+    console.warn = (...args: unknown[]) => {
+      const first = args[0];
+      if (
+        typeof first === 'string' &&
+        first.includes('No trace ID found for span lakebase.query')
+      ) {
+        return;
+      }
+      origWarn(...args);
+    };
   }
 })();

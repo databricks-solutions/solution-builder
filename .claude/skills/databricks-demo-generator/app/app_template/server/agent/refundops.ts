@@ -46,7 +46,6 @@ import {
   run,
   tool,
   setDefaultOpenAIClient,
-  setOpenAIAPI,
   setTracingDisabled,
 } from '@openai/agents';
 import * as mlflow from 'mlflow-tracing';
@@ -386,10 +385,20 @@ export async function configureAgentsSdk(ctx: AgentContext): Promise<void> {
     },
   });
   setDefaultOpenAIClient(client);
-  // Use the Responses API: Databricks now supports it at /serving-endpoints/responses
-  // and it gives us a separate `response.reasoning_summary_text.delta` stream
-  // so the UI can render live reasoning alongside the final answer.
-  setOpenAIAPI('responses');
+  // Use the Responses API (the SDK's default — we leave setOpenAIAPI alone).
+  // This template ships with `databricks-gpt-5-4` as the agent model because
+  // it's the only Databricks-hosted model that supports both the Responses
+  // API passthrough AND the SDK-native `response.reasoning_summary_text.*`
+  // event stream — which the UI subscribes to for the live "thinking" panel.
+  //
+  // Why not Claude (Sonnet 4.6 etc)? Databricks gates the Responses API
+  // route per-model: Anthropic models on FMAPI return 400 BAD_REQUEST on
+  // `/serving-endpoints/responses`. They DO work on `chat-completions`, but
+  // the OpenAI Agents SDK doesn't surface Anthropic's thinking blocks as
+  // typed events on that route, so the live reasoning UI goes silent.
+  // Wiring it up (fetch-shim injection of extra_body.thinking + parse the
+  // chunk stream → emit synthetic reasoning_summary_text events) is doable
+  // but ~60-100 lines we haven't written. For now: GPT-5-4 only.
   setTracingDisabled(true); // disable OpenAI's tracing backend; we use MLflow
 }
 

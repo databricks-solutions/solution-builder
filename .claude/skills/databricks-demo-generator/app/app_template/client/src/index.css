@@ -183,3 +183,101 @@ h3,
 }
 .animate-dock-enter  { animation: dockEnter 0.4s ease-out, dockBreathe 3s ease-in-out 1s infinite; }
 .animate-sparkle     { animation: sparkle 3s ease-in-out infinite 1s; }
+
+/* -------- Sidebar pitch box (Databricks Data + AI) -------- */
+
+.dx-sidebar-pitch {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.65rem 0.75rem;
+  border-radius: 0.7rem;
+  background: linear-gradient(
+    135deg,
+    color-mix(in oklch, var(--primary) 16%, var(--sidebar)) 0%,
+    color-mix(in oklch, var(--primary) 8%, var(--sidebar)) 100%
+  );
+  border: 1px solid color-mix(in oklch, var(--primary) 38%, var(--sidebar-border));
+  text-decoration: none;
+  color: var(--sidebar-foreground);
+  overflow: hidden;
+  transition:
+    transform 200ms ease,
+    border-color 200ms ease,
+    box-shadow 200ms ease;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03),
+              0 8px 20px -10px color-mix(in oklch, var(--primary) 30%, transparent);
+}
+
+.dx-sidebar-pitch:hover {
+  transform: translateY(-1px);
+  border-color: color-mix(in oklch, var(--primary) 55%, var(--sidebar-border));
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04),
+              0 12px 28px -10px color-mix(in oklch, var(--primary) 45%, transparent);
+}
+
+.dx-sidebar-pitch-glow {
+  position: absolute;
+  top: -40%;
+  right: -20%;
+  width: 100px;
+  height: 100px;
+  border-radius: 9999px;
+  background: radial-gradient(
+    circle,
+    color-mix(in oklch, var(--primary) 30%, transparent) 0%,
+    transparent 70%
+  );
+  pointer-events: none;
+  animation: dx-sidebar-pitch-pulse 3.5s ease-in-out infinite;
+}
+
+@keyframes dx-sidebar-pitch-pulse {
+  0%, 100% { opacity: 0.55; transform: scale(1); }
+  50%      { opacity: 1;    transform: scale(1.15); }
+}
+
+.dx-sidebar-pitch-icon {
+  position: relative;
+  flex-shrink: 0;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 0.5rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--card);
+  border: 1px solid color-mix(in oklch, #ee3d2c 30%, var(--sidebar-border));
+  box-shadow: 0 0 0 0 color-mix(in oklch, #ee3d2c 50%, transparent);
+  animation: dx-sidebar-pitch-icon-pulse 2.4s ease-in-out infinite;
+}
+
+@keyframes dx-sidebar-pitch-icon-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in oklch, #ee3d2c 55%, transparent); }
+  50%      { box-shadow: 0 0 0 6px color-mix(in oklch, #ee3d2c 0%, transparent); }
+}
+
+.dx-sidebar-pitch-text {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.05rem;
+  min-width: 0;
+}
+
+.dx-sidebar-pitch-eyebrow {
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  color: var(--muted-foreground);
+  line-height: 1.2;
+}
+
+.dx-sidebar-pitch-title {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--primary);
+  letter-spacing: -0.005em;
+  line-height: 1.2;
+}

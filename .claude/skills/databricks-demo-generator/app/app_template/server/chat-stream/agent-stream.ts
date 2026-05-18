@@ -77,12 +77,17 @@ export async function streamAgentTurn(args: {
   let sawFinalDelta = false;
   let runStartMs = 0;
 
-  const rootSpan = mlflow.startSpan({
-    name: 'refundops.turn',
-    spanType: mlflow.SpanType.AGENT,
-    inputs: { user_input: userInput, history_len: messages.length },
-  });
-  traceId = rootSpan.traceId ?? null;
+  // Wrap the whole turn in mlflow.withSpan instead of startSpan + manual
+  // end. withSpan enters the OpenTelemetry active context for the callback's
+  // duration, so any OTel-instrumented code that runs inside (notably the
+  // AppKit Lakebase pool's auto `lakebase.query` spans) gets adopted as a
+  // CHILD of this agent span — instead of starting an orphan OTel trace and
+  // triggering "No trace ID found for span lakebase.query. Skipping." every
+  // turn. Net effect: DB query latency now shows up inside the agent trace
+  // tree in MLflow.
+  return await mlflow.withSpan(
+    async (rootSpan) => {
+      traceId = rootSpan.traceId ?? null;
 
   // Captured by the OpenAI fetch shim in refundops.ts on any non-2xx
   // response. The SDK throws a generic "400 status code (no body)" because
@@ -315,10 +320,9 @@ export async function streamAgentTurn(args: {
     }
     await stream.completed;
 
-    rootSpan.end({
-      outputs: { final_text: finalText },
-      status: mlflow.SpanStatusCode.OK,
-    });
+    // withSpan auto-ends the span when the callback returns; we just set
+    // outputs/status on it. Status defaults to OK.
+    rootSpan.setOutputs({ final_text: finalText });
     sseWrite(res, {
       type: 'response.completed',
       databricks_output: traceId
@@ -326,7 +330,7 @@ export async function streamAgentTurn(args: {
         : undefined,
     });
   } catch (e) {
-    rootSpan.end({ status: mlflow.SpanStatusCode.ERROR });
+    rootSpan.setStatus(mlflow.SpanStatusCode.ERROR);
     const err = e as Error & {
       status?: number;
       code?: string;
@@ -384,10 +388,17 @@ export async function streamAgentTurn(args: {
     sseError(res, caughtError);
   }
 
-  return {
-    finalText: finalText || null,
-    traceId,
-    thinking,
-    error: caughtError,
-  };
+      return {
+        finalText: finalText || null,
+        traceId,
+        thinking,
+        error: caughtError,
+      };
+    },
+    {
+      name: 'refundops.turn',
+      spanType: mlflow.SpanType.AGENT,
+      inputs: { user_input: userInput, history_len: messages.length },
+    },
+  );
 }

@@ -90,6 +90,63 @@ export function AppSidebar() {
           </SidebarGroupContent>
         </SidebarGroup>
 
+        {/* Standout pitch box — entry to the Databricks Data + AI page. */}
+        <SidebarGroup className="group-data-[collapsible=icon]:hidden">
+          <SidebarGroupContent className="px-2">
+            <NavLink to="/platform" className="dx-sidebar-pitch">
+              <span className="dx-sidebar-pitch-glow" aria-hidden />
+              <span className="dx-sidebar-pitch-icon">
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  viewBox="40 0 30 22"
+                  className="size-5"
+                  aria-hidden
+                >
+                  <path
+                    d="m 62.064999,8.591 -8.631,4.859 L 44.192,8.258 43.747,8.498 v 3.77 l 9.686999,5.431 8.63,-4.84 v 1.995 l -8.63,4.86 -9.241999,-5.192 -0.445,0.24 v 0.646 l 9.686999,5.432 9.668,-5.432 v -3.769 l -0.445,-0.24 -9.223,5.173 L 44.784,11.732 V 9.736 l 8.649999,4.84 9.668,-5.43 V 5.43 l -0.482,-0.277 -9.186,5.155 -8.204999,-4.582 8.204999,-4.6 6.741,3.787 0.593,-0.332 V 4.119 L 53.433999,0 43.747,5.431 v 0.592 l 9.686999,5.432 8.63,-4.86 z"
+                    fill="#ee3d2c"
+                  />
+                </svg>
+              </span>
+              <span className="dx-sidebar-pitch-text">
+                <span className="dx-sidebar-pitch-eyebrow">See how it&apos;s working</span>
+                <span className="dx-sidebar-pitch-title">Databricks Data + AI</span>
+              </span>
+            </NavLink>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        {/* Collapsed-mode fallback: icon-only entry to the same route. */}
+        <SidebarGroup className="hidden group-data-[collapsible=icon]:block">
+          <SidebarGroupContent>
+            <SidebarMenu>
+              <SidebarMenuItem>
+                <NavLink to="/platform">
+                  {({ isActive }) => (
+                    <SidebarMenuButton
+                      isActive={isActive}
+                      tooltip="Databricks Data + AI"
+                    >
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        viewBox="40 0 30 22"
+                        className="size-4"
+                        aria-hidden
+                      >
+                        <path
+                          d="m 62.064999,8.591 -8.631,4.859 L 44.192,8.258 43.747,8.498 v 3.77 l 9.686999,5.431 8.63,-4.84 v 1.995 l -8.63,4.86 -9.241999,-5.192 -0.445,0.24 v 0.646 l 9.686999,5.432 9.668,-5.432 v -3.769 l -0.445,-0.24 -9.223,5.173 L 44.784,11.732 V 9.736 l 8.649999,4.84 9.668,-5.43 V 5.43 l -0.482,-0.277 -9.186,5.155 -8.204999,-4.582 8.204999,-4.6 6.741,3.787 0.593,-0.332 V 4.119 L 53.433999,0 43.747,5.431 v 0.592 l 9.686999,5.432 8.63,-4.86 z"
+                          fill="#ee3d2c"
+                        />
+                      </svg>
+                      <span>Databricks Data + AI</span>
+                    </SidebarMenuButton>
+                  )}
+                </NavLink>
+              </SidebarMenuItem>
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
         <SidebarGroup>
           <div className="flex items-center justify-between pr-2 group-data-[collapsible=icon]:hidden">
             <SidebarGroupLabel>Conversations</SidebarGroupLabel>

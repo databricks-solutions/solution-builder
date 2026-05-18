@@ -7,6 +7,7 @@
  *   operations/ — OLTP workflow (returns queue, lot cards, decision drawer)
  *   analytics/  — warehouse-backed charts
  *   dashboard/  — embedded AI/BI dashboard iframe
+ *   platform/   — Databricks Data + AI pitch page
  *
  * Chrome (sidebar + header) lives in shell/.
  */
@@ -21,6 +22,7 @@ import { ChatDock } from '@/chat/ChatDock';
 import { OperationsView } from '@/operations/OperationsView';
 import { AnalyticsView } from '@/analytics/AnalyticsView';
 import { DashboardView } from '@/dashboard/DashboardView';
+import { PlatformView } from '@/platform/PlatformView';
 import { RouteError } from './RouteError';
 
 function Layout() {
@@ -62,6 +64,7 @@ const router = createBrowserRouter(
         { path: '/operations', element: <OperationsView /> },
         { path: '/analytics', element: <AnalyticsView /> },
         { path: '/dashboard', element: <DashboardView /> },
+        { path: '/platform', element: <PlatformView /> },
       ],
     },
   ],
