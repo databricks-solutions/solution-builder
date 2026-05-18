@@ -96,11 +96,15 @@ Add resource IDs as you create them:
     "schema": "{SCHEMA}",
     "workspace_folder": "/Workspace/...",
     "pipeline_id": "<id>",
+    "metric_view_name": "<catalog>.<schema>.<name>",
     "dashboard_id": "<id>",
     "genie_space_id": "<id>",
     "knowledge_assistant_id": "<id>",
     "multi_agent_supervisor_id": "<id>",
-    "app_name": "<name>"
+    "app_name": "<name>",
+    "lakebase_project_id": "<uuid from `databricks postgres get-project | jq -r .uid`>",
+    "lakebase_project_slug": "<slug passed to lakebase_setup_db.sh>",
+    "lakebase_database": "<db name>"
   }
 }
 ```

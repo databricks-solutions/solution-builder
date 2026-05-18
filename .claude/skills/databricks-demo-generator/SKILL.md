@@ -19,12 +19,11 @@ The main loop lives in this file (SKILL.md) — it describes **the flow**: stage
 |-------|------|------------------|-----------------|
 | **0. Capture Intent** | Understand request, browse domain/pattern blocks, propose story ideas if vague | — (flows into stage 1) | Inline in SKILL.md |
 | **1. Design Story** | Write `resources.json` + `README.md` + `architecture.md` (batched in one message) | ✅ *"Approve the story?"* | `stages/01-design-story.md` |
-| **2. Write Specs** | Write `01-lakeflow.md`, then fan out: spawn app subagent + batch-write 02/03/04 in parallel; coherence review | ✅ *"Ready to build?"* | `stages/02-write-specs.md` |
+| **2. Write Specs** | Write `01-lakeflow.md`, then the other top-level specs, then the app spec (if app needed), coherence review | ✅ *"Ready to build?"* | `stages/02-write-specs.md` |
 | **3. Build** (opt) | Create Databricks resources via ai-dev-kit skills | — (build completes) | `stages/03-build.md` |
 | **4. Package as a DAB** (opt) | On user request, post-build | — | `references/dab/dab.md` |
 
 **Cross-cutting (not a stage):**
-- **Spawning subagents** — shared prompt structure, speed rules, scope: `DEMO_SKILL_DIR/stages/subagents.md`
 - **App creation** — folded into stages 2 + 3: `DEMO_SKILL_DIR/app/app.md`
 
 ## Paths
@@ -85,8 +84,11 @@ You must keep this exact naming convention.
 {
   "capabilities": { "buildable": [...], "talking_track": [...] },
   "created_resources": {
+    "catalog": "luxebeauty",
+    "schema": "demo_c360",
     "workspace_folder": "/Workspace/Users/.../luxebeauty_demo",
     "pipeline_id": "17bed323-f405-4645-a559-7605171f5b41",
+    "metric_view_name": "luxebeauty.demo_c360.mv_returns",
     "dashboard_id": "01efab12cd34...",
     "genie_space_id": "abc123...",
     "knowledge_assistant_id": "ka-456...",
@@ -99,7 +101,8 @@ You must keep this exact naming convention.
       "deployment_note": "xxx",
       "id": "xx"
     },
-    "lakebase_project_id": "xxx",
+    "lakebase_project_id": "<uuid from databricks postgres get-project | jq -r .uid>",
+    "lakebase_project_slug": "dbdemos-asset-generator",
     "lakebase_database": "xxx"
   }
 }
@@ -207,7 +210,7 @@ Wait for confirmation before starting stage 2.
 
 **Read `DEMO_SKILL_DIR/stages/02-write-specs.md` now** and follow it. Outputs: `META-PROMPT.md` (copied wit cp don't read/write it) + `specifications/*.md`. Includes the coherence pass at the end.
 
-**Mental model before you start:** write `01-lakeflow.md` first (everything else depends on it). Then fan out — spawn the app subagent **and** batch-write 02 / 03 / 04 in the same parent turn. The other specs only depend on 01, never on each other, so serializing them is wasted time.
+**Mental model before you start:** write `01-lakeflow.md` first (everything else depends on it). Then write the remaining top-level specs (02 / 03 / 04, only the ones this demo uses). Then, if the demo includes a Databricks App, write `specifications/app/*.md`. Sequential — one Write per file. **Don't ruminate, don't say "now I'll write X" — open the Write tool and write.** Coherence review at the end.
 
 **Track this stage:** run `python3 DEMO_SKILL_DIR/tools/track.py SPECS_WRITTEN <demo-slug>` once specs are all written; ignore the result and move on.
 

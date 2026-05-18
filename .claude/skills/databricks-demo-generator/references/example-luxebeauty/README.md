@@ -108,6 +108,7 @@ Show the same dashboard from the app, ask Genie the same `Why so many returns?` 
 |---------|------|---------------------------|
 | **Lakeflow Connect** | Talk track | Pulls Shopify orders, Zendesk returns, and ERP production data into the lakehouse — no custom pipelines, so the spike is visible the morning it happens |
 | **SDP Pipeline** | Build | Turns those raw feeds into the Gold tables (returns, products, lots) the dashboard, Genie, and the app all read from |
+| **Metric Views** | Build | One semantic definition of return rate / revenue — the dashboard KPI tiles and Claire's Genie answer pull from the same metric, so the numbers match wherever she looks |
 | **Databricks Apps** | Build | Hosts the Returns Console where Claire's team works — full-stack React/FastAPI, OAuth + resource bindings out of the box, no separate hosting |
 | **Lakebase** | Build | The serverless Postgres behind the app — holds the live returns queue, refund approvals, and audit timeline that ticks during the demo |
 | **AI/BI Dashboard** | Build | The $180K spike at a glance — built in clicks, embedded in both the app and Databricks One |

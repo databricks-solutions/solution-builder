@@ -1,119 +1,109 @@
 # Stage 02 — Generate Detailed Specs + Coherence Review
 
-Run this after the stage-1 user-review gate (user approved the story). Produces the `specifications/*.md` files and copies `META-PROMPT.md`, then does a coherence pass before the build-handoff gate.
+Runs after stage 1 (`README.md` + `resources.json` + `architecture.md` approved by user). Produces functional specs that the stage-3 build agent can execute without ambiguity to create the Databricks resources.
 
-## Generate the spec files
+## What you're producing
 
-### 1. Copy META-PROMPT.md (don't write it)
-
-```bash
-cat DEMO_SKILL_DIR/references/META-PROMPT-TEMPLATE.md > PROJECT/META-PROMPT.md
+```
+PROJECT/
+├── META-PROMPT.md              (copied verbatim from template — do not author)
+├── specifications/
+│   ├── 01-lakeflow.md          synthetic data + PDFs + SDP bronze→silver→gold + validation
+│   ├── 02-uc-governance.md     metric views, ABAC, data quality monitors, classification  (optional)
+│   ├── 03-ai-bi.md             dashboard (layout/filters/widgets) + Genie space            (optional)
+│   ├── 04-agent-bricks.md      Knowledge Assistant + Multi-Agent Supervisor + serving     (optional)
+│   └── app/*.md                Databricks App spec — file structure flexible              (only if `databricks-apps`)
 ```
 
-It's fully generic. Do not author a new one.
+Reference at the target density: `DEMO_SKILL_DIR/references/example-luxebeauty/specifications/` (top-level + `app/`). Read it for format and detail level, never for narrative — the LuxeBeauty story is not yours.
 
-### 2. Write `specifications/*.md` — fan out after 01 is done
+## Don't think too hard — call the tools
 
-One file per category. Read `DEMO_SKILL_DIR/references/example-luxebeauty/specifications/*.md` for format + density reference.
-Only the subagent in charge of the app should read `example-luxebeauty/specifications/app/*.md` files.
+Spec writing is mainly **execution**, not deliberation. You have stage 1's `README.md` and `resources.json` in context. Create now spec files. Don't say "Writing the spec…" or "Now I'll draft 03-ai-bi…" — open the Write tool and write instead.
 
-**Only generate files for categories the demo actually uses. Skip unused categories.**
+The right pattern for each file: read the matching luxebeauty reference if you need format reminders → emit one `Write` call → next file. One Write per file. No drafts in prose.
 
-**The flow is `01-lakeflow.md` first, then everything else fans out in parallel.** All other specs depend only on `01-lakeflow.md` for table/column/ID names — they do NOT depend on each other. Once `01-lakeflow.md` is written:
+## The one dependency rule
 
-1. **Spawn the app-spec subagent immediately** (see "App specification subagent" section below) — it runs in its own context.
-2. **In the same parent turn, write 02 / 03 / 04 in a single batched response** (multiple `Write` tool calls in one message). You just wrote 01 — its content is already in your context, no re-read needed.
+`01-lakeflow.md` defines the data sources for the story (table/column/ID names). Every other spec consumes those names, so 01 is written first. After 01, the other top-level specs (02 / 03 / 04) depend only on 01. The app spec — if there is one — depends on 01 too.
 
-Do NOT serialize 02→03→04 — that's the slow path you want to avoid. The parent's job after 01 is: spawn the app subagent + emit the remaining writes as a batch.
+## Procedure
 
-| File(s) | What goes in it | Depends on |
-|---------|-----------------|------------|
-| `META-PROMPT.md` (cp, don't write), `01-lakeflow.md` | Data generation (schemas, distributions, the event), unstructured docs/PDFs, SDP pipeline (bronze→silver→gold), validation queries | Nothing — write first |
-| `02-uc-governance.md` | ABAC policies, data quality monitors, classification rules | lakeflow only |
-| `03-ai-bi.md` | Dashboard (layout, filters, widgets) + Genie Space (instructions, Q&A) | lakeflow only |
-| `04-agent-bricks.md` | KA (docs, instructions, Q&A) + MAS (routing, demo flow) + model serving | lakeflow only |
-| `specifications/app/*.md` | App spec — only when an app is required. **Spawn the subagent the moment `01-lakeflow.md` is written**, before writing 02/03/04. | lakeflow only |
+Sequential. Each step is one Write call (or one copy). Move on as soon as the file lands.
 
-### 3. Writing good spec files
+1. `cat DEMO_SKILL_DIR/references/META-PROMPT-TEMPLATE.md > PROJECT/META-PROMPT.md` — generic, never authored.
+2. Write `01-lakeflow.md`.
+3. Write 02 / 03 / 04 — only the ones this demo uses (check `resources.json` capabilities; skip any whose subject the demo doesn't include). The table above lists what goes in each; deviate / add / merge as the story demands.
+4. **If `databricks-apps` is in `resources.json` capabilities**, write the app spec into `PROJECT/specifications/app/*.md` — see "App spec" section below for what goes in it.
+5. **Coherence review** — see below.
+6. Return to SKILL.md for the build-or-stop gate.
 
-Each file must be clear enough for another agent to execute without ambiguity. Write **functional specs** (what to build, not how). Focus on:
+## Spec-writing standards
 
+Functional specs — **what** to build, not **how**. Each file must be unambiguous for another agent to execute.
+
+- **Story alignment (the one rule that overrides all the others).** Every spec serves the demo story end-to-end. Before writing anything in a spec, hold the whole arc in mind: the data the pipeline produces → the gold tables → the dashboard widgets → the Genie questions → the KA docs → the agent's tool chain → the app pages → the closing line in the README walkthrough. Each piece must feed the next. A column you add must show up where it's needed; a Genie question must be answerable by the data; a KA doc must contain the phrase the demo flow asks about; the app's "fix it" button must mutate a table that's actually present. If you can't trace a spec decision back to a moment in the README walkthrough, it doesn't belong. Every spec should be read as *"how does this serve the story?"* — not *"what does this product technically support?"*.
 - **Deterministic values**: exact IDs, names, numbers that must be reproduced.
-- **Schemas**: column names, types, relationships, counts. Must be correct — so keep it high-level to avoid spec errors.
-- **The event**: what makes the story data interesting (distributions, anomalies).
-- **Coherence contracts**: which columns/tables are consumed downstream (e.g. gold-table dimensions must match dashboard filters).
-- **Signal is visible to the eye.** Whatever the event is — a fraud spike, a return surge, a fuel anomaly, a churn cliff — when the demo's dashboards render it, anyone in the room should be able to point at it without squinting. Don't tune synthetic data so "realism" dampens the signal: realistic noise + a subtle event gives an invisible chart and the wow moment evaporates. If you can't tell something happened at a glance, dial the event up, the noise down, or both. The spec should make this trade-off explicit (e.g. "the four laggard vessels' fuel anomaly must dominate the normal day-to-day variance from weather and speed").
-- **Temporal realism**: the story's key event (spike, anomaly, incident) must be clearly in the **past** — NOT at the rightmost edge of charts. Place the peak ~2–4 weeks ago with a realistic decay curve (build-up → peak → gradual return toward baseline). Define explicit time anchors, e.g. `SPIKE_PEAK = NOW − 3 weeks, DECAY_START = NOW − 2 weeks`. This produces dashboards where the anomaly is a visible bump in historical data, not a cliff edge.
-- **Dashboard color**: charts should group/color by a key dimension (region, category, segment) so the dashboard is visually rich. Bar charts stacked/grouped by the filter dimension; line charts colored by region or category. A monochrome dashboard is a missed opportunity — color reveals which segment drives the anomaly.
+- **Schemas**: column names, types, relationships, counts. Correct but high-level — avoid over-specifying types you'll regret.
+- **The event**: distributions and anomalies that make the data interesting. The story's catalyst (`stages/01-design-story.md` → Catalyst) committed to two rules — specs enforce them:
+  - **Signal visible to the eye.** When the dashboard renders, anyone in the room should point at the anomaly without squinting. Realistic noise + a subtle event = invisible chart. If signal-to-noise is borderline, dial the event up or the noise down. Make the trade-off explicit (e.g. *"the lot's return spike must dominate baseline daily variance"*).
+  - **Temporal realism — peak in the past, not at the chart edge.** Build-up → peak → decay back toward baseline. Anchor the peak ~2–4 weeks ago with explicit timestamps (`SPIKE_PEAK = NOW − 3 weeks`, `DECAY_START = NOW − 2 weeks`). A spike at the rightmost edge looks like a cliff, not a story.
+- **Coherence contracts**: which columns/tables are consumed downstream (gold-table dimensions must match dashboard filters, KPI definitions must match Genie answers, KA document content must contain what the demo flow asks about, identifiers must match across data and PDFs).
+- **Dashboard color**: charts group/color by a key dimension (region, category, segment). Bar charts stacked/grouped by the filter dimension; line charts colored by region or category. Monochrome dashboards waste the segment-driving-the-anomaly reveal.
+- **Shared values defined once**: affected SKUs, lot, persona, baseline metrics live in `01-lakeflow.md`. Later specs reference "from 01" instead of restating.
 
-Define shared values (affected SKUs, lot, persona, metrics) once in `01-lakeflow.md`, reference "from 01" in later files.
+## App spec
 
-## App specification subagent (only if `databricks-apps` in resources.json)
+**Skip this section unless `databricks-apps` is in `resources.json` capabilities.**
 
-Spawn a **subagent** as soon as `01-lakeflow.md` is written — it runs in parallel with the other specs. First **read `DEMO_SKILL_DIR/stages/subagents.md`** — it has the shared prompt structure (framing, speed rules, scope boundaries, completion format). This section only fills in the app-spec-specific parts.
+The Databricks App for this demo starts from a generic template at `DEMO_SKILL_DIR/app/app_template/`. During Stage 3 (build), the template is copied into `PROJECT/app/` and customized per spec. You are **not writing a spec from scratch** — you are writing a spec that describes how to adapt this template to this demo's story.
 
-### App-spec subagent — specifics to include in the prompt
+You don't need to scan the template's source code. `TEMPLATE_MAP.md` describes what ships (surfaces, agent tools, Lakebase schema, streaming infra) — that's all you need.
 
-**Framing sentence** (for section 1 of the shared template):
+### Read these before writing the app spec
 
-> You are a subagent spawned by the `databricks-demo-generator` skill, executing **Stage 02 (spec generation)** — specifically, the app-spec write while the parent writes the other `specifications/*.md` in parallel. Your single job: write the `specifications/app/*.md` files for this demo's app. When done, return: the list of files you wrote + a one-line summary each.
+- `DEMO_SKILL_DIR/app/app_template/TEMPLATE_MAP.md` — **most important.** Functional summary of what ships, the canonical demo arc, what to preserve vs. rewrite. Authoritative; do not scan source code.
+- `DEMO_SKILL_DIR/app/app.md` — how the template is copied + customized during build.
+- All files under `DEMO_SKILL_DIR/references/example-luxebeauty/specifications/app/` — worked example. **LuxeBeauty's returns domain is not yours.** Read for format, file count, density. Never copy narrative, persona, tool names, or page content.
 
-**Reads — substitute absolute paths. Include SKILL.md** — the subagent's output must coordinate with the other specs the parent is writing, so it needs the flow overview.
+### What to write
 
-**Critical framing for the subagent — include this verbatim in the prompt:**
+- **Location:** `PROJECT/specifications/app/*.md`.
+- **File structure is flexible.** Luxebeauty has 4 files (overview+home+assistant / operations / analytics+dashboard / data model); adapt as needed.
+- **You decide** file count, names, pages, tools, demo flow — derived from this demo's README + 01-lakeflow.
 
-> The Databricks App for this demo starts from a **generic template** (at `DEMO_SKILL_DIR/app/app_template/`). During Stage 3 (build), the template is copied into `PROJECT/app/` and customized per spec. You are NOT writing a spec from scratch — you are writing a spec that **describes how to adapt this template** to this demo's story. Your spec and the template must fit together.
->
-> You do NOT need to scan the template's actual source code. `TEMPLATE_MAP.md` already describes what the template ships with (surfaces, agent tools, Lakebase schema, streaming infra) — that's all you need. The luxebeauty app spec under `references/example-luxebeauty/specifications/app/` is the worked example showing what a spec looks like when that template has been adapted to a returns demo. Read `TEMPLATE_MAP.md` first so you understand the starting point, then read the luxebeauty spec to see how someone translated that starting point into a real demo, then design your own adaptation to this project's README.
+### Scope rules
 
-Group the reads by purpose:
-
-*Flow + standards:*
-- `DEMO_SKILL_DIR/SKILL.md` — flow overview; confirms Stage 2, sibling specs, coherence rules.
-- `DEMO_SKILL_DIR/stages/02-write-specs.md` — spec-writing standards (sections 3 "Writing good spec files" onward).
-
-*The template you'll be adapting (read before designing anything):*
-- `DEMO_SKILL_DIR/app/app_template/TEMPLATE_MAP.md` — **the most important file.** Functional description of what the template ships with, the canonical demo arc it supports, surface-by-surface purpose, 3 tiers of what to preserve vs. rewrite, and minimal-viable-demo adjustments. This is your ground truth — the shape your spec must fit. Do not scan the template's source code; this map is the authoritative summary.
-- `DEMO_SKILL_DIR/app/app.md` — how the template gets copied and customized during build (Lakebase OAuth, env config, smoke test). Lets you write specs the build subagent can actually execute.
-
-*A worked spec at the target density (reference, not a template to copy):*
-- All files under `DEMO_SKILL_DIR/references/example-luxebeauty/specifications/app/` — the luxebeauty demo's spec. Shows what a spec looks like *after* someone adapted the template to a specific story. **LuxeBeauty's domain (returns) is NOT yours — read for format, file count, and density of detail. Never copy the narrative, persona, tool names, or page content.**
-
-*Your demo's sources of truth:*
-- `PROJECT/README.md` — demo story, persona, products, walkthrough. **You read this — the parent will not paraphrase it for you.**
-- `PROJECT/resources.json` — capabilities + current resource IDs (catalog, schema, warehouse_id).
-- `PROJECT/specifications/01-lakeflow.md` — table names, schemas, data shape that the app will sync/query.
-
-**Project state to inline:** catalog, schema, warehouse_id, workspace folder (pull from `resources.json`). Deterministic values only — do NOT paste story, persona, KPI numbers, page designs, tool lists, or demo flow. See `DEMO_SKILL_DIR/stages/subagents.md` anti-patterns.
-
-**Output location:** `PROJECT/specifications/app/*.md` — file structure is flexible (example has 4 files: overview+home+assistant, operations, analytics+dashboard, data model — adapt as needed). **The subagent picks file count, names, pages, tools, demo flow** — derived from README + 01-lakeflow. Do not pre-decide these in the prompt. Write all outputs in a SINGLE batched turn.
-
-**Scope additions specific to app specs:**
-- App domain/story must match this demo's README, the template is from another use case given only as example/inspiration. Aim for **1 operations page** with a precise spec.
-- Focus areas (the subagent designs these): narrative coherence (persona/story/starter questions/scripted demo chain align with README and data specs) · agent behavior (tools, 3-phase action chain adapted to the domain) · pages (what each shows, how it maps to Databricks capabilities) · data model (Delta→Lakebase mirror, entity shape, append-only audit pattern).
-- Avoid recreating a full, complete app. The app should be a subset, where typically we see something is wrong, ask about the agent why, and we have some AI brain with tools to fix it (the tools should mock external call). It should remain simple.
+- Domain/story matches this demo's README; the template is example/inspiration only, from a different use case.
+- Aim for **1 operations page** with a precise spec.
+- Focus areas: narrative coherence (persona/story/starter questions/scripted demo chain align with README + data specs) · agent behavior (tools, 3-phase action chain adapted to domain) · pages (what each shows, how it maps to Databricks capabilities) · data model (Delta→Lakebase mirror, entity shape, append-only audit).
+- Not a full app. Focused subset: something is wrong → user asks the agent why → agent has tools to fix it (tools mock external calls). Keep it simple.
 - Adaptability: no MAS → Genie or pure agent; no dashboard → remove page; no KA → MAS routes to Genie only.
+- **Design the page from the persona, not from the template.** The template ships a particular page shape that fits its own story; reusing it verbatim with renamed columns produces an app that looks like the template no matter how the data is labeled. Ask: *what does this persona stare at all day?* The answer drives the primary visualization — a map, a grid, a chart, a schematic, a timeline, or a queue depending on the domain. Imagine the screenshot in the demo recording: if it would read as *"a table with rows"*, redesign until it reads as *"this is a {domain} app"* at a glance.
 
-After spawning, tell the user in one short line (e.g. *"Writing the app specs in the background — ~1 min. Batching 02/03/04 in parallel meanwhile."*), then in the **next assistant message** emit the 02/03/04 `Write` calls as a single batch. Do not wait for the subagent to return before kicking off the parent-thread specs.
+### Data must enable a visual, eye-catching app
 
-## Coherence review (the hardest and most important step) — PARENT ONLY
+The app's primary page needs data shaped for **a strong visual hook**, not just rows in a table. When designing `01-lakeflow.md` and the gold tables this app will sync to Lakebase, make sure the schema supports the visualization the app will use:
 
-> **Subagents: skip this section.** It's the parent agent's responsibility, executed after all subagents have returned. If you're a subagent, stop reading here and return your result.
+- If the page is a map or geospatial grid → entities need stable IDs, positions (or cluster/site labels), and a health/status field.
+- If the page is a chart or sparkline → entities need a time series with enough density and a clearly visible anomaly inside the window.
+- If the page is a heat map / scorecard → entities need a numeric metric with a wide value spread so colors are differentiated.
+- Any page → the affected entity (the one the demo's story spotlights) must be **immediately distinguishable** from the rest of the fleet/cohort by a single column the UI can color/badge/highlight.
 
-Before handing off to build, check that everything connects and do a last round of edits if needed:
+Cross-check during coherence review: open the app's data model in your head and ask *"if I render this on screen, does the anomaly the story is about jump out, or does it require squinting?"* If it requires squinting, the data spec needs more contrast — either bigger relative gaps or a derived flag column the UI can color by.
 
-- [ ] Data generation values are coherent with the story metrics; the math checks out.
-- [ ] Data supports all dashboard visualizations (columns, aggregations, filter dimensions) and Genie questions.
-- [ ] Documents (if any) contain the content KA queries expect.
+## Coherence review
+
+Before the build gate, verify everything connects. Edit where needed.
+
+- [ ] Data generation math is coherent with story metrics.
+- [ ] Data supports every dashboard widget (columns, aggregations, filter dimensions) and every Genie question.
+- [ ] Documents (if any) contain what KA queries expect.
 - [ ] Identifiers match across data and documents (lot IDs, SKUs, dates).
 - [ ] Key numbers are consistent everywhere (same amounts, same rates).
-- [ ] The demo flow works end-to-end (each step feeds the next) and highlights Databricks features.
-- [ ] Specs are functional (WHAT to do), not technical (HOW to do it).
+- [ ] Demo flow works end-to-end (each step feeds the next) and highlights Databricks features.
+- [ ] Specs are functional (WHAT), not technical (HOW).
 
-**Final review prompt**: ask yourself — *"Is this a great, coherent story? Is all data there to support every downstream consumer? Did I follow all user instructions?"*
+**Final review question**: *"Is this a great, coherent story? Is the data there to support every downstream consumer? Did I follow all user instructions?"*
 
-### Gate before the build handoff
-
-**Do NOT ask the user about building while a spec-writing subagent is still running** — say you're waiting and stop the turn.
-
-Once coherence review is done AND all subagents have reported back, return to SKILL.md to deliver the stage-2 build-or-stop gate prompt.
+Once coherence is done, return to SKILL.md for the stage-2 build-or-stop gate.

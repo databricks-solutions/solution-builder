@@ -126,6 +126,8 @@ customers/products/production_lots/orders/order_items/returns.parquet → bronze
 | gold_returns_by_product | region, category | product_id, product_name, units_sold, total_refund_usd, return_rate |
 | gold_returns_by_lot | region, category | lot_id, product_id, product_name, facility, feedback_samples, return_rate |
 
+> `02-uc-governance.md` defines `mv_returns`, a metric view over `gold_daily_summary` that the dashboard KPI row and the headline Genie answers consume. The per-product / per-lot gold tables stay as-is — investigation queries still hit them directly.
+
 ---
 
 ## C. PDF Generation

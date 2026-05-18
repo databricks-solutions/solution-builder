@@ -214,7 +214,7 @@ This is a reference example. **Adapt to match your demo's actual components.**
 
 ```json
 {
-  "name": "Meridian Bank Fraud Investigation",
+  "name": "<Replace with Demo Name Architecture>",
   "columns": [
     {
       "nodes": [

@@ -3,6 +3,7 @@
     "buildable": [
       "synthetic-data-gen",
       "sdp",
+      "metric-views",
       "aibi-dashboards",
       "genie",
       "knowledge-assistant",
@@ -21,6 +22,7 @@
     "schema": "demo_c360",
     "warehouse_id": "<your-warehouse-id>",
     "pipeline_id": "<your-pipeline-uuid>",
+    "metric_view_name": "luxebeauty.demo_c360.mv_returns",
     "dashboard_id": "<your-dashboard-uuid>",
     "genie_space_id": "<your-genie-space-id>",
     "knowledge_assistant_id": "<your-ka-id>",
@@ -33,7 +35,8 @@
       "deployment_note": "Deployed to workspace via `databricks apps deploy`. See app.md Step 6.",
       "id": "app-luxebeauty-1234"
     },
-    "lakebase_project_id": "dbdemos-asset-generator",
+    "lakebase_project_id": "<lakebase-project-uuid>",
+    "lakebase_project_slug": "dbdemos-asset-generator",
     "lakebase_database": "dbgen_luxebeauty"
   }
 }

@@ -82,11 +82,41 @@ Handle missing components during this step:
 
 Make sure you do an extensive review - no mention to the template specific use-case, everything is migrate to the new app story, rename/delete file to support the new specification, review the full implementation to make sure it's all up to date and we'll be able to start and make the app work.
 
+#### Design the operations page from the persona — don't ship a relabeled template
+
+The template's operations page is a queue (rows + filters + KPI cards), built for the LuxeBeauty returns story where the primary object IS a ticket. **For most other domains, a queue is the wrong primary surface.** Before reusing the template's page shape:
+
+- Ask: *what does this persona stare at all day?* The answer drives the page's primary visualization, not "what data do I have."
+- The page must have **one visual signature** that immediately reads as belonging to this specific domain — a map, a grid, a chart, a schematic, a timeline. Without it, the app looks like the template no matter what columns and labels you change.
+- **Screenshot test**: before writing the page spec, write one sentence describing what the demo recording will show on this page. If the sentence is *"a table with rows"*, redesign. The screenshot must say *"this is a {domain} app"* at a glance.
+- The queue/backlog can still exist — but as a secondary panel (drawer, tab, side card) below the domain-specific hero, not the page itself.
+- **Visual identity is fair game**: page colors, density, hero illustrations, and chrome should be adapted to fit the domain. Keep the chat dock and message bubbles similar (low impact / high effort to change); content pages are where you reinvent.
+
+#### Adapt the app's visual identity to the domain
+
+The template ships with one look (editorial, neutral, light-mode-first — designed around a consumer-brand demo). Reusing it verbatim for every demo makes every generated app feel like the same product. **Adjust the visual identity to fit the domain's vibe.** The single source of truth for tokens is `client/src/index.css` (Tailwind v4 `@theme` + CSS variables: `--background`, `--foreground`, `--primary`, `--accent`, `--font-sans`, `--font-display`, `--radius`, etc.). Updating the tokens in one place re-skins the entire app via shadcn/ui + Tailwind.
+
+What's worth tuning per demo:
+
+- **Color palette.** Pick a primary + accent that match the domain's industry conventions. Industrial / operational tools tend dark with strong accent colors; financial / executive tools tend muted with sharper contrast; consumer-brand tools tend warm and editorial. **One bold accent color** that matches the demo's hero element (the anomaly's color, the brand color, the segment-of-interest color) makes the app feel intentional.
+- **Light vs. dark default.** Some domains read better in dark mode (SCADA, security ops, traders) — flip the `:root` defaults if so.
+- **Typography.** The template uses Geist + Fraunces. Swap for what fits — Inter + IBM Plex for a corporate / data-heavy app, JetBrains Mono accents for a technical / developer-facing one, a more humanist serif for a healthcare / education one. Use Google Fonts via `<link>` in `index.html` (the template already does this).
+- **Radius + density.** Industrial / dense apps want smaller `--radius` and tighter padding; consumer / executive apps want larger radius and more breathing room.
+
+Keep it tasteful: pick a coherent palette and stick to it. Don't restyle component-by-component — change the tokens. **Quick sanity check**: open the running app side-by-side with the luxebeauty template; if both look the same, the visual identity hasn't shifted enough.
+
 read `resources.json` to get the available resource ids to use (ex: mas endpoint)
+
+When this app step runs, add the following fields to `created_resources` in `resources.json` — the UI's Products card uses them to render the "Open" buttons for Lakebase and the App:
+
+- `lakebase_project_id` — UUID (`databricks postgres get-project | jq -r .uid`). Powers the `lakebase/projects/<uuid>` link.
+- `lakebase_project_slug` — human-readable slug. Used by CLI commands and DAB variable substitution.
+- `lakebase_database` — DB name (`dbgen_<demo-short-name>`).
+- `app.name` and `app.id` — recorded after the app deploy step.
 
 **`config/app.json` — `agentModel` and `agentEndpointName`:** the assistant talks to TWO things, don't conflate them.
 
-- `agentModel` — the Foundation Model endpoint backing the OpenAI Agents SDK loop (chat-completions). **Use the EXACT endpoint name from your workspace's Serving → Foundation Models page.** Default: `databricks-claude-sonnet-4-6`. Alternative: `databricks-gpt-5-4`. Never abbreviate (`databricks-claude-sonnet-4` does NOT exist → 400 from the chat-completions call). Read `SKILLS/databricks-model-serving/SKILL.md` if unsure.
+- `agentModel` — the Foundation Model endpoint backing the OpenAI Agents SDK loop. **MUST be `databricks-gpt-5-4`.** Why: the Agents SDK defaults to the OpenAI Responses API, and Databricks gates that route per-model. GPT-5-4 is the only Databricks-hosted model with `openai/v1/responses` enabled today — Anthropic models (Sonnet 4.6 etc.) return 400 BAD_REQUEST: *"Responses API passthrough is not supported for model …"*. Switching to chat-completions to support Claude would lose the live reasoning UI (Anthropic thinking blocks aren't surfaced as typed SDK events) — not wired up. Use `databricks-gpt-5-4` and don't abbreviate.
 - `agentEndpointName` — only used when `mode='mas'` (raw MAS passthrough). For the agent loop it's a no-op label. If the demo has no MAS, leave it empty or set it to the Genie space description; routing happens in code.
 
 ### Step 4: Configure environment
@@ -110,10 +140,23 @@ Without `--project-id` the script uses the shared `dbdemos-asset-generator` proj
 
 The script prints the connection values at the end — copy them straight into `.env` for local dev (see below).
 
-Save the resolved project + database name into `resources.json`:
+Save **both** the project UUID and the slug into `resources.json`. They serve different jobs:
+
+- **`lakebase_project_id`** — the UUID (`uid` field). Powers the workspace UI link (`{host}/lakebase/projects/<uuid>`). The slug alone **does not resolve** in the browser.
+- **`lakebase_project_slug`** — the human-readable slug. Stays in CLI commands, DAB variable substitution, and any resource path that uses `projects/<slug>/branches/...`.
+
+Fetch the UUID via the `uid` field of `get-project`:
+
+```bash
+databricks postgres get-project "projects/<slug>" -o json | jq -r '.uid'
+# e.g. projects/dbdemos-asset-generator → 1bcf612a-c719-42a4-981e-44f70a041da8
+```
+
+Then write both:
 
 ```json
-"lakebase_project_id": "<resolved project_id from script output>",
+"lakebase_project_id": "<uid from get-project>",
+"lakebase_project_slug": "<slug passed to lakebase_setup_db.sh>",
 "lakebase_database": "dbgen_<demo_short_name>"
 ```
 
@@ -136,10 +179,15 @@ DATABRICKS_WAREHOUSE_ID=<warehouse-id>          # powers analytics + Delta→Lak
 
 # Lakebase — values come from lakebase_setup_db.sh. AppKit's lakebase plugin
 # mints a short-lived OAuth token via the SDK auth chain (no PGUSER/PGPASSWORD).
-# LAKEBASE_ENDPOINT is a resource PATH; PGHOST is a DNS hostname — don't swap them.
+# Resource PATHS (LAKEBASE_*) feed the AppKit plugin config; connection-string
+# values (PG*) feed the pg.Pool. Don't swap them.
 LAKEBASE_ENDPOINT=projects/<project_id>/branches/production/endpoints/primary
+LAKEBASE_BRANCH=projects/<project_id>/branches/production
+LAKEBASE_DATABASE=projects/<project_id>/branches/production/databases/db-dbgen-<demo_short_name>
 PGHOST=ep-small-xxx-xxx.database.xxx.cloud.databricks.com
 PGDATABASE=dbgen_<demo_short_name>
+PGPORT=5432
+PGSSLMODE=require
 ```
 
 If the demo is later packaged as a DAB and deployed via `databricks bundle deploy`, every variable except `LAKEBASE_ENDPOINT` is auto-injected by the bundle's `postgres` resource binding. The runtime injects `PGUSER` as the service principal's application ID (UUID).

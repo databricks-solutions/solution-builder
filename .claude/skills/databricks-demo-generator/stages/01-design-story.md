@@ -10,7 +10,9 @@ Nail down the specifics. The exact structure depends on the story pattern, but d
 
 1. **The Protagonist** — Company name, industry, persona name and role, what they care about.
 2. **The Setup** — What's normal, what context the audience needs.
-3. **The Catalyst** — What triggers the demo flow (a spike, a question, a prediction, an alert). This typically happened a few weeks ago, can now be resolved (typically with a decay) or still ongoing but should be clearly visible (not just happening for a few hours, it's not enough)
+3. **The Catalyst** — What triggers the demo flow (a spike, a question, a prediction, an alert). Two non-negotiables you commit to here, because they shape every downstream spec:
+   - **Signal must be visible to the eye.** When the demo's dashboards render the catalyst, anyone in the room should be able to point at it without squinting. Realistic noise + a subtle event = invisible chart and the wow moment evaporates. If you can't tell something happened at a glance, dial the event up, the noise down, or both. Make the trade-off explicit in the story (e.g. *"the four laggard vessels' fuel anomaly must dominate normal day-to-day variance from weather and speed"*).
+   - **Temporal realism — prefer peak in the past, not at the chart edge.** The event must sit clearly in the past with a visible build-up → peak → decay back toward baseline. Place the peak ~2–4 weeks ago and anchor it explicitly (`SPIKE_PEAK = NOW − 3 weeks`, `DECAY_START = NOW − 2 weeks`). A spike at the rightmost edge of a chart looks like a cliff, not a story, avoid it unless asked about it.
 4. **The Journey** — How the protagonist uses the platform to get from question to answer.
 5. **The Resolution** — What they learn, the business impact (in $), what action they take.
 6. **The Value** — One-sentence "so what" that lands with the audience.

@@ -4,6 +4,25 @@ Run this only after the user confirms at the stage-2 build-or-stop gate — crea
 
 All resource files (.py, .sql, .yaml, …) must go in the project folder.
 
+## Don't narrate — call the tools (but reason on hard problems)
+
+Routine work — "I'll now write the data-gen script", "Let me create the pipeline file", "Now I'll fix the script" — is just narration. Don't say it. Open the Write/Edit tool and do it. The user sees your tool calls; they don't need a play-by-play. Same rule as Stage 2 spec writing.
+
+**Where deeper thinking IS welcome (and expected):**
+
+- **Bug fixes**: the data-gen script errored — read the traceback, reason about the root cause, then patch. Multi-step reasoning here is correct.
+- **Code logic**: derivations a SQL query needs, edge cases a pyspark UDF must handle, how to structure a non-obvious aggregation. Think, then write.
+- **Choosing between approaches** when the spec is ambiguous: weigh trade-offs briefly, pick one, build it.
+
+**Where it isn't:**
+- Describing what you're about to do. Just do it.
+
+## Specs are approximations — story wins
+
+The spec mixes inputs (formulas, distributions) with output targets (averages, rates) written independently — they usually don't algebraically close. Pick reasonable inputs, run, accept the result. If your output differs from the spec's predicted number, update the spec to match — don't retune inputs to chase a target.
+
+**Non-negotiable**: the story holds. Persona, catalyst, demo flow, visible signal, the relative relationships that make the narrative land. **Negotiable**: exact magnitudes, absolute numbers, secondary parameters. **Story > spec > numbers.**
+
 ## Building with skills
 
 **Each resource has a dedicated ai-dev-kit skill under `SKILLS/<skill-dir>/SKILL.md`.** The full list — dir name + one-line purpose — is already in your system prompt under *Available Skills*; pick the one that matches the capability in `resources.json`. If unsure, `ls SKILLS/` to confirm what's present at runtime.
@@ -33,14 +52,14 @@ Before creating any dashboard, Genie space, KA, or agent: verify every table/doc
 
 **Subagents are expensive** — fresh context, re-reads of every spec they need, no shared state with you. Worth it only for tasks that are **long, self-contained, and parallelizable**. **Your main thread must always be doing real work** — never spawn a fan-out that leaves you idle waiting. If you'd be idle, pull one task back and build it yourself instead.
 
-**Spawn a subagent for any of these:** App generation, unstructured-docs (HTML + PDF + upload), KA, MAS, Genie+Dashboard (paired, one subagent), ML training/serving. Pair sequential dependencies inside one subagent (Genie→Dashboard, KA→MAS) to save round-trips. Everything else stays on main: `01-lakeflow` A→B, `02-uc-governance`, single-CLI resources, validation.
+**Spawn a subagent for any of these:** App generation, [Genie+Dashboard], [unstructured-docs (HTML + PDF + upload), KA, MAS]. Pair sequential dependencies inside one subagent (Genie→Dashboard, KA→MAS) to save round-trips. Everything else stays on main: `01-lakeflow` A→B, `02-uc-governance`, single-CLI resources, validation.
 
 **Decision rule, applied at every checkpoint** (when unblocked tasks become available):
 
 1. Pick the smallest unblocked task for the main thread.
 2. Spawn the long parallelizable rest as subagents (one each).
 3. Main thread finishes → pick the next unblocked task. Don't wait.
-4. Don't spawn a subagent if it leaves you idle — do that work yourself.
+4. Don't spawn a subagent if it leaves you idle — do that work yourself (ex: only spawn app generation and do the genie+dashboard yourself if that's the only artifacts).
 
 **Worked example — KA + MAS + App + Genie + Dashboard:**
 After 01-lakeflow B (tables exist), in parallel: spawn App (longest, ~5 min), spawn Genie+Dashboard, spawn unstructured-docs (early — independent of pipeline). Main thread builds KA→MAS itself once docs are done. 1 main + 3 subagents, no idling. Drop subagents whose work isn't in your demo; if everything fits on main thread without idling, spawn nothing.

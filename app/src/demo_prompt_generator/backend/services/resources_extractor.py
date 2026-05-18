@@ -49,9 +49,11 @@ CANONICAL_KEYS = (
     "multi_agent_supervisor_id",
     "multi_agent_supervisor_endpoint",
     "mlflow_experiment_path",
+    "metric_view_name",
     "app_name",
     "app_id",
     "lakebase_project_id",
+    "lakebase_project_slug",
     "lakebase_database",
 )
 
@@ -83,9 +85,11 @@ Output STRICTLY this JSON shape:
   "multi_agent_supervisor_id": "",
   "multi_agent_supervisor_endpoint": "",
   "mlflow_experiment_path": "",
+  "metric_view_name": "",
   "app_name": "",
   "app_id": "",
   "lakebase_project_id": "",
+  "lakebase_project_slug": "",
   "lakebase_database": ""
 }
 
