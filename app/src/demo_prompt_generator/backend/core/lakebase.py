@@ -427,6 +427,11 @@ class _LakebaseDependency(LifespanDependency):
     async def lifespan(self, app: FastAPI) -> AsyncGenerator[None, None]:
         import concurrent.futures
 
+        # Stash the lifespan loop so sync route handlers (which run in
+        # FastAPI's threadpool) can schedule fire-and-forget background
+        # tasks via run_coroutine_threadsafe.
+        app.state.event_loop = asyncio.get_running_loop()
+
         ws: WorkspaceClient | None = None
         if not _is_pglite_mode():
             ws = getattr(app.state, "_workspace_client", None)
@@ -438,19 +443,19 @@ class _LakebaseDependency(LifespanDependency):
         app.state.engine = engine
         app.state.db_ready = False
 
+        # init_db raises on migration or validation failure — we re-raise
+        # below so the app fails to start instead of silently 500-ing every
+        # DB-backed route. Template seeding is the only soft-failure path.
         def init_db():
+            validate_db(engine)
+            initialize_models(engine)
             try:
-                validate_db(engine)
-                initialize_models(engine)
-                try:
-                    from ..services.seed_templates import seed_default_templates
-                    seed_default_templates(engine)
-                except Exception as e:
-                    logger.warning(f"Template seeding failed (non-fatal): {e}")
-                app.state.db_ready = True
-                logger.info("Database ready")
+                from ..services.seed_templates import seed_default_templates
+                seed_default_templates(engine)
             except Exception as e:
-                logger.error(f"Database initialization failed: {e}")
+                logger.warning(f"Template seeding failed (non-fatal): {e}")
+            app.state.db_ready = True
+            logger.info("Database ready")
 
         executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
         db_future = executor.submit(init_db)
@@ -484,6 +489,83 @@ class _LakebaseDependency(LifespanDependency):
                     f"[watcher] no active stream for project {project_id} — "
                     f"{len(paths)} file change(s) NOT pushed to UI: {paths}"
                 )
+
+            # If README.md changed, kick off a background narrative regen.
+            # The service hashes the README and skips when it matches the
+            # cached hash, so rapid agent writes during streaming don't
+            # cause repeated LLM calls. Fire-and-forget — failures log
+            # and the next debounce cycle retries.
+            if "README.md" in ui_paths:
+                from ..services.narrative import regenerate_narrative_if_stale
+                from ..core._config import AppConfig
+                from databricks.sdk import WorkspaceClient
+                from sqlmodel import Session
+
+                # Hold the agent SSE stream open across mark_complete so the
+                # narrative event isn't dropped if the agent finishes before
+                # the LLM regen does. The SSE loop in stream_progress checks
+                # this flag and waits a short grace period.
+                pending_stream = get_stream_manager().get_project_stream(project_id)
+                if pending_stream:
+                    pending_stream.narrative_pending = True
+                    logger.info(
+                        f"[watcher] narrative_pending=True for exec "
+                        f"{pending_stream.execution_id} (project {project_id})"
+                    )
+                else:
+                    logger.info(
+                        f"[watcher] README.md changed for project {project_id} "
+                        f"but no active stream — narrative event may be missed "
+                        f"by the UI; lazy-on-read in GET will recover."
+                    )
+
+                async def _regen():
+                    try:
+                        result = await regenerate_narrative_if_stale(
+                            project_id=project_id,
+                            session_factory=lambda: Session(engine),
+                            ws=WorkspaceClient(),
+                            config=AppConfig(),
+                        )
+                        if result is None:
+                            logger.info(
+                                f"[watcher] narrative regen returned None for "
+                                f"{project_id} (hash unchanged, no README, or LLM error)"
+                            )
+                            return
+                        narrative, narrative_readme_hash = result
+                        # Re-fetch the stream — by now the agent may have
+                        # finished, but the SSE loop is still draining due to
+                        # narrative_pending. Push the event onto whatever
+                        # stream is still associated with this project.
+                        stream2 = get_stream_manager().get_project_stream_any(project_id)
+                        if stream2:
+                            stream2.add_event({
+                                "type": "narrative_updated",
+                                "narrative": narrative,
+                                "narrative_readme_hash": narrative_readme_hash,
+                            })
+                            logger.info(
+                                f"[watcher] narrative_updated event emitted for "
+                                f"{project_id} on exec {stream2.execution_id} "
+                                f"(is_complete={stream2.is_complete})"
+                            )
+                        else:
+                            logger.info(
+                                f"[watcher] narrative ready for {project_id} but "
+                                f"no stream to deliver on — UI will pick it up on "
+                                f"next GET via lazy backfill."
+                            )
+                    except Exception as e:
+                        logger.warning(
+                            f"[watcher] narrative regen failed for {project_id}: {e}",
+                            exc_info=True,
+                        )
+                    finally:
+                        if pending_stream is not None:
+                            pending_stream.narrative_pending = False
+
+                asyncio.create_task(_regen())
 
         try:
             watcher = init_watcher(sync_callback)
@@ -543,6 +625,22 @@ class _LakebaseDependency(LifespanDependency):
         logger.info(
             f"[client-pool] idle reaper started (every {CLIENT_IDLE_TIMEOUT}s)"
         )
+
+        # Block until DB init completes. If it errored, surface the exception
+        # so uvicorn aborts startup instead of serving an app whose DB-backed
+        # routes will all 500. The 60s timeout covers a cold-start Lakebase
+        # autoscaler waking + Alembic migrations.
+        try:
+            db_future.result(timeout=60)
+        except concurrent.futures.TimeoutError:
+            raise RuntimeError(
+                "Database initialization timed out (>60s). Check Lakebase "
+                "connectivity / endpoint status."
+            )
+        except Exception as e:
+            raise RuntimeError(
+                f"Database initialization failed — aborting startup: {e}"
+            ) from e
 
         yield
 

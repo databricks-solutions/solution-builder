@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import re
 import shutil
 from datetime import datetime, timezone
 
+from databricks.sdk import WorkspaceClient
 from fastapi import HTTPException, Request
 from sqlmodel import func, select, text
 
@@ -494,6 +496,44 @@ def get_project(
         session.add(project)
         session.commit()
 
+    # Lazy narrative backfill for legacy projects: if README exists on
+    # disk but the narrative was never generated (or the agent finished
+    # writing while the previous backend was down and the watcher missed
+    # it), fire a regen in the background. The service uses a per-project
+    # lock + hash dedup so concurrent calls are cheap. The frontend picks
+    # up the result via the `narrative_updated` SSE event.
+    # Legacy-project backfill: synchronously generate the narrative inline
+    # so the response already has it. This blocks the GET for ~1-3s (LLM
+    # latency), which is fine — it only triggers once per project, on the
+    # first open after README exists but narrative was never written.
+    if not (project.narrative or "").strip():
+        from ..services.narrative import (
+            generate_narrative,
+            read_project_readme,
+            NarrativeError,
+        )
+        if read_project_readme(project_id):
+            logger.info(
+                f"[get_project] {project_id}: legacy backfill — generating "
+                f"narrative synchronously"
+            )
+            try:
+                generate_narrative(project_id, project, session, WorkspaceClient(), config)
+                session.refresh(project)
+                logger.info(
+                    f"[get_project] {project_id}: legacy backfill complete"
+                )
+            except NarrativeError as e:
+                logger.info(
+                    f"[get_project] {project_id}: legacy backfill skipped "
+                    f"({e.code}: {e})"
+                )
+            except Exception as e:
+                logger.warning(
+                    f"[get_project] {project_id}: legacy backfill failed: {e}",
+                    exc_info=True,
+                )
+
     return ProjectOut(
         id=project.id,
         name=project.name,
@@ -654,38 +694,8 @@ def ai_edit_project_description(
 # ---------------------------------------------------------------------------
 
 
-def _project_readme_text(project_id: str) -> str | None:
-    """Read the project's README.md from disk. Returns None if missing/empty."""
-    from ..services.skills_manager import PROJECTS_BASE_DIR
-    from pathlib import Path as _Path
-    readme = _Path(PROJECTS_BASE_DIR) / project_id / "README.md"
-    if not readme.is_file():
-        return None
-    try:
-        text_ = readme.read_text(encoding="utf-8")
-    except Exception as e:
-        logger.warning(f"Failed to read README for project {project_id}: {e}")
-        return None
-    text_ = text_.strip()
-    return text_ or None
-
-
-def _strip_frontmatter(markdown: str) -> str:
-    """Drop a leading `---` YAML frontmatter block before sending to the LLM."""
-    if not markdown.startswith("---"):
-        return markdown
-    lines = markdown.split("\n")
-    if lines[0].strip() != "---":
-        return markdown
-    for i in range(1, len(lines)):
-        if lines[i].strip() == "---":
-            return "\n".join(lines[i + 1:]).lstrip("\n")
-    return markdown
-
-
-def _readme_hash(markdown: str) -> str:
-    """Stable hash used to detect when the narrative is out-of-date."""
-    return hashlib.sha256(markdown.strip().encode("utf-8")).hexdigest()
+# Narrative generation helpers live in services/narrative.py (shared with
+# the file watcher's auto-regen path).
 
 
 @router.post(
@@ -707,73 +717,20 @@ def generate_project_narrative(
 
     Returns the updated ProjectOut so the frontend can refresh in one round-trip.
     """
+    from ..services.narrative import generate_narrative, NarrativeError
+
     user_email = _get_user_email(headers)
     project = _get_authorized_project(
         session, project_id, user_email, config.template_admin_emails
     )
 
-    readme = _project_readme_text(project_id)
-    if not readme:
-        raise HTTPException(
-            status_code=400,
-            detail="No README.md yet — ask the assistant to draft the demo story first.",
-        )
-
-    body = _strip_frontmatter(readme)
-    # Cap input length so we don't blow tokens on giant READMEs. The first
-    # ~6k chars is plenty to glean persona + use case.
-    if len(body) > 6000:
-        body = body[:6000]
-
-    system_prompt = (
-        "You write the elevator pitch for a Databricks demo. The reader is "
-        "an account executive, a seller, or the customer themselves — they "
-        "want to know in 10 seconds what this demo is about and why it "
-        "matters.\n"
-        "\n"
-        "Voice: write like you're telling a friend at a bar what you've "
-        "been building. Conversational, specific, human. Lead with the "
-        "PERSONA (who is this for? what's their job?) and the USE CASE "
-        "(what problem are they trying to solve, with real stakes/numbers "
-        "when the README gives them). Then a second short paragraph on "
-        "what the demo lets them do or see — still in plain English.\n"
-        "\n"
-        "Hard rules:\n"
-        "  - Exactly 1 or 2 short paragraphs, separated by a blank line.\n"
-        "  - 350-700 characters total.\n"
-        "  - No headings, no bullet points, no markdown formatting.\n"
-        "  - No marketing words: never use 'leverage', 'showcase', 'unlock', "
-        "'empower', 'end-to-end', 'seamlessly', 'solution', 'unify'.\n"
-        "  - No 'This demo...' opener. Start with the persona or the problem.\n"
-        "  - Stay strictly grounded in the README — do not invent capabilities, "
-        "personas, dollar figures, or industries that aren't there.\n"
-        "\n"
-        "Reply with ONLY the narrative text. No preamble, no labels, no quotes."
-    )
-    user_prompt = (
-        f"Project name: {project.name}\n\n"
-        f"README:\n{body}\n\n"
-        "Write the narrative now."
-    )
-
-    llm = LLMService(ws, config)
     try:
-        narrative = llm.chat(
-            user_prompt,
-            size=ModelSize.MINI,
-            system_prompt=system_prompt,
-            max_tokens=900,
-        )
-    except Exception as e:
-        logger.error(f"Narrative generation failed for project {project_id}: {e}")
-        raise HTTPException(status_code=502, detail="Narrative generation failed") from e
+        generate_narrative(project_id, project, session, ws, config)
+    except NarrativeError as e:
+        if e.code == "no_readme":
+            raise HTTPException(status_code=400, detail=str(e)) from e
+        raise HTTPException(status_code=502, detail=str(e)) from e
 
-    narrative = (narrative or "").strip().strip('"').strip("'").strip()
-    if not narrative:
-        raise HTTPException(status_code=502, detail="LLM returned an empty narrative")
-
-    project.narrative = narrative
-    project.narrative_readme_hash = _readme_hash(readme)
     project.updated_at = datetime.now(timezone.utc)
     session.add(project)
     session.commit()
@@ -892,7 +849,6 @@ def delete_project(
     request: Request,
 ):
     """Delete a project and all associated data."""
-    import asyncio
     from ..services.agent import get_client_pool
 
     user_email = _get_user_email(headers)

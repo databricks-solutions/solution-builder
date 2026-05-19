@@ -8,7 +8,8 @@ import { ScrollArea } from "../ui/scroll-area";
 import { Prose } from "../markdown-prose";
 import { ProjectOverview } from "./project-overview";
 import { Skeleton } from "../ui/skeleton";
-import { ChevronRight, ChevronDown, ChevronLeft, Folder, FolderOpen, FileText, FileCode, Braces, Settings, File, Sparkles, RefreshCw, Network, BookOpen, Database, Eye, EyeOff, Code, Globe, Loader2, Server, Boxes } from "lucide-react";
+import { ChevronRight, ChevronDown, ChevronLeft, Folder, FolderOpen, FileText, FileCode, Braces, Settings, File, Sparkles, RefreshCw, Network, BookOpen, Database, Eye, EyeOff, Code, Globe, Loader2, Server } from "lucide-react";
+import { UnityCatalogIcon } from "../databricks-icons";
 import { Button } from "../ui/button";
 import type { ProjectFile, ProjectFileContent, DeployedResourceLink } from "../../lib/custom-api";
 import { AppPreviewTab } from "../../preview";
@@ -154,14 +155,16 @@ const StoryView = memo(function StoryView({ readmeContent, isStreaming }: StoryV
   const body = stripFrontmatter(readmeContent);
   return (
     <ScrollArea className="flex-1">
-      <div className="px-6 py-6 max-w-3xl mx-auto">
-        <div className="mb-5 pb-3 border-b border-border/50 flex items-center gap-2">
-          <BookOpen className="h-4 w-4 text-muted-foreground" />
-          <h2 className="text-[11px] font-bold uppercase tracking-[0.16em] text-muted-foreground">
-            The story
-          </h2>
-        </div>
-        <Prose>{body}</Prose>
+      <div className="px-8 py-7 max-w-[1180px] mx-auto">
+        <section className="rounded-2xl border border-border/60 bg-card p-8 lg:p-10">
+          <div className="mb-6 pb-4 border-b border-border/50 flex items-center gap-2">
+            <BookOpen className="h-4 w-4 text-muted-foreground" />
+            <h2 className="text-[11px] font-bold uppercase tracking-[0.16em] text-muted-foreground">
+              The story
+            </h2>
+          </div>
+          <Prose>{body}</Prose>
+        </section>
       </div>
     </ScrollArea>
   );
@@ -504,15 +507,15 @@ const ExpandedSidebar = memo(function ExpandedSidebar({
       {(hasUC || hasWarehouse) && (
         <div className="px-2.5 py-2 border-b border-border space-y-1.5">
           <div className="text-[9px] font-bold uppercase tracking-[0.14em] text-muted-foreground/70 px-1">
-            Workspace
+            Workspace resources
           </div>
           {hasUC && (
             <button
               onClick={onResourcesClick}
-              className="w-full flex items-center gap-1.5 px-1.5 py-1 rounded text-[12px] text-foreground/80 hover:bg-muted/60 transition-colors text-left"
+              className="w-full flex items-center gap-1.5 px-1.5 py-1 rounded text-[12px] text-foreground/80 hover:bg-muted/60 transition-colors text-left cursor-pointer"
               title="Edit workspace defaults"
             >
-              <Boxes className="h-3 w-3 shrink-0 text-muted-foreground" />
+              <UnityCatalogIcon className="h-3 w-3 shrink-0 text-muted-foreground" />
               <span className="font-mono truncate">
                 {resources?.catalog || "default"}.{resources?.schema || "default"}
               </span>
@@ -521,7 +524,7 @@ const ExpandedSidebar = memo(function ExpandedSidebar({
           {hasWarehouse && (
             <button
               onClick={onResourcesClick}
-              className="w-full flex items-center gap-1.5 px-1.5 py-1 rounded text-[12px] text-foreground/80 hover:bg-muted/60 transition-colors text-left"
+              className="w-full flex items-center gap-1.5 px-1.5 py-1 rounded text-[12px] text-foreground/80 hover:bg-muted/60 transition-colors text-left cursor-pointer"
               title="Edit workspace defaults"
             >
               <Server className="h-3 w-3 shrink-0 text-muted-foreground" />
@@ -533,6 +536,11 @@ const ExpandedSidebar = memo(function ExpandedSidebar({
 
       {/* File tree */}
       <ScrollArea className="flex-1">
+        <div className="px-2.5 pt-2 pb-1">
+          <div className="text-[9px] font-bold uppercase tracking-[0.14em] text-muted-foreground/70 px-1">
+            Files
+          </div>
+        </div>
         <div className="p-1.5">
           {files.length === 0 ? (
             <p className="text-sm text-muted-foreground text-center py-4">
@@ -829,6 +837,7 @@ export const FileViewer = memo(function FileViewer({
         <div className="flex-1 flex flex-col min-w-0">
           {activeTab === "overview" ? (
             <ProjectOverview
+              projectId={projectId}
               projectDescription={projectDescription ?? null}
               projectNarrative={projectNarrative ?? null}
               isGeneratingNarrative={isGeneratingNarrative ?? false}
@@ -839,11 +848,13 @@ export const FileViewer = memo(function FileViewer({
               readmeContent={readmeContent ?? null}
               hasReadme={hasReadme}
               hasArchitecture={hasArchitecture}
+              hasApp={hasApp}
               hasSpecifications={hasSpecifications}
               isStreaming={isStreaming}
               onOpenChat={onOpenChat}
               onShowFullStory={() => setActiveTab("story")}
               onShowArchitecture={() => setActiveTab("architecture")}
+              onShowApp={() => setActiveTab("app")}
               onEditDescription={onEditDescription}
             />
           ) : activeTab === "story" ? (

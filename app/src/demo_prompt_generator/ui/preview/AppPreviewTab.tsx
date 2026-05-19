@@ -10,7 +10,7 @@
  * the auto-fix API (for budget reset on manual sends) via `autoFixApiRef`.
  */
 
-import { useEffect, useState, type MutableRefObject } from "react";
+import { useCallback, useEffect, useRef, useState, type MutableRefObject } from "react";
 import { PreviewControls } from "./PreviewControls";
 import { PreviewIframe } from "./PreviewIframe";
 import { PreviewLogs } from "./PreviewLogs";
@@ -46,6 +46,37 @@ export function AppPreviewTab({ projectId, onAutoFixSend, isStreaming = false, a
   const [autoFixEnabled, setAutoFixEnabled] = useState(true);
   const appRunning = state?.status === "ready";
 
+  // True while an auto-fix-initiated stream is in flight. Set when the hook
+  // dispatches a fix message; cleared when the assistant's stream finishes
+  // (we watch `isStreaming` flipping back to false).
+  const [autoFixActive, setAutoFixActive] = useState(false);
+  const autoFixJustSentRef = useRef(false);
+  // Clear the chip when the assistant stops streaming after an auto-fix send.
+  // We also debounce against the case where the stream hasn't started yet
+  // (the parent's isStreaming flips true a tick after onSend).
+  useEffect(() => {
+    if (isStreaming) {
+      // Streaming is now in flight — if auto-fix kicked it, lock in the
+      // "active" state until streaming flips back to false.
+      if (autoFixJustSentRef.current) {
+        autoFixJustSentRef.current = false;
+      }
+    } else if (autoFixActive) {
+      // Streaming ended; auto-fix's turn is over.
+      setAutoFixActive(false);
+    }
+  }, [isStreaming, autoFixActive]);
+
+  const handleAutoFixSend = useCallback(
+    (message: string) => {
+      if (!onAutoFixSend) return;
+      autoFixJustSentRef.current = true;
+      setAutoFixActive(true);
+      onAutoFixSend(message);
+    },
+    [onAutoFixSend],
+  );
+
   const { budgetRemaining, resetBudget } = useAutoFixErrors({
     projectId,
     // Still require the app to be running before we START sending fixes —
@@ -54,7 +85,7 @@ export function AppPreviewTab({ projectId, onAutoFixSend, isStreaming = false, a
     enabled: autoFixEnabled && !!onAutoFixSend && appRunning,
     logs,
     isStreaming,
-    onSend: (message) => onAutoFixSend?.(message),
+    onSend: handleAutoFixSend,
     onSystemLog: appendSystemLog,
   });
 
@@ -76,6 +107,7 @@ export function AppPreviewTab({ projectId, onAutoFixSend, isStreaming = false, a
         projectId={projectId}
         isStarting={isStarting}
         isStopping={isStopping}
+        autoFixActive={autoFixActive}
         onStart={() => void start()}
         onStop={() => void stop()}
         onRestart={() => void restart()}

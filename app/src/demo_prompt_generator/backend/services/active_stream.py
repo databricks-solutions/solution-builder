@@ -38,6 +38,10 @@ class ActiveStream:
     error_message: str | None = None
     task: asyncio.Task | None = None
     session_id: str | None = None  # Stored after completion for resumption
+    # When the watcher sees README.md change it sets this flag and the SSE
+    # loop will keep the stream open (past the agent's mark_complete) until
+    # the narrative regen lands. Cleared once `narrative_updated` is added.
+    narrative_pending: bool = False
 
     def add_event(self, event_data: dict[str, Any]) -> None:
         """Append an event with automatic timestamp cursor.
@@ -138,6 +142,25 @@ class ActiveStreamManager:
             ):
                 return stream
         return None
+
+    def get_project_stream_any(self, project_id: str) -> ActiveStream | None:
+        """Get the most recent stream for a project regardless of completion.
+
+        Used by background tasks (narrative regen) that may finish after the
+        agent has flipped `is_complete`. The SSE loop's narrative_pending
+        flag keeps the connection open in that window so late-arriving events
+        still reach the UI.
+        """
+        candidates = [s for s in self._streams.values() if s.project_id == project_id]
+        if not candidates:
+            return None
+        # Most recent by event order — streams without events fall back to
+        # the order they were inserted into the dict.
+        candidates.sort(
+            key=lambda s: s.events[-1].timestamp if s.events else 0.0,
+            reverse=True,
+        )
+        return candidates[0]
 
     async def start_stream(
         self,

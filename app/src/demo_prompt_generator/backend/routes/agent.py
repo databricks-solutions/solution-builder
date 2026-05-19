@@ -360,6 +360,13 @@ async def stream_progress(
     async def generate_events():
         cursor = body.last_timestamp
         start_time = time.time()
+        # Once the agent flips `is_complete` we may still be waiting on the
+        # narrative regen (kicked off by the watcher when README.md lands).
+        # We capture the time at which we'd otherwise emit `stream.completed`
+        # and keep draining events until either narrative_pending clears or
+        # this grace window expires.
+        completion_started_at: float | None = None
+        NARRATIVE_GRACE_SECONDS = 15.0
 
         while True:
             # Get new events since cursor
@@ -370,8 +377,35 @@ async def stream_progress(
             for event in new_events:
                 yield f"data: {json.dumps(event)}\n\n"
 
+            terminal = stream.is_complete or stream.is_cancelled or stream.is_error
+
+            # If we just hit terminal, start the grace clock (don't restart it).
+            if terminal and completion_started_at is None:
+                completion_started_at = time.time()
+                if stream.narrative_pending:
+                    logger.info(
+                        f"[stream_progress] {execution_id}: agent terminal "
+                        f"but narrative_pending — holding SSE open up to "
+                        f"{NARRATIVE_GRACE_SECONDS}s for narrative_updated"
+                    )
+
+            # Wait out the narrative if it's pending and we still have grace.
+            if (
+                terminal
+                and stream.narrative_pending
+                and completion_started_at is not None
+                and (time.time() - completion_started_at) < NARRATIVE_GRACE_SECONDS
+            ):
+                await asyncio.sleep(POLL_INTERVAL)
+                continue
+
             # Check for completion
-            if stream.is_complete or stream.is_cancelled or stream.is_error:
+            if terminal:
+                if stream.narrative_pending:
+                    logger.warning(
+                        f"[stream_progress] {execution_id}: grace expired with "
+                        f"narrative_pending still set — closing stream anyway"
+                    )
                 completion_event = {
                     "type": "stream.completed",
                     "is_error": stream.is_error,

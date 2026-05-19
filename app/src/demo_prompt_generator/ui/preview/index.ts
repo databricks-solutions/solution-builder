@@ -9,6 +9,7 @@ import type { AutoFixApi } from "./AppPreviewTab";
 export { AppPreviewTab } from "./AppPreviewTab";
 export type { AutoFixApi } from "./AppPreviewTab";
 export { useAppPreview } from "./useAppPreview";
+export { previewFrameUrl } from "./api";
 export type { PreviewState, PreviewStatus, PreviewLogLine } from "./types";
 
 /** Ref type for the auto-fix API handle, exported for parent components. */

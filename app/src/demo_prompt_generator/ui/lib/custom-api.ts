@@ -207,6 +207,7 @@ export type AgentEvent =
   | { type: "result"; session_id: string | null; duration_ms: number; total_cost_usd?: number; is_error?: boolean; num_turns?: number }
   | { type: "system"; subtype: string; data: unknown }
   | { type: "file_changed"; path: string }
+  | { type: "narrative_updated"; narrative: string; narrative_readme_hash: string }
   | { type: "error"; error: string }
   | { type: "cancelled" }
   | { type: "stream.completed"; is_error: boolean; is_cancelled: boolean }

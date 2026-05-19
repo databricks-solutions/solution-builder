@@ -351,14 +351,12 @@ function ProjectPage() {
   // ---------------------------------------------------------------------
   // LLM-generated narrative for the Overview hero.
   //
-  // We auto-generate a 1-2 paragraph storytelling summary from the README
-  // whenever it drifts from the cached version (sha256(README) recorded
-  // on the project row). Guards against thrashing: skips while the agent
-  // is streaming, debounces re-runs, and ignores generation errors so
-  // the hero falls back to a friendly empty state.
+  // Auto-regen lives on the backend now: the file watcher regenerates the
+  // narrative whenever README.md changes (hash-checked to skip dupes) and
+  // pushes a `narrative_updated` SSE event handled in the stream loop
+  // below. This frontend hook is only the manual "Regenerate" button.
   // ---------------------------------------------------------------------
   const [isGeneratingNarrative, setIsGeneratingNarrative] = useState(false);
-  const narrativeAttemptRef = useRef<string | null>(null);
 
   const handleRegenerateNarrative = useCallback(async () => {
     if (!project || isGeneratingNarrative) return;
@@ -372,32 +370,6 @@ function ProjectPage() {
       setIsGeneratingNarrative(false);
     }
   }, [project, projectId, isGeneratingNarrative]);
-
-  useEffect(() => {
-    if (!project || !readmeContent || isStreaming || isGeneratingNarrative) return;
-    let cancelled = false;
-    (async () => {
-      const trimmed = readmeContent.trim();
-      if (!trimmed) return;
-      // Hash matches backend `_readme_hash` (sha256 of stripped README).
-      const buf = new TextEncoder().encode(trimmed);
-      const digest = await crypto.subtle.digest("SHA-256", buf);
-      const hash = Array.from(new Uint8Array(digest))
-        .map((b) => b.toString(16).padStart(2, "0"))
-        .join("");
-      if (cancelled) return;
-      const isStale =
-        !project.narrative || project.narrative_readme_hash !== hash;
-      // Avoid retrying the same hash twice if the LLM call fails — the
-      // user can still manually retry via the regenerate button.
-      if (!isStale || narrativeAttemptRef.current === hash) return;
-      narrativeAttemptRef.current = hash;
-      handleRegenerateNarrative();
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [project, readmeContent, isStreaming, isGeneratingNarrative, handleRegenerateNarrative]);
 
   // Ref to track selectedFile without causing handleSendMessage to recreate
   const selectedFileRef = useRef(selectedFile);
@@ -430,6 +402,21 @@ function ProjectPage() {
         .catch(() => {});
     }, 500);
   }, [projectId]);
+
+  // Deployed-resources refresh is debounced separately. The agent often
+  // rewrites resources.json several times during a build (one update per
+  // capability landing), so we coalesce those into a single refetch and
+  // keep the "X of N ready" tile counter live without spamming the LLM
+  // extractor endpoint.
+  const deployedRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const debouncedRefreshDeployed = useCallback(() => {
+    if (deployedRefreshTimerRef.current) clearTimeout(deployedRefreshTimerRef.current);
+    deployedRefreshTimerRef.current = setTimeout(() => {
+      getDeployedResources(projectId)
+        .then((deployed) => applyDeployedResources(deployed))
+        .catch(() => {});
+    }, 800);
+  }, [projectId, applyDeployedResources]);
 
   // Keep the ref in sync, and re-fetch whenever the user toggles
   // "show hidden" so the file tree picks up .databrickscfg / .claude/
@@ -697,9 +684,27 @@ function ProjectPage() {
           } else if (event.type === "file_changed") {
             // Watchdog detected a file change — refresh file list and content
             debouncedRefreshFiles();
+            // Live-update the deployed-resources tile grid whenever the
+            // agent rewrites resources.json (a new pipeline/dashboard/app
+            // landed). Debounced so a burst of writes coalesces.
+            if (event.path === "resources.json") {
+              debouncedRefreshDeployed();
+            }
             if (selectedFileRef.current === event.path) {
               setFileContentKey((k) => k + 1);
             }
+          } else if (event.type === "narrative_updated") {
+            // Backend regenerated the narrative after a README write.
+            // Patch the project row in place — no fetch needed.
+            setProject((p) =>
+              p
+                ? {
+                    ...p,
+                    narrative: event.narrative,
+                    narrative_readme_hash: event.narrative_readme_hash,
+                  }
+                : p,
+            );
           } else if (event.type === "error") {
             // The agent failed (typically: Claude Code subprocess died,
             // FMAPI 4xx, etc.). Stash the message so we can surface it
@@ -1917,6 +1922,7 @@ function ProjectPage() {
               lastReasoning={lastReasoning}
               onStop={handleStop}
               onClearSession={handleClearSession}
+              onClose={handleToggleChat}
               onAutoBuild={handleAutoBuild}
               canAutoBuild={!isStreaming}
             />
@@ -1930,15 +1936,15 @@ function ProjectPage() {
           ambient pulse runs whenever the project has no README yet so
           first-time visitors are nudged toward the entry point. */}
       {(() => {
+        // FAB only shows when the chat is closed — the header has its own
+        // X button when open, so the bottom-right slot stays clear for the
+        // Autobuild / Stop affordances inside the panel.
+        if (isChatOpen) return null;
         const hasReadme = files.some((f) => f.path === "README.md");
-        const showPulse = !isChatOpen && (!hasReadme || isStreaming);
-        const pulseColor = isStreaming
-          ? "bg-emerald-400"
-          : "bg-primary";
+        const showPulse = !hasReadme || isStreaming;
+        const pulseColor = isStreaming ? "bg-emerald-400" : "bg-primary";
         return (
           <div className="hidden md:block fixed bottom-6 right-6 z-50">
-            {/* Ambient pulse ring — sits behind the button. Only visible
-                when there's something the user should notice. */}
             {showPulse && (
               <span
                 aria-hidden
@@ -1951,32 +1957,17 @@ function ProjectPage() {
             <button
               type="button"
               onClick={handleToggleChat}
-              className={cn(
-                "relative flex items-center gap-2 shadow-xl shadow-primary/20 transition-all hover:scale-[1.03] active:scale-95",
-                isChatOpen
-                  ? "h-12 w-12 justify-center rounded-full bg-card border border-border text-foreground hover:bg-muted"
-                  : "h-14 pl-4 pr-5 rounded-full bg-primary text-primary-foreground hover:bg-primary/90",
-              )}
-              title={isChatOpen ? "Hide assistant" : "Open assistant"}
-              aria-pressed={isChatOpen}
-              aria-label={isChatOpen ? "Hide assistant" : "Open assistant"}
+              className="relative flex items-center gap-2 h-14 pl-4 pr-5 rounded-full bg-primary text-primary-foreground shadow-xl shadow-primary/20 transition-all hover:bg-primary/90 hover:scale-[1.03] active:scale-95 cursor-pointer"
+              title="Open assistant"
+              aria-label="Open assistant"
             >
-              {isChatOpen ? (
-                <X className="h-5 w-5" />
-              ) : (
-                <>
-                  <span className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary-foreground/15">
-                    <MessageSquare className="h-5 w-5" />
-                  </span>
-                  <span className="text-[14px] font-semibold tracking-tight pr-1">
-                    {isStreaming ? "See live activity" : "Ask the assistant"}
-                  </span>
-                </>
-              )}
-              {/* Streaming dot for the closed circular state when open
-                  isn't an option (mirrors prior behavior on smaller
-                  layouts — kept for parity with the open icon-only state). */}
-              {!isChatOpen && isStreaming && (
+              <span className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary-foreground/15">
+                <MessageSquare className="h-5 w-5" />
+              </span>
+              <span className="text-[14px] font-semibold tracking-tight pr-1">
+                {isStreaming ? "See live activity" : "Ask the assistant"}
+              </span>
+              {isStreaming && (
                 <span
                   aria-hidden
                   className="absolute -top-1 -right-1 h-3 w-3 rounded-full bg-emerald-500 shadow ring-2 ring-background"

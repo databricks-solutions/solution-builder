@@ -383,6 +383,7 @@ interface ChatPanelProps {
   lastReasoning?: ReasoningInfo | null;
   onStop?: () => void;
   onClearSession?: () => void;
+  onClose?: () => void;
   onAutoBuild?: () => void | Promise<void>;
   canAutoBuild?: boolean;
   placeholder?: string;
@@ -1344,6 +1345,7 @@ export const ChatPanel = memo(function ChatPanel({
   lastReasoning,
   onStop,
   onClearSession,
+  onClose,
   onAutoBuild,
   canAutoBuild = true,
   placeholder = "Ask the AI to help build your demo...",
@@ -1352,6 +1354,12 @@ export const ChatPanel = memo(function ChatPanel({
   const [input, setInput] = useState("");
   const [userHasScrolledChat, setUserHasScrolledChat] = useState(false);
   const [autoBuildConfirmOpen, setAutoBuildConfirmOpen] = useState(false);
+  const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
+
+  const handleClearConfirm = useCallback(() => {
+    setClearConfirmOpen(false);
+    onClearSession?.();
+  }, [onClearSession]);
 
   const handleAutoBuildConfirm = useCallback(async () => {
     setAutoBuildConfirmOpen(false);
@@ -1428,9 +1436,9 @@ export const ChatPanel = memo(function ChatPanel({
         <div className="flex items-center gap-1">
           {onClearSession && messages.length > 0 && (
             <button
-              onClick={onClearSession}
+              onClick={() => setClearConfirmOpen(true)}
               disabled={isStreaming || isClearingSession}
-              className="flex items-center gap-1.5 text-xs text-muted-foreground/70 hover:text-destructive px-2 py-1.5 rounded-md hover:bg-destructive/5 transition-all disabled:opacity-40 disabled:pointer-events-none"
+              className="flex items-center gap-1.5 text-xs text-muted-foreground/70 hover:text-destructive px-2 py-1.5 rounded-md hover:bg-destructive/5 transition-all disabled:opacity-40 disabled:pointer-events-none cursor-pointer"
               title="Clear session history"
               aria-label="Clear session history"
             >
@@ -1440,6 +1448,16 @@ export const ChatPanel = memo(function ChatPanel({
                 <Trash2 className="h-3 w-3" />
               )}
               <span>Clear</span>
+            </button>
+          )}
+          {onClose && (
+            <button
+              onClick={onClose}
+              className="flex items-center justify-center h-8 w-8 rounded-md border border-border/60 bg-muted/40 text-foreground hover:text-destructive hover:border-destructive/40 hover:bg-destructive/10 transition-all cursor-pointer"
+              title="Hide assistant"
+              aria-label="Hide assistant"
+            >
+              <X className="h-4 w-4" />
             </button>
           )}
         </div>
@@ -1573,18 +1591,6 @@ export const ChatPanel = memo(function ChatPanel({
               {isStreaming ? "Generating..." : "Enter to send"}
             </span>
             <div className="flex items-center gap-1.5">
-              {!isStreaming && onAutoBuild && (
-                <button
-                  onClick={() => setAutoBuildConfirmOpen(true)}
-                  disabled={!canAutoBuild}
-                  className="flex items-center gap-1 h-7 px-2.5 rounded-lg text-xs font-medium bg-muted/60 text-foreground/80 hover:bg-muted hover:text-foreground transition-colors disabled:opacity-40 disabled:pointer-events-none"
-                  title="Run the full demo build end-to-end"
-                  aria-label="Auto build"
-                >
-                  <Zap className="h-3 w-3" strokeWidth={2.5} />
-                  <span>Auto build</span>
-                </button>
-              )}
               {isStreaming ? (
                 <button
                   onClick={onStop}
@@ -1644,6 +1650,38 @@ export const ChatPanel = memo(function ChatPanel({
             >
               <Zap className="h-3.5 w-3.5" strokeWidth={2.5} />
               Start auto build
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Clear session confirmation */}
+      <Dialog open={clearConfirmOpen} onOpenChange={setClearConfirmOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Trash2 className="h-4 w-4 text-destructive" strokeWidth={2.5} />
+              Are you sure?
+            </DialogTitle>
+            <DialogDescription className="pt-2 leading-relaxed">
+              This will reset your chat history and start a brand new session.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:gap-2">
+            <button
+              type="button"
+              onClick={() => setClearConfirmOpen(false)}
+              className="px-3 py-2 rounded-lg text-sm font-medium bg-muted text-foreground/80 hover:bg-muted/70 transition-colors cursor-pointer"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleClearConfirm}
+              className="px-3 py-2 rounded-lg text-sm font-medium bg-destructive text-destructive-foreground hover:bg-destructive/90 transition-colors flex items-center gap-1.5 cursor-pointer"
+            >
+              <Trash2 className="h-3.5 w-3.5" strokeWidth={2.5} />
+              Clear session
             </button>
           </DialogFooter>
         </DialogContent>

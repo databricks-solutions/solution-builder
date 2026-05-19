@@ -1,4 +1,4 @@
-import { ExternalLink, Play, RefreshCw, RotateCw, Square } from "lucide-react";
+import { AlertTriangle, Maximize2, Play, RefreshCw, RotateCw, Square } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../components/ui/tooltip";
 import { previewFrameUrl } from "./api";
 import type { PreviewState } from "./types";
@@ -8,6 +8,10 @@ interface Props {
   projectId: string;
   isStarting?: boolean;
   isStopping?: boolean;
+  /** True while an auto-fix-triggered agent stream is running. Surfaces a
+   *  pulsing "AI is fixing an error" chip in the toolbar so the user knows
+   *  the assistant is busy on the app's behalf, not on their behalf. */
+  autoFixActive?: boolean;
   onStart: () => void;
   onStop: () => void;
   onRestart: () => void;
@@ -32,7 +36,7 @@ const STATUS_LABEL: Record<VisualStatus, string> = {
   failed: "Failed",
 };
 
-export function PreviewControls({ state, projectId, isStarting = false, isStopping = false, onStart, onStop, onRestart, onRefreshFrame }: Props) {
+export function PreviewControls({ state, projectId, isStarting = false, isStopping = false, autoFixActive = false, onStart, onStop, onRestart, onRefreshFrame }: Props) {
   const rawStatus = state?.status ?? "stopped";
   // isStarting (in-flight POST) wins over raw backend status so the UI flips
   // to "Starting…" the instant the user clicks, not after the POST returns.
@@ -151,15 +155,34 @@ export function PreviewControls({ state, projectId, isStarting = false, isStoppi
                 aria-disabled={frameActionsDisabled}
                 tabIndex={frameActionsDisabled ? -1 : 0}
                 onClick={(e) => { if (frameActionsDisabled) e.preventDefault(); }}
-                aria-label="Open preview in new tab"
-                className={`inline-flex items-center justify-center rounded-md bg-muted text-foreground p-1.5 transition-colors ${frameActionsDisabled ? "opacity-40 cursor-not-allowed" : "hover:bg-muted/80 cursor-pointer"}`}
+                aria-label="Open preview full-screen"
+                className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-semibold transition-colors ${
+                  frameActionsDisabled
+                    ? "bg-muted text-muted-foreground opacity-40 cursor-not-allowed"
+                    : "bg-blue-500 text-white hover:bg-blue-400 cursor-pointer"
+                }`}
               >
-                <ExternalLink className="size-3.5" />
+                <Maximize2 className="size-3.5" strokeWidth={2.5} />
+                Open full-screen
               </a>
             </span>
           </TooltipTrigger>
-          <TooltipContent>{frameActionsDisabled ? "Start the app first" : "Open preview in a new tab"}</TooltipContent>
+          <TooltipContent>{frameActionsDisabled ? "Start the app first" : "Open preview full-screen in a new tab"}</TooltipContent>
         </Tooltip>
+
+        {/* Auto-fix indicator — pulses amber while the assistant is fixing
+            an error it spotted in the logs. Disappears once the stream
+            finishes (parent clears autoFixActive on isStreaming → false). */}
+        {autoFixActive && (
+          <div
+            className="inline-flex items-center gap-1.5 rounded-md border border-amber-500/40 bg-amber-500/10 px-2.5 py-1 text-[12px] font-medium text-amber-700 dark:text-amber-300 animate-pulse"
+            role="status"
+            aria-live="polite"
+          >
+            <AlertTriangle className="size-3.5" strokeWidth={2.5} />
+            <span>The AI spotted an error — fixing it…</span>
+          </div>
+        )}
 
         <div className="ml-auto flex items-center gap-2 text-sm text-muted-foreground">
           <span className={`inline-block size-2 rounded-full ${STATUS_DOT[status]}`} />

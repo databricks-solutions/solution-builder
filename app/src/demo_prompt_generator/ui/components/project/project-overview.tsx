@@ -22,7 +22,7 @@
  * never use dashed borders to mean "pending" — that reads as broken.
  */
 
-import { memo, useMemo } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import {
   Sparkles,
   ExternalLink,
@@ -32,6 +32,9 @@ import {
   BookOpen,
   Network,
   RefreshCw,
+  MessageSquare,
+  Play,
+  Maximize2,
 } from "lucide-react";
 import { ScrollArea } from "../ui/scroll-area";
 import { Button } from "../ui/button";
@@ -45,6 +48,7 @@ import {
 import { estimateBuild } from "@/lib/build-eta";
 import type { DeployedResourceLink } from "@/lib/custom-api";
 import { cn } from "@/lib/utils";
+import { useAppPreview } from "../../preview";
 
 // ---------------------------------------------------------------------------
 // Capability → display group mapping (kept stable across the redesign).
@@ -312,7 +316,7 @@ const ResourceColumn = memo(function ResourceColumn({
   const tier = widgets.length > 0 ? tierForWidget(widgets[0]) : "ingest";
   const cfg = TIER_CONFIG[tier];
   return (
-    <div className="flex flex-col">
+    <div className="flex flex-col h-full">
       <div
         className={cn(
           "text-[10px] font-bold uppercase tracking-[0.14em] pb-2 mb-2.5 border-b-2",
@@ -535,23 +539,25 @@ const HeroCard = memo(function HeroCard({
     );
   }
 
-  // ── Empty (README exists but narrative failed/empty) ──────────────────
+  // ── Empty (README exists but narrative not yet generated) ─────────────
+  // The backend auto-fires a regen on GET when this state is reached, so
+  // we show the shimmer rather than a manual button — the SSE
+  // `narrative_updated` event will fill us in.
   if (!hasNarrative && readmePresent) {
     return (
-      <div className="rounded-2xl border border-dashed border-border/60 bg-card/50 p-8 h-full flex flex-col justify-center">
-        <p className="text-[14px] text-muted-foreground max-w-2xl">
-          We haven't written the pitch yet.
-        </p>
-        {onRegenerateNarrative && (
-          <Button
-            size="sm"
-            className="mt-4 h-8 gap-1.5 text-xs self-start"
-            onClick={onRegenerateNarrative}
-          >
-            <Sparkles className="h-3.5 w-3.5" />
-            Generate pitch
-          </Button>
-        )}
+      <div className="rounded-2xl border border-border/60 bg-card p-8 h-full">
+        <div className="flex items-center gap-2 mb-4">
+          <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+          <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-muted-foreground">
+            Writing the pitch
+          </span>
+        </div>
+        <div className="space-y-3 max-w-2xl">
+          <div className="h-4 rounded bg-muted/60 animate-pulse w-[92%]" />
+          <div className="h-4 rounded bg-muted/60 animate-pulse w-[88%]" />
+          <div className="h-4 rounded bg-muted/60 animate-pulse w-[75%]" />
+          <div className="h-4 rounded bg-muted/60 animate-pulse w-[60%]" />
+        </div>
       </div>
     );
   }
@@ -567,9 +573,26 @@ const HeroCard = memo(function HeroCard({
       />
 
       <div className="relative">
-        <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-muted-foreground mb-4 inline-flex items-center gap-1.5">
-          <Sparkles className="h-3 w-3 text-primary" />
-          The pitch
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-muted-foreground inline-flex items-center gap-1.5">
+            <Sparkles className="h-3 w-3 text-primary" />
+            The pitch
+          </div>
+          {/* "Read the full story" — moved up here so the card stays
+              compact and aligns vertically with the App preview tile on
+              the right. */}
+          {readmePresent && onShowFullStory && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={onShowFullStory}
+              className="h-8 gap-1.5 text-[12px] font-medium"
+            >
+              <BookOpen className="h-3.5 w-3.5" />
+              Read the full story
+              <ChevronRight className="h-3.5 w-3.5 opacity-60" />
+            </Button>
+          )}
         </div>
 
         {/* The narrative fills the card width — no artificial max-width.
@@ -580,25 +603,6 @@ const HeroCard = memo(function HeroCard({
             <p key={i}>{para}</p>
           ))}
         </div>
-      </div>
-
-      {/* "Read the full story" — peer of the "View architecture" button
-          that lives in the resources / links section. Both share the
-          same Button variant + sizing so they read as a consistent
-          navigation language across the page. */}
-      <div className="relative mt-auto pt-6 flex flex-wrap items-center gap-2.5">
-        {readmePresent && onShowFullStory && (
-          <Button
-            variant="outline"
-            size="default"
-            onClick={onShowFullStory}
-            className="h-9 gap-1.5 text-[13px] font-medium"
-          >
-            <BookOpen className="h-4 w-4" />
-            Read the full story
-            <ChevronRight className="h-4 w-4 opacity-60" />
-          </Button>
-        )}
       </div>
 
       {/* Regenerate affordance — hover-only, top-right corner. */}
@@ -767,16 +771,306 @@ const DraftingStep = memo(function DraftingStep({
 // card. Reinforces "everything's on one platform" without screaming.
 // ===========================================================================
 
-const PlatformValueProp = memo(function PlatformValueProp() {
+// ===========================================================================
+// BuildingBanner — shown between hero and resources while the agent is
+// streaming. The pulsing orb is the focal point: long agent runs (~30min)
+// otherwise feel frozen, this signals "we're working, you can wait
+// elsewhere." Clicking the CTA opens the chat so the user can see the
+// live activity (thinking, tool calls, file writes).
+// ===========================================================================
+
+const BuildingBanner = memo(function BuildingBanner({
+  onOpenChat,
+}: {
+  onOpenChat?: () => void;
+}) {
   return (
-    <div className="mt-6 pt-5 border-t border-border/50">
+    <div className="flex items-center justify-center gap-5 px-2 py-5">
+      {/* Pulsing orb — solid primary core with two soft halo rings. */}
+      <div className="relative shrink-0 flex items-center justify-center h-16 w-16">
+        <span
+          aria-hidden
+          className="absolute inset-0 rounded-full bg-primary/25 animate-ping"
+        />
+        <span
+          aria-hidden
+          className="absolute inset-1.5 rounded-full bg-primary/35 animate-pulse"
+        />
+        <span className="relative flex h-10 w-10 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg shadow-primary/30">
+          <Sparkles className="h-5 w-5" strokeWidth={2.25} />
+        </span>
+      </div>
+
+      <div className="max-w-xl">
+        <h3 className="text-[15px] font-semibold text-foreground">
+          The AI is working for you — please wait
+        </h3>
+        <p className="mt-1 text-[13px] text-muted-foreground leading-relaxed">
+          This can take a while. You can safely close this page and come back
+          later — the build keeps running in the background.
+        </p>
+        {onOpenChat && (
+          <Button
+            size="sm"
+            className="mt-3 h-8 gap-1.5 text-xs cursor-pointer"
+            onClick={onOpenChat}
+          >
+            <MessageSquare className="h-3.5 w-3.5" />
+            Open the chat to see the activity
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+});
+
+// ===========================================================================
+// AppShowcaseCard — shown on the overview when the project has an app/
+// folder with start.sh. Two big affordances: (1) Start the preview, which
+// runs the app locally on the backend so we can demo without deploying;
+// (2) Open full-screen, which opens the proxied preview URL in a new tab.
+// Start is gated on `isStreaming` so we don't race the agent's file writes.
+// Once the preview transitions to ready, we surface a "ready to demo" toast
+// and briefly flash the Open Full-Screen button.
+// ===========================================================================
+
+// AnalystLayerBlock — replaces the "Analyst Layer" column in the resources
+// grid with a dedicated dark-blue surface. The Databricks App is the hero
+// (preview lifecycle, deploy state, big CTAs) and Lakebase sits alongside
+// as a secondary link. Purpose: make the demo-able artifact visually
+// distinct from "ingredient" capabilities like pipelines/dashboards.
+const AnalystLayerBlock = memo(function AnalystLayerBlock({
+  appWidget,
+  lakebaseWidget,
+  projectId,
+  hasApp,
+  isStreaming,
+  onShowApp,
+}: {
+  appWidget?: Widget;
+  lakebaseWidget?: Widget;
+  projectId: string;
+  hasApp: boolean;
+  isStreaming: boolean;
+  onShowApp?: () => void;
+}) {
+  const appDeployed = appWidget?.state === "live";
+  const { state, isStarting, start } = useAppPreview(projectId);
+  const previewStatus = state?.status ?? "stopped";
+  const previewReady = previewStatus === "ready";
+  const previewStarting = isStarting || previewStatus === "starting";
+  const previewDisabled =
+    isStreaming || previewStarting || previewReady || !hasApp;
+
+  const [glowOpen, setGlowOpen] = useState(false);
+  const prevReadyRef = useRef(false);
+  useEffect(() => {
+    if (previewReady && !prevReadyRef.current) {
+      setGlowOpen(true);
+      const t = window.setTimeout(() => setGlowOpen(false), 2400);
+      return () => window.clearTimeout(t);
+    }
+    prevReadyRef.current = previewReady;
+  }, [previewReady]);
+
+  // App subline reflects the build/deploy hierarchy.
+  const appSubline = !hasApp
+    ? "Not built yet"
+    : appDeployed
+    ? "Deployed"
+    : "App not deployed yet";
+
+  const previewTip = isStreaming
+    ? "Wait for the assistant to finish before starting"
+    : previewStarting
+    ? "The app is starting…"
+    : previewReady
+    ? "The app is already running"
+    : !hasApp
+    ? "App not built yet"
+    : "Run the app locally — no deployment needed";
+
+  const livePillBg = previewReady
+    ? "bg-emerald-400/15 text-emerald-300"
+    : previewStarting
+    ? "bg-amber-400/15 text-amber-200"
+    : "bg-white/10 text-white/70";
+  const livePillDot = previewReady
+    ? "bg-emerald-400"
+    : previewStarting
+    ? "bg-amber-300 animate-pulse"
+    : "bg-white/40";
+  const livePillLabel = previewReady
+    ? "Running"
+    : previewStarting
+    ? "Starting…"
+    : "Stopped";
+
+  const AppIcon = appWidget
+    ? DATABRICKS_ICONS[appWidget.meta.icon]
+    : DATABRICKS_ICONS.databricksApps;
+  const LakebaseIcon = lakebaseWidget
+    ? DATABRICKS_ICONS[lakebaseWidget.meta.icon]
+    : DATABRICKS_ICONS.lakebase;
+  const lakebaseDeployed = lakebaseWidget?.state === "live";
+
+  return (
+    <div className="flex flex-col h-full">
+      {/* Column header — same rhythm as ResourceColumn but blue accent. */}
+      <div
+        className="text-[10px] font-bold uppercase tracking-[0.14em] pb-2 mb-2.5 border-b-2 text-blue-600 dark:text-blue-300"
+        style={{ borderColor: "rgb(96, 165, 250)" }}
+      >
+        Your demo app
+      </div>
+      <section className="relative overflow-hidden rounded-xl border border-blue-400/30 bg-gradient-to-br from-blue-950 via-blue-900 to-slate-900 text-white p-3.5 flex flex-col gap-3 h-full justify-between">
+        {/* Soft glow accent */}
+        <div
+          aria-hidden
+          className="pointer-events-none absolute -top-16 -right-10 h-32 w-32 rounded-full bg-blue-400/20 blur-2xl"
+        />
+
+        {/* App hero — icon + name + state + pill */}
+        {appWidget && (
+          <div className="relative flex items-start gap-2.5">
+            <div className="shrink-0 flex items-center justify-center h-9 w-9 rounded-lg bg-blue-400/15 border border-blue-300/20">
+              <AppIcon className="h-5 w-5 text-blue-200" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-baseline justify-between gap-2">
+                <div className="text-[13px] font-semibold leading-tight text-white truncate">
+                  {appWidget.meta.display}
+                </div>
+                {hasApp && (
+                  <span
+                    className={cn(
+                      "inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded-full whitespace-nowrap",
+                      livePillBg,
+                    )}
+                  >
+                    <span
+                      className={cn("h-1.5 w-1.5 rounded-full", livePillDot)}
+                    />
+                    {livePillLabel}
+                  </span>
+                )}
+              </div>
+              <div className="mt-0.5 text-[11px] text-blue-100/80">
+                {appSubline}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Single action row — Preview / Open Preview on the left, the
+            deployed-app link (if any) and Lakebase pill on the right. The
+            row wraps on very narrow columns but most of the time it sits
+            in a single line. */}
+        <div className="relative flex flex-wrap items-center gap-1.5">
+          {hasApp && (
+            <button
+              type="button"
+              disabled={previewDisabled && !previewReady}
+              onClick={() => {
+                onShowApp?.();
+                if (!previewReady && !previewStarting) {
+                  void start();
+                }
+              }}
+              className={cn(
+                "inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[12px] font-semibold transition-colors cursor-pointer",
+                "bg-blue-400 text-blue-950 hover:bg-blue-300",
+                "disabled:opacity-40 disabled:cursor-not-allowed",
+                previewReady &&
+                  glowOpen &&
+                  "ring-2 ring-emerald-300 ring-offset-2 ring-offset-blue-950 animate-pulse",
+              )}
+              title={previewReady ? "Open the running preview" : previewTip}
+              aria-label={previewReady ? "Open the running preview" : previewTip}
+            >
+              {previewStarting ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : previewReady ? (
+                <Maximize2 className="h-3 w-3" strokeWidth={2.5} />
+              ) : (
+                <Play className="h-3 w-3" strokeWidth={2.5} />
+              )}
+              {previewStarting
+                ? "Starting…"
+                : previewReady
+                ? "Open Preview"
+                : "Preview"}
+            </button>
+          )}
+          {appDeployed && appWidget?.url && (
+            <a
+              href={appWidget.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 rounded-md px-2 py-1.5 text-[12px] font-semibold bg-white/10 text-white hover:bg-white/15 transition-colors cursor-pointer"
+              title="Open the deployed app on Databricks"
+            >
+              <ExternalLink className="h-3 w-3" strokeWidth={2.5} />
+              Open
+            </a>
+          )}
+          {/* Lakebase pushed to the right end of the row. */}
+          {lakebaseWidget && (
+            <div className="ml-auto">
+              {lakebaseDeployed && lakebaseWidget.url ? (
+                <a
+                  href={lakebaseWidget.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 text-[12px] font-semibold bg-white/10 text-white hover:bg-white/15 transition-colors cursor-pointer"
+                  title="Open Lakebase project"
+                >
+                  <LakebaseIcon className="h-3.5 w-3.5 text-blue-200" />
+                  Open Lakebase
+                </a>
+              ) : (
+                <span className="inline-flex items-center gap-1.5 text-[11px] text-blue-100/60">
+                  <LakebaseIcon className="h-3.5 w-3.5" />
+                  Lakebase pending
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+
+        {hasApp && isStreaming && !previewReady && (
+          <p className="relative text-[10.5px] text-blue-200/70 -mt-1">
+            Wait for the assistant to finish.
+          </p>
+        )}
+      </section>
+    </div>
+  );
+});
+
+const PlatformValueProp = memo(function PlatformValueProp({
+  catalogUrl,
+}: {
+  catalogUrl?: string | null;
+}) {
+  return (
+    <div className="mt-6 pt-5 border-t border-border/50 flex items-center justify-between gap-4">
       <p className="text-[12.5px] leading-relaxed text-muted-foreground">
-        <span className="font-semibold text-foreground/80">
-          All on the Databricks Data Intelligence Platform.
-        </span>{" "}
-        One workspace, one catalog, governed end-to-end — no integration glue,
-        no vendor sprawl.
+        <span className="font-semibold text-foreground/80">Unity Catalog</span>{" "}
+        — the unified governance layer, unifying Data + AI on the Databricks platform.
       </p>
+      {catalogUrl && (
+        <a
+          href={catalogUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[12.5px] font-medium bg-primary/10 text-primary border border-primary/20 hover:bg-primary/15 hover:border-primary/30 transition-colors cursor-pointer"
+        >
+          <DATABRICKS_ICONS.unityCatalog className="h-3.5 w-3.5" />
+          Access Data in Unity Catalog
+          <ExternalLink className="h-3 w-3" />
+        </a>
+      )}
     </div>
   );
 });
@@ -786,6 +1080,7 @@ const PlatformValueProp = memo(function PlatformValueProp() {
 // ===========================================================================
 
 export interface ProjectOverviewProps {
+  projectId: string;
   projectDescription?: string | null;
   projectNarrative?: string | null;
   isGeneratingNarrative?: boolean;
@@ -796,6 +1091,7 @@ export interface ProjectOverviewProps {
   readmeContent?: string | null;
   hasReadme: boolean;
   hasArchitecture?: boolean;
+  hasApp?: boolean;
   /** Currently unused on the Overview itself, but kept on the interface
    *  for parent symmetry with the FileViewer wiring. */
   hasSpecifications?: boolean;
@@ -803,11 +1099,13 @@ export interface ProjectOverviewProps {
   onOpenChat?: () => void;
   onShowFullStory?: () => void;
   onShowArchitecture?: () => void;
+  onShowApp?: () => void;
   /** Kept for future re-introduction of a manual description editor. */
   onEditDescription?: () => void;
 }
 
 export const ProjectOverview = memo(function ProjectOverview({
+  projectId,
   projectNarrative,
   isGeneratingNarrative = false,
   onRegenerateNarrative,
@@ -816,10 +1114,12 @@ export const ProjectOverview = memo(function ProjectOverview({
   deployedExtractionError,
   hasReadme,
   hasArchitecture = false,
+  hasApp = false,
   isStreaming,
   onOpenChat,
   onShowFullStory,
   onShowArchitecture,
+  onShowApp,
 }: ProjectOverviewProps) {
   const buildable = capabilities?.buildable ?? [];
   const deployed = deployedResources ?? [];
@@ -837,11 +1137,13 @@ export const ProjectOverview = memo(function ProjectOverview({
   // hierarchy so the page reads left-to-right (pipelines → AI →
   // analysis → analyst → foundation).
   const widgetsByGroup = useMemo(() => {
+    // Analyst Layer (App + Lakebase) is rendered as a separate dark-blue
+    // hero block, NOT a column in the grid. Drop it from the column list
+    // so we don't show the App/Lakebase widgets twice.
     const order: DisplayGroup[] = [
       "Data Pipelines",
       "AI",
       "Data Analysis",
-      "Analyst Layer",
       "Foundation",
     ];
     const grouped: Array<{ group: DisplayGroup; widgets: Widget[] }> = [];
@@ -851,6 +1153,17 @@ export const ProjectOverview = memo(function ProjectOverview({
     }
     return grouped;
   }, [widgets]);
+
+  // Analyst Layer widgets — extracted for the dedicated app+lakebase block.
+  const appWidget = useMemo(
+    () => widgets.find((w) => w.slug === "databricks-apps"),
+    [widgets],
+  );
+  const lakebaseWidget = useMemo(
+    () => widgets.find((w) => w.slug === "lakebase"),
+    [widgets],
+  );
+  const hasAnalystBlock = !!(appWidget || lakebaseWidget);
 
   // No README yet → show the 3-step "what's coming" drafting view. The
   // hero + status + resources grid would all be empty in this state and
@@ -872,9 +1185,7 @@ export const ProjectOverview = memo(function ProjectOverview({
     <ScrollArea className="flex-1">
       <div className="px-8 py-7 space-y-6 max-w-[1180px] mx-auto">
         {/* ────────────────────────────────────────────────────────────
-            Hero — full-width narrative. Status lives in the page header
-            now (as a pill next to the project title), so the hero just
-            tells the story.
+            Hero — full-width pitch.
             ──────────────────────────────────────────────────────────── */}
         <HeroCard
           narrative={projectNarrative ?? null}
@@ -884,6 +1195,14 @@ export const ProjectOverview = memo(function ProjectOverview({
           onRegenerateNarrative={onRegenerateNarrative}
           onOpenChat={onOpenChat}
         />
+
+        {/* Live-build banner — only shown when the agent is streaming AND
+            we still have resources left to build. Once everything is
+            "ready" the banner would be misleading (the deploy is done,
+            even if the agent is still e.g. writing follow-up docs). */}
+        {isStreaming && liveCount < totalCount && (
+          <BuildingBanner onOpenChat={onOpenChat} />
+        )}
 
         {/* Extraction-error notice (rare) */}
         {deployedExtractionError && (
@@ -898,7 +1217,7 @@ export const ProjectOverview = memo(function ProjectOverview({
         )}
 
         {/* ────────────────────────────────────────────────────────────
-            Resources — column-per-category layout.
+            Resources — column-per-category layout (full width like the pitch).
             ──────────────────────────────────────────────────────────── */}
         {hasAnyResources && (
           <section className="rounded-2xl border border-border/60 bg-card p-7">
@@ -931,7 +1250,10 @@ export const ProjectOverview = memo(function ProjectOverview({
             <div
               className="grid gap-x-5 gap-y-6"
               style={{
-                gridTemplateColumns: `repeat(${Math.min(widgetsByGroup.length, 5)}, minmax(220px, 1fr))`,
+                gridTemplateColumns: `repeat(${Math.min(
+                  widgetsByGroup.length + (hasAnalystBlock ? 1 : 0),
+                  5,
+                )}, minmax(220px, 1fr))`,
               }}
             >
               {widgetsByGroup.map(({ group, widgets: groupWidgets }) => (
@@ -941,10 +1263,26 @@ export const ProjectOverview = memo(function ProjectOverview({
                   widgets={groupWidgets}
                 />
               ))}
+              {hasAnalystBlock && (
+                <AnalystLayerBlock
+                  appWidget={appWidget}
+                  lakebaseWidget={lakebaseWidget}
+                  projectId={projectId}
+                  hasApp={hasApp}
+                  isStreaming={isStreaming}
+                  onShowApp={onShowApp}
+                />
+              )}
             </div>
-            <PlatformValueProp />
+            <PlatformValueProp
+              catalogUrl={
+                deployed.find((r) => r.resource_type === "catalog_explorer")
+                  ?.url ?? null
+              }
+            />
           </section>
         )}
+
       </div>
     </ScrollArea>
   );
