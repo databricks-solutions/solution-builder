@@ -6,15 +6,15 @@
 import React, { memo, useState, useMemo, useEffect, lazy, Suspense } from "react";
 import { ScrollArea } from "../ui/scroll-area";
 import { Prose } from "../markdown-prose";
-import { DemoOverviewCard } from "./demo-overview-card";
+import { ProjectOverview } from "./project-overview";
 import { Skeleton } from "../ui/skeleton";
-import { ChevronRight, ChevronDown, ChevronLeft, Folder, FolderOpen, FileText, FileCode, Braces, Settings, File, Sparkles, RefreshCw, Network, Database, Eye, EyeOff, Code, Server, Boxes, Globe } from "lucide-react";
+import { ChevronRight, ChevronDown, ChevronLeft, Folder, FolderOpen, FileText, FileCode, Braces, Settings, File, Sparkles, RefreshCw, Network, BookOpen, Database, Eye, EyeOff, Code, Globe, Loader2, Server, Boxes } from "lucide-react";
 import { Button } from "../ui/button";
 import type { ProjectFile, ProjectFileContent, DeployedResourceLink } from "../../lib/custom-api";
 import { AppPreviewTab } from "../../preview";
 import { cn } from "../../lib/utils";
 
-// Lazy load the architecture diagram to avoid loading ReactFlow on every page
+// Lazy load the architecture diagram (heavy — ReactFlow)
 const ArchitectureDiagram = lazy(() => import("./architecture-diagram"));
 
 // Lazy load Monaco editor for code files
@@ -24,7 +24,14 @@ const CodeViewer = lazy(() => import("./code-viewer").then(m => ({ default: m.Co
 // Types
 // ---------------------------------------------------------------------------
 
-type ViewTab = "readme" | "architecture" | "app" | "files";
+// Top-level sections. Each one is purposely single-job so the user
+// always knows what they're looking at:
+//   overview     → marketecture grid + status banner + story preview
+//   story        → README rendered as prose
+//   architecture → the diagram, full-bleed
+//   app          → live preview of the generated Databricks App
+//   files        → raw file tree + content viewer
+type ViewTab = "overview" | "story" | "architecture" | "app" | "files";
 
 interface ResourcesInfo {
   warehouseName?: string | null;
@@ -34,11 +41,30 @@ interface ResourcesInfo {
 
 interface FileViewerProps {
   projectId: string;
+  /** Project description — used as the elevator pitch fallback when no
+   *  README exists yet (otherwise we extract a paragraph from the README). */
+  projectDescription?: string | null;
+  /** LLM-generated 1-2 paragraph storytelling narrative — the primary
+   *  source for the Overview hero. Distinct from `description`. */
+  projectNarrative?: string | null;
+  /** True while the backend is generating a narrative — drives the
+   *  shimmer/skeleton state on the hero. */
+  isGeneratingNarrative?: boolean;
+  /** Trigger a regenerate of the narrative from the current README. */
+  onRegenerateNarrative?: () => void;
   files: ProjectFile[];
   selectedFile: string | null;
   fileContent: ProjectFileContent | null;
+  /** README.md content for the overview's "About this demo" expander.
+   *  Loaded by the parent and passed through so we don't double-fetch. */
+  readmeContent?: string | null;
   onSelectFile: (path: string) => void;
   onSkillsClick?: () => void;
+  /** Click handler for the empty-state CTA on the overview ("Start with the
+   *  assistant"). When chat is collapsed, this should expand it. */
+  onOpenChat?: () => void;
+  /** Opens the DescriptionEditDialog from the Overview hero. */
+  onEditDescription?: () => void;
   /** Toggle for "show hidden files" in the file tree. Hidden files
    *  (`.databrickscfg`, `.claude/skills/`, `.preview.pgid`) are filtered
    *  out by default so the everyday user doesn't see them. SAs flip
@@ -61,9 +87,9 @@ interface FileViewerProps {
   onResourcesClick?: () => void;
   deployedResources?: DeployedResourceLink[];
   deployedExtractionError?: string | null;
-  /** Parsed from the project's `resources.json` — drives the DemoOverviewCard
-   *  shown above the README. The card joins these slugs against
-   *  deployedResources to flip pills from pending → live. */
+  /** Parsed from the project's `resources.json` — drives the marketecture
+   *  grid on the Overview tab. ProjectOverview joins these slugs against
+   *  deployedResources to flip widgets from pending → live. */
   capabilities?: { buildable: string[]; talking_track: string[] } | null;
   /** Wire auto-fix-from-logs on the App tab. Without this, the toggle is hidden. */
   onAutoFixSend?: (message: string) => void;
@@ -77,6 +103,137 @@ interface TreeNode {
   file?: ProjectFile;
   children: Map<string, TreeNode>;
 }
+
+// ---------------------------------------------------------------------------
+// Story view — README rendered full-width as prose.
+// ---------------------------------------------------------------------------
+
+/** Strip leading YAML frontmatter (between `---` fences) from markdown.
+ *  Otherwise the renderer treats the closing `---` as a horizontal rule
+ *  and the first thing the user sees is a meaningless divider. */
+function stripFrontmatter(markdown: string): string {
+  if (!markdown.startsWith("---")) return markdown;
+  const lines = markdown.split("\n");
+  if (lines[0].trim() !== "---") return markdown;
+  for (let i = 1; i < lines.length; i++) {
+    if (lines[i].trim() === "---") {
+      return lines.slice(i + 1).join("\n").replace(/^\n+/, "");
+    }
+  }
+  return markdown;
+}
+
+interface StoryViewProps {
+  readmeContent: string | null;
+  isStreaming: boolean;
+}
+
+const StoryView = memo(function StoryView({ readmeContent, isStreaming }: StoryViewProps) {
+  if (!readmeContent) {
+    return (
+      <div className="flex-1 flex items-center justify-center">
+        <div className="text-center text-muted-foreground max-w-md px-4">
+          {isStreaming ? (
+            <>
+              <Loader2 className="h-8 w-8 animate-spin mx-auto mb-3 text-primary" />
+              <p className="text-sm">Writing the story...</p>
+            </>
+          ) : (
+            <>
+              <BookOpen className="h-10 w-10 mx-auto mb-3 opacity-40" />
+              <p className="text-sm">No story yet.</p>
+              <p className="text-xs mt-1">
+                Describe your demo to the assistant — it'll draft a story here.
+              </p>
+            </>
+          )}
+        </div>
+      </div>
+    );
+  }
+  const body = stripFrontmatter(readmeContent);
+  return (
+    <ScrollArea className="flex-1">
+      <div className="px-6 py-6 max-w-3xl mx-auto">
+        <div className="mb-5 pb-3 border-b border-border/50 flex items-center gap-2">
+          <BookOpen className="h-4 w-4 text-muted-foreground" />
+          <h2 className="text-[11px] font-bold uppercase tracking-[0.16em] text-muted-foreground">
+            The story
+          </h2>
+        </div>
+        <Prose>{body}</Prose>
+      </div>
+    </ScrollArea>
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Architecture view — full-bleed diagram (heavy ReactFlow component).
+// ---------------------------------------------------------------------------
+
+interface ArchitectureViewProps {
+  architectureContent: string | null;
+  hasArchitecture: boolean;
+  isCreatingArchitecture: boolean;
+  isStreaming: boolean;
+  onArchitectureConnectionCreated?: (from: string, to: string) => void;
+}
+
+const ArchitectureView = memo(function ArchitectureView({
+  architectureContent,
+  hasArchitecture,
+  isCreatingArchitecture,
+  isStreaming,
+  onArchitectureConnectionCreated,
+}: ArchitectureViewProps) {
+  if (isCreatingArchitecture) {
+    return (
+      <div className="flex-1 flex items-center justify-center">
+        <div className="text-center text-muted-foreground">
+          <Loader2 className="h-8 w-8 animate-spin mx-auto mb-3 text-primary" />
+          <p className="text-sm font-medium">Creating your architecture...</p>
+          <p className="text-xs mt-1">The agent is generating the diagram schema</p>
+        </div>
+      </div>
+    );
+  }
+  if (hasArchitecture && architectureContent) {
+    return (
+      <Suspense
+        fallback={
+          <div className="flex-1 flex items-center justify-center">
+            <Loader2 className="h-6 w-6 animate-spin text-primary" />
+          </div>
+        }
+      >
+        <ArchitectureDiagram
+          content={architectureContent}
+          onConnectionCreated={onArchitectureConnectionCreated}
+        />
+      </Suspense>
+    );
+  }
+  if (isStreaming) {
+    return (
+      <div className="flex-1 flex items-center justify-center">
+        <div className="text-center text-muted-foreground">
+          <Loader2 className="h-8 w-8 animate-spin mx-auto mb-3 text-primary" />
+          <p className="text-sm font-medium">Please wait while the agent is working...</p>
+          <p className="text-xs mt-1">The architecture will be generated once the current task completes</p>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="flex-1 flex items-center justify-center">
+      <div className="text-center text-muted-foreground">
+        <Network className="h-12 w-12 mx-auto mb-3 opacity-50" />
+        <p className="text-sm">No architecture diagram yet</p>
+        <p className="text-xs mt-1">Generating automatically...</p>
+      </div>
+    </div>
+  );
+});
 
 // ---------------------------------------------------------------------------
 // Tree Building
@@ -295,120 +452,7 @@ const FileTree = memo(function FileTree({
 });
 
 // ---------------------------------------------------------------------------
-// Collapsed Sidebar
-// ---------------------------------------------------------------------------
-
-interface CollapsedSidebarProps {
-  fileCount: number;
-  onExpand: () => void;
-  onSkillsClick?: () => void;
-  showHidden?: boolean;
-  onToggleShowHidden?: () => void;
-  onRefresh?: () => void;
-  activeTab: ViewTab;
-}
-
-const CollapsedSidebar = memo(function CollapsedSidebar({
-  fileCount,
-  onExpand,
-  onSkillsClick,
-  showHidden,
-  onToggleShowHidden,
-  onRefresh,
-  activeTab,
-}: CollapsedSidebarProps) {
-  // Get label based on active tab
-  const tabLabel =
-    activeTab === "readme"
-      ? "Summary"
-      : activeTab === "architecture"
-        ? "Architecture"
-        : activeTab === "app"
-          ? "App"
-          : "Files";
-
-  return (
-    <div className="w-12 h-full shrink-0 border-r border-border bg-muted/30 flex flex-col items-center pt-2 pb-2">
-      {/* Expand area */}
-      <div
-        className="flex flex-col items-center cursor-pointer hover:bg-muted/50 transition-colors rounded px-1 py-1"
-        onClick={onExpand}
-      >
-        {/* Vertical tab name text */}
-        <div
-          className="text-xs font-medium text-muted-foreground tracking-wider"
-          style={{ writingMode: "vertical-rl", textOrientation: "mixed" }}
-        >
-          {tabLabel}
-        </div>
-
-        {/* File count */}
-        <div className="flex flex-col items-center gap-0.5 mt-3">
-          <FileText className="h-4 w-4 text-muted-foreground" />
-          <span className="text-xs text-muted-foreground font-medium">
-            {fileCount}
-          </span>
-        </div>
-
-        {/* Expand arrow */}
-        <div className="mt-1">
-          <ChevronRight className="h-4 w-4 text-muted-foreground" />
-        </div>
-      </div>
-
-      {/* Spacer */}
-      <div className="flex-1" />
-
-      {/* Bottom buttons */}
-      <div className="flex flex-col items-center gap-1.5">
-        {/* Refresh button */}
-        {onRefresh && (
-          <button
-            onClick={onRefresh}
-            className="flex flex-col items-center gap-0.5 p-1.5 rounded hover:bg-muted/50 transition-colors cursor-pointer"
-            title="Refresh files"
-          >
-            <RefreshCw className="h-4 w-4 text-foreground/70" />
-            <span className="text-xs text-foreground/70 font-medium">Refresh</span>
-          </button>
-        )}
-
-        {/* Skills button */}
-        {onSkillsClick && (
-          <button
-            onClick={onSkillsClick}
-            className="flex flex-col items-center gap-0.5 p-1.5 rounded hover:bg-muted/50 transition-colors cursor-pointer"
-            title="Skills"
-          >
-            <Sparkles className="h-4 w-4 text-foreground/70" />
-            <span className="text-xs text-foreground/70 font-medium">Skills</span>
-          </button>
-        )}
-
-        {/* Show hidden files toggle — small, dim by default. When ON,
-             the file tree includes `.databrickscfg`, `.claude/skills/`,
-             etc. so SAs can debug deployed-mode auth shape. */}
-        {onToggleShowHidden && (
-          <button
-            onClick={onToggleShowHidden}
-            className={cn(
-              "flex flex-col items-center gap-0.5 p-1.5 rounded hover:bg-muted/50 transition-colors cursor-pointer",
-              showHidden ? "opacity-100 text-amber-600 dark:text-amber-400" : "opacity-60 hover:opacity-100",
-            )}
-            title={showHidden ? "Hide system files" : "Show all files (incl. hidden)"}
-            aria-label="Toggle hidden files"
-            aria-pressed={!!showHidden}
-          >
-            <EyeOff className="h-3.5 w-3.5" />
-          </button>
-        )}
-      </div>
-    </div>
-  );
-});
-
-// ---------------------------------------------------------------------------
-// Expanded Sidebar
+// Expanded Sidebar (Files tab only)
 // ---------------------------------------------------------------------------
 
 interface ExpandedSidebarProps {
@@ -420,6 +464,8 @@ interface ExpandedSidebarProps {
   showHidden?: boolean;
   onToggleShowHidden?: () => void;
   onRefresh?: () => void;
+  resources?: ResourcesInfo;
+  onResourcesClick?: () => void;
 }
 
 const ExpandedSidebar = memo(function ExpandedSidebar({
@@ -431,7 +477,12 @@ const ExpandedSidebar = memo(function ExpandedSidebar({
   showHidden,
   onToggleShowHidden,
   onRefresh,
+  resources,
+  onResourcesClick,
 }: ExpandedSidebarProps) {
+  const hasUC = !!(resources?.catalog || resources?.schema);
+  const hasWarehouse = !!resources?.warehouseName;
+
   return (
     <div className="w-64 h-full shrink-0 border-r border-border bg-muted/30 flex flex-col">
       {/* Header with collapse button - entire row is clickable */}
@@ -446,6 +497,39 @@ const ExpandedSidebar = memo(function ExpandedSidebar({
         </div>
         <ChevronLeft className="h-4 w-4 text-muted-foreground" />
       </div>
+
+      {/* Workspace section — catalog/schema/warehouse defaults. Tucked at
+          the top of the Files sidebar (advanced view) since this is
+          technical context AEs/SAs check when debugging deployments. */}
+      {(hasUC || hasWarehouse) && (
+        <div className="px-2.5 py-2 border-b border-border space-y-1.5">
+          <div className="text-[9px] font-bold uppercase tracking-[0.14em] text-muted-foreground/70 px-1">
+            Workspace
+          </div>
+          {hasUC && (
+            <button
+              onClick={onResourcesClick}
+              className="w-full flex items-center gap-1.5 px-1.5 py-1 rounded text-[12px] text-foreground/80 hover:bg-muted/60 transition-colors text-left"
+              title="Edit workspace defaults"
+            >
+              <Boxes className="h-3 w-3 shrink-0 text-muted-foreground" />
+              <span className="font-mono truncate">
+                {resources?.catalog || "default"}.{resources?.schema || "default"}
+              </span>
+            </button>
+          )}
+          {hasWarehouse && (
+            <button
+              onClick={onResourcesClick}
+              className="w-full flex items-center gap-1.5 px-1.5 py-1 rounded text-[12px] text-foreground/80 hover:bg-muted/60 transition-colors text-left"
+              title="Edit workspace defaults"
+            >
+              <Server className="h-3 w-3 shrink-0 text-muted-foreground" />
+              <span className="truncate">{resources?.warehouseName}</span>
+            </button>
+          )}
+        </div>
+      )}
 
       {/* File tree */}
       <ScrollArea className="flex-1">
@@ -517,8 +601,6 @@ const ExpandedSidebar = memo(function ExpandedSidebar({
 interface TabBarProps {
   activeTab: ViewTab;
   onTabChange: (tab: ViewTab) => void;
-  resources?: ResourcesInfo;
-  onResourcesClick?: () => void;
   hasReadme: boolean;
   hasArchitecture: boolean;
   hasApp: boolean;
@@ -557,33 +639,41 @@ function TabIcon({ Icon, showDot }: TabIconProps) {
 const TabBar = memo(function TabBar({
   activeTab,
   onTabChange,
-  resources,
-  onResourcesClick,
   hasReadme,
   hasArchitecture,
   hasApp,
 }: TabBarProps) {
   return (
     <div className="shrink-0 border-b border-border bg-muted/30">
-      <div className="flex items-center justify-between px-4 py-2">
-        {/* Left side: Tabs */}
-        <div className="flex items-center gap-1 bg-muted/50 rounded-md p-0.5" role="tablist" aria-label="File viewer tabs">
+      <div className="flex items-center px-4 py-2">
+        <div className="flex items-center gap-1 bg-muted/50 rounded-md p-0.5" role="tablist" aria-label="View tabs">
           <button
             role="tab"
-            aria-selected={activeTab === "readme"}
-            onClick={() => onTabChange("readme")}
-            title={hasReadme ? "Summary (generated)" : "Summary"}
-            className={tabClasses(activeTab === "readme", hasReadme)}
+            aria-selected={activeTab === "overview"}
+            onClick={() => onTabChange("overview")}
+            title="Project overview"
+            className={tabClasses(activeTab === "overview", true)}
           >
-            <TabIcon Icon={FileText} showDot={hasReadme && activeTab !== "readme"} />
-            Summary
+            <TabIcon Icon={Sparkles} showDot={false} />
+            Overview
+          </button>
+
+          <button
+            role="tab"
+            aria-selected={activeTab === "story"}
+            onClick={() => onTabChange("story")}
+            title={hasReadme ? "Demo story (README)" : "Story (no README yet)"}
+            className={tabClasses(activeTab === "story", hasReadme)}
+          >
+            <TabIcon Icon={BookOpen} showDot={hasReadme && activeTab !== "story"} />
+            Story
           </button>
 
           <button
             role="tab"
             aria-selected={activeTab === "architecture"}
             onClick={() => onTabChange("architecture")}
-            title={hasArchitecture ? "Architecture (generated)" : "Architecture"}
+            title={hasArchitecture ? "Architecture diagram" : "Architecture (not yet generated)"}
             className={tabClasses(activeTab === "architecture", hasArchitecture)}
           >
             <TabIcon Icon={Network} showDot={hasArchitecture && activeTab !== "architecture"} />
@@ -600,35 +690,18 @@ const TabBar = memo(function TabBar({
             <TabIcon Icon={Globe} showDot={hasApp && activeTab !== "app"} />
             App
           </button>
-        </div>
 
-        {/* Right side: Resource pills */}
-        {resources && (
-          <div className="flex items-center gap-2">
-            {resources.warehouseName && (
-              <button
-                onClick={onResourcesClick}
-                className="flex items-center gap-1.5 text-sm bg-muted hover:bg-muted/80 rounded-md px-2.5 py-1 transition-colors cursor-pointer"
-                title={`Warehouse: ${resources.warehouseName}`}
-              >
-                <Server className="h-3.5 w-3.5 text-muted-foreground" />
-                <span className="truncate max-w-[150px]">{resources.warehouseName}</span>
-              </button>
-            )}
-            {(resources.catalog || resources.schema) && (
-              <button
-                onClick={onResourcesClick}
-                className="flex items-center gap-1.5 text-sm bg-muted hover:bg-muted/80 rounded-md px-2.5 py-1 transition-colors cursor-pointer"
-                title={`${resources.catalog || "default"}.${resources.schema || "default"}`}
-              >
-                <Boxes className="h-3.5 w-3.5 text-muted-foreground" />
-                <span className="truncate max-w-[200px]">
-                  {resources.catalog || "default"}.{resources.schema || "default"}
-                </span>
-              </button>
-            )}
-          </div>
-        )}
+          <button
+            role="tab"
+            aria-selected={activeTab === "files"}
+            onClick={() => onTabChange("files")}
+            title="Project files"
+            className={tabClasses(activeTab === "files", true)}
+          >
+            <TabIcon Icon={FileText} showDot={false} />
+            Files
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -640,11 +713,18 @@ const TabBar = memo(function TabBar({
 
 export const FileViewer = memo(function FileViewer({
   projectId,
+  projectDescription,
+  projectNarrative,
+  isGeneratingNarrative,
+  onRegenerateNarrative,
   files,
   selectedFile,
   fileContent,
+  readmeContent,
   onSelectFile,
   onSkillsClick,
+  onOpenChat,
+  onEditDescription,
   showHidden,
   onToggleShowHidden,
   onRefresh,
@@ -663,20 +743,14 @@ export const FileViewer = memo(function FileViewer({
   onAutoFixSend,
   autoFixApiRef,
 }: FileViewerProps) {
-  const [isSidebarExpanded, setIsSidebarExpanded] = useState(false);
-  const [activeTab, setActiveTab] = useState<ViewTab>("readme");
+  const [activeTab, setActiveTab] = useState<ViewTab>("overview");
   const [showRaw, setShowRaw] = useState(false);
 
-  // Check if README.md exists
-  const hasReadme = useMemo(
-    () => files.some((f) => f.path === "README.md"),
-    [files]
-  );
-
-  // Check if architecture.md exists
-  const hasArchitecture = useMemo(
-    () => files.some((f) => f.path === "architecture.md"),
-    [files]
+  const hasReadme = useMemo(() => files.some((f) => f.path === "README.md"), [files]);
+  const hasArchitecture = useMemo(() => files.some((f) => f.path === "architecture.md"), [files]);
+  const hasSpecifications = useMemo(
+    () => files.some((f) => f.path.startsWith("specifications/")),
+    [files],
   );
 
   // Check if a runnable local app exists. Mirrors the backend's
@@ -686,30 +760,26 @@ export const FileViewer = memo(function FileViewer({
     [files]
   );
 
-  // Load architecture content when tab changes (if file exists)
+  // Lazy-load architecture content when the Architecture tab is opened.
   useEffect(() => {
     if (activeTab === "architecture" && hasArchitecture && onLoadArchitecture) {
       onLoadArchitecture();
     }
   }, [activeTab, hasArchitecture, onLoadArchitecture]);
 
-  // Trigger architecture creation when tab is selected but file doesn't exist
-  // Only trigger if not already streaming (agent might be working on something else)
+  // Auto-trigger generation if the user opens the Architecture tab and
+  // no diagram exists yet (and the agent is idle so we don't stomp work).
   useEffect(() => {
-    if (activeTab === "architecture" && !hasArchitecture && !isCreatingArchitecture && !isStreaming && onCreateArchitecture) {
+    if (
+      activeTab === "architecture" &&
+      !hasArchitecture &&
+      !isCreatingArchitecture &&
+      !isStreaming &&
+      onCreateArchitecture
+    ) {
       onCreateArchitecture();
     }
   }, [activeTab, hasArchitecture, isCreatingArchitecture, isStreaming, onCreateArchitecture]);
-
-  // Auto-select README.md when switching to readme tab
-  useEffect(() => {
-    if (activeTab === "readme" && selectedFile !== "README.md") {
-      const hasReadme = files.some((f) => f.path === "README.md");
-      if (hasReadme) {
-        onSelectFile("README.md");
-      }
-    }
-  }, [activeTab, files, selectedFile, onSelectFile]);
 
   // Check if file is renderable (markdown, HTML, or PDF)
   const isMarkdown = selectedFile?.endsWith(".md");
@@ -722,182 +792,80 @@ export const FileViewer = memo(function FileViewer({
     setShowRaw(false);
   }, [selectedFile]);
 
-  // Handle tab change
   const handleTabChange = (tab: ViewTab) => {
     setActiveTab(tab);
-    if (tab === "readme") {
-      onSelectFile("README.md");
-    } else if (tab === "architecture") {
-      onSelectFile("architecture.md");
-    } else if (tab === "files") {
-      setIsSidebarExpanded(true);
-    }
   };
 
   return (
     <div className="flex flex-col h-full">
-      {/* Tab bar */}
       <TabBar
         activeTab={activeTab}
         onTabChange={handleTabChange}
-        resources={resources}
-        onResourcesClick={onResourcesClick}
         hasReadme={hasReadme}
         hasArchitecture={hasArchitecture}
         hasApp={hasApp}
       />
 
-      {/* The merged products + deployed-resources card lives inside the
-          README/Summary view below — not as a floating bar here. See the
-          ScrollArea render path further down. */}
-
-      {/* Content area */}
       <div className="flex flex-1 min-h-0">
-        {/* Collapsible sidebar - only show in files tab or when explicitly expanded */}
-        {(activeTab === "files" || isSidebarExpanded) && (
-          <div
-            className="shrink-0 transition-all duration-200 ease-in-out overflow-hidden"
-            style={{ width: isSidebarExpanded ? "256px" : "48px" }}
-          >
-            {isSidebarExpanded ? (
-              <ExpandedSidebar
-                files={files}
-                selectedFile={selectedFile}
-                onSelectFile={(path) => {
-                  onSelectFile(path);
-                  // If selecting a file directly, switch to files tab
-                  if (activeTab !== "files") {
-                    setActiveTab("files");
-                  }
-                }}
-                onCollapse={() => setIsSidebarExpanded(false)}
-                onSkillsClick={onSkillsClick}
-                showHidden={showHidden}
-                onToggleShowHidden={onToggleShowHidden}
-                onRefresh={onRefresh}
-              />
-            ) : (
-              <CollapsedSidebar
-                fileCount={files.length}
-                onExpand={() => setIsSidebarExpanded(true)}
-                onSkillsClick={onSkillsClick}
-                showHidden={showHidden}
-                onToggleShowHidden={onToggleShowHidden}
-                onRefresh={onRefresh}
-                activeTab={activeTab}
-              />
-            )}
+        {/* Files-tab-only sidebar (kept simple — files tab shows tree + content) */}
+        {activeTab === "files" && (
+          <div className="shrink-0 overflow-hidden" style={{ width: "256px" }}>
+            <ExpandedSidebar
+              files={files}
+              selectedFile={selectedFile}
+              onSelectFile={onSelectFile}
+              onCollapse={() => setActiveTab("overview")}
+              onSkillsClick={onSkillsClick}
+              showHidden={showHidden}
+              onToggleShowHidden={onToggleShowHidden}
+              onRefresh={onRefresh}
+              resources={resources}
+              onResourcesClick={onResourcesClick}
+            />
           </div>
         )}
 
-        {/* Collapsed sidebar for non-files tabs */}
-        {activeTab !== "files" && !isSidebarExpanded && (
-          <CollapsedSidebar
-            fileCount={files.length}
-            onExpand={() => setIsSidebarExpanded(true)}
-            onSkillsClick={onSkillsClick}
-            showHidden={showHidden}
-            onToggleShowHidden={onToggleShowHidden}
-            onRefresh={onRefresh}
-            activeTab={activeTab}
-          />
-        )}
-
-        {/* File content */}
+        {/* Main content */}
         <div className="flex-1 flex flex-col min-w-0">
-          {/* App tab — full-height, isolated preview module */}
-          {activeTab === "app" ? (
+          {activeTab === "overview" ? (
+            <ProjectOverview
+              projectDescription={projectDescription ?? null}
+              projectNarrative={projectNarrative ?? null}
+              isGeneratingNarrative={isGeneratingNarrative ?? false}
+              onRegenerateNarrative={onRegenerateNarrative}
+              capabilities={capabilities ?? null}
+              deployedResources={deployedResources}
+              deployedExtractionError={deployedExtractionError}
+              readmeContent={readmeContent ?? null}
+              hasReadme={hasReadme}
+              hasArchitecture={hasArchitecture}
+              hasSpecifications={hasSpecifications}
+              isStreaming={isStreaming}
+              onOpenChat={onOpenChat}
+              onShowFullStory={() => setActiveTab("story")}
+              onShowArchitecture={() => setActiveTab("architecture")}
+              onEditDescription={onEditDescription}
+            />
+          ) : activeTab === "story" ? (
+            <StoryView
+              readmeContent={readmeContent ?? null}
+              isStreaming={isStreaming}
+            />
+          ) : activeTab === "architecture" ? (
+            <ArchitectureView
+              architectureContent={architectureContent ?? null}
+              hasArchitecture={hasArchitecture}
+              isCreatingArchitecture={isCreatingArchitecture}
+              isStreaming={isStreaming}
+              onArchitectureConnectionCreated={onArchitectureConnectionCreated}
+            />
+          ) : activeTab === "app" ? (
             <AppPreviewTab
               projectId={projectId}
               onAutoFixSend={onAutoFixSend}
               isStreaming={isStreaming}
               autoFixApiRef={autoFixApiRef}
             />
-          ) : activeTab === "architecture" && isCreatingArchitecture ? (
-            <div className="flex-1 flex items-center justify-center">
-              <div className="text-center text-muted-foreground">
-                <div className="animate-spin h-8 w-8 border-2 border-primary border-t-transparent rounded-full mx-auto mb-3" />
-                <p className="text-sm font-medium">Creating your architecture...</p>
-                <p className="text-xs mt-1">The agent is generating the diagram schema</p>
-              </div>
-            </div>
-          ) : activeTab === "architecture" && architectureContent ? (
-            <Suspense fallback={
-              <div className="flex-1 flex items-center justify-center">
-                <div className="text-center text-muted-foreground">
-                  <div className="animate-spin h-8 w-8 border-2 border-primary border-t-transparent rounded-full mx-auto mb-3" />
-                  <p className="text-sm">Loading architecture diagram...</p>
-                </div>
-              </div>
-            }>
-              <ArchitectureDiagram content={architectureContent} onConnectionCreated={onArchitectureConnectionCreated} />
-            </Suspense>
-          ) : activeTab === "architecture" && !hasArchitecture && isStreaming ? (
-            <div className="flex-1 flex items-center justify-center">
-              <div className="text-center text-muted-foreground">
-                <div className="animate-spin h-8 w-8 border-2 border-primary border-t-transparent rounded-full mx-auto mb-3" />
-                <p className="text-sm font-medium">Please wait while your agent is working...</p>
-                <p className="text-xs mt-1">The architecture will be generated once the current task completes</p>
-              </div>
-            </div>
-          ) : activeTab === "architecture" && !hasArchitecture ? (
-            <div className="flex-1 flex items-center justify-center">
-              <div className="text-center text-muted-foreground">
-                <Network className="h-12 w-12 mx-auto mb-3 opacity-50" />
-                <p className="text-sm">No architecture diagram yet</p>
-                <p className="text-xs mt-1">Generating automatically...</p>
-              </div>
-            </div>
-          ) : activeTab === "readme" && !hasReadme && !isStreaming ? (
-            <div className="flex-1 flex items-center justify-center">
-              <div className="text-center text-muted-foreground max-w-md px-4">
-                <Sparkles className="h-10 w-10 mx-auto mb-3 text-primary/40" />
-                <p className="text-sm">Describe your demo to the assistant and press enter to get started.</p>
-              </div>
-            </div>
-          ) : activeTab === "readme" && !hasReadme && isStreaming ? (
-            <div className="flex-1 flex items-center justify-center p-8">
-              <div className="text-left max-w-2xl w-full">
-                <div className="flex items-center gap-3 mb-4">
-                  <div className="animate-spin h-6 w-6 border-2 border-primary border-t-transparent rounded-full flex-shrink-0" />
-                  <h2 className="text-lg font-semibold text-foreground">Your project is being crafted...</h2>
-                </div>
-                <p className="text-[17px] text-muted-foreground mb-8 leading-relaxed">
-                  The assistant has deep knowledge of every Databricks product — SDP pipelines, AI/BI dashboards, Genie, Knowledge Assistants, Model Serving, Apps, and more. It designs projects that showcase how these capabilities connect into a compelling end-to-end story for your customer.
-                </p>
-                <ol className="space-y-4 text-[15px]">
-                  <li className="flex gap-4">
-                    <span className="flex-shrink-0 w-7 h-7 rounded-full bg-primary/15 text-primary text-sm flex items-center justify-center font-semibold">1</span>
-                    <div>
-                      <span className="text-foreground font-medium">Review the story</span>
-                      <p className="text-sm text-muted-foreground mt-0.5">The generated narrative will appear right here as a README. Review it, iterate with the assistant until it fits your customer perfectly.</p>
-                    </div>
-                  </li>
-                  <li className="flex gap-4">
-                    <span className="flex-shrink-0 w-7 h-7 rounded-full bg-muted text-muted-foreground text-sm flex items-center justify-center font-medium">2</span>
-                    <div>
-                      <span className="text-muted-foreground font-medium">Generate specifications</span>
-                      <p className="text-sm text-muted-foreground/70 mt-0.5">Once you're happy with the story, ask the AI to generate detailed specs — data pipelines, dashboards, agents, Genie spaces, and more.</p>
-                    </div>
-                  </li>
-                  <li className="flex gap-4">
-                    <span className="flex-shrink-0 w-7 h-7 rounded-full bg-muted text-muted-foreground text-sm flex items-center justify-center font-medium">3</span>
-                    <div>
-                      <span className="text-muted-foreground font-medium">Build the assets</span>
-                      <p className="text-sm text-muted-foreground/70 mt-0.5">Create the Databricks resources from the specs using Genie Code or AI Dev Kit — pipelines, dashboards, Genie spaces, agents, all in your workspace.</p>
-                      <ul className="mt-2 ml-1 space-y-1">
-                        <li className="text-sm text-muted-foreground/70 flex gap-2">
-                          <span className="text-muted-foreground/40">•</span>
-                          <span>Optionally scaffold a custom Databricks App on top — preview it live right here in the generator while it's being built.</span>
-                        </li>
-                      </ul>
-                      <p className="text-sm text-muted-foreground/60 mt-2 italic">Sit back, have a coffee, and enjoy your project.</p>
-                    </div>
-                  </li>
-                </ol>
-                <p className="text-xs mt-6 text-muted-foreground/50">Follow along in the chat panel — the assistant may ask you questions.</p>
-              </div>
-            </div>
           ) : isLoading ? (
             <div className="flex-1 p-6">
               <div className="space-y-3">
@@ -922,7 +890,6 @@ export const FileViewer = memo(function FileViewer({
             </div>
           ) : (
             <div className="flex-1 flex flex-col min-h-0">
-              {/* Header with Preview/Raw toggle for renderable files (not PDF) */}
               {isRenderable && !isPdf && (
                 <div className="shrink-0 px-4 py-2 border-b border-border flex items-center justify-between bg-muted/20">
                   <span className="text-sm text-muted-foreground truncate">{selectedFile}</span>
@@ -949,7 +916,6 @@ export const FileViewer = memo(function FileViewer({
                 </div>
               )}
 
-              {/* Content area */}
               {isRenderable && !showRaw ? (
                 isPdf ? (
                   <iframe
@@ -967,13 +933,6 @@ export const FileViewer = memo(function FileViewer({
                 ) : (
                   <ScrollArea className="flex-1">
                     <div className="p-6">
-                      {selectedFile === "README.md" && capabilities && (
-                        <DemoOverviewCard
-                          capabilities={capabilities}
-                          deployed={deployedResources ?? []}
-                          extractionError={deployedExtractionError}
-                        />
-                      )}
                       <Prose>{fileContent.content}</Prose>
                     </div>
                   </ScrollArea>
