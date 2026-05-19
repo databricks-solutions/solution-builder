@@ -21,7 +21,7 @@ The main loop lives in this file (SKILL.md) — it describes **the flow**: stage
 | **1. Design Story** | Write `resources.json` + `README.md` + `architecture.md` (batched in one message) | ✅ *"Approve the story?"* | `stages/01-design-story.md` |
 | **2. Write Specs** | Write `01-lakeflow.md`, then the other top-level specs, then the app spec (if app needed), coherence review | ✅ *"Ready to build?"* | `stages/02-write-specs.md` |
 | **3. Build** (opt) | Create Databricks resources via ai-dev-kit skills | — (build completes) | `stages/03-build.md` |
-| **4. Package as a DAB** (opt) | On user request, post-build | — | `references/dab/dab.md` |
+| **4. Package as a DAB** (opt) | On user request only, post-build | — | `references/dab/dab.md` |
 
 **Cross-cutting (not a stage):**
 - **App creation** — folded into stages 2 + 3: `DEMO_SKILL_DIR/app/app.md`
@@ -30,7 +30,7 @@ The main loop lives in this file (SKILL.md) — it describes **the flow**: stage
 
 Your system prompt defines `PROJECT`, `SKILLS`, `DEMO_SKILL_DIR`, and `DEMO_SKILL` as absolute paths. This skill refers to sibling files like `DEMO_SKILL_DIR/stages/*.md`, `DEMO_SKILL_DIR/app/app.md`, `DEMO_SKILL_DIR/references/*`.
 
-**When spawning subagents**, substitute every placeholder (`DEMO_SKILL_DIR/…`, `PROJECT/…`, `SKILLS/…`) with its real absolute path before sending — the subagent has no system prompt defining them. Full guidance in `DEMO_SKILL_DIR/stages/subagents.md`.
+**When spawning subagents**, substitute every placeholder (`DEMO_SKILL_DIR/…`, `PROJECT/…`, `SKILLS/…`) with its real absolute path before sending — the subagent has no system prompt defining them. The full spawn prompt is in `DEMO_SKILL_DIR/stages/03-build.md` → Step 2.
 
 ---
 
@@ -42,15 +42,17 @@ Each stage fires one tracking event so we can see how the skill is used. Calls a
 
 ## Efficiency
 
-Batch tool calls in the same response whenever you can: emit multiple `Read` or `Write` calls in one assistant message and the harness executes them concurrently. You still generate tokens sequentially — batching saves LLM round-trips, not output time. Load all reference blocks in one message, write independent files in one message. **Spec writing fans out after `01-lakeflow.md`**: 02 / 03 / 04 all depend only on 01, not on each other, so once 01 is written the app subagent gets spawned AND 02/03/04 are emitted as a single batched-Write turn — never serialize them. Real parallelism only happens when a subagent runs in a separate context (see `DEMO_SKILL_DIR/stages/subagents.md`). Latency is dominated by LLM round-trips, not tool execution — every sequential tool call that could have been batched is wasted time.
+Batch tool calls in the same response whenever you can: emit multiple `Read` or `Write` calls in one assistant message and the harness executes them concurrently. You still generate tokens sequentially — batching saves LLM round-trips, not output time. Load all reference blocks in one message, write independent files in one message. **Spec writing fans out after `01-lakeflow.md`**: 02 / 03 / 04 + the app spec all depend only on 01, not on each other, so once 01 is written they're emitted as a single batched-Write turn on the main loop — never serialize them. Latency is dominated by LLM round-trips, not tool execution — every sequential tool call that could have been batched is wasted time.
+
+**Subagent policy.** A single subagent is used in Stage 3 (build) **and only for the App** — it's the longest task (~5 min) and runs in parallel while the parent builds everything else on main. Stages 0, 1, 2, and 4 run entirely on the main loop, and within Stage 3 only the App is delegated. The full spawn prompt is in `DEMO_SKILL_DIR/stages/03-build.md` → Step 2.
 
 ### Telling the user where you are
 
 Between phases, drop a one-liner so the user always knows where you are in the flow. Examples:
 
-- *"Story approved — starting spec generation (~2 min, app subagent in background)."*
+- *"Story approved — writing all specs now (~2 min on the main loop)."*
 - *"Specs ready. Ready to build when you say go."*
-- *"Building. Genie + dashboard subagent running, app subagent running. Continuing with governance meanwhile."*
+- *"Stage 3 building. Genie + dashboard subagent running, app subagent running. Continuing with governance meanwhile."*
 
 No drawn-out status dumps — one line, then the work continues.
 

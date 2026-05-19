@@ -165,13 +165,15 @@ One-shot at boot (skips if populated). Pulls via Databricks SQL Statements API �
 
 AgentContext: `{db, userEmail, req, masEndpointName, databricksHost, model, onToolProgress?, modelError?}`. For Genie demos, replace `masEndpointName` with `genieSpaceId`.
 
+**Tool flow** (see pattern #5 "Filter-driven bulk writes" below): the agent investigates via the data backend (`ask_mas`/`ask_genie`), shows the affected rows via `find_returns_for_lot` for human confirmation, then triggers `process_return_batch` with a **filter** (the lot) — not a list of IDs. The SQL re-derives the row set inside the same UPDATE; the agent never has to echo IDs back.
+
 | Tool | Input → Output | Effect |
 |------|---------------|--------|
 | `ask_mas` | `{question}` → `{answer, trace_id}` | Streams MAS supervisor + sub-agents via onToolProgress → ThinkingPanel. From `tools/mas.ts`. |
 | `ask_genie` | `{question}` → `{answer, trace_id}` | Polls Genie REST conversation API; streams reasoning traces (April 2026 release) as narration. From `tools/genie.ts`. Pick this OR `ask_mas`, not both (unless you want both registered). |
-| `find_returns_for_lot` | `{lot}` → pending returns list | Read-only Lakebase query |
+| `find_returns_for_lot` | `{lot}` → pending returns list | Read-only Lakebase query — for human confirmation, agent does NOT pass these ids anywhere. |
 | `create_coupon` | `{percent_off, reason}` → `{code, ...}` | Pure function, no DB write |
-| `process_return_batch` | `{lot, coupon_code, email_subject_template, email_body_template}` → `{email_count, approved_count, total_refund_usd}` | **WRITE**: renders templates per customer (`{firstname}`, `{lastname}`, `{product_name}`, `{coupon_code}`), appends emails + audit, flips to approved |
+| `process_return_batch` | `{lot, coupon_code, email_subject_template, email_body_template}` → `{email_count, approved_count, total_refund_usd, skipped_return_ids}` | **WRITE**: SELECT pending rows for `lot` + customer info, render templates per customer (`{firstname}`, `{lastname}`, `{product_name}`, `{coupon_code}`), one `UPDATE FROM VALUES` re-asserting `lot_id=$lot AND status='pending'` — appends emails + audit, flips to approved. |
 
 SDK setup: OpenAI client → `${host}/serving-endpoints`, **Responses API** (SDK default — we don't call `setOpenAIAPI`), custom fetch (Connection: close, strips long IDs >64 chars + `annotations` arrays from assistant content for compat), MLflow tracing (not OpenAI). On any non-2xx, the shim writes the response body into `ctx.modelError` so the catch block in agent-stream.ts can surface a real error message instead of "400 status code (no body)".
 
@@ -200,8 +202,7 @@ Instructions: MODE A (investigation — single `ask_mas`/`ask_genie` call) or MO
 | `lotSummary` | `(db, limit)` | Global top lots by return count |
 | `listCustomerOrders` | `(db, customerId, limit)` | Customer's order history |
 | `recentActivity` | `(db, limit)` | UNION of emails[] + aiAuditTrail[] across all rows, sorted by time |
-| `processReturnBatch` | `(db, {return_ids, coupon_code, email_subject, email_body, userEmail})` | Bulk: render templates, append emails + audit, flip to approved — single UPDATE FROM VALUES |
-| `processReturnBatchForLot` | `(db, {lot, ...})` | Fetch pending for lot → call processReturnBatch |
+| `processReturnBatchForLot` | `(db, {lot, coupon_code, email_subject, email_body, userEmail})` | Bulk: SELECT pending rows for `lot` + customer info → render templates per row → one `UPDATE FROM VALUES` re-asserting `lot_id=$lot AND status='pending'` (appends emails + audit, flips to approved). Filter is a scalar — no `IN (…)` / ID round-tripping. |
 
 ## Chat streaming
 
@@ -318,6 +319,10 @@ Components use `var(--token)` via Tailwind arbitrary values (`bg-[var(--success-
 2. **Append-only audit**: Primary entity carries `emails[]` + `aiAuditTrail[]` JSONB. Every write appends. Activity tab renders timeline from one row.
 3. **3-phase action chain**: Discover → Draft+confirm (STOP) → Execute. Mandatory approval stop = demo trust moment.
 4. **Narrative split**: script steps + branding live in `config/app.json` (reused by dock/shell); home-page copy (persona, headline, situation, goal, starter questions, featured action) is hardcoded at the top of `HomeView.tsx` as constants — treat the template content as a reference to replace per demo.
-5. **Bulk update**: Single `UPDATE FROM VALUES` for N rows. Templates rendered server-side per customer.
+5. **Filter-driven bulk writes** (the demo's "AI takes action" moment):
+   - **Investigate** via the data backend (`ask_mas` / `ask_genie`) — open-ended SQL + KA reasoning across the warehouse.
+   - **Show** the affected rows to the user via a read-only lookup tool (`find_returns_for_lot`) — they confirm scope before anything destructive runs.
+   - **Write** via a tool whose only inputs are a FILTER (a scalar lot id, status, region — never a list of IDs) plus the per-row template (email subject/body, coupon, etc.). The SQL re-derives the row set inside the same statement via `WHERE <filter>`, renders per-row templates in JS, and does ONE `UPDATE FROM VALUES` that re-asserts the same filter so the write can't drift from the read.
+   - Why this shape: agents echoing back N IDs in `IN (…)`/`ANY (…)` hits param caps, blows up the request, and is easy for the model to miscount. With a scalar filter, the agent only ever holds a string — and the read and write can't disagree because they share the same predicate.
 6. **Data backend as a tool**: `ask_mas` (or `ask_genie`) is registered via factories in `server/agent/tools/{mas,genie}.ts`. Sub-agent / reasoning activity streams to ThinkingPanel via `onToolProgress` → SSE. Same `ToolProgressEvent` shape for both, so the UI doesn't care which backend powers it.
 7. **MLflow tracing**: Per-turn spans, tool child spans, trace ID on message → "View trace" link. Thumbs → human assessments.

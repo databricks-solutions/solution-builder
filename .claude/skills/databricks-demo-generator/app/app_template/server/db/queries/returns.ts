@@ -402,16 +402,33 @@ export type ProcessBatchResult = {
 
 
 /**
- * Bulk process every pending return in `return_ids`:
- *   - render email template per customer
- *   - append one email + two audit entries to each return row
- *   - flip status to approved
- * All in a single UPDATE statement via VALUES (...).
+ * Bulk process every PENDING return in `lot`:
+ *   - look up eligible rows + customer info (one query, no array params)
+ *   - render the email template per customer in JS
+ *   - in a single UPDATE: append one email + two audit entries, flip to approved
+ *
+ * The tool only sends the lot (a scalar) — the SQL does the row lookup
+ * atomically with the update. We never round-trip a list of IDs back to
+ * the agent and back to SQL, so no `IN (…)` / `ANY (…)` headaches and no
+ * Postgres positional-param caps to worry about.
+ *
+ * PATTERN FOR FORKS — bulk write tools should follow this shape:
+ *   1. Tool accepts a FILTER (lot, status, region — a scalar or two), never
+ *      a list of IDs. The agent doesn't need to echo IDs back; the SQL
+ *      re-derives the set inside the same statement.
+ *   2. SELECT the eligible rows once with their related data (customer,
+ *      product, whatever the per-row template needs).
+ *   3. Render templates in JS — Postgres' format()/string interpolation is
+ *      a footgun for user-provided templates.
+ *   4. One UPDATE ... FROM (VALUES ...) re-asserts the same filter in its
+ *      WHERE so the write is bounded by the same predicate as the SELECT.
+ *      Reasserting `status = 'pending'` also prevents double-processing
+ *      if two concurrent agent turns hit the same lot.
  */
-export async function processReturnBatch(
+export async function processReturnBatchForLot(
   db: AppDb,
   args: {
-    return_ids: string[];
+    lot: string;
     coupon_code: string;
     email_subject: string;
     email_body: string;
@@ -419,17 +436,8 @@ export async function processReturnBatch(
     userEmail: string;
   },
 ): Promise<ProcessBatchResult> {
-  if (args.return_ids.length === 0) {
-    return {
-      coupon_code: args.coupon_code,
-      email_count: 0,
-      approved_count: 0,
-      total_refund_usd: 0,
-      skipped_return_ids: [],
-    };
-  }
-
-  // Fetch eligible rows with customer info.
+  // 1) Look up eligible rows + customer info. Filter is the lot — a single
+  //    bound parameter — so no `IN (…)`, no array expansion.
   const rowsRes = await db.execute(sql`
     SELECT
       r.id AS return_id,
@@ -440,7 +448,7 @@ export async function processReturnBatch(
       r.product_name
     FROM app.returns r
     LEFT JOIN app.customers c ON c.id = r.customer_id
-    WHERE r.id = ANY(${args.return_ids})
+    WHERE r.lot_id = ${args.lot} AND r.status = 'pending'
   `);
   const rows = rowsRes.rows as Array<{
     return_id: string;
@@ -451,14 +459,12 @@ export async function processReturnBatch(
     product_name: string | null;
   }>;
 
-  const eligible = rows.filter(
-    (r) => r.status === 'pending' && r.customer_email && r.customer_name,
-  );
-  const seen = new Set(rows.map((r) => r.return_id));
+  // `status = 'pending'` is already in the WHERE — anything missing customer
+  // info gets skipped here and reported back so the agent can flag it.
+  const eligible = rows.filter((r) => r.customer_email && r.customer_name);
   const skipped = rows
-    .filter((r) => r.status !== 'pending' || !r.customer_email)
-    .map((r) => r.return_id)
-    .concat(args.return_ids.filter((id) => !seen.has(id)));
+    .filter((r) => !r.customer_email || !r.customer_name)
+    .map((r) => r.return_id);
 
   if (eligible.length === 0) {
     return {
@@ -473,8 +479,8 @@ export async function processReturnBatch(
   const now = new Date().toISOString();
   const fromEmail = args.from_email ?? 'care@luxebeauty.example';
 
-  // Build the VALUES list: (id, email_entry_json, audit_entries_json)
-  // Each row gets one email and two audit entries appended.
+  // 2) Build the VALUES list: (id, email_entry_json, audit_entries_json).
+  //    Each row gets one outbound email + two audit entries appended.
   const valuesParts: ReturnType<typeof sql>[] = [];
   let totalRefundCents = 0;
 
@@ -526,7 +532,10 @@ export async function processReturnBatch(
     if (!Number.isNaN(cents)) totalRefundCents += cents;
   }
 
-  // One UPDATE ... FROM (VALUES (...)) — hits every eligible row at once.
+  // 3) One UPDATE ... FROM (VALUES ...) — hits every eligible row at once.
+  //    The `r.lot_id = ${args.lot} AND r.status = 'pending'` re-assertion
+  //    keeps this idempotent: if a concurrent run already approved some of
+  //    these rows, they're filtered out automatically.
   await db.execute(sql`
     UPDATE app.returns AS r
     SET status = 'approved',
@@ -535,7 +544,9 @@ export async function processReturnBatch(
         emails = r.emails || v.email_entry,
         ai_audit_trail = r.ai_audit_trail || v.audit_entries
     FROM (VALUES ${sql.join(valuesParts, sql`, `)}) AS v(id, email_entry, audit_entries)
-    WHERE r.id = v.id AND r.status = 'pending'
+    WHERE r.id = v.id
+      AND r.lot_id = ${args.lot}
+      AND r.status = 'pending'
   `);
 
   return {
@@ -545,33 +556,4 @@ export async function processReturnBatch(
     total_refund_usd: totalRefundCents / 100,
     skipped_return_ids: skipped,
   };
-}
-
-/**
- * Lot-scoped variant: fetch every pending return for `lot` and run the
- * same bulk update. Preferred over `processReturnBatch(return_ids)` for
- * the LLM tool, since asking the model to echo back hundreds of UUIDs
- * blows up the request (positional-param cap on some backends + big
- * payloads + easy miscount).
- */
-export async function processReturnBatchForLot(
-  db: AppDb,
-  args: {
-    lot: string;
-    coupon_code: string;
-    email_subject: string;
-    email_body: string;
-    from_email?: string;
-    userEmail: string;
-  },
-): Promise<ProcessBatchResult> {
-  const idsRes = await db.execute(sql`
-    SELECT id FROM app.returns
-    WHERE lot_id = ${args.lot} AND status = 'pending'
-  `);
-  const ids = (idsRes.rows as Array<{ id: string }>).map((r) => r.id);
-  return processReturnBatch(db, {
-    ...args,
-    return_ids: ids,
-  });
 }

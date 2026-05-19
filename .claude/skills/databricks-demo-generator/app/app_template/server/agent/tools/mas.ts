@@ -25,7 +25,7 @@
  * distinct names and tell the model in the agent instructions when to
  * prefer each.
  */
-import { tool } from '@openai/agents';
+import { loggedTool as tool } from './logged-tool.js';
 import * as mlflow from 'mlflow-tracing';
 import { z } from 'zod';
 import { authHeaders } from '../../lib/auth.js';
@@ -42,7 +42,14 @@ export async function callMasEndpoint(
   question: string,
 ): Promise<DataCallResult> {
   function emit(ev: ToolProgressEvent) {
-    try { ctx.onToolProgress?.(ev); } catch { /* never let progress fail the tool */ }
+    try {
+      ctx.onToolProgress?.(ev);
+    } catch (e) {
+      // A bug in onToolProgress shouldn't break the agent, but it IS a bug
+      // worth seeing when it happens — log it as a real error so the LLM
+      // customizing the template notices and fixes it.
+      console.error('[onToolProgress] callback threw — fix the handler', e);
+    }
   }
 
   const headers = await authHeaders(ctx.req);

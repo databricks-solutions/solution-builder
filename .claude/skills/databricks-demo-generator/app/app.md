@@ -8,13 +8,15 @@ Full-stack Node.js/React Databricks App. The assistant doesn't just answer — i
 
 ### Required resources
 
+Genie, Dashboard, MAS are slow to create and during the initial build can be built in parallel. If they're in the spec and story, and you don't see the values in resources.json, use these placeholder in the conf file: __LATE_FILL_GENIE__, __LATE_FILL_DASHBOARD__, __LATE_FILL_MAS__
+
 | Component | Required? | Notes |
 |-----------|-----------|-------|
-| **MAS endpoint** | Yes (or Genie) | Assistant delegates data/doc questions to MAS. Genie endpoint works as fallback, or pure open ai agent with custom tools. |
+| **MAS or Genie endpoint** | Strongly recommended | Assistant delegates data/doc questions to MAS. Genie endpoint works as fallback, or pure open ai agent with custom tools. Use __LATE_FILL_MAS__ if the MAS is being built and is not yet in resources.json |
 | **Lakebase** | Yes | OLTP mirror of Delta — the write-capable operations surface. |
 | **SQL Warehouse** | Yes | Powers analytics page + Delta→Lakebase sync. |
 | **Delta tables** | Yes | Source of truth, synced to Lakebase at boot. |
-| **Dashboard** | Optional | Embedded iframe. Remove Dashboard route if none. |
+| **Dashboard** | Optional | Embedded iframe. Remove Dashboard route if none. Use __LATE_FILL_DASHBOARD__ dashboard is being built and not yet in the resource|
 
 ### What the template provides (avoid rewrite, just tune when required)
 
@@ -26,10 +28,10 @@ Chat UI (dock + full-page), streaming with thinking panel, MLflow tracing per tu
 |------|---------------|
 | **Config** | `config/app.json` — branding, scripted demo chain (`assistantScript`), data sources, resource IDs (agent endpoint, warehouse, MLflow, dashboard) |
 | **Home narrative** | `client/src/home/HomeView.tsx` top-of-file constants — `HERO`, `STORY` (headline/situation/goal), `STARTER_QUESTIONS`, `FEATURED_ACTION`. Rewrite these to match the demo; the template values are an example, not a pattern to preserve |
-| **Domain schema** | Lakebase entity tables (keep chat state as-is). Preserve the append-only JSONB audit columns pattern — powers the operations timeline |
+| **Domain schema** | Lakebase entity tables (keep chat state as-is). Preserve the append-only JSONB audit columns pattern — powers the operations timeline, delete the example-specific one |
 | **Data sync** | Delta→Lakebase SELECTs for the domain's data subset |
 | **Domain queries** | Lookup + bulk-update helpers for the operations entity |
-| **Agent** | Tools + instructions. MAS/Genie passthrough typically stays; domain tools (find, batch-process, create) get rewritten |
+| **Agent** | Tools + instructions. MAS/Genie passthrough typically stays; domain tools (find, batch-process, create, emails...) get rewritten to follow the story |
 | **Analytics SQL** | Warehouse queries for the domain's charts |
 | **Frontend** | Home page journey cards, operations page (columns, drawer tabs, detail content), analytics charts if layout changes |
 | **Theming** | `client/src/index.css` `:root` block — all colors are CSS custom properties. Change the palette there to rebrand (primary, accent, status tints, tier badges, charts). No hardcoded colors in components |
@@ -53,8 +55,9 @@ cd ./app && npm install
 ### Step 2: Read the demo's app specs + template map
 
 1. Read `TEMPLATE_MAP.md` in the app root — comprehensive map of every file, schema, route, tool, and component. Tells you what to customize vs keep as-is. **Read this instead of scanning the codebase.**
-2. Read the app specs from `specifications/app/` in the current project (written during stage 2). These describe the pages, assistant behavior, agent tools, data model, and narrative for **this specific demo**.
-3. run sql exploration against the delta table to get the exact schema for the tables you want to use/query (output of the sdp pipeline) (when loading data from delta to PG, be careful with the data type to avoid conflict).
+2. Make sure you know the overall demo story in README.md and specifications/lakeflow.md
+3. Read the app specs from `specifications/app/` in the current project (written during stage 2). These describe the pages, assistant behavior, agent tools, data model, and narrative for **this specific demo**.
+2. run sql exploration against the delta table to get the exact schema for the tables you want to use/query (output of the sdp pipeline) (when loading data from delta to PG, be careful with the data type to avoid conflict).
   - `databricks experimental aitools tools query --warehouse WH "SHOW TABLES IN catalog.schema"`
   - `databricks experimental aitools tools discover-schema catalog.schema.table1 catalog.schema.table2`
   - `databricks experimental aitools tools query --warehouse WH "SELECT..."`
@@ -62,7 +65,7 @@ cd ./app && npm install
 
 ### Step 3: Customize the template
 
-This is a heavy edit — the initial files you have are from a template with a use case for luxe beauty. It's a skeleton, not a drop-in ready to use. 
+This is a heavy edit — the initial files you have are from a template with a use case for luxe beauty. It's a skeleton, not a drop-in ready to use.  You are free to re-org pages to respect the spec.
 Use the demo's app specs as your blueprint and rewrite all the customizable areas (see table above) to match the story. For each spec and area, read the existing template code, understand the pattern, then entirely rewrite for the new domain. Typically, the operational part needs to be fully updated
 Remember - change the style / features so that it respects the user intent and matches with the story.
 
@@ -74,7 +77,7 @@ Key patterns to preserve:
 - **Thinking panel** streaming MAS sub-agent activity — the transparency demo moment.
 - **Reset demo** button (header) — truncates all Lakebase tables and re-syncs from Delta. The demo makes real writes (approvals, emails, audit trail), so a one-click reset to restart from the beginning of the story is essential. Keep this unless explicitly told otherwise.
 
-Handle missing components during this step:
+Handle missing components example during this step:
 - **No MAS, has Genie**: Point `ask_data` to Genie endpoint. Streaming interface is compatible.
 - **No MAS, no Genie**: Use a pure OpenAI Agents SDK agent with custom tools (no `ask_data` passthrough).
 - **No dashboard**: Remove Dashboard route + sidebar entry.
@@ -93,7 +96,7 @@ The template's operations page is a queue (rows + filters + KPI cards), built fo
 - **Visual identity is fair game**: page colors, density, hero illustrations, and chrome should be adapted to fit the domain. Keep the chat dock and message bubbles similar (low impact / high effort to change); content pages are where you reinvent.
 
 #### Adapt the app's visual identity to the domain
-
+If the user mentioned a specific customer, do a websearch on the customer website and extract the customer material / css / color and use the same. If it's a fake customer, pick a good one yourself.
 The template ships with one look (editorial, neutral, light-mode-first — designed around a consumer-brand demo). Reusing it verbatim for every demo makes every generated app feel like the same product. **Adjust the visual identity to fit the domain's vibe.** The single source of truth for tokens is `client/src/index.css` (Tailwind v4 `@theme` + CSS variables: `--background`, `--foreground`, `--primary`, `--accent`, `--font-sans`, `--font-display`, `--radius`, etc.). Updating the tokens in one place re-skins the entire app via shadcn/ui + Tailwind.
 
 What's worth tuning per demo:
@@ -116,7 +119,7 @@ When this app step runs, add the following fields to `created_resources` in `res
 
 **`config/app.json` — `agentModel` and `agentEndpointName`:** the assistant talks to TWO things, don't conflate them.
 
-- `agentModel` — the Foundation Model endpoint backing the OpenAI Agents SDK loop. **MUST be `databricks-gpt-5-4`.** Why: the Agents SDK defaults to the OpenAI Responses API, and Databricks gates that route per-model. GPT-5-4 is the only Databricks-hosted model with `openai/v1/responses` enabled today — Anthropic models (Sonnet 4.6 etc.) return 400 BAD_REQUEST: *"Responses API passthrough is not supported for model …"*. Switching to chat-completions to support Claude would lose the live reasoning UI (Anthropic thinking blocks aren't surfaced as typed SDK events) — not wired up. Use `databricks-gpt-5-4` and don't abbreviate.
+- `agentModel` — the Foundation Model endpoint backing the OpenAI Agents SDK loop. **Use `databricks-gpt-5-4`.** Why: the Agents SDK defaults to the OpenAI Responses API, and Databricks gates that route per-model. GPT-5-4 is the only Databricks-hosted model with `openai/v1/responses` enabled today — Anthropic models (Sonnet 4.6 etc.) return 400 BAD_REQUEST: *"Responses API passthrough is not supported for model …"*. Switching to chat-completions to support Claude would lose the live reasoning UI (Anthropic thinking blocks aren't surfaced as typed SDK events) — not wired up. Use `databricks-gpt-5-4` and don't abbreviate.
 - `agentEndpointName` — only used when `mode='mas'` (raw MAS passthrough). For the agent loop it's a no-op label. If the demo has no MAS, leave it empty or set it to the Genie space description; routing happens in code.
 
 ### Step 4: Configure environment
@@ -161,7 +164,7 @@ Then write both:
 ```
 
 **Cleanup:**
-
+when requested only:
 ```bash
 databricks postgres delete-database \
     projects/<resolved project_id>/branches/production/databases/db-dbgen-<demo_short_name>
@@ -232,16 +235,18 @@ done
 - Test the main endpoints (some get/create), make sure you test the chatbot / assistant endpoints as it's often having issue. 
 If you see errors, check the logs and fix the errors accordingly, and restart the app until it's working. The app should be functional once you finish
 
+Fix any error and loop until the app starts properly.
+
 **Don't leave the app running.** From this point on, the **App** tab in the Demo Prompt Generator UI owns the process lifecycle — it spawns, supervises, proxies, and stops on idle / explicit Stop. A leftover smoke-test process would be untracked and could block the UI's own port. Verify with `lsof -iTCP:$PORT -sTCP:LISTEN` before reporting done.
 
 ALWAYS stop — whether it booted, crashed, or we're still waiting.
 `kill -9 "$APP_PID" 2>/dev/null || true`
 
-**Never run `./start.sh` casually.** Only during the one-shot smoke test described above, or when a user explicitly asks you to debug a boot issue — and always kill it immediately after. The UI is the single supervisor of the app process; any other `start.sh` run will collide with it.
+Once the initial run is done, **Never run `./start.sh` casually.** Only during the one-shot smoke test described above, or when a user explicitly asks you to debug a boot issue — and always kill it immediately after. The UI is the single supervisor of the app process; any other `start.sh` run will collide with it.
 
 Tell the user the build is complete and point them at the **App** tab to start it.
 
-### Step 6: Deploy the app (only on explicit user request)
+### Step 6: Deploy the app (only on explicit user request, don't do it by default)
 
 **Trigger only on explicit ask** — "deploy the app" / "push the app" / "create the Databricks App". "Deploy resources" / "deploy the demo" means everything *except* the app.
 
@@ -275,4 +280,4 @@ The UI's deployed-resources bar reads `app.name` to build the `/apps/<name>` lin
 
 #### When the user wants to ship the demo as a bundle
 
-Separate from the interactive deploy above: if the user asks for "a DAB / bundle" or "let me deploy this myself," the project's `databricks.yml` plus `scripts/lakebase_setup_db.sh` and `scripts/lakebase_grant_app_credential.sh` are already in place. Point them at those — the user runs them on their own machine. The skill does NOT run `databricks bundle deploy`.
+Separate from the interactive deploy above: if the user asks for "a DAB / bundle" or "let me deploy this myself," the project's `databricks.yml` plus `scripts/lakebase_setup_db.sh` and `scripts/lakebase_grant_app_credential.sh` are already in place. Point them at those — the user runs them on their own machine. The skill does NOT run `databricks bundle deploy`. If not in place, instructions are in dab.md - but it's a bigger task

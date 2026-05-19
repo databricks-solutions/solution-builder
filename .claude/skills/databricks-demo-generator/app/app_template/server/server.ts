@@ -211,11 +211,76 @@ console.log(`[boot +${ms()}] AppKit created`);
 
 const db = createDb(appkit.lakebase.pool);
 
+// Surface pg-pool error events so transient driver failures don't crash
+// the process with "Unhandled 'error' event". Real bug; must log.
+appkit.lakebase.pool.on('error', (err: Error) => {
+  logErrorCompact('[pg-pool]', err);
+});
+
+// ============================================================================
+// Migration gate — block DB-dependent routes until migrations finish.
+//
+// Server starts accepting traffic immediately so the UI's shell can render,
+// but any /api/* route that touches the DB waits on `migrationsReady`. If
+// migrations finish in time → request proceeds normally. If they exceed the
+// timeout → 503 + Retry-After so the browser retries (not a 500 the user
+// has to chase).
+//
+// If migrations actually FAIL, `migrationsReady` rejects and the gate
+// returns 503 with the real error message — which is a real bug worth
+// surfacing, the LLM customizing the template can see it and act on it.
+// ============================================================================
+
+const STARTUP_SAFE_PATHS = new Set(['/api/config']);
+const STARTUP_SAFE_PREFIXES = ['/api/log/'];
+
+let migrationsDone = false;
+let migrationsFailure: Error | null = null;
+// Resolved once migrations + sync complete; rejected on failure.
+// Re-assigned in the background-init block below; declared here so the
+// middleware can close over it.
+let migrationsReady: Promise<void> = new Promise(() => {
+  // No-op until the background-init block replaces this.
+});
+
 // ============================================================================
 // Routes — register immediately so server can start while DB catches up.
 // ============================================================================
 
 appkit.server.extend((app) => {
+  // Gate DB-dependent routes until migrations are ready. Lives BEFORE
+  // route registration so it applies to every /api/* handler.
+  app.use('/api', async (req, res, next) => {
+    if (migrationsDone) return next();
+    if (STARTUP_SAFE_PATHS.has(req.path)) return next();
+    if (STARTUP_SAFE_PREFIXES.some((p) => req.path.startsWith(p))) return next();
+    if (migrationsFailure) {
+      // Real bug — the LLM running the template needs to see this in the
+      // browser, not just the terminal. Don't try to recover here.
+      res.status(503).json({
+        error: `Database initialization failed: ${migrationsFailure.message}`,
+      });
+      return;
+    }
+    try {
+      await Promise.race([
+        migrationsReady,
+        new Promise((_, rej) =>
+          setTimeout(() => rej(new Error('startup-timeout')), 5000),
+        ),
+      ]);
+      next();
+    } catch (e) {
+      const isTimeout =
+        e instanceof Error && e.message === 'startup-timeout';
+      res.set('Retry-After', '2').status(503).json({
+        error: isTimeout
+          ? 'Database is still initializing — please retry in a moment.'
+          : `Database initialization failed: ${(e as Error).message}`,
+      });
+    }
+  });
+
   registerConfigRoutes(app, {
     appConfig,
     getAgentExperimentId: () => agentExperimentId,
@@ -304,8 +369,9 @@ const mlflowIdPromise = (async () => {
   }
 })();
 
-// Migrations → sync → then activate MLflow tracing.
-(async () => {
+// Migrations → sync → then activate MLflow tracing. The promise here is
+// what the /api gate middleware awaits.
+migrationsReady = (async () => {
   try {
     await runMigrations(db);
     console.log(`[boot +${ms()}] Migrations up to date`);
@@ -313,9 +379,24 @@ const mlflowIdPromise = (async () => {
       await syncFromDelta(db, appConfig.data);
       console.log(`[boot +${ms()}] Delta sync done`);
     }
+    migrationsDone = true;
   } catch (e) {
+    // Real bug — the LLM customizing the template needs to act on this.
+    // The gate middleware reads `migrationsFailure` and returns it to the
+    // browser so the user sees the failure inline, not just in the terminal.
+    migrationsFailure = e instanceof Error ? e : new Error(String(e));
     logErrorCompact('[boot] DB init failed:', e);
+    throw migrationsFailure;
   }
+})();
+// Swallow the rejection at the top level — the gate handles it. Without
+// this, the promise rejection logs a second time via unhandledRejection.
+migrationsReady.catch(() => {});
+
+(async () => {
+  // Wait for migrations to complete (or fail) before doing MLflow setup —
+  // MLflow doesn't depend on the DB, but ordering keeps the boot log readable.
+  await migrationsReady.catch(() => {/* gate already surfaced this */});
   // Now safe to enable tracing — sync queries are done.
   agentExperimentId = await mlflowIdPromise;
   if (agentExperimentId) {

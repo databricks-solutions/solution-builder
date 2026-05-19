@@ -14,6 +14,10 @@
 import type { Response } from 'express';
 
 export function sseWrite(res: Response, event: unknown): void {
+  // Silently no-op once the client has disconnected. A user closing their
+  // browser mid-stream is expected operational behavior, not a bug —
+  // we don't want it to surface as an ERR_STREAM_WRITE_AFTER_END crash.
+  if (res.writableEnded || res.destroyed) return;
   res.write(`data: ${JSON.stringify(event)}\n\n`);
 }
 

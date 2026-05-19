@@ -44,10 +44,10 @@ import OpenAI from 'openai';
 import {
   Agent,
   run,
-  tool,
   setDefaultOpenAIClient,
   setTracingDisabled,
 } from '@openai/agents';
+import { loggedTool as tool } from './tools/logged-tool.js';
 import * as mlflow from 'mlflow-tracing';
 import { z } from 'zod';
 import { authHeaders } from '../lib/auth.js';
@@ -119,6 +119,10 @@ export type AgentContext = {
 //     casing and mixing conventions causes subtle argument-parsing bugs.
 //   • Don't use `z.union([...])` at the top level of parameters — Responses
 //     API strict mode requires a single object schema.
+//   • `tool` here is the `loggedTool` wrapper from ./tools/logged-tool.ts: it
+//     logs thrown errors via console.error (caught by lib/logger.ts) BEFORE
+//     returning the SDK's recovery hint to the model. Don't import the raw
+//     `tool` from '@openai/agents' directly — you'll silently lose the logs.
 // ────────────────────────────────────────────────────────────────────────────
 function makeTools(ctx: AgentContext) {
   const findReturnsForLot = tool({

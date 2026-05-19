@@ -6,7 +6,7 @@ Runs after stage 1 (`README.md` + `resources.json` + `architecture.md` approved 
 
 ```
 PROJECT/
-├── META-PROMPT.md              (copied verbatim from template — do not author)
+├── META-PROMPT.md              (copied verbatim from template — do not author, `cat DEMO_SKILL_DIR/references/META-PROMPT-TEMPLATE.md > PROJECT/META-PROMPT.md`)
 ├── specifications/
 │   ├── 01-lakeflow.md          synthetic data + PDFs + SDP bronze→silver→gold + validation
 │   ├── 02-uc-governance.md     metric views, ABAC, data quality monitors, classification  (optional)
@@ -15,7 +15,7 @@ PROJECT/
 │   └── app/*.md                Databricks App spec — file structure flexible              (only if `databricks-apps`)
 ```
 
-Reference at the target density: `DEMO_SKILL_DIR/references/example-luxebeauty/specifications/` (top-level + `app/`). Read it for format and detail level, never for narrative — the LuxeBeauty story is not yours.
+Reference at the target density: `DEMO_SKILL_DIR/references/example-luxebeauty/specifications/` (top-level + `app/`). Start by reading it for format and detail level, never for narrative — the LuxeBeauty story is not yours.
 
 ## Don't think too hard — call the tools
 
@@ -25,18 +25,17 @@ The right pattern for each file: read the matching luxebeauty reference if you n
 
 ## The one dependency rule
 
-`01-lakeflow.md` defines the data sources for the story (table/column/ID names). Every other spec consumes those names, so 01 is written first. After 01, the other top-level specs (02 / 03 / 04) depend only on 01. The app spec — if there is one — depends on 01 too.
+`01-lakeflow.md` defines the data sources for the story (table/column/ID names). Every other spec consumes those names, so 01 is written first. Your job is to WRITE all the specification files respecting the story and capabilities selected.
 
-## Procedure
+**Pre-seeded by project creation**: these might have been created for you: `PROJECT/specifications/` already exists, `PROJECT/specifications/app/` exists if `databricks-apps` is in capabilities, and `PROJECT/META-PROMPT.md` is already copied from the template. Skip those steps; just write the spec files.
 
-Sequential. Each step is one Write call (or one copy). Move on as soon as the file lands.
+Typical order: 
 
-1. `cat DEMO_SKILL_DIR/references/META-PROMPT-TEMPLATE.md > PROJECT/META-PROMPT.md` — generic, never authored.
-2. Write `01-lakeflow.md`.
-3. Write 02 / 03 / 04 — only the ones this demo uses (check `resources.json` capabilities; skip any whose subject the demo doesn't include). The table above lists what goes in each; deviate / add / merge as the story demands.
-4. **If `databricks-apps` is in `resources.json` capabilities**, write the app spec into `PROJECT/specifications/app/*.md` — see "App spec" section below for what goes in it.
-5. **Coherence review** — see below.
-6. Return to SKILL.md for the build-or-stop gate.
+1. Write `01-lakeflow.md`.
+2. Write 02 / 03 / 04 — only the ones this demo uses (check `resources.json` capabilities; skip any whose subject the demo doesn't include). The table above lists what goes in each; deviate / add / merge as the story demands.
+3. **If `databricks-apps` is in `resources.json` capabilities**, write the app spec into `PROJECT/specifications/app/*.md` — see "App spec" section below for what goes in it.
+4. **Coherence review** — see below.
+5. Return to SKILL.md for the next stage.
 
 ## Spec-writing standards
 
@@ -47,9 +46,10 @@ Functional specs — **what** to build, not **how**. Each file must be unambiguo
 - **Schemas**: column names, types, relationships, counts. Correct but high-level — avoid over-specifying types you'll regret.
 - **The event**: distributions and anomalies that make the data interesting. The story's catalyst (`stages/01-design-story.md` → Catalyst) committed to two rules — specs enforce them:
   - **Signal visible to the eye.** When the dashboard renders, anyone in the room should point at the anomaly without squinting. Realistic noise + a subtle event = invisible chart. If signal-to-noise is borderline, dial the event up or the noise down. Make the trade-off explicit (e.g. *"the lot's return spike must dominate baseline daily variance"*).
-  - **Temporal realism — peak in the past, not at the chart edge.** Build-up → peak → decay back toward baseline. Anchor the peak ~2–4 weeks ago with explicit timestamps (`SPIKE_PEAK = NOW − 3 weeks`, `DECAY_START = NOW − 2 weeks`). A spike at the rightmost edge looks like a cliff, not a story.
+  - **Temporal realism — peak in the past, avoid at the chart edge.** Build-up → peak → decay back toward baseline. Anchor the peak ~2–4 weeks ago with explicit timestamps (`SPIKE_PEAK = NOW − 3 weeks`, `DECAY_START = NOW − 2 weeks`). A spike at the rightmost edge looks like a cliff, not a story.
 - **Coherence contracts**: which columns/tables are consumed downstream (gold-table dimensions must match dashboard filters, KPI definitions must match Genie answers, KA document content must contain what the demo flow asks about, identifiers must match across data and PDFs).
-- **Dashboard color**: charts group/color by a key dimension (region, category, segment). Bar charts stacked/grouped by the filter dimension; line charts colored by region or category. Monochrome dashboards waste the segment-driving-the-anomaly reveal.
+- **Dashboard**: review the aibi-dashboard.md for the widget list. Prefer charts group/color by a key dimension (region, category, segment). Bar charts stacked/grouped by the filter dimension; line charts colored by region or category. 
+- **Genie / MAS**: make sure it's all connected to the data, and typically to the KA (pdf docs) if the MAS + KA capabilities are selected
 - **Shared values defined once**: affected SKUs, lot, persona, baseline metrics live in `01-lakeflow.md`. Later specs reference "from 01" instead of restating.
 
 ## App spec
@@ -59,6 +59,7 @@ Functional specs — **what** to build, not **how**. Each file must be unambiguo
 The Databricks App for this demo starts from a generic template at `DEMO_SKILL_DIR/app/app_template/`. During Stage 3 (build), the template is copied into `PROJECT/app/` and customized per spec. You are **not writing a spec from scratch** — you are writing a spec that describes how to adapt this template to this demo's story.
 
 You don't need to scan the template's source code. `TEMPLATE_MAP.md` describes what ships (surfaces, agent tools, Lakebase schema, streaming infra) — that's all you need.
+You are free to change the app especialy the operational part, and change/add menus so that it's easy to understand, eyes catching (visual components are the best), aligned with the story.
 
 ### Read these before writing the app spec
 

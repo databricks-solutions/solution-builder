@@ -27,7 +27,7 @@
  * names (e.g. `ask_data_genie`, `ask_data_mas`) and tell the model in
  * the agent instructions when to prefer each.
  */
-import { tool } from '@openai/agents';
+import { loggedTool as tool } from './logged-tool.js';
 import * as mlflow from 'mlflow-tracing';
 import { z } from 'zod';
 import { authHeaders } from '../../lib/auth.js';

@@ -6,7 +6,12 @@ set -uo pipefail
 cd "$(dirname "$0")"
 
 APP_PORT="${DATABRICKS_APP_PORT:-8765}"
-HMR_PORT=24678
+# Derive HMR port from APP_PORT so multiple projects can run concurrently
+# without their Vite WebSockets colliding. The +1000 offset is far enough
+# from APP_PORT to avoid accidental overlap if someone increments APP_PORT,
+# and the value is exported so vite.config.ts can read it.
+HMR_PORT=$((APP_PORT + 1000))
+export VITE_HMR_PORT="$HMR_PORT"
 PGID_FILE=".preview.pgid"
 
 kill_port() {
@@ -151,11 +156,63 @@ if [ ${#errors[@]} -gt 0 ]; then
 fi
 
 # Ensure dependencies are installed and .bin symlinks are valid.
-# cp -r can turn symlinks into regular files — detect and fix by reinstalling.
-if [ ! -d "node_modules/@databricks/appkit/dist" ] || [ ! -L "node_modules/.bin/tsx" ]; then
+#
+# `cp -r` (used when the parent forks app_template/ into a new project) turns
+# symlinks into regular files, so we always reinstall on a fresh copy. The
+# probe checks both that the install exists AND that .bin/ symlinks are intact.
+#
+# Install strategy — fall back gracefully so a fresh fork never hangs:
+#   1. `npm ci` (fast, deterministic — requires a synced lockfile).
+#   2. If (1) fails because lockfile URLs are unreachable (e.g. corpnet proxy
+#      baked into package-lock.json), retry with `--registry` forced to the
+#      public registry. The lockfile's `integrity` hashes are URL-independent,
+#      so this is safe.
+#   3. If (2) still fails (lockfile out of sync with package.json — a forking
+#      LLM added a dep without running `npm install` first), fall back to
+#      `npm install` which is more permissive and re-resolves the tree.
+PUBLIC_NPM=https://registry.npmjs.org/
+install_deps() {
   echo "[start.sh] node_modules missing or broken — reinstalling…"
   rm -rf node_modules
-  npm install
+  if npm ci 2>&1; then
+    return 0
+  fi
+  echo "[start.sh] npm ci failed — retrying against public registry ($PUBLIC_NPM)…"
+  if npm ci --registry="$PUBLIC_NPM" 2>&1; then
+    return 0
+  fi
+  echo "[start.sh] npm ci failed (lockfile likely out of sync) — falling back to npm install…"
+  npm install --registry="$PUBLIC_NPM"
+}
+
+# Decide whether deps need (re)installing. We trigger install in 3 cases:
+#   1. node_modules/ missing entirely (first run after a fresh fork).
+#   2. `.bin/tsx` is not a symlink (cp -r turned symlinks into regular files
+#      during the parent's app_template/ → projects/<id>/app/ copy).
+#   3. package.json or package-lock.json is newer than node_modules's own
+#      `.package-lock.json` snapshot — meaning someone (typically the LLM
+#      customizing the template) edited deps without rerunning install.
+#      npm itself writes node_modules/.package-lock.json at the END of a
+#      successful install, so its mtime is "last time the tree matched
+#      the manifest". Anything edited after that is drift → reinstall.
+needs_install() {
+  [ ! -d "node_modules/@databricks/appkit/dist" ] && return 0
+  [ ! -L "node_modules/.bin/tsx" ] && return 0
+  if [ -f "node_modules/.package-lock.json" ]; then
+    if [ "package.json" -nt "node_modules/.package-lock.json" ] || \
+       { [ -f "package-lock.json" ] && [ "package-lock.json" -nt "node_modules/.package-lock.json" ]; }; then
+      echo "[start.sh] package.json/package-lock.json edited since last install — reinstalling…"
+      return 0
+    fi
+  fi
+  return 1
+}
+
+if needs_install; then
+  if ! install_deps; then
+    echo "[start.sh] ERROR: dependency install failed. See errors above." >&2
+    exit 1
+  fi
 fi
 
 echo "[start.sh] ports clear — starting dev server"
