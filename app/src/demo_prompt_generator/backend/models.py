@@ -175,6 +175,13 @@ class Project(SQLModel, table=True):
     user_email: str = SQLField(index=True, max_length=255)
     name: str = SQLField(max_length=255)
     description: Optional[str] = SQLField(default=None, sa_column=Column(Text))
+    # LLM-generated 1-2 paragraph storytelling summary of the demo, distinct
+    # from `description` (which is the short one-liner the user can edit).
+    # Regenerated when the README changes — see /projects/{id}/narrative.
+    narrative: Optional[str] = SQLField(default=None, sa_column=Column(Text))
+    # Hash of the README content the narrative was generated from. Lets the
+    # frontend decide whether to auto-regenerate when the README drifts.
+    narrative_readme_hash: Optional[str] = SQLField(default=None, max_length=64)
     project_type: str = SQLField(default=ProjectType.DATABRICKS_DEMO.value, max_length=50)
     stage: str = SQLField(default=ProjectStage.DRAFTING.value, max_length=20)
 
@@ -462,6 +469,10 @@ class ProjectOut(BaseModel):
     name: str
     user_email: str
     description: Optional[str]
+    # LLM-generated storytelling narrative (1-2 paragraphs). Distinct from
+    # `description`. Drives the Overview hero on the frontend.
+    narrative: Optional[str] = None
+    narrative_readme_hash: Optional[str] = None
     project_type: str
     stage: str = ProjectStage.DRAFTING.value
     created_at: datetime

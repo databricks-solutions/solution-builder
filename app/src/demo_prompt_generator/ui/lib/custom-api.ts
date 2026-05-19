@@ -32,6 +32,12 @@ export interface Project {
   name: string;
   user_email: string;
   description: string | null;
+  /** LLM-generated 1-2 paragraph storytelling summary used by the
+   *  Overview hero. Distinct from `description` (the short one-liner). */
+  narrative?: string | null;
+  /** SHA-256 of the README that produced `narrative` — used to detect
+   *  drift and auto-regenerate when the story changes substantially. */
+  narrative_readme_hash?: string | null;
   project_type: string;
   stage: ProjectStage;
   created_at: string;
@@ -284,6 +290,21 @@ export async function aiEditProjectDescription(
   if (!resp.ok) {
     const detail = await resp.text().catch(() => "");
     throw new Error(detail || `AI edit failed: ${resp.status}`);
+  }
+  return resp.json();
+}
+
+/** Generate (or regenerate) the LLM-driven storytelling narrative shown
+ *  on the Overview hero. Reads README.md server-side and saves the result
+ *  to `project.narrative`. Returns the updated project. */
+export async function generateProjectNarrative(projectId: string): Promise<Project> {
+  const resp = await fetch(
+    apiUrl(`/api/projects/${projectId}/narrative/generate`),
+    { method: "POST" },
+  );
+  if (!resp.ok) {
+    const detail = await resp.text().catch(() => "");
+    throw new Error(detail || `Narrative generation failed: ${resp.status}`);
   }
   return resp.json();
 }

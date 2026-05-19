@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import re
 import shutil
 from datetime import datetime, timezone
@@ -419,6 +420,8 @@ def create_project(
         name=project.name,
         user_email=project.user_email,
         description=project.description,
+        narrative=project.narrative,
+        narrative_readme_hash=project.narrative_readme_hash,
         project_type=project.project_type,
         stage=project.stage,
         created_at=project.created_at,
@@ -496,6 +499,8 @@ def get_project(
         name=project.name,
         user_email=project.user_email,
         description=project.description,
+        narrative=project.narrative,
+        narrative_readme_hash=project.narrative_readme_hash,
         project_type=project.project_type,
         stage=stage,
         created_at=project.created_at,
@@ -554,6 +559,8 @@ def update_project(
         name=project.name,
         user_email=project.user_email,
         description=project.description,
+        narrative=project.narrative,
+        narrative_readme_hash=project.narrative_readme_hash,
         project_type=project.project_type,
         stage=project.stage,
         created_at=project.created_at,
@@ -600,10 +607,19 @@ def ai_edit_project_description(
     current = (body.current_description or project.description or "").strip()
 
     system_prompt = (
-        "You rewrite short demo project descriptions. Reply with ONLY the new "
-        "description text — no quotes, no preamble, no markdown. Keep it under "
-        "400 characters unless the user explicitly asks for a longer version. "
-        "Stay factual to the existing description; do not invent capabilities."
+        "You write conversational, persona-focused summaries of Databricks demo "
+        "projects. The reader is an account executive, a customer, or a seller "
+        "trying to understand what this demo is about at a glance. "
+        "\n\n"
+        "Voice: write like you're casually explaining your job to a friend at a "
+        "bar — first-person or natural third-person, not marketing copy. Lead "
+        "with WHO the persona is and WHAT they're trying to do. Avoid jargon "
+        "(no 'leverage', 'showcase', 'end-to-end solution'). Avoid bullet "
+        "points and headings. 1-2 short paragraphs, max ~800 characters. "
+        "\n\n"
+        "Reply with ONLY the new description — no quotes, no preamble, no "
+        "markdown. Stay factual; do not invent capabilities that aren't "
+        "already implied by the project."
     )
     user_prompt = (
         f"Project name: {project.name}\n\n"
@@ -618,7 +634,7 @@ def ai_edit_project_description(
             user_prompt,
             size=ModelSize.MINI,
             system_prompt=system_prompt,
-            max_tokens=500,
+            max_tokens=800,
         )
     except Exception as e:
         logger.error(f"AI description edit failed for project {project_id}: {e}")
@@ -629,6 +645,169 @@ def ai_edit_project_description(
         raise HTTPException(status_code=502, detail="AI returned an empty description")
 
     return DescriptionAiEditResponse(description=suggestion)
+
+
+# ---------------------------------------------------------------------------
+# Narrative — LLM-generated storytelling summary for the Overview hero.
+# Distinct from `description` (the short one-liner). Generated from the
+# README and cached on the project row.
+# ---------------------------------------------------------------------------
+
+
+def _project_readme_text(project_id: str) -> str | None:
+    """Read the project's README.md from disk. Returns None if missing/empty."""
+    from ..services.skills_manager import PROJECTS_BASE_DIR
+    from pathlib import Path as _Path
+    readme = _Path(PROJECTS_BASE_DIR) / project_id / "README.md"
+    if not readme.is_file():
+        return None
+    try:
+        text_ = readme.read_text(encoding="utf-8")
+    except Exception as e:
+        logger.warning(f"Failed to read README for project {project_id}: {e}")
+        return None
+    text_ = text_.strip()
+    return text_ or None
+
+
+def _strip_frontmatter(markdown: str) -> str:
+    """Drop a leading `---` YAML frontmatter block before sending to the LLM."""
+    if not markdown.startswith("---"):
+        return markdown
+    lines = markdown.split("\n")
+    if lines[0].strip() != "---":
+        return markdown
+    for i in range(1, len(lines)):
+        if lines[i].strip() == "---":
+            return "\n".join(lines[i + 1:]).lstrip("\n")
+    return markdown
+
+
+def _readme_hash(markdown: str) -> str:
+    """Stable hash used to detect when the narrative is out-of-date."""
+    return hashlib.sha256(markdown.strip().encode("utf-8")).hexdigest()
+
+
+@router.post(
+    "/projects/{project_id}/narrative/generate",
+    response_model=ProjectOut,
+    operation_id="generateProjectNarrative",
+)
+def generate_project_narrative(
+    project_id: str,
+    session: Dependencies.Session,
+    headers: Dependencies.Headers,
+    config: Dependencies.Config,
+    ws: Dependencies.Client,
+):
+    """Generate (or regenerate) the LLM-driven 1-2 paragraph storytelling
+    summary shown on the Overview hero. Reads README.md from the project
+    directory, prompts the mini LLM for a persona-focused narrative, and
+    caches the result on `project.narrative`.
+
+    Returns the updated ProjectOut so the frontend can refresh in one round-trip.
+    """
+    user_email = _get_user_email(headers)
+    project = _get_authorized_project(
+        session, project_id, user_email, config.template_admin_emails
+    )
+
+    readme = _project_readme_text(project_id)
+    if not readme:
+        raise HTTPException(
+            status_code=400,
+            detail="No README.md yet — ask the assistant to draft the demo story first.",
+        )
+
+    body = _strip_frontmatter(readme)
+    # Cap input length so we don't blow tokens on giant READMEs. The first
+    # ~6k chars is plenty to glean persona + use case.
+    if len(body) > 6000:
+        body = body[:6000]
+
+    system_prompt = (
+        "You write the elevator pitch for a Databricks demo. The reader is "
+        "an account executive, a seller, or the customer themselves — they "
+        "want to know in 10 seconds what this demo is about and why it "
+        "matters.\n"
+        "\n"
+        "Voice: write like you're telling a friend at a bar what you've "
+        "been building. Conversational, specific, human. Lead with the "
+        "PERSONA (who is this for? what's their job?) and the USE CASE "
+        "(what problem are they trying to solve, with real stakes/numbers "
+        "when the README gives them). Then a second short paragraph on "
+        "what the demo lets them do or see — still in plain English.\n"
+        "\n"
+        "Hard rules:\n"
+        "  - Exactly 1 or 2 short paragraphs, separated by a blank line.\n"
+        "  - 350-700 characters total.\n"
+        "  - No headings, no bullet points, no markdown formatting.\n"
+        "  - No marketing words: never use 'leverage', 'showcase', 'unlock', "
+        "'empower', 'end-to-end', 'seamlessly', 'solution', 'unify'.\n"
+        "  - No 'This demo...' opener. Start with the persona or the problem.\n"
+        "  - Stay strictly grounded in the README — do not invent capabilities, "
+        "personas, dollar figures, or industries that aren't there.\n"
+        "\n"
+        "Reply with ONLY the narrative text. No preamble, no labels, no quotes."
+    )
+    user_prompt = (
+        f"Project name: {project.name}\n\n"
+        f"README:\n{body}\n\n"
+        "Write the narrative now."
+    )
+
+    llm = LLMService(ws, config)
+    try:
+        narrative = llm.chat(
+            user_prompt,
+            size=ModelSize.MINI,
+            system_prompt=system_prompt,
+            max_tokens=900,
+        )
+    except Exception as e:
+        logger.error(f"Narrative generation failed for project {project_id}: {e}")
+        raise HTTPException(status_code=502, detail="Narrative generation failed") from e
+
+    narrative = (narrative or "").strip().strip('"').strip("'").strip()
+    if not narrative:
+        raise HTTPException(status_code=502, detail="LLM returned an empty narrative")
+
+    project.narrative = narrative
+    project.narrative_readme_hash = _readme_hash(readme)
+    project.updated_at = datetime.now(timezone.utc)
+    session.add(project)
+    session.commit()
+    session.refresh(project)
+
+    msg_count = session.exec(
+        select(func.count()).select_from(Message).where(Message.project_id == project.id)
+    ).one()
+    file_count = session.exec(
+        select(func.count()).select_from(ProjectFile).where(ProjectFile.project_id == project.id)
+    ).one()
+
+    return ProjectOut(
+        id=project.id,
+        name=project.name,
+        user_email=project.user_email,
+        description=project.description,
+        narrative=project.narrative,
+        narrative_readme_hash=project.narrative_readme_hash,
+        project_type=project.project_type,
+        stage=project.stage,
+        created_at=project.created_at,
+        updated_at=project.updated_at,
+        message_count=msg_count,
+        file_count=file_count,
+        cluster_id=project.cluster_id,
+        cluster_name=project.cluster_name,
+        warehouse_id=project.warehouse_id,
+        warehouse_name=project.warehouse_name,
+        default_catalog=project.default_catalog,
+        default_schema=project.default_schema,
+        source_template_id=project.source_template_id,
+        source_template_name=_resolve_template_name(session, project.source_template_id),
+    )
 
 
 @router.patch(
@@ -682,6 +861,8 @@ def update_project_resources(
         name=project.name,
         user_email=project.user_email,
         description=project.description,
+        narrative=project.narrative,
+        narrative_readme_hash=project.narrative_readme_hash,
         project_type=project.project_type,
         stage=project.stage,
         created_at=project.created_at,

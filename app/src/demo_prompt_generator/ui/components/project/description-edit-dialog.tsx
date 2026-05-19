@@ -139,8 +139,8 @@ export const DescriptionEditDialog = memo(function DescriptionEditDialog({
               ref={textareaRef}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="Describe what this demo shows, who it's for, and the key Databricks capabilities involved."
-              className="min-h-[140px] resize-y text-sm"
+              placeholder="Tell someone about this demo like you would at a bar. Who's the persona, what are they trying to do, why does this matter? 1-2 short paragraphs."
+              className="min-h-[160px] resize-y text-sm"
               disabled={isBusy}
             />
             <div className="flex justify-between text-xs text-muted-foreground">
@@ -173,7 +173,7 @@ export const DescriptionEditDialog = memo(function DescriptionEditDialog({
                 value={instruction}
                 onChange={(e) => setInstruction(e.target.value)}
                 onKeyDown={handleInstructionKeyDown}
-                placeholder="e.g. make it shorter, rewrite for executives, add ROI angle"
+                placeholder="e.g. write it from the persona's POV, add a use-case angle, make it more conversational"
                 className="h-9 text-sm"
                 disabled={isBusy}
               />

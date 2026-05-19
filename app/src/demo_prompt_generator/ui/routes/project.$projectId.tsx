@@ -20,6 +20,7 @@ import type { AutoFixApi } from "@/preview";
 import { BuildStepper } from "@/components/project/build-stepper";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { ChatPanel, type ThinkingBlock } from "@/components/project/chat-panel";
+import { HeaderStatusPill } from "@/components/project/project-overview";
 import { SkillsPopup } from "@/components/project/skills-popup";
 import { UserMenu } from "@/components/layout/user-menu";
 import { TemplatePublishDialog } from "@/components/project/template-publish-dialog";
@@ -41,9 +42,17 @@ import {
   FileEdit,
   GitFork,
   MessageSquare,
+  MoreHorizontal,
   PanelLeft,
   LayoutTemplate,
 } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Badge } from "@/components/ui/badge";
 import {
   getProject,
@@ -60,6 +69,7 @@ import {
   getTemplateByProject,
   downloadProjectAsZip,
   getDeployedResources,
+  generateProjectNarrative,
   type Project,
   type ProjectFile,
   type ProjectFileContent,
@@ -69,6 +79,7 @@ import {
   type ReasoningEntry,
 } from "@/lib/custom-api";
 import { AUTO_BUILD_KICKOFF } from "@/lib/auto-build-prompt";
+import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/project/$projectId")({
   component: ProjectPage,
@@ -220,16 +231,34 @@ function ProjectPage() {
   const isMobile = useIsMobile();
   const [mobilePanel, setMobilePanel] = useState<"files" | "chat">("chat");
 
-  // Chat panel resize state
-  // Start wider (650px) when no README exists, shrink to default (520px) once README is created
+  // Chat panel resize + collapse state.
+  // Chat starts COLLAPSED — non-technical users land on the Overview and
+  // only open chat when they want to interact. New empty projects (no
+  // README yet) auto-expand once below so the agent prompt is visible
+  // for the very first interaction.
   const DEFAULT_CHAT_WIDTH = 520;
-  const INITIAL_CHAT_WIDTH = 650; // Wider for initial ideation phase
-  const [chatWidth, setChatWidth] = useState(INITIAL_CHAT_WIDTH);
+  const [chatWidth, setChatWidth] = useState(DEFAULT_CHAT_WIDTH);
+  const [isChatOpen, setIsChatOpen] = useState(false);
   const hasReadmeRef = useRef(false);
   const isResizingRef = useRef(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const MIN_CHAT_WIDTH = 360;
   const MAX_CHAT_WIDTH = 800;
+
+  // README content state — drives the "About this demo" expander on the
+  // overview. Kept separate from `fileContent` so it doesn't shadow
+  // whatever file the user has open in the Files tab.
+  const [readmeContent, setReadmeContent] = useState<string | null>(null);
+
+  const handleToggleChat = useCallback(() => {
+    setIsChatOpen((open) => {
+      const next = !open;
+      // Re-expanding restores the user's preferred width if they had
+      // already shrunk it. Otherwise default.
+      if (next && chatWidth < MIN_CHAT_WIDTH) setChatWidth(DEFAULT_CHAT_WIDTH);
+      return next;
+    });
+  }, [chatWidth]);
 
   const handleResizeStart = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -278,17 +307,97 @@ function ProjectPage() {
       .catch(() => setLinkedTemplate(null));
   }, [projectId]);
 
-  // Auto-shrink chat panel when README is created (transition from ideation to normal)
+  // Chat stays collapsed by default — even for brand-new projects. The
+  // floating FAB in the bottom-right is the entry point. When the project
+  // is empty the FAB pulses to draw attention (see ChatFab below).
+
+  // Once a README appears for the first time, snap the chat width back to
+  // the default in case the user happens to have it open and oversized.
   useEffect(() => {
     const hasReadme = files.some((f) => f.path === "README.md");
     if (hasReadme && !hasReadmeRef.current) {
-      // README just appeared — shrink chat panel to default width
       hasReadmeRef.current = true;
-      setChatWidth(DEFAULT_CHAT_WIDTH);
+      setChatWidth((w) => (w > DEFAULT_CHAT_WIDTH ? DEFAULT_CHAT_WIDTH : w));
     } else if (!hasReadme) {
       hasReadmeRef.current = false;
     }
   }, [files]);
+
+  // Load README.md content for the overview's "About this demo" expander.
+  // Refetches on fileContentKey bumps (agent edits) so the expander stays
+  // current after iterating on the story.
+  const hasReadmeFile = useMemo(
+    () => files.some((f) => f.path === "README.md"),
+    [files],
+  );
+  useEffect(() => {
+    if (!hasReadmeFile) {
+      setReadmeContent(null);
+      return;
+    }
+    let cancelled = false;
+    getProjectFile(projectId, "README.md")
+      .then((file) => {
+        if (!cancelled) setReadmeContent(file.content);
+      })
+      .catch(() => {
+        if (!cancelled) setReadmeContent(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId, hasReadmeFile, fileContentKey]);
+
+  // ---------------------------------------------------------------------
+  // LLM-generated narrative for the Overview hero.
+  //
+  // We auto-generate a 1-2 paragraph storytelling summary from the README
+  // whenever it drifts from the cached version (sha256(README) recorded
+  // on the project row). Guards against thrashing: skips while the agent
+  // is streaming, debounces re-runs, and ignores generation errors so
+  // the hero falls back to a friendly empty state.
+  // ---------------------------------------------------------------------
+  const [isGeneratingNarrative, setIsGeneratingNarrative] = useState(false);
+  const narrativeAttemptRef = useRef<string | null>(null);
+
+  const handleRegenerateNarrative = useCallback(async () => {
+    if (!project || isGeneratingNarrative) return;
+    setIsGeneratingNarrative(true);
+    try {
+      const updated = await generateProjectNarrative(projectId);
+      setProject(updated);
+    } catch (e) {
+      console.error("Narrative generation failed:", e);
+    } finally {
+      setIsGeneratingNarrative(false);
+    }
+  }, [project, projectId, isGeneratingNarrative]);
+
+  useEffect(() => {
+    if (!project || !readmeContent || isStreaming || isGeneratingNarrative) return;
+    let cancelled = false;
+    (async () => {
+      const trimmed = readmeContent.trim();
+      if (!trimmed) return;
+      // Hash matches backend `_readme_hash` (sha256 of stripped README).
+      const buf = new TextEncoder().encode(trimmed);
+      const digest = await crypto.subtle.digest("SHA-256", buf);
+      const hash = Array.from(new Uint8Array(digest))
+        .map((b) => b.toString(16).padStart(2, "0"))
+        .join("");
+      if (cancelled) return;
+      const isStale =
+        !project.narrative || project.narrative_readme_hash !== hash;
+      // Avoid retrying the same hash twice if the LLM call fails — the
+      // user can still manually retry via the regenerate button.
+      if (!isStale || narrativeAttemptRef.current === hash) return;
+      narrativeAttemptRef.current = hash;
+      handleRegenerateNarrative();
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [project, readmeContent, isStreaming, isGeneratingNarrative, handleRegenerateNarrative]);
 
   // Ref to track selectedFile without causing handleSendMessage to recreate
   const selectedFileRef = useRef(selectedFile);
@@ -1553,6 +1662,20 @@ function ProjectPage() {
                   >
                     <Pencil className="h-3.5 w-3.5 text-muted-foreground" />
                   </button>
+                  {/* Compact status pill — Drafting / Planning / Building 4/5 / Ready.
+                      Clicking opens the assistant when there's live activity. */}
+                  <HeaderStatusPill
+                    buildable={capabilities?.buildable ?? []}
+                    deployed={deployedResources?.resources ?? []}
+                    hasStarted={
+                      files.some((f) => f.path.startsWith("specifications/")) ||
+                      (deployedResources?.resources.length ?? 0) > 0
+                    }
+                    isStreaming={isStreaming}
+                    onClick={() => {
+                      if (!isChatOpen) handleToggleChat();
+                    }}
+                  />
                   {linkedTemplate && (
                     <Badge
                       variant={linkedTemplate.status === "APPROVED" ? "default" : "secondary"}
@@ -1586,30 +1709,47 @@ function ProjectPage() {
 
             {/* Action buttons */}
             <div className="flex items-center gap-1.5">
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setIsTemplateDialogOpen(true)}
-                disabled={files.length === 0}
-                className="h-7 gap-1.5 text-xs"
-                title={linkedTemplate ? "Update Template" : "Save as Template"}
-              >
-                {linkedTemplate ? (
-                  <FileEdit className="h-3.5 w-3.5" />
-                ) : (
-                  <Upload className="h-3.5 w-3.5" />
-                )}
-                <span className="hidden sm:inline">{linkedTemplate ? "Update Template" : "Save as Template"}</span>
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setIsDeleteDialogOpen(true)}
-                className="h-7 w-7 p-0 text-muted-foreground/60 hover:text-destructive hover:bg-destructive/10"
-                title="Delete project"
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-              </Button>
+              {/* Chat lives in a floating action button at the bottom-right
+                  of the page (see ChatFab below). Header stays clean. */}
+
+              {/* Admin / power-user actions tucked into an overflow menu.
+                  Save-as-template + Delete were previously top-level — they
+                  cluttered the header for the typical user flow (just
+                  building a demo). */}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 w-7 p-0 text-muted-foreground/70 hover:text-foreground"
+                    title="More actions"
+                    aria-label="More actions"
+                  >
+                    <MoreHorizontal className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-56">
+                  <DropdownMenuItem
+                    onClick={() => setIsTemplateDialogOpen(true)}
+                    disabled={files.length === 0}
+                  >
+                    {linkedTemplate ? (
+                      <FileEdit className="h-4 w-4 mr-2" />
+                    ) : (
+                      <Upload className="h-4 w-4 mr-2" />
+                    )}
+                    {linkedTemplate ? "Update template" : "Save as template"}
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    onClick={() => setIsDeleteDialogOpen(true)}
+                    className="text-destructive focus:text-destructive focus:bg-destructive/10"
+                  >
+                    <Trash2 className="h-4 w-4 mr-2" />
+                    Delete project
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
 
             {/* User menu — keeps the avatar + profile link reachable from
@@ -1617,45 +1757,20 @@ function ProjectPage() {
             <UserMenu />
           </div>
 
-          {/* Metadata row */}
-          <div className="flex items-center gap-2 mt-1 flex-wrap">
-            {project?.source_template_name && (
+          {/* Metadata row — kept minimal. The Overview hero owns the
+              full description; here we only surface the lineage chip when
+              this project was forked from a template. */}
+          {project?.source_template_name && (
+            <div className="flex items-center gap-2 mt-1">
               <span
                 className="inline-flex items-center gap-1 text-[11px] text-muted-foreground/80 shrink-0"
                 title={`Based on template: ${project.source_template_name}`}
               >
                 <LayoutTemplate className="h-3 w-3" />
-                <span className="truncate max-w-[12rem]">Based on {project.source_template_name}</span>
+                <span className="truncate max-w-[18rem]">Based on {project.source_template_name}</span>
               </span>
-            )}
-            {project?.source_template_name && project?.description && (
-              <span className="text-muted-foreground/30">·</span>
-            )}
-            {/* Description — opens a modal with manual + AI editing.
-                Pencil affordance is hover-only to keep the row visually quiet. */}
-            {project?.description ? (
-              <button
-                onClick={() => setIsDescriptionDialogOpen(true)}
-                className="group inline-flex items-start gap-1.5 text-left text-[13px] leading-snug text-muted-foreground hover:text-foreground transition-colors cursor-pointer max-w-3xl rounded-md -mx-1 px-1 py-0.5 hover:bg-muted/40"
-                title="Click to edit description"
-              >
-                <span className="line-clamp-2 whitespace-pre-wrap">{project.description}</span>
-                <Pencil
-                  className="h-3 w-3 mt-1 shrink-0 opacity-0 group-hover:opacity-60 transition-opacity"
-                  aria-hidden="true"
-                />
-              </button>
-            ) : (
-              <button
-                onClick={() => setIsDescriptionDialogOpen(true)}
-                className="inline-flex items-center gap-1 text-[13px] text-muted-foreground/60 hover:text-muted-foreground transition-colors cursor-pointer italic"
-                title="Add a description"
-              >
-                <Pencil className="h-3 w-3" aria-hidden="true" />
-                Add description
-              </button>
-            )}
-          </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -1726,11 +1841,20 @@ function ProjectPage() {
         <div className={`flex-1 min-w-0 overflow-hidden ${mobilePanel === "chat" ? "hidden md:flex" : "flex"} flex-col`}>
           <FileViewer
             projectId={projectId}
+            projectDescription={project?.description}
+            projectNarrative={project?.narrative ?? null}
+            isGeneratingNarrative={isGeneratingNarrative}
+            onRegenerateNarrative={handleRegenerateNarrative}
             files={files}
             selectedFile={selectedFile}
             fileContent={fileContent}
+            readmeContent={readmeContent}
             onSelectFile={setSelectedFile}
             onSkillsClick={() => setIsSkillsOpen(true)}
+            onOpenChat={() => {
+              if (!isChatOpen) handleToggleChat();
+            }}
+            onEditDescription={() => setIsDescriptionDialogOpen(true)}
             showHidden={showHidden}
             onToggleShowHidden={() => setShowHidden((v) => !v)}
             onRefresh={handleRefresh}
@@ -1755,45 +1879,113 @@ function ProjectPage() {
           />
         </div>
 
-        {/* Resize handle (desktop only) */}
-        <div
-          onMouseDown={handleResizeStart}
-          className="hidden md:block shrink-0 w-1 cursor-col-resize relative group hover:bg-primary/20 active:bg-primary/30 transition-colors"
-          role="separator"
-          aria-orientation="vertical"
-          aria-label="Resize panels"
-        >
-          <div className="absolute inset-y-0 -left-1 -right-1" />
-          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-1 h-8 rounded-full bg-border group-hover:bg-primary/40 group-active:bg-primary/60 transition-colors" />
-        </div>
+        {/* Resize handle — desktop only, and only when chat is open. */}
+        {isChatOpen && (
+          <div
+            onMouseDown={handleResizeStart}
+            className="hidden md:block shrink-0 w-1 cursor-col-resize relative group hover:bg-primary/20 active:bg-primary/30 transition-colors"
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Resize panels"
+          >
+            <div className="absolute inset-y-0 -left-1 -right-1" />
+            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-1 h-8 rounded-full bg-border group-hover:bg-primary/40 group-active:bg-primary/60 transition-colors" />
+          </div>
+        )}
 
-        {/* Chat panel (right side, full-width on mobile when active) */}
-        <div
-          className={`h-full transition-[width] duration-300 ease-in-out ${
-            mobilePanel === "files"
-              ? "hidden md:block md:shrink-0"
-              : "w-full md:w-auto md:shrink-0"
-          }`}
-          style={isMobile && mobilePanel === "chat" ? undefined : { width: chatWidth }}
-        >
-          <ChatPanel
-            messages={messages}
-            onSendMessage={handleSendMessage}
-            isStreaming={isStreaming}
-            isLoadingMessages={isLoadingMessages}
-            isClearingSession={isClearingSession}
-            streamingContent={streamingContent}
-            streamingThinkingBlocks={streamingThinkingBlocks}
-            streamingTools={streamingTools}
-            pendingUserMessage={pendingUserMessage}
-            lastReasoning={lastReasoning}
-            onStop={handleStop}
-            onClearSession={handleClearSession}
-            onAutoBuild={handleAutoBuild}
-            canAutoBuild={!isStreaming}
-          />
-        </div>
+        {/* Chat panel — hidden on desktop unless toggled open.
+            Mobile still uses the mobilePanel switch (panel toggle bar). */}
+        {(isChatOpen || isMobile) && (
+          <div
+            className={`h-full transition-[width] duration-300 ease-in-out ${
+              mobilePanel === "files"
+                ? "hidden md:block md:shrink-0"
+                : "w-full md:w-auto md:shrink-0"
+            }`}
+            style={isMobile && mobilePanel === "chat" ? undefined : { width: chatWidth }}
+          >
+            <ChatPanel
+              messages={messages}
+              onSendMessage={handleSendMessage}
+              isStreaming={isStreaming}
+              isLoadingMessages={isLoadingMessages}
+              isClearingSession={isClearingSession}
+              streamingContent={streamingContent}
+              streamingThinkingBlocks={streamingThinkingBlocks}
+              streamingTools={streamingTools}
+              pendingUserMessage={pendingUserMessage}
+              lastReasoning={lastReasoning}
+              onStop={handleStop}
+              onClearSession={handleClearSession}
+              onAutoBuild={handleAutoBuild}
+              canAutoBuild={!isStreaming}
+            />
+          </div>
+        )}
       </div>
+
+      {/* Floating chat FAB — bottom-right, toggles the assistant panel.
+          When closed, it's a wide labelled pill so it reads as a
+          dedicated action; when open, it shrinks to a circular X. The
+          ambient pulse runs whenever the project has no README yet so
+          first-time visitors are nudged toward the entry point. */}
+      {(() => {
+        const hasReadme = files.some((f) => f.path === "README.md");
+        const showPulse = !isChatOpen && (!hasReadme || isStreaming);
+        const pulseColor = isStreaming
+          ? "bg-emerald-400"
+          : "bg-primary";
+        return (
+          <div className="hidden md:block fixed bottom-6 right-6 z-50">
+            {/* Ambient pulse ring — sits behind the button. Only visible
+                when there's something the user should notice. */}
+            {showPulse && (
+              <span
+                aria-hidden
+                className={cn(
+                  "absolute inset-0 rounded-full animate-ping opacity-60",
+                  pulseColor,
+                )}
+              />
+            )}
+            <button
+              type="button"
+              onClick={handleToggleChat}
+              className={cn(
+                "relative flex items-center gap-2 shadow-xl shadow-primary/20 transition-all hover:scale-[1.03] active:scale-95",
+                isChatOpen
+                  ? "h-12 w-12 justify-center rounded-full bg-card border border-border text-foreground hover:bg-muted"
+                  : "h-14 pl-4 pr-5 rounded-full bg-primary text-primary-foreground hover:bg-primary/90",
+              )}
+              title={isChatOpen ? "Hide assistant" : "Open assistant"}
+              aria-pressed={isChatOpen}
+              aria-label={isChatOpen ? "Hide assistant" : "Open assistant"}
+            >
+              {isChatOpen ? (
+                <X className="h-5 w-5" />
+              ) : (
+                <>
+                  <span className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary-foreground/15">
+                    <MessageSquare className="h-5 w-5" />
+                  </span>
+                  <span className="text-[14px] font-semibold tracking-tight pr-1">
+                    {isStreaming ? "See live activity" : "Ask the assistant"}
+                  </span>
+                </>
+              )}
+              {/* Streaming dot for the closed circular state when open
+                  isn't an option (mirrors prior behavior on smaller
+                  layouts — kept for parity with the open icon-only state). */}
+              {!isChatOpen && isStreaming && (
+                <span
+                  aria-hidden
+                  className="absolute -top-1 -right-1 h-3 w-3 rounded-full bg-emerald-500 shadow ring-2 ring-background"
+                />
+              )}
+            </button>
+          </div>
+        );
+      })()}
 
       {/* Delete Confirmation Dialog */}
       <Dialog open={isDeleteDialogOpen} onOpenChange={(open) => { setIsDeleteDialogOpen(open); if (open) setDeleteError(null); }}>
