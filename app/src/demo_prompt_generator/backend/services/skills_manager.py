@@ -521,6 +521,27 @@ def create_project_directory(
         capability_ids=capabilities,
     )
 
+    # Scaffold the spec stage's expected layout up front. The build agent
+    # walks `specifications/*.md` numerically (see stages/03-build.md); having
+    # the folder pre-created — plus `specifications/app/` when an app is part
+    # of the demo — removes guesswork for the spec agent in Stage 2.
+    specs_dir = project_dir / "specifications"
+    specs_dir.mkdir(parents=True, exist_ok=True)
+    if capabilities and "databricks-apps" in capabilities:
+        (specs_dir / "app").mkdir(parents=True, exist_ok=True)
+
+    # Drop META-PROMPT.md at the project root from the skill template if it
+    # isn't there yet. SKILL.md says it's generic and copied from the
+    # template; pre-seeding it removes that step from Stage 2.
+    meta_prompt_dst = project_dir / "META-PROMPT.md"
+    if not meta_prompt_dst.exists():
+        meta_prompt_src = (
+            project_dir / ".claude" / "skills" / "databricks-demo-generator"
+            / "references" / "META-PROMPT-TEMPLATE.md"
+        )
+        if meta_prompt_src.exists():
+            meta_prompt_dst.write_text(meta_prompt_src.read_text())
+
     logger.info(f"Created project directory: {project_dir}")
     return project_dir
 
