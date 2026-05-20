@@ -66,20 +66,57 @@ def upgrade() -> None:
         # ownership alone. The env.py SET ROLE is also a silent no-op there.
         return
 
-    for table in MANAGED_TABLES:
-        # Only alter tables that actually exist (defensive — e.g. if this
-        # migration runs against a freshly-created DB where v0/v1/v2/v3/v4
-        # have only just created their tables, all should be present).
-        row = bind.execute(
-            sa.text(
-                "SELECT 1 FROM pg_tables "
-                "WHERE schemaname = 'public' AND tablename = :t"
-            ),
-            {"t": table},
-        ).first()
-        if row is None:
-            continue
-        op.execute(f'ALTER TABLE public."{table}" OWNER TO {SHARED_OWNER_ROLE}')
+    # env.py issues `SET ROLE databricks_superuser` before this runs so future
+    # CREATE TABLE statements land owned by the shared role. But ALTER OWNER
+    # requires being the CURRENT owner (or having ADMIN OPTION on the owner)
+    # — and the existing tables are owned by whatever SP first created them,
+    # not by databricks_superuser. Switch back to our login role for this
+    # migration, which IS one of the historical owners. Re-apply SET ROLE
+    # at the end so the rest of the migration chain stays consistent.
+    bind.execute(sa.text("RESET ROLE"))
+    try:
+        for table in MANAGED_TABLES:
+            # Only alter tables that actually exist (defensive — e.g. against
+            # a freshly-created DB where some earlier migrations haven't run).
+            row = bind.execute(
+                sa.text(
+                    "SELECT 1 FROM pg_tables "
+                    "WHERE schemaname = 'public' AND tablename = :t"
+                ),
+                {"t": table},
+            ).first()
+            if row is None:
+                continue
+            # Skip tables already owned by the shared role — keeps the
+            # migration idempotent on re-runs and on the new-DB path where
+            # env.py's SET ROLE already made databricks_superuser the owner.
+            owner = bind.execute(
+                sa.text(
+                    "SELECT tableowner FROM pg_tables "
+                    "WHERE schemaname = 'public' AND tablename = :t"
+                ),
+                {"t": table},
+            ).scalar()
+            if owner == SHARED_OWNER_ROLE:
+                continue
+            try:
+                op.execute(
+                    f'ALTER TABLE public."{table}" OWNER TO {SHARED_OWNER_ROLE}'
+                )
+            except Exception as e:
+                # We can't ALTER OWNER if the current login role is neither
+                # the table owner nor a member of the owner role. Log and
+                # carry on rather than crash the app — operators can fix
+                # ownership out-of-band and re-run.
+                import logging
+                logging.getLogger("alembic").warning(
+                    "v5_normalize_ownership: skipping %s (cannot ALTER OWNER): %s",
+                    table, e,
+                )
+    finally:
+        # Restore the SET ROLE so subsequent migrations (none today, but
+        # future ones) still create new objects owned by the shared role.
+        bind.execute(sa.text("SET ROLE databricks_superuser"))
 
 
 def downgrade() -> None:
