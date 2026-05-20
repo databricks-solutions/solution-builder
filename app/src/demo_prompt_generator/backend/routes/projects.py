@@ -34,11 +34,45 @@ from ..models import (
     Template,
     compute_project_stage,
 )
-from ..services.file_sync import FileSyncService
+from ..services.file_sync import FileSyncService, decompress_content
 from ..services.skills_manager import (
     create_project_directory,
     get_project_directory,
 )
+
+
+def _load_resources_text(session, project_id: str) -> str | None:
+    """Load the raw resources.json content for a project, or None if absent
+    or undecodable. Used to gate BUILT on per-capability completeness."""
+    row = session.exec(
+        select(ProjectFile.content_compressed)
+        .where(ProjectFile.project_id == project_id)
+        .where(ProjectFile.relative_path == "resources.json")
+    ).first()
+    if not row:
+        return None
+    try:
+        return decompress_content(row).decode("utf-8")
+    except Exception:
+        return None
+
+
+def _batch_load_resources_text(session, project_ids: list[str]) -> dict[str, str]:
+    """Bulk variant for list endpoints — one query for many projects."""
+    if not project_ids:
+        return {}
+    rows = session.exec(
+        select(ProjectFile.project_id, ProjectFile.content_compressed)
+        .where(ProjectFile.project_id.in_(project_ids))  # type: ignore[attr-defined]
+        .where(ProjectFile.relative_path == "resources.json")
+    ).all()
+    out: dict[str, str] = {}
+    for pid, blob in rows:
+        try:
+            out[pid] = decompress_content(blob).decode("utf-8")
+        except Exception:
+            pass
+    return out
 from .resources import list_clusters, list_warehouses
 
 router = create_router()
@@ -288,11 +322,13 @@ def list_projects(
     # file viewer — exclude .databrickscfg, .claude/skills/, etc.
     from .project_files import _is_hidden_from_listing
 
+    resources_text_by_project = _batch_load_resources_text(session, list(project_ids))
+
     result = []
     for p in projects:
         file_paths = files_by_project.get(p.id, [])
         visible_file_count = sum(1 for f in file_paths if not _is_hidden_from_listing(f))
-        stage = compute_project_stage(file_paths)
+        stage = compute_project_stage(file_paths, resources_text_by_project.get(p.id))
 
         # Persist stage if it changed
         if stage != p.stage:
@@ -490,7 +526,7 @@ def get_project(
         select(func.count()).select_from(Message).where(Message.project_id == project.id)
     ).one()
 
-    stage = compute_project_stage(file_paths)
+    stage = compute_project_stage(file_paths, _load_resources_text(session, project.id))
     if stage != project.stage:
         project.stage = stage
         session.add(project)
@@ -923,7 +959,7 @@ def sync_project(
             .where(ProjectFile.project_id == project.id)
         ).all()
     ]
-    stage = compute_project_stage(file_paths)
+    stage = compute_project_stage(file_paths, _load_resources_text(session, project.id))
     if stage != project.stage:
         project.stage = stage
         session.add(project)
@@ -1139,7 +1175,7 @@ def list_shared_projects(session: Dependencies.Session, headers: Dependencies.He
                 .where(ProjectFile.project_id == project.id)
             ).all()
         ]
-        stage = compute_project_stage(file_paths)
+        stage = compute_project_stage(file_paths, _load_resources_text(session, project.id))
 
         result.append(
             ProjectListItem(

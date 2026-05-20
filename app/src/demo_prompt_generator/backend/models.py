@@ -91,10 +91,92 @@ class ProjectStage(str, Enum):
     BUNDLED = "BUNDLED"              # databricks.yml exists (DAB)
 
 
-def compute_project_stage(file_paths: list[str]) -> str:
+# Buildable capability -> canonical keys in resources.json that indicate
+# it has been deployed. A capability is satisfied if AT LEAST ONE matching
+# key has a non-empty value anywhere in the resources.json tree.
+# Capabilities not listed (or listed with []) don't require a deployed ID.
+_CAPABILITY_RESOURCE_KEYS: dict[str, list[str]] = {
+    "sdp": ["pipeline_id"],
+    "synthetic-data-gen": ["pipeline_id"],
+    "lakeflow-connect": ["pipeline_id"],
+    "aibi-dashboards": ["dashboard_id"],
+    "genie": ["genie_space_id"],
+    "knowledge-assistant": ["knowledge_assistant_id", "knowledge_assistant_endpoint"],
+    "supervisor-agent": ["multi_agent_supervisor_id", "multi_agent_supervisor_endpoint"],
+    "databricks-apps": ["app_id", "app_name", "app_url"],
+    "lakebase": ["lakebase_project_id", "lakebase_project_slug", "lakebase_database"],
+    "metric-views": ["metric_view_name"],
+    "ml-training-serving": ["mlflow_experiment_path", "serving_endpoint_name"],
+    "vector-search": ["vector_index_full_name"],
+}
+
+
+def _iter_string_values(node: object):
+    """Walk an arbitrarily nested JSON tree, yielding (key, value) pairs
+    where value is a non-empty string. Used to scan resources.json without
+    being sensitive to whether the agent emitted flat or nested shapes."""
+    if isinstance(node, dict):
+        for k, v in node.items():
+            if isinstance(v, str) and v.strip():
+                yield k, v
+            else:
+                yield from _iter_string_values(v)
+    elif isinstance(node, list):
+        for item in node:
+            yield from _iter_string_values(item)
+
+
+def _all_buildable_capabilities_built(resources_json_text: str) -> bool:
+    """True when every entry in `capabilities.buildable` has at least one
+    matching deployed-resource key populated in the JSON. Conservative on
+    parse failure (returns False) so we don't claim BUILT on broken JSON.
+    Capabilities with no required keys (or unknown to us) are skipped —
+    forward-compatible with new capability slugs."""
+    import json
+    try:
+        data = json.loads(resources_json_text)
+    except (ValueError, TypeError):
+        return False
+    if not isinstance(data, dict):
+        return False
+
+    caps_section = data.get("capabilities") or {}
+    buildable = caps_section.get("buildable") if isinstance(caps_section, dict) else None
+    if not isinstance(buildable, list) or not buildable:
+        # No capability manifest — fall back to the file-based heuristic by
+        # treating "all built" as true. The agent hasn't started populating
+        # the structured manifest yet, so we don't have a basis to gate on.
+        return True
+
+    populated_keys: set[str] = {k for k, _ in _iter_string_values(data)}
+
+    for slug in buildable:
+        if not isinstance(slug, str):
+            continue
+        required = _CAPABILITY_RESOURCE_KEYS.get(slug)
+        if not required:
+            # Capability has no deployed resource (e.g. unity-catalog) or is
+            # unknown to us — don't block on it.
+            continue
+        if not any(k in populated_keys for k in required):
+            return False
+    return True
+
+
+def compute_project_stage(
+    file_paths: list[str],
+    resources_json_text: str | None = None,
+) -> str:
     """Derive the project stage from its file paths.
 
     Checks from highest stage downward so the first match wins.
+
+    When `resources_json_text` is provided, BUILT additionally requires
+    that every `capabilities.buildable` entry has a matching deployed
+    resource key in `created_resources`. Otherwise the heuristic stays
+    file-only — a `.py`/`.sql` + `resources.json` was enough, which made
+    BUILT trigger before the supervisor/app capabilities were actually
+    deployed.
     """
     path_set = {p.lower() for p in file_paths}
     names = {p.rsplit("/", 1)[-1] for p in path_set}
@@ -105,7 +187,11 @@ def compute_project_stage(file_paths: list[str]) -> str:
     has_code = any(p.endswith(".py") or p.endswith(".sql") for p in path_set)
     has_resources = "resources.json" in names
     if has_code and has_resources:
-        return ProjectStage.BUILT.value
+        if resources_json_text is None or _all_buildable_capabilities_built(resources_json_text):
+            return ProjectStage.BUILT.value
+        # File-level signals match BUILT but a requested buildable capability
+        # has no deployed resource yet — stay at SPECIFICATION so the UI
+        # doesn't suggest "package as DAB" prematurely.
 
     has_specifications = any(p.startswith("specifications/") and p.endswith(".md") for p in path_set)
     if has_specifications:
