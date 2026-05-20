@@ -139,7 +139,7 @@ export const DescriptionEditDialog = memo(function DescriptionEditDialog({
               ref={textareaRef}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="Tell someone about this demo like you would at a bar. Who's the persona, what are they trying to do, why does this matter? 1-2 short paragraphs."
+              placeholder="Tell someone about this solution like you would at a bar. Who's the persona, what are they trying to do, why does this matter? 1-2 short paragraphs."
               className="min-h-[160px] resize-y text-sm"
               disabled={isBusy}
             />

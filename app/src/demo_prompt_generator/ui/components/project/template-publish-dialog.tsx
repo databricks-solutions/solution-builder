@@ -106,7 +106,7 @@ export const TemplatePublishDialog = memo(function TemplatePublishDialog({
               <DialogDescription className="mt-1">
                 {isUpdate
                   ? "Sync the template with your current project files."
-                  : "Make this demo available for others to clone and customize."}
+                  : "Make this solution available for others to clone and customize."}
               </DialogDescription>
             </div>
           </div>

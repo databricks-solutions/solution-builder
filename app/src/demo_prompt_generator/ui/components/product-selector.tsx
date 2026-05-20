@@ -162,7 +162,7 @@ export function ProductSelector({
             <div className="flex items-center justify-center mb-2.5">
               <div className="flex items-center gap-2">
                 <p className="text-xs text-muted-foreground">
-                  Select capabilities to include in your demo:
+                  Select capabilities to include in your solution:
                 </p>
                 <Tooltip>
                   <TooltipTrigger asChild>

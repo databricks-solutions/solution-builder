@@ -33,11 +33,11 @@ export const GUIDE_SLIDES: GuideSlide[] = [
   {
     id: "time-pitch",
     section: "Overview",
-    title: "Demos in minutes, not days",
+    title: "Solutions in minutes, not days",
     Visual: TimelineVisual,
-    body: `A great Databricks demo takes **days** to hand-build. The [AI Dev Kit](https://github.com/databricks-solutions/ai-dev-kit) cuts that to roughly **4 hours** by shipping our best practices baked in.
+    body: `A great Databricks solution takes **days** to hand-build. The [AI Dev Kit](https://github.com/databricks-solutions/ai-dev-kit) cuts that to roughly **4 hours** by shipping our best practices baked in.
 
-This framework — built on top of the AI Dev Kit — composes pre-curated context blocks instead of inventing each demo from scratch. The result: **15–30 minutes** to a working demo, **far fewer tokens**, and use cases you can save and share with the team.`,
+This framework — built on top of the AI Dev Kit — composes pre-curated context blocks instead of inventing each solution from scratch. The result: **15–30 minutes** to a working solution, **far fewer tokens**, and use cases you can save and share with the team.`,
   },
   {
     id: "structured-context",
@@ -55,7 +55,7 @@ This framework — built on top of the AI Dev Kit — composes pre-curated conte
     Visual: ShareVisual,
     body: `Hit something good? **Publish the project as a template.** Teammates browse the gallery, fork in one click, and reskin for the next customer — no copy-paste, no chat archaeology.
 
-A *customer segmentation* demo built for **Acme Retail** can become **BayerCo's patient cohorts** in minutes — same blueprint, swapped industry. Every shared template means **less prompting and fewer tokens** for the whole team.`,
+A *customer segmentation* solution built for **Acme Retail** can become **BayerCo's patient cohorts** in minutes — same blueprint, swapped industry. Every shared template means **less prompting and fewer tokens** for the whole team.`,
   },
 
   // -------------------------------------------------------------------------
@@ -70,7 +70,7 @@ A *customer segmentation* demo built for **Acme Retail** can become **BayerCo's 
     alt: "Brainstorming a customer use case",
     body: `Pick the **industry**, **capabilities**, and any specific data shapes or workflows.
 
-The agent grounds the demo in real Databricks patterns from the block library — no blank page, no improvisation.`,
+The agent grounds the solution in real Databricks patterns from the block library — no blank page, no improvisation.`,
   },
   {
     id: "architecture",
@@ -89,7 +89,7 @@ Push back via chat until it matches your customer's environment.`,
     title: "Step 3 — Fan out the specifications",
     Visual: SpecVisual,
     gif: "/GIFs/specification.gif",
-    alt: "Demo specification files",
+    alt: "Solution specification files",
     body: `Once the story is approved, the agent fans out **one spec per Databricks layer** under \`specifications/\`:
 
 - **\`01-lakeflow.md\`** — synthetic data, schemas, and the bronze → silver → gold SDP pipeline
@@ -116,7 +116,7 @@ Open it from your terminal with the [AI Dev Kit](https://github.com/databricks-s
     title: "Step 5 — See it live on Databricks",
     Visual: LiveVisual,
     gif: "/GIFs/databricks-resources.gif",
-    alt: "Live Databricks resources created from the demo",
+    alt: "Live Databricks resources created from the solution",
     body: `When the Dev Kit finishes running, real **tables, pipelines, dashboards, and apps** appear on your workspace — with deep links to each from the project view, ready to walk a customer through.`,
   },
 ];

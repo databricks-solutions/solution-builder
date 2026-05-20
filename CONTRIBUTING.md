@@ -75,7 +75,7 @@ npx playwright test --ui                  # interactive mode
 
 ## Adding a context block
 
-To add a new domain, capability, or pattern to the Demo Generator Skill:
+To add a new domain, capability, or pattern to the Solution Generator Skill:
 
 1. Create a Markdown file in the appropriate subdirectory under `.claude/skills/databricks-demo-generator/references/blocks/` (`domains/`, `capabilities/`, or `patterns/`).
 2. Add YAML frontmatter with `name`, `slug`, `category`, `tags`, `description`, `related`.

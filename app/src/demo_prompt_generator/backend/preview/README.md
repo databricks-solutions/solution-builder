@@ -43,5 +43,5 @@ overlay asking the user to generate the app first.
 
 ## Agent rule
 
-The AI agent that generates demos **must never** run `./start.sh` itself. Only the UI
+The AI agent that generates solutions **must never** run `./start.sh` itself. Only the UI
 (via this module) owns the lifecycle. This is documented in `SKILL.md` and `app.md`.

@@ -454,7 +454,7 @@ export const HeaderStatusPill = memo(function HeaderStatusPill({
             ? "See live activity"
             : isInProgress
               ? "Resume building"
-              : "Demo is ready"
+              : "Solution is ready"
         }
       >
         {inner}
@@ -520,7 +520,7 @@ const HeroCard = memo(function HeroCard({
           </div>
           <div className="flex-1">
             <h3 className="text-[17px] font-semibold text-foreground">
-              Let's design your demo
+              Let's design your solution
             </h3>
             <p className="mt-1.5 text-[13.5px] leading-relaxed text-muted-foreground">
               Tell the assistant about your customer — their industry, what
@@ -661,7 +661,7 @@ const DraftingOverview = memo(function DraftingOverview({
           <h2 className="text-[18px] font-semibold tracking-tight text-foreground">
             {isStreaming
               ? "Your project is being crafted…"
-              : "Let's design your demo"}
+              : "Let's design your solution"}
           </h2>
         </div>
 
@@ -993,7 +993,7 @@ const AnalystLayerBlock = memo(function AnalystLayerBlock({
         className="text-[10px] font-bold uppercase tracking-[0.14em] pb-2 mb-2.5 border-b-2 text-blue-600 dark:text-blue-300"
         style={{ borderColor: "rgb(96, 165, 250)" }}
       >
-        Your demo app
+        Your solution app
       </div>
       <section className="relative overflow-hidden rounded-xl border border-blue-400/30 bg-gradient-to-br from-blue-950 via-blue-900 to-slate-900 text-white p-3.5 flex flex-col gap-3 h-full justify-between">
         {/* Soft glow accent */}

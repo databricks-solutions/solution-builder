@@ -127,7 +127,7 @@ export function TimelineVisual({ active }: GuideVisualProps) {
         ))}
       </div>
       <div className="mt-3 px-14 text-[10px] uppercase tracking-[0.18em] text-center text-muted-foreground/70">
-        Time to a working Databricks demo
+        Time to a working Databricks solution
       </div>
     </div>
   );
@@ -887,7 +887,7 @@ export function LiveVisual({ active }: GuideVisualProps) {
         {/* Breadcrumb */}
         <div className="border-b border-border/40 bg-muted/15 px-3 py-1 text-[9px] font-mono">
           <span className="text-muted-foreground/55">Unity Catalog /</span>
-          <span className="text-foreground/85 ml-1">demo_segmentation</span>
+          <span className="text-foreground/85 ml-1">solution_segmentation</span>
         </div>
         {/* Body: sidebar + tile grid */}
         <div className="flex">

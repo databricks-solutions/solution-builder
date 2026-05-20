@@ -1348,7 +1348,7 @@ export const ChatPanel = memo(function ChatPanel({
   onClose,
   onAutoBuild,
   canAutoBuild = true,
-  placeholder = "Ask the AI to help build your demo...",
+  placeholder = "Ask the AI to help build your solution...",
   title = "Your AI Assistant",
 }: ChatPanelProps) {
   const [input, setInput] = useState("");
@@ -1485,7 +1485,7 @@ export const ChatPanel = memo(function ChatPanel({
                   <div>
                     <p className="text-sm font-medium text-muted-foreground/70 mb-1">Start a conversation</p>
                     <p className="text-xs text-muted-foreground/50 leading-relaxed">
-                      Ask the AI to help you design and build your demo
+                      Ask the AI to help you design and build your solution
                     </p>
                   </div>
                   {onAutoBuild && (
@@ -1493,7 +1493,7 @@ export const ChatPanel = memo(function ChatPanel({
                       onClick={() => setAutoBuildConfirmOpen(true)}
                       disabled={!canAutoBuild}
                       className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium bg-primary/10 text-primary hover:bg-primary/15 transition-colors disabled:opacity-40 disabled:pointer-events-none"
-                      title="Run the full demo build end-to-end"
+                      title="Run the full solution build end-to-end"
                     >
                       <Zap className="h-3.5 w-3.5" strokeWidth={2.5} />
                       <span>Or run auto build</span>

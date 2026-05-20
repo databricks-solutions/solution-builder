@@ -1,5 +1,5 @@
 /**
- * Demo Prompt Generator - Electron Main Process
+ * Databricks Solution Builder - Electron Main Process
  *
  * Bundles a FastAPI Python backend with a React frontend.
  * Designed for macOS distribution with bundled Python runtime.

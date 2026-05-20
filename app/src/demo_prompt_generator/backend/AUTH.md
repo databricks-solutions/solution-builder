@@ -81,7 +81,7 @@ flow, will be removed.
 
 Two subprocesses need to act as the user:
   - Claude Agent SDK (runs `databricks ...` CLI calls as part of the
-    demo build)
+    solution build)
   - The generated preview app (runs the user's generated Node server)
 
 Both are spawned with environment variables that point at a Databricks

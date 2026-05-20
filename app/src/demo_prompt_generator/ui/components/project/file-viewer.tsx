@@ -147,7 +147,7 @@ const StoryView = memo(function StoryView({ readmeContent, isStreaming }: StoryV
               <BookOpen className="h-10 w-10 mx-auto mb-3 opacity-40" />
               <p className="text-sm">No story yet.</p>
               <p className="text-xs mt-1">
-                Describe your demo to the assistant — it'll draft a story here.
+                Describe your solution to the assistant — it'll draft a story here.
               </p>
             </>
           )}
@@ -675,7 +675,7 @@ const TabBar = memo(function TabBar({
             role="tab"
             aria-selected={activeTab === "story"}
             onClick={() => onTabChange("story")}
-            title={hasReadme ? "Demo story (README)" : "Story (no README yet)"}
+            title={hasReadme ? "Solution story (README)" : "Story (no README yet)"}
             className={tabClasses(activeTab === "story", hasReadme)}
           >
             <TabIcon Icon={BookOpen} showDot={hasReadme && activeTab !== "story"} />

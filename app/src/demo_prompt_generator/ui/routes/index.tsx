@@ -412,14 +412,14 @@ function Index() {
       // did NOT select; those mentions must be treated as descriptive language,
       // NOT as a signal to add capabilities the user didn't pick.
       const authoritativeCapsLine = capabilityIds.length > 0
-        ? `\n\nUse these capabilities within the demo: ${capabilityIds.join(", ")} (do not add extra unless it's a strict missing dependency)`
+        ? `\n\nUse these capabilities within the solution: ${capabilityIds.join(", ")} (do not add extra unless it's a strict missing dependency)`
         : "";
 
       let initialPrompt: string;
       if (idea) {
-        initialPrompt = `Help me build a databricks demo.\n\nUser request:\n${topic.trim()}\n\n**${idea.title}**\n\n${idea.hook}${authoritativeCapsLine}`;
+        initialPrompt = `Help me build a databricks solution.\n\nUser request:\n${topic.trim()}\n\n**${idea.title}**\n\n${idea.hook}${authoritativeCapsLine}`;
       } else {
-        initialPrompt = `Help me build a databricks demo.\n\nDemo description:\n${topic.trim()}${authoritativeCapsLine}`;
+        initialPrompt = `Help me build a databricks solution.\n\nSolution description:\n${topic.trim()}${authoritativeCapsLine}`;
       }
 
       // Auto mode: append the kickoff directive so the agent runs every stage
@@ -578,7 +578,7 @@ function Index() {
                           {isSuggestingCapabilities
                             ? "Generating story ideas..."
                             : ideas.length === 1
-                              ? "Your demo story"
+                              ? "Your solution story"
                               : "Choose a story direction"}
                         </span>
                       </div>
@@ -815,7 +815,7 @@ function Index() {
                     Tailoring for a specific customer?
                   </p>
                   <p className="mt-0.5 text-xs text-muted-foreground leading-relaxed">
-                    Before building a demo, ask a research agent (Claude,
+                    Before building a solution, ask a research agent (Claude,
                     Genie, Glean) to summarize the customer's industry, current
                     tech stack, pain points, and Databricks usage. Paste that
                     context into the input above for a proposal that speaks
@@ -833,14 +833,14 @@ function Index() {
                 <button
                   onClick={() => {
                     setTopic(
-                      "Build a demo for Acme Corp (Fortune 500 retailer, heavy on Snowflake today, interested in real-time ML). They struggle with demand forecasting accuracy across 2,000+ stores."
+                      "Build a solution for Acme Corp (Fortune 500 retailer, heavy on Snowflake today, interested in real-time ML). They struggle with demand forecasting accuracy across 2,000+ stores."
                     );
                     setTimeout(adjustTextareaHeight, 0);
                   }}
                   className="italic hover:text-foreground transition-colors cursor-pointer underline underline-offset-2 decoration-primary/20 hover:decoration-primary/40"
-                  aria-label="Use example prompt: Build a demo for Acme Corp"
+                  aria-label="Use example prompt: Build a solution for Acme Corp"
                 >
-                  "Build a demo for Acme Corp, a Fortune 500 retailer struggling
+                  "Build a solution for Acme Corp, a Fortune 500 retailer struggling
                   with demand forecasting across 2,000+ stores..."
                 </button>
               </div>

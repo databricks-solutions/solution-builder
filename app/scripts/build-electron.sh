@@ -1,6 +1,6 @@
 #!/bin/bash
 # ==============================================================================
-# Build script for Demo Prompt Generator Electron App
+# Build script for Databricks Solution Builder Electron App
 #
 # This script:
 # 1. Downloads standalone Python 3.12 (if not present)
@@ -164,7 +164,7 @@ fi
 # Show build info
 ARCH_DISPLAY="${ARCH:-from package.json}"
 echo -e "${BLUE}╔══════════════════════════════════════════════════════════════╗${NC}"
-echo -e "${BLUE}║${NC}  ${GREEN}Building Demo Prompt Generator for macOS${NC}                  ${BLUE}║${NC}"
+echo -e "${BLUE}║${NC}  ${GREEN}Building Databricks Solution Builder for macOS${NC}            ${BLUE}║${NC}"
 echo -e "${BLUE}║${NC}  ${CYAN}Architecture: $ARCH_DISPLAY${NC}                               ${BLUE}║${NC}"
 echo -e "${BLUE}╚══════════════════════════════════════════════════════════════╝${NC}"
 echo ""
@@ -477,5 +477,5 @@ echo -e "${GREEN}╔════════════════════
 echo -e "${GREEN}║${NC}  ${CYAN}Build completed successfully!${NC}                              ${GREEN}║${NC}"
 echo -e "${GREEN}║${NC}                                                              ${GREEN}║${NC}"
 echo -e "${GREEN}║${NC}  The app is available at:                                    ${GREEN}║${NC}"
-echo -e "${GREEN}║${NC}    ${YELLOW}dist-electron/Demo Prompt Generator-*.dmg${NC}                ${GREEN}║${NC}"
+echo -e "${GREEN}║${NC}    ${YELLOW}dist-electron/Databricks Solution Builder-*.dmg${NC}          ${GREEN}║${NC}"
 echo -e "${GREEN}╚══════════════════════════════════════════════════════════════╝${NC}"
