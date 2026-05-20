@@ -251,8 +251,22 @@ Tell the user the build is complete and point them at the **App** tab to start i
 This is the **interactive** deploy path. We do NOT run `databricks bundle deploy` here — the project's `databricks.yml` is shipped in the source so the user can run a bundle deploy themselves later; the skill's job is the live push.
 
 **Pick the app name from `resources.json`:**
-- If `created_resources.app.name` is set → reuse it (redeploy).
+- If `created_resources.app.name` is set → reuse it (redeploy), BUT FIRST validate it against the rules below.
 - If not set → first-time. Use `dbgen-<demo_short_name>` (e.g. `dbgen-luxebeauty`). Verify the name is free first — if `databricks apps get <name>` returns a result, **stop and ask the user**.
+
+**Hard rule — protected names you must NEVER use:**
+- `dbdemos-generator` is the **official production app that runs this skill itself**. Deploying onto it would overwrite the live tool every user is using.
+- `dbdemos-generator-staging` is its staging twin — same rule.
+- Any name matching `dbdemos-generator*` is reserved.
+
+If the resolved `APP_NAME` matches any of these — whether from `resources.json`, `.env`, or any other source — STOP, do not deploy, tell the user the name is reserved and ask them to pick a `dbgen-<demo_short_name>` value. Update `resources.json` with the new name before retrying.
+
+**Workspace Apps quota is hit (cannot create new app):**
+If `databricks apps create` fails with a quota / "workspace apps limit" / "app limit exceeded" error, do **NOT** try to reuse some existing app name to bypass it. Stop the deploy entirely and tell the user:
+
+> "The workspace is at its Databricks Apps quota — I can't create `<APP_NAME>` right now. For this demo session, you can use the **Preview** button in the UI's App tab to run the app locally without deploying. To enable a real deploy later, free a slot in `databricks apps list` and ask me to re-run the deploy step."
+
+Record the quota failure in `resources.json` `created_resources.app.deployment_note` so the next session sees it.
 
 Make sure `.env` has `APP_NAME` set to the resolved name and the Lakebase values from Step 4a are populated (LAKEBASE_PROJECT_ID, LAKEBASE_ENDPOINT, PGHOST, PGDATABASE). Then run the wrapper:
 

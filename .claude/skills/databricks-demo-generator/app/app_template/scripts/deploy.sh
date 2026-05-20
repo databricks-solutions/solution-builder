@@ -33,6 +33,20 @@ for v in APP_NAME LAKEBASE_PROJECT_ID PGDATABASE; do
     }
 done
 
+# Hard guard — `dbdemos-generator*` is the live demo-generator app itself.
+# A deploy targeting that name would overwrite the production tool every
+# Databricks SA is currently using. Override only if you genuinely intend
+# to redeploy the platform app (almost never from inside a generated demo).
+case "$APP_NAME" in
+    dbdemos-generator|dbdemos-generator-*)
+        echo "[deploy] ERROR: APP_NAME='$APP_NAME' is reserved." >&2
+        echo "[deploy]   This is the live demo-generator app (or a sibling)." >&2
+        echo "[deploy]   Pick a name like dbgen-<demo_short_name> in .env, update" >&2
+        echo "[deploy]   resources.json's created_resources.app.name to match, and retry." >&2
+        exit 1
+        ;;
+esac
+
 PROFILE_FLAG=()
 [[ -n "${DATABRICKS_CONFIG_PROFILE:-}" ]] && \
     PROFILE_FLAG=(--profile "$DATABRICKS_CONFIG_PROFILE")
@@ -44,8 +58,11 @@ explain_apps_error() {
     local err="$2"
     case "$err" in
         *"workspace apps limit"*|*"app limit"*|*"quota"*)
-            echo "[deploy] ERROR ($stage): the workspace is at its Apps quota." >&2
-            echo "[deploy]   Free up a slot — list apps with: databricks apps list" >&2
+            echo "[deploy] ERROR ($stage): the workspace is at its Databricks Apps quota." >&2
+            echo "[deploy]   Skip the deploy step for now — the demo can run via the" >&2
+            echo "[deploy]   Preview button in the UI's App tab without being deployed." >&2
+            echo "[deploy]   To enable a real deploy later, free a slot in: databricks apps list" >&2
+            echo "[deploy]   then ask the assistant to re-run the deploy step." >&2
             ;;
         *"already exists"*)
             echo "[deploy] ERROR ($stage): name '$APP_NAME' already taken by another user/app." >&2
