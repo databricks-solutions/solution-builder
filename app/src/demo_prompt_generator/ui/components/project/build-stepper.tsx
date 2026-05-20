@@ -60,13 +60,13 @@ const STAGE_META: Record<ProjectStage, StageMeta> = {
     label: "Draft",
     shortLabel: "Draft",
     icon: FileText,
-    description: "Create your demo story via chat",
+    description: "Create your solution story via chat",
   },
   SUMMARIZED: {
     label: "Summary",
     shortLabel: "Summary",
     icon: FileText,
-    description: "README.md with demo narrative",
+    description: "README.md with solution narrative",
   },
   ARCHITECTED: {
     label: "Architecture",

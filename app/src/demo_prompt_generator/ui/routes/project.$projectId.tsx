@@ -1230,7 +1230,7 @@ function ProjectPage() {
   const handleCreateArchitecture = useCallback(() => {
     if (isCreatingArchitecture || isStreaming) return;
     setIsCreatingArchitecture(true);
-    handleSendMessage("Create an /architecture.md file at the project root level with the architecture diagram - read the demo generator skill architecture reference");
+    handleSendMessage("Create an /architecture.md file at the project root level with the architecture diagram - read the solution generator skill architecture reference");
   }, [isCreatingArchitecture, isStreaming, handleSendMessage]);
 
   // Handle manual connection in architecture diagram — ask LLM to update the schema
@@ -1288,7 +1288,7 @@ function ProjectPage() {
     if (isStreaming) return;
     handleSendMessage(
       "Review and update the architecture.md file based on the current project state and recent discussions. " +
-      "Read the demo generator skill architecture reference for proper formatting."
+      "Read the solution generator skill architecture reference for proper formatting."
     );
   }, [isStreaming, handleSendMessage]);
 
@@ -1296,7 +1296,7 @@ function ProjectPage() {
   const handleCreateSpec = useCallback(() => {
     if (isStreaming) return;
     handleSendMessage(
-      "Generate the detailed specification files. Follow the demo generator skill's Phase 6 workflow:\n\n" +
+      "Generate the detailed specification files. Follow the solution generator skill's Phase 6 workflow:\n\n" +
       "1. Read `resources.json` to see which capabilities are selected (buildable vs talking_track)\n" +
       "2. Batch-read ALL capability blocks for the buildable capabilities in one turn\n" +
       "3. Also read the example specification files from the skill's references for format/style\n" +
@@ -1322,7 +1322,7 @@ function ProjectPage() {
   const handleBuildResources = useCallback(() => {
     if (isStreaming) return;
     handleSendMessage(
-      "Build the Databricks resources. Follow the demo generator skill's Part 2 workflow:\n\n" +
+      "Build the Databricks resources. Follow the solution generator skill's Part 2 workflow:\n\n" +
       "1. Read `META-PROMPT.md` for build order, catalog/schema, and validation checklist\n" +
       "2. Read `resources.json` to see which capabilities need building and what's already created\n" +
       "3. For EACH buildable capability in order:\n" +

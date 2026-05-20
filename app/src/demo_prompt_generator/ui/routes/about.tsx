@@ -49,7 +49,7 @@ function AboutPage() {
       <Block
         number="01"
         eyebrow="The unit of work"
-        title="A demo is a bundle of context — not a repo."
+        title="A solution is a bundle of context — not a repo."
         body="Industries, story patterns, and capabilities — captured as small Markdown blocks. The agent composes them into a tailored spec. We maintain the context; the artifacts regenerate."
         visual={<BlocksVisual />}
         align="left"
@@ -74,7 +74,7 @@ function AboutPage() {
         number="03"
         eyebrow="Generate once, reuse everywhere"
         title="A spec built for one customer becomes context for the next."
-        body="Every spec is itself a block. Reskin healthcare for another payer; swap retail for manufacturing; recombine capabilities for a new pitch. Each accepted demo enriches the library."
+        body="Every spec is itself a block. Reskin healthcare for another payer; swap retail for manufacturing; recombine capabilities for a new pitch. Each accepted solution enriches the library."
         visual={<FanoutVisual />}
         align="left"
       />
@@ -83,7 +83,7 @@ function AboutPage() {
         number="04"
         eyebrow="Why not just use a general LLM?"
         title="Databricks best practices baked in — not bolted on."
-        body="A general LLM can piece a demo together — at 10× the tool calls, with no guarantee it follows our patterns. The AI Dev Kit ships those patterns built in: the spec hands off to an interface that already knows the right way."
+        body="A general LLM can piece a solution together — at 10× the tool calls, with no guarantee it follows our patterns. The AI Dev Kit ships those patterns built in: the spec hands off to an interface that already knows the right way."
         visual={<BestPracticesVisual />}
         align="right"
       />
@@ -405,7 +405,7 @@ function BlocksVisual() {
   );
 }
 
-const TERMINAL_LINE = "$ vibe demo gen";
+const TERMINAL_LINE = "$ vibe solution gen";
 
 function TwoSurfacesVisual() {
   const reduce = useReducedMotion();

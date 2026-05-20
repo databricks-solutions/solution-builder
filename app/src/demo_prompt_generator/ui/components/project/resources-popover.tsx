@@ -37,8 +37,8 @@ import {
 import { cn } from "@/lib/utils";
 
 // Default values
-const DEFAULT_CATALOG = "ai_demo_gen";
-const DEFAULT_SCHEMA_PREFIX = "my_demo_";
+const DEFAULT_CATALOG = "ai_solution_gen";
+const DEFAULT_SCHEMA_PREFIX = "my_solution_";
 
 export interface ProjectResources {
   clusterId: string | null;

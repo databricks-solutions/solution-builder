@@ -1,5 +1,5 @@
 /**
- * Demo Prompt Generator - Electron Preload Script
+ * Databricks Solution Builder - Electron Preload Script
  *
  * Exposes limited APIs to the renderer process via contextBridge.
  * This maintains security while allowing necessary IPC.

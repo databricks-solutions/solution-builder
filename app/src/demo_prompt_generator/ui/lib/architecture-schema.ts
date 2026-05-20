@@ -398,7 +398,7 @@ export function schemaToReactFlow(schema: ArchitectureSchema): { nodes: Node[]; 
 // =============================================================================
 
 export const MERIDIAN_BANK_SCHEMA: ArchitectureSchema = {
-  name: "Demo architecture",
+  name: "Solution architecture",
 
   columns: [
     // Column 0: Data Sources

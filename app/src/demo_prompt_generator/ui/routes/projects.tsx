@@ -383,7 +383,7 @@ function ProjectsPage() {
             <p className="text-base text-muted-foreground sm:text-lg">
               {adminViewAll
                 ? `Browsing every project in the system · ${totalCount} ${totalCount === 1 ? "project" : "projects"} total`
-                : `Full custom demo packages generated per customer scenario · ${totalCount} ${totalCount === 1 ? "project" : "projects"} total`}
+                : `Full custom solution packages generated per customer scenario · ${totalCount} ${totalCount === 1 ? "project" : "projects"} total`}
             </p>
           </div>
           {isAdmin && (
@@ -644,7 +644,7 @@ function ProjectsPage() {
               <input
                 id="share-message"
                 type="text"
-                placeholder="Check out this demo..."
+                placeholder="Check out this solution..."
                 value={shareMessage}
                 onChange={(e) => setShareMessage(e.target.value)}
                 onKeyDown={(e) => {

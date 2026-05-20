@@ -134,7 +134,7 @@ Build a standalone macOS desktop application that bundles Python and all depende
 
 The DMG installer will be created in `dist-electron/`.
 
-> **⚠️ Security Warning**: The `--lakebase-url` option embeds the database connection string (including credentials) directly into the app bundle. This URL is stored in plain text and accessible to anyone with the app. **Only use this for internal/demo purposes** where the database has appropriate access controls. For production use, configure the database URL via environment variables instead.
+> **⚠️ Security Warning**: The `--lakebase-url` option embeds the database connection string (including credentials) directly into the app bundle. This URL is stored in plain text and accessible to anyone with the app. **Only use this for internal/evaluation purposes** where the database has appropriate access controls. For production use, configure the database URL via environment variables instead.
 
 ### Development with Electron
 
@@ -161,7 +161,7 @@ When launched:
 ### App Architecture
 
 ```
-Demo Prompt Generator.app/
+Databricks Solution Builder.app/
 ├── Contents/
 │   ├── MacOS/            # Electron binary
 │   ├── Resources/

@@ -13,7 +13,7 @@ Only the latest commit on `main` is actively maintained. Security fixes will be 
 ## What's in scope
 
 - The Solution Builder app code (FastAPI backend + React frontend) in `app/`.
-- The Demo Generator Skill content under `.claude/skills/databricks-demo-generator/`.
+- The Solution Generator Skill content under `.claude/skills/databricks-demo-generator/`.
 - The Asset Bundle deploy configuration in `app/databricks.yml`.
 
 ## What's not in scope

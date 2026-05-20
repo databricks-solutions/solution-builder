@@ -26,7 +26,7 @@
 
 ---
 
-Describe what you want to build and an AI agent designs, writes, and ships it for you — on Databricks, the way Databricks intends. Customer-facing demo, internal POC, pilot on your own production data: same engine. Whether you start with synthetic data or point at your real tables, what comes out is a real, running solution in your workspace — yours to inspect, edit, and own.
+Describe what you want to build and an AI agent designs, writes, and ships it for you — on Databricks, the way Databricks intends. Customer-facing solution, internal POC, pilot on your own production data: same engine. Whether you start with synthetic data or point at your real tables, what comes out is a real, running solution in your workspace — yours to inspect, edit, and own.
 
 > **In one line:** describe it, ship it, iterate on what actually matters.
 
@@ -62,7 +62,7 @@ No improvisation. No "I hope this is the right pattern." The agent works from a 
 
 ### `03` &nbsp; Two surfaces, one library
 
-Prefer your terminal? Install the [Demo Generator Skill](.claude/skills/databricks-demo-generator) into any Claude Code project and use it from the CLI. Want a guided UI with chat, file viewer, and live diagrams? Use this app. **Same library, same outputs, same deploys** — pick whichever surface fits the moment.
+Prefer your terminal? Install the [Solution Generator Skill](.claude/skills/databricks-demo-generator) into any Claude Code project and use it from the CLI. Want a guided UI with chat, file viewer, and live diagrams? Use this app. **Same library, same outputs, same deploys** — pick whichever surface fits the moment.
 
 ### `04` &nbsp; Reuse and remix
 
@@ -244,7 +244,7 @@ To cut a versioned release:
 
 ## 🧰 Use it from the CLI — no app required
 
-Install the Demo Generator skill (and, optionally, the [AI Dev Kit](https://github.com/databricks-solutions/ai-dev-kit)) into your `~/.claude/` once, then drive everything from any terminal:
+Install the Solution Generator skill (and, optionally, the [AI Dev Kit](https://github.com/databricks-solutions/ai-dev-kit)) into your `~/.claude/` once, then drive everything from any terminal:
 
 ```bash
 bash <(curl -sL https://raw.githubusercontent.com/databricks-solutions/databricks-solution-builder/main/install.sh)
@@ -415,7 +415,7 @@ databricks-solution-builder/
 │   ├── scripts/                  # dev.sh, build.sh, build-electron.sh, release.sh
 │   └── .env.example              # Local-dev environment variable template
 ├── .claude/skills/databricks-demo-generator/
-│   └── references/blocks/        # Context blocks (Demo Generator Skill)
+│   └── references/blocks/        # Context blocks (Solution Generator Skill)
 │       ├── capabilities/         #   26+ Databricks feature blocks
 │       ├── domains/              #   Industry verticals
 │       └── patterns/             #   Analytical patterns

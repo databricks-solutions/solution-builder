@@ -192,7 +192,7 @@ function GalleryPage() {
             <div>
               <h1 className="text-2xl font-bold">Template Gallery</h1>
               <p className="text-sm text-muted-foreground">
-                Browse, preview, and customize pre-built demo templates
+                Browse, preview, and customize pre-built solution templates
               </p>
             </div>
           </div>

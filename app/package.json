@@ -80,7 +80,7 @@
     },
     "build": {
         "appId": "com.databricks.demo-prompt-generator",
-        "productName": "Demo Prompt Generator",
+        "productName": "Databricks Solution Builder",
         "copyright": "Copyright (C) 2024 Databricks",
         "asar": true,
         "asarUnpack": [
