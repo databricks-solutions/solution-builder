@@ -363,6 +363,7 @@ dependencies = [
     { name = "sqlmodel" },
     { name = "uvicorn" },
     { name = "watchdog" },
+    { name = "zstandard" },
 ]
 
 [package.dev-dependencies]
@@ -397,6 +398,7 @@ requires-dist = [
     { name = "sqlmodel", specifier = ">=0.0.27" },
     { name = "uvicorn", specifier = ">=0.37.0" },
     { name = "watchdog", specifier = ">=4.0.0" },
+    { name = "zstandard", specifier = ">=0.25.0" },
 ]
 
 [package.metadata.requires-dev]

@@ -55,9 +55,12 @@ IGNORE_PATTERNS = [
     # Language package/artifact dirs — never back these up.
     # Glob on dir segments: `.venv*/**` catches `.venv`, `.venv-datagen`,
     # `.venv-something`, etc. `venv*/**` covers bare `venv` variants.
+    # `.py*-venv/**` covers `uv venv --python 3.12 .py312-venv` style dirs
+    # that don't start with `.venv`.
     "node_modules/**",
     ".venv*/**",
     "venv*/**",
+    ".py*-venv/**",
     "__pycache__/**",
     ".pytest_cache/**",
     ".ruff_cache/**",
@@ -69,6 +72,12 @@ IGNORE_PATTERNS = [
     ".turbo/**",
     ".parcel-cache/**",
     "__dist__/**",
+    # Databricks CLI bundle cache — the CLI creates `.databricks/` on every
+    # `bundle deploy` / `bundle validate`. Contains the Terraform binary
+    # (~19 MB), the Databricks Terraform provider (~27 MB), bundle state
+    # JSON, and sync-snapshots. All regenerated on demand by the CLI; never
+    # treated as project source. Skipping cut backup size by ~1 GB in prod.
+    ".databricks/**",
     # VCS + OS cruft
     ".git/**",
     ".DS_Store",

@@ -12,6 +12,7 @@ aren't in the URL string.
 """
 
 from alembic import context
+from sqlalchemy import text
 from sqlmodel import SQLModel
 
 # Alembic Config object — set programmatically in lakebase.py
@@ -51,6 +52,18 @@ def run_migrations_online() -> None:
             "Alembic migrations must be run programmatically via lakebase.py, "
             "not via the alembic CLI."
         )
+
+    # On Lakebase, every member of `databricks_superuser` inherits each other's
+    # privileges via SET ROLE, so running CREATE TABLE / ALTER TABLE as this
+    # role makes the resulting objects "owned" by a shared identity instead of
+    # whatever SP happens to be running the migration. Without this, the next
+    # SP rotation breaks ALTER on any table the previous SP created — which
+    # is exactly how prod ended up unable to run migrations after the original
+    # deployer SP was deleted. Silent no-op in dev (PGLite has no such role).
+    try:
+        connectable.execute(text("SET ROLE databricks_superuser"))
+    except Exception:
+        pass
 
     context.configure(
         connection=connectable,
