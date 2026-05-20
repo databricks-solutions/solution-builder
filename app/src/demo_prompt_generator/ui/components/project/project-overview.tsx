@@ -45,7 +45,7 @@ import {
   type CapabilityGroup,
   type CapabilityMeta,
 } from "@/lib/capabilities";
-import { estimateBuild } from "@/lib/build-eta";
+import { estimateBuild, formatMinutes, formatTime } from "@/lib/build-eta";
 import type { DeployedResourceLink } from "@/lib/custom-api";
 import { cn } from "@/lib/utils";
 import { useAppPreview } from "../../preview";
@@ -780,10 +780,39 @@ const DraftingStep = memo(function DraftingStep({
 // ===========================================================================
 
 const BuildingBanner = memo(function BuildingBanner({
+  buildable,
+  deployed,
   onOpenChat,
 }: {
+  buildable: string[];
+  deployed: DeployedResourceLink[];
   onOpenChat?: () => void;
 }) {
+  // Recompute the wall-clock "come back at" time every 30s so it doesn't
+  // drift if the user lingers on the page. The minutes-remaining figure
+  // is rough on purpose, but the wall-clock should stay roughly current.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), 30_000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  const est = useMemo(
+    () => estimateBuild(buildable, deployed, true),
+    // `now` intentionally included so readyBy refreshes on each tick.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [buildable, deployed, now],
+  );
+
+  const remaining = est.remainingMinutes;
+  const readyBy = est.readyBy;
+  // Friendly "come back" suggestion — round to the nearest 5 minutes so we
+  // don't pretend to be precise ("come back at 3:17 PM" reads as fake
+  // precision; "around 3:15 PM" reads honestly).
+  const roundedReadyBy = readyBy
+    ? new Date(Math.round(readyBy.getTime() / 300_000) * 300_000)
+    : null;
+
   return (
     <div className="flex items-center justify-center gap-5 px-2 py-5">
       {/* Pulsing orb — solid primary core with two soft halo rings. */}
@@ -809,15 +838,38 @@ const BuildingBanner = memo(function BuildingBanner({
           This can take a while. You can safely close this page and come back
           later — the build keeps running in the background.
         </p>
+
+        {/* ETA row — rough minutes-remaining + a wall-clock "check back at"
+            suggestion. Both come from estimateBuild() summing the rough
+            per-capability durations in build-eta.ts. The estimate
+            self-corrects as resources flip live (the row updates). */}
+        {remaining > 0 && roundedReadyBy && (
+          <div className="mt-3 inline-flex items-center gap-2 rounded-lg border border-primary/20 bg-primary/[0.06] px-3 py-1.5 text-[12px]">
+            <Clock className="h-3.5 w-3.5 text-primary" />
+            <span className="font-semibold text-foreground tabular-nums">
+              {formatMinutes(remaining)} remaining
+            </span>
+            <span className="text-muted-foreground/70">·</span>
+            <span className="text-muted-foreground">
+              check back around{" "}
+              <span className="font-medium text-foreground tabular-nums">
+                {formatTime(roundedReadyBy)}
+              </span>
+            </span>
+          </div>
+        )}
+
         {onOpenChat && (
-          <Button
-            size="sm"
-            className="mt-3 h-8 gap-1.5 text-xs cursor-pointer"
-            onClick={onOpenChat}
-          >
-            <MessageSquare className="h-3.5 w-3.5" />
-            Open the chat to see the activity
-          </Button>
+          <div className="mt-3">
+            <Button
+              size="sm"
+              className="h-8 gap-1.5 text-xs cursor-pointer"
+              onClick={onOpenChat}
+            >
+              <MessageSquare className="h-3.5 w-3.5" />
+              Open the chat to see the activity
+            </Button>
+          </div>
         )}
       </div>
     </div>
@@ -1201,7 +1253,11 @@ export const ProjectOverview = memo(function ProjectOverview({
             "ready" the banner would be misleading (the deploy is done,
             even if the agent is still e.g. writing follow-up docs). */}
         {isStreaming && liveCount < totalCount && (
-          <BuildingBanner onOpenChat={onOpenChat} />
+          <BuildingBanner
+            buildable={buildable}
+            deployed={deployed}
+            onOpenChat={onOpenChat}
+          />
         )}
 
         {/* Extraction-error notice (rare) */}
