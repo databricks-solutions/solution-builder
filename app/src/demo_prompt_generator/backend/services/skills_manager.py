@@ -273,12 +273,12 @@ def copy_skills_to_project(
 
     copied = 0
 
-    # Ignore rules for skill copies. The demo-generator skill bundles an
-    # app_template/ that may carry a local node_modules/ (hundreds of MB),
-    # a dev .env with secrets, or build artifacts. Skip them so creation
-    # is fast and we never leak credentials.
+    # Ignore rules for skill copies. We intentionally KEEP node_modules — the
+    # canonical app_template/ ships with a pre-installed node_modules so the
+    # agent doesn't have to run `npm install` (2-4 min) during a session. The
+    # wheel build (scripts/build.sh) excludes node_modules separately, since
+    # native binaries (sharp, esbuild, @ast-grep) aren't OS-portable.
     _ignored = shutil.ignore_patterns(
-        "node_modules",
         ".venv",
         "dist",
         ".env",

@@ -86,6 +86,30 @@ SCENARIOS: list[Scenario] = [
         target_stage="BUILT",
     ),
     Scenario(
+        slug="manufacturing-machinery",
+        description=(
+            "Warranty optimization demo for a heavy-machinery OEM (Manufacturing > Machinery sub-vertical). "
+            "Synthetic warranty claims + telemetry land in Delta, a Genie space answers quantitative "
+            "warranty-cost questions, a multi-agent supervisor routes between Genie and a claims-triage agent, "
+            "and a Databricks App gives field service a UI to inspect claims and the supervisor's verdict."
+        ),
+        capabilities=["synthetic-data-gen", "genie", "supervisor-agent", "databricks-apps"],
+        initial_prompt=(
+            "Build a warranty-optimization demo for a heavy-machinery OEM (Manufacturing > Machinery sub-vertical). "
+            "Use synthetic-data-gen to create warranty claims and machine-telemetry tables in Delta, "
+            "stand up a Genie space over the Gold warranty tables for ad-hoc cost/failure-mode questions, "
+            "wire a multi-agent supervisor that routes between Genie (quantitative) and a claims-triage agent, "
+            "and ship a Databricks App (FastAPI + React) where a field-service manager can inspect a claim "
+            "and see the supervisor's recommendation."
+        ),
+        drive_messages=[
+            "Looks good — proceed to architect the pipeline and produce architecture.md.",
+            "Now write the specifications for each component (specifications/*.md) — synthetic data tables, Genie space, supervisor agent, and the Databricks App.",
+            "Build it: write the SQL/Python for synthetic data, the Genie config, the supervisor agent definition, the app code, and capture deployed resource IDs in resources.json.",
+        ],
+        target_stage="BUILT",
+    ),
+    Scenario(
         slug="retail",
         description=(
             "Demand-forecasting demo for an omnichannel retailer. "

@@ -612,6 +612,7 @@ interface TabBarProps {
   hasReadme: boolean;
   hasArchitecture: boolean;
   hasApp: boolean;
+  showAppTab: boolean;
 }
 
 function tabClasses(isActive: boolean, isAvailable: boolean): string {
@@ -650,6 +651,7 @@ const TabBar = memo(function TabBar({
   hasReadme,
   hasArchitecture,
   hasApp,
+  showAppTab,
 }: TabBarProps) {
   return (
     <div className="shrink-0 border-b border-border bg-muted/30">
@@ -688,16 +690,18 @@ const TabBar = memo(function TabBar({
             Architecture
           </button>
 
-          <button
-            role="tab"
-            aria-selected={activeTab === "app"}
-            onClick={() => onTabChange("app")}
-            title={hasApp ? "App (generated)" : "App"}
-            className={tabClasses(activeTab === "app", hasApp)}
-          >
-            <TabIcon Icon={Globe} showDot={hasApp && activeTab !== "app"} />
-            App
-          </button>
+          {showAppTab && (
+            <button
+              role="tab"
+              aria-selected={activeTab === "app"}
+              onClick={() => onTabChange("app")}
+              title={hasApp ? "App (generated)" : "App"}
+              className={tabClasses(activeTab === "app", hasApp)}
+            >
+              <TabIcon Icon={Globe} showDot={hasApp && activeTab !== "app"} />
+              App
+            </button>
+          )}
 
           <button
             role="tab"
@@ -768,6 +772,20 @@ export const FileViewer = memo(function FileViewer({
     [files]
   );
 
+  // Only surface the App tab when an app is part of this project — either
+  // selected as a capability in resources.json, or already generated on disk.
+  const showAppTab = useMemo(
+    () => hasApp || (capabilities?.buildable ?? []).includes("databricks-apps"),
+    [hasApp, capabilities],
+  );
+
+  // If the app is deselected while the App tab is active, fall back to Overview.
+  useEffect(() => {
+    if (!showAppTab && activeTab === "app") {
+      setActiveTab("overview");
+    }
+  }, [showAppTab, activeTab]);
+
   // Lazy-load architecture content when the Architecture tab is opened.
   useEffect(() => {
     if (activeTab === "architecture" && hasArchitecture && onLoadArchitecture) {
@@ -812,6 +830,7 @@ export const FileViewer = memo(function FileViewer({
         hasReadme={hasReadme}
         hasArchitecture={hasArchitecture}
         hasApp={hasApp}
+        showAppTab={showAppTab}
       />
 
       <div className="flex flex-1 min-h-0">

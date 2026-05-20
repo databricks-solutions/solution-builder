@@ -70,6 +70,9 @@ Every solution becomes context for the next. Reskin one industry for another; sw
 
 ---
 
+> [!IMPORTANT]
+> **Beta — account admin access required.** Databricks Solution Builder is currently in beta and depends on the `all-apis` OAuth scope to talk to the full surface of Databricks APIs reliably. Granting that scope requires **account admin** privileges on your Databricks account. Until the scope requirement is narrowed, this app is best run in **development or sandbox workspaces** — not against production. If you don't have account admin rights, ask whoever does to either grant the scope post-deploy (see [Deploy to Databricks](#-deploy-to-databricks-production--click-to-expand)) or run the app for you on a dev workspace.
+
 ## 🚀 Quickstart (local dev)
 
 ```bash
@@ -175,7 +178,7 @@ databricks apps get <your-app-name> --output json | jq -r '
 # app_status.state should reach "RUNNING"
 ```
 
-**Post-deploy: grant the app `all-apis` OAuth scope.** Each `databricks bundle deploy` may rotate the OAuth integration ID, so re-run this whenever you redeploy:
+**Post-deploy: grant the app `all-apis` OAuth scope.** This step requires **account admin** access on the Databricks account — the app is in beta and currently depends on the full `all-apis` scope to function reliably, which is why we recommend deploying only to development/sandbox workspaces for now. Each `databricks bundle deploy` may rotate the OAuth integration ID, so re-run this whenever you redeploy:
 
 ```bash
 ./scripts/set-app-oauth-scopes.sh                 # uses target=prod
