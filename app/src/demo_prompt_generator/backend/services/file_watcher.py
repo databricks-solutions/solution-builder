@@ -235,7 +235,10 @@ class FileWatcherService:
         if not self._running or not self._loop:
             return
 
-        logger.info(
+        # Per-file event is high-volume (one line per write during agent
+        # runs / `uv sync` bursts). Keep at DEBUG so prod logs aren't
+        # drowned; flip to INFO via LOG_LEVEL=DEBUG when investigating.
+        logger.debug(
             f"[watcher] {event_type} {project_id}/{relative_path}"
         )
 

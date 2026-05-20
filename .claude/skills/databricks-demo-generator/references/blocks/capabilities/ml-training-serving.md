@@ -24,6 +24,7 @@ Data scientists train models in notebooks and lose track of experiments, can't r
 - **Deployment jobs** — automated evaluation, approval gates, promotion
 
 **Model Serving**
+Avoid when possible as starting a model serving endpoint is slow and uses quota.
 - **Serverless real-time endpoints** — REST API, sub-100ms scoring, scale-to-zero
 - **Zero-downtime version swaps** — repoint `@prod` alias, endpoint follows
 - **Built-in monitoring** — request logs, latency, error tracking

@@ -19,9 +19,15 @@ Reference at the target density: `DEMO_SKILL_DIR/references/example-luxebeauty/s
 
 ## Don't think too hard — call the tools
 
-Spec writing is mainly **execution**, not deliberation. You have stage 1's `README.md` and `resources.json` in context. Create now spec files. Don't say "Writing the spec…" or "Now I'll draft 03-ai-bi…" — open the Write tool and write instead.
+Spec writing is **execution**, not deliberation. README + resources.json are in context. Read the matching luxebeauty file for format → one `Write` per spec → next file. No prose drafts, no "Now I'll draft…" narration.
 
-The right pattern for each file: read the matching luxebeauty reference if you need format reminders → emit one `Write` call → next file. One Write per file. No drafts in prose.
+**Stop the moment you catch yourself doing any of these — they generate the bulk of wasted thinking:**
+
+1. **Restating README facts to yourself.** Entity count, IDs, costs, timeline, baselines are in the README. Quote them into the spec once; don't paraphrase them in your reasoning ("I'm settling on N…", "the failure was 3 weeks ago…", "the cost was $X…").
+2. **Doing the build agent's job.** Specs = **WHAT**, not **HOW**. Not yours at spec time: SQL bodies, threshold tuning, GBT vs RF, dashboard pixel layouts, React components, ML hyperparameters, class-imbalance strategies. Spec says "anomaly score: 0–1 z-score, 30-day rolling baseline, target ≈ 0.8 for the affected entity" — done.
+3. **Re-verifying what the skill already stated.** Directories are pre-seeded, META-PROMPT is copied, catalog/schema are in `resources.json`. Every "let me check…" instinct is a smell — trust the skill.
+
+In doubt: pick a reasonable value, write it, move on. Build agent fine-tunes.
 
 ## The one dependency rule
 

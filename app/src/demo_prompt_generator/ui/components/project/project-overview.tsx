@@ -45,7 +45,7 @@ import {
   type CapabilityGroup,
   type CapabilityMeta,
 } from "@/lib/capabilities";
-import { estimateBuild, formatMinutes, formatTime } from "@/lib/build-eta";
+import { estimateBuild, formatMinutes, formatElapsed, elapsedMinutes } from "@/lib/build-eta";
 import type { DeployedResourceLink } from "@/lib/custom-api";
 import { cn } from "@/lib/utils";
 import { useAppPreview } from "../../preview";
@@ -782,36 +782,41 @@ const DraftingStep = memo(function DraftingStep({
 const BuildingBanner = memo(function BuildingBanner({
   buildable,
   deployed,
+  createdAt,
   onOpenChat,
 }: {
   buildable: string[];
   deployed: DeployedResourceLink[];
+  /** Project creation timestamp — anchors "started X ago". Survives page
+   *  refresh because it's persisted on the project row, not a useRef. */
+  createdAt?: string | null;
   onOpenChat?: () => void;
 }) {
-  // Recompute the wall-clock "come back at" time every 30s so it doesn't
-  // drift if the user lingers on the page. The minutes-remaining figure
-  // is rough on purpose, but the wall-clock should stay roughly current.
+  // Tick once a minute so the "started X ago" label stays current without
+  // flickering. The static `remainingMinutes` only changes when a tile
+  // flips live (handled by deployed-resource refetch upstream).
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
-    const id = window.setInterval(() => setNow(Date.now()), 30_000);
+    const id = window.setInterval(() => setNow(Date.now()), 60_000);
     return () => window.clearInterval(id);
   }, []);
 
   const est = useMemo(
     () => estimateBuild(buildable, deployed, true),
-    // `now` intentionally included so readyBy refreshes on each tick.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [buildable, deployed, now],
+    [buildable, deployed],
   );
 
   const remaining = est.remainingMinutes;
-  const readyBy = est.readyBy;
-  // Friendly "come back" suggestion — round to the nearest 5 minutes so we
-  // don't pretend to be precise ("come back at 3:17 PM" reads as fake
-  // precision; "around 3:15 PM" reads honestly).
-  const roundedReadyBy = readyBy
-    ? new Date(Math.round(readyBy.getTime() / 300_000) * 300_000)
-    : null;
+  const elapsed = useMemo(
+    () => elapsedMinutes(createdAt),
+    // `now` intentionally drives re-eval so the elapsed label updates.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [createdAt, now],
+  );
+  // If we've already been running longer than the static estimate, the
+  // "Y min to go" claim becomes a lie. Switch to a softer message that
+  // acknowledges the overrun instead.
+  const isOverdue = createdAt != null && elapsed > 0 && remaining > 0 && elapsed >= remaining;
 
   return (
     <div className="flex items-center justify-center gap-5 px-2 py-5">
@@ -839,23 +844,38 @@ const BuildingBanner = memo(function BuildingBanner({
           later — the build keeps running in the background.
         </p>
 
-        {/* ETA row — rough minutes-remaining + a wall-clock "check back at"
-            suggestion. Both come from estimateBuild() summing the rough
-            per-capability durations in build-eta.ts. The estimate
-            self-corrects as resources flip live (the row updates). */}
-        {remaining > 0 && roundedReadyBy && (
+        {/* ETA row — "started X ago · ~Y to go". The elapsed anchor comes
+            from project.created_at (persisted, survives refresh). The
+            "to go" figure is the static sum of remaining capability
+            durations from estimateBuild — it only ticks down when a
+            resource actually flips live, but the elapsed label keeps
+            moving so the row never feels frozen. When elapsed exceeds
+            the static estimate we soften to an overdue message instead
+            of insisting on a number we know is wrong. */}
+        {(createdAt || remaining > 0) && (
           <div className="mt-3 inline-flex items-center gap-2 rounded-lg border border-primary/20 bg-primary/[0.06] px-3 py-1.5 text-[12px]">
             <Clock className="h-3.5 w-3.5 text-primary" />
-            <span className="font-semibold text-foreground tabular-nums">
-              {formatMinutes(remaining)} remaining
-            </span>
-            <span className="text-muted-foreground/70">·</span>
-            <span className="text-muted-foreground">
-              check back around{" "}
-              <span className="font-medium text-foreground tabular-nums">
-                {formatTime(roundedReadyBy)}
+            {createdAt && (
+              <span className="text-muted-foreground">
+                Started{" "}
+                <span className="font-medium text-foreground tabular-nums">
+                  {formatElapsed(elapsed)}
+                </span>
               </span>
-            </span>
+            )}
+            {createdAt && remaining > 0 && (
+              <span className="text-muted-foreground/70">·</span>
+            )}
+            {remaining > 0 && !isOverdue && (
+              <span className="font-semibold text-foreground tabular-nums">
+                {formatMinutes(remaining)} to go
+              </span>
+            )}
+            {isOverdue && (
+              <span className="text-muted-foreground">
+                taking a bit longer than expected — still working
+              </span>
+            )}
           </div>
         )}
 
@@ -1144,6 +1164,10 @@ export interface ProjectOverviewProps {
   hasReadme: boolean;
   hasArchitecture?: boolean;
   hasApp?: boolean;
+  /** Project creation timestamp (ISO). Anchors the "Started X ago" label
+   *  in the build banner. Optional — without it the banner just shows the
+   *  static "to go" estimate. */
+  createdAt?: string | null;
   /** Currently unused on the Overview itself, but kept on the interface
    *  for parent symmetry with the FileViewer wiring. */
   hasSpecifications?: boolean;
@@ -1167,6 +1191,7 @@ export const ProjectOverview = memo(function ProjectOverview({
   hasReadme,
   hasArchitecture = false,
   hasApp = false,
+  createdAt,
   isStreaming,
   onOpenChat,
   onShowFullStory,
@@ -1256,6 +1281,7 @@ export const ProjectOverview = memo(function ProjectOverview({
           <BuildingBanner
             buildable={buildable}
             deployed={deployed}
+            createdAt={createdAt}
             onOpenChat={onOpenChat}
           />
         )}

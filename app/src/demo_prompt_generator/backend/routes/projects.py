@@ -172,6 +172,67 @@ def _resolve_template_name(session, source_template_id: str | None) -> str | Non
     return template.name if template else None
 
 
+def _resolve_unique_schema_name(
+    user_ws,
+    *,
+    warehouse_id: str | None,
+    catalog: str,
+    base_schema: str,
+) -> str:
+    """Pick a schema name that doesn't collide with an existing schema in
+    `catalog`. Tries `base_schema`, then `base_schema_1`, `_2`, ... and
+    returns the first free name (up to a small cap).
+
+    Listing happens via `SHOW SCHEMAS LIKE` so we only fetch the relevant
+    bucket — avoids paginating the whole catalog.
+
+    Soft-fails to `base_schema` on any error (no warehouse, permission
+    denied, network blip): callers treat the create itself as best-effort
+    too, so handing back the original name is a reasonable default.
+
+    The point of this guard is to keep two concurrent project creations
+    from picking the same schema and writing into each other's data.
+    """
+    if not warehouse_id:
+        return base_schema
+    try:
+        # Pattern lists `base_schema` AND `base_schema_*` in one shot.
+        # Backticks not allowed inside LIKE so we plain-string the pattern.
+        pattern = f"{base_schema}%"
+        resp = user_ws.statement_execution.execute_statement(
+            warehouse_id=warehouse_id,
+            statement=f"SHOW SCHEMAS IN `{catalog}` LIKE '{pattern}'",
+            wait_timeout="10s",
+        )
+        existing: set[str] = set()
+        if resp.result and resp.result.data_array:
+            for row in resp.result.data_array:
+                if row:
+                    # SHOW SCHEMAS returns a single-column row per schema.
+                    existing.add(str(row[0]))
+        if base_schema not in existing:
+            return base_schema
+        # Find the highest `_<n>` suffix already in use and pick n+1.
+        # That gives O(1) growth: 200 existing → `_201`. The pattern in
+        # SHOW SCHEMAS was `base_schema%`, so anything not matching
+        # `^base_schema(_<digits>)?$` is a near-miss (e.g. `base_schemaX`)
+        # and gets ignored. No hard cap — Postgres/UC identifier limits
+        # apply far above any realistic project count.
+        pat = re.compile(rf"^{re.escape(base_schema)}_(\d+)$")
+        max_suffix = 0
+        for name in existing:
+            m = pat.match(name)
+            if m:
+                max_suffix = max(max_suffix, int(m.group(1)))
+        return f"{base_schema}_{max_suffix + 1}"
+    except Exception as e:  # noqa: BLE001
+        logger.warning(
+            f"schema name resolution failed for {catalog}.{base_schema}: {e}; "
+            f"using base name as-is"
+        )
+        return base_schema
+
+
 def _ensure_default_schema(
     user_ws,
     *,
@@ -381,10 +442,22 @@ def create_project(
     metadata = _generate_project_metadata(llm_service, body.description)
     project_name = metadata["name"]
     project_description = metadata.get("description") or body.description[:200]
-    default_schema = f"{DEFAULT_SCHEMA_PREFIX}{metadata['schema_name']}"
+    base_schema = f"{DEFAULT_SCHEMA_PREFIX}{metadata['schema_name']}"
 
     # Find default resources (returns tuples of id, name)
     warehouse_id, warehouse_name = _find_shared_warehouse(ws)
+
+    # Pick a non-colliding schema name BEFORE the DB write so the project
+    # row records the final, unique value. Two SAs creating projects with
+    # similar themes (e.g. "fraud detection v1" and "fraud detection v2")
+    # would otherwise both resolve to `dbgen_fraud_detection` and write
+    # into each other's tables.
+    default_schema = _resolve_unique_schema_name(
+        user_ws,
+        warehouse_id=warehouse_id,
+        catalog=DEFAULT_CATALOG,
+        base_schema=base_schema,
+    )
 
     # Create DB record with default resources (cluster left empty - user sets it manually)
     project = Project(

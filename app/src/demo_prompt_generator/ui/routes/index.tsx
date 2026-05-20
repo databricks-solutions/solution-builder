@@ -48,15 +48,6 @@ import {
   type IdeaToRefine,
 } from "@/lib/custom-api";
 import { AUTO_BUILD_KICKOFF } from "@/lib/auto-build-prompt";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-
 export const Route = createFileRoute("/")({
   component: Index,
   beforeLoad: async () => {
@@ -93,9 +84,6 @@ function Index() {
   const [isCreating, setIsCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [autoMode, setAutoMode] = useState(true);
-  const [autoBuildConfirmOpen, setAutoBuildConfirmOpen] = useState(false);
-  // Stashed args while waiting on the auto-build confirmation dialog.
-  const [pendingAutoBuild, setPendingAutoBuild] = useState<{ idea?: UseCaseIdea } | null>(null);
   const [selectedProducts, setSelectedProducts] = useState<Set<string>>(
     new Set(DEFAULT_SELECTED_PRODUCTS)
   );
@@ -337,6 +325,42 @@ function Index() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [topic, capabilitiesReady]);
 
+  // Re-suggest when the user explicitly toggles a capability — so the
+  // story/ideas regenerate to reflect what they want included. Skipped on
+  // the first render (no toggles yet) and only fires when the user has
+  // actually interacted with at least one checkbox. Debounced 800ms so
+  // rapid clicks coalesce into a single stream.
+  const lastExplicitKeyRef = useRef<string>("");
+  useEffect(() => {
+    // Stable signature of the user's explicit overrides — sorted so the
+    // ordering of Map iteration doesn't cause spurious diffs.
+    const key = Array.from(explicitSelections.entries())
+      .map(([id, st]) => `${id}=${st}`)
+      .sort()
+      .join("|");
+
+    // Initial mount: capture the baseline (usually empty) and don't fire.
+    if (lastExplicitKeyRef.current === "" && key === "") {
+      return;
+    }
+    if (key === lastExplicitKeyRef.current) {
+      return;
+    }
+    lastExplicitKeyRef.current = key;
+
+    if (topic.trim().length < 3 || !capabilitiesReady) {
+      return;
+    }
+
+    setIsSuggestingCapabilities(true);
+    const timer = setTimeout(() => {
+      runSuggestionStream(topic.trim());
+    }, 800);
+
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [explicitSelections, capabilitiesReady]);
+
   // Manual regenerate handler
   const handleRegenerate = useCallback(() => {
     if (topic.trim().length >= 3) {
@@ -346,22 +370,15 @@ function Index() {
 
   // Create new project and navigate. When the auto-mode toggle is on, the
   // agent's first message is the standard topic header + AUTO_BUILD_KICKOFF, so
-  // it drives every stage end-to-end without pausing for confirmation. Auto
-  // mode opens a one-time confirm dialog before the project is actually created
-  // (it's a ~30 min commitment that provisions live workspace resources).
+  // it drives every stage end-to-end without pausing for confirmation. The
+  // toggle's own tooltip already explains the ~30 min commitment, so we
+  // skip the confirm dialog and just create the project.
   const handleCreateProject = async (
     e?: React.FormEvent,
     idea?: UseCaseIdea,
-    options?: { confirmedAutoBuild?: boolean },
   ) => {
     e?.preventDefault();
     if (isCreating || !topic.trim()) return;
-
-    if (autoMode && !options?.confirmedAutoBuild) {
-      setPendingAutoBuild({ idea });
-      setAutoBuildConfirmOpen(true);
-      return;
-    }
 
     // Capabilities are always from selectedProducts (shared across all ideas)
     const capabilityIds = Array.from(selectedProducts);
@@ -429,15 +446,6 @@ function Index() {
       setCreateError(error instanceof Error ? error.message : "Failed to create project. Please try again.");
       setIsCreating(false);
     }
-  };
-
-  // Confirm the auto-build dialog → re-fire handleCreateProject with the
-  // stashed idea (or no idea) and confirmedAutoBuild so it proceeds.
-  const handleAutoBuildConfirm = () => {
-    setAutoBuildConfirmOpen(false);
-    const pending = pendingAutoBuild;
-    setPendingAutoBuild(null);
-    void handleCreateProject(undefined, pending?.idea, { confirmedAutoBuild: true });
   };
 
   // Handle refining an idea
@@ -516,7 +524,7 @@ function Index() {
                 Databricks
               </p>
               <h1 className="text-4xl font-bold tracking-tight md:text-5xl">
-                Asset Builder
+                Solution Builder
               </h1>
             </div>
             <p className="mx-auto max-w-xl text-base text-muted-foreground leading-relaxed">
@@ -968,46 +976,6 @@ function Index() {
         onClose={() => setSelectedTemplateId(null)}
       />
 
-      {/* Auto-mode confirmation dialog */}
-      <Dialog
-        open={autoBuildConfirmOpen}
-        onOpenChange={(open) => {
-          setAutoBuildConfirmOpen(open);
-          if (!open) setPendingAutoBuild(null);
-        }}
-      >
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Zap className="h-4 w-4 text-primary" strokeWidth={2.5} />
-              Run in auto mode?
-            </DialogTitle>
-            <DialogDescription className="pt-2 leading-relaxed">
-              Auto mode runs through every stage (DRAFTING → DEPLOYED) without pausing for confirmation. This may take around 30 minutes and will provision live workspace resources. Re-prompting after the run can take additional time. Are you sure?
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter className="gap-2 sm:gap-2">
-            <button
-              type="button"
-              onClick={() => {
-                setAutoBuildConfirmOpen(false);
-                setPendingAutoBuild(null);
-              }}
-              className="px-3 py-2 rounded-lg text-sm font-medium bg-muted text-foreground/80 hover:bg-muted/70 transition-colors"
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              onClick={handleAutoBuildConfirm}
-              className="px-3 py-2 rounded-lg text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors flex items-center gap-1.5"
-            >
-              <Zap className="h-3.5 w-3.5" strokeWidth={2.5} />
-              Start auto build
-            </button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

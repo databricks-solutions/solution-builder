@@ -436,7 +436,9 @@ def cache_resync_dir(project_id: str, relative_path: str) -> None:
             dropped += 1
         entries.update(live)
 
-        logger.info(
+        # Fires on every watcher event — keep at DEBUG to avoid drowning
+        # prod logs. INFO when LOG_LEVEL=DEBUG.
+        logger.debug(
             f"[cache] resync {project_id}/{rel_parent or '.'}: "
             f"{dropped} dropped, {len(live)} from disk (project total {len(entries)})"
         )

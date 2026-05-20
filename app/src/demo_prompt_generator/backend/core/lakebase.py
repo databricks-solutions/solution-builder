@@ -478,14 +478,14 @@ class _LakebaseDependency(LifespanDependency):
             # viewer / refresh logic.
             ui_paths = [p for p in paths if not p.startswith(".claude/")]
             if stream and ui_paths:
-                logger.info(
+                logger.debug(
                     f"[watcher] emitting {len(ui_paths)} file_changed event(s) "
                     f"for project {project_id} (exec {stream.execution_id}): {ui_paths}"
                 )
                 for path in ui_paths:
                     stream.add_event({"type": "file_changed", "path": path})
             elif not stream:
-                logger.info(
+                logger.debug(
                     f"[watcher] no active stream for project {project_id} — "
                     f"{len(paths)} file change(s) NOT pushed to UI: {paths}"
                 )
@@ -508,12 +508,12 @@ class _LakebaseDependency(LifespanDependency):
                 pending_stream = get_stream_manager().get_project_stream(project_id)
                 if pending_stream:
                     pending_stream.narrative_pending = True
-                    logger.info(
+                    logger.debug(
                         f"[watcher] narrative_pending=True for exec "
                         f"{pending_stream.execution_id} (project {project_id})"
                     )
                 else:
-                    logger.info(
+                    logger.debug(
                         f"[watcher] README.md changed for project {project_id} "
                         f"but no active stream — narrative event may be missed "
                         f"by the UI; lazy-on-read in GET will recover."
@@ -545,13 +545,13 @@ class _LakebaseDependency(LifespanDependency):
                                 "narrative": narrative,
                                 "narrative_readme_hash": narrative_readme_hash,
                             })
-                            logger.info(
+                            logger.debug(
                                 f"[watcher] narrative_updated event emitted for "
                                 f"{project_id} on exec {stream2.execution_id} "
                                 f"(is_complete={stream2.is_complete})"
                             )
                         else:
-                            logger.info(
+                            logger.debug(
                                 f"[watcher] narrative ready for {project_id} but "
                                 f"no stream to deliver on — UI will pick it up on "
                                 f"next GET via lazy backfill."

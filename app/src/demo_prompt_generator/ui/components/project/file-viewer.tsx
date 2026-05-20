@@ -48,6 +48,9 @@ interface FileViewerProps {
   /** LLM-generated 1-2 paragraph storytelling narrative — the primary
    *  source for the Overview hero. Distinct from `description`. */
   projectNarrative?: string | null;
+  /** ISO project creation timestamp — anchors the build banner's
+   *  "Started X ago" label so it survives page refresh. */
+  projectCreatedAt?: string | null;
   /** True while the backend is generating a narrative — drives the
    *  shimmer/skeleton state on the hero. */
   isGeneratingNarrative?: boolean;
@@ -727,6 +730,7 @@ export const FileViewer = memo(function FileViewer({
   projectId,
   projectDescription,
   projectNarrative,
+  projectCreatedAt,
   isGeneratingNarrative,
   onRegenerateNarrative,
   files,
@@ -869,6 +873,7 @@ export const FileViewer = memo(function FileViewer({
               hasArchitecture={hasArchitecture}
               hasApp={hasApp}
               hasSpecifications={hasSpecifications}
+              createdAt={projectCreatedAt}
               isStreaming={isStreaming}
               onOpenChat={onOpenChat}
               onShowFullStory={() => setActiveTab("story")}

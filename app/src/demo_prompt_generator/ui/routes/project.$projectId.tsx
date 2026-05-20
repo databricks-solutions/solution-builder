@@ -1848,6 +1848,7 @@ function ProjectPage() {
             projectId={projectId}
             projectDescription={project?.description}
             projectNarrative={project?.narrative ?? null}
+            projectCreatedAt={project?.created_at ?? null}
             isGeneratingNarrative={isGeneratingNarrative}
             onRegenerateNarrative={handleRegenerateNarrative}
             files={files}

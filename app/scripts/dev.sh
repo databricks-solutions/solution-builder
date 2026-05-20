@@ -283,7 +283,7 @@ FRONTEND_PID=$!
 # Start backend (uvicorn with reload) - prefix output with [BACKEND]
 # Use --reload-dir to only watch src/ (much faster than excluding everything else)
 echo -e "${GREEN}Starting backend on http://127.0.0.1:8000${NC}"
-(.venv/bin/python -u -m uvicorn demo_prompt_generator.backend.app:app --host 127.0.0.1 --port 8000 --reload --reload-dir src 2>&1 | while IFS= read -r line; do echo -e "[$(date +%H:%M:%S)] [${BLUE}BACKEND${NC}] $line"; done) &
+(.venv/bin/python -u -m uvicorn demo_prompt_generator.backend.app:app --host 127.0.0.1 --port 8000 --reload --reload-dir src --timeout-graceful-shutdown 5 2>&1 | while IFS= read -r line; do echo -e "[$(date +%H:%M:%S)] [${BLUE}BACKEND${NC}] $line"; done) &
 BACKEND_PID=$!
 
 echo ""

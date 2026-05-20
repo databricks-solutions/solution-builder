@@ -74,11 +74,13 @@ export interface BuildEstimate {
   /** Total buildable capabilities (excluding talking-track-only items). */
   totalCount: number;
   /** Rough minutes remaining until all buildable capabilities are live.
-   *  0 when nothing is pending. */
+   *  Sum of the per-capability durations for slugs that haven't flipped
+   *  to "live" yet. 0 when nothing is pending. Intentionally NOT paired
+   *  with a wall-clock "ready by" — that pattern reads as false
+   *  precision and walks forward every render. Combine with the
+   *  project's createdAt in the consumer for an honest "started X ago,
+   *  ~Y to go" framing. */
   remainingMinutes: number;
-  /** Wall-clock "ready by" timestamp (now + remainingMinutes). null when
-   *  remainingMinutes is 0. */
-  readyBy: Date | null;
   /** Slugs still pending — used by the marketecture grid to render the
    *  "building..." vs "pending" distinction (any pending slug is treated
    *  as not-yet-started in this minimal version). */
@@ -124,9 +126,9 @@ export function estimateBuild(
   const totalCount = liveSlugs.length + pendingSlugs.length;
   const liveCount = liveSlugs.length;
 
-  // Sum durations only for pending capabilities. Capabilities without a
-  // deployed_type don't have a "live" signal, so we leave them in the
-  // pending pile and they contribute to the estimate.
+  // Sum durations only for buildable, deployable, still-pending slugs.
+  // Hidden + non-deployable + talking-track capabilities were already
+  // dropped by the filter above, so they never inflate this estimate.
   const remainingMinutes = pendingSlugs.reduce(
     (sum, slug) => sum + (CAPABILITY_DURATION_MIN[slug] ?? DEFAULT_DURATION_MIN),
     0,
@@ -143,27 +145,44 @@ export function estimateBuild(
     phase = "planning";
   }
 
-  const readyBy = remainingMinutes > 0
-    ? new Date(Date.now() + remainingMinutes * 60_000)
-    : null;
-
-  return { phase, liveCount, totalCount, remainingMinutes, readyBy, pendingSlugs, liveSlugs };
+  return { phase, liveCount, totalCount, remainingMinutes, pendingSlugs, liveSlugs };
 }
 
-/** Format minutes as "~45 min" or "~1h 15min" for compact display. */
+/** Round minutes to a 5-min bucket so the UI never reads as fake precision
+ *  ("~32 min" → "~30 min"). 0 stays 0. */
+function bucket5(min: number): number {
+  if (min <= 0) return 0;
+  return Math.max(5, Math.round(min / 5) * 5);
+}
+
+/** Format minutes as "~30 min" or "~1h 15min" for compact display.
+ *  Always 5-min-bucketed — the per-capability durations are themselves
+ *  rough so single-minute precision would be a lie. */
 export function formatMinutes(min: number): string {
-  if (min <= 0) return "0 min";
-  if (min < 60) return `~${Math.round(min)} min`;
-  const hours = Math.floor(min / 60);
-  const rem = Math.round(min - hours * 60);
+  const m = bucket5(min);
+  if (m <= 0) return "0 min";
+  if (m < 60) return `~${m} min`;
+  const hours = Math.floor(m / 60);
+  const rem = m - hours * 60;
   if (rem === 0) return `~${hours}h`;
   return `~${hours}h ${rem}min`;
 }
 
-/** Format a Date as a short wall-clock time like "3:20 PM". */
-export function formatTime(date: Date): string {
-  return date.toLocaleTimeString(undefined, {
-    hour: "numeric",
-    minute: "2-digit",
-  });
+/** Minutes elapsed since `createdAt`. Clamps negative drift to 0. */
+export function elapsedMinutes(createdAt: string | Date | null | undefined): number {
+  if (!createdAt) return 0;
+  const t = typeof createdAt === "string" ? Date.parse(createdAt) : createdAt.getTime();
+  if (!Number.isFinite(t)) return 0;
+  return Math.max(0, Math.floor((Date.now() - t) / 60_000));
 }
+
+/** Human "started X ago" — minute granularity under 1h, hour+min above. */
+export function formatElapsed(min: number): string {
+  if (min <= 0) return "just now";
+  if (min < 60) return `${min} min ago`;
+  const hours = Math.floor(min / 60);
+  const rem = min - hours * 60;
+  if (rem === 0) return hours === 1 ? "1 hour ago" : `${hours} hours ago`;
+  return `${hours}h ${rem}min ago`;
+}
+
