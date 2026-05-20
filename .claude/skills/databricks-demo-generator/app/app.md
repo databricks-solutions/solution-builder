@@ -38,18 +38,16 @@ Chat UI (dock + full-page), streaming with thinking panel, MLflow tracing per tu
 
 ## How to generate
 
-### Step 1: Copy template + install
+### Step 1: Copy template
 
-The template folder may contain a local `node_modules/`, `.env`, `drizzle/`, or build artifacts from prior dev — use `rsync` (or equivalent) to exclude them. Never copy `.env` (may contain secrets) or `node_modules/` (broken symlinks after `cp -r`).
+The template ships with `node_modules/` pre-installed, so you do **not** need to run `npm install` — skip straight to customization. Only exclude `.env` (may contain secrets) and build artifacts.
 
 ```bash
 rsync -a \
-  --exclude node_modules \
   --exclude .env \
   --exclude dist \
   --exclude .DS_Store \
   {DEMO_SKILL}/app/app_template/ ./app/
-cd ./app && npm install
 ```
 
 ### Step 2: Read the demo's app specs + template map
