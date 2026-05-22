@@ -328,8 +328,10 @@ function Index() {
   // Re-suggest when the user explicitly toggles a capability — so the
   // story/ideas regenerate to reflect what they want included. Skipped on
   // the first render (no toggles yet) and only fires when the user has
-  // actually interacted with at least one checkbox. Debounced 800ms so
-  // rapid clicks coalesce into a single stream.
+  // actually interacted with at least one checkbox. Debounced 2000ms so
+  // a burst of product clicks coalesces into a single regeneration —
+  // users typically (de)select several products in a row, and firing
+  // after each click made the experience feel slow and limiting.
   const lastExplicitKeyRef = useRef<string>("");
   useEffect(() => {
     // Stable signature of the user's explicit overrides — sorted so the
@@ -352,10 +354,15 @@ function Index() {
       return;
     }
 
-    setIsSuggestingCapabilities(true);
+    // IMPORTANT: do NOT flip isSuggestingCapabilities here. The UI hides
+    // existing ideas the moment that flag goes true, so setting it on every
+    // click would make the panel snap to skeletons on each toggle — looking
+    // identical to an instant regen even though the actual API call is
+    // debounced. Keep the current ideas visible during the debounce window;
+    // runSuggestionStream() will flip the flag when it actually fires.
     const timer = setTimeout(() => {
       runSuggestionStream(topic.trim());
-    }, 800);
+    }, 2000);
 
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
