@@ -626,6 +626,70 @@ class _LakebaseDependency(LifespanDependency):
             f"[client-pool] idle reaper started (every {CLIENT_IDLE_TIMEOUT}s)"
         )
 
+        # ─── Eager SSE-stream cancellation on SIGTERM ────────────────────
+        #
+        # Uvicorn's graceful shutdown drains all in-flight HTTP / SSE
+        # connections BEFORE running FastAPI's lifespan teardown, so the
+        # teardown's `cancel_all()` (below) fires only after the drain
+        # wait has already elapsed. With an active SSE stream, the drain
+        # can hit the generator's 50 s reconnect window — 87 s on
+        # 2026-05-21T23:15:46Z — exceeding the Apps platform grace period
+        # and tripping a "crashed unexpectedly" alert despite a clean
+        # internal shutdown.
+        #
+        # We hook SIGTERM/SIGINT and flip `is_cancelled=True` on every
+        # active stream before uvicorn starts draining, so the SSE
+        # generator loops exit on their next 100 ms poll. The teardown's
+        # `cancel_all()` then becomes an idempotent safety net.
+        #
+        # We MUST chain to uvicorn's prior handler: uvicorn registers via
+        # `signal.signal()` (not `loop.add_signal_handler`), so
+        # installing ours replaces it. Without the chain, uvicorn never
+        # sees `should_exit=True` and the process hangs on the next await.
+        #
+        # Signal-handler safety: CPython delivers signals on the main
+        # thread between bytecodes (same thread the loop runs on), and
+        # `cancel_all()` only does a dict snapshot, flag writes, a list
+        # append (atomic under GIL) and `task.cancel()` — no awaits, no
+        # blocking C calls.
+        import signal
+
+        prev_handlers: dict[int, object] = {
+            signal.SIGTERM: signal.getsignal(signal.SIGTERM),
+            signal.SIGINT: signal.getsignal(signal.SIGINT),
+        }
+
+        def _eager_cancel_on_signal(signum, frame):
+            """Cancel active SSE streams, then chain to uvicorn's handler.
+
+            Bounded to in-memory mutations + non-blocking `task.cancel()`.
+            Errors are logged but swallowed — the signal must still reach
+            uvicorn's handler for the server to actually exit.
+            """
+            try:
+                from ..services.active_stream import get_stream_manager
+                cancelled = get_stream_manager().cancel_all()
+                if cancelled:
+                    logger.info(
+                        f"[shutdown-signal] cancelled {cancelled} active "
+                        f"stream(s) on signal {signum}"
+                    )
+            except Exception as e:
+                logger.warning(f"[shutdown-signal] cancel_all failed: {e!r}")
+            prev = prev_handlers.get(signum)
+            if callable(prev):
+                prev(signum, frame)
+
+        try:
+            signal.signal(signal.SIGTERM, _eager_cancel_on_signal)
+            signal.signal(signal.SIGINT, _eager_cancel_on_signal)
+            logger.info("[shutdown-signal] SIGTERM/SIGINT eager-cancel handler installed")
+        except (ValueError, OSError) as e:
+            # `signal.signal()` is main-thread only — falls back to the
+            # lifespan teardown's `cancel_all()` for non-main-thread
+            # embedders (Electron, pytest workers, etc.).
+            logger.warning(f"[shutdown-signal] could not install handler: {e!r}")
+
         # Block until DB init completes. If it errored, surface the exception
         # so uvicorn aborts startup instead of serving an app whose DB-backed
         # routes will all 500. The 60s timeout covers a cold-start Lakebase
@@ -652,10 +716,12 @@ class _LakebaseDependency(LifespanDependency):
         # streams + agent subprocesses FIRST so nothing new lands in
         # the executor, then drain the executor with a deadline.
 
-        # 1. Cancel all in-flight SSE streams + their agent tasks. This
-        #    flips them to "cancelled" so the SSE generator loops exit
-        #    on their next poll iteration instead of blocking on the
-        #    full SSE_WINDOW_SECONDS (~50 s).
+        # 1. Cancel any still-running SSE streams + their agent tasks.
+        #    Normally a no-op — `_eager_cancel_on_signal` already
+        #    flipped every stream when SIGTERM arrived. Kept as a
+        #    fallback for paths where that handler couldn't be
+        #    installed (non-main-thread embedders) or wasn't invoked
+        #    (e.g. programmatic `Server.shutdown()`).
         try:
             from ..services.active_stream import get_stream_manager
             cancelled = get_stream_manager().cancel_all()
