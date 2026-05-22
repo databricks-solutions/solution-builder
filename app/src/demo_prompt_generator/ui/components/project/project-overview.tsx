@@ -35,6 +35,10 @@ import {
   MessageSquare,
   Play,
   Maximize2,
+  FileText,
+  Hammer,
+  Rocket,
+  Check,
 } from "lucide-react";
 import { ScrollArea } from "../ui/scroll-area";
 import { Button } from "../ui/button";
@@ -638,10 +642,129 @@ interface DraftingOverviewProps {
   onOpenChat?: () => void;
 }
 
+type PipelineStageState = "active" | "pending";
+
+interface PipelineStage {
+  key: string;
+  title: string;
+  blurb: string;
+  icon: React.ElementType;
+  state: PipelineStageState;
+}
+
+/** Equalizer-style activity indicator — three bars bouncing out of phase.
+ *  Sits where the stage icon would be when a stage is the current one. */
+const ActivityBars = memo(function ActivityBars() {
+  return (
+    <div
+      aria-hidden
+      className="flex items-end justify-center gap-[3px] h-4 w-4"
+    >
+      <span className="block w-[3px] h-full bg-primary rounded-sm origin-bottom animate-drafting-bar-1" />
+      <span className="block w-[3px] h-full bg-primary rounded-sm origin-bottom animate-drafting-bar-2" />
+      <span className="block w-[3px] h-full bg-primary rounded-sm origin-bottom animate-drafting-bar-3" />
+    </div>
+  );
+});
+
+const StageCard = memo(function StageCard({ stage }: { stage: PipelineStage }) {
+  const Icon = stage.icon;
+  const isActive = stage.state === "active";
+  return (
+    <div
+      className={cn(
+        "relative rounded-xl border p-3.5 transition-colors",
+        isActive
+          ? "border-primary/40 bg-primary/[0.06] animate-drafting-breathe"
+          : "border-border/50 bg-muted/30",
+      )}
+    >
+      <div className="flex items-center gap-2.5 mb-1.5">
+        <span
+          className={cn(
+            "shrink-0 inline-flex items-center justify-center h-7 w-7 rounded-lg",
+            isActive
+              ? "bg-primary/15 text-primary ring-1 ring-primary/30"
+              : "bg-muted text-muted-foreground/70",
+          )}
+        >
+          {isActive ? <ActivityBars /> : <Icon className="h-3.5 w-3.5" />}
+        </span>
+        <div
+          className={cn(
+            "text-[12.5px] font-semibold leading-tight",
+            isActive ? "text-foreground" : "text-muted-foreground",
+          )}
+        >
+          {stage.title}
+        </div>
+      </div>
+      <p
+        className={cn(
+          "text-[11.5px] leading-relaxed pl-[38px]",
+          isActive ? "text-muted-foreground" : "text-muted-foreground/65",
+        )}
+      >
+        {stage.blurb}
+      </p>
+      {isActive && (
+        <span
+          aria-hidden
+          className="absolute top-2 right-2 inline-flex items-center gap-1 text-[9.5px] font-bold uppercase tracking-[0.12em] text-primary"
+        >
+          <span className="inline-flex h-1.5 w-1.5 rounded-full bg-primary shadow-[0_0_6px_currentColor]" />
+          Now
+        </span>
+      )}
+    </div>
+  );
+});
+
 const DraftingOverview = memo(function DraftingOverview({
   isStreaming,
   onOpenChat,
 }: DraftingOverviewProps) {
+  // Pipeline stages — only the first two are "now" when the agent is
+  // streaming. Everything past architecture is downstream and stays muted
+  // so the user can see *where* in the build we currently are.
+  const stages: PipelineStage[] = [
+    {
+      key: "story",
+      title: "Story",
+      blurb: "Drafting the customer narrative and pitch.",
+      icon: BookOpen,
+      state: isStreaming ? "active" : "pending",
+    },
+    {
+      key: "architecture",
+      title: "Architecture",
+      blurb: "Sketching the diagram and picking capabilities.",
+      icon: Network,
+      state: isStreaming ? "active" : "pending",
+    },
+    {
+      key: "specs",
+      title: "Specifications",
+      blurb: "Detailed plans for each resource.",
+      icon: FileText,
+      state: "pending",
+    },
+    {
+      key: "build",
+      title: "Build",
+      blurb: "Resources go live in your workspace.",
+      icon: Hammer,
+      state: "pending",
+    },
+    {
+      key: "bundle",
+      title: "Bundle",
+      blurb: "Packaged for repeatable deployment.",
+      icon: Rocket,
+      state: "pending",
+    },
+  ];
+
   return (
     <section className="rounded-2xl border border-border/60 bg-card p-8 lg:p-10 overflow-hidden relative">
       {/* Same primary glow the hero uses — gives the panel personality
@@ -658,20 +781,22 @@ const DraftingOverview = memo(function DraftingOverview({
           ) : (
             <Sparkles className="h-5 w-5 text-primary shrink-0" />
           )}
-          <h2 className="text-[18px] font-semibold tracking-tight text-foreground">
+          <h2 className="text-[20px] font-semibold tracking-tight text-foreground">
             {isStreaming
-              ? "Your project is being crafted…"
+              ? "Starting your project creation"
               : "Let's design your solution"}
           </h2>
         </div>
 
-        <p className="text-[14.5px] leading-relaxed text-muted-foreground mb-2">
+        <p className="text-[14.5px] leading-relaxed text-muted-foreground mb-1">
           {isStreaming ? (
             <>
-              The assistant is drafting a story, picking the right Databricks
-              capabilities, and sketching the architecture. This usually takes
-              about <span className="text-foreground font-medium">2 minutes</span> —
-              hang tight.
+              Right now, the assistant is generating the{" "}
+              <span className="text-foreground font-semibold">story</span> and{" "}
+              <span className="text-foreground font-semibold">architecture</span>{" "}
+              files for your solution. This usually takes about{" "}
+              <span className="text-foreground font-medium">2 minutes</span> —
+              specifications, build, and bundle come next.
             </>
           ) : (
             <>
@@ -691,78 +816,44 @@ const DraftingOverview = memo(function DraftingOverview({
         )}
       </div>
 
-      {/* Three-step roadmap — same shape as the original drafting screen.
-          Step 1 is active (or first up), 2 and 3 stay muted so the eye
-          knows what order to expect. */}
-      <ol className="relative mt-8 grid grid-cols-1 md:grid-cols-3 gap-5">
-        <DraftingStep
-          n={1}
-          active
-          title="Review the story"
-          body="The narrative will appear on this page once it's drafted. Iterate with the assistant until it fits your customer perfectly."
-        />
-        <DraftingStep
-          n={2}
-          title="Generate the resources"
-          body="Pipelines, dashboards, Genie spaces, agents — the assistant builds them in your workspace and lights them up on the Overview."
-        />
-        <DraftingStep
-          n={3}
-          title="Show it off"
-          body="Each resource gets an Open link straight into the Databricks workspace, plus a clean architecture diagram for your meeting."
-        />
-      </ol>
+      {/* Pipeline strip — five stages laid out left-to-right. The first
+          two stages (story + architecture) animate as "now"; the rest
+          stay quiet so the user can see what's coming. A travelling glow
+          sweeps along the row behind the cards to signal active work. */}
+      {isStreaming && (
+        <div className="relative mt-8">
+          {/* Travelling glow behind the cards. Constrained to the row, so
+              it visually "flows" between the active stages. */}
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-y-0 left-0 right-0 overflow-hidden rounded-2xl"
+          >
+            <div className="absolute inset-y-2 left-0 w-1/3 bg-gradient-to-r from-transparent via-primary/15 to-transparent blur-xl animate-drafting-flow" />
+          </div>
+
+          <ol className="relative grid grid-cols-2 md:grid-cols-5 gap-3">
+            {stages.map((s) => (
+              <li key={s.key}>
+                <StageCard stage={s} />
+              </li>
+            ))}
+          </ol>
+
+          <div className="relative mt-5 flex items-center gap-2 text-[11.5px] text-muted-foreground">
+            <Check className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
+            <span>
+              You can safely close this page — the build keeps running and
+              you'll find it under your projects when you come back.
+            </span>
+          </div>
+        </div>
+      )}
 
       <p className="relative mt-7 text-[12px] text-muted-foreground/80">
         Follow along in the floating chat in the bottom-right — the assistant
         may ask you a question or two along the way.
       </p>
     </section>
-  );
-});
-
-const DraftingStep = memo(function DraftingStep({
-  n,
-  title,
-  body,
-  active = false,
-}: {
-  n: number;
-  title: string;
-  body: string;
-  active?: boolean;
-}) {
-  return (
-    <li className="flex gap-3.5">
-      <span
-        className={cn(
-          "shrink-0 inline-flex h-8 w-8 items-center justify-center rounded-full text-sm font-semibold",
-          active
-            ? "bg-primary/15 text-primary ring-2 ring-primary/30"
-            : "bg-muted text-muted-foreground",
-        )}
-      >
-        {n}
-      </span>
-      <div>
-        <div
-          className={cn(
-            "text-[14px] font-semibold leading-tight",
-            active ? "text-foreground" : "text-muted-foreground",
-          )}
-        >
-          {title}
-        </div>
-        <p
-          className={cn(
-            "mt-1 text-[12.5px] leading-relaxed",
-            active ? "text-muted-foreground" : "text-muted-foreground/70",
-          )}
-        >
-          {body}
-        </p>
-      </div>
-    </li>
   );
 });
 

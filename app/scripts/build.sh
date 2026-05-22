@@ -240,9 +240,9 @@ chmod +x "$BUILD_DIR/start.sh"
 {
     echo "# --workers must stay at 1: ActiveStreamManager is a per-process singleton."
     echo "# start.sh prepends the bundled databricks CLI to PATH, then exec's uvicorn."
-    echo "# Apps runtime exec'd 'bash start.sh' from a cwd that didn't include the"
-    echo "# script — using an absolute path matches the deployed source_code_path."
-    echo 'command: ["bash", "/app/python/source_code/start.sh"]'
+    echo "# Apps' uv install path puts source under /app/deployments/<id>/ (changes"
+    echo "# per deployment) and sets cwd there, so a relative path is portable."
+    echo 'command: ["bash", "start.sh"]'
 } > "$BUILD_DIR/app.yml"
 
 if [[ -n "$TARGET" ]]; then
