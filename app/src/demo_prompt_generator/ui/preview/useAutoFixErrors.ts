@@ -185,7 +185,15 @@ export function useAutoFixErrors({
       setBudgetRemaining(nextBudget);
 
       const header = `[auto-fix · ${severity}] ${summary}`;
-      const message = `${header}\n\n\`\`\`\n${snippet}\n\`\`\`\n\nPlease investigate and fix.`;
+      const appDir = `projects/${projectId}/app/`;
+      const message =
+        `${header}\n\n` +
+        `The deployed app at \`${appDir}\` (in this project folder) is failing. ` +
+        `The error below was captured from its preview logs — fix it in the app source ` +
+        `under \`${appDir}\` (e.g. \`${appDir}client/\`, \`${appDir}server/\`, \`${appDir}package.json\`), ` +
+        `not in any other project area.\n\n` +
+        `\`\`\`\n${snippet}\n\`\`\`\n\n` +
+        `Please investigate and fix the issue inside the \`${appDir}\` folder.`;
       onSend(message);
       onSystemLog(`[auto-fix] Sent: ${summary} (${nextBudget} left).`);
       return true;

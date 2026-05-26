@@ -47,6 +47,7 @@ These fit the canonical arc (investigate → approve → act). They *usually* su
 | Default | Keep when… | Change when… |
 |---------|------------|--------------|
 | **3-phase chain** (discover → draft+confirm → execute) | Story has a "fix it" moment where the user approves a batch action | Story is read-only (pure investigation, no action) → drop phases 2–3. Story has multiple action types → document each chain. |
+| **ML-driven tiering** in phase 2 (call a premium / propensity table to split the cohort + draft two emails) | Demo has a buildable model in spec 03 whose predictions can change the agent's action per-row | Story has no ML → drop `find_lot_premium_breakdown`, collapse `tier_offers` back to a single `{coupon_code, email_subject, email_body}`, drop the `final_tier` JOIN inside the bulk tool, drop the `customer_premium` sync. |
 | **`triggerAfter` keyword progression** on `assistantScript` | Linear demo script (SA clicks chips in order) | Free-form exploration demo → drop triggers, use plain prompts. |
 | **Append-only audit** (`emails[]` + `aiAuditTrail[]` JSONB on primary entity) | Demo shows "the AI did X at Y" timeline | No timeline tab, no action history needed → drop the JSONB columns. |
 | **`dataMutated` pub-sub** | Operations page should update live when the agent writes | Read-only demo, no writes to react to → harmless but dead weight. |
@@ -76,6 +77,7 @@ Not every demo has every Databricks capability. Drop surfaces that don't map:
 | **Genie** | Use `askMasTool` (the template default). |
 | **Both** | Register both factories in `makeTools` with distinct names (`ask_genie`, `ask_mas`); tell the model in agent instructions when to prefer each. |
 | **KA** | Skip the "investigate documents" phase. Arc shortens: discover via data → draft → execute. |
+| **ML model (no spec 03)** | Clear `config.data.tables.customerPremium` (empty string). Sync skips the premium query, the predictions mirror stays empty. Drop the `find_lot_premium_breakdown` tool from `makeTools`, collapse `process_return_batch`'s `tier_offers` back to a single `{coupon_code, email_subject_template, email_body_template}`, drop the `final_tier` JOIN in `processReturnBatchForLot`. Agent instructions revert to one email template, one coupon. Drawer's "Premium tier" panel hides itself when `final_tier` is null. |
 | **Dashboard** | Remove `/dashboard` route + nav item + journey card. |
 | **Analytics charts** | Remove `/analytics` route; demo relies on the embedded dashboard instead. |
 | **Write action** (read-only demo) | Skip the bulk-action tool. Arc shortens to discover → answer (no approval step). Much less impressive — only choose this if the story genuinely doesn't need a fix. |
@@ -151,35 +153,37 @@ client/src/
 - `feedback`: id (uuid), messageId (FK), userEmail, value (`up`|`down`), rationale, traceId, mlflowAssessmentId
 
 **Domain tables (LuxeBeauty example):**
-- `customers`: id, email, firstName, lastName, region, loyaltyTier, registrationDate
+- `customers`: id, email, firstName, lastName, region, country, loyaltyTier, registrationDate
 - `orders`: id, customerId (FK), orderDate, region, totalUsd, status
-- `returns` (primary entity): id, orderId, customerId, returnDate, refundAmountUsd, returnReason, productId, productName, category, lotId, facility, region, status (`pending`|`approved`|`rejected`|`escalated`), **emails** (jsonb[], append-only), **aiAuditTrail** (jsonb[], append-only), decidedAt, timestamps
+- `returns` (primary entity): id, orderId, customerId, returnDate, refundAmountUsd, returnReason, productId, productName, category, lotId, facility, region, status (`pending`|`approved`|`rejected`|`escalated`), **couponPctApplied** (int, null until processed — records the model-driven tier the agent applied), **emails** (jsonb[], append-only), **aiAuditTrail** (jsonb[], append-only), decidedAt, timestamps
+- `customerPremium` (read-only ML predictions mirror — populated by sync.ts from the Delta table spec 03-ml-premium.md writes): customerId (PK), premiumProb (double), finalTier (`premium`|`standard`), premiumStatusLabeled (`premium`|`not_premium`|null pass-through from CS hand-tags), predictedAt. The agent's `find_lot_premium_breakdown` tool and the per-row JOIN inside `process_return_batch` read from this table; the app never calls the model directly. `premiumStatusLabeled` lets the UI distinguish "CS-tagged premium" from "model-found hidden premium" without a second query.
 
 JSONB types: EmailEntry `{at, direction, from?, to?, subject, body}`, AuditEntry `{at, by, action, notes?, tool?}`, ThinkingEntry `{kind: tool_call|tool_output|intermediate_message, ...}`
 
 ## Delta → Lakebase sync (`server/db/sync.ts`)
 
-One-shot at boot (skips if populated). Pulls via Databricks SQL Statements API — all 3 warehouse queries fire in parallel, then inserts run sequentially in FK order (customers → orders → returns). Chunk sizes kept under Postgres's 65,535 parameter ceiling (rows × columns): 5k rows for customers/orders, 2.5k for returns (15 cols). Idempotent via `onConflictDoNothing`. Table names from `config.data.tables`. Reset endpoint calls `wipeMirroredTables()` + re-sync.
+One-shot at boot (skips if populated). Pulls via Databricks SQL Statements API — all **4** warehouse queries fire in parallel (customers, orders, returns, **customer_premium**), then inserts run sequentially in FK order (customers → orders → returns → customer_premium). Chunk sizes kept under Postgres's 65,535 parameter ceiling (rows × columns): 5k rows for customers/orders/premium, 2.5k for returns (16 cols including the new anger_score). Idempotent via `onConflictDoNothing`. Table names from `config.data.tables`. If `customerPremium` is unset in config, that query is skipped and the app degrades to no per-row tiering (the bulk tool falls every row through to the `standard` offer). Reset endpoint calls `wipeMirroredTables()` + re-sync.
 
 ## Agent (`server/agent/refundops.ts`)
 
 AgentContext: `{db, userEmail, req, masEndpointName, databricksHost, model, onToolProgress?, modelError?}`. For Genie demos, replace `masEndpointName` with `genieSpaceId`.
 
-**Tool flow** (see pattern #5 "Filter-driven bulk writes" below): the agent investigates via the data backend (`ask_mas`/`ask_genie`), shows the affected rows via `find_returns_for_lot` for human confirmation, then triggers `process_return_batch` with a **filter** (the lot) — not a list of IDs. The SQL re-derives the row set inside the same UPDATE; the agent never has to echo IDs back.
+**Tool flow** (see pattern #5 "Filter-driven bulk writes" below): the agent investigates via the data backend (`ask_mas`/`ask_genie`), calls `find_lot_premium_breakdown` to read the ML model's per-customer premium tier (and the labeled-vs-hidden split) for the lot's pending returns, drafts two emails (premium / standard), and triggers `process_return_batch` with a **filter** (the lot) plus a `tier_offers` dict — not a list of IDs. The SQL re-derives the row set + tier inside the same UPDATE; the agent never has to echo IDs back.
 
 | Tool | Input → Output | Effect |
 |------|---------------|--------|
 | `ask_mas` | `{question}` → `{answer, trace_id}` | Streams MAS supervisor + sub-agents via onToolProgress → ThinkingPanel. From `tools/mas.ts`. |
 | `ask_genie` | `{question}` → `{answer, trace_id}` | Polls Genie REST conversation API; streams reasoning traces (April 2026 release) as narration. From `tools/genie.ts`. Pick this OR `ask_mas`, not both (unless you want both registered). |
-| `find_returns_for_lot` | `{lot}` → pending returns list | Read-only Lakebase query — for human confirmation, agent does NOT pass these ids anywhere. |
-| `create_coupon` | `{percent_off, reason}` → `{code, ...}` | Pure function, no DB write |
-| `process_return_batch` | `{lot, coupon_code, email_subject_template, email_body_template}` → `{email_count, approved_count, total_refund_usd, skipped_return_ids}` | **WRITE**: SELECT pending rows for `lot` + customer info, render templates per customer (`{firstname}`, `{lastname}`, `{product_name}`, `{coupon_code}`), one `UPDATE FROM VALUES` re-asserting `lot_id=$lot AND status='pending'` — appends emails + audit, flips to approved. |
+| `find_returns_for_lot` | `{lot}` → pending returns list with `final_tier` + `premium_status_labeled` + `premium_prob` + `anger_score` per row | Read-only Lakebase query joining `app.returns × app.customers × app.customer_premium` — for human confirmation, agent does NOT pass these ids anywhere. |
+| `find_lot_premium_breakdown` | `{lot}` → `{total, premium_count, standard_count, premium_labeled_count, premium_predicted_hidden_count, no_prediction_count, premium_refund_usd, standard_refund_usd, top_countries[]}` | Read-only aggregation of the same JOIN — the "tiering moment". Reports BOTH the overall premium count AND the labeled-vs-hidden split. Agent quotes these in the Phase 2 draft. |
+| `create_coupon` | `{percent_off, reason}` → `{code, ...}` | Pure function, no DB write. Called TWICE in the tiered flow (once per tier). |
+| `process_return_batch` | `{lot, tier_offers: {premium: TierOffer, standard: TierOffer}}` → `{premium_coupon, standard_coupon, premium_email_count, premium_labeled_count, premium_predicted_hidden_count, standard_email_count, approved_count, total_refund_usd, skipped_return_ids}` | **WRITE, TIER-AWARE**: SELECT pending rows for `lot` JOIN-ing customer_premium, branch per-row on `final_tier` to pick the right offer (`premium` → `tier_offers.premium`, else `tier_offers.standard`), render that tier's template, one `UPDATE FROM VALUES` re-asserting `lot_id=$lot AND status='pending'` — sets `coupon_pct_applied`, appends emails + audit (with CS-tagged vs hidden notation per premium row), flips to approved. |
 
 SDK setup: OpenAI client → `${host}/serving-endpoints`, **Responses API** (SDK default — we don't call `setOpenAIAPI`), custom fetch (Connection: close, strips long IDs >64 chars + `annotations` arrays from assistant content for compat), MLflow tracing (not OpenAI). On any non-2xx, the shim writes the response body into `ctx.modelError` so the catch block in agent-stream.ts can surface a real error message instead of "400 status code (no body)".
 
 > **Model constraint: `databricks-gpt-5-4` only.** The Agents SDK defaults to `/responses`, and Databricks gates that route per-model. GPT-5-4 is the only Databricks-hosted model with `openai/v1/responses` in its `api_types` today. Anthropic models (Sonnet 4.6, etc.) return 400 BAD_REQUEST: *"Responses API passthrough is not supported for model …"*. Supporting Claude would require switching to chat-completions AND parsing Anthropic thinking blocks ourselves (~60-100 lines, not done). Keep `agentModel: "databricks-gpt-5-4"` in `config/app.json`.
 
-Instructions: MODE A (investigation — single `ask_mas`/`ask_genie` call) or MODE B (action — 3-phase: discover → draft+confirm → execute after approval).
+Instructions: MODE A (investigation — single `ask_mas`/`ask_genie` call) or MODE B (action — 3-phase: discover via ask_data + find_lot_premium_breakdown → draft TWO tiered emails for confirm → execute one tier-aware bulk call after approval).
 
 ## Routes
 
@@ -193,8 +197,8 @@ Instructions: MODE A (investigation — single `ask_mas`/`ask_genie` call) or MO
 
 | Function | Signature | Purpose |
 |----------|-----------|---------|
-| `listReturns` | `(db, {status?, lot?, limit?})` | Filtered list for operations queue |
-| `getReturn` | `(db, id)` | Full row with emails[] + aiAuditTrail[] |
+| `listReturns` | `(db, {status?, lot?, tier?, sort?, limit?})` | Filtered list for operations queue. LEFT JOIN on `customer_premium` so each row carries `finalTier` + `premiumStatusLabeled` + `premiumProb`. Also exposes `angerScore` (from the synced silver column). `sort='anger'` orders by anger DESC — the demo's `ai_classify` showcase. |
+| `getReturn` | `(db, id)` | Full row with emails[] + aiAuditTrail[] + final_tier + premium_status_labeled + premium_prob + predicted_at + coupon_pct_applied + anger_score + customer country |
 | `decideReturn` | `(db, {id, userEmail, decision, notes?})` | Append audit entry + flip status |
 | `returnsSummary` | `(db)` | GROUP BY status → `{status, n, total_usd}[]` |
 | `facilitySummary` | `(db)` | `{facility, return_count, pending_count, total_refund_usd}[]` |
@@ -202,7 +206,8 @@ Instructions: MODE A (investigation — single `ask_mas`/`ask_genie` call) or MO
 | `lotSummary` | `(db, limit)` | Global top lots by return count |
 | `listCustomerOrders` | `(db, customerId, limit)` | Customer's order history |
 | `recentActivity` | `(db, limit)` | UNION of emails[] + aiAuditTrail[] across all rows, sorted by time |
-| `processReturnBatchForLot` | `(db, {lot, coupon_code, email_subject, email_body, userEmail})` | Bulk: SELECT pending rows for `lot` + customer info → render templates per row → one `UPDATE FROM VALUES` re-asserting `lot_id=$lot AND status='pending'` (appends emails + audit, flips to approved). Filter is a scalar — no `IN (…)` / ID round-tripping. |
+| `lotPremiumBreakdown` | `(db, lot)` | Tier-split aggregate joining returns × customers × customer_premium for one lot, with the labeled-vs-hidden premium split. Powers the agent's `find_lot_premium_breakdown` tool. |
+| `processReturnBatchForLot` | `(db, {lot, tier_offers: {premium, standard}, userEmail})` | **Tier-aware bulk**: SELECT pending rows JOIN customer_premium → branch per row on `final_tier` to pick the offer → render that tier's template → one `UPDATE FROM VALUES` re-asserting `lot_id=$lot AND status='pending'` (sets `coupon_pct_applied`, appends emails + audit with CS-tagged vs hidden notation, flips to approved). Filter is a scalar — no `IN (…)` / ID round-tripping. |
 
 ## Chat streaming
 

@@ -12,8 +12,12 @@ import traceback
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from fastapi import HTTPException, Request, Response
+
+if TYPE_CHECKING:
+    from databricks.sdk import WorkspaceClient
 from fastapi.responses import StreamingResponse
 from sqlmodel import select
 
@@ -92,25 +96,38 @@ def _is_excluded_segment(segment: str) -> bool:
 # Lakebase sync layer:
 #
 #   _is_excluded_from_sync(rel_path) — what to keep off Lakebase entirely.
-#     Allows `.claude/projects/**` (Claude Code transcripts: needed for
-#     session resume across container restarts) but rejects every other
-#     `.claude/` child (settings.json, skills/, .credentials.json,
-#     statsig/, todos/, ide/ — auth material or per-container caches).
+#     Permits a small allowlist under `.claude/`:
+#       - `.claude/projects/**` (Claude Code transcripts — needed for
+#         session resume across container restarts)
+#       - `.claude/.claude.json` (CLI's live per-user config — losing it
+#         on restart loses queued prompts / resume targets)
+#     Rejects every other `.claude/` child (settings.json, skills/,
+#     .credentials.json, statsig/, todos/, ide/, backups/ — auth material,
+#     per-container caches, or auto-rotated snapshots that duplicate the
+#     live file). Backups are explicitly NOT synced: the live .claude.json
+#     already is, and shipping per-launch copies would bloat the mirror
+#     for no recovery value.
 #
 #   _is_hidden_from_listing(rel_path) — what to hide from the file viewer.
-#     Adds `.claude/**` to the deny list: transcripts are an
-#     implementation detail of session resume, not a user-facing file.
+#     Adds `.claude/**` to the deny list: transcripts and CLI config are
+#     implementation details, not user-facing files.
 #
 # Most callsites want _is_hidden_from_listing. The sync layer
 # (file_sync.py, the watcher) is the only place that should use the
 # more permissive _is_excluded_from_sync.
 def _is_excluded_from_sync(rel_path: str | Path) -> bool:
     """Sync-layer exclusion. Use this when deciding what to send to
-    Lakebase. Permits `.claude/projects/**` so transcripts persist."""
+    Lakebase. Permits `.claude/projects/**` (transcripts) + the live
+    `.claude/.claude.json` config; rejects every other `.claude/` child
+    including `.claude/backups/**`."""
     parts = Path(rel_path).parts
     if not parts:
         return False
     if parts[0] == ".claude":
+        if len(parts) == 2 and parts[1] == ".claude.json":
+            # Allowlist the live CLI config — keep this in sync with
+            # file_watcher.IGNORE_PATTERNS (which also allowlists it).
+            return False
         if len(parts) >= 2 and parts[1] == "projects":
             # Skip the literal `.claude/projects/` prefix when checking
             # the rest of the path.
@@ -775,7 +792,9 @@ _RESOURCE_URL_PATTERNS: dict[str, tuple[str, str]] = {
     "warehouse_id": ("{host}/sql/warehouses/{id}", "SQL Warehouse"),
     "knowledge_assistant_id": ("{host}/ml/bricks/ka/configure/{id}", "Knowledge Assistant"),
     "multi_agent_supervisor_id": ("{host}/ml/bricks/sa/configure/{id}", "Multi-Agent Supervisor"),
-    "mlflow_experiment_path": ("{host}#workspace{id}", "MLflow Experiment"),
+    # mlflow_experiment_path handled separately below — needs an SDK
+    # call to resolve the workspace path → experiment_id, then builds
+    # `/ml/experiments/<id>/runs?o=<workspace_id>`.
     # Lakebase project URL — the project UUID powers the entire DB page
     # (DBs, branches, settings). Example URL:
     #   {host}/lakebase/projects/002f3c65-5c96-4773-874c-1c39faae0974
@@ -783,10 +802,47 @@ _RESOURCE_URL_PATTERNS: dict[str, tuple[str, str]] = {
 }
 
 
+# experiment_path → experiment_id cache. The path-to-id mapping never
+# changes (deleting + recreating an experiment at the same path gives a
+# new id, but we'd re-resolve on next miss anyway). In-process dict,
+# bounded to a few hundred entries in practice.
+_MLFLOW_EXPERIMENT_ID_CACHE: dict[str, str] = {}
+
+
+def _resolve_mlflow_experiment_id(
+    ws: "WorkspaceClient | None",
+    experiment_path: str,
+) -> str | None:
+    """Resolve a workspace experiment path (e.g.
+    `/Users/me@example.com/foo-bar`) to its numeric experiment_id.
+
+    Returns None if the SDK call fails or the experiment doesn't exist.
+    Cached in-process by path — subsequent calls are free.
+    """
+    if not experiment_path or ws is None:
+        return None
+    cached = _MLFLOW_EXPERIMENT_ID_CACHE.get(experiment_path)
+    if cached:
+        return cached
+    try:
+        exp = ws.experiments.get_by_name(experiment_name=experiment_path)
+    except Exception as e:  # noqa: BLE001
+        logger.info(
+            f"MLflow experiment lookup failed for {experiment_path!r}: {e}"
+        )
+        return None
+    exp_id = getattr(getattr(exp, "experiment", None), "experiment_id", None)
+    if exp_id:
+        _MLFLOW_EXPERIMENT_ID_CACHE[experiment_path] = str(exp_id)
+        return str(exp_id)
+    return None
+
+
 def _build_deployed_links(
     resources: dict[str, str],
     host: str | None,
     workspace_id: int | str | None = None,
+    ws: "WorkspaceClient | None" = None,
 ) -> list[DeployedResourceLink]:
     """Build deployed resource links from the LLM-normalized flat dict
     (output of services.resources_extractor.extract_resources).
@@ -794,6 +850,10 @@ def _build_deployed_links(
     `workspace_id` is required for the Apps v2 URL (the `?o=` query param
     is what scopes the page to the user's workspace). Other resource URLs
     don't need it.
+
+    `ws` (WorkspaceClient) is used to resolve the MLflow experiment path
+    into its numeric experiment_id for the `/ml/experiments/<id>/runs` URL.
+    Optional — if unavailable, the MLflow link is just skipped.
     """
     links: list[DeployedResourceLink] = []
     host = (host or "").rstrip("/")
@@ -822,18 +882,59 @@ def _build_deployed_links(
             url=f"{host}#workspace{workspace_folder}",
         ))
 
-    # Metric View entity page (Catalog Explorer). Agent writes
-    # `metric_view_name` as a fully-qualified `catalog.schema.name`.
+    # Metric View entity page (Catalog Explorer). Canonical shape is a
+    # fully-qualified `catalog.schema.name`, but agents sometimes write
+    # just the bare name — fall back to the project's catalog/schema in
+    # that case so the link still works.
     metric_view_name = resources.get("metric_view_name")
     if metric_view_name and host:
         parts = metric_view_name.split(".")
         if len(parts) == 3:
             mv_cat, mv_schema, mv_name = parts
+        elif len(parts) == 1 and catalog and schema:
+            mv_cat, mv_schema, mv_name = catalog, schema, parts[0]
+        else:
+            mv_cat = mv_schema = mv_name = None
+        if mv_cat:
             links.append(DeployedResourceLink(
                 resource_type="metric_view",
                 label="Metric View",
                 url=f"{host}/explore/data/{mv_cat}/{mv_schema}/{mv_name}{o_param}",
-                resource_id=metric_view_name,
+                resource_id=f"{mv_cat}.{mv_schema}.{mv_name}",
+            ))
+
+    # MLflow Registered Model (Unity Catalog). Canonical is fully-qualified
+    # `catalog.schema.name`; fall back to project catalog/schema for bare names.
+    ml_model_name = resources.get("ml_model_name")
+    if ml_model_name and host:
+        parts = ml_model_name.split(".")
+        if len(parts) == 3:
+            m_cat, m_schema, m_name = parts
+        elif len(parts) == 1 and catalog and schema:
+            m_cat, m_schema, m_name = catalog, schema, parts[0]
+        else:
+            m_cat = m_schema = m_name = None
+        if m_cat:
+            links.append(DeployedResourceLink(
+                resource_type="ml_model",
+                label="MLflow Model",
+                url=f"{host}/explore/data/models/{m_cat}/{m_schema}/{m_name}{o_param}",
+                resource_id=f"{m_cat}.{m_schema}.{m_name}",
+            ))
+
+    # MLflow Experiment — resources.json stores the workspace path
+    # (`/Users/foo@bar.com/exp-name`), but the URL needs the numeric
+    # experiment_id. Resolve via the SDK (cached). URL shape:
+    #   {host}/ml/experiments/{experiment_id}/runs?o={workspace_id}
+    mlflow_experiment_path = resources.get("mlflow_experiment_path")
+    if mlflow_experiment_path and host:
+        exp_id = _resolve_mlflow_experiment_id(ws, mlflow_experiment_path)
+        if exp_id:
+            links.append(DeployedResourceLink(
+                resource_type="mlflow_experiment",
+                label="MLflow Experiment",
+                url=f"{host}/ml/experiments/{exp_id}/runs{o_param}",
+                resource_id=exp_id,
             ))
 
     # Standard ID-based resources
@@ -849,11 +950,14 @@ def _build_deployed_links(
             resource_id=str(resource_id),
         ))
 
-    # Databricks App — extractor gives us app_name + app_id separately.
-    # Apps v2 URL is /apps-v2/app/<name>/overview?o=<workspace_id>.
-    # workspace_id is plumbed in by the caller (it has the WorkspaceClient).
+    # Databricks App — only emit the link when the app has actually been
+    # deployed. The agent writes `app.name` as soon as it picks one, but
+    # the URL only resolves once `databricks apps deploy` succeeds and the
+    # Apps service stamps an `app.id`. Gate on `app_id` so a half-built
+    # project doesn't show a broken "Open" link.
     app_name = resources.get("app_name")
-    if app_name:
+    app_id = resources.get("app_id")
+    if app_name and app_id:
         if host and workspace_id:
             url = f"{host}/apps-v2/app/{app_name}/overview?o={workspace_id}"
         elif host:
@@ -930,7 +1034,7 @@ def get_deployed_resources(
     except Exception:
         logger.warning("Could not resolve workspace_id; app links will omit ?o=")
 
-    links = _build_deployed_links(resources, host, workspace_id)
+    links = _build_deployed_links(resources, host, workspace_id, ws=ws)
 
     # Get deployment timestamp from the file record (check both paths)
     deployed_at = None

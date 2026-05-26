@@ -55,6 +55,7 @@ import type {
   ReturnsSummary,
 } from '@/shared/types';
 
+import { CountryPanel } from './CountryPanel';
 import { KpiCards } from './KpiCards';
 import { ReturnsTable } from './ReturnsTable';
 import { ReturnDrawer } from './ReturnDrawer';
@@ -65,24 +66,46 @@ export function OperationsView() {
 
   const [filter, setFilter] = useState<ReturnStatus | 'all'>('pending');
   const [lotFilter, setLotFilter] = useState(lotFromUrl);
+  const [tierFilter, setTierFilter] = useState<'premium' | 'standard' | null>(
+    (searchParams.get('tier') as 'premium' | 'standard' | null) ?? null,
+  );
+  const [countryFilter, setCountryFilter] = useState<string | null>(
+    searchParams.get('country') ?? null,
+  );
+  const [sort, setSort] = useState<'anger' | 'recent' | 'value'>(
+    (searchParams.get('sort') as 'anger' | 'recent' | 'value') ?? 'recent',
+  );
   const [search, setSearch] = useState('');
 
-  // Sync lotFilter → URL so deep links + back/forward work.
+  // Sync all queue filters → URL so deep links + back/forward work.
+  // Handles lot, tier, country, sort in one pass.
   useEffect(() => {
-    if (lotFilter && lotFilter !== searchParams.get('lot')) {
-      setSearchParams({ lot: lotFilter }, { replace: true });
-    } else if (!lotFilter && searchParams.get('lot')) {
-      const next = new URLSearchParams(searchParams);
-      next.delete('lot');
+    const next = new URLSearchParams(searchParams);
+    const setOrDelete = (key: string, value: string | null) => {
+      if (value) next.set(key, value);
+      else next.delete(key);
+    };
+    setOrDelete('lot', lotFilter || null);
+    setOrDelete('tier', tierFilter);
+    setOrDelete('country', countryFilter);
+    // Default sort isn't worth surfacing in the URL.
+    setOrDelete('sort', sort === 'recent' ? null : sort);
+    if (next.toString() !== searchParams.toString()) {
       setSearchParams(next, { replace: true });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lotFilter]);
+  }, [lotFilter, tierFilter, countryFilter, sort]);
 
   // Update state when URL changes (e.g. user clicks a link from Analytics).
   useEffect(() => {
     const urlLot = searchParams.get('lot') ?? '';
     if (urlLot !== lotFilter) setLotFilter(urlLot);
+    const urlTier = searchParams.get('tier') as 'premium' | 'standard' | null;
+    if (urlTier !== tierFilter) setTierFilter(urlTier);
+    const urlCountry = searchParams.get('country');
+    if (urlCountry !== countryFilter) setCountryFilter(urlCountry);
+    const urlSort = (searchParams.get('sort') as 'anger' | 'value' | null) ?? 'recent';
+    if (urlSort !== sort) setSort(urlSort);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]);
   const [rows, setRows] = useState<ReturnRow[]>([]);
@@ -103,6 +126,9 @@ export function OperationsView() {
         fetchReturns({
           status: filter === 'all' ? undefined : filter,
           lot: lotFilter || undefined,
+          tier: tierFilter ?? undefined,
+          country: countryFilter ?? undefined,
+          sort,
         }),
         fetchReturnsSummary(),
       ]);
@@ -119,14 +145,14 @@ export function OperationsView() {
   useEffect(() => {
     void reload();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filter, lotFilter]);
+  }, [filter, lotFilter, tierFilter, countryFilter, sort]);
 
   useEffect(() => {
     return dataMutated.subscribe(() => {
       void reload();
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filter, lotFilter]);
+  }, [filter, lotFilter, tierFilter, countryFilter, sort]);
 
   const filteredRows = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -186,6 +212,13 @@ export function OperationsView() {
 
         <KpiCards summary={summary} />
 
+        <CountryPanel
+          status={filter}
+          lot={lotFilter}
+          selectedCountry={countryFilter}
+          onCountrySelect={setCountryFilter}
+        />
+
         <ReturnsTable
           rows={filteredRows}
           loading={loading}
@@ -196,6 +229,12 @@ export function OperationsView() {
           onSearch={setSearch}
           lotFilter={lotFilter}
           onLotFilter={setLotFilter}
+          tierFilter={tierFilter}
+          onTierFilter={setTierFilter}
+          countryFilter={countryFilter}
+          onCountryFilter={setCountryFilter}
+          sort={sort}
+          onSortChange={setSort}
           onSelect={setSelectedId}
         />
       </div>

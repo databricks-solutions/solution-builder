@@ -19,9 +19,9 @@ Claire opens her Monday dashboard and sees returns spiked to $180K three weeks a
 
 She asks one question: *"Why do I have so many returns?"*
 
-The platform traces it through structured data (returns → products → lot) and finds an internal incident report explaining the manufacturing issue. Two questions, complete answer.
+The platform traces it through structured data (returns → products → lot) and finds an internal incident report explaining the manufacturing issue. Then the agent leans on a **hidden-premium classifier** — trained on the ~4K customers CS has hand-tagged over the years — to find which of the 250 affected customers are premium (18 already tagged + 49 the model surfaced who look just like them) and **tier the response** accordingly: premium → 20% + personal apology, standard → 5% goodwill. Three questions, complete answer, personalized action driven by a model finding customers a SQL filter would miss.
 
-**Duration:** 5-7 minutes
+**Duration:** 6-8 minutes
 
 ---
 
@@ -72,9 +72,9 @@ The thinking panel streams the investigation live. **Claire never leaves the app
 
 **Click the featured action:** `Handle the bad-lot returns`.
 
-Agent drafts the apology email + 20% coupon, identifies all 250 affected customers, and **stops for approval**. Claire reviews → approves → KPI cards tick live as refunds process and emails go out. Audit trail in the drawer shows every action with timestamps and signatures.
+Agent identifies all 250 affected customers, then **calls the premium classifier** to split them: ~67 premium get a 20% coupon + personal apology, the remaining ~183 get a 5% goodwill coupon + standard apology. Critically, only ~18 of the 67 were already tagged premium by CS — the model **surfaced 49 hidden premiums** whose behavior looks identical to the tagged ones but no one got around to flagging them yet. The Operations page's country panel + the AI/BI dashboard map both show the affected customers concentrated in Europe — France leads, then GB / DE / IT — matching the Lyon-Skincare-Europe value chain. Agent **stops for approval**. Claire reviews → approves → KPI cards tick live as refunds process and tiered emails go out. Audit trail in the drawer shows every action with timestamps and signatures.
 
-> *"This is what makes an app different from a chatbot: it can **act**. The agent's tools write to **Lakebase** — refunds, coupons, audit rows — and the 'wait for approval' is a hard stop in the agent's tool chain, not a UI suggestion. **Humans-in-the-loop, by design.**"*
+> *"This is what makes an app different from a chatbot: it can **act** — and it acts **personalized**. The 'who gets which offer' isn't hand-coded and it isn't `WHERE premium_status='premium'` — your CS team had only tagged 18 of these 250. The model — trained on the ~4K customers your team did tag — found another 49 who look just like them: high lifetime spend, long tenure, low return rate. **MLflow** traces every prediction the agent used, so when finance asks 'why did this customer get 20% off,' the answer is auditable. The agent's tools write to **Lakebase** — refunds, coupons, audit rows — and the 'wait for approval' is a hard stop in the agent's tool chain, not a UI suggestion. **Humans-in-the-loop, by design.**"*
 
 ---
 
@@ -94,7 +94,7 @@ Show the same dashboard from the app, ask Genie the same `Why so many returns?` 
 
 > Every project, every app, every agent that actually moves the business has the same prerequisite: **data from every source you've got, in one place, ready to act on.** No single system held the answer here — it was in the join across all of them. Same for the next project, and the one after that.
 >
-> That's the bet Databricks lets you make: **ingest from anywhere, then act on it any way you need.** Lakeflow Connect pulls from 200+ sources with no custom plumbing. SDP shapes it into Gold tables. From there, the *acting* layer is wide open: AI/BI dashboards for the read-only audience, Databricks One for the no-code crowd, Genie + KA + MAS for the agentic experiences, Lakebase + Databricks Apps when your team needs a real product to operate the business. Unity Catalog underneath all of it — one permission model, one source of truth.
+> That's the bet Databricks lets you make: **ingest from anywhere, then act on it any way you need.** Lakeflow Connect pulls from 200+ sources with no custom plumbing. SDP shapes it into Gold tables — `ai_classify` turning free-text comments into a sentiment score is just another SQL function in that pipeline. From there, the *acting* layer is wide open: AI/BI dashboards for the read-only audience, Databricks One for the no-code crowd, Genie + KA + MAS for the agentic experiences, ML models trained and registered with the same Unity Catalog permissions and audit trail the data has, Lakebase + Databricks Apps when your team needs a real product to operate the business. **Same governance covers your tables, your dashboards, your agents, and your models** — one permission model, one source of truth.
 >
 > **Ingest everything. Then build whatever you need on top — BI, apps, agents — without re-stitching the data each time.**
 
@@ -115,6 +115,8 @@ Show the same dashboard from the app, ask Genie the same `Why so many returns?` 
 | **AI/BI Genie** | Build | Cracks the *"why so many returns?"* question by tracing the spike to one production lot across three SKUs |
 | **Knowledge Assistant** | Build | Surfaces the homogenizer incident report — connects the data anomaly to the manufacturing root cause |
 | **Multi-Agent Supervisor** | Build | The brain inside the app's chat — routes Claire's questions to Genie (the data) or KA (the docs) without her thinking about it |
-| **MLflow** | Talk track | Auto-traces every Genie / KA / MAS call — replay any agent decision later, no wiring needed |
-| **Unity Catalog** | Talk track | One permission model from Shopify ingestion all the way to the agent's tool calls — Claire only sees what she's allowed to see, everywhere |
+| **ML Training (MLflow + UC)** | Build | XGBoost premium classifier trained on the ~4K customers CS has hand-tagged; batch-scores every customer into a predictions table the agent reads to tier the retention offer. Finds the hidden premiums a SQL filter would miss. No serving endpoint — predictions are a Delta table. |
+| **AI Functions (`ai_classify`)** | Build | One-line SQL inside the SDP pipeline turns "I'm furious about this texture" into a 0.0–1.0 anger score. Used two ways: as a feature in the premium classifier, and surfaced per-return in the Returns Console app (operators sort the queue by anger to triage the most upset customers first). No UDF, no separate sentiment service. |
+| **MLflow** | Talk track | Auto-traces every Genie / KA / MAS call **and** logs every premium-classifier run — same observability surface for agents and models, replay any decision later |
+| **Unity Catalog** | Talk track | One permission model from Shopify ingestion through the agent's tool calls to the registered premium classifier — Claire only sees what she's allowed to see, everywhere |
 | **Databricks One** | Talk track | Where the rest of the company lands — the CEO, finance, marketing get the same dashboard + Genie answers, no app required |

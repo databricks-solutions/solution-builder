@@ -42,7 +42,7 @@ Each stage fires one tracking event so we can see how the skill is used. Calls a
 
 ## Efficiency
 
-Batch tool calls in the same response whenever you can: emit multiple `Read` or `Write` calls in one assistant message and the harness executes them concurrently. You still generate tokens sequentially — batching saves LLM round-trips, not output time. Load all reference blocks in one message, write independent files in one message. **Spec writing fans out after `01-lakeflow.md`**: 02 / 03 / 04 + the app spec all depend only on 01, not on each other, so once 01 is written they're emitted as a single batched-Write turn on the main loop — never serialize them. Latency is dominated by LLM round-trips, not tool execution — every sequential tool call that could have been batched is wasted time.
+Batch tool calls in the same response whenever you can: emit multiple `Read` or `Write` calls in one assistant message and the harness executes them concurrently. You still generate tokens sequentially — batching saves LLM round-trips, not output time. Load all reference blocks in one message, write independent files in one message. **Spec writing fans out after `01-lakeflow.md`**: 02 / 03 / 04 / 05 + the app spec all depend only on 01 (and on each other's outputs that the build stage materializes, not on each other's spec text), so once 01 is written they're emitted as a single batched-Write turn on the main loop — never serialize them. Latency is dominated by LLM round-trips, not tool execution — every sequential tool call that could have been batched is wasted time.
 
 **Subagent policy.** A single subagent is used in Stage 3 (build) **and only for the App** — it's the longest task (~5 min) and runs in parallel while the parent builds everything else on main. Stages 0, 1, 2, and 4 run entirely on the main loop, and within Stage 3 only the App is delegated. The full spawn prompt is in `DEMO_SKILL_DIR/stages/03-build.md` → Step 2.
 
@@ -81,14 +81,16 @@ Real thinking (surprising results, tradeoffs, ambiguity, errors) is welcome. Fil
 Source of truth for what capabilities the demo includes. Created during spec phase with capabilities, updated during build with resource IDs. Structure mirrors `DEMO_SKILL_DIR/references/example-luxebeauty/resources.json`.
 You must keep this exact naming convention.
 
-**After build** (populated with created resource IDs — do not add links here):
+**After build** (populated with created resource IDs — do not add links here). **Use these exact key names**; the UI's resource-link builder is wired to them. Skip a section entirely when the demo doesn't include that capability, but do NOT rename keys. Authoritative reference: `DEMO_SKILL_DIR/references/example-luxebeauty/resources.json`. Lakebase sub-keys are defined in `DEMO_SKILL_DIR/app/app.md`.
+
 ```json
 {
   "capabilities": { "buildable": [...], "talking_track": [...] },
   "created_resources": {
+    "workspace_folder": "/Workspace/Users/<your-email>/luxebeauty_demo",
     "catalog": "luxebeauty",
     "schema": "demo_c360",
-    "workspace_folder": "/Workspace/Users/.../luxebeauty_demo",
+    "warehouse_id": "862f1d757f0424f7",
     "pipeline_id": "17bed323-f405-4645-a559-7605171f5b41",
     "metric_view_name": "luxebeauty.demo_c360.mv_returns",
     "dashboard_id": "01efab12cd34...",
@@ -96,19 +98,25 @@ You must keep this exact naming convention.
     "knowledge_assistant_id": "ka-456...",
     "knowledge_assistant_endpoint": "ka-15956b19-endpoint",
     "multi_agent_supervisor_id": "mas-789...",
-    "multi_agent_supervisor_endpoint": "sa-15956b19-endpoint",
-    "mlflow_experiment_path": "/workspace/xxx",
-    "app":{
-      "name": "xxx",
-      "deployment_note": "xxx",
-      "id": "xx"
+    "multi_agent_supervisor_endpoint": "mas-15956b19-endpoint",
+    "ml_model_name": "luxebeauty.demo_c360.customer_premium_classifier",
+    "mlflow_experiment_path": "/Workspace/Users/<your-email>/luxebeauty/experiments/premium_classifier",
+    "app": {
+      "name": "luxebeauty-demo",
+      "id": "app-luxebeauty-1234",
+      "deployment_note": "Deployed via `databricks apps deploy` — see app.md Step 6"
     },
-    "lakebase_project_id": "<uuid from databricks postgres get-project | jq -r .uid>",
+    "lakebase_project_id": "<uid from `databricks postgres get-project | jq -r .uid`>",
     "lakebase_project_slug": "dbdemos-asset-generator",
-    "lakebase_database": "xxx"
+    "lakebase_database": "dbgen_luxebeauty"
   }
 }
 ```
+
+Notes on the trickier keys:
+- **`mlflow_experiment_path`** — required when the demo trains an ML model. Full workspace path passed to `mlflow.set_experiment(...)`. Without it the MLflow Experiment tile never appears in the resources grid (the UI resolves the path → numeric experiment_id via the SDK).
+- **`app` is nested** (`app.name`, `app.id`, `app.deployment_note`). When the deploy fails or is intentionally skipped, still record `app.name` and put the explanation in `deployment_note`.
+- **Lakebase keys are three flat fields**, not nested. See `app.md` for `lakebase_setup_db.sh` which prints them.
 
 - **buildable**: capabilities that require actual Databricks resources (pipelines, dashboards, agents, apps, etc.)
 - **talking_track**: capabilities mentioned in the demo narrative but don't require resource creation
@@ -212,7 +220,7 @@ Wait for confirmation before starting stage 2.
 
 **Read `DEMO_SKILL_DIR/stages/02-write-specs.md` now** and follow it. Outputs: `META-PROMPT.md` (copied wit cp don't read/write it) + `specifications/*.md`. Includes the coherence pass at the end.
 
-**Mental model before you start:** write `01-lakeflow.md` first (everything else depends on it). Then write the remaining top-level specs (02 / 03 / 04, only the ones this demo uses). Then, if the demo includes a Databricks App, write `specifications/app/*.md`. Sequential — one Write per file. **Don't ruminate, don't say "now I'll write X" — open the Write tool and write.** Coherence review at the end.
+**Mental model before you start:** write `01-lakeflow.md` first (everything else depends on it). Then write the remaining top-level specs (02 / 03 / 04 / 05, only the ones this demo uses). Then, if the demo includes a Databricks App, write `specifications/app/*.md`. Sequential — one Write per file. **Don't ruminate, don't say "now I'll write X" — open the Write tool and write.** Coherence review at the end.
 
 **Track this stage:** run `python3 DEMO_SKILL_DIR/tools/track.py SPECS_WRITTEN <demo-slug>` once specs are all written; ignore the result and move on.
 

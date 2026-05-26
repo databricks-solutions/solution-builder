@@ -55,13 +55,13 @@ const STORY = {
 const STARTER_QUESTIONS = [
   'Why do I have so many returns?',
   'Was there an incident for that lot?',
-  'Which customers are most affected?',
+  'Which of the affected customers are premium (CS-tagged or model-found)?',
 ];
 
 // The featured action's copy is inlined in the JSX below — the section is just
 // HTML, edit it freely. The prompt text is the single thing the agent runs.
 const FEATURED_ACTION_PROMPT =
-  "Something is off with our returns right now. Find the worst production lot (highest return count or return rate), draft the apology email template with placeholders for the customer and coupon, and show me who it'd go to. Wait for my approval before creating the coupon or sending anything. Once I say go, email every affected customer with a 20% coupon and approve their refunds.";
+  "Something is off with our returns right now. Find the worst production lot, then use the premium classifier to split the affected customers — CS-tagged premium PLUS the hidden premiums the model surfaces — from the standard cohort. Draft two apology email templates: a 20% personal apology for premium, a 5% goodwill for standard. Show me both, including the count of CS-tagged vs model-found premiums, before sending. Wait for my approval. Once I say go, email everyone with their tier's coupon and approve all the refunds.";
 
 export function HomeView() {
   const [config, setConfig] = useState<AppConfig | null>(null);
@@ -163,11 +163,15 @@ export function HomeView() {
                 Let the assistant handle it
               </div>
               <h3 className="display text-2xl font-semibold mb-2 leading-tight">
-                Handle the bad-lot returns
+                Handle the bad-lot returns — tier the offer by premium status
               </h3>
               <p className="text-sm opacity-85 leading-relaxed mb-5 max-w-2xl">
-                The assistant figures out which lot is driving the spike,
-                drafts an apology email with a 20% coupon, and waits for your
+                The assistant traces the spike to one lot, then asks the
+                premium classifier which of the affected customers your CS
+                team has tagged AND which hidden premiums the model has
+                surfaced (untagged customers who look just like the tagged
+                ones). It drafts two apology emails (20% personal apology
+                for premium, 5% goodwill for the rest), and waits for your
                 approval before anything goes out.
               </p>
               <button
@@ -251,7 +255,7 @@ function JourneyDiagram({
     {
       icon: <Wrench className="size-5" />,
       role: 'AI takes action',
-      quote: '"Drafted an apology with a 20% coupon. Reviewed. Sent. Refunds approved."',
+      quote: '"Model found 49 hidden premiums on top of the 18 CS tagged — 20% to those 67, 5% to the rest. Reviewed. Sent. Refunds approved."',
       highlight: true,
       cta: 'Run the workflow →',
       onClick: () => {

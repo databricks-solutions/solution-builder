@@ -50,7 +50,13 @@ import {
   type CapabilityMeta,
 } from "@/lib/capabilities";
 import { estimateBuild, formatMinutes, formatElapsed, elapsedMinutes } from "@/lib/build-eta";
-import type { DeployedResourceLink } from "@/lib/custom-api";
+import type { DeployedResourceLink, ProjectFile } from "@/lib/custom-api";
+import {
+  detectStageFromFiles,
+  getLifecycleStages,
+  type LifecycleStageInfo,
+  type LifecycleStageKey,
+} from "./build-stepper";
 import { cn } from "@/lib/utils";
 import { useAppPreview } from "../../preview";
 
@@ -159,6 +165,14 @@ interface Widget {
 function buildWidgets(
   buildable: string[],
   deployed: DeployedResourceLink[],
+  /** True when `app/start.sh` exists on disk (project has a runnable local
+   *  app). Used as a fallback "ready" signal for the `databricks-apps`
+   *  capability: if the app isn't deployed to Databricks Apps yet but can
+   *  run via the local Preview, we still count it live in the resources
+   *  grid — the user can demo it from the Preview button. Without this,
+   *  the "8 of 9 ready" pill stalls indefinitely on projects that build
+   *  but never deploy the app. */
+  hasLocalApp: boolean = false,
 ): Widget[] {
   const byType = new Map<string, DeployedResourceLink>();
   for (const r of deployed) byType.set(r.resource_type, r);
@@ -179,10 +193,23 @@ function buildWidgets(
     const group = SOURCE_TO_DISPLAY[meta.group];
     let state: WidgetState = "pending";
     let url: string | undefined;
-    const live = byType.get(meta.deployed_type);
+    const deployedTypes = Array.isArray(meta.deployed_type)
+      ? meta.deployed_type
+      : [meta.deployed_type];
+    let live: DeployedResourceLink | undefined;
+    for (const t of deployedTypes) {
+      const hit = byType.get(t);
+      if (hit) { live = hit; break; }
+    }
     if (live?.url) {
       state = "live";
       url = live.url;
+    } else if (slug === "databricks-apps" && hasLocalApp) {
+      // Not deployed to Databricks Apps, but the project has a local
+      // app ready for Preview — count it live without a URL. The
+      // Analyst Layer block reads the same `hasApp` signal to render
+      // the Preview button.
+      state = "live";
     }
     widgets.push({ slug, meta, group, state, url });
   }
@@ -631,18 +658,14 @@ const HeroCard = memo(function HeroCard({
 });
 
 // ===========================================================================
-// Drafting overview — full-width "what's coming" panel shown while the
-// project is brand new (no README yet). Three numbered steps explain
-// the flow, with a friendly ~2 min expectation set up front so users
-// don't sit refreshing.
+// Lifecycle pipeline strip — 4 stage tiles rendered inside BuildingBanner
+// (and previously inside the standalone DraftingOverview, now retired:
+// the Overview tab no longer switches layouts pre/post-README — the
+// HeroCard's own skeleton + the resources placeholder + the BuildingBanner
+// fill the page from t=0 through completion).
 // ===========================================================================
 
-interface DraftingOverviewProps {
-  isStreaming: boolean;
-  onOpenChat?: () => void;
-}
-
-type PipelineStageState = "active" | "pending";
+type PipelineStageState = "active" | "pending" | "done";
 
 interface PipelineStage {
   key: string;
@@ -670,13 +693,16 @@ const ActivityBars = memo(function ActivityBars() {
 const StageCard = memo(function StageCard({ stage }: { stage: PipelineStage }) {
   const Icon = stage.icon;
   const isActive = stage.state === "active";
+  const isDone = stage.state === "done";
   return (
     <div
       className={cn(
-        "relative rounded-xl border p-3.5 transition-colors",
+        "relative h-full rounded-xl border p-3.5 transition-colors",
         isActive
           ? "border-primary/40 bg-primary/[0.06] animate-drafting-breathe"
-          : "border-border/50 bg-muted/30",
+          : isDone
+            ? "border-primary/25 bg-primary/[0.03]"
+            : "border-border/50 bg-muted/30",
       )}
     >
       <div className="flex items-center gap-2.5 mb-1.5">
@@ -685,15 +711,23 @@ const StageCard = memo(function StageCard({ stage }: { stage: PipelineStage }) {
             "shrink-0 inline-flex items-center justify-center h-7 w-7 rounded-lg",
             isActive
               ? "bg-primary/15 text-primary ring-1 ring-primary/30"
-              : "bg-muted text-muted-foreground/70",
+              : isDone
+                ? "bg-primary/15 text-primary"
+                : "bg-muted text-muted-foreground/70",
           )}
         >
-          {isActive ? <ActivityBars /> : <Icon className="h-3.5 w-3.5" />}
+          {isActive ? (
+            <ActivityBars />
+          ) : isDone ? (
+            <Check className="h-3.5 w-3.5" />
+          ) : (
+            <Icon className="h-3.5 w-3.5" />
+          )}
         </span>
         <div
           className={cn(
             "text-[12.5px] font-semibold leading-tight",
-            isActive ? "text-foreground" : "text-muted-foreground",
+            isActive || isDone ? "text-foreground" : "text-muted-foreground",
           )}
         >
           {stage.title}
@@ -702,7 +736,11 @@ const StageCard = memo(function StageCard({ stage }: { stage: PipelineStage }) {
       <p
         className={cn(
           "text-[11.5px] leading-relaxed pl-[38px]",
-          isActive ? "text-muted-foreground" : "text-muted-foreground/65",
+          isActive
+            ? "text-muted-foreground"
+            : isDone
+              ? "text-muted-foreground/80"
+              : "text-muted-foreground/65",
         )}
       >
         {stage.blurb}
@@ -716,146 +754,61 @@ const StageCard = memo(function StageCard({ stage }: { stage: PipelineStage }) {
           Now
         </span>
       )}
+      {isDone && (
+        <span
+          aria-hidden
+          className="absolute top-2 right-2 inline-flex items-center gap-1 text-[9.5px] font-bold uppercase tracking-[0.12em] text-primary/70"
+        >
+          Done
+        </span>
+      )}
     </div>
   );
 });
 
-const DraftingOverview = memo(function DraftingOverview({
-  isStreaming,
-  onOpenChat,
-}: DraftingOverviewProps) {
-  // Pipeline stages — only the first two are "now" when the agent is
-  // streaming. Everything past architecture is downstream and stays muted
-  // so the user can see *where* in the build we currently are.
-  const stages: PipelineStage[] = [
-    {
-      key: "story",
-      title: "Story",
-      blurb: "Drafting the customer narrative and pitch.",
-      icon: BookOpen,
-      state: isStreaming ? "active" : "pending",
-    },
-    {
-      key: "architecture",
-      title: "Architecture",
-      blurb: "Sketching the diagram and picking capabilities.",
-      icon: Network,
-      state: isStreaming ? "active" : "pending",
-    },
-    {
-      key: "specs",
-      title: "Specifications",
-      blurb: "Detailed plans for each resource.",
-      icon: FileText,
-      state: "pending",
-    },
-    {
-      key: "build",
-      title: "Build",
-      blurb: "Resources go live in your workspace.",
-      icon: Hammer,
-      state: "pending",
-    },
-    {
-      key: "bundle",
-      title: "Bundle",
-      blurb: "Packaged for repeatable deployment.",
-      icon: Rocket,
-      state: "pending",
-    },
-  ];
+// Icon + title per lifecycle key. Two sources, one mapping — DraftingOverview
+// uses this when no file-driven stage info exists yet (first 2 minutes
+// before README lands); BuildingBanner uses the live lifecycle from
+// getLifecycleStages(). The titles are the user-facing labels for the
+// 4-tile strip.
+const LIFECYCLE_DISPLAY: Record<
+  LifecycleStageKey,
+  { title: string; blurb: string; icon: React.ElementType }
+> = {
+  STORY_AND_ARCH: {
+    title: "Story & Architecture",
+    blurb: "Drafting the customer narrative, pitch, and architecture diagram.",
+    icon: BookOpen,
+  },
+  SPECIFICATION: {
+    title: "Specifications",
+    blurb: "Detailed plans for each resource.",
+    icon: FileText,
+  },
+  RESOURCES: {
+    title: "Resources",
+    blurb: "Databricks resources go live in your workspace.",
+    icon: Hammer,
+  },
+  DAB: {
+    title: "Bundle as DAB (on demand)",
+    blurb: "Packaged for repeatable deployment when you ask for it.",
+    icon: Rocket,
+  },
+};
 
-  return (
-    <section className="rounded-2xl border border-border/60 bg-card p-8 lg:p-10 overflow-hidden relative">
-      {/* Same primary glow the hero uses — gives the panel personality
-          without competing with the prose. */}
-      <div
-        aria-hidden
-        className="pointer-events-none absolute -top-24 -right-24 h-64 w-64 rounded-full bg-primary/[0.07] blur-3xl"
-      />
-
-      <div className="relative max-w-2xl">
-        <div className="flex items-center gap-3 mb-3">
-          {isStreaming ? (
-            <Loader2 className="h-5 w-5 animate-spin text-primary shrink-0" />
-          ) : (
-            <Sparkles className="h-5 w-5 text-primary shrink-0" />
-          )}
-          <h2 className="text-[20px] font-semibold tracking-tight text-foreground">
-            {isStreaming
-              ? "Starting your project creation"
-              : "Let's design your solution"}
-          </h2>
-        </div>
-
-        <p className="text-[14.5px] leading-relaxed text-muted-foreground mb-1">
-          {isStreaming ? (
-            <>
-              Right now, the assistant is generating the{" "}
-              <span className="text-foreground font-semibold">story</span> and{" "}
-              <span className="text-foreground font-semibold">architecture</span>{" "}
-              files for your solution. This usually takes about{" "}
-              <span className="text-foreground font-medium">2 minutes</span> —
-              specifications, build, and bundle come next.
-            </>
-          ) : (
-            <>
-              Tell the assistant about your customer — their industry, the
-              problem they're trying to solve, what they care about. About
-              two minutes after you hit send, your story and architecture
-              will appear right here.
-            </>
-          )}
-        </p>
-
-        {!isStreaming && onOpenChat && (
-          <Button onClick={onOpenChat} className="mt-5 gap-1.5">
-            <Sparkles className="h-4 w-4" />
-            Open the assistant
-          </Button>
-        )}
-      </div>
-
-      {/* Pipeline strip — five stages laid out left-to-right. The first
-          two stages (story + architecture) animate as "now"; the rest
-          stay quiet so the user can see what's coming. A travelling glow
-          sweeps along the row behind the cards to signal active work. */}
-      {isStreaming && (
-        <div className="relative mt-8">
-          {/* Travelling glow behind the cards. Constrained to the row, so
-              it visually "flows" between the active stages. */}
-          <div
-            aria-hidden
-            className="pointer-events-none absolute inset-y-0 left-0 right-0 overflow-hidden rounded-2xl"
-          >
-            <div className="absolute inset-y-2 left-0 w-1/3 bg-gradient-to-r from-transparent via-primary/15 to-transparent blur-xl animate-drafting-flow" />
-          </div>
-
-          <ol className="relative grid grid-cols-2 md:grid-cols-5 gap-3">
-            {stages.map((s) => (
-              <li key={s.key}>
-                <StageCard stage={s} />
-              </li>
-            ))}
-          </ol>
-
-          <div className="relative mt-5 flex items-center gap-2 text-[11.5px] text-muted-foreground">
-            <Check className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
-            <span>
-              You can safely close this page — the build keeps running and
-              you'll find it under your projects when you come back.
-            </span>
-          </div>
-        </div>
-      )}
-
-      <p className="relative mt-7 text-[12px] text-muted-foreground/80">
-        Follow along in the floating chat in the bottom-right — the assistant
-        may ask you a question or two along the way.
-      </p>
-    </section>
-  );
-});
+/** Map lifecycle stages → render-ready PipelineStage[] (4 tiles). */
+function buildLifecycleTiles(
+  lifecycle: LifecycleStageInfo[],
+): PipelineStage[] {
+  return lifecycle.map((s) => ({
+    key: s.key,
+    title: LIFECYCLE_DISPLAY[s.key].title,
+    blurb: LIFECYCLE_DISPLAY[s.key].blurb,
+    icon: LIFECYCLE_DISPLAY[s.key].icon,
+    state: s.status,
+  }));
+}
 
 // ===========================================================================
 // Platform value-prop — quiet single-sentence footer for the resources
@@ -874,6 +827,7 @@ const BuildingBanner = memo(function BuildingBanner({
   buildable,
   deployed,
   createdAt,
+  files,
   onOpenChat,
 }: {
   buildable: string[];
@@ -881,6 +835,9 @@ const BuildingBanner = memo(function BuildingBanner({
   /** Project creation timestamp — anchors "started X ago". Survives page
    *  refresh because it's persisted on the project row, not a useRef. */
   createdAt?: string | null;
+  /** Project files — used to derive lifecycle stage tiles. Same source
+   *  the top stepper reads. */
+  files: ProjectFile[];
   onOpenChat?: () => void;
 }) {
   // Tick once a minute so the "started X ago" label stays current without
@@ -909,42 +866,69 @@ const BuildingBanner = memo(function BuildingBanner({
   // acknowledges the overrun instead.
   const isOverdue = createdAt != null && elapsed > 0 && remaining > 0 && elapsed >= remaining;
 
+  // 4-stage lifecycle tiles. Drives the strip below the headline so this
+  // panel mirrors the drafting screen + the top stepper. Source of truth:
+  // detectStageFromFiles → getLifecycleStages — same chain.
+  const stages = useMemo(() => {
+    const info = detectStageFromFiles(files, deployed.length);
+    const lifecycle = getLifecycleStages(info, deployed.length, buildable.length);
+    return buildLifecycleTiles(lifecycle);
+  }, [files, deployed.length, buildable.length]);
+
   return (
-    <div className="flex items-center justify-center gap-5 px-2 py-5">
-      {/* Pulsing orb — solid primary core with two soft halo rings. */}
-      <div className="relative shrink-0 flex items-center justify-center h-16 w-16">
-        <span
-          aria-hidden
-          className="absolute inset-0 rounded-full bg-primary/25 animate-ping"
-        />
-        <span
-          aria-hidden
-          className="absolute inset-1.5 rounded-full bg-primary/35 animate-pulse"
-        />
-        <span className="relative flex h-10 w-10 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg shadow-primary/30">
-          <Sparkles className="h-5 w-5" strokeWidth={2.25} />
-        </span>
-      </div>
+    <section className="rounded-2xl border border-border/60 bg-card p-6 lg:p-8 overflow-hidden relative">
+      {/* Same primary glow the drafting screen uses — gives the panel
+          personality without competing with the prose. */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute -top-24 -right-24 h-64 w-64 rounded-full bg-primary/[0.07] blur-3xl"
+      />
 
-      <div className="max-w-xl">
-        <h3 className="text-[15px] font-semibold text-foreground">
-          The AI is working for you — please wait
-        </h3>
-        <p className="mt-1 text-[13px] text-muted-foreground leading-relaxed">
-          This can take a while. You can safely close this page and come back
-          later — the build keeps running in the background.
-        </p>
+      {/* Header row — orb + title on the left, timing pill anchored
+          top-right (denser than the previous stacked layout). Chat CTA
+          tucked below the title so the row stays compact. */}
+      <div className="relative flex items-start gap-4">
+        {/* Pulsing orb — solid primary core with two soft halo rings. */}
+        <div className="shrink-0 flex items-center justify-center h-12 w-12 relative">
+          <span
+            aria-hidden
+            className="absolute inset-0 rounded-full bg-primary/25 animate-ping"
+          />
+          <span
+            aria-hidden
+            className="absolute inset-1 rounded-full bg-primary/35 animate-pulse"
+          />
+          <span className="relative flex h-8 w-8 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg shadow-primary/30">
+            <Sparkles className="h-4 w-4" strokeWidth={2.25} />
+          </span>
+        </div>
 
-        {/* ETA row — "started X ago · ~Y to go". The elapsed anchor comes
-            from project.created_at (persisted, survives refresh). The
-            "to go" figure is the static sum of remaining capability
-            durations from estimateBuild — it only ticks down when a
-            resource actually flips live, but the elapsed label keeps
-            moving so the row never feels frozen. When elapsed exceeds
-            the static estimate we soften to an overdue message instead
-            of insisting on a number we know is wrong. */}
+        <div className="flex-1 min-w-0">
+          <h3 className="text-[14.5px] font-semibold text-foreground leading-tight">
+            The AI is working for you — please wait
+          </h3>
+          {onOpenChat && (
+            <button
+              type="button"
+              onClick={onOpenChat}
+              className="mt-1.5 inline-flex items-center gap-1.5 text-[12px] text-primary hover:underline cursor-pointer"
+            >
+              <MessageSquare className="h-3.5 w-3.5" />
+              Open the chat to see the activity
+            </button>
+          )}
+        </div>
+
+        {/* Timing pill — top-right corner. Elapsed anchor comes from
+            project.created_at (persisted, survives refresh). The "to go"
+            figure is the static sum of remaining capability durations
+            from estimateBuild — only ticks down when a resource flips
+            live, but the elapsed label keeps moving so the row never
+            feels frozen. When elapsed exceeds the static estimate we
+            soften to an overdue message instead of insisting on a
+            number we know is wrong. */}
         {(createdAt || remaining > 0) && (
-          <div className="mt-3 inline-flex items-center gap-2 rounded-lg border border-primary/20 bg-primary/[0.06] px-3 py-1.5 text-[12px]">
+          <div className="shrink-0 inline-flex items-center gap-2 rounded-lg border border-primary/20 bg-primary/[0.06] px-3 py-1.5 text-[12px] whitespace-nowrap">
             <Clock className="h-3.5 w-3.5 text-primary" />
             {createdAt && (
               <span className="text-muted-foreground">
@@ -964,26 +948,25 @@ const BuildingBanner = memo(function BuildingBanner({
             )}
             {isOverdue && (
               <span className="text-muted-foreground">
-                taking a bit longer than expected — still working
+                taking a bit longer
               </span>
             )}
           </div>
         )}
-
-        {onOpenChat && (
-          <div className="mt-3">
-            <Button
-              size="sm"
-              className="h-8 gap-1.5 text-xs cursor-pointer"
-              onClick={onOpenChat}
-            >
-              <MessageSquare className="h-3.5 w-3.5" />
-              Open the chat to see the activity
-            </Button>
-          </div>
-        )}
       </div>
-    </div>
+
+      {/* 4-tile lifecycle strip — equal-height tiles, two per row on
+          mobile, four across on desktop. Stretches via items-stretch so
+          the longest blurb determines the row height and the others
+          fill it. */}
+      <ol className="relative mt-5 grid grid-cols-2 md:grid-cols-4 gap-3 items-stretch">
+        {stages.map((s) => (
+          <li key={s.key} className="h-full">
+            <StageCard stage={s} />
+          </li>
+        ))}
+      </ol>
+    </section>
   );
 });
 
@@ -1017,7 +1000,13 @@ const AnalystLayerBlock = memo(function AnalystLayerBlock({
   isStreaming: boolean;
   onShowApp?: () => void;
 }) {
-  const appDeployed = appWidget?.state === "live";
+  // "Deployed" means there's a Databricks Apps deployment URL — NOT
+  // merely that the widget is "live" (buildWidgets marks the App widget
+  // live whenever `app/start.sh` exists on disk so the resources counter
+  // hits N/N for local-preview-only builds; that fallback path has no
+  // URL). Gate on `url` so the badge + subline only say "Deployed" when
+  // we can actually link to the deployed app.
+  const appDeployed = appWidget?.state === "live" && !!appWidget.url;
   const { state, isStarting, start } = useAppPreview(projectId);
   const previewStatus = state?.status ?? "stopped";
   const previewReady = previewStatus === "ready";
@@ -1036,12 +1025,15 @@ const AnalystLayerBlock = memo(function AnalystLayerBlock({
     prevReadyRef.current = previewReady;
   }, [previewReady]);
 
-  // App subline reflects the build/deploy hierarchy.
+  // App subline reflects the build/deploy hierarchy. The undeployed-but-
+  // locally-runnable state isn't a failure — the user can demo via the
+  // Preview button without a Databricks Apps deployment — so the copy
+  // leads with what they CAN do.
   const appSubline = !hasApp
     ? "Not built yet"
     : appDeployed
     ? "Deployed"
-    : "App not deployed yet";
+    : "Ready to preview locally — not deployed yet";
 
   const previewTip = isStreaming
     ? "Wait for the assistant to finish before starting"
@@ -1262,6 +1254,9 @@ export interface ProjectOverviewProps {
   /** Currently unused on the Overview itself, but kept on the interface
    *  for parent symmetry with the FileViewer wiring. */
   hasSpecifications?: boolean;
+  /** Project files — used by BuildingBanner to derive the 4-stage
+   *  lifecycle strip (same source the top stepper reads). */
+  files?: ProjectFile[];
   isStreaming: boolean;
   onOpenChat?: () => void;
   onShowFullStory?: () => void;
@@ -1283,6 +1278,7 @@ export const ProjectOverview = memo(function ProjectOverview({
   hasArchitecture = false,
   hasApp = false,
   createdAt,
+  files = [],
   isStreaming,
   onOpenChat,
   onShowFullStory,
@@ -1293,8 +1289,8 @@ export const ProjectOverview = memo(function ProjectOverview({
   const deployed = deployedResources ?? [];
 
   const widgets = useMemo(
-    () => buildWidgets(buildable, deployed),
-    [buildable, deployed],
+    () => buildWidgets(buildable, deployed, hasApp),
+    [buildable, deployed, hasApp],
   );
   const hasAnyResources = widgets.length > 0;
   const liveCount = widgets.filter((w) => w.state === "live").length;
@@ -1333,46 +1329,59 @@ export const ProjectOverview = memo(function ProjectOverview({
   );
   const hasAnalystBlock = !!(appWidget || lakebaseWidget);
 
-  // No README yet → show the 3-step "what's coming" drafting view. The
-  // hero + status + resources grid would all be empty in this state and
-  // the wait screen reads much better than three empty cards.
-  if (!hasReadme) {
-    return (
-      <ScrollArea className="flex-1">
-        <div className="px-8 py-7 max-w-[1180px] mx-auto">
-          <DraftingOverview
-            isStreaming={isStreaming}
-            onOpenChat={onOpenChat}
-          />
-        </div>
-      </ScrollArea>
-    );
-  }
+  // 4-stage lifecycle progress. Used for two things:
+  //   1. The "are we done?" gate that hides BuildingBanner once everything
+  //      is ready (no more waiting message + tile strip cluttering the page).
+  //   2. The "do we have ANY work to show yet?" signal — when the agent
+  //      is still on Story & Architecture there's no resources grid, so
+  //      we render a placeholder where the grid will eventually live.
+  const lifecycleInfo = useMemo(
+    () => detectStageFromFiles(files, deployed.length),
+    [files, deployed.length],
+  );
+  const lifecycleStages = useMemo(
+    () => getLifecycleStages(lifecycleInfo, deployed.length, buildable.length),
+    [lifecycleInfo, deployed.length, buildable.length],
+  );
+  // The banner stays up until all *required* stages are done. Bundle is
+  // on-demand and only fires when the user explicitly clicks "Bundle as
+  // DAB", so we ignore it here — otherwise the banner would linger past
+  // a finished build that just hasn't been packaged.
+  const requiredStagesDone = lifecycleStages
+    .filter((s) => s.key !== "DAB")
+    .every((s) => s.status === "done");
 
   return (
     <ScrollArea className="flex-1">
       <div className="px-8 py-7 space-y-6 max-w-[1180px] mx-auto">
         {/* ────────────────────────────────────────────────────────────
-            Hero — full-width pitch.
+            Hero — full-width pitch. During the t=0 streaming wait the
+            HeroCard renders its own "Writing the pitch" skeleton +
+            spinner state, so we don't need a separate drafting screen.
             ──────────────────────────────────────────────────────────── */}
         <HeroCard
           narrative={projectNarrative ?? null}
-          isGenerating={isGeneratingNarrative}
+          // Force the skeleton when streaming + no README yet, so the
+          // hero slot reads as "we're working on this" instead of an
+          // empty CTA. The HeroCard's no-README + not-generating
+          // branch only renders when we're idle.
+          isGenerating={isGeneratingNarrative || (isStreaming && !hasReadme)}
           readmePresent={hasReadme}
           onShowFullStory={onShowFullStory}
           onRegenerateNarrative={onRegenerateNarrative}
           onOpenChat={onOpenChat}
         />
 
-        {/* Live-build banner — only shown when the agent is streaming AND
-            we still have resources left to build. Once everything is
-            "ready" the banner would be misleading (the deploy is done,
-            even if the agent is still e.g. writing follow-up docs). */}
-        {isStreaming && liveCount < totalCount && (
+        {/* Live-build banner — shown throughout the build, regardless of
+            whether the README has landed yet. Hidden once all 4 lifecycle
+            stages are done so the page settles into its "ready" state
+            without the waiting message + tile strip lingering. */}
+        {isStreaming && !requiredStagesDone && (
           <BuildingBanner
             buildable={buildable}
             deployed={deployed}
             createdAt={createdAt}
+            files={files}
             onOpenChat={onOpenChat}
           />
         )}
@@ -1391,7 +1400,41 @@ export const ProjectOverview = memo(function ProjectOverview({
 
         {/* ────────────────────────────────────────────────────────────
             Resources — column-per-category layout (full width like the pitch).
+            While the agent is still picking capabilities (resources.json
+            hasn't materialized yet), render a placeholder card where the
+            grid will eventually land so the page doesn't visually collapse
+            between the hero and the build banner.
             ──────────────────────────────────────────────────────────── */}
+        {!hasAnyResources && isStreaming && (
+          <section className="rounded-2xl border border-dashed border-border/60 bg-card/40 p-7 relative overflow-hidden">
+            <div
+              aria-hidden
+              className="pointer-events-none absolute -top-24 -right-24 h-48 w-48 rounded-full bg-primary/[0.05] blur-3xl"
+            />
+            <div className="relative flex items-center gap-4">
+              <Loader2 className="h-5 w-5 animate-spin text-primary shrink-0" />
+              <div>
+                <h2 className="text-[14px] font-semibold text-foreground">
+                  Writing your story and architecture
+                </h2>
+                <p className="mt-1 text-[12.5px] text-muted-foreground">
+                  The assistant is picking the Databricks capabilities for
+                  your solution. Once the architecture is ready, the
+                  resources grid will appear here.
+                </p>
+              </div>
+            </div>
+            <div className="relative mt-5 grid grid-cols-2 md:grid-cols-4 gap-3">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <div
+                  key={i}
+                  className="h-20 rounded-xl border border-border/40 bg-muted/30 animate-pulse"
+                />
+              ))}
+            </div>
+          </section>
+        )}
+
         {hasAnyResources && (
           <section className="rounded-2xl border border-border/60 bg-card p-7">
             <header className="flex items-center justify-between gap-3 mb-5">

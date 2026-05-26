@@ -4,7 +4,7 @@
 
 ## Pitch
 
-AI assistant that **investigates, drafts the fix, and executes it** in one conversation — not just answers questions. Claire watches every step happen live: MAS routes across Genie + KA, traces the returns spike to one production lot, drafts apology emails with coupons, bulk-approves refunds. Operations queue updates in real time. Every action is traced in MLflow.
+AI assistant that **investigates, personalizes the fix using an ML model, and executes it** in one conversation — not just answers questions. Claire watches every step happen live: MAS routes across Genie + KA, traces the returns spike to one production lot, then **looks up the premium-classifier output** (`app.customer_premium`, mirrored from the Delta predictions table the ML notebook in `03-ml-premium.md` writes) to split the 250 affected customers — finding ~18 already-tagged premiums plus ~49 hidden premiums the model surfaces — drafts two apology emails (20% coupon for the ~67 premiums, 5% goodwill for the ~183 standard), bulk-approves refunds. Operations queue updates in real time with the tier each row got. Every action is traced in MLflow.
 
 ## Databricks capabilities mapped
 
@@ -12,7 +12,9 @@ AI assistant that **investigates, drafts the fix, and executes it** in one conve
 |-----------|---------------|
 | **SQL Warehouse on Delta** | Analytics charts query live Delta tables |
 | **Multi-Agent Supervisor** | `ask_data` tool routes to Genie (data) + KA (docs); sub-agent activity streams into Thinking panel |
-| **Lakebase** | OLTP write surface — approve returns, append audit trail, record emails. Same UC governance as Delta |
+| **Lakebase** | OLTP write surface — approve returns, append audit trail, record emails, **read premium predictions (synced from Delta `gold_customer_premium_predictions`)**. Same UC governance as Delta |
+| **ML model (UC-registered)** | `customer_premium_classifier` model's batch predictions feed the agent's tiering — `app.customer_premium(customer_id, premium_prob, final_tier, premium_status_labeled, predicted_at)` is one of the mirrored tables |
+| **AI Functions (`ai_classify`)** | Anger score (0–1) extracted in SDP from each return's `return_reason_text`, mirrored on the returns row. Operations queue is sortable by anger so operators can triage the most upset customers first. |
 | **MLflow tracing** | Per-turn traces with tool spans. Thumbs up/down → human assessments on traces. Header links to experiments |
 | **Databricks Apps** | SSO, OBO auth (actions stamped with Claire's email), secrets, auto-scaling |
 | **AI/BI Dashboards** | Embedded as iframe with SSO — no chart rebuilding |
@@ -43,9 +45,9 @@ Top-right floating panel, streams live during agent turns:
 **Read-only queries** — assistant calls MAS, synthesizes answer. No side effects.
 
 **Action chains** — strict 3-phase:
-1. **Discover** — find affected returns, count, calculate totals (read-only)
-2. **Draft + confirm** — generate coupon, draft email, show who receives it + total refund → **STOP, wait for approval**
-3. **Execute** (after "yes") — bulk-process: personalized emails, audit trail, approve refunds atomically
+1. **Discover** — find affected returns, **look up the per-customer `final_tier`** in Lakebase (sourced from the premium classifier's predictions, plus the labeled-vs-predicted breakdown), count by tier, calculate totals (read-only)
+2. **Draft + confirm** — generate TWO coupons (20% for `final_tier='premium'`, 5% for `'standard'`), draft TWO email templates, show the split + the "X already-tagged + Y model-found hidden premiums" breakdown + sample customers per tier + total refund → **STOP, wait for approval**
+3. **Execute** (after "yes") — bulk-process: per-row tier lookup picks the right coupon, fills its template, records `coupon_pct_applied` on the row, appends audit + email entries, flips status to approved — all in one atomic UPDATE
 
 ### MLflow tracing
 Under every assistant message:
@@ -58,9 +60,10 @@ Under every assistant message:
 | Tool | What it does | Phase |
 |------|-------------|-------|
 | `ask_data` | Delegates to MAS — routes to Genie or KA, streams sub-agent progress to Thinking panel | Investigation |
-| `find_returns_for_lot` | Queries Lakebase: pending returns for a lot (count, customers, total refund) | Discovery |
-| `create_coupon` | Generates coupon code (pure function, fake) | Draft |
-| `process_return_batch` | Bulk: personalized emails (fake), audit trail, approve refunds in Lakebase — one atomic op | Execution (requires approval) |
+| `find_returns_for_lot` | Queries Lakebase: pending returns for a lot (count, customers, refund subtotal, **each row's `final_tier` + `premium_status_labeled`** joined from `app.customer_premium`, plus the row's `anger_score`) | Discovery |
+| `find_lot_premium_breakdown` | Queries Lakebase: for the affected lot, returns `{total, premium_count, standard_count, premium_labeled_count, premium_predicted_hidden_count, premium_refund_usd, standard_refund_usd, top_countries[]}` — joins `app.returns` × `app.customers` × `app.customer_premium`. **This is the demo's "ML in the loop" moment** — the agent calls it after identifying the lot and quotes the labeled-vs-hidden split in the draft. | Discovery |
+| `create_coupon` | Generates a coupon code (pure function, fake). Called TWICE in the tiered flow — once per tier with the appropriate `percent_off`. | Draft |
+| `process_return_batch` | Bulk: SELECTs pending returns for `lot` joined to `app.customer_premium`, picks the right tier's coupon + template per row, fills personalized emails, records `coupon_pct_applied`, appends audit, approves refunds in Lakebase — one atomic UPDATE. Inputs include `tier_offers: {premium: {coupon_code, percent_off, email_subject_template, email_body_template}, standard: {...}}`. | Execution (requires approval) |
 
 ## Home page
 
@@ -70,25 +73,25 @@ Narrative landing — tells the story in 10s, plays it in 90s.
 
 **Journey diagram:** 4-beat horizontal strip (demo remote control): See the spike → Operations | Ask why → starts chat | Trace root cause → Analytics | Fix it → action flow.
 
-**Starter chips:** "Why do I have so many returns?" / "Was there an incident for that lot?" / "Which customers are most affected?" — each starts a fresh conversation.
+**Starter chips:** "Why do I have so many returns?" / "Was there an incident for that lot?" / "Which of the affected customers are premium?" — each starts a fresh conversation.
 
-**Featured action card:** "Handle the bad-lot returns" — one click triggers full investigate→draft→approve flow.
+**Featured action card:** "Handle the bad-lot returns — tier the offer by premium status" — one click triggers the full investigate → tier-split → draft → approve flow.
 
-**Activity feed:** Live tail of agent actions ("Approved 47 returns for LOT-2026-0222", "Sent apology email to..."). Auto-refreshes.
+**Activity feed:** Live tail of agent actions ("Sent 20% apology to 67 premium customers (18 labeled + 49 model-found)", "Sent 5% goodwill to 183 standard customers", "Approved 250 refunds for LOT-2026-0222"). Auto-refreshes.
 
 ## Scripted demo flow (~3 min)
 
 Assistant supports a scripted chain via `config.assistantScript`. After each response, a "Suggested next" chip appears if trigger keywords are detected in the previous answer. Chips are convenience — Claire can always type freely.
 
 **Step 1 — "Why do I have so many returns?"**
-Always available. MAS delegates to data_analyst (Genie) + incident_expert (KA). Thinking panel shows routing live. Answer: 3x spike, SKU-1001/1002/1003, one lot, "grainy texture". Suggests handling returns.
+Always available. MAS delegates to data_analyst (Genie) + incident_expert (KA). Thinking panel shows routing live. Answer: 3x spike, SKU-1001/1002/1003, one lot, "grainy texture", homogenizer incident. Suggests handling the affected customers.
 
-**Step 2 — "Accept all returns for that lot. Draft an apology email with a 20% coupon — show me first."**
-Unlocks when "lot"/"batch" in previous answer. Finds pending returns, generates coupon, drafts email. Shows draft + affected customers. Stops and waits.
+**Step 2 — "Handle these 250 customers. Use the premium classifier to decide who gets the bigger save."**
+Unlocks when "lot"/"batch"/"customers" in previous answer. Agent calls `find_lot_premium_breakdown` → quotes the split (e.g. "~67 premium of 250 — only 18 already tagged by CS; the model found ~49 more hidden premiums. FR + IT lead the cohort"). Calls `create_coupon` twice (20% + 5%). Drafts TWO emails (warmer apology for premium, lighter goodwill for standard). Shows both drafts + the labeled-vs-hidden breakdown + total refund. Stops and waits.
 
-**Step 3 — "Yes — send the emails and approve the refunds."**
-Unlocks when "template"/"coupon" mentioned. Bulk-processes every return: personalized emails, audit trail, status → approved. Operations KPI counters move. Each return row shows email + audit.
+**Step 3 — "Yes — send both and approve the refunds."**
+Unlocks when "tier"/"premium"/"coupon" mentioned. Bulk-processes every return: per-row tier lookup picks the right template, personalized email lands on the row, status → approved, `coupon_pct_applied` recorded. Operations KPI counters move; the queue now shows the per-row 20% or 5% badge.
 
-**Performance:** Agent prompt steers toward narrow MAS questions (20-40s). Broad questions take 90s+.
+**Performance:** Agent prompt steers toward narrow MAS questions (20-40s). Broad questions take 90s+. The premium lookup is a Lakebase JOIN — sub-second, doesn't bloat the turn.
 
 All narrative config lives in `config/app.json` — persona, story, starter questions, assistantScript (with triggerAfter keywords), featuredAction, resource IDs. Read it directly.

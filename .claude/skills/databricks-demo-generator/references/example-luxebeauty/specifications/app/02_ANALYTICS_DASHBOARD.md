@@ -26,6 +26,6 @@ The template ships a working version of this page — tune the SQL and labels to
 
 ## Dashboard page (`/dashboard`)
 
-Embed the AI/BI dashboard already built in `03-ai-bi.md` (Section B) as a full-page iframe with SSO. Look up `dashboard_id` in `resources.json` and wire it into `config.dashboardId` — do **not** rebuild the dashboard, just point at the existing one. Filters and drill-downs work natively. Remove the page entirely if the demo has no dashboard.
+Embed the AI/BI dashboard already built in `04-ai-bi.md` (Section B) as a full-page iframe with SSO. Look up `dashboard_id` in `resources.json` and wire it into `config.dashboardId` — do **not** rebuild the dashboard, just point at the existing one. Filters and drill-downs work natively. Remove the page entirely if the demo has no dashboard.
 
 **Why it exists alongside the in-app Analytics page:** this proves a published AI/BI dashboard can live inside a custom app — same SSO, same data, no chart rebuilding in React. The "build vs buy" answer for richer visuals.

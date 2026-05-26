@@ -9,6 +9,7 @@
  * only contain `fetch` calls.
  */
 import type {
+  CountryBucket,
   CustomerOrder,
   Decision,
   FacilityLotRow,
@@ -22,11 +23,20 @@ import type {
 } from '@/shared/types';
 
 export async function fetchReturns(
-  filters: { status?: ReturnStatus; lot?: string } = {},
+  filters: {
+    status?: ReturnStatus;
+    lot?: string;
+    tier?: 'premium' | 'standard';
+    country?: string;
+    sort?: 'anger' | 'recent' | 'value';
+  } = {},
 ): Promise<ReturnRow[]> {
   const qs = new URLSearchParams();
   if (filters.status) qs.set('status', filters.status);
   if (filters.lot) qs.set('lot', filters.lot);
+  if (filters.tier) qs.set('tier', filters.tier);
+  if (filters.country) qs.set('country', filters.country);
+  if (filters.sort) qs.set('sort', filters.sort);
   const res = await fetch(`/api/returns?${qs}`);
   if (!res.ok) throw new Error(`/api/returns: ${res.status}`);
   return res.json();
@@ -41,6 +51,17 @@ export async function fetchReturn(id: string): Promise<ReturnDetail> {
 export async function fetchReturnsSummary(): Promise<ReturnsSummary[]> {
   const res = await fetch('/api/returns/summary');
   if (!res.ok) throw new Error(`/api/returns/summary: ${res.status}`);
+  return res.json();
+}
+
+export async function fetchCountryBreakdown(
+  filters: { status?: ReturnStatus; lot?: string } = {},
+): Promise<CountryBucket[]> {
+  const qs = new URLSearchParams();
+  if (filters.status) qs.set('status', filters.status);
+  if (filters.lot) qs.set('lot', filters.lot);
+  const res = await fetch(`/api/returns/by-country?${qs}`);
+  if (!res.ok) throw new Error(`/api/returns/by-country: ${res.status}`);
   return res.json();
 }
 

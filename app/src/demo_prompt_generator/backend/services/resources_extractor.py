@@ -50,6 +50,7 @@ CANONICAL_KEYS = (
     "multi_agent_supervisor_endpoint",
     "mlflow_experiment_path",
     "metric_view_name",
+    "ml_model_name",
     "app_name",
     "app_id",
     "lakebase_project_id",
@@ -58,46 +59,75 @@ CANONICAL_KEYS = (
 )
 
 
-_EXTRACTOR_PROMPT = """You are a JSON normalizer for a project's resources.json file.
+_EXTRACTOR_PROMPT = """You normalize a project's resources.json into a flat canonical shape.
 
-Different versions of an AI agent wrote this file in different shapes:
-sometimes flat (`pipeline_id`: "..."), sometimes nested (`pipeline`:
-{"id": "...", "name": "...", "url": "..."}), sometimes mixed with
-unrelated fields. Your job: extract a flat object using the canonical
-shape below. Use the empty string "" for any field that isn't present.
+The input may be flat, nested, or contain extra free-form fields. Extract ONLY
+the keys in the output schema below. Use "" for anything not present.
 
-For nested objects with an "id" field, extract just the id. Ignore
-free-form fields like demo_numbers, tables, retry_command, deployment
-notes, etc. — keep ONLY the canonical fields.
+Normalization rules — apply ALL of these:
 
-If a field is plural in the input (e.g. `metric_views: [...]`, `pipelines: [...]`),
-pick the FIRST item — the canonical shape is singular. For metric views
-specifically, the agent often emits `metric_views` as an array of
-fully-qualified names like `"catalog.schema.name"`; map the first entry to
-`metric_view_name`.
+1. Plural array → singular scalar. Pick the FIRST element.
+   - `metric_views: ["a.b.c", "d.e.f"]` → `metric_view_name: "a.b.c"`
+   - `pipelines: [{id: "p1"}, ...]` → `pipeline_id: "p1"`
 
-Output STRICTLY this JSON shape:
+2. Nested object with `id` → flat id string.
+   - `pipeline: {id: "p1", name: "..."}` → `pipeline_id: "p1"`
 
+3. Nested `app` object → flat `app_name` / `app_id`.
+   - `app: {name: "foo", id: "bar"}` → `app_name: "foo"`, `app_id: "bar"`
+   - if the app isn't deployed, return the app name (if it exists) and no app_id. Don't invent an id 
+
+4. Synonyms — map common aliases to canonical keys:
+   - `supervisor_agent_id`, `mas_id` → `multi_agent_supervisor_id`
+   - `ka_id`, `assistant_id` → `knowledge_assistant_id`
+   - `model_name`, `uc_model_name`, `ml.model_name` → `ml_model_name`
+   - `experiment_path`, `mlflow.experiment_path` → `mlflow_experiment_path`
+
+5. Drop unrelated fields entirely (`tables`, `demo_numbers`, `retry_command`,
+   `ml_model_version`, `ml_val_auc`, deployment notes, URLs, etc.).
+
+Worked example:
+
+INPUT:
 {
-  "catalog": "",
-  "schema": "",
+  "created_resources": {
+    "catalog": "ai_demo_gen",
+    "schema": "demo_x",
+    "pipeline_id": "p-123",
+    "metric_views": ["ai_demo_gen.demo_x.mv_weekly", "ai_demo_gen.demo_x.mv_sku"],
+    "ml_model_name": "ai_demo_gen.demo_x.churn_model",
+    "ml_model_version": "1",
+    "supervisor_agent_id": "sup-1",
+    "app": {"name": "my-app", "id": "app-1", "deployment_note": "ok"},
+    "tables": {"bronze": ["a", "b"]}
+  }
+}
+
+OUTPUT:
+{
+  "catalog": "ai_demo_gen",
+  "schema": "demo_x",
   "workspace_folder": "",
   "warehouse_id": "",
-  "pipeline_id": "",
+  "pipeline_id": "p-123",
   "dashboard_id": "",
   "genie_space_id": "",
   "knowledge_assistant_id": "",
   "knowledge_assistant_endpoint": "",
-  "multi_agent_supervisor_id": "",
+  "multi_agent_supervisor_id": "sup-1",
   "multi_agent_supervisor_endpoint": "",
   "mlflow_experiment_path": "",
-  "metric_view_name": "",
-  "app_name": "",
-  "app_id": "",
+  "metric_view_name": "ai_demo_gen.demo_x.mv_weekly",
+  "ml_model_name": "ai_demo_gen.demo_x.churn_model",
+  "app_name": "my-app",
+  "app_id": "app-1",
   "lakebase_project_id": "",
   "lakebase_project_slug": "",
   "lakebase_database": ""
 }
+
+Now normalize this input. Output STRICTLY the same flat JSON shape as the
+worked example output (all keys present, "" for missing). No commentary.
 
 Input resources.json:
 """

@@ -185,19 +185,6 @@
   animation: reasoning-pulse 2.4s ease-in-out infinite;
 }
 
-/* Drafting pipeline — a soft glow that travels along the stage row from
- * the story card to the architecture card, signalling that work is
- * actively flowing between the two active stages. */
-@keyframes drafting-flow {
-  0%   { transform: translateX(-30%); opacity: 0; }
-  20%  { opacity: 1; }
-  80%  { opacity: 1; }
-  100% { transform: translateX(130%); opacity: 0; }
-}
-.animate-drafting-flow {
-  animation: drafting-flow 2.6s ease-in-out infinite;
-}
-
 /* Drafting stage card — gentle breathing scale on the currently-active
  * stages so the row feels alive without distracting from the prose. */
 @keyframes drafting-breathe {

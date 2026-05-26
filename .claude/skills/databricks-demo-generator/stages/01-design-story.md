@@ -69,11 +69,11 @@ Same structure as `DEMO_SKILL_DIR/references/example-luxebeauty/README.md`:
 
 > The Summary tab automatically renders a products card above the README using `resources.json` (buildable + talking_track) joined with the live deployed resources. **Do not write a glance block** — it is no longer rendered. The card replaces it and shows pending → live transitions as resources get built.
 
-## Coherence contract (you own it)
+## Coherence contract (you own it) 
 
-You're writing all three files from the same plan in context, so:
+You're writing all files:
 
 - **Products Showcased** in README ↔ **architecture nodes** ↔ **`resources.json` capabilities** must name the same set of products. Every product in the story earns a narrative beat AND an architecture node AND a capability entry.
-- Parallel writes work because coherence comes from *your plan* — not from reading one file to write the next.
+- **The story** must be coherent with all the capabilities, for example: the data must serve the story, the dashboard / genie and the data must all work together, the app must use the same component / the data must be 
 
 After writing, return to SKILL.md — the stage-1 user-review gate kicks in. Deliver the approval prompt to the user and wait for confirmation before touching any spec file.

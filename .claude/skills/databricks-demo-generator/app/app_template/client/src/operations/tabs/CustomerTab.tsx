@@ -30,12 +30,79 @@ export function CustomerTab({ detail }: { detail: ReturnDetail }) {
           }
         />
         <DetailRow label="Region" value={detail.customer_region ?? '—'} />
+        <DetailRow label="Country" value={detail.customer_country ?? '—'} />
         <DetailRow
           label="Customer since"
           value={detail.registration_date ?? '—'}
         />
         <DetailRow label="Customer id" value={detail.customer_id ?? '—'} />
       </dl>
+
+      {detail.final_tier && detail.premium_prob !== null && (
+        <div className="rounded-xl border border-border bg-card p-4">
+          <div className="flex items-center justify-between mb-2">
+            <div className="text-xs font-semibold uppercase tracking-[0.15em] text-muted-foreground">
+              Premium tier (ML)
+            </div>
+            <span
+              className={
+                detail.final_tier === 'premium'
+                  ? detail.premium_status_labeled === 'premium'
+                    ? 'rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider bg-primary/15 text-primary'
+                    : 'rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider bg-primary/8 text-primary border border-primary/30 border-dashed'
+                  : 'rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider bg-muted text-muted-foreground'
+              }
+            >
+              {detail.final_tier === 'premium'
+                ? detail.premium_status_labeled === 'premium'
+                  ? 'premium · CS-tagged'
+                  : 'premium · hidden (model)'
+                : 'standard'}
+            </span>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="flex-1 h-2 rounded-full bg-muted overflow-hidden">
+              <div
+                className={`h-full ${
+                  detail.final_tier === 'premium'
+                    ? 'bg-primary'
+                    : 'bg-muted-foreground/60'
+                }`}
+                style={{
+                  width: `${Math.min(100, Math.max(0, detail.premium_prob * 100))}%`,
+                }}
+              />
+            </div>
+            <div className="font-mono text-xs tabular-nums w-12 text-right">
+              {(detail.premium_prob * 100).toFixed(0)}%
+            </div>
+          </div>
+          <div className="mt-2 text-xs text-muted-foreground">
+            {detail.premium_status_labeled === 'premium' ? (
+              <>CS-tagged premium. Model score shown for transparency.</>
+            ) : detail.final_tier === 'premium' ? (
+              <>
+                <span className="font-medium text-foreground">
+                  Hidden premium
+                </span>{' '}
+                — model surfaced this customer; not yet CS-tagged.
+              </>
+            ) : (
+              <>Classified standard by <code>customer_premium_classifier@prod</code>.</>
+            )}
+            {detail.predicted_at && (
+              <>
+                {' '}· scored {new Date(detail.predicted_at).toLocaleDateString()}
+              </>
+            )}
+            {detail.coupon_pct_applied !== null && (
+              <>
+                {' '}· offer applied: <span className="font-mono">{detail.coupon_pct_applied}%</span>
+              </>
+            )}
+          </div>
+        </div>
+      )}
 
       <div>
         <div className="text-xs font-semibold uppercase tracking-[0.15em] text-muted-foreground mb-2">

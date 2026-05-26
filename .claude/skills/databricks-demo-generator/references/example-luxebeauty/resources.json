@@ -7,7 +7,8 @@
       "aibi-dashboards",
       "genie",
       "knowledge-assistant",
-      "supervisor-agent"
+      "supervisor-agent",
+      "ml-training-serving"
     ],
     "talking_track": [
       "lakeflow-connect",
@@ -29,7 +30,8 @@
     "knowledge_assistant_endpoint": "ka-luxebeauty-endpoint",
     "multi_agent_supervisor_id": "<your-mas-id>",
     "multi_agent_supervisor_endpoint": "mas-luxebeauty-endpoint",
-    "mlflow_experiment_path": "/Workspace/Users/<your-user>/luxebeauty/experiments/churn_prediction",
+    "ml_model_name": "luxebeauty.demo_c360.customer_premium_classifier",
+    "mlflow_experiment_path": "/Workspace/Users/<your-user>/luxebeauty/experiments/premium_classifier",
     "app": {
       "name": "luxebeauty-demo",
       "deployment_note": "Deployed to workspace via `databricks apps deploy`. See app.md Step 6.",

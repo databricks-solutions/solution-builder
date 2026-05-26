@@ -117,9 +117,40 @@ export const customers = appSchema.table('customers', {
   firstName: text('first_name').notNull(),
   lastName: text('last_name').notNull(),
   region: text('region'),
+  country: text('country'),
   loyaltyTier: text('loyalty_tier'),
+  // CS hand-tag — pass-through from bronze. NULL means "never reviewed",
+  // not "not premium". The premium classifier in spec 03-ml-premium.md
+  // trains only on the labeled rows and predicts on the NULL ones.
+  premiumStatus: text('premium_status', { enum: ['premium', 'not_premium'] }),
   registrationDate: date('registration_date'),
 });
+
+// Read-only mirror of the ML model's batch predictions table
+// (`{catalog}.{schema}.gold_customer_premium_predictions`, written by the
+// notebook in spec `03-ml-premium.md`). The app never calls the model
+// directly — downstream agent tools (`find_lot_premium_breakdown`, the
+// per-row JOIN inside `process_return_batch`) read from this table to
+// tier the offer. Refreshed by sync.ts on first boot + on "Reset demo".
+//
+// `premiumStatusLabeled` is the pass-through CS tag (also lives on
+// `customers.premiumStatus` — duplicated here for single-table reads).
+// `finalTier` is the rule that combines labeled + predicted: 'premium'
+// if EITHER `premiumStatusLabeled = 'premium'` OR the model predicted
+// premium; else 'standard'. The agent's bulk tool reads this column.
+export const customerPremium = appSchema.table(
+  'customer_premium',
+  {
+    customerId: text('customer_id').primaryKey(),
+    premiumProb: doublePrecision('premium_prob').notNull(),
+    finalTier: text('final_tier', { enum: ['premium', 'standard'] }).notNull(),
+    premiumStatusLabeled: text('premium_status_labeled', {
+      enum: ['premium', 'not_premium'],
+    }),
+    predictedAt: timestamp('predicted_at', { withTimezone: true }),
+  },
+  (t) => [index('customer_premium_tier_idx').on(t.finalTier)],
+);
 
 export const orders = appSchema.table(
   'orders',
@@ -151,6 +182,11 @@ export const returns = appSchema.table(
     refundAmountUsd: doublePrecision('refund_amount_usd').notNull(),
     returnReason: text('return_reason'),
     returnReasonText: text('return_reason_text'),
+    // Anger score from `ai_classify(return_reason_text, ['angry','neutral','benign'])`
+    // computed in SDP and synced as-is. 1.0=angry, 0.5=neutral, 0.0=benign.
+    // The Operations queue is sortable by this — most upset customers
+    // float to the top. Showcases AI Functions inside the pipeline.
+    angerScore: doublePrecision('anger_score'),
     productId: text('product_id'),
     productName: text('product_name'),
     category: text('category'),
@@ -162,6 +198,15 @@ export const returns = appSchema.table(
     })
       .notNull()
       .default('pending'),
+
+    // Percent-off coupon the agent's bulk tool applied to this row,
+    // chosen per-customer by joining against `customer_premium`:
+    //   final_tier='premium'  → 20
+    //   final_tier='standard' → 5
+    // Null until the bulk tool runs. Operations table shows it as a badge
+    // so the queue tells the model-driven tiering story even after the
+    // chat session is closed.
+    couponPctApplied: integer('coupon_pct_applied'),
 
     // Append-only correspondence timeline. Each entry:
     //   { at, direction, from?, to?, subject, body }

@@ -14,6 +14,40 @@ const STATUS_TABS: { value: ReturnStatus | 'all'; label: string }[] = [
   { value: 'escalated', label: 'Escalated' },
 ];
 
+function SortHeader({
+  label,
+  active,
+  onClick,
+  align = 'left',
+  hint,
+}: {
+  label: string;
+  active: boolean;
+  onClick: () => void;
+  align?: 'left' | 'right';
+  hint?: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={hint}
+      className={`inline-flex items-center gap-1 ${
+        align === 'right' ? 'flex-row-reverse' : ''
+      } ${
+        active
+          ? 'text-foreground'
+          : 'text-muted-foreground hover:text-foreground'
+      } transition-colors cursor-pointer`}
+    >
+      {label}
+      <span className="text-[10px]" aria-hidden>
+        {active ? '↓' : '↕'}
+      </span>
+    </button>
+  );
+}
+
 function SkeletonRows() {
   return (
     <>
@@ -37,8 +71,14 @@ function SkeletonRows() {
           <td className="px-4 py-3">
             <div className="h-3 w-40 rounded bg-muted" />
           </td>
+          <td className="px-4 py-3">
+            <div className="h-1.5 w-12 rounded-full bg-muted" />
+          </td>
           <td className="px-4 py-3 text-right">
             <div className="h-3 w-14 rounded bg-muted ml-auto" />
+          </td>
+          <td className="px-4 py-3">
+            <div className="h-4 w-20 rounded-md bg-muted" />
           </td>
           <td className="px-4 py-3">
             <div className="h-4 w-16 rounded-full bg-muted" />
@@ -55,6 +95,8 @@ function SkeletonRows() {
   );
 }
 
+type SortKey = 'anger' | 'recent' | 'value';
+
 type Props = {
   rows: ReturnRow[];
   loading: boolean;
@@ -65,6 +107,12 @@ type Props = {
   onSearch: (s: string) => void;
   lotFilter: string;
   onLotFilter: (lot: string) => void;
+  tierFilter: 'premium' | 'standard' | null;
+  onTierFilter: (t: 'premium' | 'standard' | null) => void;
+  countryFilter: string | null;
+  onCountryFilter: (c: string | null) => void;
+  sort: SortKey;
+  onSortChange: (s: SortKey) => void;
   onSelect: (id: string) => void;
 };
 
@@ -78,6 +126,12 @@ export function ReturnsTable({
   onSearch,
   lotFilter,
   onLotFilter,
+  tierFilter,
+  onTierFilter,
+  countryFilter,
+  onCountryFilter,
+  sort,
+  onSortChange,
   onSelect,
 }: Props) {
   return (
@@ -130,6 +184,26 @@ export function ReturnsTable({
             Lot: {lotFilter} ✕
           </button>
         )}
+        {tierFilter && (
+          <button
+            onClick={() => onTierFilter(null)}
+            className={
+              tierFilter === 'premium'
+                ? 'text-xs rounded-full px-2 py-1 bg-primary/15 text-primary'
+                : 'text-xs rounded-full px-2 py-1 bg-muted text-foreground'
+            }
+          >
+            Tier: {tierFilter} ✕
+          </button>
+        )}
+        {countryFilter && (
+          <button
+            onClick={() => onCountryFilter(null)}
+            className="text-xs rounded-full px-2 py-1 bg-muted text-foreground"
+          >
+            Country: {countryFilter} ✕
+          </button>
+        )}
       </div>
 
       {error && (
@@ -165,7 +239,28 @@ export function ReturnsTable({
               <th className="text-left px-4 py-2 font-semibold">Product</th>
               <th className="text-left px-4 py-2 font-semibold">Lot</th>
               <th className="text-left px-4 py-2 font-semibold">Reason</th>
-              <th className="text-right px-4 py-2 font-semibold">Value</th>
+              <th className="text-left px-4 py-2 font-semibold">
+                <SortHeader
+                  label="Anger"
+                  active={sort === 'anger'}
+                  onClick={() =>
+                    onSortChange(sort === 'anger' ? 'recent' : 'anger')
+                  }
+                  hint="Sort by ai_classify anger score"
+                />
+              </th>
+              <th className="text-right px-4 py-2 font-semibold">
+                <SortHeader
+                  label="Value"
+                  align="right"
+                  active={sort === 'value'}
+                  onClick={() =>
+                    onSortChange(sort === 'value' ? 'recent' : 'value')
+                  }
+                  hint="Sort by refund value"
+                />
+              </th>
+              <th className="text-left px-4 py-2 font-semibold">Offer</th>
               <th className="text-left px-4 py-2 font-semibold">Status</th>
             </tr>
           </thead>
@@ -174,7 +269,7 @@ export function ReturnsTable({
             {!loading && rows.length === 0 && (
               <tr>
                 <td
-                  colSpan={6}
+                  colSpan={8}
                   className="px-4 py-8 text-center text-muted-foreground"
                 >
                   No returns match the current filters.
@@ -189,8 +284,30 @@ export function ReturnsTable({
               >
                 <td className="px-4 py-2">
                   <div className="font-medium">{r.customerName}</div>
-                  <div className="text-xs text-muted-foreground flex items-center gap-1.5">
+                  <div className="text-xs text-muted-foreground flex items-center gap-1.5 flex-wrap">
                     {r.loyaltyTier && <TierBadge tier={r.loyaltyTier} />}
+                    {r.finalTier === 'premium' && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onTierFilter(tierFilter === 'premium' ? null : 'premium');
+                        }}
+                        className={
+                          r.premiumStatusLabeled === 'premium'
+                            ? 'rounded-full px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider bg-primary/15 text-primary hover:bg-primary/25 transition-colors cursor-pointer'
+                            : 'rounded-full px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider bg-primary/8 text-primary border border-primary/30 border-dashed hover:bg-primary/15 transition-colors cursor-pointer'
+                        }
+                        title={
+                          r.premiumStatusLabeled === 'premium'
+                            ? `CS-tagged premium · model score ${r.premiumProb !== null ? (r.premiumProb * 100).toFixed(0) + '%' : '—'} · click to filter`
+                            : `Hidden premium (model-found, not CS-tagged) · score ${r.premiumProb !== null ? (r.premiumProb * 100).toFixed(0) + '%' : '—'} · click to filter`
+                        }
+                      >
+                        {r.premiumStatusLabeled === 'premium'
+                          ? 'premium'
+                          : 'premium · hidden'}
+                      </button>
+                    )}
                     {r.region ?? ''}
                   </div>
                 </td>
@@ -214,8 +331,49 @@ export function ReturnsTable({
                 <td className="px-4 py-2 text-muted-foreground">
                   {r.returnReason ?? '—'}
                 </td>
+                <td className="px-4 py-2">
+                  {r.angerScore !== null ? (
+                    <div
+                      className="flex items-center gap-1.5"
+                      title={`Anger score: ${(r.angerScore * 100).toFixed(0)}% (from ai_classify on the customer's return comment)`}
+                    >
+                      <div className="h-1.5 w-12 rounded-full bg-muted overflow-hidden">
+                        <div
+                          className={
+                            r.angerScore >= 0.7
+                              ? 'h-full bg-destructive'
+                              : r.angerScore >= 0.4
+                                ? 'h-full bg-amber-500'
+                                : 'h-full bg-muted-foreground/50'
+                          }
+                          style={{ width: `${Math.min(100, Math.max(0, r.angerScore * 100))}%` }}
+                        />
+                      </div>
+                      <span className="font-mono text-[10px] tabular-nums text-muted-foreground w-7 text-right">
+                        {(r.angerScore * 100).toFixed(0)}
+                      </span>
+                    </div>
+                  ) : (
+                    <span className="text-xs text-muted-foreground">—</span>
+                  )}
+                </td>
                 <td className="px-4 py-2 text-right font-mono">
                   ${r.returnValueUsd}
+                </td>
+                <td className="px-4 py-2">
+                  {r.couponPctApplied !== null ? (
+                    <span
+                      className={`rounded-md px-2 py-0.5 text-xs font-mono ${
+                        r.couponPctApplied >= 20
+                          ? 'bg-primary/15 text-primary'
+                          : 'bg-muted text-muted-foreground'
+                      }`}
+                    >
+                      {r.couponPctApplied}% coupon
+                    </span>
+                  ) : (
+                    <span className="text-xs text-muted-foreground">—</span>
+                  )}
                 </td>
                 <td className="px-4 py-2">
                   <StatusBadge status={r.status} />

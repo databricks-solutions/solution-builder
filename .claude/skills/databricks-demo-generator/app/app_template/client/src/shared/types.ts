@@ -45,6 +45,19 @@ export type ReturnRow = {
   customerName: string;
   customerEmail: string;
   loyaltyTier: string | null;
+  /** Premium tier from the ML model's predictions mirror. `null` when
+   * no prediction exists (or when the demo doesn't have an ML model). */
+  finalTier: 'premium' | 'standard' | null;
+  /** Original CS hand-tag (pass-through). `null` = "never reviewed by
+   * CS"; combined with `finalTier='premium'` this means the model
+   * surfaced a hidden premium — the demo's load-bearing story beat. */
+  premiumStatusLabeled: 'premium' | 'not_premium' | null;
+  /** Raw model output, 0.0–1.0. `null` when no prediction exists. */
+  premiumProb: number | null;
+  /** Per-return anger score from `ai_classify(return_reason_text)` in SDP.
+   * 0=benign, 0.5=neutral, 1=angry. Drives the Operations queue's
+   * default sort so the most upset customers float to the top. */
+  angerScore: number | null;
   sku: string | null;
   productName: string | null;
   category: string | null;
@@ -52,6 +65,10 @@ export type ReturnRow = {
   returnReason: string | null;
   returnValueUsd: string;
   status: ReturnStatus;
+  /** Percent-off coupon the agent's bulk tool applied to this row,
+   * picked by tier (20 for 'premium', 5 for 'standard'). `null` until
+   * the bulk tool has run. */
+  couponPctApplied: number | null;
   region: string | null;
   returnDate: string | null;
   createdAt: string;
@@ -85,8 +102,10 @@ export type ReturnDetail = {
   category: string | null;
   return_reason: string | null;
   return_reason_text: string | null;
+  anger_score: number | null;
   refund_amount_usd: string;
   status: ReturnStatus;
+  coupon_pct_applied: number | null;
   region: string | null;
   return_date: string | null;
   order_date: string | null;
@@ -98,8 +117,13 @@ export type ReturnDetail = {
   customer_email: string | null;
   loyalty_tier: string | null;
   customer_region: string | null;
+  customer_country: string | null;
   registration_date: string | null;
   order_total_usd: string | null;
+  final_tier: 'premium' | 'standard' | null;
+  premium_status_labeled: 'premium' | 'not_premium' | null;
+  premium_prob: number | null;
+  predicted_at: string | null;
   emails: EmailEntry[];
   ai_audit_trail: AuditEntry[];
 };
@@ -108,6 +132,19 @@ export type ReturnsSummary = {
   status: ReturnStatus;
   n: number;
   total_usd: string;
+};
+
+/** Per-country aggregation of the current queue, scoped by the same
+ *  status/lot filter. Drives the Operations page "where the affected
+ *  customers live" panel — click a country to filter the queue.
+ *  `premium = premium_labeled + premium_hidden`. */
+export type CountryBucket = {
+  country: string;
+  total: number;
+  premium: number;
+  premium_labeled: number;
+  premium_hidden: number;
+  refund_usd: number;
 };
 
 export type LotRow = {

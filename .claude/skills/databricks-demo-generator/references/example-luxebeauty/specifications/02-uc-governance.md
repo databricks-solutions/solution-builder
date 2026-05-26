@@ -27,6 +27,8 @@ Source: `gold_daily_summary`. Single view, aggregated materialization.
 - Genie headline answers ("return rate this month?", "revenue by region?") → `mv_returns`.
 - Lot / SKU investigation → unchanged, reads `gold_returns_by_lot` / `gold_returns_by_product` / `silver_returns` directly.
 
+> The premium classifier (`03-ml-premium.md`) does **not** consume `mv_returns`. It trains directly on `gold_customer_features` — a *per-customer* view of lifetime spend, tenure, return history, anger score, plus the `premium_status` label CS hand-set on a ~4K subset. `mv_returns` is *daily operational metrics*; the model is *per-customer behavior*. Two different things; do not try to unify them.
+
 ### Validation
 
 - `MEASURE(return_rate)` weekly slice: peak ~0.24, baseline ~0.08.

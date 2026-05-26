@@ -67,6 +67,25 @@ if [ ! -f ".env" ]; then
 fi
 
 # ----------------------------------------------------------------------------
+# Protect launcher-injected runtime vars from .env override.
+#
+# `source .env` below would overwrite the parent-injected DATABRICKS_APP_PORT
+# (the dynamic port the Demo Prompt Generator launcher assigned us). Because
+# bash propagates that re-assignment to the exported env, the Node child
+# then binds to whatever .env says (typically a stale 8100) instead of the
+# port the launcher is probing for readiness — preview gets stuck on
+# "Booting" forever.
+#
+# Fix: when the launcher injected DATABRICKS_APP_PORT, strip the line from
+# .env BEFORE we source it. EXIT trap (set further down) restores .env.
+# Standalone runs (no parent injection) leave .env untouched.
+if [ -n "${DATABRICKS_APP_PORT:-}" ] && [ -f .env ] && grep -qE '^[[:space:]]*DATABRICKS_APP_PORT=' .env; then
+  cp .env .env.launcher-bak
+  grep -vE '^[[:space:]]*DATABRICKS_APP_PORT=' .env.launcher-bak > .env
+  echo "[start.sh] launcher injected DATABRICKS_APP_PORT=$DATABRICKS_APP_PORT — stripped from .env for this run"
+fi
+
+# ----------------------------------------------------------------------------
 # .env validation — catches the common mistakes LLMs make with a clear error
 # pointing at the fix. Keeps errors greppable + actionable.
 # ----------------------------------------------------------------------------
@@ -172,17 +191,21 @@ fi
 #      `npm install` which is more permissive and re-resolves the tree.
 PUBLIC_NPM=https://registry.npmjs.org/
 install_deps() {
+  # `.npmrc` sets `omit=dev` so the Databricks Apps runtime container only
+  # ships runtime deps (build artifacts are pre-built by scripts/build-app.sh).
+  # Local preview needs the full toolchain (vite, tsx, @databricks/appkit-ui,
+  # etc.) — every install path here forces `--include=dev` to override .npmrc.
   echo "[start.sh] node_modules missing or broken — reinstalling…"
   rm -rf node_modules
-  if npm ci 2>&1; then
+  if npm ci --include=dev 2>&1; then
     return 0
   fi
   echo "[start.sh] npm ci failed — retrying against public registry ($PUBLIC_NPM)…"
-  if npm ci --registry="$PUBLIC_NPM" 2>&1; then
+  if npm ci --include=dev --registry="$PUBLIC_NPM" 2>&1; then
     return 0
   fi
   echo "[start.sh] npm ci failed (lockfile likely out of sync) — falling back to npm install…"
-  npm install --registry="$PUBLIC_NPM"
+  npm install --include=dev --registry="$PUBLIC_NPM"
 }
 
 # Decide whether deps need (re)installing. We trigger install in 3 cases:
@@ -246,7 +269,7 @@ export DEV_CLIENT_ERROR_LOG=1
 # Launch `npm run dev` in a fresh session so its PGID equals its PID. Record
 # that PGID so the next ./start.sh run kills only this project's tree.
 # setsid on Linux; Python's os.setsid() on macOS (setsid is Linux-only).
-trap 'rm -f "$PGID_FILE"' EXIT
+trap 'rm -f "$PGID_FILE"; [ -f .env.launcher-bak ] && mv .env.launcher-bak .env' EXIT
 
 (
   if command -v setsid >/dev/null 2>&1; then

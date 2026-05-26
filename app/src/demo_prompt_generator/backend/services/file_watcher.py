@@ -43,7 +43,14 @@ IGNORE_PATTERNS = [
     ".claude/.shell-snapshots/**",  # Per-container shell state
     ".claude/todos/**",  # Local todo state
     ".claude/ide/**",  # IDE lock files
-    ".claude/.claude.json*",  # Top-level config blob (PII risk)
+    # `.claude/.claude.json` itself is INTENTIONALLY synced (not listed here):
+    # losing it on container restart loses Claude Code's per-project state
+    # (resume targets, queued prompts, accept-edit flags) so resumes break.
+    # The CLI's auto-rotated backups under `.claude/backups/` are NOT synced —
+    # they're per-launch snapshots, duplicate the live file, and would bloat
+    # the mirror without adding any recovery value (the live file is already
+    # there). If the live file is ever corrupted, the CLI will recreate it.
+    ".claude/backups/**",
     ".databrickscfg",  # Per-project Databricks auth file — see backend/AUTH.md
     ".databrickscfg.*",  # Atomic-write temp variants
     # Per-project FMAPI auth — token + helper script + settings.json. Refreshed

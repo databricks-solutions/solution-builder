@@ -10,8 +10,9 @@ PROJECT/
 ├── specifications/
 │   ├── 01-lakeflow.md          synthetic data + PDFs + SDP bronze→silver→gold + validation
 │   ├── 02-uc-governance.md     metric views, ABAC, data quality monitors, classification  (optional)
-│   ├── 03-ai-bi.md             dashboard (layout/filters/widgets) + Genie space            (optional)
-│   ├── 04-agent-bricks.md      Knowledge Assistant + Multi-Agent Supervisor + serving     (optional)
+│   ├── 03-ml-*.md              ML model (train + UC register + batch-score to gold table) (optional, only if `ml-training-serving`)
+│   ├── 04-ai-bi.md             dashboard (layout/filters/widgets) + Genie space            (optional)
+│   ├── 05-agent-bricks.md      Knowledge Assistant + Multi-Agent Supervisor + serving     (optional)
 │   └── app/*.md                Databricks App spec — file structure flexible              (only if `databricks-apps`)
 ```
 
@@ -38,7 +39,7 @@ In doubt: pick a reasonable value, write it, move on. Build agent fine-tunes.
 Typical order: 
 
 1. Write `01-lakeflow.md`.
-2. Write 02 / 03 / 04 — only the ones this demo uses (check `resources.json` capabilities; skip any whose subject the demo doesn't include). The table above lists what goes in each; deviate / add / merge as the story demands.
+2. Write 02 / 03 / 04 / 05 — only the ones this demo uses (check `resources.json` capabilities; skip any whose subject the demo doesn't include). The table above lists what goes in each; deviate / add / merge as the story demands. Note the order: 03 is ML because both AI/BI (dashboard tiles reading prediction tables) and agents (tool calls to Genie over predictions) can consume model output — so ML is specced before either of them. Skip 03 entirely if the demo has no ML.
 3. **If `databricks-apps` is in `resources.json` capabilities**, write the app spec into `PROJECT/specifications/app/*.md` — see "App spec" section below for what goes in it.
 4. **Coherence review** — see below.
 5. Return to SKILL.md for the next stage.

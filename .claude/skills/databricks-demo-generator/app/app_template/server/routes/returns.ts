@@ -6,6 +6,7 @@ import {
   getReturn,
   listCustomerOrders,
   listReturns,
+  lotCountryBreakdown,
   lotsByFacility,
   lotSummary,
   returnsSummary,
@@ -27,18 +28,45 @@ export function registerReturnsRoutes(app: Application, deps: Deps): void {
   app.get('/api/returns', async (req, res) => {
     const status = (req.query.status as string | undefined) ?? undefined;
     const lot = (req.query.lot as string | undefined) ?? undefined;
+    const tier = (req.query.tier as string | undefined) ?? undefined;
+    const country = (req.query.country as string | undefined) ?? undefined;
+    const sort = (req.query.sort as string | undefined) ?? undefined;
     const valid = ['pending', 'approved', 'rejected', 'escalated'] as const;
     type S = (typeof valid)[number];
     const isValid = (v: string): v is S =>
       (valid as readonly string[]).includes(v);
     const statusArg = status && isValid(status) ? status : undefined;
-    const rows = await listReturns(db, { status: statusArg, lot });
+    const tierArg = tier === 'premium' || tier === 'standard' ? tier : undefined;
+    const sortArg =
+      sort === 'anger' || sort === 'value' || sort === 'recent' ? sort : undefined;
+    const rows = await listReturns(db, {
+      status: statusArg,
+      lot,
+      tier: tierArg,
+      country: country || undefined,
+      sort: sortArg,
+    });
     res.json(rows);
   });
 
   // --- GET /api/returns/summary ------------------------------------------
   app.get('/api/returns/summary', async (_req, res) => {
     const rows = await returnsSummary(db);
+    res.json(rows);
+  });
+
+  // --- GET /api/returns/by-country (geographic breakdown for the panel) ---
+  // Scoped to the same status/lot filter the queue uses, so the panel
+  // updates with the queue. Returns per-country totals + premium split.
+  app.get('/api/returns/by-country', async (req, res) => {
+    const status = (req.query.status as string | undefined) ?? undefined;
+    const lot = (req.query.lot as string | undefined) ?? undefined;
+    const valid = ['pending', 'approved', 'rejected', 'escalated'] as const;
+    type S = (typeof valid)[number];
+    const isValid = (v: string): v is S =>
+      (valid as readonly string[]).includes(v);
+    const statusArg = status && isValid(status) ? status : undefined;
+    const rows = await lotCountryBreakdown(db, { status: statusArg, lot });
     res.json(rows);
   });
 

@@ -1,7 +1,7 @@
 import { sql } from 'drizzle-orm';
 import { getExecutionContext } from '@databricks/appkit';
 import type { AppDb } from './index.js';
-import { customers, orders, returns } from './schema.js';
+import { customers, customerPremium, orders, returns } from './schema.js';
 
 /**
  * One-shot Delta → Lakebase sync.
@@ -32,6 +32,9 @@ type DataConfig = {
     customers: string;
     products: string;
     productionLots: string;
+    // Predictions written by the ML notebook in spec 03-ml-premium.md.
+    // Optional: omit for demos without an ML model — sync just skips.
+    customerPremium?: string;
   };
 };
 
@@ -56,21 +59,27 @@ export async function syncFromDelta(
   const fq = (name: keyof DataConfig['tables']) =>
     `${cfg.catalog}.${cfg.schema}.${cfg.tables[name]}`;
 
-  // Fire all 3 warehouse queries in parallel (the slow part), then insert
-  // sequentially respecting FK order: customers → orders → returns.
-  const [customerRows, orderRows, returnRows] = await Promise.all([
+  // Fire all 4 warehouse queries in parallel (the slow part), then insert
+  // sequentially respecting FK order: customers → orders → returns. The
+  // premium-predictions table has no FK constraint into customers (so it
+  // can be synced independently of which customers actually appear in
+  // returns) but we still wait on its query before inserting.
+  const hasPremiumTable = Boolean(cfg.tables.customerPremium);
+  const [customerRows, orderRows, returnRows, premiumRows] = await Promise.all([
     execSql<{
       customer_id: string;
       email: string;
       first_name: string;
       last_name: string;
       region: string | null;
+      country: string | null;
       loyalty_tier: string | null;
+      premium_status: string | null;
       registration_date: string | null;
     }>(
       warehouseId,
       `SELECT c.customer_id, c.email, c.first_name, c.last_name, c.region,
-              c.loyalty_tier, c.registration_date
+              c.country, c.loyalty_tier, c.premium_status, c.registration_date
        FROM ${fq('customers')} c
        WHERE c.email IS NOT NULL AND c.first_name IS NOT NULL
          AND c.customer_id IN (
@@ -106,6 +115,7 @@ export async function syncFromDelta(
       refund_amount_usd: number;
       return_reason: string | null;
       return_reason_text: string | null;
+      anger_score: number | null;
       product_id: string | null;
       product_name: string | null;
       category: string | null;
@@ -114,6 +124,8 @@ export async function syncFromDelta(
       region: string | null;
     }>(
       warehouseId,
+      // Source is silver_returns (post-`ai_classify`), so anger_score is
+      // already populated. Pulling it as-is — no recomputation in the app.
       `SELECT r.return_id,
               oi.order_id,
               o.customer_id,
@@ -122,6 +134,7 @@ export async function syncFromDelta(
               r.refund_amount_usd,
               r.return_reason,
               r.return_reason_text,
+              r.anger_score,
               r.product_id,
               r.product_name,
               r.category,
@@ -132,6 +145,35 @@ export async function syncFromDelta(
        LEFT JOIN ${fq('orderItems')} oi ON oi.order_item_id = r.order_item_id
        LEFT JOIN ${fq('orders')} o ON o.order_id = oi.order_id`,
     ),
+    // Predictions for the same customer set that owns the returns. If
+    // the demo has no ML model, `customerPremium` is unset in config →
+    // skip the query (resolve to []) and the insert below becomes a no-op.
+    hasPremiumTable
+      ? execSql<{
+          customer_id: string;
+          premium_prob: number;
+          final_tier: string;
+          premium_status_labeled: string | null;
+          predicted_at: string | null;
+        }>(
+          warehouseId,
+          `SELECT customer_id, premium_prob, final_tier,
+                  premium_status_labeled, predicted_at
+           FROM ${cfg.catalog}.${cfg.schema}.${cfg.tables.customerPremium}
+           WHERE customer_id IN (
+             SELECT DISTINCT o.customer_id
+             FROM ${fq('orders')} o
+             JOIN ${fq('orderItems')} oi ON oi.order_id = o.order_id
+             JOIN ${fq('returns')} r ON r.order_item_id = oi.order_item_id
+           )`,
+        )
+      : Promise.resolve([] as Array<{
+          customer_id: string;
+          premium_prob: number;
+          final_tier: string;
+          premium_status_labeled: string | null;
+          predicted_at: string | null;
+        }>),
   ]);
   console.log(`[sync]   queries done (${((Date.now() - t0) / 1000).toFixed(1)}s) — inserting…`);
 
@@ -147,7 +189,12 @@ export async function syncFromDelta(
           firstName: r.first_name,
           lastName: r.last_name,
           region: r.region,
+          country: r.country,
           loyaltyTier: r.loyalty_tier,
+          premiumStatus:
+            r.premium_status === 'premium' || r.premium_status === 'not_premium'
+              ? r.premium_status
+              : null,
           registrationDate: r.registration_date,
         })),
       ).onConflictDoNothing(),
@@ -183,6 +230,7 @@ export async function syncFromDelta(
           refundAmountUsd: Number(r.refund_amount_usd),
           returnReason: r.return_reason,
           returnReasonText: r.return_reason_text,
+          angerScore: r.anger_score === null ? null : Number(r.anger_score),
           productId: r.product_id,
           productName: r.product_name,
           category: r.category,
@@ -196,6 +244,30 @@ export async function syncFromDelta(
   }
   console.log(`[sync]   returns: ${returnRows.length} (${((Date.now() - t0) / 1000).toFixed(1)}s)`);
 
+  // Premium predictions — small table (one row per customer), no FK
+  // dependency on the others, but insert last so failures here don't
+  // strand the main mirror in a half-loaded state.
+  if (premiumRows.length) {
+    await chunkInsert(premiumRows, 5_000, (chunk) =>
+      db.insert(customerPremium).values(
+        chunk.map((r) => ({
+          customerId: r.customer_id,
+          premiumProb: Number(r.premium_prob),
+          finalTier: (r.final_tier === 'premium' ? 'premium' : 'standard') as
+            | 'premium'
+            | 'standard',
+          premiumStatusLabeled:
+            r.premium_status_labeled === 'premium' ||
+            r.premium_status_labeled === 'not_premium'
+              ? r.premium_status_labeled
+              : null,
+          predictedAt: r.predicted_at ? new Date(r.predicted_at) : null,
+        })),
+      ).onConflictDoNothing(),
+    );
+  }
+  console.log(`[sync]   premium predictions: ${premiumRows.length} (${((Date.now() - t0) / 1000).toFixed(1)}s)`);
+
   const dt = ((Date.now() - t0) / 1000).toFixed(1);
   console.log(`[sync] Done in ${dt}s`);
 }
@@ -208,6 +280,7 @@ export async function wipeMirroredTables(db: AppDb): Promise<void> {
     await tx.execute(sql`TRUNCATE TABLE app.returns RESTART IDENTITY CASCADE`);
     await tx.execute(sql`TRUNCATE TABLE app.orders RESTART IDENTITY CASCADE`);
     await tx.execute(sql`TRUNCATE TABLE app.customers RESTART IDENTITY CASCADE`);
+    await tx.execute(sql`TRUNCATE TABLE app.customer_premium RESTART IDENTITY CASCADE`);
   });
 }
 

@@ -28,8 +28,11 @@ export interface CapabilityMeta {
   display: string;
   icon: DatabricksIconName;
   /** Match key against DeployedResourceLink.resource_type (set by
-   *  backend's _build_deployed_links). */
-  deployed_type?: string;
+   *  backend's _build_deployed_links). Pass an array when a capability
+   *  can be backed by multiple resource types (e.g. ML training can show
+   *  as either an MLflow experiment or a registered model — first match
+   *  wins for the tile URL). */
+  deployed_type?: string | string[];
 }
 
 export const CAPABILITY_META: Record<string, CapabilityMeta> = {
@@ -49,7 +52,7 @@ export const CAPABILITY_META: Record<string, CapabilityMeta> = {
   // ── AI ────────────────────────────────────────────────────────────
   "knowledge-assistant":    { group: "AI", display: "Knowledge Assistant", icon: "knowledgeAssistant", deployed_type: "knowledge_assistant" },
   "supervisor-agent":       { group: "AI", display: "Multi-Agent Supervisor", icon: "multiAgentSupervisor", deployed_type: "multi_agent_supervisor" },
-  "ml-training-serving":    { group: "AI", display: "ML Training & Serving", icon: "mlModel", deployed_type: "mlflow_experiment" },
+  "ml-training-serving":    { group: "AI", display: "ML Training & Serving", icon: "mlModel", deployed_type: ["mlflow_experiment", "ml_model"] },
   "vector-search":          { group: "AI", display: "Vector Search", icon: "vectorSearch" },
   "information-extraction": { group: "AI", display: "Information Extraction", icon: "unstructuredData" },
   "ai-gateway":             { group: "AI", display: "AI Gateway", icon: "aiGateway" },

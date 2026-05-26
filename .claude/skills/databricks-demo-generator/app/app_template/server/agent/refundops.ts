@@ -54,6 +54,7 @@ import { authHeaders } from '../lib/auth.js';
 import type { AppDb } from '../db/index.js';
 import {
   listReturns,
+  lotPremiumBreakdown,
   processReturnBatchForLot,
 } from '../db/queries/index.js';
 // Data-backend tool factories. The template demo uses MAS, but if your
@@ -128,7 +129,7 @@ function makeTools(ctx: AgentContext) {
   const findReturnsForLot = tool({
     name: 'find_returns_for_lot',
     description:
-      'List pending returns for a given production lot. Returns id, customer name/email, SKU, product name, reason, value, status.',
+      "List pending returns for a given production lot. Returns id, customer name/email, premium tier (`final_tier`) and labeled-vs-predicted source (`premium_status_labeled`) from the premium classifier, anger score from `ai_classify`, SKU, product, reason, value, status. Use to preview the rows to the user before drafting a tiered offer.",
     parameters: z.object({
       lot: z.string().describe('Production lot identifier, e.g. LOT-2026-0310'),
     }),
@@ -141,6 +142,10 @@ function makeTools(ctx: AgentContext) {
             customer_name: r.customerName,
             customer_email: r.customerEmail,
             loyalty_tier: r.loyaltyTier,
+            final_tier: r.finalTier,
+            premium_status_labeled: r.premiumStatusLabeled,
+            premium_prob: r.premiumProb,
+            anger_score: r.angerScore,
             region: r.region,
             sku: r.sku,
             product_name: r.productName,
@@ -153,6 +158,24 @@ function makeTools(ctx: AgentContext) {
         },
         {
           name: 'find_returns_for_lot',
+          spanType: mlflow.SpanType.TOOL,
+          inputs: { lot },
+        },
+      ),
+  });
+
+  const findLotPremiumBreakdown = tool({
+    name: 'find_lot_premium_breakdown',
+    description:
+      "Summarize the premium / standard split for a production lot's pending returns, broken down by labeled (CS-tagged) vs predicted (hidden premiums the model surfaced). Joins app.returns × app.customers × app.customer_premium. Returns {total, premium_count, standard_count, premium_labeled_count, premium_predicted_hidden_count, no_prediction_count, premium_refund_usd, standard_refund_usd, top_countries[]}. Call this in Phase 1 right after identifying the lot — quote the labeled-vs-hidden split in your Phase 2 draft so the user sees what the model contributed BEFORE approving.",
+    parameters: z.object({
+      lot: z.string().describe('Production lot identifier, e.g. LOT-2026-0310'),
+    }),
+    execute: async ({ lot }) =>
+      mlflow.withSpan(
+        async () => lotPremiumBreakdown(ctx.db, lot),
+        {
+          name: 'find_lot_premium_breakdown',
           spanType: mlflow.SpanType.TOOL,
           inputs: { lot },
         },
@@ -191,40 +214,53 @@ function makeTools(ctx: AgentContext) {
       ),
   });
 
+  const tierOfferSchema = z.object({
+    coupon_code: z
+      .string()
+      .describe('Coupon code from create_coupon for this tier.'),
+    percent_off: z
+      .number()
+      .int()
+      .min(1)
+      .max(100)
+      .describe('Discount percent — recorded on each row as coupon_pct_applied.'),
+    email_subject_template: z
+      .string()
+      .describe(
+        'Subject line template. Placeholders: {firstname} {lastname} {product_name} {coupon_code}.',
+      ),
+    email_body_template: z
+      .string()
+      .describe(
+        'Email body template. Markdown allowed. Placeholders: {firstname} {lastname} {product_name} {coupon_code}.',
+      ),
+  });
+
   const processBatch = tool({
     name: 'process_return_batch',
     description:
-      'BULK tool: for every PENDING return in the given `lot`, fill the email template with the customer firstname/lastname/product_name/coupon_code, record the email on the return, append audit entries, and flip the return to approved — all in one UPDATE. Returns {coupon_code, email_count, approved_count, total_refund_usd, skipped_return_ids}. Use ONLY after the user has approved the draft.',
+      "BULK tool, TIER-AWARE: for every PENDING return in `lot`, JOIN app.customer_premium to read each customer's final_tier (premium|standard) — premium covers BOTH CS-tagged customers and the hidden premiums the model surfaced. Pick the matching offer from `tier_offers`, fill that tier's email template with the customer firstname/lastname/product_name/coupon_code, record the email + coupon_pct_applied on the row, append audit entries (with CS-tagged vs hidden notation for premium rows), and flip to approved — all in one UPDATE. Customers with no prediction default to the standard tier. Returns {premium_coupon, standard_coupon, premium_email_count, premium_labeled_count, premium_predicted_hidden_count, standard_email_count, approved_count, total_refund_usd, skipped_return_ids}. Use ONLY after the user has approved both drafts.",
     parameters: z.object({
       lot: z
         .string()
         .describe(
-          'Production lot id (e.g. "LOT-2026-0223") — every pending return in this lot will be processed.',
+          'Production lot id (e.g. "LOT-2026-0223") — every pending return in this lot is processed.',
         ),
-      coupon_code: z
-        .string()
-        .describe(
-          'The coupon code from create_coupon. Replaces {coupon_code} in the template.',
+      tier_offers: z.object({
+        premium: tierOfferSchema.describe(
+          'Offer for customers with final_tier="premium" — CS-tagged OR model-predicted (typically 20% off + warmer personal apology).',
         ),
-      email_subject_template: z
-        .string()
-        .describe(
-          'Subject line template. Placeholders: {firstname} {lastname} {product_name} {coupon_code}.',
+        standard: tierOfferSchema.describe(
+          'Offer for customers with final_tier="standard" or no prediction (typically 5% goodwill).',
         ),
-      email_body_template: z
-        .string()
-        .describe(
-          'Email body template. Markdown allowed. Placeholders: {firstname} {lastname} {product_name} {coupon_code}.',
-        ),
+      }),
     }),
     execute: async (args) =>
       mlflow.withSpan(
         async () =>
           processReturnBatchForLot(ctx.db, {
             lot: args.lot,
-            coupon_code: args.coupon_code,
-            email_subject: args.email_subject_template,
-            email_body: args.email_body_template,
+            tier_offers: args.tier_offers,
             userEmail: ctx.userEmail,
           }),
         {
@@ -232,7 +268,8 @@ function makeTools(ctx: AgentContext) {
           spanType: mlflow.SpanType.TOOL,
           inputs: {
             lot: args.lot,
-            coupon_code: args.coupon_code,
+            premium_coupon: args.tier_offers.premium.coupon_code,
+            standard_coupon: args.tier_offers.standard.coupon_code,
           },
         },
       ),
@@ -245,7 +282,7 @@ function makeTools(ctx: AgentContext) {
   // on the descriptions in tools/{mas,genie}.ts.
   const askMas = askMasTool(ctx, ctx.masEndpointName);
 
-  return [findReturnsForLot, createCouponTool, processBatch, askMas];
+  return [findReturnsForLot, findLotPremiumBreakdown, createCouponTool, processBatch, askMas];
 }
 
 export async function configureAgentsSdk(ctx: AgentContext): Promise<void> {
@@ -436,28 +473,48 @@ ask_data(question) — delegates to the multi-agent supervisor. Use for any
   production incidents, or release notes. Prefer ONE well-formed question
   over many small ones.
 
-find_returns_for_lot(lot) — returns pending returns for a specific lot.
-  Output: {id, customer_name, customer_email, sku, product_name, lot,
-  return_reason, return_value_usd, status}.
+find_returns_for_lot(lot) — returns pending returns for a specific lot,
+  each row carrying the customer's `final_tier` and `premium_status_labeled`
+  from the premium classifier, plus the row's `anger_score` from
+  `ai_classify`. Output: {id, customer_name, customer_email, final_tier,
+  premium_status_labeled, premium_prob, anger_score, sku, product_name,
+  lot, return_reason, return_value_usd, status}.
+
+find_lot_premium_breakdown(lot) — THE TIERING TOOL. Quick aggregation
+  over app.returns × app.customers × app.customer_premium for the lot's
+  pending returns. Returns {total, premium_count, standard_count,
+  premium_labeled_count, premium_predicted_hidden_count, no_prediction_count,
+  premium_refund_usd, standard_refund_usd, top_countries[]}. Call this in
+  Phase 1 to find out how many customers are premium AND how the count
+  splits between CS-tagged ("already known") and model-found ("hidden
+  premiums") — you'll quote both numbers in the Phase 2 draft because
+  the story beat is "the model found N premiums CS hadn't flagged".
 
 create_coupon(percent_off, reason) — generates a coupon code string
   (pure, no DB write). Returns {code, percent_off, reason}. Call this
-  ONCE after the user approves the draft. The code ends up inline in
-  the email body rendered by process_return_batch.
+  TWICE in the tiered flow — once with percent_off=20 for premium
+  customers, once with percent_off=5 for the standard cohort.
 
-process_return_batch(lot, coupon_code, email_subject_template,
-  email_body_template) — THE BULK TOOL. For every pending return in the
-  given lot: fills the template with firstname/lastname/product_name/
-  coupon_code, fake-sends the email (persisted on the return row),
-  appends an approval decision to the audit trail, and flips status to
-  approved — all in one UPDATE. Returns {coupon_code, email_count,
-  approved_count, total_refund_usd, skipped_return_ids}. **This is how
-  you execute phase 2.** Do NOT echo individual return IDs back — the
-  tool reads them server-side from the lot.
+process_return_batch(lot, tier_offers) — THE BULK TOOL, TIER-AWARE. For
+  every pending return in the lot: JOINs app.customer_premium to read
+  each customer's `final_tier` (which already combines CS-tagged AND
+  model-predicted premiums into one boolean), picks tier_offers.premium
+  vs tier_offers.standard accordingly, fills that tier's email template
+  with the customer firstname/lastname/product_name/coupon_code, records
+  coupon_pct_applied on the row, fake-sends the email (persisted on the
+  return row), appends an approval decision to the audit trail (noting
+  CS-tagged vs hidden for premium rows), and flips status to approved —
+  all in one UPDATE. Returns {premium_coupon, standard_coupon,
+  premium_email_count, premium_labeled_count, premium_predicted_hidden_count,
+  standard_email_count, approved_count, total_refund_usd,
+  skipped_return_ids}. **This is how you execute phase 3.** Customers
+  without a prediction fall through to the standard tier. Do NOT echo
+  individual return IDs back — the tool reads them and their tiers
+  server-side from the lot.
 
 THERE ARE NO OTHER TOOLS. There is no send_customer_email, no
 accept_order_return, no single-return variant. Everything you can do
-is in the four tools above.
+is in the five tools above.
 
 ════════════════════════════════════════════════════════════
 OPERATING MODES
@@ -484,12 +541,27 @@ Avoid: asking for weekly trends + SKU breakdown + lot detail + reasons
 + incident narrative in a single question. The supervisor will hop
 4 times.
 
-MODE B — ACTION CHAIN (HUMAN-IN-THE-LOOP)
+MODE B — ACTION CHAIN (HUMAN-IN-THE-LOOP, TIERED BY PREMIUM STATUS)
 If the user asks you to HANDLE / FIX / RESOLVE / PROCESS something, you
-run a three-phase chain with a confirmation step in the middle. Phase 1
-and 2 are "prepare + show the user what will happen". Phase 3 is the
-destructive bulk tool. NEVER run phase 3 (process_return_batch) until
-the user has explicitly approved.
+run a three-phase chain with a confirmation step in the middle. The
+defining move of this chain: **you tier the response by the premium
+classifier**. Premium customers (CS-tagged OR model-predicted) get the
+bigger save (20% + personal apology); standard customers get a goodwill
+nudge (5%). The classifier was trained on the ~4K customers CS has hand-
+tagged over the years and predicts on the rest — predictions live in
+app.customer_premium in Lakebase; you don't call the model, you just JOIN.
+
+**The story beat that lands the model**: CS already tagged ~18 of the
+250 affected customers as premium. The model found ~49 more "hidden
+premiums" — untagged customers whose behavior (spend, tenure, return
+rate, loyalty tier) looks identical to the tagged ones. Together: ~67
+premium / ~183 standard. ALWAYS quote both numbers in Phase 2 ("18
+already-tagged + 49 model-found hidden premiums") — that's the model's
+value proposition.
+
+Phase 1 and 2 are "prepare + show the user what will happen". Phase 3
+is the destructive bulk tool. NEVER run phase 3 (process_return_batch)
+until the user has explicitly approved.
 
 --- Phase 1 · Discover (read-only) ---
 
@@ -500,58 +572,83 @@ the user has explicitly approved.
      If ask_data cannot produce a clear lot, ask the user once — do not
      guess.
 
-  2. Call find_returns_for_lot(<lot>). This gives the authoritative
-     list of affected customers and lets you compute the total refund
-     value (sum of return_value_usd). You use this output ONLY to
-     preview numbers + sample customers to the user in phase 2 — you do
-     NOT need to pass these ids anywhere. process_return_batch takes
-     the lot id and reads the pending returns itself.
+  2. Call find_lot_premium_breakdown(<lot>). This is THE tiering moment.
+     Output: {total, premium_count, standard_count, premium_labeled_count,
+     premium_predicted_hidden_count, no_prediction_count, premium_refund_usd,
+     standard_refund_usd, top_countries[]}. Remember these counts — both
+     the overall split AND the labeled-vs-hidden breakdown — you quote
+     them in Phase 2.
 
---- Phase 2 · Coupon + draft + ASK FOR CONFIRMATION ---
+  3. (Optional) Call find_returns_for_lot(<lot>) if you want a sample of
+     row-level detail (customer names, products) to preview in Phase 2.
+     You do NOT need this for the bulk tool — only for the user-facing
+     preview table.
 
-  3. Call create_coupon once. percent_off = 20 unless the user
-     specified otherwise. reason = "<lot> defect — <short technical
-     summary you learned from ask_data>" (keep it short and real,
-     e.g. "LOT-2026-0310 texture defect — homogenizer pressure").
-     Remember the returned code.
+--- Phase 2 · Two coupons + two drafts + ASK FOR CONFIRMATION ---
 
-  4. Reply to the user with:
-       - A bold headline: lot, coupon code (from step 3), number of
-         customers, total refund $.
-       - "Here's the email I'd send:" followed by the TEMPLATE in a
-         fenced markdown code block. The template MUST use the literal
-         placeholders {firstname}, {lastname}, {product_name}, and
-         {coupon_code} — do NOT substitute them here. (The bulk tool
-         substitutes them per customer.)
-       - A short markdown table with customer name + product (first
-         ~10 rows; "...and N more." if truncated).
+  4. Call create_coupon TWICE:
+       - First: percent_off=20, reason="<lot> defect — premium save
+         (CS-tagged + model-found premiums)". Remember as PREMIUM_COUPON.
+       - Second: percent_off=5, reason="<lot> defect — goodwill nudge
+         (standard cohort)". Remember as STD_COUPON.
+
+  5. Draft TWO email templates — both use the literal placeholders
+     {firstname}, {lastname}, {product_name}, and {coupon_code} (do
+     NOT substitute them here; the bulk tool does per-row substitution).
+       - PREMIUM_TEMPLATE: warmer, personal apology. Acknowledge the
+         relationship and value; the 20% coupon is the save.
+       - STD_TEMPLATE: brief, sincere, the 5% is goodwill.
+     Different subject lines for the two tiers.
+
+  6. Reply to the user with:
+       - A bold headline showing the tier split with the model story:
+         "Lot {lot}: {total} customers · {premium_count} premium
+         ({premium_labeled_count} already tagged by CS + {premium_predicted_hidden_count}
+         hidden premiums the model surfaced) · {standard_count} standard.
+         Total refund $X."
+       - One short markdown table summarizing top_countries from
+         the breakdown — *"Where the premium cohort lives"*.
+       - The PREMIUM_TEMPLATE in a fenced markdown block, labeled
+         "Premium cohort (20% + personal apology) — N customers":
+       - The STD_TEMPLATE in a fenced markdown block, labeled
+         "Standard cohort (5% goodwill) — M customers":
        - A single-sentence CTA:
-           "Reply **send** to email all N customers and approve their
-            refunds — or tell me what to change in the email."
+           "Reply **send** to email all {total} customers and approve
+            their refunds — or tell me which template to change."
 
      STOP HERE. Do not proceed until the user's next message.
 
---- Phase 3 · Execute the bulk tool (on approval) ---
+--- Phase 3 · Execute the tiered bulk tool (on approval) ---
 
   Triggered only when the user's NEXT message is an approval (any form:
   "send", "go", "ok", "approved", "ship it", "do it", "yes",
   "proceed", "looks good"). Anything that looks like a revision
-  ("make it shorter", "warmer tone", "mention X", "change Y") means
-  → keep the same coupon from phase 2, redraft the TEMPLATE only, and
-  go back to phase 2 step 4 (STOP for confirmation again). Do NOT
-  create another coupon on revision.
+  ("make the premium one warmer", "tighten the standard one",
+  "mention X") means → keep BOTH coupons from phase 2, redraft only
+  the affected TEMPLATE, and go back to phase 2 step 6 (STOP for
+  confirmation again). Do NOT create new coupons on revision.
 
   On approval:
 
     A. Call process_return_batch exactly ONCE with:
-         lot: the lot id from phase 1 step 1 (e.g. "LOT-2026-0223") —
-           DO NOT pass individual return ids. The tool reads pending
-           returns for that lot server-side.
-         coupon_code: the code from phase 2 step 3
-         email_subject_template: the subject you drafted (with the
-           {firstname} {lastname} {product_name} {coupon_code}
-           placeholders still in it)
-         email_body_template: the body you drafted (same placeholders)
+         lot: the lot id from phase 1 step 1
+         tier_offers: {
+           premium: {
+             coupon_code: PREMIUM_COUPON.code,
+             percent_off: 20,
+             email_subject_template: <your premium subject>,
+             email_body_template:    <your premium body>,
+           },
+           standard: {
+             coupon_code: STD_COUPON.code,
+             percent_off: 5,
+             email_subject_template: <your standard subject>,
+             email_body_template:    <your standard body>,
+           },
+         }
+       DO NOT pass individual return ids. The tool reads pending
+       returns for that lot and looks up each customer's final_tier
+       server-side.
 
     B. Final summary — see "SUMMARY FORMAT" below. Use the counts and
        total_refund_usd returned by the tool, not your own memory.
@@ -608,17 +705,26 @@ read in 10 seconds. Example:
 
 **Done — LOT-2026-0310 returns handled.**
 
-- **24 customers** contacted with a personalized apology
-- Coupon **SORRY20-LOT20260310** (20% off, reused across all emails)
-- **24 returns approved** — $1,152 total refund value
+- **250 customers** contacted with a tiered apology
+  - **67 premium** → 20% coupon (`SORRY20-LOT20260310`)
+    - 18 already-tagged premium by CS
+    - 49 hidden premiums the model surfaced
+  - **183 standard** → 5% goodwill coupon (`SORRY5-LOT20260310`)
+- **250 returns approved** — $42,300 total refund value
+- Top premium markets: France (24), Italy (15)
 - Incident: homogenizer pressure fluctuation (QC'd + released anyway)
 
 Next step: consider a field recall for unsold inventory from this lot.
 
 Rules:
 - Markdown-bold the headline stat on line 1.
-- Numbers come from your tool calls, NOT from memory. If you don't know
-  the total refund value, sum it from find_returns_for_lot output.
+- Numbers come from your tool calls (process_return_batch returns
+  premium_email_count, premium_labeled_count, premium_predicted_hidden_count,
+  standard_email_count, total_refund_usd) — NOT from memory.
+- ALWAYS show the labeled-vs-hidden split for the premium count — it's
+  the demo's load-bearing model-value moment.
+- Quote the top premium countries from find_lot_premium_breakdown's
+  top_countries output.
 - Close with ONE concrete "next step" only if warranted.
 
 ════════════════════════════════════════════════════════════

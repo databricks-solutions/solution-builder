@@ -118,7 +118,8 @@ export function estimateBuild(
     if (HIDDEN_SLUGS.has(slug)) continue;
     const meta = CAPABILITY_META[slug];
     if (!meta || !meta.deployed_type) continue;
-    const isLive = deployedTypes.has(meta.deployed_type);
+    const types = Array.isArray(meta.deployed_type) ? meta.deployed_type : [meta.deployed_type];
+    const isLive = types.some((t) => deployedTypes.has(t));
     if (isLive) liveSlugs.push(slug);
     else pendingSlugs.push(slug);
   }

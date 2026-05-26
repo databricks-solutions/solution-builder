@@ -35,101 +35,22 @@ def _resolve_ai_dev_kit_local() -> str:
 AI_DEV_KIT_LOCAL = _resolve_ai_dev_kit_local()
 PROJECTS_BASE_DIR = os.getenv("PROJECTS_BASE_DIR", "./projects")
 
-# Skills to copy by default - None means copy ALL available skills
-# Set to a list of skill names to limit which skills are copied
-DEFAULT_SKILLS = None  # Copy all skills from ai-dev-kit
-
-# Skills that should ALWAYS be copied into every project (baseline tooling
-# that applies regardless of which demo capabilities the user picked).
-CORE_SKILLS: set[str] = {
-    "databricks-config",
-    "databricks-docs",
-    "databricks-python-sdk",
-    "databricks-unity-catalog",
-    "databricks-synthetic-data-gen",
-    "databricks-bundles",
-    "databricks-execution-compute",
-    "databricks-dbsql",
-    "databricks-jobs",
-}
-
-# Never copy these skill dirs (stub/template entries in ai-dev-kit,
-# plus skills that conflict with the demo-generator's own app flow).
-# - databricks-app-python: generic Streamlit/Gradio Python app skill.
-#   Our app is Node/React/FastAPI via app_template + app.md; this skill
-#   makes build subagents default to Streamlit. Kept out.
+# Skill dirs from ai-dev-kit that we never copy into a project.
+#
+# - TEMPLATE: scaffolding/stub entry inside ai-dev-kit, not a real skill.
+# - databricks-apps-python: generic AppKit/Streamlit/Dash/Gradio/Flask
+#   Python-app skill. Our app flow is Node/React/FastAPI via
+#   `app_template` + `app.md` — if this skill is in the project, build
+#   subagents tend to default to Streamlit/Python frameworks, which
+#   conflicts with the template. Excluded.
 # - databricks-lakebase-provisioned: we use Lakebase Autoscaling
 #   (branch-based) via app.md's own provisioning flow.
 #   databricks-lakebase-autoscale is the one that applies.
 EXCLUDE_SKILLS: set[str] = {
     "TEMPLATE",
-    "databricks-app-python",
+    "databricks-apps-python",
     "databricks-lakebase-provisioned",
 }
-
-# Map each capability id (see references/blocks/capabilities/*.md) to the
-# ai-dev-kit skill dirs it needs. Capabilities not listed contribute no extra
-# skills beyond CORE_SKILLS.
-CAPABILITY_TO_SKILLS: dict[str, list[str]] = {
-    "ai-functions": ["databricks-ai-functions"],
-    "aibi-dashboards": ["databricks-aibi-dashboards"],
-    # databricks-app-python intentionally NOT listed: it's the generic
-    # Streamlit/Python-app skill; our app is Node/React/FastAPI via
-    # app_template + app.md. databricks-lakebase-provisioned also out —
-    # we use the autoscale (branch-based) flow documented in app.md.
-    "databricks-apps": ["databricks-lakebase-autoscale"],
-    "genie": ["databricks-genie"],
-    "information-extraction": ["databricks-ai-functions"],
-    "knowledge-assistant": ["databricks-agent-bricks", "databricks-unstructured-pdf-generation"],
-    "lakebase": ["databricks-lakebase-autoscale"],
-    "lakeflow-jobs": ["databricks-jobs"],
-    "metric-views": ["databricks-metric-views"],
-    "model-serving": ["databricks-model-serving"],
-    "model-training-mlflow": ["databricks-mlflow-evaluation", "databricks-model-serving"],
-    "sdp": ["databricks-spark-declarative-pipelines"],
-    "supervisor-agent": ["databricks-agent-bricks"],
-    "vector-search": ["databricks-vector-search"],
-    "zerobus-ingest": ["databricks-zerobus-ingest"],
-}
-
-
-def skills_for_capabilities(capability_ids: Optional[list[str]]) -> Optional[list[str]]:
-    """Resolve selected capability IDs to the set of skill dir_names to copy.
-
-    Currently disabled — always returns None so `copy_skills_to_project`
-    copies every ai-dev-kit skill regardless of which capabilities were
-    selected. The per-capability mapping (`CAPABILITY_TO_SKILLS`) and the
-    `CORE_SKILLS` baseline are kept below for reference / future re-enable.
-    """
-    return None
-
-
-def _prune_capability_blocks(
-    demo_skill_dest: Path,
-    capability_ids: list[str],
-) -> None:
-    """Remove capability block files the user didn't select.
-
-    Keeps domains/, patterns/, and all non-capabilities references intact.
-    Only removes files from references/blocks/capabilities/ whose stem
-    (filename minus .md) is not in the selected capability_ids set.
-    """
-    caps_dir = demo_skill_dest / "references" / "blocks" / "capabilities"
-    if not caps_dir.is_dir():
-        return
-
-    selected = set(capability_ids)
-    removed = 0
-    for f in list(caps_dir.iterdir()):
-        if f.is_file() and f.suffix == ".md" and f.stem not in selected:
-            f.unlink()
-            removed += 1
-
-    if removed:
-        logger.info(
-            f"Pruned {removed} unselected capability blocks; "
-            f"kept {len(selected)} selected"
-        )
 
 
 def get_available_skills() -> list[dict]:
@@ -236,96 +157,63 @@ def get_demo_generator_skill_path() -> Optional[Path]:
     return None
 
 
-def copy_skills_to_project(
-    project_id: str,
-    enabled_skills: Optional[list[str]] = None,
-    capability_ids: Optional[list[str]] = None,
-) -> bool:
-    """
-    Copy skills to a project's .claude/skills/ directory.
+# Ignore rules for skill copies. We intentionally KEEP node_modules — the
+# canonical app_template/ ships with a pre-installed node_modules so the
+# agent doesn't have to run `npm install` (2-4 min) during a session. The
+# wheel build (scripts/build.sh) excludes node_modules separately, since
+# native binaries (sharp, esbuild, @ast-grep) aren't OS-portable.
+_SKILL_COPY_IGNORE = shutil.ignore_patterns(
+    ".venv",
+    "dist",
+    ".env",
+    ".env.local",
+    ".DS_Store",
+    "*.tsbuildinfo",
+    "playwright-report",
+    "test-results",
+    "__pycache__",
+    "*.pyc",
+)
 
-    Args:
-        project_id: Project UUID
-        enabled_skills: List of skill names to copy. If None, use defaults.
-        capability_ids: Selected capability IDs. When provided, only capability
-            blocks matching these IDs are kept in the demo-generator skill.
-            Unselected capability blocks are pruned so the agent never sees them.
 
-    Returns:
-        True if successful
+def copy_skills_to_project(project_id: str) -> bool:
+    """Copy the demo-generator skill + every non-excluded ai-dev-kit skill
+    into the project's `.claude/skills/` directory.
+
+    Every project gets the full set. Capability-based filtering was tried
+    and removed — pruning by exact slug match silently dropped blocks the
+    agent needed when capability ids drifted, and the blocks/skills are
+    cheap to ship.
     """
     project_dir = Path(PROJECTS_BASE_DIR) / project_id
     skills_dest = project_dir / ".claude" / "skills"
     skills_dest.mkdir(parents=True, exist_ok=True)
 
-    # Get available skills from ai-dev-kit
-    available = get_available_skills()
-    name_to_dir = {s["name"]: s["dir_name"] for s in available}
-
-    # Determine which skills to copy
-    # If enabled_skills is None and DEFAULT_SKILLS is None, copy ALL available skills
-    if enabled_skills is None:
-        if DEFAULT_SKILLS is None:
-            # Copy all available skills
-            enabled_skills = [s["dir_name"] for s in available]
-        else:
-            enabled_skills = DEFAULT_SKILLS
-
     copied = 0
 
-    # Ignore rules for skill copies. We intentionally KEEP node_modules — the
-    # canonical app_template/ ships with a pre-installed node_modules so the
-    # agent doesn't have to run `npm install` (2-4 min) during a session. The
-    # wheel build (scripts/build.sh) excludes node_modules separately, since
-    # native binaries (sharp, esbuild, @ast-grep) aren't OS-portable.
-    _ignored = shutil.ignore_patterns(
-        ".venv",
-        "dist",
-        ".env",
-        ".env.local",
-        ".DS_Store",
-        "*.tsbuildinfo",
-        "playwright-report",
-        "test-results",
-        "__pycache__",
-        "*.pyc",
-    )
-
-    # Copy demo-generator from this project
+    # Copy the demo-generator skill (lives in this repo, not ai-dev-kit).
     demo_skill_path = get_demo_generator_skill_path()
     if demo_skill_path and demo_skill_path.exists():
         dest = skills_dest / "databricks-demo-generator"
         if dest.exists():
             shutil.rmtree(dest)
-        shutil.copytree(demo_skill_path, dest, ignore=_ignored)
+        shutil.copytree(demo_skill_path, dest, ignore=_SKILL_COPY_IGNORE)
         copied += 1
 
-        # Prune capability blocks the user didn't select so the agent
-        # never sees them and can't accidentally incorporate them.
-        if capability_ids:
-            _prune_capability_blocks(dest, capability_ids)
-
-    # Copy skills from ai-dev-kit
+    # Copy every non-excluded skill from ai-dev-kit.
     skills_src = Path(AI_DEV_KIT_LOCAL) / "databricks-skills"
     if skills_src.exists():
-        for skill_name in enabled_skills:
-            # Handle both skill names and directory names
-            dir_name = name_to_dir.get(skill_name, skill_name)
-            src = skills_src / dir_name
-
-            if not src.exists():
-                logger.warning(f"Skill not found: {skill_name}")
+        for src in skills_src.iterdir():
+            if not src.is_dir():
                 continue
-
-            # Skip non-skill directories (TEMPLATE, etc.)
+            if src.name in EXCLUDE_SKILLS:
+                continue
             if not (src / "SKILL.md").exists():
-                logger.debug(f"Skipping {skill_name} - no SKILL.md")
-                continue
-
-            dest = skills_dest / dir_name
+                continue  # not a real skill (e.g. TEMPLATE-like stub)
+            dest = skills_dest / src.name
             if dest.exists():
                 shutil.rmtree(dest)
-            shutil.copytree(src, dest, ignore=_ignored)
+            shutil.copytree(src, dest, ignore=_SKILL_COPY_IGNORE)
             copied += 1
 
     logger.info(f"Copied {copied} skills to project {project_id}")
@@ -336,7 +224,7 @@ def ensure_project_skills(project_id: str) -> bool:
     """Ensure skills exist in project, copying if missing."""
     skills_dir = Path(PROJECTS_BASE_DIR) / project_id / ".claude" / "skills"
     if not skills_dir.exists() or not any(skills_dir.iterdir()):
-        return copy_skills_to_project(project_id, None)
+        return copy_skills_to_project(project_id)
     return True
 
 
@@ -349,8 +237,7 @@ def refresh_project_skills(project_id: str) -> bool:
             if item.name != "databricks-demo-generator":
                 shutil.rmtree(item)
 
-    # Copy default skills
-    return copy_skills_to_project(project_id, None)
+    return copy_skills_to_project(project_id)
 
 
 def get_project_skills_list(project_id: str) -> list[dict]:
@@ -468,9 +355,10 @@ def create_project_directory(
     Args:
         project_id: Project UUID
         initial_readme: Optional initial content for README.md (None = no README created)
-        capabilities: Selected capability IDs. When provided, only skills needed for
-            these capabilities (plus CORE_SKILLS) are copied into the project. When
-            None/empty, all skills are copied (legacy behavior).
+        capabilities: Selected capability IDs. Used only to decide whether to
+            pre-create `specifications/app/` (when `databricks-apps` is in the
+            list); does NOT filter which skills get copied — every project
+            gets the full skill set.
 
     Returns:
         Path to the created project directory
@@ -512,14 +400,8 @@ def create_project_directory(
             "mcpServers": {},
         }, indent=2))
 
-    # Copy skills — filter to capability-relevant set when capabilities provided.
-    # Also pass raw capability IDs so the demo-generator's capability blocks
-    # are pruned to only what the user selected.
-    copy_skills_to_project(
-        project_id,
-        skills_for_capabilities(capabilities),
-        capability_ids=capabilities,
-    )
+    # Every project gets the full skill set — no capability-based filtering.
+    copy_skills_to_project(project_id)
 
     # Scaffold the spec stage's expected layout up front. The build agent
     # walks `specifications/*.md` numerically (see stages/03-build.md); having

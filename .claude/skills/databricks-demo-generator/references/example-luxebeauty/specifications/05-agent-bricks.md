@@ -50,7 +50,7 @@ Create `LuxeBeauty Operations Assistant` MAS orchestrating Genie + KA.
 
 | Agent | Type | Purpose |
 |-------|------|---------|
-| `data_analyst` | Genie Space | WHAT: returns, products, lots, customer feedback |
+| `data_analyst` | Genie Space | WHAT: returns, products, lots, customer feedback, **`final_tier` from the premium classifier (gold_customer_premium_predictions)** |
 | `incident_expert` | Knowledge Assistant | WHY: production incidents, equipment issues |
 
 ### Instructions
@@ -61,13 +61,21 @@ You are Claire's operations assistant. She's VP of Ops (non-technical), needs fa
 ROUTING:
 - Returns/data questions → data_analyst first
 - Incident/production questions → incident_expert
+- Customer-action / "what should we do" questions → data_analyst (queries gold_customer_premium_predictions to tier the response)
 
 DEMO FLOW:
 1. Claire asks about returns → data_analyst → 3x spike, SKU-1001/1002/1003, common lot, texture complaints
 2. ALWAYS suggest: "Would you like me to check for production incidents for this lot?"
 3. Claire asks about incident → incident_expert → homogenizer pressure, lot released despite QC note
+4. Claire asks "help me handle these 250 customers" → data_analyst joins the affected-customer set with `gold_customer_premium_predictions` → reports the tier split (~67 premium / ~183 standard, of which ~18 already-tagged + ~49 model-found hidden premiums) → drafts a TIERED retention offer.
 
-SYNTHESIS: Data = WHAT (3x returns, 3 products, 1 lot, texture complaints). Docs = WHY (homogenizer pressure, released anyway). Action: contact customers, consider recall, fix equipment.
+TIERED OFFER (must be applied every time the retention action runs):
+- Premium customers (final_tier = 'premium', whether CS-tagged OR model-predicted) → personal apology email + 20% coupon
+- Standard customers (final_tier = 'standard')                                      → standard apology email + 5% goodwill coupon
+
+ALWAYS report the per-country breakdown (`gold_customer_premium_predictions` joined with `bronze_customers.country`) for the premium cohort — Claire wants to know which markets are most exposed. ALWAYS call out the hidden-premium count (`premium_status_labeled IS NULL AND is_premium_predicted = true`) so the story lands: "CS had tagged 18; the model found 49 more."
+
+SYNTHESIS: Data = WHAT (3x returns, 3 products, 1 lot, texture complaints). Docs = WHY (homogenizer pressure, released anyway). Model = WHO TO PRIORITIZE (~67 of 250 are premium — 18 already-tagged, 49 hidden premiums the model surfaced — mostly FR + IT). Action: tiered retention offer, contact customers, consider recall, fix equipment.
 
 TONE: Claire is busy. Lead with the answer, then details.
 ```
@@ -78,9 +86,11 @@ TONE: Claire is busy. Lead with the answer, then details.
 |------|-------------|-----------|----------|
 | 1 | "Why do I have so many returns?" | data_analyst | 3x spike, SKU-1001/1002/1003, texture complaints, suggests checking incidents |
 | 2 | "Was there an incident for that lot?" | incident_expert | Homogenizer pressure, QC note, lot released anyway |
+| 3 | "Help me handle the 250 affected customers" *(or featured action)* | data_analyst | Joins affected set with `gold_customer_premium_predictions` → "67 premium (18 already tagged + 49 the model found, mostly FR + IT), 183 standard. Drafting tiered offers: 20% + personal apology for the 67, 5% goodwill for the rest." |
 
 ### Validation
 
-Full flow: two questions lead to complete root cause (WHAT + WHY).
+- Steps 1-2: two questions lead to complete root cause (WHAT + WHY).
+- Step 3: agent calls `gold_customer_premium_predictions`, returns a tier split close to ~67/~183 with the labeled-vs-predicted breakdown visible (~18 labeled + ~49 hidden). Numbers vary by training run — the *behavior* is what's validated: a meaningful premium minority and the model contributes most of them. MLflow trace shows the prediction lookup as a tool call.
 
 Add multi_agent_supervisor_id to `resources.json`.

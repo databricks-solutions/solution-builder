@@ -81,8 +81,35 @@ import {
 import { AUTO_BUILD_KICKOFF } from "@/lib/auto-build-prompt";
 import { cn } from "@/lib/utils";
 
+/** Tabs the project page can deep-link to. Mirrors `ViewTab` in
+ *  file-viewer.tsx. Kept here as a literal-union so the router can
+ *  validate it without importing UI code into the route definition. */
+const PROJECT_TABS = [
+  "overview",
+  "story",
+  "architecture",
+  "app",
+  "files",
+] as const;
+export type ProjectTab = (typeof PROJECT_TABS)[number];
+
 export const Route = createFileRoute("/project/$projectId")({
   component: ProjectPage,
+  /** URL-synced active tab so the browser back/forward arrows walk the
+   *  user through their tab history naturally. Invalid values fall back
+   *  to "overview" — keeps the page robust to typos in shared links. */
+  validateSearch: (
+    search: Record<string, unknown>,
+  ): { tab?: ProjectTab } => {
+    const raw = search.tab;
+    if (
+      typeof raw === "string" &&
+      (PROJECT_TABS as readonly string[]).includes(raw)
+    ) {
+      return { tab: raw as ProjectTab };
+    }
+    return {};
+  },
 });
 
 // Tool names that change files on disk — trigger a sidebar refresh on their tool_result.
@@ -153,6 +180,29 @@ function extractReadmeTitle(markdown: string): string | null {
 function ProjectPage() {
   const { projectId } = Route.useParams();
   const navigate = useNavigate();
+  // URL-synced active tab — drives FileViewer's visible tab. Changing it
+  // calls `navigate({ search })` which pushes a new browser history
+  // entry, so the back/forward arrows walk through tab history.
+  const { tab: tabFromUrl } = Route.useSearch();
+  const activeTab: ProjectTab = tabFromUrl ?? "overview";
+  const setActiveTab = useCallback(
+    (next: ProjectTab) => {
+      // Drop the `tab` key entirely when picking the default so URLs
+      // stay clean for the most common landing state. Pinning `to` makes
+      // TanStack pick this route's typed search schema instead of the
+      // global union (which collapses to `never`).
+      void navigate({
+        to: "/project/$projectId",
+        params: { projectId },
+        search:
+          next === "overview"
+            ? { tab: undefined }
+            : { tab: next },
+        replace: false,
+      });
+    },
+    [navigate, projectId],
+  );
 
   // Project state
   const [project, setProject] = useState<Project | null>(null);
@@ -989,6 +1039,14 @@ function ProjectPage() {
           }
         } else if (event.type === "file_changed") {
           debouncedRefreshFiles();
+          // Same deployed-resources refresh path as the initial-invoke
+          // handler above: resources.json rewrites land via the
+          // watcher during a resumed stream too. Without this, the
+          // "X of N ready" pill stays at its mount-time snapshot on
+          // any page reload mid-build.
+          if (event.path === "resources.json") {
+            debouncedRefreshDeployed();
+          }
           if (selectedFileRef.current === event.path) {
             setFileContentKey((k) => k + 1);
           }
@@ -1055,7 +1113,7 @@ function ProjectPage() {
       setExecutionId(null);
       abortControllerRef.current = null;
     }
-  }, [projectId, debouncedRefreshFiles]);
+  }, [projectId, debouncedRefreshFiles, debouncedRefreshDeployed]);
 
   // On-mount reconnect: if the server has an in-flight execution for this
   // project (e.g. after page refresh or nav-back), resume the SSE consumer.
@@ -1693,11 +1751,14 @@ function ProjectPage() {
               )}
             </div>
 
-            {/* Build stepper with action dropdown */}
+            {/* Build stepper with action dropdown. expectedResourceCount
+                comes from capabilities.buildable so the RESOURCES pill
+                only marks "done" when every expected resource is live. */}
             <BuildStepper
               isStreaming={isStreaming}
               files={files}
               deployedResourceCount={deployedResources?.resources.length ?? 0}
+              expectedResourceCount={capabilities?.buildable?.length ?? 0}
               onCreateArchitecture={handleCreateArchitecture}
               onUpdateArchitecture={handleUpdateArchitecture}
               onCreateSpec={handleCreateSpec}
@@ -1851,6 +1912,8 @@ function ProjectPage() {
             projectCreatedAt={project?.created_at ?? null}
             isGeneratingNarrative={isGeneratingNarrative}
             onRegenerateNarrative={handleRegenerateNarrative}
+            activeTab={activeTab}
+            onTabChange={setActiveTab}
             files={files}
             selectedFile={selectedFile}
             fileContent={fileContent}

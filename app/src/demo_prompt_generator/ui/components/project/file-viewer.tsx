@@ -3,7 +3,7 @@
  * Supports README and Architecture tabs when architecture.md exists.
  */
 
-import React, { memo, useState, useMemo, useEffect, lazy, Suspense } from "react";
+import React, { memo, useState, useMemo, useEffect, useCallback, lazy, Suspense } from "react";
 import { ScrollArea } from "../ui/scroll-area";
 import { Prose } from "../markdown-prose";
 import { ProjectOverview } from "./project-overview";
@@ -56,6 +56,12 @@ interface FileViewerProps {
   isGeneratingNarrative?: boolean;
   /** Trigger a regenerate of the narrative from the current README. */
   onRegenerateNarrative?: () => void;
+  /** Controlled active tab. Parent (route) owns this and syncs it to a
+   *  URL search param so back/forward + bookmarks work. */
+  activeTab?: ViewTab;
+  /** Called when the user clicks a tab. Should update the URL so
+   *  history records the navigation. */
+  onTabChange?: (tab: ViewTab) => void;
   files: ProjectFile[];
   selectedFile: string | null;
   fileContent: ProjectFileContent | null;
@@ -733,6 +739,8 @@ export const FileViewer = memo(function FileViewer({
   projectCreatedAt,
   isGeneratingNarrative,
   onRegenerateNarrative,
+  activeTab: activeTabProp,
+  onTabChange,
   files,
   selectedFile,
   fileContent,
@@ -759,7 +767,19 @@ export const FileViewer = memo(function FileViewer({
   onAutoFixSend,
   autoFixApiRef,
 }: FileViewerProps) {
-  const [activeTab, setActiveTab] = useState<ViewTab>("overview");
+  // The tab is controlled by the parent route when `activeTabProp` is
+  // supplied (URL-synced for back/forward). Local state is kept as a
+  // fallback for any standalone usage so this component still works
+  // without a router wrapper.
+  const [activeTabLocal, setActiveTabLocal] = useState<ViewTab>("overview");
+  const activeTab: ViewTab = activeTabProp ?? activeTabLocal;
+  const setActiveTab = useCallback(
+    (next: ViewTab) => {
+      if (onTabChange) onTabChange(next);
+      else setActiveTabLocal(next);
+    },
+    [onTabChange],
+  );
   const [showRaw, setShowRaw] = useState(false);
 
   const hasReadme = useMemo(() => files.some((f) => f.path === "README.md"), [files]);
@@ -873,6 +893,7 @@ export const FileViewer = memo(function FileViewer({
               hasArchitecture={hasArchitecture}
               hasApp={hasApp}
               hasSpecifications={hasSpecifications}
+              files={files}
               createdAt={projectCreatedAt}
               isStreaming={isStreaming}
               onOpenChat={onOpenChat}

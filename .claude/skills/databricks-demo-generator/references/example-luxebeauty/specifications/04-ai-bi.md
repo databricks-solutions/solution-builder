@@ -18,7 +18,7 @@ Create `LuxeBeauty Operations Analytics` Genie Space.
 
 ### Tables
 
-mv_returns (canonical revenue / orders / return-rate definition — defined in `02-uc-governance.md`), gold_daily_summary (trends), gold_returns_by_product (product-level rates), gold_returns_by_lot (lot tracing + feedback_samples), silver_returns (raw return_reason_text), bronze_products (catalog), bronze_production_lots (lot details).
+mv_returns (canonical revenue / orders / return-rate definition — defined in `02-uc-governance.md`), gold_daily_summary (trends), gold_returns_by_product (product-level rates), gold_returns_by_lot (lot tracing + feedback_samples), silver_returns (raw return_reason_text + anger_score), bronze_products (catalog), bronze_production_lots (lot details), bronze_customers (for the `premium_status` CS-tag + `country` joins), **gold_customer_premium_predictions** (per-customer `premium_prob` + `final_tier`, written by the ML notebook in `03-ml-premium.md`).
 
 ### Instructions
 
@@ -38,16 +38,21 @@ INVESTIGATION FLOW for "Why so many returns?":
 4. silver_returns → return_reason_text WHERE lot_id = affected → texture complaints
 5. Conclude + suggest: "Would you like me to check for production incidents?"
 
+PREMIUM-COHORT FOLLOW-UP (after root cause is established):
+- "How many of the affected customers are premium?" → join silver_returns (lot = affected) → distinct customer_id → join gold_customer_premium_predictions → COUNT by final_tier → expected: ~67 premium / ~183 standard out of 250.
+- "How many of those premiums did CS already tag vs. the model found?" → same join, GROUP BY premium_status_labeled — expected ~18 already-tagged, ~49 model-found hidden premiums.
+- "Which countries have the most affected premiums?" → same join, GROUP BY country → FR + IT lead.
+
 CUSTOMER FEEDBACK (from affected lot): "grainy texture" / "product separated" / "consistency is watery" / "texture feels off"
 ```
 
 ### Sample Questions
 
-"What's our return rate this month?" (→ mv_returns) / "Why do I have so many returns?" / "Which products have the highest return rate?" / "What are customers saying about returns?" / "Show me returns trend for the last 8 weeks" / "Which lot has the most returns?" / "Tell me about lot [LOT-ID]"
+"What's our return rate this month?" (→ mv_returns) / "Why do I have so many returns?" / "Which products have the highest return rate?" / "What are customers saying about returns?" / "Show me returns trend for the last 8 weeks" / "Which lot has the most returns?" / "Tell me about lot [LOT-ID]" / **"How many of the affected customers are premium (tagged or predicted)?"** / **"How many hidden premiums did the model find in the affected cohort?"** / **"Which countries have the most affected premiums?"**
 
 ### Validation
 
-"What's our return rate this month?" → answered from mv_returns, matches the dashboard's Monthly Return Rate KPI tile exactly. "Why so many returns?" → 3x spike, SKU-1001/1002/1003, common lot, texture feedback. "What are customers saying?" → surfaces "grainy", "separated", "watery".
+"What's our return rate this month?" → answered from mv_returns, matches the dashboard's Monthly Return Rate KPI tile exactly. "Why so many returns?" → 3x spike, SKU-1001/1002/1003, common lot, texture feedback. "What are customers saying?" → surfaces "grainy", "separated", "watery". "How many of the affected customers are premium?" → ~67 of 250 (final_tier='premium'), answered from `gold_customer_premium_predictions`. "How many hidden premiums?" → ~49 (`premium_status_labeled IS NULL AND is_premium_predicted = true`).
 
 Add genie_space_id to `resources.json`.
 
@@ -88,14 +93,22 @@ Products table reads `gold_returns_by_product` (no date column → date filter d
 - Columns: product_name, category, units_sold, total_refund_usd, return_rate. Sorted by return_rate DESC.
 - Top 3 rows must be SKU-1001 / SKU-1002 / SKU-1003 at ~30% return rate. Everything else at ~8%. The 4x contrast is the signal.
 
+**Row 5 — "Affected Customers by Country" (world map, full width 12 cols). Source: `silver_returns` filtered by `lot_id = affected lot`, country comes directly off the row (denormalized in silver — see `01-lakeflow.md`).**
+- Geo dimension: `country` (ISO-2). Color measure: distinct `customer_id` count per country (= affected customers in that country). Tooltip: that count + `SUM(refund_amount_usd)` for the same scope.
+- Date filter does **not** apply (the affected-customer set is a fixed cohort). Region filter does apply (collapses the map to one region's countries). Category filter does not apply.
+- Expected pattern: **FR, GB, DE, IT** light up — affected customers are ~60% EU per the lot's region skew. **US** mid-tone (~25%), **APAC** light (~15%). FR is the single largest country.
+- Story beat in Act 3: Claire glances at the map → *"Most of our affected customers are in Europe — exactly where Skincare is 50% of sales. Lyon's manufacturing problem hit our biggest market."*
+- The premium / tier-split story is **NOT on the map** — it lives in the chat (the agent's `find_lot_premium_breakdown` tool surfaces the 18/49 labeled-vs-hidden split). Keep the map about geography, the chat about the model.
+
 ### Validation
 
 - Return Rate KPI shows ~24% (vs ~8% baseline).
 - Returns bar chart: clear spike ~3 weeks ago (~$180K peak, Skincare dominates), decay toward baseline in recent weeks, peak NOT at the rightmost edge.
 - Revenue line: steady/growing trend with three regional color bands.
 - Products table: SKU-1001/1002/1003 top, ~30% return rate, contrast with ~8% rest.
-- Region filter (select "EU") → every widget updates.
-- Category filter (select "Skincare") → returns spike pronounced; products table narrows to skincare SKUs.
+- World map: FR is the single largest affected-customer country, followed by GB/DE/IT; US mid-tone; APAC light. Tooltip shows count + refund total per country.
+- Region filter (select "EU") → every widget updates, map narrows to EU countries only.
+- Category filter (select "Skincare") → returns spike pronounced; products table narrows to skincare SKUs. (Map is unaffected — affected cohort is fixed.)
 
 Add dashboard_id to `resources.json`.
 

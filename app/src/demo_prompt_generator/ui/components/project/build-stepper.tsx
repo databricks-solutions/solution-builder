@@ -27,8 +27,6 @@ import {
   Rocket,
   Download,
   Upload,
-  CheckCircle2,
-  XCircle,
   ChevronDown,
   Play,
   RefreshCw,
@@ -36,63 +34,19 @@ import {
 import {
   type ProjectStage,
   type ProjectFile,
-  PROJECT_STAGES,
 } from "../../lib/custom-api";
 
 // ---------------------------------------------------------------------------
 // Stage metadata
 // ---------------------------------------------------------------------------
 
-interface StageMeta {
-  label: string;
-  shortLabel: string;
-  icon: React.ElementType;
-  description: string;
-}
-
+// Per-stage validation checks surfaced in tooltips on the top stepper.
+// The 6-state ProjectStage enum is kept as the backend source of truth;
+// the UI collapses to 4 lifecycle stages via getLifecycleStages() below.
 interface StageCheck {
   label: string;
   passed: boolean;
 }
-
-const STAGE_META: Record<ProjectStage, StageMeta> = {
-  DRAFTING: {
-    label: "Draft",
-    shortLabel: "Draft",
-    icon: FileText,
-    description: "Create your solution story via chat",
-  },
-  SUMMARIZED: {
-    label: "Summary",
-    shortLabel: "Summary",
-    icon: FileText,
-    description: "README.md with solution narrative",
-  },
-  ARCHITECTED: {
-    label: "Architecture",
-    shortLabel: "Arch",
-    icon: Network,
-    description: "architecture.md diagram",
-  },
-  SPECIFICATION: {
-    label: "Specification",
-    shortLabel: "Spec",
-    icon: FileText,
-    description: "specifications/*.md files",
-  },
-  BUILT: {
-    label: "Built",
-    shortLabel: "Built",
-    icon: Hammer,
-    description: "Resources deployed and live in the workspace",
-  },
-  BUNDLED: {
-    label: "Bundle",
-    shortLabel: "DAB",
-    icon: Rocket,
-    description: "databricks.yml bundle",
-  },
-};
 
 // ---------------------------------------------------------------------------
 // Stage detection from files
@@ -176,6 +130,104 @@ export function detectStageFromFiles(
 }
 
 // ---------------------------------------------------------------------------
+// Lifecycle stages — user-facing 4-state collapse of the backend 6-state
+// ProjectStage. Both the top stepper and the "AI is working" panel render
+// from this. Keeps the backend ProjectStage enum untouched (the DB column
+// stays 6-state); the UI just groups them.
+//
+//   STORY_AND_ARCH  ← DRAFTING + SUMMARIZED + ARCHITECTED
+//   SPECIFICATION   ← SPECIFICATION
+//   RESOURCES       ← BUILT (strict: all expected resources deployed)
+//   DAB             ← BUNDLED
+// ---------------------------------------------------------------------------
+
+export type LifecycleStageKey =
+  | "STORY_AND_ARCH"
+  | "SPECIFICATION"
+  | "RESOURCES"
+  | "DAB";
+
+export type LifecycleStageStatus = "pending" | "active" | "done";
+
+export interface LifecycleStageInfo {
+  key: LifecycleStageKey;
+  label: string;
+  shortLabel: string;
+  blurb: string;
+  status: LifecycleStageStatus;
+}
+
+/** Derive the 4-state lifecycle view from the file-level stage info.
+ *
+ *  Active = the first not-yet-done stage. Done = its completion gate is met.
+ *  RESOURCES uses the strict gate (all expected resources live), not just
+ *  "any resource live" — the user-facing tile should mean *all* resources,
+ *  per spec.
+ *
+ *  @param info         Output of detectStageFromFiles
+ *  @param expectedRes  Total resources the project plans to build (from
+ *                      capabilities.buildable). When 0 or unknown, RESOURCES
+ *                      falls back to the lenient gate (any resource live).
+ */
+export function getLifecycleStages(
+  info: StageInfo,
+  liveResourceCount: number,
+  expectedResourceCount: number,
+): LifecycleStageInfo[] {
+  const storyArchDone = info.hasReadme && info.hasArch;
+  const specDone = info.hasSpecifications;
+  const resourcesDone =
+    expectedResourceCount > 0
+      ? liveResourceCount >= expectedResourceCount
+      : info.hasDeployedResources;
+  const dabDone = info.hasDab;
+
+  // First not-done stage is active. Cascade so we never show two active.
+  let activeKey: LifecycleStageKey | null = null;
+  if (!storyArchDone) activeKey = "STORY_AND_ARCH";
+  else if (!specDone) activeKey = "SPECIFICATION";
+  else if (!resourcesDone) activeKey = "RESOURCES";
+  else if (!dabDone) activeKey = "DAB";
+
+  const status = (
+    key: LifecycleStageKey,
+    done: boolean,
+  ): LifecycleStageStatus =>
+    done ? "done" : activeKey === key ? "active" : "pending";
+
+  return [
+    {
+      key: "STORY_AND_ARCH",
+      label: "Story & Architecture",
+      shortLabel: "Story",
+      blurb: "Customer narrative, pitch, and architecture diagram.",
+      status: status("STORY_AND_ARCH", storyArchDone),
+    },
+    {
+      key: "SPECIFICATION",
+      label: "Specifications",
+      shortLabel: "Spec",
+      blurb: "Detailed plans for each resource.",
+      status: status("SPECIFICATION", specDone),
+    },
+    {
+      key: "RESOURCES",
+      label: "Resources",
+      shortLabel: "Build",
+      blurb: "Databricks resources live in your workspace.",
+      status: status("RESOURCES", resourcesDone),
+    },
+    {
+      key: "DAB",
+      label: "Bundle",
+      shortLabel: "DAB",
+      blurb: "Packaged for repeatable deployment.",
+      status: status("DAB", dabDone),
+    },
+  ];
+}
+
+// ---------------------------------------------------------------------------
 // Props
 // ---------------------------------------------------------------------------
 
@@ -184,8 +236,12 @@ export interface BuildStepperProps {
   /** Project files — used to auto-detect current stage */
   files: ProjectFile[];
   /** Count of resources currently deployed and visible in the resources bar.
-   *  BUILT stage requires this to be > 0 (code files alone are not enough). */
+   *  Drives the RESOURCES lifecycle pill (combined with expectedResourceCount). */
   deployedResourceCount?: number;
+  /** Total resources the project plans to build (buildable capability count).
+   *  RESOURCES is "done" only when `deployedResourceCount >= expectedResourceCount`.
+   *  When 0/unknown, falls back to "any resource live". */
+  expectedResourceCount?: number;
   /** Callbacks for stage actions */
   onCreateArchitecture?: () => void;
   onUpdateArchitecture?: () => void;
@@ -207,6 +263,7 @@ export function BuildStepper({
   isStreaming,
   files,
   deployedResourceCount = 0,
+  expectedResourceCount = 0,
   onCreateArchitecture,
   onUpdateArchitecture,
   onCreateSpec,
@@ -218,13 +275,19 @@ export function BuildStepper({
   onDownloadDAB,
   onPublishTemplate,
 }: BuildStepperProps) {
-  // Auto-detect stage from files + live deploy state
+  // Auto-detect stage from files + live deploy state. The 6-state result
+  // drives action-button logic (which "next step" button to surface);
+  // the rendered pills below collapse to 4 lifecycle stages.
   const stageInfo = useMemo(
     () => detectStageFromFiles(files, deployedResourceCount),
     [files, deployedResourceCount],
   );
-  const { stage: currentStage, checks, hasReadme, hasArch, hasSpecifications, hasCode, hasDab } = stageInfo;
-  const currentIdx = PROJECT_STAGES.indexOf(currentStage);
+  const { hasReadme, hasArch, hasSpecifications, hasCode, hasDab } = stageInfo;
+  const lifecycle = useMemo(
+    () =>
+      getLifecycleStages(stageInfo, deployedResourceCount, expectedResourceCount),
+    [stageInfo, deployedResourceCount, expectedResourceCount],
+  );
 
   // Build the list of available actions based on current state
   const actions: Array<{
@@ -312,27 +375,37 @@ export function BuildStepper({
   // Find the primary action (next step to do)
   const primaryAction = actions.find((a) => a.variant === "primary") || actions[0];
 
+  // Icon per lifecycle stage. Story+Arch uses Network (architecture beats
+  // out story alone visually); Resources uses Hammer; DAB uses Rocket.
+  const LIFECYCLE_ICONS: Record<LifecycleStageKey, React.ElementType> = {
+    STORY_AND_ARCH: Network,
+    SPECIFICATION: FileText,
+    RESOURCES: Hammer,
+    DAB: Rocket,
+  };
+
   return (
     <div className="flex items-center gap-3">
-      {/* Stepper dots */}
+      {/* Stepper pills — 4 collapsed lifecycle stages */}
       <div className="flex items-center gap-1">
         <TooltipProvider delayDuration={200}>
-          {PROJECT_STAGES.map((stage, idx) => {
-            const meta = STAGE_META[stage];
-            const Icon = meta.icon;
-
-            const isCompleted = idx < currentIdx;
-            const isCurrent = idx === currentIdx;
-            const isNext = idx === currentIdx + 1;
+          {lifecycle.map((s, idx) => {
+            const Icon = LIFECYCLE_ICONS[s.key];
+            const isCompleted = s.status === "done";
+            const isCurrent = s.status === "active";
+            // "Next" connector pulse: the segment leading INTO the active
+            // stage from the previous one shows the rolling primary fill.
+            const isNextConnector =
+              idx > 0 && lifecycle[idx - 1].status === "done" && isCurrent;
 
             return (
-              <div key={stage} className="flex items-center">
+              <div key={s.key} className="flex items-center">
                 {idx > 0 && (
                   <div className="relative h-0.5 w-4 sm:w-7 mx-0.5 rounded-full overflow-hidden">
                     <div className={`absolute inset-0 ${
                       isCompleted || isCurrent ? "bg-primary" : "bg-border"
                     }`} />
-                    {isNext && (
+                    {isNextConnector && (
                       <div className="absolute inset-0">
                         <div className="absolute inset-y-0 left-0 bg-primary animate-progress-pulse" />
                       </div>
@@ -357,27 +430,12 @@ export function BuildStepper({
                       ) : (
                         <Circle className="h-3 w-3" />
                       )}
-                      <span className="hidden sm:inline">{meta.shortLabel}</span>
+                      <span className="hidden sm:inline">{s.shortLabel}</span>
                     </div>
                   </TooltipTrigger>
                   <TooltipContent side="bottom" className="p-3 bg-slate-900 border-slate-700">
-                    <p className="font-semibold text-white mb-1">{meta.label}</p>
-                    {checks[stage].length > 0 ? (
-                      <ul className="space-y-1">
-                        {checks[stage].map((check, i) => (
-                          <li key={i} className="flex items-center gap-2 text-sm">
-                            {check.passed ? (
-                              <CheckCircle2 className="h-3.5 w-3.5 text-green-400 shrink-0" />
-                            ) : (
-                              <XCircle className="h-3.5 w-3.5 text-red-400 shrink-0" />
-                            )}
-                            <span className="text-white">{check.label}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    ) : (
-                      <p className="text-sm text-white/80">{meta.description}</p>
-                    )}
+                    <p className="font-semibold text-white mb-1">{s.label}</p>
+                    <p className="text-sm text-white/80">{s.blurb}</p>
                   </TooltipContent>
                 </Tooltip>
               </div>

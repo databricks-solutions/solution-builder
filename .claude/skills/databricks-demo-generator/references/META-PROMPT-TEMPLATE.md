@@ -87,27 +87,42 @@ A consumption resource must never be created before its upstream data exists. Th
 
 **IMPORTANT**: The `resources.json` file at the project root tracks capabilities and all created Databricks resources. It is created during the specification phase with capabilities; update its `created_resources` object after each resource is created during build.
 
-Add resource IDs as you create them:
+Add resource IDs as you create them. **Use these exact key names** — the UI's resource-link builder is wired to them. Authoritative reference is the example demo's `resources.json` (see SKILL.md § resources.json):
+
 ```json
 {
   "capabilities": { "buildable": [...], "talking_track": [...] },
   "created_resources": {
+    "workspace_folder": "/Workspace/Users/<your-email>/<demo-name>",
     "catalog": "{CATALOG}",
     "schema": "{SCHEMA}",
-    "workspace_folder": "/Workspace/...",
+    "warehouse_id": "<id>",
     "pipeline_id": "<id>",
     "metric_view_name": "<catalog>.<schema>.<name>",
     "dashboard_id": "<id>",
     "genie_space_id": "<id>",
     "knowledge_assistant_id": "<id>",
+    "knowledge_assistant_endpoint": "<endpoint-name>",
     "multi_agent_supervisor_id": "<id>",
-    "app_name": "<name>",
-    "lakebase_project_id": "<uuid from `databricks postgres get-project | jq -r .uid`>",
+    "multi_agent_supervisor_endpoint": "<endpoint-name>",
+    "ml_model_name": "<catalog>.<schema>.<model-name>",
+    "mlflow_experiment_path": "/Workspace/Users/<your-email>/<experiment-name>",
+    "app": {
+      "name": "<app-name>",
+      "id": "<app-id>",
+      "deployment_note": "<free-form: deployed OK / quota hit / skipped / etc.>"
+    },
+    "lakebase_project_id": "<uid from `databricks postgres get-project | jq -r .uid`>",
     "lakebase_project_slug": "<slug passed to lakebase_setup_db.sh>",
-    "lakebase_database": "<db name>"
+    "lakebase_database": "dbgen_<demo_short_name>"
   }
 }
 ```
+
+Notes on the trickier keys:
+- **`mlflow_experiment_path`** is required when the demo trains an ML model — the full workspace path passed to `mlflow.set_experiment(...)`. Without it, the MLflow Experiment tile never appears in the resources grid (the UI resolves the path → numeric experiment_id via the SDK).
+- **`app` is nested** (`app.name`, `app.id`, `app.deployment_note`). When deploy fails or is skipped, still record `app.name` and put the explanation in `deployment_note`.
+- **Lakebase keys are flat** (`lakebase_project_id` + `_slug` + `_database`), not nested. See `app.md` for `lakebase_setup_db.sh` which prints them.
 
 ---
 

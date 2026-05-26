@@ -112,10 +112,11 @@ Browser ── SSE ── Express (AppKit server plugin)
                      ├── /api/chat/stream
                      │     ├── mode=agent  → OpenAI Agents SDK
                      │     │                   tools:
-                     │     │                    find_returns_for_lot  ── Lakebase
-                     │     │                    create_coupon         (pure)
-                     │     │                    process_return_batch  ── Lakebase write
-                     │     │                    ask_data              ── MAS endpoint (streaming)
+                     │     │                    find_returns_for_lot      ── Lakebase (returns + churn_risk JOIN)
+                     │     │                    find_lot_premium_breakdown  ── Lakebase (ML tier split)
+                     │     │                    create_coupon             (pure, called per tier)
+                     │     │                    process_return_batch      ── Lakebase write, tier-aware
+                     │     │                    ask_data                  ── MAS endpoint (streaming)
                      │     └── mode=mas    → raw MAS passthrough
                      │
                      ├── /api/conversations  ── Lakebase
@@ -124,8 +125,8 @@ Browser ── SSE ── Express (AppKit server plugin)
                      ├── /api/messages/:id/feedback  ── MLflow assessments
                      └── /api/admin/reset    ── truncate + re-sync
                             │
-                            └── Delta (Unity Catalog) ── SQL API ── app.customers / app.orders / app.returns
-                                                                      (Lakebase mirror)
+                            └── Delta (Unity Catalog) ── SQL API ── app.customers / app.orders / app.returns / app.customer_premium
+                                                                      (Lakebase mirror; churn_risk is the ML model's predictions table, read-only from the app)
 
 MLflow experiments (two, linked in the header):
   - Agent traces   ← OpenAI Agents SDK + per-tool spans (via mlflow-tracing)

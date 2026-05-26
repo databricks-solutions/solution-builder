@@ -85,7 +85,7 @@ export function PreviewIframe({ projectId, state, isStarting = false, onStart, r
               <span className="font-semibold text-foreground">
                 Open full-screen
               </span>{" "}
-              at the top to showcase the app standalone.
+              at the top to demo the app without having to install it (faster time to demo!).
             </p>
           </div>
         </div>

@@ -18,7 +18,7 @@ All resource files (.py, .sql, .yaml, …) must go in the project folder.
 
 ## How to build (the recipe everywhere applies)
 
-The spec files in `PROJECT/specifications/` are your playlist. Walk them **in numbered order** (`01-lakeflow.md`, `02-uc-governance.md`, `03-…`, `04-…`, then `specifications/app/*.md` if there's an app). Each spec file says what to build; you use the matching ai-dev-kit skill to actually build it.
+The spec files in `PROJECT/specifications/` are your playlist. Walk them **in numbered order** (`01-lakeflow.md`, `02-uc-governance.md`, `03-…`, `04-…`, `05-…`, then `specifications/app/*.md` if there's an app). Each spec file says what to build; you use the matching ai-dev-kit skill to actually build it.
 
 For each spec file:
 
@@ -34,7 +34,7 @@ That's the loop. The rest of this file is **the order in which to apply it** —
 
 ## Step-by-step build order
 
-Walk the spec files numerically. The numbering is the dependency order — `01` produces data that `03` and `04` consume; everything else flows from there.
+Walk the spec files numerically. The numbering is the dependency order — `01` produces data that `03` (ML) consumes; `03` produces a predictions table that `04` (AI/BI: dashboard + Genie) and `05` (agents) both consume; everything else flows from there.
 Remember, the spec could be anything. You must follow them, below are typical spec structure: 
 
 ### Step 1 — `01-lakeflow.md` (ON MAIN, sequential)
@@ -52,7 +52,7 @@ Always first. Everything downstream needs the tables to exist. Typically has (ca
 `01-lakeflow.md` is done. If `specifications/app/` exists, **spawn the App subagent NOW** — before walking any other spec file. The App is ~5 minutes and there's no reason to make the rest of the build wait on it. If there's no `specifications/app/`, skip this step and go straight to Step 3. `[DEMO_SKILL_DIR]/app/app.md` contains the instructions to build the app.
 
 
-**App is the only thing that runs in a subagent.** Everything else (`02-uc-governance.md`, `03-ai-bi.md`, `04-agent-bricks.md`, anything custom the spec invented) runs on main. Don't create subagents for Genie / KA / governance.
+**App is the only thing that runs in a subagent.** Everything else (`02-uc-governance.md`, `03-ml-*.md`, `04-ai-bi.md`, `05-agent-bricks.md`, anything custom the spec invented) runs on main. Don't create subagents for ML / Genie / KA / governance.
 
 **Spawn rules:**
 
@@ -97,11 +97,12 @@ Completion format (one short summary at the end):
 **Small iterations after the first build go on main.** Subagents are only for the initial generation. User-requested tweaks afterward — UI text, an extra column, a bug fix — happen on the main loop so the user can see your thinking.
 
 ### Step 3 — Walk the remaining specs on main (in numbered order)
-While the App subagent (if any) runs in the background, work through the rest of `specifications/` numerically on the main thread, typically:
+While the App subagent (if any) runs in the background, work through the rest of `specifications/` numerically on the main thread. Go over the spec and build every resource, 1 by 1, typically (but can vary based on the story and the capabilities requested):
 
 - `02-uc-governance.md` — UC grants, metric views, row-level security.
-- `03-ai-bi.md` — Genie space, then dashboard (sequential).
-- `04-agent-bricks.md` — KA, then MAS (sequential; KA needs unstructured docs if the spec calls for them — generate those first as part of this step).
+- `03-ml-*.md` — :  ML train / register / inference, usually as a serverless job (10–15 min), usually the predictions table must exist before building 04 or 05 if either consumes it.
+- `04-ai-bi.md` — Genie space, then dashboard (sequential). May read the predictions table from `03`.
+- `05-agent-bricks.md` — KA, then MAS (sequential; KA needs unstructured docs if the spec calls for them — generate those first as part of this step). May call Genie over the `03` predictions table.
 - Anything else the spec invented — pick the matching ai-dev-kit skill, build, validate, record the ID.
 
 **Hands off `app/` while the App subagent runs.** Don't read or write any file under `app/` until the subagent returns. Two threads writing the same files is a race condition. **Once the App subagent returns**, `app/` is yours again — backfill placeholders, do user edits, fix smoke-test bugs.
@@ -117,3 +118,7 @@ If the app is defined, once the app subagents return:
   - `"__LATE_FILL_DASHBOARD__"` → `resources.json.dashboard_id`
   - `"__LATE_FILL_MAS__"` → `resources.json.multi_agent_supervisor_endpoint`
   Verify nothing left: `grep -r __LATE_FILL_ app/config/` returns empty. No redeploy — `app/config/app.json` is read at boot.
+
+
+### Final review:
+Make sure you created all the Databricks resources according to the story and the spec files, and that they're all in the resources.json file

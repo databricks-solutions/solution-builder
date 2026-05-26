@@ -15,7 +15,7 @@
   "_dashboard_help": "AI/BI dashboard embedded as iframe on /dashboard route (client/src/dashboard/DashboardView.tsx). Set to the dashboard's UUID; remove the route + sidebar entry if your demo has none.",
   "dashboardId": "",
 
-  "_data_help": "Delta source for the one-shot Lakebase mirror sync at boot (server/db/sync.ts). The `tables` keys are domain-specific — they match the columns of TS types in client/src/shared/types.ts and Drizzle schema in server/db/schema.ts. When swapping the data model, update all three together.",
+  "_data_help": "Delta source for the one-shot Lakebase mirror sync at boot (server/db/sync.ts). The `tables` keys are domain-specific — they match the columns of TS types in client/src/shared/types.ts and Drizzle schema in server/db/schema.ts. When swapping the data model, update all three together. `customerPremium` is optional — set it to the ML predictions table from spec 03-ml-premium.md (e.g. `gold_customer_premium_predictions`) if your demo has a model; leave it as empty string to skip the predictions sync.",
   "data": {
     "catalog": "ai_demo_gen",
     "schema": "demo_demo_project",
@@ -25,7 +25,8 @@
       "orders": "bronze_orders",
       "customers": "bronze_customers",
       "products": "bronze_products",
-      "productionLots": "bronze_production_lots"
+      "productionLots": "bronze_production_lots",
+      "customerPremium": "gold_customer_premium_predictions"
     }
   },
 
@@ -34,18 +35,18 @@
     "appName": "My Demo App"
   },
 
-  "_assistantScript_help": "Scripted demo chain — the dock's 'Suggested next' chip walks this list. First step is always available; subsequent steps unlock once the previous assistant message contains any of the `triggerAfter` substrings. Picker logic lives in client/src/chat/script.ts.",
+  "_assistantScript_help": "Scripted demo chain — the dock's 'Suggested next' chip walks this list. First step is always available; subsequent steps unlock once the previous assistant message contains any of the `triggerAfter` substrings. Picker logic lives in client/src/chat/script.ts. Step 2 is the demo's load-bearing moment: the agent calls find_lot_premium_breakdown → quotes the labeled-vs-hidden split → drafts two emails (20% premium + 5% standard). Step 3 sends both with one bulk-tool call.",
   "assistantScript": [
     {
       "prompt": "Why do I have so many returns?"
     },
     {
-      "prompt": "Can we accept all the returns for that lot? Draft an apology email with a 20% coupon code and show it to me first — don't send anything yet.",
-      "triggerAfter": ["lot", "batch"]
+      "prompt": "Handle these affected customers. Use the premium classifier to pick who gets the bigger save — draft a 20% personal apology for premium customers (CS-tagged plus the ones the model finds) and a 5% goodwill for the rest. Show me both before sending.",
+      "triggerAfter": ["lot", "batch", "customers"]
     },
     {
-      "prompt": "Yes — send the emails with the coupon and approve all the refunds.",
-      "triggerAfter": ["template", "coupon"]
+      "prompt": "Yes — send both and approve all the refunds.",
+      "triggerAfter": ["tier", "premium", "coupon"]
     }
   ]
 }

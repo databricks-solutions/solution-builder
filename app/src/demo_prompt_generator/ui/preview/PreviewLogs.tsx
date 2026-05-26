@@ -18,16 +18,25 @@ interface Props {
 export function PreviewLogs({ logs, error, autoFix }: Props) {
   const [open, setOpen] = useState(true);
   const scrollerRef = useRef<HTMLDivElement | null>(null);
+  // Sticky-bottom: starts true so the first paint (and any subsequent reopen)
+  // lands at the tail. Flips to false if the user scrolls up, and back to true
+  // when they scroll near the bottom again.
+  const stickToBottomRef = useRef(true);
 
-  // Auto-scroll on new logs, unless the user has scrolled up.
   useEffect(() => {
     const el = scrollerRef.current;
     if (!el || !open) return;
-    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
-    if (nearBottom) {
+    if (stickToBottomRef.current) {
       el.scrollTop = el.scrollHeight;
     }
   }, [logs, open]);
+
+  const onScroll = () => {
+    const el = scrollerRef.current;
+    if (!el) return;
+    stickToBottomRef.current =
+      el.scrollHeight - el.scrollTop - el.clientHeight < 60;
+  };
 
   return (
     <div className="shrink-0 border-t border-border bg-muted/20">
@@ -69,6 +78,7 @@ export function PreviewLogs({ logs, error, autoFix }: Props) {
       {open && (
         <div
           ref={scrollerRef}
+          onScroll={onScroll}
           className="h-48 overflow-y-auto font-mono text-[11px] leading-snug px-4 py-2 bg-background border-t border-border"
         >
           {error && (
