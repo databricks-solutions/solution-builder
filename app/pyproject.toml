@@ -19,8 +19,12 @@ dependencies = [
     # ≥2.1.111 (which is when 4.7 + the adaptive thinking shape landed);
     # 0.1.50's bundled CLI was 2.1.81 → 4.7 returns HTTP 400 with
     # "thinking.type.enabled is not supported for this model".
-    # 0.1.71 is the latest currently published on PyPI.
-    "claude-agent-sdk>=0.1.71",
+    # 0.2.83 (current floor) bundles CLI 2.1.146 — well past that gate.
+    # Note: 0.1.77 deprecated "Skill" in allowed_tools in favor of the
+    # skills= option on ClaudeAgentOptions. Still works (deprecation only,
+    # not removed); we use "Skill" in services/agent.py — migrate when we
+    # touch that file next.
+    "claude-agent-sdk>=0.2.83",
     "pyyaml>=6.0",
     "watchdog>=4.0.0",
     # MCP tools dependencies

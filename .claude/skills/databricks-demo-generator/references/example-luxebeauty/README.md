@@ -119,4 +119,4 @@ Show the same dashboard from the app, ask Genie the same `Why so many returns?` 
 | **AI Functions (`ai_classify`)** | Build | One-line SQL inside the SDP pipeline turns "I'm furious about this texture" into a 0.0–1.0 anger score. Used two ways: as a feature in the premium classifier, and surfaced per-return in the Returns Console app (operators sort the queue by anger to triage the most upset customers first). No UDF, no separate sentiment service. |
 | **MLflow** | Talk track | Auto-traces every Genie / KA / MAS call **and** logs every premium-classifier run — same observability surface for agents and models, replay any decision later |
 | **Unity Catalog** | Talk track | One permission model from Shopify ingestion through the agent's tool calls to the registered premium classifier — Claire only sees what she's allowed to see, everywhere |
-| **Databricks One** | Talk track | Where the rest of the company lands — the CEO, finance, marketing get the same dashboard + Genie answers, no app required |
+| **Databricks One** | Talk track | Where the rest of the company lands — the CEO, finance, marketing get the same dashboard + Genie answers|

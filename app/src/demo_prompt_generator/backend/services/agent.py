@@ -314,7 +314,7 @@ async def stream_agent_response(
         Event dictionaries for SSE streaming
     """
     try:
-        from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient
+        from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient, EffortLevel
     except ImportError:
         logger.error("claude-agent-sdk not installed")
         stream.mark_error("Claude Agent SDK not installed")
@@ -363,13 +363,16 @@ async def stream_agent_response(
             # Build allowed tools list. `Skill` enables the agent's Skill tool
             # so it can invoke skills declared in <cwd>/.claude/skills/ (notably
             # databricks-demo-generator + the per-project ai-dev-kit skills).
+            # Skills are enabled via the dedicated `skills=` option on
+            # ClaudeAgentOptions (set below); "Skill" in allowed_tools was
+            # deprecated in claude-agent-sdk 0.1.77.
             # `Task` lets the agent spawn subagents — the demo-generator skill's
             # Stage 2 fan-out (app-spec subagent + 02/03/04 batched) and
             # Stage 3 build parallelization (Genie/Dashboard + KA/MAS + App
             # subagents) rely on it. Without `Task` enabled the agent
             # serializes everything and the parallelization prose in
             # SKILL.md / stages/*.md is dead text.
-            allowed_tools = ["Skill", "Task", "Read", "Write", "Edit", "Glob", "Grep", "Bash"]
+            allowed_tools = ["Task", "Read", "Write", "Edit", "Glob", "Grep", "Bash"]
 
             # Hard-disable tools that don't behave in the Agent-SDK execution
             # model. Each group is here for a specific failure we've seen:
@@ -473,10 +476,27 @@ async def stream_agent_response(
                     ),
                 )
 
+            # `effort` uses the EffortLevel literal exported by the SDK
+            # (0.2.82+). Explicit `"medium"` here is functionally equivalent
+            # to the model default but makes the intent loud + type-checked.
+            # `"high"` (the SDK-level default for adaptive thinking) produces
+            # multi-minute thinking blocks where the model re-derives math
+            # the spec already worked out and re-plans the same decision
+            # repeatedly. For the "follow the spec, call the tool" work that
+            # dominates this app, medium is the right cost. Mid-session
+            # `/effort high` is still available if a turn genuinely needs
+            # deeper reasoning (debugging, code review).
+            effort: EffortLevel = "medium"
+
             options = ClaudeAgentOptions(
                 cwd=str(project_dir),
                 allowed_tools=allowed_tools,
                 disallowed_tools=disallowed_tools,
+                # Enable every installed skill — the project's .claude/skills/
+                # contains exactly the set we want available (demo-generator +
+                # all ai-dev-kit skills, copied at create time). This replaces
+                # the deprecated `"Skill"` in allowed_tools.
+                skills="all",
                 # "dontAsk" + a can_use_tool callback gives us programmatic
                 # control without ever prompting a human. bypassPermissions
                 # would skip the callback entirely.
@@ -496,16 +516,8 @@ async def stream_agent_response(
                 # shape — they reject the SDK's default `thinking.type.enabled`
                 # with HTTP 400. Adaptive works on older models too, so we
                 # set it unconditionally.
-                #
-                # `effort` is intentionally unset → the model's default
-                # (`medium` on Opus 4.7) wins. `effort="high"` produces
-                # multi-minute thinking blocks where the model re-derives
-                # math the spec already worked out and re-plans the same
-                # decision repeatedly. For "follow the spec, call the tool"
-                # work that dominates this app, medium is the right cost.
-                # Use `/effort high` mid-session if a turn genuinely needs
-                # deeper reasoning (debugging, code review).
                 thinking={"type": "adaptive"},
+                effort=effort,
             )
 
             # Resume previous session if provided
