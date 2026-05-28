@@ -1359,6 +1359,10 @@ export interface ConfigStatus {
   databricks_profiles: DatabricksProfile[];
   current_user: ConfigUser | null;
   is_configured: boolean;
+  /** Recommended Unity Catalog for new projects. Sourced from the backend's
+   *  AppConfig.default_catalog (env: DEFAULT_CATALOG); the resources popover
+   *  uses this to mark the right entry as "(default)". */
+  default_catalog: string;
 }
 
 export async function getConfigStatus(): Promise<ConfigStatus> {

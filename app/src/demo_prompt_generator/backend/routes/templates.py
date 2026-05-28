@@ -27,7 +27,7 @@ from ..models import (
 )
 from ..services.llm_service import LLMService
 from ..services.template_service import TemplateService
-from .projects import _find_shared_warehouse, _generate_schema_name, DEFAULT_CATALOG
+from .projects import _find_shared_warehouse, _generate_schema_name
 
 router = create_router()
 
@@ -464,7 +464,7 @@ def create_project_from_template(
             session=session,
             warehouse_id=warehouse_id,
             warehouse_name=warehouse_name,
-            default_catalog=DEFAULT_CATALOG,
+            default_catalog=config.default_catalog,
             default_schema=default_schema,
         )
     except ValueError as e:
@@ -652,7 +652,7 @@ def open_template_project(
             session=session,
             warehouse_id=warehouse_id,
             warehouse_name=warehouse_name,
-            default_catalog=DEFAULT_CATALOG,
+            default_catalog=config.default_catalog,
             default_schema=default_schema,
         )
     except ValueError as e:

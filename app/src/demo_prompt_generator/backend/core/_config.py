@@ -73,6 +73,17 @@ class AppConfig(BaseSettings):
     ai_gateway: str = Field(default="databricks-claude-opus-4-7", validation_alias="AI_GATEWAY")
     ai_gateway_embedding: str = Field(default="databricks-qwen3-embedding-0-6b", validation_alias="AI_GATEWAY_EMBEDDING")
 
+    # Default Unity Catalog that every new project lands in. Created on
+    # app boot if missing, with `USE CATALOG` + `CREATE SCHEMA` granted
+    # to `account users` so any signed-in user can spin up a demo schema.
+    # Each admin in `template_admin_emails` gets `ALL PRIVILEGES` so they
+    # can clean up across users' schemas. Override per-environment via
+    # the `DEFAULT_CATALOG` env var (set by databricks.<target>.yml).
+    default_catalog: str = Field(
+        default="ai_demo_gen",
+        validation_alias="DEFAULT_CATALOG",
+    )
+
     # Admin emails for template review. Stored as a comma-separated string
     # so pydantic-settings doesn't try to JSON-decode it (its default
     # `list[str]` parser expects `["a","b"]` syntax and errors on a bare

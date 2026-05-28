@@ -44,6 +44,10 @@ targets:
       ai_gateway: databricks-claude-opus-4-7
       ai_gateway_mini: databricks-gpt-5-4-mini
       ai_gateway_embedding: databricks-qwen3-embedding-0-6b
+      # Unity Catalog every new project lands in. Created at app boot if
+      # missing; USE CATALOG + CREATE SCHEMA granted to `account users`,
+      # ALL PRIVILEGES granted to each admin in template_admin_emails.
+      default_catalog: ai_demo_gen
 
       # ──────────────────────────────────────────────────────────────────────
       # Section 3 — runtime environment
@@ -58,3 +62,4 @@ targets:
         AI_GATEWAY: ${var.ai_gateway}
         AI_GATEWAY_MINI: ${var.ai_gateway_mini}
         AI_GATEWAY_EMBEDDING: ${var.ai_gateway_embedding}
+        DEFAULT_CATALOG: ${var.default_catalog}

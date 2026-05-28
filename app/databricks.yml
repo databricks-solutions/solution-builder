@@ -30,6 +30,8 @@ variables:
     description: "Direct chat-completions endpoint (LLMService 'mini' size)."
   ai_gateway_embedding:
     description: "Embedding endpoint (template search)."
+  default_catalog:
+    description: "Unity Catalog every new project lands in. Created at app boot if missing, with USE CATALOG + CREATE SCHEMA granted to `account users` and ALL PRIVILEGES granted to each admin in template_admin_emails."
   app_env:
     # Runtime env injected into .build/app.yml by scripts/build.sh — keys here
     # become env vars in the deployed container. Add a key to databricks.prod.yml's

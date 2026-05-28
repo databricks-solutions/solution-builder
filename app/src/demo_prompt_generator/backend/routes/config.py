@@ -183,7 +183,7 @@ def _test_databricks_connection(profile: str) -> DatabricksConnectionStatus:
 
 
 @router.get("/config/status", response_model=ConfigStatus, operation_id="getConfigStatus")
-def get_config_status(session: Dependencies.Session):
+def get_config_status(session: Dependencies.Session, config: Dependencies.Config):
     """Get overall configuration status including database and Databricks profiles."""
     # Check database connection
     try:
@@ -226,6 +226,7 @@ def get_config_status(session: Dependencies.Session):
         databricks_profiles=profiles,
         current_user=current_user,
         is_configured=is_configured,
+        default_catalog=config.default_catalog,
     )
 
 

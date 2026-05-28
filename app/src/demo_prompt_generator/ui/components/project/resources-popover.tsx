@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/dialog";
 import { RefreshCw, Server, Database, Boxes, Search } from "lucide-react";
 import {
+  getConfigStatus,
   listClusters,
   listWarehouses,
   listCatalogs,
@@ -36,8 +37,9 @@ import {
 } from "@/lib/custom-api";
 import { cn } from "@/lib/utils";
 
-// Default values
-const DEFAULT_CATALOG = "ai_solution_gen";
+// Project naming convention for the auto-suggested schema. Catalog
+// default now comes from /api/config/status (backend's AppConfig
+// .default_catalog) — see the fetch in the component below.
 const DEFAULT_SCHEMA_PREFIX = "my_solution_";
 
 export interface ProjectResources {
@@ -87,8 +89,29 @@ export function ResourcesPopover({
   const schemaInputRef = useRef<HTMLInputElement>(null);
   const schemaDropdownRef = useRef<HTMLDivElement>(null);
 
+  // Default catalog from the backend (env-driven; see DEFAULT_CATALOG in
+  // databricks.<target>.yml). Empty string until /api/config/status
+  // resolves — the "(default)" badge just doesn't render in that window.
+  const [defaultCatalog, setDefaultCatalog] = useState<string>("");
+
   // Track if we've loaded data at least once
   const hasLoadedRef = useRef(false);
+
+  // Fetch the backend-configured default catalog once. Independent of
+  // open/close so we have the value as soon as the popover mounts.
+  useEffect(() => {
+    let cancelled = false;
+    getConfigStatus()
+      .then((s) => {
+        if (!cancelled) setDefaultCatalog(s.default_catalog);
+      })
+      .catch(() => {
+        // Non-fatal — the popover still works, the "(default)" hint is just absent.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Compute default schema from project ID
   const defaultSchema = `${DEFAULT_SCHEMA_PREFIX}${projectId.split("-")[0]}`;
@@ -502,7 +525,7 @@ export function ResourcesPopover({
                       )}
                     >
                       {catalog}
-                      {catalog === DEFAULT_CATALOG && (
+                      {defaultCatalog && catalog === defaultCatalog && (
                         <span className="ml-2 text-xs text-muted-foreground">
                           (default)
                         </span>

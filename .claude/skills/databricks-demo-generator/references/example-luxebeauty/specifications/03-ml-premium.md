@@ -48,6 +48,21 @@ Same notebook trains AND scores. Immediately after training, batch-score every c
 
 - Run as a **serverless job**, never in the chat process. ~10–15 min end-to-end.
 - create a notebook under (`PROJECT/ml/premium_train_score.py`): train → register → set `@prod` → batch-score → overwrite gold table → `dbutils.notebook.exit(json.dumps({model_version, auc, labeled_premium, predicted_premium, total_scored}))`. Upload the notebook to the workspace folder & run it as a job
+- Use Databricks notebook syntax to create notebook cells:
+```python
+# Databricks notebook source
+# MAGIC %md
+# MAGIC # Notebook title
+# MAGIC
+# MAGIC <Business description of what we're doing in this notebook>
+# MAGIC ## Data exploration and analysis
+
+# COMMAND ----------
+
+<Some basic data exploration in python, typicall to show existing class>
+# COMMAND ----------
+... 
+```
 - Note: Nightly retrain is talk-track, not built.
 - Critical: never run anything locally
 

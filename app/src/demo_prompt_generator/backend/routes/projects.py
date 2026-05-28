@@ -77,8 +77,10 @@ from .resources import list_clusters, list_warehouses
 
 router = create_router()
 
-# Default resource settings
-DEFAULT_CATALOG = "ai_demo_gen"
+# Default schema prefix. The default catalog itself is config-driven —
+# read via `config.default_catalog` (set by config.default_catalog env var, with
+# `ai_demo_gen` as the fallback). It's created on app boot if missing
+# (see core/_catalog_bootstrap.py).
 DEFAULT_SCHEMA_PREFIX = "demo_"
 
 
@@ -455,7 +457,7 @@ def create_project(
     default_schema = _resolve_unique_schema_name(
         user_ws,
         warehouse_id=warehouse_id,
-        catalog=DEFAULT_CATALOG,
+        catalog=config.default_catalog,
         base_schema=base_schema,
     )
 
@@ -468,7 +470,7 @@ def create_project(
         warehouse_name=warehouse_name,
         cluster_id=None,
         cluster_name=None,
-        default_catalog=DEFAULT_CATALOG,
+        default_catalog=config.default_catalog,
         default_schema=default_schema,
     )
     session.add(project)
@@ -486,7 +488,7 @@ def create_project(
     _ensure_default_schema(
         user_ws,
         warehouse_id=warehouse_id,
-        catalog=DEFAULT_CATALOG,
+        catalog=config.default_catalog,
         schema=default_schema,
         project_id=project.id,
     )

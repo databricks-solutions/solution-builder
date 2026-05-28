@@ -832,6 +832,11 @@ class ConfigStatus(BaseModel):
     databricks_profiles: list[DatabricksProfile]
     current_user: Optional["UserOut"] = None
     is_configured: bool  # True if user exists and databricks is connected
+    # Mirrors `AppConfig.default_catalog`. Surfaced so the UI doesn't
+    # need to hardcode it — the resources popover highlights this as the
+    # recommended catalog. Source of truth lives in DEFAULT_CATALOG env
+    # var (set by databricks.<target>.yml's app_env block).
+    default_catalog: str
 
 
 class UserOut(BaseModel):
