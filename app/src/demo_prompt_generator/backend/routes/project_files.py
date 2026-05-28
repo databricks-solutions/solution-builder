@@ -204,27 +204,87 @@ def ensure_project_files_restored(
     file_sync,
     session,
 ) -> None:
-    """Restore project files from DB if the project_dir is missing or empty.
+    """Restore project files from DB if the project_dir is missing or empty,
+    and ALWAYS re-ensure the .claude/skills/ tree is present.
+
+    Two separate responsibilities, both run on every call:
+
+    1. **Skills** are managed out-of-band (copied from the bundled
+       databricks-demo-generator + ai-dev-kit skills, see skills_manager).
+       They live under `.claude/skills/`, which is intentionally NOT
+       persisted to Lakebase — so a fresh container has none of them. We
+       re-copy on every load: cheap, idempotent (the inner function noops
+       when files already exist), and survives any sequence of crashes /
+       partial restores.
+
+    2. **Project files** are restored from the DB only when the project
+       directory is missing or contains no user-facing files. The early-
+       return check below ignores `.claude/` and other excluded-from-sync
+       paths so it isn't fooled by leftover skill / auth files from a
+       partial previous run — without this filter, a project that crashed
+       mid-restore would never finish restoring.
 
     Serialized per project so concurrent route handlers don't both run
     `restore_project_from_db` and step on each other's cache. Always evicts
     the file cache after a real restore so the next listing call walks fresh
     disk state instead of returning a partial mid-restore snapshot.
-
-    The check runs INSIDE the lock — checking outside first would be racy:
-    `restore_project_from_db` creates `.claude/skills/` and `.databrickscfg`
-    early in its work, so a concurrent call seeing `any(iterdir())` would
-    skip the wait and return mid-restore (cache walk sees only the helper
-    files, all of which are excluded → empty file list shown to user).
-    The lock is uncontended after the first restore, so the cost is a
-    microsecond-scale acquire — not worth the optimization.
     """
     with _get_restore_lock(project_id):
-        if project_dir.exists() and any(project_dir.iterdir()):
+        # (1) Skills + auth helpers always (idempotent when already present).
+        # Skills are NEVER persisted to the DB (intentional: they live in
+        # the monorepo / ai-dev-kit and need to track upstream changes).
+        # ensure_project_skills re-copies only when `.claude/skills/` is
+        # empty/missing — cheap on the hot path (just an `iterdir()` check)
+        # and self-heals after a container restart where the skill tree is
+        # gone but other restored files made the project_dir look populated.
+        from ..services.skills_manager import ensure_project_skills
+        from ..services.file_sync import ensure_fmapi_auth_files
+        try:
+            ensure_project_skills(project_id)
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[restore] skill copy failed for {project_id}: {e}")
+        try:
+            ensure_fmapi_auth_files(project_dir, project_id)
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[restore] fmapi auth provision failed for {project_id}: {e}")
+
+        # (2) DB → disk restore only when no user-facing files exist locally.
+        if project_dir.exists() and _has_user_files(project_dir):
             return
         logger.info(f"Project folder missing or empty, restoring from DB: {project_id}")
         file_sync.restore_project_from_db(project_id, session=session)
         cache_evict_project(project_id)
+
+
+def _has_user_files(project_dir: Path) -> bool:
+    """True iff `project_dir` contains at least one file that isn't excluded
+    from sync (i.e. is a real user-visible / DB-backed file).
+
+    Filters out the `.claude/skills/` tree, `.databrickscfg`, FMAPI auth
+    helpers, etc. — any of which can survive a crash mid-restore and would
+    otherwise mask a project as "already populated" when its real content
+    is still in Lakebase.
+
+    Walks lazily and short-circuits on the first non-excluded match.
+    """
+    if not project_dir.exists():
+        return False
+    for root, dirs, files in os.walk(project_dir):
+        root_path = Path(root)
+        # Prune bulky / excluded dirs so we don't descend into node_modules etc.
+        kept = []
+        for d in dirs:
+            child_rel = (root_path / d).relative_to(project_dir)
+            if _is_excluded_from_sync(child_rel):
+                continue
+            kept.append(d)
+        dirs[:] = kept
+        for fname in files:
+            rel = (root_path / fname).relative_to(project_dir)
+            if _is_excluded_from_sync(rel):
+                continue
+            return True
+    return False
 
 
 def _make_file_entry(project_dir: Path, file_path: Path) -> dict | None:

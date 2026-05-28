@@ -80,6 +80,30 @@ async def invoke_agent(
     # See backend/AUTH.md — the mode dictates how the Claude subprocess
     # will authenticate to Databricks.
     mode = detect_mode(headers)
+
+    # Ensure the project directory + skills are on disk before we spawn the
+    # agent. The common case is `getProject` already ran this on page load,
+    # but a fresh container restart with a still-open browser tab will fire
+    # `invoke_agent` directly (the stored execution-id reconnect path). The
+    # skills tree is NEVER backed up to Lakebase — without this call the
+    # agent runs without its skill set, and `.claude/projects/**` transcripts
+    # may not yet be restored, breaking session resume.
+    from .project_files import ensure_project_files_restored
+    from pathlib import Path as _Path
+    from ..services.skills_manager import PROJECTS_BASE_DIR
+    _project_dir = _Path(PROJECTS_BASE_DIR) / body.project_id
+    try:
+        await asyncio.to_thread(
+            ensure_project_files_restored,
+            body.project_id,
+            _project_dir,
+            request.app.state.file_sync,
+            session,
+        )
+    except Exception:
+        logger.exception(
+            "failed to ensure project files restored for %s", body.project_id
+        )
     # Deployed mode: refresh <project>/.databrickscfg from the current PAT
     # before spawn so the subprocess starts with a fresh token. No-op in
     # local mode. Non-fatal if it fails.
