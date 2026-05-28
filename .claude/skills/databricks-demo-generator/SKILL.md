@@ -165,15 +165,28 @@ When the project already has files (`README.md`, `resources.json`, `specificatio
 
 1. **Read existing state** — `README.md`, `resources.json`, and any `specifications/*.md` files.
 2. **Understand the user's request** — what they want to change (story, capabilities, a specific spec, a built resource).
-3. **Make targeted changes** — update only the affected files. Keep everything else consistent.
-4. **Propagate changes downstream** — if you change the story or data schema, update all specs that reference those values. If you change a spec, update the built resource if it exists.
-5. **App changes** — **if the user asks about anything app-related (adding a page, changing an agent tool, updating theming, data model, re-generating, debugging, deploying), read `DEMO_SKILL_DIR/app/app.md` FIRST.** Don't improvise from memory. Non-negotiable principles while working on the app:
+3. **Check the story still holds** — does the existing README + data support the new ask? If the new component needs data or a story beat that isn't there yet, the story comes first: update `README.md` and the upstream specs (typically `01-lakeflow.md` for data, `02-uc-governance.md` for permissions) BEFORE writing the new component spec.
+4. **Make targeted changes** — update only the affected files. Keep everything else consistent.
+5. **Propagate changes downstream** — if you change the story or data schema, update all specs that reference those values. If you change a spec, update the built resource if it exists (regenerate data, restart the SDP pipeline, refresh the dashboard, re-run training, etc.). Then update `resources.json` with any new IDs.
+6. **App changes** — **if the user asks about anything app-related (adding a page, changing an agent tool, updating theming, data model, re-generating, debugging, deploying), read `DEMO_SKILL_DIR/app/app.md` FIRST.** Don't improvise from memory. Non-negotiable principles while working on the app:
    - **Don't start the app.** The Demo Prompt Generator UI supervises the app's process; a separate `./start.sh` collides with it.
    - **One-shot smoke tests only** — if you must run it to validate a change, run it once on a random port, then kill it immediately (see `app.md` Step 5 for the exact pattern). Leaving it running is a bug.
    - **Never deploy the app on your own.** "Deploy resources" / "deploy the demo" means everything except the app. Deploy the app **only** when the user says "deploy the app" / "push the app" / similar explicit wording. The flow is in `app.md` Step 6.
-6. **Spec-writing standards**: if you're editing `specifications/*.md`, read `DEMO_SKILL_DIR/stages/02-write-specs.md` for the standards (functional specs, temporal realism, coherence contracts, etc.).
+7. **Spec-writing standards**: if you're editing `specifications/*.md`, read `DEMO_SKILL_DIR/stages/02-write-specs.md` for the standards (functional specs, temporal realism, coherence contracts, etc.).
 
 The coherence contract still applies: every change must ripple through all dependent files.
+
+### Worked example — user asks to add a component the project doesn't have
+
+Generic pattern when adding a new capability (app, ML model, dashboard, etc.) to a project that didn't originally include it:
+
+1. **Find example** — check `DEMO_SKILL_DIR/references/blocks/capabilities/<slug>.md` and `DEMO_SKILL_DIR/references/example-luxebeauty/specifications/` for an existing spec of the same capability. Mirror its shape.
+2. **Story fit** — does the existing demo arc justify this component? If no, extend the README story beat before writing the spec.
+3. **Upstream prerequisites** — does this need new data, a new column, a new dashboard viz, a new model output? If so, patch the upstream specs (`01-lakeflow.md`, etc.) first, regenerate the data, update and re run the sdp pipeline if required and only then write the new component spec.
+4. **Write the new component spec when required** — under `specifications/`, following the standards in `stages/02-write-specs.md`.
+5. **Build it** — follow `stages/03-build.md` for the build order (data → pipeline → consumption layers).
+6. **App-specific path** — if the new component is an app, ALSO read `DEMO_SKILL_DIR/app/app.md` end-to-end (it walks the clone-template → specialize → deploy flow that's specific to the React/Node app, not the rest of the demo).
+7. **Update `resources.json`** — add the new resource's IDs / endpoints / paths to `created_resources` so the UI tiles light up and the capabilities after the addition/changes.
 
 ---
 
