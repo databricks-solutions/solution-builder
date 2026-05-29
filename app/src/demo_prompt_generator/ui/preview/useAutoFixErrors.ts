@@ -76,6 +76,13 @@ function cheapHash(s: string): string {
 export interface UseAutoFixErrorsOptions {
   projectId: string;
   enabled: boolean;
+  /** True iff the preview's child process is currently up and serving
+   *  (state.status === "ready"). Auto-fix refuses to dispatch when the
+   *  app is down — a crash log analyzed after the process exited produces
+   *  hallucinated root causes (the LLM sees a half-broken WebSocket
+   *  reconnect attempt and invents a `port mismatch in routes.py`
+   *  diagnosis when the real story is "the process died, restart it"). */
+  appRunning: boolean;
   /** Current preview logs (full array — we track `seq` to know what's new). */
   logs: PreviewLogLine[];
   /** True while an agent stream is in-flight. We never send during streaming. */
@@ -96,6 +103,7 @@ export interface UseAutoFixErrorsReturn {
 export function useAutoFixErrors({
   projectId,
   enabled,
+  appRunning,
   logs,
   isStreaming,
   onSend,
@@ -137,6 +145,12 @@ export function useAutoFixErrors({
   useEffect(() => { logsRef.current = logs; }, [logs]);
   const enabledRef = useRef(enabled);
   useEffect(() => { enabledRef.current = enabled; }, [enabled]);
+  const appRunningRef = useRef(appRunning);
+  useEffect(() => { appRunningRef.current = appRunning; }, [appRunning]);
+
+  /** Rate-limit the "app is down" sidecar log so a long-stopped app doesn't
+   *  spam the panel. One notice per `PAUSE_NOTICE_INTERVAL_MS` window. */
+  const lastAppDownNoticeAtRef = useRef<number>(0);
 
   // --- The reset function exported to the chat send path ---
 
@@ -209,6 +223,22 @@ export function useAutoFixErrors({
     if (isStreamingRef.current) return;
     if (analysisInFlightRef.current) return;
 
+    // App-down gate: don't analyze logs from a dead process. The most
+    // common case is the process crashed during startup (npm install, vite
+    // boot, etc.) — the logs are full of one-shot errors that aren't worth
+    // sending to the assistant. Surfacing a clear "app is stopped" message
+    // in the panel is better than blasting bogus fixes at the agent.
+    if (!appRunningRef.current) {
+      const now = Date.now();
+      if (now - lastAppDownNoticeAtRef.current >= PAUSE_NOTICE_INTERVAL_MS) {
+        lastAppDownNoticeAtRef.current = now;
+        onSystemLog(
+          "[auto-fix] App is not running — restart it to resume automatic error analysis.",
+        );
+      }
+      return;
+    }
+
     const all = logsRef.current;
     if (all.length === 0) return;
     const latestSeq = all[all.length - 1].seq;
@@ -230,9 +260,17 @@ export function useAutoFixErrors({
     analysisInFlightRef.current = true;
     try {
       const { errors } = await analyzePreviewLogs(projectId, window);
-      // Re-check streaming + enabled — they may have changed during the
-      // network call, and we shouldn't fire stale results into a turn.
+      // Re-check streaming + enabled + app-running — they may have changed
+      // during the network call. App can crash MID-analysis (the analyzer
+      // takes a few seconds); without this recheck we'd send a fix for a
+      // process that's already dead.
       if (!enabledRef.current || isStreamingRef.current) return;
+      if (!appRunningRef.current) {
+        onSystemLog(
+          "[auto-fix] App stopped during analysis — restart it manually before retrying.",
+        );
+        return;
+      }
       for (const err of errors) {
         const sent = sendError(err.summary, err.snippet, err.severity);
         // If gated (budget/dedup/min-interval), stop firing the rest — the

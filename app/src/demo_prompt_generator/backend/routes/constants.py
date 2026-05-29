@@ -52,6 +52,16 @@ class SuggestCapabilitiesRequest(BaseModel):
     capabilities: list[CapabilityInput]
     refine_idea: IdeaToRefine | None = None  # If set, refine this idea
     refine_comment: str | None = None  # User's refinement instructions
+    # If set, the user just changed the capability selection and we want to
+    # MINIMALLY rewrite the existing stories rather than regenerate them from
+    # scratch. Without this, every toggle in the picker would replace the
+    # ideas the user was reading — jarring UX. With this set, the LLM
+    # keeps titles + core narrative intact and only adjusts hooks/datasources
+    # so each story still hangs together with the new capability set.
+    # `previous_capabilities` is the set BEFORE the change so the prompt
+    # can describe the delta in plain English.
+    previous_ideas: list[IdeaToRefine] | None = None
+    previous_capabilities: list[str] | None = None
 
 
 class UseCaseIdea(BaseModel):
@@ -285,8 +295,56 @@ Finally, output one line explaining your reasoning (1-2 sentences max):
 {{"type": "capabilities", "capabilities": ["synthetic-data-gen", "lakeflow-connect", "sdp", "unity-catalog", "model-training-mlflow", "aibi-dashboards", "genie", "knowledge-assistant", "genie-code"]}}
 {{"type": "reasoning", "text": "POS + promo data through SDP, ML retrains forecast model, dashboards show regional accuracy, Genie drills into categories, KA explains from planning docs."}}"""
 
-    # Build user prompt - different for refinement vs new ideas
-    if body.refine_idea and body.refine_comment:
+    # Build user prompt — three distinct shapes:
+    #   1. Capability-change refresh (previous_ideas set): minimal rewrite
+    #      of the existing ideas to fit the NEW capability set. Preserves
+    #      titles and core narrative; only touches what the diff demands.
+    #   2. Single-idea refinement (refine_idea + refine_comment): rewrite
+    #      one idea per the user's free-text instructions, upgrade tier.
+    #   3. Cold start (neither set): full ideation from the topic alone.
+    if body.previous_ideas:
+        # Format the previous ideas + diff. Capabilities marked as
+        # mandatory_list are the new set the user wants; previous_capabilities
+        # tells the LLM what was there so it can reason about the delta.
+        prev_ideas_block = "\n\n".join(
+            f"Story {i + 1}: {p.title}\nHook: {p.hook}\nDatasources: {', '.join(p.datasources)}"
+            for i, p in enumerate(body.previous_ideas)
+        )
+        prev_caps = ", ".join(body.previous_capabilities or []) or "(none)"
+        added = sorted(set((m.strip() for m in mandatory_list.split(","))) - set(body.previous_capabilities or []))
+        removed = sorted(set(body.previous_capabilities or []) - set((m.strip() for m in mandatory_list.split(","))))
+        added_str = ", ".join(added) if added else "(none)"
+        removed_str = ", ".join(removed) if removed else "(none)"
+        idea_count = len(body.previous_ideas)
+
+        user_prompt = f"""User's original demo description:
+"{body.prompt}"
+
+=== EXISTING STORIES (the user is currently looking at these — keep them recognizable) ===
+{prev_ideas_block}
+
+=== CAPABILITY CHANGE ===
+Previous capabilities: {prev_caps}
+Added: {added_str}
+Removed: {removed_str}
+
+=== USER CONSTRAINTS (MUST RESPECT — these are the NEW capability set) ===
+- User MANDATORY (always include): {mandatory_list}
+- User EXCLUDED (never include): {excluded_list}
+
+=== AVAILABLE CAPABILITIES ===
+{cap_list}
+
+The user has the {idea_count} stor{"y" if idea_count == 1 else "ies"} above on screen.
+They JUST changed the capability mix. Do a MINIMAL rewrite:
+- Keep every story's TITLE unchanged unless a removed capability made it nonsensical.
+- Keep the core narrative arc (protagonist, problem, $ stakes) unchanged.
+- Only adjust the hook + datasources to reflect added / removed capabilities.
+- Match the existing detail tier of each story (plain text → plain text; **Context/Discovery/Impact** → same sections; **Protagonist/Catalyst/...** → same).
+- Do NOT replace the stories with brand-new ones — the user is mid-decision and resetting their context is jarring.
+
+Output line-delimited JSON: count line (count={idea_count}), then {idea_count} idea line{"s" if idea_count > 1 else ""}, then capabilities line, then reasoning line."""
+    elif body.refine_idea and body.refine_comment:
         user_prompt = f"""User's original demo description:
 "{body.prompt}"
 
@@ -358,8 +416,8 @@ def suggest_capabilities(
     to_decide = [c.id for c in body.capabilities if c.status is None]
 
     def generate_events():
-        # If no prompt or all capabilities have explicit status, skip LLM
-        if not body.prompt.strip() or not to_decide:
+        # No prompt → nothing for the LLM to story about, return just caps.
+        if not body.prompt.strip():
             yield f"event: capabilities\ndata: {json.dumps({'capabilities': always_include, 'reasoning': None})}\n\n"
             return
 
@@ -370,7 +428,15 @@ def suggest_capabilities(
         # governance features (data-classification, data-quality, abac) aren't
         # relevant to most demos. User can still mandate them via show-hidden.
         available_caps = [c for c in load_capabilities() if not c.get("disabled")]
-        available_for_llm = [c for c in available_caps if c["id"] in to_decide]
+        # When `to_decide` is empty (Simple-tab lock: every id is explicitly
+        # selected or unselected), the LLM has no capability choice to make
+        # — but it STILL needs to generate ideas. Feed it the mandatory list
+        # as the candidate pool so the prompt structure stays valid and the
+        # LLM echoes the mandatory ids back in its `capabilities` line.
+        available_for_llm = [
+            c for c in available_caps
+            if c["id"] in (to_decide if to_decide else always_include)
+        ]
         valid_ids = {c["id"] for c in available_caps}
 
         # Format capability lists for the prompt
@@ -389,9 +455,14 @@ def suggest_capabilities(
         try:
             llm = LLMService(ws, config)
 
-            # For refinements, we know there will be exactly 1 idea - send count immediately
+            # For refinements (single-idea rewrite) and capability-change
+            # refreshes (N ideas preserved) we already know the count —
+            # send it immediately so the UI renders skeletons in the right
+            # shape instead of flashing 3-then-1 (or 3-then-2).
             if body.refine_idea and body.refine_comment:
                 yield f"event: count\ndata: {json.dumps({'count': 1})}\n\n"
+            elif body.previous_ideas:
+                yield f"event: count\ndata: {json.dumps({'count': len(body.previous_ideas)})}\n\n"
 
             # Stream lines from LLM
             for line in llm.chat_stream_lines(

@@ -89,10 +89,14 @@ export function AppPreviewTab({ projectId, onAutoFixSend, isStreaming = false, a
 
   const { budgetRemaining, resetBudget } = useAutoFixErrors({
     projectId,
-    // Still require the app to be running before we START sending fixes —
-    // otherwise pre-start logs (the handful of INFO lines from dev.sh) would
-    // never trigger, but stopping mid-session shouldn't silently disable.
-    enabled: autoFixEnabled && !!onAutoFixSend && appRunning,
+    // `enabled` reflects the toggle + integration only. The app-running
+    // gate is passed separately so the hook can emit a clear "app is
+    // stopped" notice in the log panel instead of silently dropping the
+    // analysis (the prior behavior conflated both gates and gave no
+    // signal when the app died — users saw auto-fix do nothing and
+    // wondered if it was broken).
+    enabled: autoFixEnabled && !!onAutoFixSend,
+    appRunning,
     logs,
     isStreaming,
     onSend: handleAutoFixSend,

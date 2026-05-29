@@ -434,12 +434,12 @@ def register_routes(
             return
 
         # Vite in middlewareMode opens its HMR WebSocket server on a separate
-        # port (default 24678), NOT on the main HTTP port. So forward WS
-        # upgrades to that port instead of state.port. With one preview
-        # running at a time this is unambiguous; if we ever support concurrent
-        # previews here, the template needs to set `server.hmr.port` per app.
-        VITE_HMR_PORT = 24678
-        upstream_url = f"ws://127.0.0.1:{VITE_HMR_PORT}/{path}"
+        # port. start.sh computes it as APP_PORT + 1000 and exports VITE_HMR_PORT
+        # so vite.config.ts picks it up. Mirror that formula here so every
+        # preview connects to its own HMR server (not the parent Vite's default
+        # 24678, which is already claimed by the parent dev server).
+        hmr_port = state.port + 1000
+        upstream_url = f"ws://127.0.0.1:{hmr_port}/{path}"
         if ws.url.query:
             upstream_url = f"{upstream_url}?{ws.url.query}"
 

@@ -1160,16 +1160,31 @@ export type SuggestEvent =
 /**
  * Stream capability suggestions and use-case ideas via SSE.
  * Yields events as they arrive from the server.
+ *
+ * Three modes (mutually exclusive — first one whose args are set wins):
+ *   1. **Capability-change refresh** — pass `previousIdeas` + `previousCapabilities`
+ *      when the user toggled the capability picker. The backend rewrites
+ *      the existing stories minimally to fit the new capability set
+ *      rather than generating brand-new ones. Preserves titles + narrative.
+ *   2. **Single-idea refinement** — pass `refineIdea` + `refineComment` to
+ *      rewrite ONE idea per the user's free-text instructions and upgrade
+ *      the detail tier.
+ *   3. **Cold start** — neither set. Full ideation from the topic.
  */
 export async function* streamSuggestCapabilities(
   prompt: string,
   capabilities: CapabilityInput[],
   signal?: AbortSignal,
   refineIdea?: IdeaToRefine,
-  refineComment?: string
+  refineComment?: string,
+  previousIdeas?: IdeaToRefine[],
+  previousCapabilities?: string[]
 ): AsyncGenerator<SuggestEvent> {
   const body: Record<string, unknown> = { prompt, capabilities };
-  if (refineIdea && refineComment) {
+  if (previousIdeas && previousIdeas.length > 0) {
+    body.previous_ideas = previousIdeas;
+    body.previous_capabilities = previousCapabilities ?? [];
+  } else if (refineIdea && refineComment) {
     body.refine_idea = refineIdea;
     body.refine_comment = refineComment;
   }

@@ -8,7 +8,7 @@ import { BubbleBackground } from "@/components/backgrounds/bubble";
 import { ProjectTile } from "@/components/project/project-tile";
 import { TemplateTile } from "@/components/template/template-tile";
 import { TemplateDetailPopup } from "@/components/template/template-detail-popup";
-import { ProductSelector } from "@/components/product-selector";
+import { CapabilitiesPanel } from "@/components/capabilities-panel";
 import { DatabricksAnimatedLogo } from "@/components/databricks-animated-logo";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -20,7 +20,6 @@ import {
 import {
   Sparkles,
   ArrowRight,
-  Search,
   Lightbulb,
   Loader2,
   Library,
@@ -32,6 +31,7 @@ import {
   RefreshCw,
   AlertCircle,
   Zap,
+  Check,
 } from "lucide-react";
 import {
   listProjects,
@@ -95,12 +95,21 @@ function Index() {
   // null = not explicitly set (LLM decides), "selected" = user added, "unselected" = user removed
   const [explicitSelections, setExplicitSelections] = useState<Map<string, "selected" | "unselected">>(new Map());
   const [isSuggestingCapabilities, setIsSuggestingCapabilities] = useState(false);
+  // Lighter-weight signal than isSuggestingCapabilities: true from the
+  // moment a capability is toggled until the resulting minimal-rewrite
+  // stream finishes. The story cards stay visible and get a "refining…"
+  // overlay/pulse so the user knows their click registered, instead of
+  // a 2-second debounce gap with no UI feedback.
+  const [isRefiningStories, setIsRefiningStories] = useState(false);
   const [capabilityReasoning, setCapabilityReasoning] = useState<string | null>(null);
 
   // Use-case ideas from LLM
   const [ideas, setIdeas] = useState<UseCaseIdea[]>([]);
   const [expectedIdeaCount, setExpectedIdeaCount] = useState<number>(0);
-
+  // Which idea the user has picked. Defaults to 0 when ideas first arrive
+  // so the bottom CTA always has a target — reset to 0 on each new stream
+  // (in the regen path below) and bumped if the user clicks another card.
+  const [selectedIdeaIdx, setSelectedIdeaIdx] = useState<number>(0);
   // Refine state: which idea is being refined and the input text
   const [refiningIdeaIdx, setRefiningIdeaIdx] = useState<number | null>(null);
   const [refineText, setRefineText] = useState("");
@@ -146,6 +155,26 @@ function Index() {
       return next;
     });
   }, []);
+
+  // Replace the entire capability selection in one shot. The caller (the
+  // panel) decides both the live set AND the explicit-status map:
+  //   - Simple tab → every id in selected = "selected"; every non-baseline
+  //     id = "unselected" (hard lock so the LLM can't suggest extras).
+  //   - Custom tab → every id the user actually toggled has explicit
+  //     "selected"/"unselected"; every other id is OMITTED from explicit
+  //     (so the suggest endpoint treats it as `null` = LLM may decide).
+  // Two callers means two semantics, so we let the caller build the map
+  // rather than trying to be clever about it here.
+  const handleReplaceSelection = useCallback(
+    (
+      nextSelected: Set<string>,
+      nextExplicit: Map<string, "selected" | "unselected">,
+    ) => {
+      setSelectedProducts(nextSelected);
+      setExplicitSelections(nextExplicit);
+    },
+    [],
+  );
 
   // Load projects and capabilities on mount
   useEffect(() => {
@@ -195,13 +224,30 @@ function Index() {
   const abortControllerRef = useRef<AbortController | null>(null);
   const capabilitiesRef = useRef(capabilities);
   const explicitSelectionsRef = useRef(explicitSelections);
+  const selectedProductsRef = useRef(selectedProducts);
   useEffect(() => { capabilitiesRef.current = capabilities; }, [capabilities]);
   useEffect(() => { explicitSelectionsRef.current = explicitSelections; }, [explicitSelections]);
+  useEffect(() => { selectedProductsRef.current = selectedProducts; }, [selectedProducts]);
+
+  // Snapshot of `selectedProducts` at the moment the LAST successful
+  // suggestion stream finished — i.e. the capability set the current
+  // ideas were generated for. Compared against the live selectedProducts
+  // to (a) decide whether a re-suggest is needed at all and (b) feed the
+  // "delta refresh" prompt so the LLM rewrites stories minimally rather
+  // than replacing them.
+  const ideasCapabilitySnapshotRef = useRef<string[]>([]);
 
   const runSuggestionStream = useCallback(async (
     promptText: string,
     refineIdea?: IdeaToRefine,
-    refineComment?: string
+    refineComment?: string,
+    /** When set, ask the backend to MINIMALLY rewrite these existing
+     *  stories to fit the new capability set instead of regenerating
+     *  from scratch. Pass the current `ideas` array. */
+    previousIdeas?: IdeaToRefine[],
+    /** The capability set the previousIdeas were generated against —
+     *  needed so the prompt can describe the diff in plain English. */
+    previousCapabilities?: string[],
   ) => {
     // Read latest values via refs (see RACE NOTE above).
     const caps = capabilitiesRef.current;
@@ -222,10 +268,24 @@ function Index() {
     const abortController = new AbortController();
     abortControllerRef.current = abortController;
 
-    // Clear previous ideas and show loading
-    setIdeas([]);
-    setExpectedIdeaCount(0);
+    // Clear previous ideas and show loading. For a capability-change
+    // refresh we DON'T clear — the user is mid-decision, blanking the
+    // panel to skeletons would defeat the whole point of the minimal
+    // rewrite path. Ideas get replaced in-place as the LLM streams them.
+    const isCapabilityChangeRefresh = !!previousIdeas && previousIdeas.length > 0;
+    if (!isCapabilityChangeRefresh) {
+      setIdeas([]);
+      setExpectedIdeaCount(0);
+      setSelectedIdeaIdx(0);
+    } else {
+      // Pre-fill skeletons with the right count so layout doesn't shift.
+      setExpectedIdeaCount(previousIdeas!.length);
+    }
     setIsSuggestingCapabilities(true);
+
+    // Reset accumulator BEFORE the stream starts (for the refresh path);
+    // we replace ideas in-place as `idea` events arrive.
+    let nextIdeas: UseCaseIdea[] = [];
 
     try {
       // Build capability inputs
@@ -240,7 +300,9 @@ function Index() {
         capabilityInputs,
         abortController.signal,
         refineIdea,
-        refineComment
+        refineComment,
+        previousIdeas,
+        previousCapabilities,
       )) {
         // Check if aborted
         if (abortController.signal.aborted) return;
@@ -249,11 +311,23 @@ function Index() {
           // Set expected count to show skeleton cards
           setExpectedIdeaCount(event.data.count);
         } else if (event.type === "idea") {
-          // Append idea as it arrives
-          setIdeas((prev) => [...prev, event.data]);
+          if (isCapabilityChangeRefresh) {
+            // Accumulate locally; swap atomically when the stream ends
+            // so the user never sees a half-replaced list.
+            nextIdeas.push(event.data);
+          } else {
+            // Cold-start path — stream into the UI live so the user gets
+            // immediate feedback.
+            setIdeas((prev) => [...prev, event.data]);
+          }
         } else if (event.type === "capabilities") {
-          // Update capabilities with user overrides — read latest
-          // explicit selections in case the user toggled mid-stream.
+          if (isCapabilityChangeRefresh) {
+            // Refresh mode — IGNORE the LLM's capability event. The user
+            // just told us what they want; overwriting that with whatever
+            // the LLM happens to spit back would undo their click.
+            continue;
+          }
+          // Cold-start: take the LLM's set + apply user overrides.
           const explicitNow = explicitSelectionsRef.current;
           setSelectedProducts(() => {
             const next = new Set<string>();
@@ -271,10 +345,29 @@ function Index() {
           setCapabilityReasoning(event.data.text || null);
         } else if (event.type === "error") {
           console.error("Suggestion error:", event.data.error);
-          // Use fallback capabilities from error
-          setSelectedProducts(new Set(event.data.capabilities));
+          if (!isCapabilityChangeRefresh) {
+            // Use fallback capabilities from error (cold-start only).
+            setSelectedProducts(new Set(event.data.capabilities));
+          }
         }
       }
+
+      // Stream completed cleanly. Atomic-swap the refresh-mode ideas
+      // and snapshot the capability set the ideas were generated for.
+      if (isCapabilityChangeRefresh && nextIdeas.length > 0) {
+        setIdeas(nextIdeas);
+        // Selected idea index might point at a stale slot — clamp it.
+        setSelectedIdeaIdx((idx) => Math.min(idx, nextIdeas.length - 1));
+      }
+      // Snapshot the capability set the current ideas correspond to,
+      // so the NEXT toggle knows what diff to feed the prompt. We read
+      // the LIVE selectedProducts via a ref (set further down) to avoid
+      // a stale closure — by the time the stream finishes, the user may
+      // have toggled again and we want the snapshot to reflect what's
+      // actually on screen now.
+      ideasCapabilitySnapshotRef.current = Array.from(
+        selectedProductsRef.current,
+      );
     } catch (err) {
       // Ignore abort errors
       if (err instanceof Error && err.name === "AbortError") return;
@@ -283,6 +376,10 @@ function Index() {
     } finally {
       if (!abortController.signal.aborted) {
         setIsSuggestingCapabilities(false);
+        // Clear the lightweight refining flag too — set by the toggle
+        // effect at click time, cleared here when the stream finishes
+        // (whether it ran cold-start or capability-change-refresh).
+        setIsRefiningStories(false);
       }
     }
   }, []); // ← stable identity; deps are read via refs
@@ -360,13 +457,46 @@ function Index() {
     // identical to an instant regen even though the actual API call is
     // debounced. Keep the current ideas visible during the debounce window;
     // runSuggestionStream() will flip the flag when it actually fires.
+    //
+    // We DO flip the lighter-weight `isRefiningStories` flag immediately
+    // so the cards get a visible "refining…" overlay during the debounce
+    // window. The flag clears either (a) when the resulting stream
+    // finishes, or (b) below in the equality-skip branch when we decide
+    // nothing actually needs re-fetching.
+    const liveCapsImmediate = Array.from(selectedProductsRef.current).sort();
+    const snapshotCapsImmediate = [...ideasCapabilitySnapshotRef.current].sort();
+    if (liveCapsImmediate.join("|") !== snapshotCapsImmediate.join("|")) {
+      setIsRefiningStories(true);
+    }
+
     const timer = setTimeout(() => {
-      runSuggestionStream(topic.trim());
+      // Re-check the live capability set against the snapshot — the user
+      // may have toggled back to the original state during the debounce
+      // window, in which case we skip the (expensive) re-suggest entirely.
+      const liveCaps = Array.from(selectedProductsRef.current).sort();
+      const snapshotCaps = [...ideasCapabilitySnapshotRef.current].sort();
+      if (liveCaps.join("|") === snapshotCaps.join("|")) {
+        setIsRefiningStories(false);
+        return;
+      }
+      // If we have existing ideas, ask for a minimal in-place rewrite
+      // (preserves titles + narrative). Otherwise fall through to a
+      // cold-start ideation pass.
+      const currentIdeas = ideas.length > 0
+        ? ideas.map((i) => ({ title: i.title, hook: i.hook, datasources: i.datasources }))
+        : undefined;
+      runSuggestionStream(
+        topic.trim(),
+        undefined,
+        undefined,
+        currentIdeas,
+        currentIdeas ? snapshotCaps : undefined,
+      );
     }, 2000);
 
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [explicitSelections, capabilitiesReady]);
+  }, [explicitSelections, capabilitiesReady, selectedProducts]);
 
   // Manual regenerate handler
   const handleRegenerate = useCallback(() => {
@@ -476,11 +606,6 @@ function Index() {
     }
   };
 
-  // Handle clicking "Use this story" - directly create project
-  const handleUseStory = (idea: UseCaseIdea) => {
-    handleCreateProject(undefined, idea);
-  };
-
   // Open existing project
   const handleOpenProject = (projectId: string) => {
     navigate({ to: "/project/$projectId", params: { projectId } });
@@ -544,7 +669,15 @@ function Index() {
           {/* Input card */}
           <Card className="w-full text-left backdrop-blur-md bg-card/80 border-primary/10 shadow-lg shadow-primary/5">
             <CardContent className="p-4">
-              <form onSubmit={(e) => handleCreateProject(e)} className="space-y-2.5">
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  // Direct create — pass the picked idea (if any) so the
+                  // build uses the highlighted story; otherwise raw topic.
+                  handleCreateProject(undefined, ideas[selectedIdeaIdx]);
+                }}
+                className="space-y-2.5"
+              >
                 <Textarea
                   ref={textareaRef}
                   placeholder='Describe your project... e.g. "predictive maintenance for wind turbines"'
@@ -558,27 +691,10 @@ function Index() {
                   autoFocus
                 />
 
-                {/* Auto-build toggle — when on, picking a use case runs every stage end-to-end without prompts */}
-                <label
-                  className="flex items-center gap-2 cursor-pointer select-none text-xs text-muted-foreground hover:text-foreground transition-colors w-fit"
-                  title="When on, auto-build runs through every stage (DRAFTING → DEPLOYED) without pausing for confirmation. Takes ~30 min."
-                >
-                  <Checkbox
-                    checked={autoMode}
-                    onCheckedChange={(v) => setAutoMode(v === true)}
-                    aria-label="Enable auto build mode"
-                  />
-                  <Zap className="h-3 w-3 text-primary" strokeWidth={2.5} />
-                  <span className="font-medium">Auto mode</span>
-                  <span className="text-muted-foreground/70">
-                    — picks a story and runs every stage end-to-end (~30 min)
-                  </span>
-                </label>
-
                 {/* Ideas section - shows when we have ideas or loading */}
                 {isHeroCollapsed && (
                   <div className="pt-2 pb-1">
-                    <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center justify-between gap-3 mb-3">
                       <div className="flex items-center gap-2">
                         <Lightbulb className="h-4 w-4 text-primary" />
                         <span className="text-sm font-medium">
@@ -588,18 +704,50 @@ function Index() {
                               ? "Your solution story"
                               : "Choose a story direction"}
                         </span>
+                        {/* Regenerate stories — paired with the title so it
+                            reads as part of the "your stories" header. */}
+                        {ideas.length > 0 && !isSuggestingCapabilities && (
+                          <button
+                            type="button"
+                            onClick={handleRegenerate}
+                            className="ml-1 flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors cursor-pointer"
+                            title="Regenerate stories from scratch"
+                          >
+                            <RefreshCw className="h-3.5 w-3.5" />
+                            Regenerate stories
+                          </button>
+                        )}
                       </div>
-                      {/* Regenerate button */}
-                      {ideas.length > 0 && !isSuggestingCapabilities && (
-                        <button
-                          type="button"
-                          onClick={handleRegenerate}
-                          className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors cursor-pointer"
-                          title="Regenerate ideas"
-                        >
-                          <RefreshCw className="h-4 w-4" />
-                        </button>
-                      )}
+                      {/* Auto-build toggle — when on, picking a use case
+                          runs every stage end-to-end without prompts.
+                          Uses the shadcn Tooltip so the explanation shows
+                          on hover (the bare `title` attr was too slow). */}
+                      <TooltipProvider delayDuration={100}>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <label
+                              className="flex items-center gap-1.5 cursor-pointer select-none text-xs text-muted-foreground hover:text-foreground transition-colors"
+                            >
+                              <Checkbox
+                                checked={autoMode}
+                                onCheckedChange={(v) => setAutoMode(v === true)}
+                                aria-label="Enable auto build mode"
+                              />
+                              <Zap className="h-3 w-3 text-primary" strokeWidth={2.5} />
+                              <span className="font-medium">Auto mode</span>
+                            </label>
+                          </TooltipTrigger>
+                          <TooltipContent side="top" align="end" className="max-w-xs">
+                            <p className="text-xs leading-relaxed">
+                              <strong>Auto mode</strong> runs every build stage
+                              end-to-end (story → specs → resources → deploy)
+                              without pausing for confirmation. Takes ~30 min.
+                              Turn it off if you want to review each step
+                              manually as the assistant works.
+                            </p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
                     </div>
                     {/* Initial loading state before count arrives */}
                     {isSuggestingCapabilities && expectedIdeaCount === 0 && ideas.length === 0 && (
@@ -640,19 +788,52 @@ function Index() {
                             );
                           }
 
-                          // Real idea card
+                          // Real idea card — clickable to select. Selection
+                          // is wired to a single primary CTA below the
+                          // capability picker; per-card buttons no longer
+                          // create the project (avoids the "press here then
+                          // there" disjoint flow).
                           const isRefiningThis = refiningIdeaIdx === idx;
+                          const isSelectedIdea = selectedIdeaIdx === idx;
                           return (
                             <div
                               key={idx}
-                              className={`p-4 rounded-lg border transition-all flex flex-col h-full ${
+                              onClick={() => setSelectedIdeaIdx(idx)}
+                              role="button"
+                              tabIndex={0}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter" || e.key === " ") {
+                                  e.preventDefault();
+                                  setSelectedIdeaIdx(idx);
+                                }
+                              }}
+                              className={`relative p-4 rounded-lg border transition-all flex flex-col h-full bg-white dark:bg-card ${
                                 totalSlots > 1 ? "min-h-[180px]" : ""
-                              } border-border/50 hover:border-primary/30`}
+                              } ${
+                                isSelectedIdea
+                                  ? "border-primary/60 ring-1 ring-primary/40 shadow-sm"
+                                  : "border-slate-200 dark:border-border/50 hover:border-primary/40"
+                              } ${
+                                isRefiningStories ? "pointer-events-none" : "cursor-pointer"
+                              }`}
                             >
-                              <p className="text-sm font-medium text-foreground mb-1.5">
+                              {/* Refining overlay — covers the card while
+                                  the AI is rewriting the stories. The inner
+                                  content stays in place (no layout shift)
+                                  but reads as ghosted via the overlay's
+                                  backdrop. */}
+                              {isRefiningStories && (
+                                <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 rounded-lg bg-white/70 dark:bg-card/70 backdrop-blur-[1px]">
+                                  <Loader2 className="h-5 w-5 text-primary animate-spin" />
+                                  <span className="text-xs text-muted-foreground">
+                                    Refining…
+                                  </span>
+                                </div>
+                              )}
+                              <p className="text-sm font-medium text-slate-900 dark:text-foreground mb-1.5">
                                 {idea.title}
                               </p>
-                              <div className="text-xs text-muted-foreground leading-relaxed mb-3 flex-1">
+                              <div className="text-xs text-slate-600 dark:text-muted-foreground leading-relaxed mb-3 flex-1">
                                 {/* Render hook with markdown-like formatting for detailed cards */}
                                 {idea.hook.includes("\n") ? (
                                   <div className="space-y-2">
@@ -661,7 +842,7 @@ function Index() {
                                         {paragraph.split(/(\*\*[^*]+\*\*)/).map((part, partIdx) => {
                                           if (part.startsWith("**") && part.endsWith("**")) {
                                             return (
-                                              <span key={partIdx} className="font-semibold text-foreground">
+                                              <span key={partIdx} className="font-semibold text-slate-900 dark:text-foreground">
                                                 {part.slice(2, -2)}
                                               </span>
                                             );
@@ -691,12 +872,22 @@ function Index() {
 
                               {/* Refine input - shows when refining this card */}
                               {isRefiningThis && (
-                                <div className="mb-3 flex gap-2">
+                                <div
+                                  className="mb-3 flex gap-2"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
                                   <input
                                     type="text"
                                     value={refineText}
                                     onChange={(e) => setRefineText(e.target.value)}
+                                    onClick={(e) => e.stopPropagation()}
                                     onKeyDown={(e) => {
+                                      // Stop EVERY keydown from bubbling to
+                                      // the card's onKeyDown — that handler
+                                      // preventDefault()s Space (because the
+                                      // card is role="button"), which would
+                                      // otherwise eat spaces typed in here.
+                                      e.stopPropagation();
                                       if (e.key === "Enter" && !e.shiftKey) {
                                         e.preventDefault();
                                         handleRefineSubmit(idea);
@@ -713,7 +904,10 @@ function Index() {
                                   />
                                   <button
                                     type="button"
-                                    onClick={() => handleRefineSubmit(idea)}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleRefineSubmit(idea);
+                                    }}
                                     disabled={!refineText.trim() || isRefining}
                                     className="p-1.5 rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 cursor-pointer"
                                   >
@@ -725,7 +919,8 @@ function Index() {
                                   </button>
                                   <button
                                     type="button"
-                                    onClick={() => {
+                                    onClick={(e) => {
+                                      e.stopPropagation();
                                       setRefiningIdeaIdx(null);
                                       setRefineText("");
                                     }}
@@ -736,21 +931,44 @@ function Index() {
                                 </div>
                               )}
 
-                              {/* Action buttons */}
-                              <div className="flex gap-2 mt-auto">
-                                <button
-                                  type="button"
-                                  onClick={() => handleUseStory(idea)}
-                                  disabled={isCreating}
-                                  className="text-xs font-medium px-3 py-1.5 rounded-md transition-all flex items-center gap-1.5 cursor-pointer bg-destructive text-destructive-foreground hover:bg-destructive/90 disabled:opacity-50"
+                              {/* Card actions — only Refine remains as a per-card
+                                  button. Selection is conveyed by the card's
+                                  border/ring AND by the destructive-accent
+                                  pill below (matches the build CTA color)
+                                  so it reads as a primary affordance, not
+                                  another neutral chip next to Refine/data
+                                  source pills. */}
+                              <div className="flex items-center gap-2 mt-auto">
+                                <span
+                                  className={`text-xs font-semibold py-1.5 rounded-md flex items-center justify-center gap-1.5 border w-[128px] ${
+                                    isSelectedIdea
+                                      ? "bg-destructive text-destructive-foreground border-destructive shadow-sm"
+                                      : "bg-transparent text-destructive border-destructive/40 hover:bg-destructive/5"
+                                  }`}
                                 >
-                                  <Sparkles className="h-3 w-3" />
-                                  Use this story
-                                </button>
+                                  {isSelectedIdea ? (
+                                    <>
+                                      <Check className="h-3 w-3" strokeWidth={2.5} />
+                                      Picked
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Sparkles className="h-3 w-3" />
+                                      Click to pick
+                                    </>
+                                  )}
+                                </span>
                                 {!isRefiningThis && (
                                   <button
                                     type="button"
-                                    onClick={() => {
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      // Refining a card implicitly picks it
+                                      // too — the user is signaling this is
+                                      // the story they want, just with a
+                                      // tweak. Stops the user from having
+                                      // to click twice (pick → refine).
+                                      setSelectedIdeaIdx(idx);
                                       setRefiningIdeaIdx(idx);
                                       setRefineText("");
                                     }}
@@ -769,15 +987,50 @@ function Index() {
                   </div>
                 )}
 
-                {/* Product selector - shows when collapsed OR when an idea is selected */}
-                <ProductSelector
+                {/* Capabilities panel — tabs between a curated "Simple
+                    Databricks demo" baseline and the full "Custom solution"
+                    selector. Both tabs write to the same selectedProducts
+                    set so the downstream build CTA / confirm dialog are
+                    unchanged. */}
+                <CapabilitiesPanel
                   capabilities={capabilities}
                   selectedProducts={selectedProducts}
                   onToggleProduct={handleToggleProduct}
+                  onReplaceSelection={handleReplaceSelection}
                   expanded={isHeroCollapsed}
                   isLoading={isSuggestingCapabilities}
                   explicitSelections={explicitSelections}
                 />
+
+                {/* Primary CTA — direct create. Capability set is fully
+                    user-visible (locked baseline in Simple, granular tile
+                    in Custom), so no confirm dialog is needed. */}
+                {isHeroCollapsed && ideas.length > 0 && (
+                  <div className="flex flex-col items-center gap-2 pt-2">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        handleCreateProject(undefined, ideas[selectedIdeaIdx])
+                      }
+                      disabled={
+                        isCreating || isSuggestingCapabilities || !topic.trim()
+                      }
+                      className="inline-flex items-center justify-center gap-2 px-6 py-2.5 rounded-md text-sm font-semibold transition-all bg-destructive text-destructive-foreground hover:bg-destructive/90 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer shadow-sm"
+                    >
+                      {isCreating ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Sparkles className="h-4 w-4" />
+                      )}
+                      {isCreating
+                        ? "Creating…"
+                        : ideas[selectedIdeaIdx]
+                          ? `Build with "${ideas[selectedIdeaIdx].title}"`
+                          : "Build this solution"}
+                    </button>
+                  </div>
+                )}
+
                 {/* Error message and reasoning tooltip */}
                 <div className="flex items-center gap-2">
                   {createError && (
@@ -807,52 +1060,6 @@ function Index() {
           </Card>
 
           {/* Research agent callout - hidden when collapsed */}
-          <div
-            className={`mx-auto max-w-4xl transition-all duration-300 ease-out overflow-hidden ${
-              isHeroCollapsed ? "max-h-0 opacity-0" : "max-h-[200px] opacity-100"
-            }`}
-          >
-            <div className="rounded-xl border border-primary/10 bg-primary/[0.03] backdrop-blur-sm px-4 py-3 text-left">
-              <div className="flex items-start gap-3">
-                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 mt-0.5">
-                  <Search className="h-4 w-4 text-primary" />
-                </div>
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-foreground">
-                    Tailoring for a specific customer?
-                  </p>
-                  <p className="mt-0.5 text-xs text-muted-foreground leading-relaxed">
-                    Before building a solution, ask a research agent (Claude,
-                    Genie, Glean) to summarize the customer's industry, current
-                    tech stack, pain points, and Databricks usage. Paste that
-                    context into the input above for a proposal that speaks
-                    directly to their world.
-                  </p>
-                </div>
-              </div>
-              <div className="mt-2.5 ml-11 flex items-center gap-3 text-[11px] text-muted-foreground">
-                <span className="flex items-center gap-1">
-                  <Lightbulb className="h-3 w-3 text-primary/60" />
-                  <span className="font-medium text-foreground/70">
-                    Example prompt:
-                  </span>
-                </span>
-                <button
-                  onClick={() => {
-                    setTopic(
-                      "Build a solution for Acme Corp (Fortune 500 retailer, heavy on Snowflake today, interested in real-time ML). They struggle with demand forecasting accuracy across 2,000+ stores."
-                    );
-                    setTimeout(adjustTextareaHeight, 0);
-                  }}
-                  className="italic hover:text-foreground transition-colors cursor-pointer underline underline-offset-2 decoration-primary/20 hover:decoration-primary/40"
-                  aria-label="Use example prompt: Build a solution for Acme Corp"
-                >
-                  "Build a solution for Acme Corp, a Fortune 500 retailer struggling
-                  with demand forecasting across 2,000+ stores..."
-                </button>
-              </div>
-            </div>
-          </div>
         </div>
 
         {/* Matching templates section */}
