@@ -212,6 +212,19 @@ def _rewrite_js_imports(body: bytes, project_id: str) -> bytes:
     return _JS_IMPORT_RE.sub(_prefix_import, body)
 
 
+# Match inline `<script type="module"> ... </script>` blocks so we can rewrite
+# absolute-path import paths INSIDE them. Without this, Vite's @vitejs/plugin-
+# react preamble (inlined as a module script with `import "/@react-refresh"`)
+# resolves the import against the parent origin → 404 → $RefreshReg$/$RefreshSig$
+# never set → first JSX module throws "can't detect preamble" → blank page.
+# Non-greedy + DOTALL so we match multi-line bodies; case-insensitive on the
+# opening tag attrs.
+_INLINE_MODULE_SCRIPT_RE = re.compile(
+    rb'(<script\b[^>]*\btype=["\']module["\'][^>]*>)(.*?)(</script>)',
+    re.IGNORECASE | re.DOTALL,
+)
+
+
 def _rewrite_html(body: bytes, project_id: str) -> bytes:
     prefix = f"/preview/{project_id}".encode()
 
@@ -220,6 +233,15 @@ def _rewrite_html(body: bytes, project_id: str) -> bytes:
         return attr + q1 + prefix + path + q2
 
     rewritten = _ATTR_RE.sub(_prefix_attr, body)
+
+    # Inline module scripts in HTML carry their own `import "/..."` statements
+    # that the native ESM loader will fetch directly — bypassing our runtime
+    # fetch shim AND the JS-content-type rewrite path. Rewrite them in place.
+    def _prefix_inline_module(m: "re.Match[bytes]") -> bytes:
+        opening, body_bytes, closing = m.group(1), m.group(2), m.group(3)
+        return opening + _rewrite_js_imports(body_bytes, project_id) + closing
+
+    rewritten = _INLINE_MODULE_SCRIPT_RE.sub(_prefix_inline_module, rewritten)
 
     shim = _shim_script(project_id).encode()
     # Inject shim as the FIRST thing after <head> so it runs before any child

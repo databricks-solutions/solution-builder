@@ -18,8 +18,10 @@ Sync logic:
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import os
+import re
 import threading
 import zlib
 from datetime import datetime, timezone
@@ -154,6 +156,171 @@ def decompress_content(compressed: bytes) -> bytes:
     if compressed and compressed[0] == _ZSTD_MAGIC_FIRST_BYTE:
         return _get_decompressor().decompress(compressed)
     return zlib.decompress(compressed)
+
+
+# ---------------------------------------------------------------------------
+# Claude Code session-transcript re-anchoring on restore
+# ---------------------------------------------------------------------------
+#
+# The Claude Agent SDK stores transcripts as:
+#
+#     <CLAUDE_CONFIG_DIR>/projects/<sanitized-cwd>/<session_id>.jsonl
+#
+# where `<sanitized-cwd>` is the agent's working directory with every
+# non-alphanumeric character replaced by `-`. We use `<project_dir>/.claude`
+# as CLAUDE_CONFIG_DIR, so on disk we end up with:
+#
+#     <project_dir>/.claude/projects/<sanitized-cwd>/<session_id>.jsonl
+#
+# Concrete example on Databricks Apps:
+#
+#     project_dir resolved   : /app/deployments/<deploy_A>/projects/<id>
+#     sanitized               : -app-deployments-<deploy_A>-projects-<id>
+#     transcript path         : <project_dir>/.claude/projects/
+#                                 -app-deployments-<deploy_A>-projects-<id>/
+#                                 <session_id>.jsonl
+#
+# `<deploy_A>` rotates on every `databricks bundle deploy`. After the next
+# deploy the container's resolved project_dir becomes
+# `/app/deployments/<deploy_B>/projects/<id>`, and the SDK looks for the
+# transcript under a different sanitized name (`-app-deployments-<deploy_B>...`)
+# — which is empty, so resume fails with "No conversation found".
+#
+# Fix: after each DB restore, fold every stale sanitized-cwd sub-directory
+# into the current one (computed from the current resolved project_dir) and
+# rewrite the `cwd` field inside each JSONL line. The SDK's worktree /
+# resume code reads both the path and the embedded cwd; mismatched values
+# cause silent fallback to a fresh session.
+
+# Match the SDK's _SANITIZE_RE / MAX_SANITIZED_LENGTH (claude_agent_sdk/
+# _internal/sessions.py). Kept inline rather than imported so the SDK
+# remains a normal pip-pinned dependency and we don't reach into its
+# private module path.
+_TRANSCRIPT_SANITIZE_RE = re.compile(r"[^a-zA-Z0-9]")
+_TRANSCRIPT_MAX_SANITIZED_LENGTH = 200
+
+
+def _sanitize_cwd(cwd: str) -> str:
+    """Mirror of claude_agent_sdk._internal.sessions._sanitize_path."""
+    sanitized = _TRANSCRIPT_SANITIZE_RE.sub("-", cwd)
+    if len(sanitized) <= _TRANSCRIPT_MAX_SANITIZED_LENGTH:
+        return sanitized
+    # SDK appends a hash on overflow; we don't actually expect to hit
+    # this in practice (Databricks deployment paths are well under 200
+    # chars), so log + fall back to truncation rather than reimplement
+    # the JS-style hash.
+    logger.warning(
+        f"[transcripts] cwd exceeds {_TRANSCRIPT_MAX_SANITIZED_LENGTH} chars; "
+        f"sanitization may diverge from SDK: {cwd!r}"
+    )
+    return sanitized[:_TRANSCRIPT_MAX_SANITIZED_LENGTH]
+
+
+def _rewrite_jsonl_cwd(path: Path, new_cwd: str) -> None:
+    """Rewrite the `cwd` field in every JSON line of a transcript.
+
+    Lines without a `cwd` field are passed through unchanged. Malformed
+    lines are passed through verbatim (the SDK is tolerant of those).
+    """
+    out_lines: list[str] = []
+    changed = False
+    with path.open("r", encoding="utf-8") as f:
+        for line in f:
+            stripped = line.rstrip("\n")
+            if not stripped:
+                out_lines.append(line)
+                continue
+            try:
+                rec = json.loads(stripped)
+            except json.JSONDecodeError:
+                out_lines.append(line)
+                continue
+            if isinstance(rec, dict) and rec.get("cwd") and rec["cwd"] != new_cwd:
+                rec["cwd"] = new_cwd
+                out_lines.append(json.dumps(rec, ensure_ascii=False) + "\n")
+                changed = True
+            else:
+                out_lines.append(line)
+    if changed:
+        path.write_text("".join(out_lines), encoding="utf-8")
+
+
+def _relocate_session_transcripts(project_dir: Path) -> None:
+    """Fold stale `.claude/projects/<old>/` transcript dirs into the current one.
+
+    Worked example. Imagine the project was first run on deploy A:
+
+        cwd  = /app/deployments/A/projects/abc
+        path = .claude/projects/-app-deployments-A-projects-abc/sess1.jsonl
+
+    Now we redeploy → deploy B; container restarts; project files are
+    restored from Lakebase (which still has the deploy-A path). Without
+    this helper:
+
+        SDK looks for: .claude/projects/-app-deployments-B-projects-abc/sess1.jsonl
+        actually here:  .claude/projects/-app-deployments-A-projects-abc/sess1.jsonl
+        → "No conversation found with session ID: sess1"
+
+    After this helper runs, the transcript is moved to the deploy-B path
+    AND its embedded `cwd` field is rewritten so the SDK's worktree code
+    doesn't trip on the stale value either.
+    """
+    transcripts_root = project_dir / ".claude" / "projects"
+    if not transcripts_root.is_dir():
+        return
+
+    current_cwd = str(project_dir.resolve())
+    expected_name = _sanitize_cwd(current_cwd)
+    expected_dir = transcripts_root / expected_name
+    expected_dir.mkdir(parents=True, exist_ok=True)
+
+    moved = 0
+    for child in list(transcripts_root.iterdir()):
+        if not child.is_dir() or child.name == expected_name:
+            continue
+        # Move every .jsonl file into the canonical directory; rewrite cwd.
+        for jsonl in child.rglob("*.jsonl"):
+            dest = expected_dir / jsonl.name
+            # If the same session id already exists in the canonical dir
+            # (e.g. a previous restore already migrated it), keep the
+            # canonical copy and drop the stale one.
+            if dest.exists():
+                try:
+                    jsonl.unlink()
+                except OSError:
+                    pass
+                continue
+            try:
+                jsonl.rename(dest)
+            except OSError:
+                # Cross-filesystem rename or permission edge case — copy + delete.
+                dest.write_bytes(jsonl.read_bytes())
+                try:
+                    jsonl.unlink()
+                except OSError:
+                    pass
+            try:
+                _rewrite_jsonl_cwd(dest, current_cwd)
+            except Exception as e:  # noqa: BLE001
+                logger.warning(
+                    f"[transcripts] failed to rewrite cwd in {dest.name}: {e}"
+                )
+            moved += 1
+        # Best-effort cleanup of now-empty stale dirs.
+        try:
+            for empty in sorted(
+                (p for p in child.rglob("*") if p.is_dir()), reverse=True
+            ):
+                empty.rmdir()
+            child.rmdir()
+        except OSError:
+            pass
+
+    if moved:
+        logger.info(
+            f"[transcripts] re-anchored {moved} transcript(s) under {expected_name!r} "
+            f"(cwd={current_cwd!r})"
+        )
 
 
 class FileSyncService:
@@ -313,6 +480,18 @@ class FileSyncService:
                     restored += 1
                 except Exception as e:
                     logger.error(f"Failed to restore {file_record.relative_path}: {e}")
+
+            # Session transcripts the SDK wrote live under .claude/projects/
+            # keyed by the agent's cwd at the time. On Databricks Apps that
+            # cwd contains the deployment id, which rotates every redeploy —
+            # so the restored directory name no longer matches what the SDK
+            # is about to look up. Re-anchor transcripts to the current cwd.
+            try:
+                _relocate_session_transcripts(project_dir)
+            except Exception as e:  # noqa: BLE001
+                logger.warning(
+                    f"[restore] transcript relocate failed for {project_id}: {e}"
+                )
 
             return restored
 

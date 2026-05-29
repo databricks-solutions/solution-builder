@@ -40,16 +40,52 @@ READY_PROBE_INTERVAL_SECONDS = 0.5
 SERVER_PID_FILENAME = ".preview.server.pid"
 
 
-def _pick_free_port() -> int:
-    """Ask the kernel for a free TCP port.
+def _pick_free_port(exclude: set[int] | None = None) -> int:
+    """Ask the kernel for a free TCP port — never reusing this process's own
+    listening port, and never reusing a port we've already assigned to
+    another preview that hasn't bound yet.
 
-    There's a tiny TOCTOU window between closing the probe socket and the
-    subprocess binding it, but on a single dev machine with no other port
-    scanners that's fine in practice.
+    `bind(("127.0.0.1", 0))` asks the kernel for an ephemeral port. The
+    kernel won't return a port that's CURRENTLY bound by another process,
+    so apps that are already listening are safe by construction. Two
+    cases the kernel alone can't protect against:
+
+      1. **The parent app's port.** On Linux the default ephemeral range
+         starts at 32768 and `DATABRICKS_APP_PORT` is typically 8000, so
+         a clean collision is rare — but in deployments where the parent
+         runs in the ephemeral range (or any misconfigured Databricks Apps
+         host that hands out a high port to the parent), the kernel can
+         reissue the parent's port. The preview's child would then bind
+         to it, and Databricks Apps' load balancer (routing to whatever
+         is on `DATABRICKS_APP_PORT`) would serve the demo's UI in lieu
+         of ours, effectively killing the demo-generator app.
+
+      2. **Other previews we've already promised a port to.** Between
+         allocating a port for preview A and A's child actually binding
+         (~hundreds of ms while npm + tsx warm up), a /start for preview
+         B could call bind(0) and get the SAME port back. Both children
+         then race; the loser exits with EADDRINUSE. We track all
+         already-assigned-but-not-yet-bound ports in `exclude` so callers
+         can pass them in.
+
+    Defensive retry up to 8 times before failing loudly — better than
+    hijacking the parent or stealing another preview's slot.
     """
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
+    parent_port_str = os.environ.get("DATABRICKS_APP_PORT") or ""
+    parent_port = int(parent_port_str) if parent_port_str.isdigit() else None
+    forbidden: set[int] = set(exclude or ())
+    if parent_port is not None:
+        forbidden.add(parent_port)
+    for _ in range(8):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.bind(("127.0.0.1", 0))
+            port = s.getsockname()[1]
+        if port not in forbidden:
+            return port
+    raise RuntimeError(
+        f"could not find a free port distinct from forbidden set "
+        f"(parent + in-flight previews): {sorted(forbidden)}"
+    )
 
 
 async def _port_is_listening(port: int) -> bool:
@@ -255,7 +291,11 @@ class PreviewRegistry:
         # DATABRICKS_APP_PORT. `start.sh` reads that env var with 8765 as the
         # fallback — by injecting it we guarantee no collision across
         # concurrent previews, and we already know where to probe for ready.
-        port = _pick_free_port()
+        # Exclude any port we've already assigned to another preview that
+        # hasn't bound yet (TOCTOU protection between two near-simultaneous
+        # /start calls; see _pick_free_port docstring case 2).
+        in_use = {s.port for s in self._states.values() if s.port is not None}
+        port = _pick_free_port(exclude=in_use)
 
         state.status = "starting"
         state.port = port
