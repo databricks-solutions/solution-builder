@@ -42,6 +42,10 @@ export interface UseAppPreviewReturn {
   /** Inject a synthetic "system" log line (amber) from the client — used by
    *  the auto-fix feature to post notices alongside real backend logs. */
   appendSystemLog: (text: string) => void;
+  /** Drop every log line currently in the buffer. The SSE cursor is NOT
+   *  rewound, so new lines after the clear continue to stream in normally —
+   *  this just declutters the panel without affecting backend state. */
+  clearLogs: () => void;
 }
 
 export function useAppPreview(projectId: string): UseAppPreviewReturn {
@@ -237,7 +241,13 @@ export function useAppPreview(projectId: string): UseAppPreviewReturn {
     });
   }, []);
 
-  return { state, logs, error, isStarting, isStopping, start, stop, restart, appendSystemLog };
+  const clearLogs = useCallback(() => {
+    // Drop the buffer but keep the SSE cursor — incoming lines after the
+    // clear continue to flow in. This is purely a UI declutter.
+    setLogs([]);
+  }, []);
+
+  return { state, logs, error, isStarting, isStopping, start, stop, restart, appendSystemLog, clearLogs };
 }
 
 // ---------------------------------------------------------------------------

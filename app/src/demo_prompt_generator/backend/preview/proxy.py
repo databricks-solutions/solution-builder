@@ -273,6 +273,66 @@ def _shim_script(project_id: str) -> str:
   // computes URLs from window.location) can strip it. React Router accepts
   // `basename` on createBrowserRouter; other routers have similar options.
   window.__PREVIEW_BASENAME__ = PREFIX;
+
+  // ---- @vitejs/plugin-react preamble fallback ----------------------------
+  // Pre-seed the React-Refresh globals as no-ops so the plugin's boundary
+  // check ("can't detect preamble") doesn't throw when the real preamble
+  // fails to load. The real runtime overwrites these with proper hooks.
+  if (!window.$RefreshReg$) window.$RefreshReg$ = function () {{}};
+  if (!window.$RefreshSig$) window.$RefreshSig$ = function () {{ return function (t) {{ return t; }}; }};
+
+  // ---- Error catcher (preview-only) --------------------------------------
+  // Forwards uncaught errors / unhandled rejections to the parent's
+  // /preview/<id>/api/log/client-error so they land in the server's stderr
+  // (and the auto-fix tail). Fires for module-evaluation failures too —
+  // those happen BEFORE the child app's own error reporter is installed,
+  // which is why we wire it here from the proxy shim instead of relying
+  // on the template.
+  function _previewSendError(payload) {{
+    try {{
+      var url = PREFIX + "/api/log/client-error";
+      var body = JSON.stringify(payload);
+      if (navigator.sendBeacon) {{
+        navigator.sendBeacon(url, new Blob([body], {{ type: "application/json" }}));
+      }} else {{
+        fetch(url, {{
+          method: "POST",
+          headers: {{ "content-type": "application/json" }},
+          body: body,
+          keepalive: true,
+        }});
+      }}
+    }} catch (_) {{}}
+  }}
+  window.addEventListener("error", function (ev) {{
+    _previewSendError({{
+      source: "preview-window",
+      message: (ev.error && ev.error.message) || ev.message || "unknown",
+      stack: ev.error && ev.error.stack,
+      url: location.href,
+      filename: ev.filename,
+      lineno: ev.lineno,
+      colno: ev.colno,
+    }});
+    // Visible fallback so the user sees a hint instead of a blank page.
+    var root = document.getElementById("root");
+    if (root && !root.firstChild) {{
+      root.innerHTML =
+        '<div style="font:14px/1.5 system-ui;padding:24px;color:#b91c1c">' +
+        '<strong>App failed to load.</strong><br/>' +
+        'See the preview logs panel for the error details.' +
+        '</div>';
+    }}
+  }});
+  window.addEventListener("unhandledrejection", function (ev) {{
+    var r = (ev && ev.reason) || {{}};
+    _previewSendError({{
+      source: "preview-unhandledrejection",
+      message: r.message || String(r),
+      stack: r.stack,
+      url: location.href,
+    }});
+  }});
   function shouldRewrite(path) {{
     if (typeof path !== "string") return false;
     if (!path.startsWith("/")) return false;        // relative — leave alone

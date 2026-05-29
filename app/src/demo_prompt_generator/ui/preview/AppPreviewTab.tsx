@@ -33,8 +33,18 @@ interface Props {
 }
 
 export function AppPreviewTab({ projectId, onAutoFixSend, isStreaming = false, autoFixApiRef }: Props) {
-  const { state, logs, error, isStarting, isStopping, start, stop, restart, appendSystemLog } =
-    useAppPreview(projectId);
+  const {
+    state,
+    logs,
+    error,
+    isStarting,
+    isStopping,
+    start,
+    stop,
+    restart,
+    appendSystemLog,
+    clearLogs,
+  } = useAppPreview(projectId);
 
   // Bumping this nonce remounts the iframe, forcing a full reload
   // (can't call .reload() on a cross-origin iframe, and src= tricks race with React).
@@ -125,6 +135,7 @@ export function AppPreviewTab({ projectId, onAutoFixSend, isStreaming = false, a
       <PreviewLogs
         logs={logs}
         error={error}
+        onClear={clearLogs}
         autoFix={
           onAutoFixSend
             ? {
