@@ -4,19 +4,36 @@ Runs after stage 1 (`README.md` + `resources.json` + `architecture.md` approved 
 
 ## What you're producing
 
+You are producing the specification files for the demo.
+Here is a default layout example, but it can vary / be quite different based on the user request:
 ```
 PROJECT/
 ├── META-PROMPT.md              (copied verbatim from template — do not author, `cat DEMO_SKILL_DIR/references/META-PROMPT-TEMPLATE.md > PROJECT/META-PROMPT.md`)
 ├── specifications/
-│   ├── 01-lakeflow.md          synthetic data + PDFs + SDP bronze→silver→gold + validation
+│   ├── 01-lakeflow.md          synthetic data + PDFs (optional) + (SDP bronze→silver→gold or just a few SQL queries to load the tables) + validation
 │   ├── 02-uc-governance.md     metric views, ABAC, data quality monitors, classification  (optional)
 │   ├── 03-ml-*.md              ML model (train + UC register + batch-score to gold table) (optional, only if `ml-training-serving`)
 │   ├── 04-ai-bi.md             dashboard (layout/filters/widgets) + Genie space            (optional)
-│   ├── 05-agent-bricks.md      Knowledge Assistant + Multi-Agent Supervisor + serving     (optional)
+│   ├── 05-agent-bricks.md      Knowledge Assistant + Multi-Agent Supervisor               (optional)
 │   └── app/*.md                Databricks App spec — file structure flexible              (only if `databricks-apps`)
 ```
 
-Reference at the target density: `DEMO_SKILL_DIR/references/example-luxebeauty/specifications/` (top-level + `app/`). Start by reading it for format and detail level, never for narrative — the LuxeBeauty story is not yours.
+### Pick the matching reference example
+
+Before you start writing, check `resources.json` capabilities and read the matching example:
+
+- **Simple demo** — capabilities are a subset of:
+  `synthetic-data-gen`, `aibi-dashboards`, `genie`, `databricks-apps`, `lakebase`,
+  plus the talking-track set (`lakeflow-connect`, `unity-catalog`, `databricks-one`, `genie-code`).
+  No `sdp`, no `metric-views`, no `ml-training-serving`, no `knowledge-assistant`, no `supervisor-agent`.
+  → Reference: **`DEMO_SKILL_DIR/references/example-luxebeauty-simple/specifications/`**
+  (synth → gold tables directly, no SDP / KA / MAS / ML; 2 spec files at the top level + the `app/` subset).
+
+- **Full demo** — any of `sdp`, `metric-views`, `ml-training-serving`, `knowledge-assistant`, `supervisor-agent` is selected.
+  → Reference: **`DEMO_SKILL_DIR/references/example-luxebeauty/specifications/`**
+  (full bronze→silver→gold SDP pipeline, metric view, hidden-premium ML classifier, KA over PDFs, MAS routing).
+
+Read the matching example for **format and detail level**, never for narrative — the LuxeBeauty story is not yours.
 
 ## Don't think too hard — call the tools
 
@@ -33,6 +50,9 @@ In doubt: pick a reasonable value, write it, move on. Build agent fine-tunes.
 ## The one dependency rule
 
 `01-lakeflow.md` defines the data sources for the story (table/column/ID names). Every other spec consumes those names, so 01 is written first. Your job is to WRITE all the specification files respecting the story and capabilities selected.
+Important: 
+- if SDP capability is selected, describe the table creation using a SDP typically bronze/silver/glod
+- if SDP is NOT selected, then DO NOT run sdp / mention the sdp in the lakeflow skill, instead instruct to run a few simple, interactive SQL queries to quikcly create the tables required for the downstream resources.
 
 **Pre-seeded by project creation**: these might have been created for you: `PROJECT/specifications/` already exists, `PROJECT/specifications/app/` exists if `databricks-apps` is in capabilities, and `PROJECT/META-PROMPT.md` is already copied from the template. Skip those steps; just write the spec files.
 
@@ -72,7 +92,11 @@ You are free to change the app especialy the operational part, and change/add me
 
 - `DEMO_SKILL_DIR/app/app_template/TEMPLATE_MAP.md` — **most important.** Functional summary of what ships, the canonical demo arc, what to preserve vs. rewrite. Authoritative; do not scan source code.
 - `DEMO_SKILL_DIR/app/app.md` — how the template is copied + customized during build.
-- All files under `DEMO_SKILL_DIR/references/example-luxebeauty/specifications/app/` — worked example. **LuxeBeauty's returns domain is not yours.** Read for format, file count, density. Never copy narrative, persona, tool names, or page content.
+- Worked-example folder — **pick the matching one** (see "Pick the matching reference example" above):
+  - Full-stack demo → `DEMO_SKILL_DIR/references/example-luxebeauty/specifications/app/` (MAS + KA + ML tier-split).
+  - Simple demo → `DEMO_SKILL_DIR/references/example-luxebeauty-simple/specifications/app/` (single-agent Genie tool, flat 10% offer, no premium tiering).
+
+  **LuxeBeauty's returns domain is not yours.** Read for format, file count, density. Never copy narrative, persona, tool names, or page content.
 
 ### What to write
 

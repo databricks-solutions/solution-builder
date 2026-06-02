@@ -19,9 +19,9 @@
 
 | Table | Source | Key fields |
 |-------|--------|-----------|
-| `customers` | `bronze_customers` | id, email, name, region, **country**, loyaltyTier, **premiumStatus** (`'premium'`/`'not_premium'`/`NULL` — CS hand-tags, pass-through; UI uses it to distinguish "CS-tagged" from "model-found" premiums) |
+| `customers` | `bronze_customers` | id, email, firstName, lastName, region, **country**, **city**, **customerLat**, **customerLng** (DOUBLE PRECISION — city-anchor + ~5km jitter; drives the Operations bubble map), loyaltyTier, **premiumStatus** (`'premium'`/`'not_premium'`/`NULL` — CS hand-tags, pass-through; UI uses it to distinguish "CS-tagged" from "model-found" premiums), registrationDate |
 | `orders` | `bronze_orders` | id, customerId, orderDate, totalUsd, status |
-| `returns` | `silver_returns` (denormalized with product + lot joins) | id, orderId, customerId, refundAmountUsd, returnReason, returnReasonText, **angerScore** (0–1 from `ai_classify`, pass-through; UI sorts by it), productName, lotId, facility, status (`pending`/`approved`/`rejected`/`escalated`), **couponPctApplied** (int — recorded when the agent's bulk tool runs; null until then), **emails** (append-only JSONB array), **aiAuditTrail** (append-only JSONB array) |
+| `returns` | `silver_returns` (already denormalized in silver — `customer_id` lives on the row, no join needed in sync) | id, orderId, customerId, refundAmountUsd, returnReason, returnReasonText, **angerScore** (0–1 from `ai_classify`, pass-through; UI sorts by it), productName, lotId, facility, region, status (`pending`/`approved`/`rejected`/`escalated`), **couponPctApplied** (int — recorded when the agent's bulk tool runs; null until then), **emails** (append-only JSONB array), **aiAuditTrail** (append-only JSONB array) |
 | `customerPremium` | `gold_customer_premium_predictions` (written by the ML notebook in `03-ml-premium.md`) | customerId (PK), premiumProb (double), finalTier (`'premium'`/`'standard'`), premiumStatusLabeled (`'premium'`/`'not_premium'`/`NULL` — pass-through for UI), predictedAt (timestamp) |
 
 The two append-only arrays on `returns` make each row a standalone timeline — agent bulk tool appends email + audit per row in one atomic UPDATE. Operations Activity tab renders from one row read.

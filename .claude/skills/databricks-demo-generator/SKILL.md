@@ -262,7 +262,12 @@ When the user asks you to create a DAB, read `DEMO_SKILL_DIR/references/dab/dab.
 
 ## Reference Materials
 
-Browse `DEMO_SKILL_DIR/references/` for worked examples showing file format, detail level, and how files connect. The `example-luxebeauty/` folder is the primary reference — adapt the structure, don't copy the content.
+Browse `DEMO_SKILL_DIR/references/` for worked examples showing file format, detail level, and how files connect. Two examples ship — pick the one that matches the build's capability set:
+
+- **`example-luxebeauty/`** — full-stack reference (SDP bronze→silver→gold, metric view, ML premium classifier, Knowledge Assistant, Multi-Agent Supervisor, app with tiered offers). Use this when the build includes any of `sdp` / `metric-views` / `ml-training-serving` / `knowledge-assistant` / `supervisor-agent`.
+- **`example-luxebeauty-simple/`** — fast reference for the Simple-tab capability set (synth → gold tables directly, AI/BI Dashboard + Genie, optional Databricks App + Lakebase, no SDP / KA / MAS / ML). Use this when the build sticks to that subset.
+
+Adapt the structure, don't copy the narrative.
 
 ---
 

@@ -1,0 +1,33 @@
+{
+  "capabilities": {
+    "buildable": [
+      "synthetic-data-gen",
+      "aibi-dashboards",
+      "genie",
+      "databricks-apps",
+      "lakebase"
+    ],
+    "talking_track": [
+      "lakeflow-connect",
+      "unity-catalog",
+      "databricks-one",
+      "genie-code"
+    ]
+  },
+  "created_resources": {
+    "workspace_folder": "/Workspace/Users/<your-user>/luxebeauty_simple_demo",
+    "catalog": "luxebeauty",
+    "schema": "demo_simple",
+    "warehouse_id": "<your-warehouse-id>",
+    "dashboard_id": "<your-dashboard-uuid>",
+    "genie_space_id": "<your-genie-space-id>",
+    "app": {
+      "name": "luxebeauty-simple-demo",
+      "deployment_note": "Optional — only present when `databricks-apps` is in capabilities. Deployed via `databricks apps deploy`; see app.md Step 6.",
+      "id": "app-luxebeauty-simple-1234"
+    },
+    "lakebase_project_id": "<lakebase-project-uuid>",
+    "lakebase_project_slug": "dbdemos-asset-generator",
+    "lakebase_database": "dbgen_luxebeauty_simple"
+  }
+}

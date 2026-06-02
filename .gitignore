@@ -45,3 +45,7 @@ __pycache__/
 
 # Local scratch space (screenshots, throwaway scripts, etc.)
 .scratch/
+
+# Generator app's vendored pitch page — copied from ../dbrain/docs/pitch/
+# at deploy time, not part of this repo's source.
+app/src/demo_prompt_generator/ui/public/the_vision/

@@ -854,17 +854,36 @@ const BuildingBanner = memo(function BuildingBanner({
     [buildable, deployed],
   );
 
-  const remaining = est.remainingMinutes;
+  // `est.remainingMinutes` is the STATIC sum of remaining capability
+  // durations — it only ticks down when a resource flips live, not as
+  // wall time passes. Treat it as the *budget*, and derive a live
+  // countdown by subtracting elapsed. Without this the pill reads
+  // "Started 10 min ago | 25 min to go" forever, which is the bug.
+  const budget = est.remainingMinutes;
   const elapsed = useMemo(
     () => elapsedMinutes(createdAt),
     // `now` intentionally drives re-eval so the elapsed label updates.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [createdAt, now],
   );
-  // If we've already been running longer than the static estimate, the
-  // "Y min to go" claim becomes a lie. Switch to a softer message that
-  // acknowledges the overrun instead.
-  const isOverdue = createdAt != null && elapsed > 0 && remaining > 0 && elapsed >= remaining;
+  const remaining = Math.max(0, budget - elapsed);
+
+  // Three timing phases:
+  //   1. Early         — "X min to go"          (live countdown of remaining)
+  //   2. About to land — "almost there"         (within 5min of landing, OR ≥80% through)
+  //   3. Overdue       — "taking a bit longer"  (elapsed past budget)
+  //
+  // The middle phase exists so the row doesn't flicker between "1 min to
+  // go" and "taking a bit longer" — a soft "almost there" lasts a few
+  // minutes either side of the predicted landing.
+  const aboutToLandThreshold = Math.max(5, Math.ceil(budget * 0.2));
+  const isOverdue = createdAt != null && elapsed > 0 && budget > 0 && elapsed >= budget;
+  const isAboutToLand =
+    createdAt != null &&
+    elapsed > 0 &&
+    budget > 0 &&
+    !isOverdue &&
+    remaining <= aboutToLandThreshold;
 
   // 4-stage lifecycle tiles. Drives the strip below the headline so this
   // panel mirrors the drafting screen + the top stepper. Source of truth:
@@ -921,13 +940,11 @@ const BuildingBanner = memo(function BuildingBanner({
 
         {/* Timing pill — top-right corner. Elapsed anchor comes from
             project.created_at (persisted, survives refresh). The "to go"
-            figure is the static sum of remaining capability durations
-            from estimateBuild — only ticks down when a resource flips
-            live, but the elapsed label keeps moving so the row never
-            feels frozen. When elapsed exceeds the static estimate we
-            soften to an overdue message instead of insisting on a
-            number we know is wrong. */}
-        {(createdAt || remaining > 0) && (
+            figure is a LIVE countdown: budget (static sum of remaining
+            capability durations) minus elapsed wall-time. When the
+            countdown approaches zero we shift to "almost there"; past
+            zero we shift to "taking a bit longer". */}
+        {(createdAt || budget > 0) && (
           <div className="shrink-0 inline-flex items-center gap-2 rounded-lg border border-primary/20 bg-primary/[0.06] px-3 py-1.5 text-[12px] whitespace-nowrap">
             <Clock className="h-3.5 w-3.5 text-primary" />
             {createdAt && (
@@ -938,12 +955,17 @@ const BuildingBanner = memo(function BuildingBanner({
                 </span>
               </span>
             )}
-            {createdAt && remaining > 0 && (
+            {createdAt && budget > 0 && (
               <span className="text-muted-foreground/70">·</span>
             )}
-            {remaining > 0 && !isOverdue && (
+            {budget > 0 && !isOverdue && !isAboutToLand && (
               <span className="font-semibold text-foreground tabular-nums">
                 {formatMinutes(remaining)} to go
+              </span>
+            )}
+            {isAboutToLand && (
+              <span className="font-medium text-foreground">
+                almost there
               </span>
             )}
             {isOverdue && (

@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
+    <link rel="icon" type="image/png" sizes="48x48" href="/favicon-48x48.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/site.webmanifest" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- Preconnect + load Google Fonts here (not via @import in CSS) so
+         Tailwind v4's import ordering doesn't warn about `@import must
+         precede all other statements`. -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500&display=swap"
+    />
+    <!-- ────────────────────────────────────────────────────────────────────
+         Two classic <script>s below MUST stay above any <script type="module">.
+         They run synchronously during HTML parse, before main.tsx evaluates,
+         so they're available to catch errors thrown during ES-module init
+         (like @vitejs/plugin-react's "can't detect preamble" check).
+
+         Don't remove either block — they're safety nets for the preview-proxy
+         deployment path and cost nothing when everything works.
+         ────────────────────────────────────────────────────────────────── -->
+    <script>
+      // 1) Pre-seed @vitejs/plugin-react's refresh globals. The plugin's
+      //    boundary check throws "can't detect preamble" if these are missing
+      //    when the first JSX module evaluates. Normally Vite's inlined
+      //    preamble assigns them; this stub is the fallback when the
+      //    preamble itself fails to load (e.g. proxy-rewrite gap on
+      //    /@react-refresh). When the real runtime loads, it overwrites
+      //    these no-ops with the proper hot-reload hooks.
+      window.$RefreshReg$ = window.$RefreshReg$ || function () {};
+      window.$RefreshSig$ =
+        window.$RefreshSig$ ||
+        function () {
+          return function (t) {
+            return t;
+          };
+        };
+    </script>
+    <script>
+      // 2) Inline error catcher. main.tsx installs richer handlers, but those
+      //    can't fire if the failure happens during module evaluation BEFORE
+      //    main.tsx's body runs (preamble throws, missing chunk, syntax
+      //    error). This classic script is parsed inline, so it's already
+      //    listening by the time the deferred modules execute.
+      //
+      //    Posts to /api/log/client-error (dev-only on the server side; in
+      //    prod the route 404s harmlessly via sendBeacon's fire-and-forget).
+      (function () {
+        function send(payload) {
+          try {
+            var body = JSON.stringify(payload);
+            if (navigator.sendBeacon) {
+              navigator.sendBeacon(
+                '/api/log/client-error',
+                new Blob([body], { type: 'application/json' }),
+              );
+            } else {
+              fetch('/api/log/client-error', {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: body,
+                keepalive: true,
+              });
+            }
+          } catch (_) {}
+        }
+        window.addEventListener('error', function (ev) {
+          send({
+            source: 'window-inline',
+            message: (ev.error && ev.error.message) || ev.message || 'unknown',
+            stack: ev.error && ev.error.stack,
+            url: location.href,
+            filename: ev.filename,
+            lineno: ev.lineno,
+            colno: ev.colno,
+          });
+          // Best-effort visible fallback so the user sees something instead
+          // of a blank page. main.tsx will replace this once it mounts.
+          var root = document.getElementById('root');
+          if (root && !root.firstChild) {
+            root.innerHTML =
+              '<div style="font:14px/1.5 system-ui;padding:24px;color:#b91c1c">' +
+              '<strong>Failed to load the app.</strong><br/>' +
+              'Check the preview logs for the error details.' +
+              '</div>';
+          }
+        });
+        window.addEventListener('unhandledrejection', function (ev) {
+          var r = ev.reason || {};
+          send({
+            source: 'unhandledrejection-inline',
+            message: r.message || String(r),
+            stack: r.stack,
+            url: location.href,
+          });
+        });
+      })();
+    </script>
+    <title>mas-chat-demo</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

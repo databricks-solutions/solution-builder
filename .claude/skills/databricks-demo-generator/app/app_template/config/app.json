@@ -21,11 +21,8 @@
     "schema": "demo_demo_project",
     "tables": {
       "returns": "silver_returns",
-      "orderItems": "silver_order_items",
       "orders": "bronze_orders",
       "customers": "bronze_customers",
-      "products": "bronze_products",
-      "productionLots": "bronze_production_lots",
       "customerPremium": "gold_customer_premium_predictions"
     }
   },

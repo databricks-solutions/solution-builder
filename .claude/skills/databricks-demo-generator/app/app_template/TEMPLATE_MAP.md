@@ -64,7 +64,7 @@ Every demo touches these. They're what makes your demo yours, not LuxeBeauty's.
 - **Agent tools** (`server/agent/<name>.ts`) — the file is renamed per demo (`refundops.ts` → `supportops.ts`) and the import in `chat-stream/agent-stream.ts` updated. Tool names and bodies swap; if you keep the 3-phase chain, the *shape* of the tools (read-only discovery tool + batch write tool + pure-function draft helper) is what's preserved. The data-backend tool comes from `server/agent/tools/{mas,genie}.ts` factories — pick one based on config.
 - **Domain CRUD** (`server/db/queries/<entity>.ts`, `server/routes/<entity>.ts`).
 - **Operations view** — table columns, drawer tab content, filter dimensions.
-- **Analytics SQL** in `config/queries/` — 2–4 queries aligned to the story's key numbers.
+- **Analytics SQL** in `config/queries/` — the template ships LuxeBeauty example queries (returns/refunds/production lots). **Rewrite or delete every file for your demo's domain** — 2–4 queries aligned to your story's key numbers, hitting whatever tables your synth + SDP wrote. The placeholder `ai_demo_gen.demo_demo_project` in the example `FROM` clauses is from the template and points at nothing — until each `.sql` is updated to your real catalog + schema, `/analytics` will log `TABLE_OR_VIEW_NOT_FOUND` on every widget. Also update `client/src/analytics/AnalyticsView.tsx` so its `queryKey` list matches whichever files you keep.
 - **Theme tokens** in `client/src/index.css` — brand palette and, if they exist, tier badges.
 
 ## Adapting to a reduced capability set
@@ -134,26 +134,27 @@ client/src/
   home/HomeView.tsx     [D] Story section, journey diagram, starter chips, featured action, activity feed
   chat/                     ChatDock (floating), ChatView (full-page), ThinkingPanel, MessageBubble,
                             useChatTurn (hook), streamChat (SSE parser), script.ts, dockController, FeedbackRow
-  operations/           [D] OperationsView, KpiCards, ReturnsTable, ReturnDrawer, tabs/ (Return, Customer, Activity)
+  operations/           [D] OperationsView, KpiCards, ReturnsTable, ReturnDrawer, CityMap (react-leaflet bubble map), CountryPanel (bar list), tabs/ (Return, Customer, Activity)
   analytics/            [D] AnalyticsView (charts), FacilityPanel (drill-down)
   dashboard/                DashboardView (embedded AI/BI iframe from config.dashboardId)
   platform/                 PlatformView — "Databricks Data + AI" corporate pitch page (do not edit, generic)
   lib/
-    api.ts                  Config + user fetch wrappers
-    conversations.ts        Client conversation store (useSyncExternalStore)
-    returns.ts          [D] Domain entity fetch wrappers
+    api.ts                  Config + user fetch wrappers, plus shared `okOrThrow(res, label)` and `useResource(loader)` hook. EVERY fetch helper goes through okOrThrow so errors carry the server's actual message; views use useResource for boot-time loads so failures land as visible `{error, retry}` instead of "Loading…" forever.
+    conversations.ts        Client conversation store (useSyncExternalStore). Exposes per-id `useConversationError(id)` so a failed `/api/conversations/:id` renders an error + Retry button in ChatView instead of a permanent empty state.
+    returns.ts          [D] Domain entity fetch wrappers (all using okOrThrow).
     events.ts               dataMutated pub/sub (invalidate on agent writes)
+    usePulseOnChange.ts     Hook: returns true for ~1.5s when a scalar value changes between renders. Wired into KpiCards (counts), ReturnsTable rows (status), CountryPanel rows (totals). The CityMap implements its own pulse via Leaflet's setStyle (className keyframes don't survive map redraws). See pattern #8.
 ```
 
 ## Lakebase schema (`server/db/schema.ts`)
 
 **Chat state (generic):**
 - `conversations`: id (uuid), userEmail, title, kind (`default`|`demo_dock`), timestamps
-- `messages`: id (uuid), conversationId (FK), role, content, position, traceId (MLflow), thinking (jsonb[]), error, createdAt
+- `messages`: id (uuid), conversationId (FK), role, content, position, traceId (MLflow), thinking (jsonb[]), error, createdAt. **UNIQUE INDEX `messages_convo_pos_uq` on (conversation_id, position)** — turns the `SELECT MAX(position)+1` race in `appendMessage` into a 23505 unique_violation that the function retries (up to 5 attempts in a transaction); without it, two concurrent inserts would silently collide and break on-reload ordering.
 - `feedback`: id (uuid), messageId (FK), userEmail, value (`up`|`down`), rationale, traceId, mlflowAssessmentId
 
 **Domain tables (LuxeBeauty example):**
-- `customers`: id, email, firstName, lastName, region, country, loyaltyTier, registrationDate
+- `customers`: id, email, firstName, lastName, region, country, **city**, **customerLat**, **customerLng** (DOUBLE PRECISION, city-anchored coords + ~5km jitter — drives the Operations bubble map; see synth spec `01-lakeflow.md`), loyaltyTier, registrationDate
 - `orders`: id, customerId (FK), orderDate, region, totalUsd, status
 - `returns` (primary entity): id, orderId, customerId, returnDate, refundAmountUsd, returnReason, productId, productName, category, lotId, facility, region, status (`pending`|`approved`|`rejected`|`escalated`), **couponPctApplied** (int, null until processed — records the model-driven tier the agent applied), **emails** (jsonb[], append-only), **aiAuditTrail** (jsonb[], append-only), decidedAt, timestamps
 - `customerPremium` (read-only ML predictions mirror — populated by sync.ts from the Delta table spec 03-ml-premium.md writes): customerId (PK), premiumProb (double), finalTier (`premium`|`standard`), premiumStatusLabeled (`premium`|`not_premium`|null pass-through from CS hand-tags), predictedAt. The agent's `find_lot_premium_breakdown` tool and the per-row JOIN inside `process_return_batch` read from this table; the app never calls the model directly. `premiumStatusLabeled` lets the UI distinguish "CS-tagged premium" from "model-found hidden premium" without a second query.
@@ -189,7 +190,7 @@ Instructions: MODE A (investigation — single `ask_mas`/`ask_genie` call) or MO
 
 **Chat routes** (`server/routes/chat.ts`): GET/POST/DELETE `/api/conversations[/:id]`, GET `/api/dock-conversation`, POST `/api/chat/stream` (SSE), POST `/api/messages/:id/feedback`
 
-**Domain routes** (`server/routes/returns.ts`): GET `/api/returns[?status=&lot=]`, GET `/api/returns/summary`, GET `/api/returns/:id`, POST `/api/returns/:id/decide`, GET `/api/lots/summary`, GET `/api/facilities/summary`, GET `/api/facilities/:name/lots`, GET `/api/customers/:id/orders`
+**Domain routes** (`server/routes/returns.ts`): GET `/api/returns[?status=&lot=&tier=&country=&sort=]`, GET `/api/returns/summary`, GET `/api/returns/by-country[?status=&lot=]` (CountryPanel), GET `/api/returns/by-city[?status=&lot=]` (CityMap), GET `/api/returns/:id`, POST `/api/returns/:id/decide`, GET `/api/lots/summary`, GET `/api/facilities/summary`, GET `/api/facilities/:name/lots`, GET `/api/customers/:id/orders`
 
 **Other**: GET `/api/config`, `/api/me`, `/api/warehouse`, `/api/activity/recent`, POST `/api/admin/reset`
 
@@ -206,8 +207,10 @@ Instructions: MODE A (investigation — single `ask_mas`/`ask_genie` call) or MO
 | `lotSummary` | `(db, limit)` | Global top lots by return count |
 | `listCustomerOrders` | `(db, customerId, limit)` | Customer's order history |
 | `recentActivity` | `(db, limit)` | UNION of emails[] + aiAuditTrail[] across all rows, sorted by time |
+| `lotCountryBreakdown` | `(db, {status?, lot?})` | Per-country aggregation of the filtered queue (`{country, total, premium, premium_labeled, premium_hidden, refund_usd}[]`). Powers the CountryPanel bar list. |
+| `lotCityBreakdown` | `(db, {status?, lot?})` | Per-(city, country) aggregation with `AVG(customer_lat/lng)` and `COUNT(DISTINCT customer)`. Skips rows with NULL coords. Powers the CityMap bubble layer. |
 | `lotPremiumBreakdown` | `(db, lot)` | Tier-split aggregate joining returns × customers × customer_premium for one lot, with the labeled-vs-hidden premium split. Powers the agent's `find_lot_premium_breakdown` tool. |
-| `processReturnBatchForLot` | `(db, {lot, tier_offers: {premium, standard}, userEmail})` | **Tier-aware bulk**: SELECT pending rows JOIN customer_premium → branch per row on `final_tier` to pick the offer → render that tier's template → one `UPDATE FROM VALUES` re-asserting `lot_id=$lot AND status='pending'` (sets `coupon_pct_applied`, appends emails + audit with CS-tagged vs hidden notation, flips to approved). Filter is a scalar — no `IN (…)` / ID round-tripping. |
+| `processReturnBatchForLot` | `(db, {lot, tier_offers: {premium, standard}, userEmail})` | **Tier-aware bulk, transactional**: `db.transaction(tx => …)` runs `SELECT … FOR UPDATE OF r` to lock pending rows for the lot, branches per row on `final_tier` to pick the offer, renders that tier's template, then one `UPDATE … FROM (VALUES …) … RETURNING id` re-asserting `lot_id=$lot AND status='pending'` (sets `coupon_pct_applied`, appends emails + audit with CS-tagged vs hidden notation, flips to approved). Per-tier counts in the returned summary are recomputed from `RETURNING` — anything attempted-but-not-updated lands in `skipped_return_ids` with a warn log so the agent's final message can't lie. Filter is a scalar — no `IN (…)` / ID round-tripping. |
 
 ## Chat streaming
 
@@ -327,7 +330,25 @@ Components use `var(--token)` via Tailwind arbitrary values (`bg-[var(--success-
 5. **Filter-driven bulk writes** (the demo's "AI takes action" moment):
    - **Investigate** via the data backend (`ask_mas` / `ask_genie`) — open-ended SQL + KA reasoning across the warehouse.
    - **Show** the affected rows to the user via a read-only lookup tool (`find_returns_for_lot`) — they confirm scope before anything destructive runs.
-   - **Write** via a tool whose only inputs are a FILTER (a scalar lot id, status, region — never a list of IDs) plus the per-row template (email subject/body, coupon, etc.). The SQL re-derives the row set inside the same statement via `WHERE <filter>`, renders per-row templates in JS, and does ONE `UPDATE FROM VALUES` that re-asserts the same filter so the write can't drift from the read.
-   - Why this shape: agents echoing back N IDs in `IN (…)`/`ANY (…)` hits param caps, blows up the request, and is easy for the model to miscount. With a scalar filter, the agent only ever holds a string — and the read and write can't disagree because they share the same predicate.
+   - **Write** via a tool whose only inputs are a FILTER (a scalar lot id, status, region — never a list of IDs) plus the per-row template (email subject/body, coupon, etc.). Wrap SELECT + UPDATE in `db.transaction(tx => …)`; use `SELECT … FOR UPDATE OF <primary table>` so a concurrent manual decision / agent retry can't flip rows between read and write; do ONE `UPDATE … FROM (VALUES …) … RETURNING id` re-asserting the same filter so writes can't drift from reads; derive counts/totals from the RETURNING ids (NOT from intent) so the agent's final summary reflects reality.
+   - Why this shape: agents echoing back N IDs in `IN (…)`/`ANY (…)` hits param caps, blows up the request, and is easy for the model to miscount. With a scalar filter, the agent only ever holds a string — and the read and write can't disagree because they share the same predicate AND the row lock.
 6. **Data backend as a tool**: `ask_mas` (or `ask_genie`) is registered via factories in `server/agent/tools/{mas,genie}.ts`. Sub-agent / reasoning activity streams to ThinkingPanel via `onToolProgress` → SSE. Same `ToolProgressEvent` shape for both, so the UI doesn't care which backend powers it.
 7. **MLflow tracing**: Per-turn spans, tool child spans, trace ID on message → "View trace" link. Thumbs → human assessments.
+8. **Diff-aware pulse on agent writes**: `dataMutated.emit()` triggers a refetch on every subscribing surface. Each surface compares prev-vs-next scalar values via `usePulseOnChange(value)` and only the elements whose value actually changed flash a ring/row highlight for ~1.5s. Wired into KpiCards (counts), ReturnsTable rows (status), CountryPanel rows (totals). The CityMap implements the same idea differently — see below — because CSS keyframes on SVG paths don't survive Leaflet's redraws.
+9. **City bubble map (Leaflet sharp edges)**: `client/src/operations/CityMap.tsx` uses react-leaflet 5 + OSM/CARTO Positron tiles + one CircleMarker per (city, country). Three Leaflet gotchas the file already handles — preserve them:
+   - **CSS load order**: `leaflet/dist/leaflet.css` is imported in `client/src/index.css`, NOT in the component. Importing it in the component races the first paint in dev/HMR and renders broken tile sizes.
+   - **Pulse via `setStyle`**: bubble pulse is implemented by toggling `pathOptions.weight` (stroke width) and `fillOpacity` for ~1s. Do NOT add a className-based CSS keyframe pulse to the path — Leaflet's `setStyle` only re-applies CSS-style attributes and ignores `className`, so the keyframe never reaches the SVG after the first paint.
+   - **No fitBounds on every refetch**: `FitBoundsOnSetChange` re-fits ONLY when the SET of `country:city` keys changes, not when counts move. Re-fitting on every `dataMutated` would make the map wobble during the demo.
+   Map data comes from `/api/returns/by-city` (`lotCityBreakdown` query). The synth-data spec (`01-lakeflow.md` for the upstream pipeline) populates `customers.city` + `customers.customer_lat` + `customers.customer_lng` from a city-anchor table per country; the sync pulls those columns into Lakebase. Demos without GPS coords on customers should leave the columns NULL — the query skips NULL-coord rows and the map renders "No affected customers in the current scope".
+
+## `config/app.json` validation (server-side, at boot)
+
+`server/server.ts` Zod-validates `config/app.json` at boot via `loadAppConfig()`. The validator fails fast (the app refuses to start) when:
+
+- The JSON is malformed (typo, missing comma).
+- Required structural fields are missing (`branding.appName`, `dashboardId`, `data.catalog`, `data.schema`, `data.tables.*`).
+- Any of `dashboardId`, `branding.appName`, `data.catalog`, `data.schema` still contain an unfilled `<placeholder>` (e.g. `<your-catalog>`). The build agent MUST replace these before the app can boot.
+
+It warns (and continues) for unfilled `<placeholder>` in MLflow paths (`agentMlflowExperimentPath`, `mlflowExperimentId`) — those are opt-in features and a missing path just shows "Trace pending…" in the UI.
+
+`_*_help` sibling keys and any unknown extra keys pass through unread (`.passthrough()`).

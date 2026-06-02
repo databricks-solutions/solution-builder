@@ -1,3 +1,5 @@
+-- FORK CHECKLIST — replace this file (or delete it) for your demo.
+-- See `daily_refund_trend.sql` header for the full instructions.
 -- Top 10 products by return count (LuxeBeauty).
 SELECT
   product_name,

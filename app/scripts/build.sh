@@ -219,7 +219,7 @@ rm -f "$BUILD_DIR/requirements.txt"
 # unreachable.
 LATEST_CLI=$(curl -fsSL https://api.github.com/repos/databricks/cli/releases/latest 2>/dev/null \
     | jq -r '.tag_name' 2>/dev/null \
-    | sed 's/^v//')
+    | sed 's/^v//' || true)
 if [[ -n "$LATEST_CLI" && "$LATEST_CLI" != "null" ]]; then
     echo "  Latest Databricks CLI: v$LATEST_CLI (pinning into start.sh)"
     sed "s/^DBCLI_VERSION=.*/DBCLI_VERSION=\"$LATEST_CLI\"/" start.sh > "$BUILD_DIR/start.sh"

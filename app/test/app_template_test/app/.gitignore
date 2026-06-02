@@ -1,0 +1,22 @@
+node_modules/
+.venv/
+# Build outputs — produced locally by scripts/build-app.sh during
+# `databricks bundle deploy`. Both are whitelisted via sync.include in
+# databricks.yml so they ship to the App container despite being
+# gitignored.
+dist/
+client/dist/
+.env
+.env.local
+.env.*
+!.env.example
+!.env.template
+.DS_Store
+*.tsbuildinfo
+playwright-report/
+test-results/
+
+# Per-project Databricks auth file written by the Demo Prompt Generator
+# at runtime (deployed mode). Contains a user PAT — never commit or
+# ship with a template snapshot. See backend/AUTH.md in the generator.
+.databrickscfg

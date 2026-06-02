@@ -26,7 +26,9 @@ Nail down the specifics. The exact structure depends on the story pattern, but d
 Before writing any file, load all references in a single response. All reads in ONE turn.
 
 - `DEMO_SKILL_DIR/references/architecture.md` — diagram schema
-- `DEMO_SKILL_DIR/references/example-luxebeauty/README.md` — style reference
+- **Style reference (pick one based on capabilities)** — read at most one for README format:
+  - **Simple demo** (capabilities ⊆ {`synthetic-data-gen`, `aibi-dashboards`, `genie`, `databricks-apps`, `lakebase`} plus talking-track): `DEMO_SKILL_DIR/references/example-luxebeauty-simple/README.md`
+  - **Full demo** (any of `sdp`, `metric-views`, `ml-training-serving`, `knowledge-assistant`, `supervisor-agent`): `DEMO_SKILL_DIR/references/example-luxebeauty/README.md`
 - `DEMO_SKILL_DIR/references/platform_architecture.md` — if not already in context
 - Any capability blocks you need for product positioning (skip if obvious from common knowledge; dashboard/KA blocks are often worth reading)
 
@@ -38,7 +40,7 @@ Emit `Write` calls for `resources.json`, `architecture.md`, and `README.md` **in
 
 The user's message may include a capabilities list — follow it unless something is missing or incoherent (e.g. user wants an app but it's not listed, or data gen is missing). In that case, adjust and note the adjustment. Avoid adding capabilities just for the sake of it.
 
-Structure mirrors `DEMO_SKILL_DIR/references/example-luxebeauty/resources.json`:
+Structure mirrors the matching example (`example-luxebeauty-simple/resources.json` for simple builds, `example-luxebeauty/resources.json` for full builds):
 
 ```json
 {
@@ -59,7 +61,7 @@ JSON diagram following the schema in `DEMO_SKILL_DIR/references/architecture.md`
 
 ### `./README.md`
 
-Same structure as `DEMO_SKILL_DIR/references/example-luxebeauty/README.md`:
+Same structure as the matching example README (see "Style reference" above — the Simple example shows the shorter walkthrough you want when capabilities are minimal; the Full example shows the deeper KA/MAS/ML beats):
 
 - **The Story** — summary table (company, protagonist, challenge, journey, resolution, impact). Comes first, right under the H1.
 - **Overview** — short paragraph.
@@ -75,5 +77,17 @@ You're writing all files:
 
 - **Products Showcased** in README ↔ **architecture nodes** ↔ **`resources.json` capabilities** must name the same set of products. Every product in the story earns a narrative beat AND an architecture node AND a capability entry.
 - **The story** must be coherent with all the capabilities, for example: the data must serve the story, the dashboard / genie and the data must all work together, the app must use the same component / the data must be 
+
+### If the demo includes an app AND (Genie or MAS)
+
+Default app shape (override if the user asks for something different) — design the story so the loop below can play; a read-only dashboard inside the app is the weaker fallback.
+
+**In-app assistant that takes action.** Small agent loop, ~4 tools: (1) `ask_data` → Genie (or MAS) to investigate; (2) Lakebase read(s) for operational context (e.g. "affected returns for lot X"); (3) optional mocked side-effect tools (`create_coupon`, `send_email`, `create_ticket`) returning realistic strings; (4) one write tool that bulk-mutates the Lakebase mirror in an atomic UPDATE (status flips, audit append, recorded fields) — typically the demo's "the agent did a thing" moment.
+
+**Human-in-the-loop on the write.** Agent drafts → shows the plan → stops → waits. Write fires only after explicit "yes".
+
+**The UI cascades after the write.** On commit the write tool emits `dataMutated`; the Operations page subscribes and refetches — KPI counters tick, queue rows flip, badges appear, country panel re-renders, open drawers re-fetch their timeline. The pulse is the visible payoff; walk the user to the page where they'll see it before the agent acts.
+
+**Story arc — five beats:** catalyst → question → discovery → draft + approval → cascade. Missing one usually leaves the app spec without an anchor.
 
 After writing, return to SKILL.md — the stage-1 user-review gate kicks in. Deliver the approval prompt to the user and wait for confirmation before touching any spec file.

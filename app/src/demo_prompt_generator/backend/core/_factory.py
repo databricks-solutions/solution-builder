@@ -116,7 +116,24 @@ def create_app(
             app.include_router(router)
 
     if dist_dir.exists():
+        from fastapi.responses import FileResponse
+
         from ._static import CachedStaticFiles, add_not_found_handler
+
+        # /the_vision — bare URL must serve the page directly without a
+        # 307 redirect to /the_vision/. StaticFiles auto-redirects when
+        # `html=True` sees a directory hit; inside Databricks Apps that
+        # redirect target uses the internal scheme/host (localhost:8000)
+        # and breaks the browser. Resolve the index.html ourselves and
+        # also serve the sibling assets via direct file responses so the
+        # relative <link> / <script> paths in the HTML (style.css, app.js)
+        # resolve under both /the_vision and /the_vision/.
+        vision_dir = dist_dir / "the_vision"
+        if vision_dir.exists():
+            @app.get("/the_vision", include_in_schema=False)
+            @app.get("/the_vision/", include_in_schema=False)
+            def _the_vision_index():
+                return FileResponse(vision_dir / "index.html")
 
         app.mount("/", CachedStaticFiles(directory=dist_dir, html=True))
         add_not_found_handler(app)
