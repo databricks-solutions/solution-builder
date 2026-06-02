@@ -12,7 +12,7 @@ A **system that generates Databricks demos**. Not one app — **three**, plus a 
 
 3. **Template app** (`.claude/skills/databricks-demo-generator/app/app_template/`) — a complete Node.js + Express + React Databricks App that ships *as part of every generated demo*. The agent copies + customizes it. It is **NOT** a sub-component of the generator — it's an artifact the generator emits.
 
-4. **Test app** (`app/test/app_template_test/app/`) — a working fork of the template, used to dogfood + iterate on template changes. **The user's workflow is: fix bugs in the test app, sync to the template.** They must stay in lockstep.
+4. **Test app** (`app/test/app_template_test/app/`) — a working fork of the template above (`.claude/skills/databricks-demo-generator/app/app_template/`), used to dogfood + iterate on template changes. **The user's workflow is: fix bugs in the test app, sync to the template.** They must stay in lockstep.
 
 Plus: **ai_dev_kit** (`app/ai_dev_kit/`) — a cloned external repo (`github.com/databricks-solutions/ai-dev-kit`) holding ~26 sub-skills for creating individual Databricks resources (pipelines, dashboards, Genie spaces, KAs, MAS, etc.). The generator's agent uses these during the Build stage.
 
@@ -109,18 +109,29 @@ The generated demo includes a Databricks app (`app_template/`-derived). User cli
 
 ## Template ↔ Test app parallel-edit workflow
 
+The template at `.claude/skills/databricks-demo-generator/app/app_template/` is **duplicated** at `app/test/app_template_test/app/`. Same code, same stack, byte-for-byte (modulo intentional drift — domain-specific config, deployed IDs, etc.).
+
 ```
 app/test/app_template_test/app/      ←→     .claude/skills/databricks-demo-generator/app/app_template/
         (test fork)                                       (template)
    user edits + tests here                          gets the same edit synced over
 ```
 
-When fixing bugs or adding features:
-1. **Always edit the test app first**, run it via `./start.sh` to verify.
-2. **Sync to template** with `cp` once verified. Diff the two to find drift.
-3. The template's `TEMPLATE_MAP.md` lists which files are structural (don't rewrite per-demo) vs domain-specific (rewrite per fork).
+**Why the duplicate exists:**
 
-LuxeBeauty assets (deployed by hand for the test app, source-controlled in `app/test/app_template_test/src/`) include: SDP pipeline, AI/BI dashboard, Genie space, Knowledge Assistant, Multi-Agent Supervisor, metric view, ML model. IDs land in `app/test/app_template_test/resources.json`.
+The template lives inside the skill and is **shipped** to every generated demo. You can't run it directly — it's a blueprint. So we keep a **runnable, populated copy** at `app/test/app_template_test/app/` with the LuxeBeauty demo's real Databricks resources wired in (Lakebase, MAS endpoint, dashboard, Genie, etc.). That lets us:
+
+1. **Debug** template bugs against a live workspace without spinning up a fresh demo from scratch each time.
+2. **Test** template changes end-to-end (boot, chat, agent loop, preview, deploy) — `./start.sh` from inside the test app actually runs.
+3. **Backport** fixes back into the template once they're verified.
+
+**Workflow when fixing bugs or adding features:**
+
+1. **Always edit the test app first** (`app/test/app_template_test/app/`). Run it via `./start.sh` and verify in a browser.
+2. Once it works, **sync the changed files over to the template** with `cp`. Use `diff -rq` between the two trees to find anything that drifted.
+3. The template's `TEMPLATE_MAP.md` lists which files are structural (keep across demos) vs domain-specific (rewrite per fork). Only sync the structural files — domain-specific files in the test app (LuxeBeauty branding, schema, agent prompts) intentionally diverge.
+
+**LuxeBeauty assets** (deployed by hand for the test app, source-controlled in `app/test/app_template_test/src/`) include: SDP pipeline, AI/BI dashboard, Genie space, Knowledge Assistant, Multi-Agent Supervisor, metric view, ML model. IDs land in `app/test/app_template_test/resources.json`. Source files for each asset live under `src/<asset_type>/` so the whole demo can be re-created from scratch (see `app/test/app_template_test/src/README.md`).
 
 ## Key concepts
 
