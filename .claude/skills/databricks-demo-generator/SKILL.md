@@ -22,6 +22,7 @@ The main loop lives in this file (SKILL.md) — it describes **the flow**: stage
 | **2. Write Specs** | Write `01-lakeflow.md`, then the other top-level specs, then the app spec (if app needed), coherence review | ✅ *"Ready to build?"* | `stages/02-write-specs.md` |
 | **3. Build** (opt) | Create Databricks resources via ai-dev-kit skills | — (build completes) | `stages/03-build.md` |
 | **4. Package as a DAB** (opt) | On user request only, post-build | — | `references/dab/dab.md` |
+| **5. Client Handoff** (opt, prompted) | Strip SA-environment fingerprint, wire synth/real toggle, bundle Genie Code skill | ✅ *"Ready to publish for the client?"* | `references/client-handoff/client-handoff.md` |
 
 **Cross-cutting (not a stage):**
 - **App creation** — folded into stages 2 + 3: `DEMO_SKILL_DIR/app/app.md`
@@ -258,16 +259,16 @@ If the user confirms, **read `DEMO_SKILL_DIR/stages/03-build.md` now** and follo
 
 When the user asks you to create a DAB, read `DEMO_SKILL_DIR/references/dab/dab.md` and create the DAB specification.
 
+After the DAB is packaged, prompt the user:
+> "DAB packaged. Want to make this client-handoff-ready? (Stage 5 strips SA-env, adds a synth-data toggle, and bundles a Genie Code skill for the client.) Reply 'yes' to continue or 'no' to stop."
+
+On `yes`, invoke `references/client-handoff/client-handoff.md`.
+
 ---
 
 ## Reference Materials
 
-Browse `DEMO_SKILL_DIR/references/` for worked examples showing file format, detail level, and how files connect. Two examples ship — pick the one that matches the build's capability set:
-
-- **`example-luxebeauty/`** — full-stack reference (SDP bronze→silver→gold, metric view, ML premium classifier, Knowledge Assistant, Multi-Agent Supervisor, app with tiered offers). Use this when the build includes any of `sdp` / `metric-views` / `ml-training-serving` / `knowledge-assistant` / `supervisor-agent`.
-- **`example-luxebeauty-simple/`** — fast reference for the Simple-tab capability set (synth → gold tables directly, AI/BI Dashboard + Genie, optional Databricks App + Lakebase, no SDP / KA / MAS / ML). Use this when the build sticks to that subset.
-
-Adapt the structure, don't copy the narrative.
+Browse `DEMO_SKILL_DIR/references/` for worked examples showing file format, detail level, and how files connect. The `example-luxebeauty/` folder is the primary reference — adapt the structure, don't copy the content.
 
 ---
 
