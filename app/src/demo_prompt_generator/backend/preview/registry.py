@@ -332,6 +332,32 @@ class PreviewRegistry:
             on_exit=on_exit,
             env={
                 "DATABRICKS_APP_PORT": str(port),
+                # DO NOT REMOVE. Force child to bind ONLY on loopback.
+                # Bug it fixes: in prod Databricks Apps containers with
+                # multiple users running previews concurrently, hitting the
+                # parent's URL would intermittently return a CHILD's HTML.
+                # Cause: AppKit defaults to host=0.0.0.0 (see
+                # node_modules/@databricks/appkit/dist/plugins/server/index.js).
+                # The parent must use 0.0.0.0 (the platform proxy needs it).
+                # When _pick_free_port() asks the kernel via
+                # bind(("127.0.0.1", 0)), the kernel can hand back the
+                # parent's port — because 127.0.0.1:N and 0.0.0.0:N are
+                # DIFFERENT addresses to the kernel and the parent's
+                # 0.0.0.0:N doesn't block a 127.0.0.1:N bind from the
+                # child's perspective in the port-pick. The child then
+                # calls listen(N, "0.0.0.0") — and depending on container
+                # kernel semantics either succeeds via SO_REUSEPORT-like
+                # behavior or silently shadows the parent. Platform proxy
+                # round-robins → users get the child's app on the parent
+                # URL. FLASK_RUN_HOST=127.0.0.1 makes the child bind
+                # 127.0.0.1:N instead, which IS detected as conflicting
+                # with parent's 0.0.0.0:N → child fails with EADDRINUSE
+                # at start instead of silent shadowing → registry retries
+                # with a different port → no collision possible.
+                # The child does not need external reachability: only the
+                # parent's reverse proxy in proxy.py:100 talks to it via
+                # http://127.0.0.1:<port>. Works identically in local dev.
+                "FLASK_RUN_HOST": "127.0.0.1",
                 **(extra_env or {}),
             },
         )
