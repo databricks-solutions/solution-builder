@@ -506,11 +506,46 @@ class TemplateContent(SQLModel, table=True):
 # ---------------------------------------------------------------------------
 
 
+class UploadedFile(BaseModel):
+    """One file uploaded via the home-page widget.
+
+    Produced by `POST /api/uploads/extract` and round-tripped through the
+    frontend back to `POST /api/projects` so the originals + extracted
+    text land in the new project's `context/uploads/` dir.
+    """
+    filename: str
+    content_type: str = "application/octet-stream"
+    size_bytes: int = 0
+    text: str = Field(..., description="Extracted plain text (already truncated to per-file cap).")
+    truncated: bool = Field(False, description="True if the original was larger than the per-file cap.")
+    original_b64: Optional[str] = Field(
+        None,
+        description=(
+            "Base64 of the raw bytes. Optional — when present, written verbatim "
+            "to context/uploads/<filename> on project create so the user can "
+            "re-open the original."
+        ),
+    )
+
+
 class ProjectCreateRequest(BaseModel):
     """Request to create a new project."""
     description: str = Field(..., description="Project description - name and schema will be generated from this")
     context_document: Optional[str] = Field(
-        None, description="Full text of a source document to use as context for generation"
+        None,
+        description=(
+            "[DEPRECATED — use context_files] Single source-document text. "
+            "Kept for backwards compatibility; if context_files is empty and "
+            "this is set, it lands at context/source-document.md."
+        ),
+    )
+    context_files: list[UploadedFile] = Field(
+        default_factory=list,
+        description=(
+            "Files uploaded via the home-page widget. Each is written to "
+            "context/uploads/<name> (original) + context/uploads/<name>.extracted.md "
+            "(text the agent can grep)."
+        ),
     )
     capabilities: list[str] = Field(
         default_factory=list,

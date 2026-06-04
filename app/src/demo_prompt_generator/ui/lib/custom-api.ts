@@ -230,10 +230,67 @@ export async function listProjects(
   return resp.json();
 }
 
+/**
+ * One file the user uploaded on the home page. Round-tripped through
+ * the frontend: backend extracts text → frontend holds → posted back to
+ * createProject so the originals land in the new project's
+ * context/uploads/ dir alongside `.extracted.md` siblings.
+ */
+export interface UploadedFile {
+  filename: string;
+  content_type: string;
+  size_bytes: number;
+  text: string;
+  truncated: boolean;
+  original_b64: string | null;
+}
+
+// Reject obviously-too-big uploads before we even POST them. This is
+// rough on purpose — the goal is "don't try to push a 1GB CSV through",
+// not a strict accounting. Backend re-checks.
+const MAX_TOTAL_UPLOAD_BYTES = 50 * 1024 * 1024;
+
+/**
+ * Send files to /api/uploads/extract for text extraction. Pure stateless
+ * call — no project ID, nothing persisted server-side. The caller holds
+ * the returned array in component state and ships it back to createProject.
+ *
+ * Hard caps enforced by the backend: 10 MB per file, 5 files per request,
+ * ~50 MB total, 30 KB extracted text per file. Errors come back as 4xx
+ * with a readable detail string we surface verbatim.
+ */
+export async function extractFiles(files: File[]): Promise<UploadedFile[]> {
+  const total = files.reduce((n, f) => n + f.size, 0);
+  if (total > MAX_TOTAL_UPLOAD_BYTES) {
+    const mb = (n: number) => (n / (1024 * 1024)).toFixed(1);
+    throw new Error(
+      `Upload too large: ${mb(total)} MB total. Max is ${mb(MAX_TOTAL_UPLOAD_BYTES)} MB across all attached files.`,
+    );
+  }
+  const form = new FormData();
+  for (const f of files) form.append("files", f, f.name);
+  const resp = await fetch(apiUrl("/api/uploads/extract"), {
+    method: "POST",
+    body: form,
+  });
+  if (!resp.ok) {
+    let detail = `Upload failed: ${resp.status}`;
+    try {
+      const j = (await resp.json()) as { detail?: string };
+      if (j.detail) detail = j.detail;
+    } catch {
+      /* non-JSON body — keep the status-line fallback */
+    }
+    throw new Error(detail);
+  }
+  return resp.json();
+}
+
 export async function createProject(
   description: string,
   capabilities: string[] = [],
   initialPrompt?: string,
+  contextFiles?: UploadedFile[],
 ): Promise<Project> {
   const resp = await fetch(apiUrl("/api/projects"), {
     method: "POST",
@@ -242,6 +299,7 @@ export async function createProject(
       description,
       capabilities,
       initial_prompt: initialPrompt,
+      context_files: contextFiles ?? [],
     }),
   });
   if (!resp.ok) throw new Error(`Failed to create project: ${resp.status}`);
@@ -1178,7 +1236,11 @@ export async function* streamSuggestCapabilities(
   refineIdea?: IdeaToRefine,
   refineComment?: string,
   previousIdeas?: IdeaToRefine[],
-  previousCapabilities?: string[]
+  previousCapabilities?: string[],
+  /** Joined extraction of any files the user uploaded on the home page.
+   *  When set, the backend injects it as a ground-truth context block in
+   *  the suggester prompt. Capped to 50 KB by the caller. */
+  contextText?: string
 ): AsyncGenerator<SuggestEvent> {
   const body: Record<string, unknown> = { prompt, capabilities };
   if (previousIdeas && previousIdeas.length > 0) {
@@ -1187,6 +1249,9 @@ export async function* streamSuggestCapabilities(
   } else if (refineIdea && refineComment) {
     body.refine_idea = refineIdea;
     body.refine_comment = refineComment;
+  }
+  if (contextText && contextText.length > 0) {
+    body.context_text = contextText;
   }
 
   const resp = await fetch(apiUrl("/api/capabilities/suggest"), {

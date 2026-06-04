@@ -25,6 +25,7 @@ import {
   Library,
   FolderOpen,
   Database,
+  Paperclip,
   Pencil,
   Send,
   X,
@@ -36,6 +37,7 @@ import {
 import {
   listProjects,
   createProject,
+  extractFiles,
   searchTemplates,
   getConfigStatus,
   getCapabilities,
@@ -46,8 +48,11 @@ import {
   type CapabilityInput,
   type UseCaseIdea,
   type IdeaToRefine,
+  type UploadedFile,
 } from "@/lib/custom-api";
+import { FileUploadChip } from "@/components/file-upload-chip";
 import { AUTO_BUILD_KICKOFF } from "@/lib/auto-build-prompt";
+import { cn } from "@/lib/utils";
 export const Route = createFileRoute("/")({
   component: Index,
   beforeLoad: async () => {
@@ -120,8 +125,20 @@ function Index() {
   const [isSearchingTemplates, setIsSearchingTemplates] = useState(false);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
 
-  // Check if hero should be collapsed (user has typed something)
-  const isHeroCollapsed = topic.trim().length >= 3;
+  // Home-page file upload — drag-drop or paperclip-pick. The backend
+  // extracts text once; we hold the result here and ship it BOTH to the
+  // suggest stream (as `context_text`) and to createProject (as
+  // `context_files`). Reset cleanly when the user starts a new project.
+  const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [isDragOver, setIsDragOver] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Check if hero should be collapsed (user has typed something OR a file
+  // was uploaded). Either signal is enough to surface ideas — a user who
+  // drops a PRD without typing should still see suggestions.
+  const isHeroCollapsed = topic.trim().length >= 3 || uploadedFiles.length > 0;
 
   // Auto-resize textarea
   const adjustTextareaHeight = useCallback(() => {
@@ -131,6 +148,64 @@ function Index() {
       const maxHeight = 200; // Max height in pixels
       textarea.style.height = `${Math.min(textarea.scrollHeight, maxHeight)}px`;
     }
+  }, []);
+
+  // Total-context cap (~50 KB) for what we ship to the suggest endpoint.
+  // The backend re-caps as belt-and-braces; this saves bandwidth.
+  const SUGGEST_CONTEXT_MAX = 50_000;
+
+  // Join all extracted files into one prompt-ready blob with filename
+  // headers between each. Truncates the whole thing at SUGGEST_CONTEXT_MAX
+  // characters so a single large file can't blow the budget.
+  const buildContextText = useCallback((): string | undefined => {
+    if (uploadedFiles.length === 0) return undefined;
+    const parts: string[] = [];
+    for (const f of uploadedFiles) {
+      parts.push(`=== FILE: ${f.filename} ===\n${f.text}`);
+    }
+    const joined = parts.join("\n\n");
+    if (joined.length > SUGGEST_CONTEXT_MAX) {
+      return joined.slice(0, SUGGEST_CONTEXT_MAX) + "\n\n[... truncated ...]";
+    }
+    return joined;
+  }, [uploadedFiles]);
+
+  // Send picked / dropped files to /api/uploads/extract and append to
+  // state. Errors come back as a human-readable detail string from the
+  // backend (size/count/type violations) which we show inline below the
+  // textarea. We do NOT replace the existing chips on partial failure —
+  // the user's previously uploaded files stay put.
+  const handleFiles = useCallback(async (incoming: FileList | File[]) => {
+    const files = Array.from(incoming);
+    if (files.length === 0) return;
+    setIsUploading(true);
+    setUploadError(null);
+    try {
+      const extracted = await extractFiles(files);
+      setUploadedFiles((prev) => [...prev, ...extracted]);
+    } catch (e) {
+      setUploadError(e instanceof Error ? e.message : "Upload failed");
+    } finally {
+      setIsUploading(false);
+    }
+  }, []);
+
+  // Drag/drop on the card — we accept anything droppable but the upload
+  // endpoint enforces the extension allowlist, so unsupported drops
+  // surface as a 400 with a readable detail.
+  const handleDrop = useCallback(
+    (e: React.DragEvent<HTMLDivElement>) => {
+      e.preventDefault();
+      setIsDragOver(false);
+      if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+        void handleFiles(e.dataTransfer.files);
+      }
+    },
+    [handleFiles],
+  );
+
+  const handleRemoveFile = useCallback((idx: number) => {
+    setUploadedFiles((prev) => prev.filter((_, i) => i !== idx));
   }, []);
 
   // Toggle product selection and track explicit user choice
@@ -228,6 +303,10 @@ function Index() {
   useEffect(() => { capabilitiesRef.current = capabilities; }, [capabilities]);
   useEffect(() => { explicitSelectionsRef.current = explicitSelections; }, [explicitSelections]);
   useEffect(() => { selectedProductsRef.current = selectedProducts; }, [selectedProducts]);
+  // Same ref-trick so runSuggestionStream keeps its stable identity even
+  // though buildContextText changes whenever uploadedFiles does.
+  const buildContextTextRef = useRef(buildContextText);
+  useEffect(() => { buildContextTextRef.current = buildContextText; }, [buildContextText]);
 
   // Snapshot of `selectedProducts` at the moment the LAST successful
   // suggestion stream finished — i.e. the capability set the current
@@ -294,7 +373,8 @@ function Index() {
         status: explicit.get(cap.id) ?? null,
       }));
 
-      // Stream events
+      // Stream events. Read context text via ref so this function keeps
+      // its stable identity (see the deps-via-refs note at the bottom).
       for await (const event of streamSuggestCapabilities(
         promptText.trim(),
         capabilityInputs,
@@ -303,6 +383,7 @@ function Index() {
         refineComment,
         previousIdeas,
         previousCapabilities,
+        buildContextTextRef.current(),
       )) {
         // Check if aborted
         if (abortController.signal.aborted) return;
@@ -391,25 +472,42 @@ function Index() {
   // in-flight stream) would fire on every checkbox toggle and kill
   // streams mid-way.
   const lastTopicRef = useRef("");
+  // Re-fire the suggestion when files change too — `lastTopicRef` alone
+  // would early-return if the user only dropped a file. We hash the
+  // filename list so identity changes only when the file SET changes
+  // (not on every re-render where uploadedFiles is the same array).
+  const uploadedFilesKey = uploadedFiles.map((f) => f.filename).join("|");
+  const lastUploadKeyRef = useRef("");
   const capabilitiesReady = capabilities.length > 0;
   useEffect(() => {
-    // Only trigger when topic actually changes
-    if (topic.trim() === lastTopicRef.current) {
+    const trimmedTopic = topic.trim();
+    // Trigger if EITHER the topic OR the file set changed.
+    if (
+      trimmedTopic === lastTopicRef.current
+      && uploadedFilesKey === lastUploadKeyRef.current
+    ) {
       return;
     }
-    lastTopicRef.current = topic.trim();
+    lastTopicRef.current = trimmedTopic;
+    lastUploadKeyRef.current = uploadedFilesKey;
 
-    if (topic.trim().length < 3 || !capabilitiesReady) {
+    const hasFiles = uploadedFiles.length > 0;
+    // Need EITHER 3+ chars of topic OR at least one file. A file with no
+    // typed text gets a generic prompt — the backend sees the file
+    // content via context_text and picks ideas from it.
+    if ((trimmedTopic.length < 3 && !hasFiles) || !capabilitiesReady) {
       setIsSuggestingCapabilities(false);
       return;
     }
 
-    // Show loading immediately
     setIsSuggestingCapabilities(true);
 
-    // Debounce the actual API call
+    const effectivePrompt = trimmedTopic.length >= 3
+      ? trimmedTopic
+      : "Suggest demos based on the uploaded files.";
+
     const timer = setTimeout(() => {
-      runSuggestionStream(topic.trim());
+      runSuggestionStream(effectivePrompt);
     }, 1000);
 
     return () => {
@@ -420,7 +518,7 @@ function Index() {
       // mid-stream cancel to the user.
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [topic, capabilitiesReady]);
+  }, [topic, capabilitiesReady, uploadedFilesKey]);
 
   // Re-suggest when the user explicitly toggles a capability — so the
   // story/ideas regenerate to reflect what they want included. Skipped on
@@ -515,7 +613,10 @@ function Index() {
     idea?: UseCaseIdea,
   ) => {
     e?.preventDefault();
-    if (isCreating || !topic.trim()) return;
+    // Allow creating with only files (no typed text) — the description
+    // falls back to the picked idea's hook (which was generated from the
+    // file content) or to a file-only summary string.
+    if (isCreating || (!topic.trim() && !idea && uploadedFiles.length === 0)) return;
 
     // Capabilities are always from selectedProducts (shared across all ideas)
     const capabilityIds = Array.from(selectedProducts);
@@ -532,9 +633,14 @@ function Index() {
         if (idea.datasources && idea.datasources.length > 0) {
           description += `\n\nData sources: ${idea.datasources.join(", ")}`;
         }
-      } else {
+      } else if (topic.trim().length > 0) {
         // Raw topic mode
         description = topic.trim();
+      } else {
+        // File-only mode — synthesize a placeholder from the filenames.
+        // The backend's name/schema LLM call needs SOMETHING in description;
+        // the agent gets the actual content via the context/uploads files.
+        description = `Solution from uploaded files: ${uploadedFiles.map((f) => f.filename).join(", ")}`;
       }
 
       if (capabilityIds.length > 0) {
@@ -556,7 +662,22 @@ function Index() {
       if (idea) {
         initialPrompt = `Help me build a databricks solution.\n\nUser request:\n${topic.trim()}\n\n**${idea.title}**\n\n${idea.hook}${authoritativeCapsLine}`;
       } else {
-        initialPrompt = `Help me build a databricks solution.\n\nSolution description:\n${topic.trim()}${authoritativeCapsLine}`;
+        initialPrompt = `Help me build a databricks solution.\n\nSolution description:\n${topic.trim() || description}${authoritativeCapsLine}`;
+      }
+
+      // File context — call out the uploads so the agent knows to read them
+      // from `context/uploads/` on its first investigation pass. The
+      // backend wrote both the raw original AND a `.extracted.md` sibling
+      // for each file; the agent can pick whichever is more useful.
+      if (uploadedFiles.length > 0) {
+        const fileList = uploadedFiles
+          .map((f) => `- ${f.filename}${f.truncated ? " (truncated)" : ""}`)
+          .join("\n");
+        initialPrompt +=
+          `\n\nThe user uploaded ${uploadedFiles.length} file(s) as ` +
+          `context — they live at \`context/uploads/\` in the project. ` +
+          `Read the \`.extracted.md\` siblings (already text-extracted) ` +
+          `before designing the story so it fits what's actually in them:\n${fileList}`;
       }
 
       // Auto mode: append the kickoff directive so the agent runs every stage
@@ -572,7 +693,14 @@ function Index() {
       // Passing capabilityIds scopes which ai-dev-kit skills get copied into the project.
       // Passing initialPrompt persists the opening message as a real user Message so it
       // shows up as the first chat bubble on load — no URL-param round-trip, no race.
-      const project = await createProject(description, capabilityIds, initialPrompt);
+      // Passing contextFiles writes the originals + .extracted.md siblings
+      // under context/uploads/ in the new project's dir.
+      const project = await createProject(
+        description,
+        capabilityIds,
+        initialPrompt,
+        uploadedFiles.length > 0 ? uploadedFiles : undefined,
+      );
 
       navigate({
         to: "/project/$projectId",
@@ -666,8 +794,28 @@ function Index() {
             </p>
           </div>
 
-          {/* Input card */}
-          <Card className="w-full text-left backdrop-blur-md bg-card/80 border-primary/10 shadow-lg shadow-primary/5">
+          {/* Input card. Drag-drop wraps the whole card so the user can
+              drop files anywhere over the textarea / chip area. The
+              isDragOver state pulses the border so the drop target is
+              obvious. */}
+          <Card
+            className={cn(
+              "w-full text-left backdrop-blur-md bg-card/80 shadow-lg shadow-primary/5 transition-colors",
+              isDragOver
+                ? "border-primary/60 ring-2 ring-primary/30"
+                : "border-primary/10",
+            )}
+            onDragOver={(e) => {
+              e.preventDefault();
+              if (!isDragOver) setIsDragOver(true);
+            }}
+            onDragLeave={(e) => {
+              // Only flip off when the drag actually leaves the card
+              // (not when crossing internal element boundaries).
+              if (e.currentTarget === e.target) setIsDragOver(false);
+            }}
+            onDrop={handleDrop}
+          >
             <CardContent className="p-4">
               <form
                 onSubmit={(e) => {
@@ -678,18 +826,78 @@ function Index() {
                 }}
                 className="space-y-2.5"
               >
-                <Textarea
-                  ref={textareaRef}
-                  placeholder='Describe your project... e.g. "predictive maintenance for wind turbines"'
-                  value={topic}
-                  onChange={(e) => {
-                    setTopic(e.target.value);
-                    adjustTextareaHeight();
-                  }}
-                  className="min-h-12 text-lg md:text-lg bg-background/60 resize-none overflow-hidden"
-                  rows={1}
-                  autoFocus
-                />
+                {/* Textarea + attach button on a single row. The button
+                    is `items-end` so it stays aligned to the bottom of
+                    the textarea as it auto-grows (otherwise it'd drift
+                    upward and stop reading as "attached to the input"). */}
+                <div className="flex items-end gap-2">
+                  <Textarea
+                    ref={textareaRef}
+                    placeholder='Describe your project... e.g. "predictive maintenance for wind turbines"'
+                    value={topic}
+                    onChange={(e) => {
+                      setTopic(e.target.value);
+                      adjustTextareaHeight();
+                    }}
+                    className="min-h-12 text-lg md:text-lg bg-background/60 resize-none overflow-hidden flex-1"
+                    rows={1}
+                    autoFocus
+                  />
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    multiple
+                    accept=".pdf,.csv,.xlsx,.docx,.md,.txt,.json,.yaml,.yml,.html,.xml,.log"
+                    className="hidden"
+                    onChange={(e) => {
+                      if (e.target.files) void handleFiles(e.target.files);
+                      // Reset so the same file can be re-picked after remove.
+                      e.target.value = "";
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={isUploading}
+                    className={cn(
+                      "shrink-0 inline-flex items-center justify-center size-12 rounded-md border border-border bg-background/60 text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors cursor-pointer",
+                      isUploading && "opacity-60 cursor-wait",
+                    )}
+                    title="Attach files (PDF, CSV, XLSX, DOCX, MD, TXT)"
+                    aria-label="Attach files"
+                  >
+                    {isUploading ? (
+                      <Loader2 className="size-4 animate-spin" />
+                    ) : (
+                      <Paperclip className="size-4" />
+                    )}
+                  </button>
+                </div>
+
+                {/* Chips row — only renders when files are attached or an
+                    upload error occurred, so the layout stays compact
+                    on cold start. */}
+                {(uploadedFiles.length > 0 || uploadError) && (
+                  <div className="space-y-1.5">
+                    {uploadedFiles.length > 0 && (
+                      <div className="flex items-start gap-2 flex-wrap">
+                        {uploadedFiles.map((f, i) => (
+                          <FileUploadChip
+                            key={`${f.filename}-${i}`}
+                            file={f}
+                            onRemove={() => handleRemoveFile(i)}
+                          />
+                        ))}
+                      </div>
+                    )}
+                    {uploadError && (
+                      <div className="flex items-start gap-1.5 text-xs text-destructive">
+                        <AlertCircle className="size-3.5 mt-0.5 shrink-0" />
+                        <span>{uploadError}</span>
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {/* Ideas section - shows when we have ideas or loading */}
                 {isHeroCollapsed && (
@@ -1013,7 +1221,18 @@ function Index() {
                         handleCreateProject(undefined, ideas[selectedIdeaIdx])
                       }
                       disabled={
-                        isCreating || isSuggestingCapabilities || !topic.trim()
+                        isCreating
+                        || isSuggestingCapabilities
+                        // Need ONE of: typed text, picked idea, or uploaded
+                        // files. The `ideas.length > 0` outer guard already
+                        // ensures there's at least one idea, but we still
+                        // check `selectedIdeaIdx` since it could be -1 in
+                        // edge cases (stream errored before any idea landed).
+                        || (
+                          !topic.trim()
+                          && !ideas[selectedIdeaIdx]
+                          && uploadedFiles.length === 0
+                        )
                       }
                       className="inline-flex items-center justify-center gap-2 px-6 py-2.5 rounded-md text-sm font-semibold transition-all bg-destructive text-destructive-foreground hover:bg-destructive/90 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer shadow-sm"
                     >

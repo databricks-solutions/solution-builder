@@ -40,6 +40,11 @@ dependencies = [
     "holidays>=0.55",
     "dbdemos-tracker>=0.1.12",
     "zstandard>=0.25.0",
+    # Read-side parsers for the home-page file upload feature
+    # (services/file_extraction.py). pypdf = pure-Python MIT, no system
+    # deps. openpyxl reads .xlsx without needing the full pandas stack.
+    "pypdf>=4.0",
+    "openpyxl>=3.1",
 ]
 
 # Local path dependencies for Databricks MCP tools

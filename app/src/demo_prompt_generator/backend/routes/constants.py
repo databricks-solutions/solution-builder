@@ -62,6 +62,12 @@ class SuggestCapabilitiesRequest(BaseModel):
     # can describe the delta in plain English.
     previous_ideas: list[IdeaToRefine] | None = None
     previous_capabilities: list[str] | None = None
+    # Pre-joined extraction of any files the user uploaded on the home
+    # page (filename headers + extracted text per file). Capped at ~50 KB
+    # by the frontend; we cap again server-side as belt-and-braces. When
+    # present, it's injected into the user prompt as a ground-truth
+    # context block so the suggested ideas reflect the file's domain.
+    context_text: str | None = None
 
 
 class UseCaseIdea(BaseModel):
@@ -399,6 +405,20 @@ Output line-delimited JSON: count line (count=1), then one idea line, then capab
 {cap_list}
 
 Output line-delimited JSON (idea lines first, then capabilities line)."""
+
+    # If the user uploaded files on the home page, inject their joined
+    # extraction as a ground-truth block. Cap at 50 KB server-side as
+    # belt-and-braces (frontend already caps).
+    if body.context_text:
+        ctx = body.context_text[:50_000]
+        ctx_block = (
+            "\n\n=== UPLOADED FILES (user-shared context — treat as ground truth) ===\n"
+            f"{ctx}\n"
+            "Use the file content above to anchor the story domain, data shape, "
+            "and any specific entities. The user wants the suggested demo to fit "
+            "what's actually in these files."
+        )
+        user_prompt = user_prompt + ctx_block
 
     return system_prompt, user_prompt
 

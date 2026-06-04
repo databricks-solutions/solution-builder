@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import hashlib
 import re
 import shutil
 from datetime import datetime, timezone
+from pathlib import PurePosixPath
 
 from databricks.sdk import WorkspaceClient
 from fastapi import HTTPException, Request
@@ -497,8 +499,66 @@ def create_project(
     # Passing capabilities scopes the copied skills to what this demo needs.
     create_project_directory(project.id, capabilities=body.capabilities)
 
-    # Save context document as a project file if provided
-    if body.context_document:
+    # Save uploaded context files (home-page widget) + the legacy
+    # single-document fallback.
+    #
+    # New shape (body.context_files): each file produces TWO artifacts
+    # under context/uploads/ — the raw original (so the user can re-open
+    # it) and an .extracted.md sibling (so the agent can read the text
+    # without re-parsing PDFs / XLSXs). Filenames are sanitized to a
+    # leaf-only basename to block path traversal.
+    if body.context_files:
+        project_dir = get_project_directory(project.id)
+        uploads_dir = project_dir / "context" / "uploads"
+        uploads_dir.mkdir(parents=True, exist_ok=True)
+        # Per-file size cap on the decoded original, matching the upload
+        # route's limit. Stops a hand-crafted request from sneaking a
+        # huge base64 blob past the original upload guard.
+        MAX_ORIGINAL_BYTES = 10 * 1024 * 1024  # 10 MB
+        seen_names: set[str] = set()
+        for f in body.context_files:
+            # Pure-Posix basename — strips any "../" the client could
+            # have stuffed into `filename`. We never trust client paths.
+            safe_name = PurePosixPath(f.filename or "unknown").name or "unknown"
+            # Dedupe — if two uploads share a basename, suffix the later
+            # one so they don't clobber each other.
+            if safe_name in seen_names:
+                stem = PurePosixPath(safe_name).stem
+                suffix = PurePosixPath(safe_name).suffix
+                n = 2
+                while f"{stem}-{n}{suffix}" in seen_names:
+                    n += 1
+                safe_name = f"{stem}-{n}{suffix}"
+            seen_names.add(safe_name)
+            (uploads_dir / f"{safe_name}.extracted.md").write_text(
+                f.text, encoding="utf-8"
+            )
+            if f.original_b64:
+                try:
+                    raw = base64.b64decode(f.original_b64, validate=False)
+                except (ValueError, TypeError):
+                    # Bad base64 from a misbehaving client — skip the
+                    # original, keep the extracted text. The user still
+                    # has the content; only the re-download link is lost.
+                    logger.warning(
+                        "could not decode original_b64 for %s; "
+                        "extracted text saved without original",
+                        safe_name,
+                    )
+                    continue
+                if len(raw) > MAX_ORIGINAL_BYTES:
+                    logger.warning(
+                        "original_b64 for %s decoded to %d bytes (> %d cap); "
+                        "skipping original write",
+                        safe_name,
+                        len(raw),
+                        MAX_ORIGINAL_BYTES,
+                    )
+                    continue
+                (uploads_dir / safe_name).write_bytes(raw)
+    elif body.context_document:
+        # Legacy single-document path — kept so older clients (or anyone
+        # still POSTing the old field) keep working.
         project_dir = get_project_directory(project.id)
         context_dir = project_dir / "context"
         context_dir.mkdir(exist_ok=True)
