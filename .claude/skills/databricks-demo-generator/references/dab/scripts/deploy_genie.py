@@ -90,21 +90,19 @@ description = f"Ask questions about {catalog}.{schema} data"
 
 # COMMAND ----------
 
-# Check whether the space already exists (SDK requires pagination)
+# Check whether the space already exists.
+# NOTE: list_spaces() returns a Python generator in current databricks-sdk (>=0.102).
+# It does NOT return a paginated response with .spaces and .next_page_token attributes —
+# that pattern errors with "AttributeError: 'generator' object has no attribute 'spaces'".
+# Iterate the generator directly.
 existing_id = None
-page_token = None
 
 print("Searching for existing Genie Spaces...")
-while True:
-    resp = w.genie.list_spaces(page_size=200, page_token=page_token)
-    for space in resp.spaces or []:
-        if space.title == SPACE_NAME:
-            existing_id = space.space_id
-            print(f"  Found: {space.title} ({existing_id})")
-            break
-    if existing_id or not resp.next_page_token:
+for space in w.genie.list_spaces(page_size=200):
+    if space.title == SPACE_NAME:
+        existing_id = space.space_id
+        print(f"  Found: {space.title} ({existing_id})")
         break
-    page_token = resp.next_page_token
 
 # COMMAND ----------
 
