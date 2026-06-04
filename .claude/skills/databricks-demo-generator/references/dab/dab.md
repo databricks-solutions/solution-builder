@@ -32,6 +32,61 @@ When asked to package a demo as a DAB, produce a single `databricks.yml` at the 
 
 Each script is idempotent (get-then-create) and parameterized via `argparse` — copy into the project `src/deploy/` and wire as a `notebook_task` (or `python_wheel_task`) in the bundle job.
 
+### CRITICAL — copy verbatim, do NOT rewrite SDK call shapes
+
+The reference scripts use SDK signatures that match `databricks-sdk>=0.102.0`. **Only edit business content** — `KA_NAME`, `SPACE_TITLE`, `INSTRUCTIONS`, table identifiers, document paths. **Preserve everything else verbatim** — imports, model-object construction, generator iteration, kwarg names. If a call shape *looks* wrong to you, do NOT rewrite it from memory; the reference script's pattern is the current SDK contract.
+
+Three rewrites that have caused runtime failures (last seen 2026-05-29):
+
+**1. Knowledge Assistant create — must pass a `KnowledgeAssistant` model object, NOT kwargs.**
+
+```python
+# WRONG — older SDK pattern; raises TypeError: unexpected keyword argument 'display_name'
+result = w.knowledge_assistants.create_knowledge_assistant(
+    display_name=KA_NAME, description="..."
+)
+
+# CORRECT — current SDK signature
+from databricks.sdk.service.knowledgeassistants import KnowledgeAssistant
+new_ka = KnowledgeAssistant(display_name=KA_NAME, description="...", instructions="...")
+result = w.knowledge_assistants.create_knowledge_assistant(knowledge_assistant=new_ka)
+```
+
+**2. Knowledge sources — must use `KnowledgeSource(files_spec=FilesSpec(...))`, NOT inline kwargs.**
+
+```python
+# WRONG — silently regressed; create succeeds but indexing never finds the files
+w.knowledge_assistants.create_knowledge_source(
+    parent=name, display_name="docs", source_type="files", files={"path": "..."}
+)
+
+# CORRECT
+from databricks.sdk.service.knowledgeassistants import KnowledgeSource, FilesSpec
+src = KnowledgeSource(
+    display_name="docs",
+    source_type="FILES",         # uppercase enum value
+    files_spec=FilesSpec(path="..."),  # NOT files_knowledge_source
+)
+w.knowledge_assistants.create_knowledge_source(parent=name, knowledge_source=src)
+```
+
+**3. `list_*()` returns a Python generator, NOT a paginated response.**
+
+```python
+# WRONG — AttributeError: 'generator' object has no attribute 'knowledge_assistants'
+while True:
+    resp = w.knowledge_assistants.list_knowledge_assistants(page_size=100, page_token=tok)
+    for ka in resp.knowledge_assistants or []: ...
+    if not resp.next_page_token: break
+    tok = resp.next_page_token
+
+# CORRECT
+for ka in w.knowledge_assistants.list_knowledge_assistants(page_size=100):
+    if ka.display_name == KA_NAME: ...
+```
+
+The same generator-iteration pattern applies to `w.genie.list_spaces(...)`.
+
 ---
 
 ## Bundle skeleton — what `databricks.yml` must have
