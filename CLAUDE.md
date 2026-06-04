@@ -100,12 +100,48 @@ industry-demo-prompts/
 
 ## The preview/review mode
 
-The generated demo includes a Databricks app (`app_template/`-derived). User clicks **Start Preview** in the UI:
-- Backend (`backend/preview/`) spawns `<project>/app/start.sh` as a subprocess.
-- HTTP proxy at `/preview/{id}/{path}` forwards into the subprocess port.
-- iframe renders the app inside the generator UI.
-- Auto-stops after 5min idle; max 10 concurrent.
-- **The agent never runs `start.sh` itself** — only the UI owns lifecycle.
+Every generated demo ships with a Databricks App under `<project>/app/`. The user clicks **Start Preview** in the project workspace and the generator runs that app **inside the generator's own container**, then proxies it into an iframe. Live HTML + live agent, no deploy step.
+
+### Lifecycle
+
+A `PreviewRegistry` singleton (one per uvicorn process, lives for the app's lifespan) tracks one `PreviewState` per project. State machine: **stopped → starting → ready → (failed | stopped)**. The UI subscribes to `/api/preview/{id}/events` (SSE) and gets state transitions + log lines as they happen.
+
+When the user clicks Start:
+1. Registry asks the kernel for a free port via `bind(("127.0.0.1", 0))`, **excluding** the parent's `DATABRICKS_APP_PORT` and any port already promised to another preview.
+2. Spawns `<project>/app/start.sh` with `DATABRICKS_APP_PORT=<picked>` **and `FLASK_RUN_HOST=127.0.0.1`** in env. Both are critical (see the prod-bind story below).
+3. A readiness probe polls the port; first successful TCP connect flips the state to `ready` and the iframe is told to load.
+
+`stop` kills the subprocess tree. An idle sweep stops previews after 5 min of inactivity and a global cap keeps total concurrent previews bounded (defaults defined in `backend/preview/registry.py`).
+
+**Only the UI drives lifecycle — the agent never runs `start.sh`.** The agent's transcript wouldn't capture process state anyway, and concurrent agent-spawned processes would race the registry.
+
+### Reverse proxy + HTML rewrite
+
+`/preview/{id}/{path}` forwards every request to `http://127.0.0.1:<picked>/<path>`. The proxy is more than a pipe — it has to make the child app **think it lives at the iframe origin**, even though it actually lives under a `/preview/<id>/` prefix.
+
+For that it does two things:
+
+- **HTML rewrite on the way out**: absolute-path `href="/foo"` / `src="/foo"` get prefixed to `/preview/<id>/foo`. Inline `<script type="module">` import paths get the same treatment.
+- **Runtime shim injected into the child's `<head>`**: patches `fetch`, `XMLHttpRequest`, `WebSocket`, and `EventSource` so the child's own runtime calls also get rewritten. Sets `window.__PREVIEW_BASENAME__ = "/preview/<id>"` so the child's router can use it as basename. **This is the most surprising piece** — if a preview loads but its data fetches 404, that's where to look.
+
+The shim also installs an error catcher that POSTs uncaught JS errors and unhandled rejections to `/preview/<id>/api/log/client-error`. Those land in the parent's server logs alongside the child's stdout/stderr — useful for debugging a blank preview.
+
+### Logs
+
+Each `PreviewState` owns a bounded `LogBuffer`. The child's stdout + stderr stream into it line-by-line (tagged `stdout` / `stderr` / `system`). The SSE feed at `/api/preview/{id}/events` carries both **state events** and **log lines** with a cursor so reconnects can replay missed lines. The UI's "Preview logs" panel reads this feed.
+
+When something breaks the order to look:
+1. **The logs panel** — child startup errors usually scream here.
+2. **Browser console** — the shim's error catcher echoes uncaught errors to the parent's server stderr, but they're also right there in the iframe's console.
+3. **The parent's uvicorn stderr** — anything the shim catcher posts lands here.
+
+### Why both `DATABRICKS_APP_PORT` *and* `FLASK_RUN_HOST=127.0.0.1`
+
+AppKit's server plugin defaults to `host=0.0.0.0`. In the prod Databricks Apps container, the parent **must** bind `0.0.0.0:DATABRICKS_APP_PORT` (the platform proxy targets that). If the child binds `0.0.0.0:<picked_port>` and the kernel ever hands the parent's port back to `_pick_free_port` (rare, but possible in some ephemeral-range deployments), both processes end up listening on the parent's external port and the load balancer round-robins between them — users intermittently get the **child's HTML on the parent's URL**.
+
+Forcing the child to `127.0.0.1` turns that race into a hard `EADDRINUSE` at child start (`127.0.0.1:N` conflicts with `0.0.0.0:N` on bind). The child fails loudly, registry picks a new port, no silent shadowing. See the commit / comment in `registry.py:_do_start` for the full story.
+
+Same env in local dev — no behavior change there.
 
 ## Template ↔ Test app parallel-edit workflow
 
