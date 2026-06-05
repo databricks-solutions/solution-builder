@@ -1,7 +1,11 @@
 # Databricks notebook source
 """
 Deploy Knowledge Assistant - Reference script for DAB workflow task.
-REQUIRES: databricks-sdk>=0.102.0 (use sdk_latest environment)
+
+REQUIRES: databricks-sdk>=0.114.0 (use sdk_latest environment).
+The SDK call shapes below match this version — reuse this script verbatim,
+only edit business content (KA_NAME, VOLUME_PATH, instructions). Do NOT
+rewrite the SDK calls from memory; this is the current correct syntax.
 
 Creates or updates a Knowledge Assistant using the Databricks SDK.
 Idempotent: safe to re-run.
@@ -45,10 +49,7 @@ instructions = "Be helpful and cite sources when answering questions. Provide sp
 # COMMAND ----------
 
 # Check whether the KA already exists.
-# NOTE: list_knowledge_assistants() returns a Python generator in current databricks-sdk
-# (>=0.102). It does NOT return a paginated response with .knowledge_assistants and
-# .next_page_token attributes — that pattern errors with "AttributeError: 'generator'
-# object has no attribute 'knowledge_assistants'". Iterate the generator directly.
+# list_*() returns a generator in databricks-sdk>=0.114 — iterate directly.
 existing_id = None
 
 print("Searching for existing Knowledge Assistants...")

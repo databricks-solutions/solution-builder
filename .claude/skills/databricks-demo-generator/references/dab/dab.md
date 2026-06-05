@@ -5,7 +5,7 @@ When asked to package a demo as a DAB, produce a single `databricks.yml` at the 
 ## Prerequisites for the deploying user
 
 - Databricks CLI **v0.283.0+** (dashboard `dataset_catalog`/`dataset_schema` rewriting requires it).
-- SDK `databricks-sdk>=0.102.0` for any task that touches Genie / KA / MAS APIs — wire via `environment_key: sdk_latest`.
+- SDK `databricks-sdk>=0.114.0` for any task that touches Genie / KA / MAS APIs — wire via `environment_key: sdk_latest`.
 
 ---
 
@@ -25,67 +25,14 @@ When asked to package a demo as a DAB, produce a single `databricks.yml` at the 
 
 | Component | Reference script | SDK version |
 |-----------|------------------|-------------|
-| Genie Spaces | [`scripts/deploy_genie.py`](scripts/deploy_genie.py) | `>=0.102.0` |
-| Knowledge Assistants | [`scripts/deploy_ka.py`](scripts/deploy_ka.py) | `>=0.102.0` |
-| Multi-Agent Supervisors | [`scripts/deploy_mas.py`](scripts/deploy_mas.py) | `>=0.102.0` |
+| Genie Spaces | [`scripts/deploy_genie.py`](scripts/deploy_genie.py) | `>=0.114.0` |
+| Knowledge Assistants | [`scripts/deploy_ka.py`](scripts/deploy_ka.py) | `>=0.114.0` |
+| Multi-Agent Supervisors | [`scripts/deploy_mas.py`](scripts/deploy_mas.py) | `>=0.114.0` |
 | File upload to volume | [`scripts/upload_pdfs.py`](scripts/upload_pdfs.py) | upload to workspace, then `dbutils.fs.cp` |
 
 Each script is idempotent (get-then-create) and parameterized via `argparse` — copy into the project `src/deploy/` and wire as a `notebook_task` (or `python_wheel_task`) in the bundle job.
 
-### CRITICAL — copy verbatim, do NOT rewrite SDK call shapes
-
-The reference scripts use SDK signatures that match `databricks-sdk>=0.102.0`. **Only edit business content** — `KA_NAME`, `SPACE_TITLE`, `INSTRUCTIONS`, table identifiers, document paths. **Preserve everything else verbatim** — imports, model-object construction, generator iteration, kwarg names. If a call shape *looks* wrong to you, do NOT rewrite it from memory; the reference script's pattern is the current SDK contract.
-
-Three rewrites that have caused runtime failures (last seen 2026-05-29):
-
-**1. Knowledge Assistant create — must pass a `KnowledgeAssistant` model object, NOT kwargs.**
-
-```python
-# WRONG — older SDK pattern; raises TypeError: unexpected keyword argument 'display_name'
-result = w.knowledge_assistants.create_knowledge_assistant(
-    display_name=KA_NAME, description="..."
-)
-
-# CORRECT — current SDK signature
-from databricks.sdk.service.knowledgeassistants import KnowledgeAssistant
-new_ka = KnowledgeAssistant(display_name=KA_NAME, description="...", instructions="...")
-result = w.knowledge_assistants.create_knowledge_assistant(knowledge_assistant=new_ka)
-```
-
-**2. Knowledge sources — must use `KnowledgeSource(files_spec=FilesSpec(...))`, NOT inline kwargs.**
-
-```python
-# WRONG — silently regressed; create succeeds but indexing never finds the files
-w.knowledge_assistants.create_knowledge_source(
-    parent=name, display_name="docs", source_type="files", files={"path": "..."}
-)
-
-# CORRECT
-from databricks.sdk.service.knowledgeassistants import KnowledgeSource, FilesSpec
-src = KnowledgeSource(
-    display_name="docs",
-    source_type="FILES",         # uppercase enum value
-    files_spec=FilesSpec(path="..."),  # NOT files_knowledge_source
-)
-w.knowledge_assistants.create_knowledge_source(parent=name, knowledge_source=src)
-```
-
-**3. `list_*()` returns a Python generator, NOT a paginated response.**
-
-```python
-# WRONG — AttributeError: 'generator' object has no attribute 'knowledge_assistants'
-while True:
-    resp = w.knowledge_assistants.list_knowledge_assistants(page_size=100, page_token=tok)
-    for ka in resp.knowledge_assistants or []: ...
-    if not resp.next_page_token: break
-    tok = resp.next_page_token
-
-# CORRECT
-for ka in w.knowledge_assistants.list_knowledge_assistants(page_size=100):
-    if ka.display_name == KA_NAME: ...
-```
-
-The same generator-iteration pattern applies to `w.genie.list_spaces(...)`.
+**Copy these scripts verbatim — only edit business content (names, IDs, paths, instructions). The SDK call shapes match the current `databricks-sdk` (>=0.114); do not rewrite them from memory.**
 
 ---
 
@@ -96,7 +43,7 @@ One file at project root, all resources under one top-level `resources:` block.
 - **Variables** for catalog, schema, warehouse_id — never hardcode. No workspace host — rely on CLI profile.
 - **`sync.include`** for static files (PDFs) AND the app's gitignored build outputs (`app/dist/**`, `app/client/dist/**`).
 - **Paths** are relative to `databricks.yml` — `./src/...`, `./dashboard/...`.
-- **Two `environments:`** in any job that calls SDK APIs: `sdk_only` (default) and `sdk_latest` (`databricks-sdk>=0.102.0`) for Genie/KA/MAS tasks.
+- **Two `environments:`** in any job that calls SDK APIs: `sdk_only` (default) and `sdk_latest` (`databricks-sdk>=0.114.0`) for Genie/KA/MAS tasks.
 - **`artifacts.default.build: ./app/scripts/build-app.sh`** if shipping an App (build runs before sync).
 - **`lifecycle.prevent_destroy: true`** on any stateful resource (Lakebase project, the App).
 
