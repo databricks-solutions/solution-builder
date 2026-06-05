@@ -72,9 +72,8 @@ Files and replacements:
 | Any `@databricks.com` email | Replace with `<your-email>`. |
 | Any path `/Workspace/Users/[^/]+/` referring to the SA | Replace `[^/]+` with `<your-username>`. |
 | Any `.env` (not `.env.example`) | Delete. |
-| `META-PROMPT.md` (SA-scaffolding artifact from the demo-generator template) | Delete entirely. This file's only purpose is to bootstrap a new demo-generator session — it has no client value and contains SA-internal instructions. |
-| `raw_data/pdf/` duplicates (two PDFs with same content but different filenames, e.g., `01_brand_voice_guide.pdf` AND `brand_voice_guide.pdf`) | Detect by content hash (`shasum -a 256`) within `raw_data/pdf/`. When two files have identical SHA, keep the one whose name matches the numeric-prefixed canonical convention (`<NN>_<topic>.pdf`) and delete the unprefixed variant. If both copies are non-identical with similar names, keep the larger / newer one and record the deletion in `HANDOFF_NOTES.md`. **Why it matters:** the Knowledge Assistant indexes everything under `raw_data/pdf/` — duplicates produce duplicate citations in MAS responses, undermining the demo. |
-| `raw_data/html/` duplicates (same dup pattern as PDFs — Solution Builder regenerates HTMLs mid-build and ships both old + numeric-prefixed copies) | Apply the same SHA-hash de-dup pass to `raw_data/html/`. Keep numeric-prefixed canonical names, delete the unprefixed variants, record in `HANDOFF_NOTES.md`. **Why it matters:** even though KA usually indexes PDFs (not HTML), the duplicate HTML files clutter the package + confuse the client about what's authoritative. They also doubled the shipped ZIP size by ~5% in the V2 build. |
+| `META-PROMPT.md` (SA-scaffolding from the demo-generator template) | Delete — SA-internal bootstrap doc, no client value. |
+| `raw_data/pdf/` and `raw_data/html/` duplicates (e.g., `01_brand_voice_guide.pdf` AND `brand_voice_guide.pdf`) | SHA-hash dedupe (`shasum -a 256`). On collision, keep the numeric-prefixed canonical name (`<NN>_<topic>.{pdf,html}`), delete the unprefixed variant. Record in `HANDOFF_NOTES.md`. Why: KA double-indexes duplicates → duplicate MAS citations; HTML dupes also bloat the ZIP. |
 
 After stripping, **record** the strip counts (e.g., "7 FE-workspace URLs in 3 files, 4 emails in 2 files, ...") — Step 10 prints the final summary. **Do not print a summary here**; Step 2's job is to strip, not to talk.
 
@@ -86,7 +85,7 @@ Read `templates/databricks.yml.patch.md` for the canonical recipe. This step doe
 
 - Top-level `bundle.name: <demo-slug>` and `include: - resources/*.yml`.
 - Top-level `variables:` block declares `run_with_synthetic_data` (default `"yes"`), `client_catalog`, `client_schema`, `warehouse_id`, plus any demo-specific vars (model endpoints, Genie/KA IDs, etc.). Defaults are placeholders like `"<your_catalog>"`.
-- `targets.client:` with `default: true`, `mode: production` (or omit `mode:` entirely — defaults to production), `workspace.host: https://<your-workspace>.cloud.databricks.com`, and a `variables:` override block repeating the placeholders. **CRITICAL: do NOT use `mode: development`** — that mode prepends `dev_<username>_` to every DAB resource name (schemas, volumes, jobs, pipelines, dashboards). For a client deploy, the client expects the schema they named (e.g., `accelerator_loyalty_v1`) to literally be that name — not `dev_jane_doe_accelerator_loyalty_v1`. The dev-mode prefix also creates a confusing schema-vs-pipeline-target divergence: the schema resource gets prefixed but `${var.client_schema}` substitution does NOT, so the pipeline writes to one schema while the DAB-managed schema resource exists at a different name. **Set `mode: production`.** Discovered 2026-05-29 V1 Phase E8.
+- `targets.client:` with `default: true`, `mode: production` (or omit `mode:` — defaults to production), `workspace.host: https://<your-workspace>.cloud.databricks.com`, and a `variables:` override block repeating the placeholders. **Do NOT use `mode: development`** — it prepends `dev_<username>_` to every DAB resource (schemas, volumes, jobs, pipelines, dashboards) but does NOT prefix `${var.client_schema}` substitutions, producing a schema-vs-pipeline divergence the client can't reconcile. Discovered 2026-05-29 V1 Phase E8.
 - **No other targets ship** — the SA's `dev` / `prod` working targets are stripped.
 
 #### 3.2 — Migrate ${var.*} references across the ENTIRE project tree (critical)
@@ -112,9 +111,7 @@ Two patterns — pick whichever fits the demo's existing structure:
 - **Pattern A — DAB `condition_task`** (preferred): gate the synth-gen task with `${var.run_with_synthetic_data} == "yes"`.
 - **Pattern B — notebook early-return**: inject `if os.environ.get("RUN_WITH_SYNTHETIC_DATA", "yes") == "no": dbutils.notebook.exit("Skipped — using client data")` at the top, and pass via `base_parameters`.
 
-For SDP/pipeline bronze: SDP SQL **cannot** interpolate Spark conf vars in `read_files()`. **Python bronze is required.** If the demo's existing bronze is SQL, either:
-- Convert to Python bronze per `databricks.yml.patch.md` Section 3, **then DELETE the original `*_bronze.sql` file** (don't leave it as an SA TODO — the .sql will confuse the client and the pipeline definition no longer references it). Update `databricks.yml`'s `pipeline.libraries[]` to point at the .py only. Record the deletion in `HANDOFF_NOTES.md`.
-- OR leave a `# TODO(client-handoff)` comment AND fail Step 5 validation with: `"SDP SQL bronze cannot interpolate ${var.client_catalog} — must convert to Python bronze."` Do not silently continue.
+For SDP/pipeline bronze: SDP SQL **cannot** interpolate Spark conf vars in `read_files()` — Python bronze is required. If the existing bronze is SQL, convert it per `databricks.yml.patch.md` Section 3, DELETE the original `*_bronze.sql`, update `pipeline.libraries[]` to the `.py`, and record the deletion in `HANDOFF_NOTES.md`. (Alternative: leave a `TODO(client-handoff)` and let Step 5 hard-fail — never silently continue.)
 
 #### 3.4 — App demos: preserve Stage 4 artifacts
 
@@ -126,9 +123,7 @@ Format: `# TODO(client-handoff): verify <X> still works for client_catalog/schem
 
 #### 3.6 — (removed in v1.1)
 
-v1 tried to install the Genie Code skill via a second bundle target (`setup`) that the client would `databricks bundle deploy` first. **Removed in v1.1** because DAB v1.1.0 does not support `${resources.jobs.<key>}` self-reference in target overrides — the `setup` target inherited ALL bundle resources, and `bundle deploy --target setup` failed at `terraform apply` on placeholder catalog/warehouse values (real failure observed on FEVM 2026-06-02).
-
-v1.1 installs the skill via a 3-line CLI snippet pasted into the Databricks web terminal (no DABs, no Python notebook task, no chicken-and-egg). The snippet is in Step 8's README template. Stage 5 does NOT emit a `setup` target, a `resources/setup.yml`, or a `src/setup/install_skill.py` — those files are gone in v1.1. If you find yourself writing any of those, you're on the v1 path — back out.
+v1's `setup` bundle target is gone in v1.1. The skill install machinery is now the 3-line CLI snippet in Step 8's README template. Stage 5 must NOT emit a `setup` target, `resources/setup.yml`, or `src/setup/install_skill.py` — if you're writing any of those, you're on the v1 path. (DAB v1.1.0 doesn't support `${resources.jobs.<key>}` self-reference, so the v1 setup target inherited all bundle resources and failed at terraform apply on placeholder values — observed on FEVM 2026-06-02.)
 
 ### Step 4 — Rewrite `dab_instructions.md` for the client
 
@@ -150,17 +145,9 @@ This is the gate. Two phases: **5.0 auto-fix** (patches known upstream Stage-4 c
 
 #### 5.0 — Run the pre-submit auto-fix + checks (HARD-GATE — do not skip)
 
-**STOP. Before you proceed to Step 6, invoke `presubmit.md` (sibling file in this directory) against `HANDOFF_DIR = <project root>`. Do not write the Genie Code skill, the README "First Run" section, the ZIP, or anything in Steps 6–11 until presubmit reports `OVERALL: PASS`.** Paste presubmit's full output into your Step 10 diff summary as evidence — if it's missing there, Step 10's checklist will fail.
+**STOP.** Invoke `presubmit.md` (sibling file) against `HANDOFF_DIR = <project root>` before writing anything in Steps 6–11. Do not proceed until presubmit reports `OVERALL: PASS`. Paste its full output into Step 10's diff summary as evidence.
 
-The presubmit will:
-
-1. Auto-patch `dbutils.widgets.addText` → `dbutils.widgets.text` in any `.py` file (Stage 4 codegen defect).
-2. Auto-patch missing `data_security_mode: SINGLE_USER` into every `job_clusters.new_cluster:` block in `resources/*.yml` (Stage 4 codegen defect — UC catalogs require single-user or user-isolation security mode).
-3. Run detect-only checks: IP-strip leaks, `META-PROMPT.md` and `install.sh` exclusions (v1 artifacts that must NOT ship in v1.1 packages), bronze-layer shape, Genie Code skill placeholders, `databricks.yml` shape.
-
-If any detect-only check FAILs, fix it (or surface to the SA), then re-run 5.0 until clean. Then proceed to 5.1.
-
-Log every auto-fix applied — Step 10's diff summary needs them.
+Presubmit auto-fixes two Stage-4 codegen defects (`dbutils.widgets.addText` → `.text`; missing `data_security_mode: SINGLE_USER` on `new_cluster:` blocks) and runs detect-only checks (IP-strip, v1-artifact exclusion, bronze-layer shape, Genie Code skill placeholders, `databricks.yml` shape). If any detect-only check fails, fix and re-run 5.0 until clean. Log every auto-fix — Step 10 needs them.
 
 #### 5.1 — Run the official validate gate
 
@@ -178,15 +165,11 @@ Validation checklist (every item must pass):
   - `@databricks.com` (SA email)
   - `/Workspace/Users/<sa-username>/` (SA workspace paths)
   - `databricks.prod.yml` (deleted file shouldn't be referenced)
-  - **Any workspace-specific FEVM catalog/schema literal** (e.g., `morgan_stable_classic_6df0yw_catalog`, `accelerator_loyalty_v1`) — these can leak into the bundled Genie Code skill's auto-detect examples if the template uses them as "e.g.," values. **Generic placeholders only** in the shipped skill: use phrases like "a user-owned catalog" or "<their-catalog>" — NEVER paste a real workspace's catalog/schema name. (Discovered 2026-05-29 V3 — `templates/genie-code-skill/SKILL.md` had `morgan_stable_classic_6df0yw_catalog` baked in as an example.)
+  - **Any workspace-specific FEVM catalog/schema literal** (e.g., `morgan_stable_classic_6df0yw_catalog`) in the bundled Genie Code skill. Generic placeholders only — never a real catalog name. Discovered 2026-05-29 V3.
 - **`include:` patterns match real files.** Grep `include:` lines in `databricks.yml`, glob the patterns, confirm every glob has ≥1 match.
 - **No orphaned `${var.catalog}` / `${var.schema}` refs.** `grep -rE '\$\{var\.(catalog|schema)\}'` across project root must return zero matches (only `${var.client_catalog}` / `${var.client_schema}` should remain).
 - **No critical-path `TODO(client-handoff)` in pipeline source, synth gate, or `databricks.yml`** — unless the SA has explicitly accepted manual follow-up (record acceptance in `HANDOFF_NOTES.md` at Step 9; carry it forward for Step 10's summary).
-- **Deploy scripts use the current databricks-sdk API shape.** Grep `src/deploy/*.py` for these stale-SDK patterns and flag any hit as a Step 5 WARNING (not a hard fail — the SA may accept and ship as-is):
-  - `page_token =` and `next_page_token` (paginated-response loops) — current SDK returns Python generators directly. Pattern: `for x in w.<api>.list_*(page_size=N):` is correct.
-  - `resp.<plural_field> or []` — same regression. Use `for x in w.<api>.list_*():` directly.
-  - `create_<thing>(display_name=..., description=...)` — current SDK takes a model object: `create_<thing>(<thing>=Class(display_name=..., description=...))`. The model-class import paths are like `databricks.sdk.service.knowledgeassistants.KnowledgeAssistant`.
-  - Surface in HANDOFF_NOTES.md so the SA knows what to fix or warn the client about. Discovered 2026-05-29 V1 Phase E8: `deploy_ka.py` and `deploy_genie.py` shipped by the demo-generator both hit this regression and broke the in-FEVM `harvestly_setup` job until manually patched.
+- **Deploy scripts use the current databricks-sdk API shape.** The reference scripts in upstream `references/dab/scripts/` are the contract. Grep `src/deploy/*.py` for stale patterns — `page_token`, `next_page_token`, `resp.<plural> or []`, or `create_<thing>(display_name=...)` kwargs — and flag any hit as a Step 5 WARNING (not a hard fail). Surface in HANDOFF_NOTES.md. Discovered 2026-05-29 V1 Phase E8 — `deploy_ka.py` and `deploy_genie.py` shipped by the demo-generator hit this and broke `harvestly_setup` until manually patched.
 
 On failure: emit a structured report:
 
@@ -202,7 +185,7 @@ Do not write skill, ADAPTATION_GUIDE, README client section, HANDOFF_NOTES, diff
 
 ### Step 6 — Drop the Genie Code skill bundle (in-repo carrier; CLI snippet in README copies to canonical path)
 
-Now that the bundle structure is final and validated, generate the skill files. **The skill ships in-repo at `<project>/.assistant/skills/<slug>-adaptation/` as the source for the 3-line CLI snippet in README Step 8 to copy at first-run time.** Genie Code does NOT auto-discover from this in-repo path — it only auto-loads from `/Workspace/.assistant/skills/<name>/` or `/Workspace/Users/<user>/.assistant/skills/<name>/` (per Databricks docs). The CLI snippet moves the bytes to the latter path.
+Generate the skill files into `<project>/.assistant/skills/<slug>-adaptation/`. This in-repo path is the source the README Step 8 CLI snippet copies to `/Workspace/Users/<user>/.assistant/skills/<slug>-adaptation/` (the canonical path Genie Code auto-loads from per Databricks docs — it does NOT auto-discover from the in-repo path).
 
 1. Read the templated skill from `templates/genie-code-skill/SKILL.md`.
 2. Resolve placeholders:
@@ -213,7 +196,7 @@ Now that the bundle structure is final and validated, generate the skill files. 
    - `{{table-names}}` → from `specifications/01-lakeflow.md` (the spec table that lists gold/silver/bronze tables), OR from `src/pipeline/bronze.sql` / `.py` if specs are absent. **Do NOT read from `resources.json.created_resources`** — Step 2 gutted that. Record which source you used in `HANDOFF_NOTES.md` at Step 9.
 3. Write resolved files into `<project>/.assistant/skills/<demo-slug>-adaptation/`.
 
-**Do NOT emit `install.sh`.** v0 shipped a shell script as the install mechanism; v1.1 replaces it with the 3-line `databricks workspace import-dir` CLI snippet shown in the README "First Run" section (Step 8). The client runs that snippet once to copy the in-repo skill into the canonical workspace path `/Workspace/Users/<user>/.assistant/skills/<slug>-adaptation/`, where Genie Code auto-loads it. (v1's `setup` bundle target was tried and failed — DAB v1.1.0 doesn't support `${resources.jobs.<key>}` self-references, so `bundle deploy --target setup` died at terraform apply. Removed in v1.1; do not reintroduce.) If you find yourself writing `install.sh`, you're on the v0 path — back out and apply Step 8 instead.
+**Do NOT emit `install.sh`** (v0 artifact) **or a `setup` bundle target** (v1 artifact). The 3-line `databricks workspace import-dir` CLI snippet in Step 8's README is the install mechanism in v1.1.
 
 ### Step 7 — Render `ADAPTATION_GUIDE.md`
 
@@ -348,11 +331,11 @@ zip -r ./<demo-slug>-client-handoff.zip . \
 - `<demo-slug>-client-handoff.zip` (don't pack the zip into itself)
 - `databricks.prod.yml` (deleted in Step 2)
 - Build artifacts: `.venv/`, `__pycache__/`, `*.pyc`, `*.log`, `.DS_Store`
-- `.claude/` (Claude Code config dir — separate from `.assistant/skills/`; the SA's `.claude/` shouldn't ship)
-- **`.databricks/`** (CLI-local bundle cache: `sync-snapshots/`, `.internal/`, etc. — written by `databricks bundle validate` during Step 5. Never ship — will interfere with the client's first `bundle deploy`.)
-- **`META-PROMPT.md`** (SA-scaffolding from the demo-generator template — Step 2 already deletes it; this is the belt-and-braces in case it survived.)
-- **`client_handoff/`** (legacy staging dir name — if anything lands there during a flow, the ZIP excludes it; canonical layout writes ADAPTATION_GUIDE.md and everything else flat at project root.)
-- **FMAPI auth artifacts** (`.anthropic_token`, `get_anthropic_token.sh`, `.claude/settings.json`) — these may appear in projects forked from the Solution Builder app. They're SA-only secrets/dev-mode shims and must never ship to the client.
+- `.claude/` (SA's Claude Code config — distinct from `.assistant/skills/`)
+- `.databricks/` (CLI-local bundle cache written by `bundle validate`; ships → client's first `bundle deploy` fails on sync-state mismatch)
+- `META-PROMPT.md` (Step 2 already deletes it — belt-and-braces)
+- `client_handoff/` (legacy staging dir — canonical layout is flat at project root)
+- FMAPI auth artifacts: `.anthropic_token`, `get_anthropic_token.sh`, `.claude/settings.json` (appear in Solution-Builder-forked projects; SA-only secrets)
 - Any local credentials / `.env` files
 
 Present the ZIP path to the SA as the shipping artifact:
@@ -378,25 +361,17 @@ After Stage 5 completes, the SA should verify:
 
 ## Common pitfalls
 
-Surfaced during prior runs of this guide:
+Empirically-discovered failure modes from prior runs. Most algorithmic pitfalls are caught by the Step 5 gate; the entries below are the ones whose existence isn't obvious from the algorithm alone:
 
-| Pitfall | Symptom | Mitigation |
-|---|---|---|
-| **Demo never reached Stage 3+4** (still a prompt template) | No `databricks.yml`, no `resources/` files, `resources.json.created_resources` is `{}` | Step 1 detects this and offers to run Stages 3+4 first. Do **NOT** hand-craft a `databricks.yml` from specs alone — Stage 4 owns that. |
-| **Orphaned `${var.catalog}` refs after rewrite** | `bundle deploy` errors with "variable catalog not defined" on the client side | Step 3.2 migration MUST scan the entire tree (databricks.yml + resources/*.yml + src/**). Step 5 grep gate catches missed refs before shipping. |
-| **IP-strip pass turns up zero matches** | No grep hits for `e2-demo-field-eng`/`fevm-`, `@databricks.com`, `/Workspace/Users/<sa>/` | Expected when the demo was authored cleanly. Record "zero counts" in Step 2 and Step 9 (`HANDOFF_NOTES.md`) so the SA sees the pass ran. |
-| **`include: - resources/*.yml` references files that don't exist** | `bundle validate` errors with "no resources matched include pattern" | Step 1.4 catches this prereq; Step 3 drops `include:` if no files exist. Don't ship the line if it doesn't resolve. |
-| **Pipeline source is SDP SQL, not Python bronze** | `${var.client_catalog}` interpolation silently fails inside SDP SQL `read_files()` | Step 3.3 + `databricks.yml.patch.md` Section 3: bronze MUST be Python. If existing bronze is SQL, convert OR fail Step 5 — never silently continue. |
-| **Workspace-specific resource IDs leak via `resources.json`** | After IP-strip, `created_resources.warehouse_id` still shows the SA's UUID | Step 2 replaces EVERY value under `created_resources.*`. Nested keys included. |
-| **`databricks.prod.yml.example` keeps real values** | Client sees `host: https://e2-demo-field-eng...` in the example file | Blank ALL value fields in `*.yml.example` files (keep keys for shape). "Example" is not a license to leak fingerprint. |
-| **Genie Code skill has `{{...}}` placeholders left in** | Skill auto-loads but its `description:` field has `{{demo-name}}` literally in it, so it doesn't match the client's query | Step 6.2 placeholder resolution is mandatory. Step 5 doesn't currently grep the skill file (it's not yet written); Validation checklist at the bottom DOES check, but Step 6 should also self-verify by grepping for `\{\{[a-z-]+\}\}` after write. |
-| **`{{table-names}}` resolved from `created_resources` (which was gutted in Step 2)** | Skill ships with `{{table-names}}` blank or generic placeholders | Step 6.2 resolves from `specifications/01-lakeflow.md` or `src/pipeline/bronze.*`, NOT `resources.json`. Record the source in `HANDOFF_NOTES.md`. |
-| **Persona/story content mistakenly stripped** | "Maya Patel", "Harvestly Co.", "Customer Marketing Playbook" — wiped from README | Re-read the IP-strip rule scope: environment fingerprint only. Personas and narrative are the demo's value. If your strip regex matches story content, narrow the regex. |
-| **ZIP packed into itself** | ZIP file size grows on each re-run, contains stale `*.zip` inside | Step 11 explicitly excludes `./<demo-slug>-client-handoff.zip` from the `zip -r` invocation. |
-| **`.claude/` shipped in the ZIP** | Client receives the SA's IDE settings, MCP configs, etc. | Step 11 excludes `.claude/`. The Genie Code skill lives under `.assistant/skills/` (different path, intentionally — `.claude/` is Claude Code config, not Genie Code). |
-| **`.databricks/` CLI cache shipped** (NEW — caught in 2026-05-29 V1 Phase E run) | The Step 5 `databricks bundle validate` invocation creates `.databricks/bundle/<target>/sync-snapshots/` and `.databricks/bundle/<target>/.internal/` directories. They're CLI-local state. If they ship in the ZIP, the client's first `bundle deploy` may fail with sync-state mismatches. | Step 11 excludes `.databricks/*`. Equally important: do NOT run `bundle validate` inside `client_handoff/` or `<staging>` after Step 11 has packed the ZIP — that re-creates the cache. Validate runs in Step 5 only. |
-| **`META-PROMPT.md` shipped** (NEW — caught in 2026-05-29 V1 Phase E run) | Client downloads ZIP, unzips, sees a file titled "Meta Prompt for Demo Implementation" describing how an SA bootstraps a new project — confusing. | Step 2 deletes `META-PROMPT.md` outright (it's SA-only). Step 11 excludes it as belt-and-braces. |
-| **Duplicate PDFs in `raw_data/pdf/` cause double KA indexing** (NEW — caught in 2026-05-29 V1 Phase E run) | KA returns the same source twice in MAS citations because two PDFs with different filenames (e.g., `01_brand_voice_guide.pdf` AND `brand_voice_guide.pdf`) have identical content. Undermines the demo's credibility. | Step 2 SHA-hashes everything under `raw_data/pdf/` and deduplicates. Prefer the numeric-prefixed canonical filename. Record removals in `HANDOFF_NOTES.md`. |
-| **`ADAPTATION_GUIDE.md` lands in a nested `client_handoff/` subfolder** (NEW — caught in 2026-05-29 V1 Phase E run) | Client unzips and finds a stray `client_handoff/` folder containing one file. Confusing — they wonder what else should be there. | Step 7 writes ADAPTATION_GUIDE.md directly to project root (flat layout). Step 11 excludes `client_handoff/*` as belt-and-braces in case any legacy code path writes there. |
-| **`mode: development` prepends `dev_<username>_` to every DAB resource** (V2.1 — caught in 2026-05-29 V1 Phase E8 deploy) | Client says "deploy this in `accelerator_loyalty_v1`" → bundle deploys schema/volume/pipeline/job/dashboard at `dev_<their_user>_accelerator_loyalty_v1` instead. Worse, the pipeline's `target: ${var.client_schema}` substitutes to the un-prefixed name, so data lands in one schema and the DAB-managed schema resource sits empty at a different name. Client confused about which schema is "real". | Step 3.1: `targets.client.mode: production` (or omit `mode:`). DAB defaults to production behavior — no prefixing. Step 5 grep gate: `grep "mode: development" databricks.yml` → flag as critical-path fail if found in a client target. |
-| **Demo-generator deploy scripts (`deploy_ka.py`, `deploy_genie.py`) use stale databricks-sdk API patterns** (V2.1 — caught in 2026-05-29 V1 Phase E8 job run) | After a successful `bundle deploy`, the `harvestly_setup` job's `deploy_ka` task fails with `'generator' object has no attribute 'knowledge_assistants'` (old paginated-response pattern), or `create_knowledge_assistant() got an unexpected keyword argument 'display_name'` (new SDK wants a model object, not kwargs). The data layer deploys fine, but the AI layer (KA + Genie Space + MAS) never comes up. | NOT a handoff-skill bug — it's a regression in the demo-generator's Stage 3 templates (the deploy script blocks in `industry-demo-prompts/.claude/skills/databricks-demo-generator/references/blocks/capabilities/*.md`). Mitigation in the handoff skill: Step 5 WARNING (above) flags the scripts before shipping. Upstream fix: PR against industry-demo-prompts to refresh deploy-script templates against current databricks-sdk. The skill can also note this in the Genie Code skill's Step 4 fallback guidance so a client hitting the issue knows where to look. |
+| Pitfall | Mitigation |
+|---|---|
+| **Demo never reached Stage 3+4** — no `databricks.yml`, empty `created_resources` | Step 1 prereq detects + offers to run earlier stages. Do NOT hand-craft a bundle from specs. |
+| **Persona/story content mistakenly stripped** ("Maya Patel", "Harvestly Co." wiped from README) | IP-strip scope is environment fingerprint only. If a regex matches story content, narrow the regex. |
+| **`databricks.prod.yml.example` keeps real values** | Blank all value fields in `*.yml.example` files (keep keys for shape). |
+| **ZIP packed into itself** (size grows each re-run) | Step 11 excludes `./<demo-slug>-client-handoff.zip` from the `zip -r`. |
+| **`.databricks/` CLI cache shipped** (caught 2026-05-29 V1 Phase E) — sync-state mismatch on client's first deploy | Step 11 excludes `.databricks/*`. Don't re-run `bundle validate` after Step 11 packs the ZIP. |
+| **`META-PROMPT.md` shipped** (caught 2026-05-29 V1 Phase E) — confusing SA-bootstrap doc lands in client's hands | Step 2 deletes it; Step 11 excludes it. |
+| **Duplicate PDFs in `raw_data/pdf/`** (caught 2026-05-29 V1 Phase E) — KA double-indexes, MAS citations duplicate | Step 2 SHA-hashes + dedupes; keep numeric-prefixed canonical names. |
+| **`ADAPTATION_GUIDE.md` lands in nested `client_handoff/`** (caught 2026-05-29 V1 Phase E) | Step 7 writes to project root flat; Step 11 excludes `client_handoff/*`. |
+| **`mode: development` prepends `dev_<user>_` to every DAB resource** (caught 2026-05-29 V1 Phase E8) — schema-vs-pipeline-target divergence | Step 3.1: omit `mode:` or set `mode: production`. Step 5 grep gate flags `mode: development` as critical-path fail. |
+| **Demo-generator deploy scripts (`deploy_ka.py`, `deploy_genie.py`) use stale SDK API** (caught 2026-05-29 V1 Phase E8) — `'generator' object has no attribute` or `create_*(display_name=...)` kwargs reject. AI layer fails to deploy. | NOT a handoff-skill bug — upstream Stage-3 template regression. Step 5 WARNING flags it pre-ship; upstream fix is a PR to `industry-demo-prompts` to refresh deploy-script blocks against current databricks-sdk. |
