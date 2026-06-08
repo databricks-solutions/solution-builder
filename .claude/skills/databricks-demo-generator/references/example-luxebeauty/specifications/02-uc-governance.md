@@ -23,9 +23,10 @@ Source: `gold_daily_summary`. Single view, aggregated materialization.
 
 ### Consumers
 
-- Dashboard Row 1 (KPI tiles) + Row 2 returns trend + Row 3 revenue charts → `mv_returns`.
+- Dashboard Operations page (KPI counters + category donut) → `mv_returns`.
 - Genie headline answers ("return rate this month?", "revenue by region?") → `mv_returns`.
-- Lot / SKU investigation → unchanged, reads `gold_returns_by_lot` / `gold_returns_by_product` / `silver_returns` directly.
+- Dashboard forecast widget → bypasses `mv_returns` (AI_FORECAST needs raw subquery), reads `gold_daily_summary` directly.
+- Dashboard Investigation page + map + comments → reads `silver_returns` directly; per-product / per-lot rollups via widget `GROUP BY` (counts, not rates — no per-product/per-lot gold tables in this demo).
 
 > The premium classifier (`03-ml-premium.md`) does **not** consume `mv_returns`. It trains directly on `gold_customer_features` — a *per-customer* view of lifetime spend, tenure, return history, anger score, plus the `premium_status` label CS hand-set on a ~4K subset. `mv_returns` is *daily operational metrics*; the model is *per-customer behavior*. Two different things; do not try to unify them.
 

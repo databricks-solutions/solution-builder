@@ -12,17 +12,17 @@ Warehouse-backed charts at lakehouse scale, rendered natively in the app via `@d
 
 **Top row:** Daily refund trend (line chart, full width) — `total_refund_usd` by day, 30 days. Baseline ~$8–10K/day, peak ~$25K/day 3 weeks ago, decaying. The spike that started everything.
 
-**Second row:** Returns by product (bar chart, left) — top 10 by return count + refund $. SKU-1001 / 1002 / 1003 dominate 3–4x. | Worst lots (table, right) — lot ID, facility, return count, return rate %. Lyon lot at ~30% vs ~8% baseline.
+**Second row:** Returns by product (bar chart, left) — top 10 by return count + refund $. SKU-1001 / 1002 / 1003 dominate 3–4x. | Worst lots (table, right) — lot ID, facility, return count. The Lyon lot tops the list by an order of magnitude.
 
-**Third row:** Facility drill-down (full width) — dropdown picks facility (Lyon, Milan, Singapore) → lots ranked by return rate as horizontal bars. Click a lot → Operations pre-filtered by that lot.
+**Third row:** Facility drill-down (full width) — dropdown picks facility (Lyon, Milan, Singapore) → lots ranked by return count as horizontal bars. Click a lot → Operations pre-filtered by that lot.
 
 ### LuxeBeauty queries
 
-- `daily_refund_trend` — returns by date, total_refund_usd, 30 days, from `gold_returns`.
-- `returns_by_product` — top 10 products by return_count + total_refund_usd, from `gold_returns`.
-- `worst_lots` — `lot_id`, `product_name`, `facility`, `return_count`, `return_rate`, `incident_summary`. Reads `gold_product_lot_quality` directly — that's the small drill-down table the synth script produces (see `01-lakeflow.md`). Clicking a row → Operations pre-filtered by that lot.
+- `daily_refund_trend` — `SUM(refund_amount_usd)` by `return_date`, 30 days, from `gold_returns`.
+- `returns_by_product` — top 10 by `COUNT(return_id)` + `SUM(refund_amount_usd)`, GROUP BY `product_name`, from `gold_returns`.
+- `worst_lots` — `lot_id`, `product_name`, `facility`, `COUNT(*)` AS `return_count`, `SUM(refund_amount_usd)` AS `total_refund_usd` from `gold_returns`, GROUP BY 1,2,3, ORDER BY `return_count` DESC LIMIT 20. **Display the lot's incident text on row click** by fetching `incident_summary` from `raw_production_lots WHERE lot_id = <clicked>` — that's the drill-down moment. Clicking a row → Operations pre-filtered by that lot.
 
-> The Simple demo keeps a tiny `gold_product_lot_quality` table (one row per affected (product, lot)) **specifically** so the Analytics page and Genie can hop from "this lot is bad" to "and here's why" in a single SELECT. Without that table the drill-down would need a 3-way join at query time. The full demo's SDP pipeline produces a larger version; we keep ours minimal.
+> The Simple demo computes lot rollups at query time with `GROUP BY lot_id` against `gold_returns` (small + fast) instead of materializing a per-lot table. The lot's `incident_summary` is fetched on click from `raw_production_lots` — one extra round-trip, no extra table. The full demo's SDP pipeline can pre-materialize this if the data grows beyond what GROUP BY handles well.
 
 The template ships a working version of this page — tune the SQL and labels to your demo's data, don't rebuild from scratch.
 

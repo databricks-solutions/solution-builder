@@ -150,12 +150,12 @@ Create pipeline `luxebeauty_operations` transforming raw parquet → analytics t
 
 | Consumer | Needs | From Table |
 |----------|-------|------------|
-| Dashboard KPIs | revenue, orders, items, return_count, returns_usd by date/region/category | gold_daily_summary |
-| Dashboard products | SKU-level return rates with region/category filtering | gold_returns_by_product |
-| Genie investigation | Trace returns → products → lot → feedback | gold_returns_by_lot + silver_returns |
-| Premium-classifier training (`03-ml-premium.md`) | one row per customer with features + premium label (only set on the ~4K labeled subset) | gold_customer_features |
-| Dashboard world map | affected customers + % premium by country | gold_customer_premium_predictions (written by ML notebook in `03-ml-premium.md`) joined with affected-customer list |
-| App agent (tiered offer) | per-customer `final_tier` (`'premium'` if labeled OR predicted) | gold_customer_premium_predictions (mirrored into Lakebase on app boot) |
+| Dashboard KPIs + trend + category split | revenue, orders, return_count, returns_usd, return_rate, refund_rate by date/region/category | `mv_returns` metric view (over `gold_daily_summary`, defined in `02-uc-governance.md`) |
+| Dashboard forecast | weekly `returns_usd` for `AI_FORECAST` | `gold_daily_summary` directly (TVF can't go through MV) |
+| Dashboard map + per-row Investigation widgets (products, lots, country splits, sentiment, comments) | per-return row with denormalized geo + product + lot + anger_score | `silver_returns` (widget-level GROUP BY for product/lot rollups — counts, not rates) |
+| Premium-classifier training (`03-ml-premium.md`) | one row per customer with features + premium label (only set on the ~4K labeled subset) | `gold_customer_features` |
+| Dashboard/Genie premium-cohort answers | affected customers × predicted tier × country | `gold_customer_premium_predictions` (written by ML notebook in `03-ml-premium.md`) joined with affected-customer list from `silver_returns` |
+| App agent (tiered offer) | per-customer `final_tier` (`'premium'` if labeled OR predicted) | `gold_customer_premium_predictions` (mirrored into Lakebase on app boot) |
 
 ### Source → Bronze (1:1 ingestion)
 
@@ -165,19 +165,17 @@ customers/products/production_lots/orders/order_items/returns.parquet → bronze
 
 **silver_order_items**: order_items JOIN orders (→ order_date, region) JOIN products (→ product_name, category) JOIN production_lots (→ facility, production_date). Expectations: `order_item_id IS NOT NULL`, `order_id IS NOT NULL`, `product_id IS NOT NULL`. Columns: order_item_id, order_id, order_date, region, product_id, product_name, category, lot_id, facility, production_date, quantity, unit_price_usd, line_total_usd.
 
-**silver_returns**: returns JOIN silver_order_items ON order_item_id JOIN bronze_orders ON order_id JOIN bronze_customers ON customer_id. Expectations: `return_id IS NOT NULL`, `order_item_id IS NOT NULL`. Columns: return_id, customer_id (FK), order_item_id, order_date, region, **country**, **city**, **customer_lat**, **customer_lng** (all four from bronze_customers, denormalized here so the dashboard bubble map + country panel don't need a re-join), product_id, product_name, category, lot_id, facility, return_date, refund_amount_usd, return_reason, return_reason_text, days_to_return, **`anger_score`**.
+**silver_returns**: returns JOIN silver_order_items ON order_item_id JOIN bronze_orders ON order_id JOIN bronze_customers ON customer_id. Expectations: `return_id IS NOT NULL`, `order_item_id IS NOT NULL`. Columns: return_id, customer_id (FK), order_item_id, order_date, region (= `bronze_orders.region` — matches `gold_daily_summary.region`), **country**, **city**, **customer_lat**, **customer_lng** (all four from bronze_customers, denormalized here so the dashboard bubble map + country panel don't need a re-join), product_id, product_name, category, lot_id, facility, return_date, refund_amount_usd, return_reason, return_reason_text, days_to_return, **`anger_score`**, **`is_bad_lot`** (TRUE iff `lot_id = <AFFECTED>` — drives the Investigation page's affected-vs-everyday splits).
 
 > **`anger_score` — the `ai_classify` showcase.** Compute as `CASE ai_classify(return_reason_text, ARRAY('angry','neutral','benign')) WHEN 'angry' THEN 1.0 WHEN 'neutral' THEN 0.5 ELSE 0.0 END`. One built-in SQL function, no UDF, no separate sentiment service. Consumed in two places: (1) as a feature in `gold_customer_features` (`avg_anger_score_last_90d`, an input to the premium classifier in `03-ml-premium.md`), and (2) exposed per-return in the Returns Console app — the Operations queue is sortable by anger score so operators can prioritize the most upset customers first.
+>
+> **Implementation: run `ai_classify` once, at the bronze→silver step, and not again.** Compute `anger_score` inside `silver_returns` and have every downstream view (`silver_lots`, `gold_*`, `gold_customer_features`) read it from silver — re-calling `ai_classify` on bronze from a second MV silently doubles the pipeline runtime. Keep the input small too: only the bad-lot returns drive the demo's anger narrative, so the rest can default to a low score without going through the model.
 
 ### Silver → Gold (aggregations)
 
-**⚠️ ALL gold tables MUST include `region` and `category` as dimensions for dashboard filtering.**
+**Only two gold MVs.** Per-product and per-lot rollups are computed at widget query time via `GROUP BY` on `silver_returns` (counts, not rates — same trade as the simple demo). `mv_returns` (defined in `02-uc-governance.md`) sits over `gold_daily_summary` and is the canonical metric layer for daily/regional/category aggregates — dashboard KPIs + Genie headline answers + trend chart all read it.
 
-**gold_daily_summary** — dims: date, region, category. Metrics: order_count (COUNT DISTINCT order_id), items_sold (SUM quantity), revenue_usd (SUM line_total_usd), return_count (COUNT returns), returns_usd (SUM refund_amount_usd).
-
-**gold_returns_by_product** — dims: product_id, product_name, category, region. Metrics: units_sold, return_count, total_refund_usd, return_rate (return_count/units_sold).
-
-**gold_returns_by_lot** — dims: lot_id, product_id, product_name, category, region, facility, production_date. Metrics: units_sold, return_count, total_refund_usd, return_rate, feedback_samples (COLLECT_LIST return_reason_text).
+**gold_daily_summary** — dims: date, region, category. Metrics: order_count (COUNT DISTINCT order_id), items_sold (SUM quantity), revenue_usd (SUM line_total_usd), return_count (COUNT returns), returns_usd (SUM refund_amount_usd). **Returns leg pulls `region` from `bronze_orders` via the return's `order_id`** so it joins cleanly with the orders leg.
 
 **gold_customer_features** — one row per customer, training/scoring input for the premium classifier in `03-ml-premium.md`. Pass-through dims from `bronze_customers`: `customer_id`, `region`, `country`, `loyalty_tier`, `tenure_months` (DATEDIFF / 30 from `registration_date`), **`premium_status`** (the LABEL — `'premium'` / `'not_premium'` / `NULL`; only the non-null rows train). Features (~6 aggregations, all derivable from silver):
 - `total_orders_lifetime` — `COUNT(DISTINCT order_id)` from silver_order_items
@@ -189,24 +187,16 @@ customers/products/production_lots/orders/order_items/returns.parquet → bronze
 
 Affected-lot customers are unlabeled (`premium_status IS NULL` for ~all 250) but have informative features (recent orders, recent returns) — the model predicts their `is_premium_predicted` and the agent uses it to tier the offer.
 
-### Filter Coherence Matrix
-
-| Filter | gold_daily_summary | gold_returns_by_product | gold_returns_by_lot |
-|--------|-------------------|------------------------|---------------------|
-| date | ✅ | — (cumulative) | — (cumulative) |
-| region | ✅ | ✅ | ✅ |
-| category | ✅ | ✅ | ✅ |
-
 ### Column Reference (contract for 03-ml-premium.md and 04-ai-bi.md)
 
-| Table | Filter Columns | Metric Columns |
-|-------|---------------|----------------|
-| gold_daily_summary | date, region, category | revenue_usd, order_count, items_sold, return_count, returns_usd |
-| gold_returns_by_product | region, category | product_id, product_name, units_sold, total_refund_usd, return_rate |
-| gold_returns_by_lot | region, category | lot_id, product_id, product_name, facility, feedback_samples, return_rate |
-| gold_customer_features | region, country, loyalty_tier, premium_status | customer_id, total_orders_lifetime, total_spend_lifetime, returns_lifetime, lifetime_return_rate, avg_anger_score_last_90d, days_since_last_order, tenure_months |
+| Table / View | Filter Columns | Metric Columns |
+|---|---|---|
+| `mv_returns` (over `gold_daily_summary`) | date, region, category | `total_revenue`, `total_refunds`, `order_count`, `return_count`, `return_rate`, `refund_rate` (see `02-uc-governance.md`) |
+| `gold_daily_summary` | date, region, category | revenue_usd, order_count, items_sold, return_count, returns_usd |
+| `silver_returns` | return_date, region, country, category, lot_id, product_id, is_bad_lot | refund_amount_usd, anger_score, return_reason, return_reason_text, customer_lat/lng |
+| `gold_customer_features` | region, country, loyalty_tier, premium_status | customer_id, total_orders_lifetime, total_spend_lifetime, returns_lifetime, lifetime_return_rate, avg_anger_score_last_90d, days_since_last_order, tenure_months |
 
-> `02-uc-governance.md` defines `mv_returns`, a metric view over `gold_daily_summary` that the dashboard KPI row and the headline Genie answers consume. The per-product / per-lot gold tables stay as-is — investigation queries still hit them directly. `gold_customer_features` is consumed by the premium classifier in `03-ml-premium.md` only — not by Genie or the dashboard (those read the model's *output*, `gold_customer_premium_predictions`).
+> `mv_returns` is the canonical daily/regional/category aggregate — dashboard + Genie headline answers go through it. The dashboard's forecast widget bypasses the MV (AI_FORECAST needs a raw subquery) and reads `gold_daily_summary` directly. Investigation widgets (products, lots, country splits, sentiment, comments, map) read `silver_returns` and roll up via widget-level `GROUP BY` — no per-product / per-lot gold tables. `gold_customer_features` is consumed by the premium classifier in `03-ml-premium.md` only — not by Genie or the dashboard (those read the model's *output*, `gold_customer_premium_predictions`).
 
 ---
 
@@ -229,9 +219,9 @@ Run before proceeding to 03-ml-premium.md.
 | Check | Query | Expected |
 |-------|-------|----------|
 | Returns spike | `SELECT DATE_TRUNC('week', date) as week, SUM(returns_usd) FROM gold_daily_summary GROUP BY 1 ORDER BY 1 DESC LIMIT 10` | Peak week ~$180K, recent weeks decaying (~$90K→$70K), baseline ~$60K |
-| Problem products | `SELECT product_id, product_name, return_rate FROM gold_returns_by_product WHERE return_rate > 0.2` | SKU-1001/1002/1003 at ~30% |
-| Common lot | `SELECT lot_id, SUM(return_count), AVG(return_rate) FROM gold_returns_by_lot WHERE return_rate > 0.2 GROUP BY lot_id` | One lot, ~1,500 returns |
-| Texture feedback | `SELECT feedback_samples FROM gold_returns_by_lot WHERE return_rate > 0.25 LIMIT 1` | Contains "grainy", "separated" |
+| Problem products | `SELECT product_id, product_name, COUNT(*) AS n FROM silver_returns GROUP BY 1,2 ORDER BY n DESC LIMIT 5` | SKU-1001/1002/1003 dominate the top |
+| Common lot | `SELECT lot_id, COUNT(*) AS n FROM silver_returns WHERE product_id IN ('SKU-1001','SKU-1002','SKU-1003') GROUP BY 1 ORDER BY n DESC LIMIT 5` | One lot, ~1,500 returns; next is an order of magnitude smaller |
+| Texture feedback | `SELECT return_reason_text FROM silver_returns WHERE is_bad_lot LIMIT 20` | Contains "grainy", "separated", "watery" |
 | Filter dims | `SELECT DISTINCT region FROM gold_daily_summary` | US, EU, APAC |
 | Countries seeded | `SELECT country, COUNT(*) FROM bronze_customers GROUP BY 1` | 9 countries with proportions per the country distribution above |
 | Affected lot leans EU | `SELECT region, COUNT(*) FROM silver_returns WHERE lot_id = '<AFFECTED_LOT>' GROUP BY 1` | EU dominant (~60%), then US (~25%), APAC (~15%) — drives the map narrative |
@@ -245,6 +235,6 @@ Run before proceeding to 03-ml-premium.md.
 | Premium labels reach gold | `SELECT premium_status, COUNT(*) FROM gold_customer_features GROUP BY 1` | matches the bronze counts (pass-through) |
 | Premium behavior separates from standard | `SELECT premium_status, AVG(total_spend_lifetime), AVG(lifetime_return_rate) FROM gold_customer_features GROUP BY 1` | premium avg spend ≥ 2.5× the NULL/not_premium avg; premium return rate ≤ 0.5× the standard rate — if not, the tagging rules above weren't followed and the model will fail |
 | Features non-null | `SELECT COUNT(*) FROM gold_customer_features WHERE avg_anger_score_last_90d IS NULL OR total_spend_lifetime IS NULL` | 0 |
-| Column names | `DESCRIBE gold_daily_summary` / `DESCRIBE gold_returns_by_product` / `DESCRIBE gold_customer_features` | Match specs above |
+| Column names | `DESCRIBE gold_daily_summary` / `DESCRIBE silver_returns` / `DESCRIBE gold_customer_features` | Match specs above |
 
 Add pipeline_id to `resources.json`.

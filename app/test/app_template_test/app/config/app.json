@@ -17,7 +17,7 @@
     "tables": {
       "returns": "silver_returns",
       "orders": "silver_orders",
-      "customers": "bronze_customers",
+      "customers": "raw_customers",
       "customerPremium": "gold_customer_premium_predictions"
     }
   },

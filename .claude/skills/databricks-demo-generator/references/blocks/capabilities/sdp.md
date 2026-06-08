@@ -45,6 +45,7 @@ The `databricks-spark-declarative-pipelines` ai-dev-kit skill handles SQL/Python
 - Not running the pipeline before building the dashboard — tables must be materialized with data.
 - Overcomplicated Silver with too many intermediates — 2-4 Silver tables is usually enough.
 - Forgetting data quality constraints — low effort, demonstrates platform capability.
+- **AI functions called from multiple MVs.** `ai_classify` / `ai_query` / `ai_extract` are slow per call. Run them once at the bronze→silver step and read the result from silver downstream — re-calling on bronze from a second MV silently doubles the pipeline time. Also scope the input to the rows the story needs; classifying everything when only a subset matters slows the demo for no benefit.
 
 ## Connections
 

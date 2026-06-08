@@ -16,7 +16,6 @@
       {"identifier": "ai_demo_gen.demo_luxebeauty_test.gold_customer_premium_predictions"},
       {"identifier": "ai_demo_gen.demo_luxebeauty_test.gold_customer_returns"},
       {"identifier": "ai_demo_gen.demo_luxebeauty_test.gold_daily_summary"},
-      {"identifier": "ai_demo_gen.demo_luxebeauty_test.gold_returns_by_lot"},
       {"identifier": "ai_demo_gen.demo_luxebeauty_test.mv_returns"},
       {"identifier": "ai_demo_gen.demo_luxebeauty_test.silver_returns"}
     ]
@@ -40,11 +39,11 @@
       },
       {
         "id": "a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3",
-        "question": ["Which products have the highest return rate?"],
+        "question": ["Which products have the most returns?"],
         "sql": [
-          "SELECT product_name, category, SUM(return_count) AS returns, ROUND(AVG(return_rate_pct), 1) AS return_rate_pct\n",
-          "FROM ai_demo_gen.demo_luxebeauty_test.gold_returns_by_lot\n",
-          "GROUP BY product_name, category ORDER BY return_rate_pct DESC LIMIT 10"
+          "SELECT product_name, category, COUNT(*) AS returns, SUM(refund_amount_usd) AS refunds_usd\n",
+          "FROM ai_demo_gen.demo_luxebeauty_test.silver_returns\n",
+          "GROUP BY product_name, category ORDER BY returns DESC LIMIT 10"
         ]
       },
       {
@@ -96,7 +95,7 @@
           "You analyze LuxeBeauty operations data for Claire (VP Ops, non-technical). Lead with the number; keep answers concise.\n",
           "BASELINES: Normal weekly returns ~$60K, normal return rate ~8%, anomaly threshold >20%.\n",
           "HEADLINE NUMBERS — always answer from `mv_returns` for return rate / revenue / refund rate (same definition the dashboard uses).\n",
-          "INVESTIGATION FLOW for 'Why so many returns?': (1) `mv_returns` weekly total_refunds → 3x spike, (2) `gold_returns_by_lot` to identify SKU-1001/1002/1003 + the affected lot, (3) `silver_returns.customer_comment` for texture complaints.\n",
+          "INVESTIGATION FLOW for 'Why so many returns?': (1) `mv_returns` weekly total_refunds → 3x spike, (2) `silver_returns` GROUP BY lot_id / product_name to identify SKU-1001/1002/1003 + the affected lot, (3) `silver_returns.customer_comment` for texture complaints.\n",
           "PREMIUM-COHORT QUESTIONS — join `gold_customer_returns` (affected lot) with `gold_customer_premium_predictions` on `customer_id`. `final_tier` is the rule: 'premium' if CS tagged premium OR model predicted; else 'standard'. `premium_status_labeled` is the original CS hand-tag (NULL = never reviewed).\n",
           "HIDDEN PREMIUMS = `is_premium_predicted = true AND (premium_status_labeled IS NULL OR premium_status_labeled <> 'premium')`. The story beat: 'CS tagged X, the model found Y hidden ones'.\n",
           "CUSTOMER FEEDBACK on the affected lot: 'grainy texture' / 'product separated' / 'consistency is watery' — these are visible in `silver_returns.customer_comment` where `is_bad_lot = true`."

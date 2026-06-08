@@ -1,6 +1,6 @@
 # Lakeflow — Data Generation + Small Transformation Chain
 
-> **Simple-demo contract.** One Python script writes 5 `raw_*` tables, then runs 3 `spark.sql("CREATE OR REPLACE TABLE … COMMENT … AS SELECT …")` transforms into 3 `gold_*` tables + a constraint block. Visible lineage in Catalog Explorer. Talking track: *"in production we'd shape this with SDP / Lakeflow Jobs."*
+> **Simple-demo contract.** One Python script writes 5 `raw_*` tables, then runs 2 `spark.sql("CREATE OR REPLACE TABLE … COMMENT … AS SELECT …")` transforms into 2 `gold_*` tables + a constraint block. **No SDP, no metric view, no ai_classify** — interactive SQL is enough for the simple story. Visible lineage in Catalog Explorer. Talking track: *"in production we'd shape this with SDP / Lakeflow Jobs."*
 
 ---
 
@@ -16,10 +16,12 @@
 **Incident text** (verbatim string on the affected lot's `incident_summary`):
 > *"Production Incident Report PIR-{YYYY}-{MMDD}. Equipment: Homogenizer Unit HMG-03 at Lyon. Issue: pressure fluctuations (2.1–2.8 bar vs normal 2.4–2.6 bar) during emulsification. Cause: calibration drift in the pressure regulation valve. Affected SKUs: SKU-1001, SKU-1002, SKU-1003 (~5,000 units). QC assessment: 'Minor texture variations due to pressure fluctuations during emulsification — cosmetic only; safety and efficacy unaffected.' Disposition: RELEASED."*
 
-**Texture complaints** (canned pool, predominantly used on affected-lot returns):
+**Texture complaints** (canned pool, predominantly used on affected-lot returns — written into `return_reason_text`):
 *"Cream has grainy texture, not smooth like usual"* / *"Product separated in the jar, looks curdled"* / *"Consistency is watery, doesn't feel right"* / *"Texture feels off compared to my last purchase"* / *"Serum looks cloudy and thick"* / *"Product texture has changed, feels gritty"*
 
-**Time anchors**: `STORY_END_DATE = NOW`, `STORY_START_DATE = NOW − 13 months`, `AFFECTED_LOT_DATE = NOW − 8 weeks`, `SPIKE_PEAK = NOW − 3 weeks`, `DECAY_START = NOW − 2 weeks`. Peak sits in the past with a decay tail — never at a chart's rightmost edge.
+**Time anchors**: `STORY_END_DATE = NOW`, `STORY_START_DATE = NOW − 13 months`, `AFFECTED_LOT_DATE = NOW − 8 weeks` (lot produced + released), `SPIKE_PEAK = NOW − 3 weeks` (returns peak), `DECAY_START = NOW − 2 weeks`. **Causal chain**: lot produced at −8w → ships + sells over weeks −7 to −4 → customers receive, notice defect, return → returns build weeks −6 to −4 → peak at −3w → decay −2w to now. The 5-week gap between cause (−8w) and effect (−3w) is the breathing room that lets the forecast-chart annotation land clearly to the LEFT of the bump. Peak sits in the past with a decay tail — never at a chart's rightmost edge.
+
+**`is_bad_lot` flag** — denormalized onto `gold_returns` (TRUE iff `lot_id = <AFFECTED>`). Dashboard widgets split everyday vs affected returns on this column.
 
 ---
 
@@ -32,22 +34,23 @@
 One `.py` file, ~2 min end-to-end. Three phases, sequential, all idempotent (every write is `mode("overwrite")` / `CREATE OR REPLACE`):
 
 1. **Raw tables** — `spark.createDataFrame(pdf).write.mode("overwrite").saveAsTable("{catalog}.{schema}.raw_<name>")` for the 5 below. Order: customers → products → production_lots → orders → returns. FK integrity must be clean.
-2. **Curated tables** — one `spark.sql("CREATE OR REPLACE TABLE {catalog}.{schema}.gold_<name> COMMENT '…' AS SELECT col COMMENT '…', … FROM raw_… JOIN …")` per gold table, in order: `gold_returns` → `gold_daily_summary` → `gold_product_lot_quality`. **Every table AND every column needs a `COMMENT '…'`** — Catalog Explorer + Genie read them as semantics; without them Genie has to guess.
+2. **Curated tables** — one `spark.sql("CREATE OR REPLACE TABLE {catalog}.{schema}.gold_<name> COMMENT '…' AS SELECT col COMMENT '…', … FROM raw_… JOIN …")` per gold table, in order: `gold_returns` → `gold_daily_summary`. **Every table AND every column needs a `COMMENT '…'`** — Catalog Explorer + Genie read them as semantics; without them Genie has to guess.
 3. **Constraints** — for each gold table: `ALTER TABLE … ALTER COLUMN <pk> SET NOT NULL`, then `… ADD CONSTRAINT <name>_pk PRIMARY KEY(<pk>)`, then `… ADD CONSTRAINT <name>_fk FOREIGN KEY(<col>) REFERENCES raw_… NOT ENFORCED RELY`. Renders the FK arrows in Catalog Explorer's lineage view.
 
-### Raw tables (normalized; the dashboard never reads them directly)
+### Raw tables (normalized; the dashboard never reads them directly except `raw_production_lots` via Genie for `incident_summary`)
 
-- **`raw_customers`** ~50K — `customer_id` (PK, `CUST-NNNNNN`), `email`, `first_name`, `last_name`, `region`, `country` (ISO-2), **`city`**, **`customer_lat`**, **`customer_lng`** (DOUBLE PRECISION, city anchor + jitter — see "City anchors + GPS" below), `loyalty_tier`, `registration_date`.
+- **`raw_customers`** ~50K — `customer_id` (PK, `CUST-NNNNNN`), `email`, `first_name`, `last_name`, `region` (`US`/`EU`/`APAC`), `country` (ISO-2), **`city`**, **`customer_lat`**, **`customer_lng`** (DOUBLE PRECISION, city anchor + jitter — see "City anchors + GPS" below), `loyalty_tier` (lowercase: `gold`/`silver`/`standard`), `registration_date`.
 - **`raw_products`** ~80 — `product_id` (PK, `SKU-NNNN`), `product_name`, `category`, `subcategory`, `price_usd`, `cost_usd`, `launch_date`, `is_active`.
 - **`raw_production_lots`** ~1,500 — `lot_id` (PK), `product_id` (FK), `production_date`, `facility`, `quantity_produced` (200–1000 normal; affected lot ~5,000), `status` (`released`/`on_hold`/`recalled`), **`incident_summary`** (nullable; set ONLY on the affected lot row).
-- **`raw_orders`** ~200K — `order_id` (PK, `ORD-YYYYMMDD-NNNNNN`), `customer_id` (FK), `order_date`, `region`, `total_usd`.
-- **`raw_returns`** ~25K — `return_id` (PK, `RET-NNNNNNNN`), `order_id` (FK), `customer_id` (FK), `product_id` (FK), `lot_id` (FK), `return_date`, `refund_amount_usd`, `return_reason` (`quality`/`didnt_fit`/`wrong_item`/`changed_mind`), `return_reason_text`.
+- **`raw_orders`** ~200K — `order_id` (PK, `ORD-YYYYMMDD-NNNNNN`), `customer_id` (FK), `product_id` (FK — one row per order/product line), `lot_id` (FK), `order_date`, `region` (order destination — same value as the customer's region), `quantity` (small int, usually 1), `total_usd` (= quantity × product price).
+- **`raw_returns`** ~25K — `return_id` (PK, `RET-NNNNNNNN`), `order_id` (FK), `customer_id` (FK), `product_id` (FK), `lot_id` (FK), `return_date`, `refund_amount_usd`, `return_reason` (`quality`/`didnt_fit`/`wrong_item`/`changed_mind`), `return_reason_text` (free text; texture complaints on affected-lot rows).
 
-### Curated tables (what the dashboard + Genie read)
+### Curated tables (what the dashboard + Genie + app read)
 
-- **`gold_returns`** ~25K — denormalized fact. Join `raw_returns × raw_customers × raw_products × raw_production_lots × raw_orders`. Carries `country / city / customer_lat / customer_lng / region / loyalty_tier / order_date / product_name / category / facility` in-row (the four geo columns let the bubble map in `04-ai-bi.md` plot points without re-joining). **Omits `incident_summary` deliberately** — the dashboard sees the symptom; the explanation lives on the lot table so the drill-down has a destination. COMMENT: *"One row per return, denormalized with customer/product/lot/geo context."*
-- **`gold_daily_summary`** ~3,500 — pre-aggregated per `(date, region, category)`. Composite PK on those three. Orders + revenue + items_sold from `raw_orders`, return_count + returns_usd from `raw_returns`, all grouped on the same triple (LEFT JOIN so dates without returns still appear). Powers KPIs + the weekly bar chart. COMMENT: *"Daily summary by region × category for dashboard KPIs and trend."*
-- **`gold_product_lot_quality`** ~3,000 — one row per `(product_id, lot_id)` with at least one return. Join `raw_returns × raw_products × raw_production_lots`, GROUP BY product+lot, pre-joins `incident_summary` from the lot row (NULL except on the affected lot's three rows). Fields: product info, lot info, status, **`incident_summary`**, `return_count`, `total_refund_usd`, `avg_refund_usd`, optionally `return_rate`. **This is the bridge** — Genie hops "lot is bad → here's why" in one SELECT; the Analytics worst-lots table reads this directly. COMMENT: *"Per-(product, lot) quality summary with manufacturing incident text pre-joined."*
+Two tables — that's it. Lot rollups (worst-lots, lot-level rates) are computed at query time from `gold_returns` with `GROUP BY lot_id`; the incident text is fetched directly from `raw_production_lots` via a one-hop join. No intermediate `gold_product_lot_quality` — pre-aggregating a few hundred lots adds a table for no measurable win.
+
+- **`gold_returns`** ~25K — **the one denormalized fact**. Join `raw_returns × raw_customers × raw_products × raw_production_lots × raw_orders`. Carries in-row: `country` + `city` + `customer_lat` + `customer_lng` + `loyalty_tier` (from raw_customers), `region` (from `raw_orders.region`, NOT raw_customers — keeps it consistent with `gold_daily_summary.region` so dashboard filters agree), `order_date` (from raw_orders), `product_name` + `category` (from raw_products), `facility` (from raw_production_lots), `lot_id` / `return_reason` / `return_reason_text` / `refund_amount_usd` / `return_date` (from raw_returns), plus **`is_bad_lot`** (TRUE iff `lot_id = <AFFECTED>`). **Omits `incident_summary` deliberately** — symptom here, explanation on `raw_production_lots` so the drill-down has a destination. COMMENT: *"One row per return, denormalized with customer/product/lot/geo context and an is_bad_lot flag for affected-vs-everyday splits."*
+- **`gold_daily_summary`** ~3,500 — pre-aggregated per `(date, region, category)`. Composite PK on those three. From `raw_orders JOIN raw_products` (group by `order_date, region, raw_products.category`): `order_count = COUNT(DISTINCT order_id)`, `revenue_usd = SUM(total_usd)`. LEFT JOIN a same-shape aggregate of `raw_returns JOIN raw_products` (group by `return_date, raw_orders.region via order_id, category`) for `return_count = COUNT(*)` and `returns_usd = SUM(refund_amount_usd)`. **Returns leg pulls region from `raw_orders` via the return's `order_id`** — same source as the orders leg, so `region` values join cleanly. Full column list: `(date, region, category, order_count, revenue_usd, return_count, returns_usd)`. COMMENT: *"Daily summary by region × category for dashboard KPIs and trend."*
 
 ---
 
@@ -74,7 +77,7 @@ Follow these and the dataset is dashboard-ready on first pass. Skip any and the 
 - **Loyalty**: Gold 10% (2.5× freq, 0.5× returns), Silver 30%, Standard 60% (carries the noise).
 - **Product popularity**: top 20% of SKUs = 60% of sales. Affected SKUs are **mid-tier sellers, not heroes** — otherwise the spike looks like a volume artifact, not a return-rate anomaly.
 - **The catalyst** (the load-bearing block):
-  - ~5,000 order_items reference the affected lot, placed between `AFFECTED_LOT_DATE` and +5 weeks.
+  - ~5,000 orders reference the affected lot, placed between `AFFECTED_LOT_DATE` and +5 weeks.
   - ~1,500 returns off the lot → ~30% rate (≥ 3× baseline).
   - Arrival curve: slow build weeks 6–4 ago → sharp peak at `SPIKE_PEAK` (~500 returns / ~$180K that week) → decay over the last 2 weeks (~$90K → $70K). **Peak in the past, never at the right edge.**
   - Reason on affected-lot rows: predominantly `quality`; `return_reason_text` drawn from the texture-complaint pool.
@@ -82,7 +85,7 @@ Follow these and the dataset is dashboard-ready on first pass. Skip any and the 
 
 ### Drill-down loop (must work end-to-end)
 
-Dashboard headline (~24% return rate) → bar chart spike (3 weeks ago, Skincare) → products table (three SKUs at ~30%) → **`gold_product_lot_quality`** reveals one shared lot AND quotes its `incident_summary` (the second-table read = the lineage payoff) → bubble map highlights Paris as the biggest affected-customer cluster, then London / Milan. See `04-ai-bi.md` for widget-by-widget detail.
+Dashboard Operations headline (~24% return rate, KPI sparkline shows the spike) → forecast-line chart with vertical annotation on `AFFECTED_LOT_DATE` → Investigation page: products bar (three Skincare SKUs) → worst lots bar (one lot dominates) → affected-vs-everyday country/reason splits → comments table quoting texture complaints → Genie hops one join from the lot to `raw_production_lots.incident_summary` and quotes it inline. See `04-ai-bi.md` for widget-by-widget detail.
 
 ---
 
@@ -92,8 +95,9 @@ Run before declaring data ready. If any check fails, fix the synth before `04-ai
 
 - **Returns spike, peak in past** — weekly `SUM(refund_amount_usd)` from `gold_returns`: peak ~$180K landing ~3 weeks ago, decay ~$90K → $70K, baseline ~$60K. **Peak must NOT be in the most-recent week.**
 - **Affected SKUs dominate quality returns** — SKU-1001/1002/1003 at the top of `gold_returns WHERE return_reason='quality'` by a wide margin.
-- **Per-product return rate ≥ 3× baseline** — affected three SKUs ~30%, everything else ~8% (read `gold_product_lot_quality` aggregated to product).
-- **One bad lot is the common thread** — for the three affected SKUs, one `lot_id` dominates with ~1,500 returns; next is an order of magnitude smaller.
+- **Per-product return rate ≥ 3× baseline** — affected three SKUs ~30%, everything else ~8% (read `gold_returns` aggregated to product, divided by `gold_daily_summary` orders).
+- **One bad lot is the common thread** — for the three affected SKUs, one `lot_id` dominates with ~1,500 returns; next is an order of magnitude smaller (`SELECT lot_id, COUNT(*) FROM gold_returns WHERE product_id IN (…) GROUP BY 1 ORDER BY 2 DESC LIMIT 5`).
+- **`is_bad_lot` flag is set** — exactly ~1,500 rows in `gold_returns` have `is_bad_lot = TRUE`; everything else FALSE.
 - **Incident text exists only on the affected lot** — exactly 1 row in `raw_production_lots` has non-null `incident_summary`; that string contains *"homogenizer"*, *"pressure"*, *"Lyon"*, *"released"*.
 - **Affected-lot region skew** — EU ≥ 55%, US ~25%, APAC ~15% of returns on `lot_id = <AFFECTED>`.
 - **FR is the top affected country** — followed by IT or GB second, then DE/US.
