@@ -175,6 +175,8 @@ customers/products/production_lots/orders/order_items/returns.parquet → bronze
 
 **Only two gold MVs.** Per-product and per-lot rollups are computed at widget query time via `GROUP BY` on `silver_returns` (counts, not rates — same trade as the simple demo). `mv_returns` (defined in `02-uc-governance.md`) sits over `gold_daily_summary` and is the canonical metric layer for daily/regional/category aggregates — dashboard KPIs + Genie headline answers + trend chart all read it.
 
+**⚠️ Dashboard-filter contract.** Every aggregate consumed by the dashboard MUST carry `region` and `category` as filter dimensions — `gold_daily_summary` enforces this directly; `silver_returns` carries both for the widget-level rollups; `mv_returns` inherits them from `gold_daily_summary`. If a future gold MV is added, it MUST follow the same rule or the global filters silently stop applying to it.
+
 **gold_daily_summary** — dims: date, region, category. Metrics: order_count (COUNT DISTINCT order_id), items_sold (SUM quantity), revenue_usd (SUM line_total_usd), return_count (COUNT returns), returns_usd (SUM refund_amount_usd). **Returns leg pulls `region` from `bronze_orders` via the return's `order_id`** so it joins cleanly with the orders leg.
 
 **gold_customer_features** — one row per customer, training/scoring input for the premium classifier in `03-ml-premium.md`. Pass-through dims from `bronze_customers`: `customer_id`, `region`, `country`, `loyalty_tier`, `tenure_months` (DATEDIFF / 30 from `registration_date`), **`premium_status`** (the LABEL — `'premium'` / `'not_premium'` / `NULL`; only the non-null rows train). Features (~6 aggregations, all derivable from silver):
