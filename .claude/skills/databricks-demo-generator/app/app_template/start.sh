@@ -250,6 +250,7 @@ if needs_install; then
 fi
 
 echo "[start.sh] ports clear — starting dev server"
+echo "[start.sh] open: http://localhost:$APP_PORT  (use localhost, NOT 0.0.0.0 — embedded AI/BI dashboards need a secure context, and browsers treat 0.0.0.0 as non-secure → crypto.randomUUID is undefined and the dashboard iframe errors out)"
 
 # Auth diagnostic — prints which Databricks auth source the app will use.
 # The parent (Demo Prompt Generator) injects DATABRICKS_CONFIG_FILE in

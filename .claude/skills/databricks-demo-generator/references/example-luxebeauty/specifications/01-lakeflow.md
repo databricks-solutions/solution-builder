@@ -12,24 +12,17 @@
 
 **Affected lot**: LOT-{YYYY}-{MMDD} based on AFFECTED_LOT_DATE, Lyon facility, ~1,700 units/SKU (~5,000 total), status: released.
 
-**Texture complaints** (subset of the *angry* comment pool — see Section A, comment-tone rule — used predominantly for affected-lot returns): "Cream has grainy texture, not smooth like usual" / "Product separated in the jar, looks curdled" / "Consistency is watery, doesn't feel right" / "Texture feels off compared to my last purchase" / "Serum looks cloudy and thick, not like before" / "Product texture has changed, feels gritty"
+**Texture complaints** (verbatim phrases, used predominantly on affected-lot returns — drop into the "angry" comment pool in Section A): *"grainy texture"*, *"product separated"*, *"consistency is watery"*, *"texture feels off"*, *"cloudy and thick"*, *"feels gritty"*. These must be exact substrings — Genie + the dashboard search for them.
 
-**Time references**: STORY_END_DATE = NOW, STORY_START_DATE = NOW - 13 months, AFFECTED_LOT_DATE = NOW - 8 weeks, SPIKE_PEAK = NOW - 3 weeks, DECAY_START = NOW - 2 weeks. The spike should be clearly visible in the past with a decay curve back toward normal — NOT ongoing at the rightmost edge of charts.
+**Time references**: `STORY_END_DATE = NOW`, `STORY_START_DATE = NOW − 13 months`, `AFFECTED_LOT_DATE = NOW − 8 weeks`, `SPIKE_PEAK = NOW − 3 weeks`, `DECAY_START = NOW − 2 weeks`. **Causal chain**: lot produced at −8w → ships + sells weeks −7 to −4 → customers receive, return → returns build weeks −6 to −4 → peak at −3w → decay −2w to now. The 5-week gap between cause and effect leaves room for the forecast-line annotation to land clearly to the LEFT of the bump. Peak in the past, never at the rightmost edge of charts.
 
-Important reminder: these are generated guidance for you to generate pyspark databricks connect code, if some numbers don't exactly sum up during the implementation it's ok, keep it simple, and just ensure we respect the demo narrative.
+> Numbers in this file are demo targets, not invariants — match the narrative shape, don't sweat ±10%. Parallelization rules live in `SKILL.md` → **Parallelization with Subagents**.
 
 ---
 
-> Parallelization + subagent spawning rules live in `SKILL.md` → **Parallelization with Subagents**.
-
-
 ## A. Synthetic Data Generation
 
-**Skill to use**: `databricks-synthetic-data-gen` — read `SKILLS/databricks-synthetic-data-gen/SKILL.md` before implementing.
-
-**Python runtime**: use the pre-provisioned databricks-connect venv (its path is in the system prompt under "Pre-provisioned databricks-connect venv"). Do NOT create a new venv or install databricks-connect — the shared venv already has Python 3.12, databricks-connect, faker, numpy, pandas, holidays, and pyarrow.
-
-**Important note**: when generating this file, ensure the math are correct if you use exact numbers - keep it approximative to avoid incoherences.
+**Skill**: `databricks-synthetic-data-gen` (read `SKILLS/databricks-synthetic-data-gen/SKILL.md`). Use the pre-provisioned databricks-connect venv (Python 3.12 + faker + numpy + pandas + holidays + pyarrow) — system prompt has the path; do NOT create a new venv.
 
 Generate parquet files → `{raw_data_volume}/`
 
@@ -53,23 +46,7 @@ Country distribution (inside region, ISO-2 codes — used by the bubble map in `
 - EU region: FR 30%, GB 25%, DE 20%, IT 15%, ES 10%
 - APAC region: JP 40%, AU 30%, KR 20%, SG 10%
 
-**City anchors + GPS coordinates.** Each customer gets a `customer_lat` + `customer_lng` (DOUBLE PRECISION) set by picking one city per country from the table below (weighted by population share, so Paris pulls more weight than Marseille), then adding a small random jitter (±0.05° lat, ±0.05° lng ≈ ±5km) so points spread inside the city instead of stacking. The bubble map in `04-ai-bi.md` aggregates these into city-sized circles — so the "Europe lights up" beat shows up as visible bubbles over Paris / London / Milan / Berlin, not a country fill.
-
-| Country | City anchors `(name, lat, lng, weight)` |
-|---|---|
-| US | NewYork 40.71/-74.01 w=0.30, LosAngeles 34.05/-118.25 w=0.20, Chicago 41.88/-87.63 w=0.15, Houston 29.76/-95.37 w=0.10, Miami 25.76/-80.19 w=0.10, SanFrancisco 37.77/-122.42 w=0.15 |
-| CA | Toronto 43.65/-79.38 w=0.45, Montreal 45.50/-73.57 w=0.30, Vancouver 49.28/-123.12 w=0.25 |
-| FR | Paris 48.86/2.35 w=0.45, Lyon 45.76/4.83 w=0.18, Marseille 43.30/5.37 w=0.15, Toulouse 43.60/1.44 w=0.12, Lille 50.63/3.06 w=0.10 |
-| GB | London 51.51/-0.13 w=0.55, Manchester 53.48/-2.24 w=0.18, Birmingham 52.49/-1.89 w=0.15, Edinburgh 55.95/-3.19 w=0.12 |
-| DE | Berlin 52.52/13.40 w=0.30, Munich 48.14/11.58 w=0.25, Hamburg 53.55/9.99 w=0.20, Frankfurt 50.11/8.68 w=0.15, Cologne 50.94/6.96 w=0.10 |
-| IT | Milan 45.46/9.19 w=0.40, Rome 41.90/12.50 w=0.30, Naples 40.85/14.27 w=0.15, Turin 45.07/7.69 w=0.15 |
-| ES | Madrid 40.42/-3.70 w=0.45, Barcelona 41.39/2.17 w=0.35, Valencia 39.47/-0.38 w=0.20 |
-| JP | Tokyo 35.68/139.69 w=0.55, Osaka 34.69/135.50 w=0.25, Yokohama 35.44/139.64 w=0.10, Fukuoka 33.59/130.40 w=0.10 |
-| AU | Sydney -33.87/151.21 w=0.45, Melbourne -37.81/144.96 w=0.35, Brisbane -27.47/153.03 w=0.20 |
-| KR | Seoul 37.57/126.98 w=0.65, Busan 35.18/129.08 w=0.20, Incheon 37.46/126.71 w=0.15 |
-| SG | Singapore 1.35/103.82 w=1.00 |
-
-Implementation: tiny dict in the synth script, `numpy.random.choice(cities, p=weights)` per customer, then `lat + np.random.uniform(-0.05, 0.05)` (same for lng). Cheap, deterministic with a seed, gives the map real geographic shape.
+**City anchors + GPS coordinates.** Each customer gets `customer_lat` + `customer_lng` (DOUBLE PRECISION) = city anchor + ±0.05° jitter (~5km) so points spread inside the city instead of stacking. Pick ~3-5 cities per country (top metro areas) with weights skewed to the capital/largest market — `numpy.random.choice(cities, p=weights)` per customer. Lat/lng to 2 decimals is enough. **Required for the story**: FR includes Paris (largest weight, ~0.45) so Paris ends up the single largest bubble on the map; GB/IT/DE/ES include their largest cities (London, Milan, Madrid, Berlin) so the EU cluster reads. US/APAC just need their major metros — exact split doesn't matter, the affected-lot region skew below carries the geo story.
 
 Product popularity (Pareto): top 20% = 60% of sales, 5-8 hero products per category at 3x volume. Natural return rates: complex skincare ~12%, simple haircare ~5%.
 
@@ -79,44 +56,24 @@ Return timing: 60% within 7 days, 30% within 8-21 days, 10% within 22-30 days.
 
 Production facilities: Lyon 50% (Skincare), Milan 30% (Makeup), Singapore 20% (Haircare).
 
-### Comment pool (return_reason_text)
+### Comment pool (`return_reason_text`)
 
-Pick from ~15 short canned strings hand-coded in synth, grouped in 3 tones — keeps the data generation fast and deterministic and lets `ai_classify` (Section B) extract a useful sentiment signal in SDP:
-- **Angry** (~5 strings, includes the texture complaints listed in Shared Context): assertive, irritated, threatens to leave — used predominantly for affected-lot returns.
-- **Neutral** (~5 strings): "texture wasn't what I expected", "didn't agree with my skin", "product seems different from before" — measured tone, no escalation.
-- **Benign** (~5 strings): "wrong shade", "ordered by mistake", "didn't suit me", "bought as gift" — no quality concern at all.
+~15 hand-coded strings in 3 tones — keeps synth deterministic and gives `ai_classify` a clear signal. **Angry**: assertive / irritated / threatens to leave (must include the Shared-Context texture phrases verbatim). **Neutral**: measured ("didn't agree with my skin", "seems different from before"). **Benign**: no quality concern ("wrong shade", "ordered by mistake", "bought as gift").
 
-**Distribution rule (matters for the model):**
-- Affected-lot returns → 80% angry / 20% neutral
-- Other quality returns → 20% angry / 80% neutral
-- Benign-reason returns (`didnt_fit`, `wrong_item`, `changed_mind`) → 100% benign
+**Distribution** (the model's training signal): affected-lot → 80% angry / 20% neutral · other quality returns → 20% angry / 80% neutral · `didnt_fit` / `wrong_item` / `changed_mind` → 100% benign.
 
 ### Premium tagging (label for the ML model)
 
-> **Build agent: this section is your algorithm for setting `bronze_customers.premium_status`.** Implement the tagging rules below directly in the synth code that writes `customers.parquet`. The numbers (50% / 10% / 1%) are concrete targets — meet them within ±20%. The behavioral profile table is the constraint your tags must satisfy: when SDP aggregates this data into `gold_customer_features`, the `premium_status='premium'` rows must show ≥ 2.5× the spend and ≤ 0.5× the return rate of the rest (verified in Section D). If they don't, the model in `03-ml-premium.md` won't train.
+CS has hand-tagged some customers `premium` / `not_premium` over time; everyone else is `NULL` — that's the unlabeled cohort the model in `03-ml-premium.md` scores. **Target counts**: ~3K `'premium'`, ~1K `'not_premium'`, ~46K `NULL` (±20% OK).
 
-The story: Customer Service has manually tagged a subset of customers as `premium` (or explicitly `not_premium`) over time. Everyone else is untagged — that's the unlabeled cohort the model in `03-ml-premium.md` will score.
+**Premium target profile** (the features the model must learn, derived from behavior — verified in Section D): ~3× median spend, 2–3× median order count, 3–5% return rate (vs 8–10% normal), tenure ≥ 6mo, skewed Gold/Silver.
 
-**The defining behavioral profile** (this is what the model has to learn — features in `gold_customer_features` must reflect it):
+**Tagging recipe** — set `bronze_customers.premium_status` in the synth before writing `customers.parquet`. Mix three sources so tier alone won't predict it:
+- **Tier-correlated** (~80% of premium tags): mostly Gold (~50% of Gold customers), some top-spending Silver (~top 40% of Silver).
+- **"Surprise tags"** (~10% of premium tags, ~500 rows): Standard-tier high-spenders. Forces the model to learn that spend + tenure matter, not just tier.
+- **Explicit negatives** (~1K `not_premium`): Silver/Gold customers with `return_rate > 15%` — superficially eligible, behave poorly. Forces the model to combine features.
 
-| Signal | Premium customer | Standard customer |
-|---|---|---|
-| `total_spend_lifetime` | ~3× the median customer | around the median |
-| `total_orders_lifetime` | 2–3× the median (engaged buyers) | around the median |
-| `lifetime_return_rate` | low (~3–5%) | normal (~8–10%) |
-| `tenure_months` | ≥ 6mo, skews older | mixed (includes new accounts) |
-| `loyalty_tier` | skewed toward Gold/Silver | mixed |
-
-**Tagging rules (apply to bronze_customers.premium_status, in this order):**
-
-1. **Tag ~50% of Gold-tier customers as `'premium'`** (Gold = ~10% of base = ~5K customers → ~2.5K premium tags here).
-2. **Tag ~10% of Silver-tier customers as `'premium'`** (Silver = ~30% = ~15K → ~1.5K). **But** restrict to those whose lifetime spend is in the top 40% of Silver — CS doesn't tag mid-spend Silvers.
-3. **Tag ~1% of Standard-tier customers as `'premium'`** — the **"surprise tags"** (Standard-tier high-spenders, journalists, friends-of-CEO). ~500 rows. These are the model's hardest learning signal: tier alone isn't enough; spend + tenure matter.
-4. Cap the total at ~3,000 premium tags by random subsample if the above overshoots.
-5. **Tag ~1,000 customers as `'not_premium'`** by sampling from `loyalty_tier IN ('silver','gold') AND lifetime_return_rate > 15%` — explicit negatives that look superficially eligible (mid-high tier) but behave poorly. These force the model to learn that tier alone doesn't decide premium.
-6. **Everyone else → `NULL`** (~46K). Includes all 250 affected-lot customers (they're a random slice of the catalog, not pre-tagged).
-
-The model in `03-ml-premium.md` trains on the ~4K labeled rows, scores the ~46K unlabeled. The "surprise tags" in rule 3 and the high-return negatives in rule 5 are what force the model to combine features rather than memorize `loyalty_tier`.
+Affected-lot customers stay `NULL` (random slice of the catalog, not pre-tagged) — they're the predict-time cohort the agent uses to find "hidden premiums" CS missed.
 
 ### The Event
 
@@ -126,17 +83,14 @@ The model in `03-ml-premium.md` trains on the ~4K labeled rows, scores the ~46K 
 
 ### Table Schemas
 
-**customers**: `customer_id` (PK, CUST-NNNNNN), `email`, `first_name`, `last_name`, `region`, `country` (ISO-2, distributed per region above), **`city`** (string, picked from the city-anchor table above), **`customer_lat`** + **`customer_lng`** (DOUBLE PRECISION, city anchor + ±0.05° jitter), `registration_date`, `loyalty_tier`, `premium_status` (`'premium'` / `'not_premium'` / `NULL` per the Premium tagging rule above — drives the model label)
+ID formats: `CUST-NNNNNN` / `SKU-NNNN` / `LOT-YYYY-MMDD` / `ORD-YYYYMMDD-NNNNNN` / `OI-NNNNNNNNN` / `RET-NNNNNNNN`. PKs in **bold**, FKs marked.
 
-**products**: `product_id` (PK, SKU-NNNN), `product_name`, `category`, `subcategory`, `price_usd`, `cost_usd`, `launch_date`, `is_active`
-
-**production_lots**: `lot_id` (PK), `product_id` (FK), `production_date`, `facility`, `quantity_produced` (200-1000), `status`
-
-**orders**: `order_id` (PK, ORD-YYYYMMDD-NNNNNN), `customer_id` (FK), `order_date`, `order_timestamp`, `region`, `subtotal_usd`, `shipping_usd`, `total_usd`, `status`
-
-**order_items**: `order_item_id` (PK, OI-NNNNNNNNN), `order_id` (FK), `product_id` (FK), `lot_id` (FK), `quantity`, `unit_price_usd`, `line_total_usd`
-
-**returns**: `return_id` (PK, RET-NNNNNNNN), `order_item_id` (FK), `return_date`, `return_timestamp`, `refund_amount_usd`, `return_reason`, `return_reason_text`
+- **`customers`** — **customer_id**, email, first_name, last_name, region (`US/EU/APAC`), country (ISO-2), city, `customer_lat`/`customer_lng` (DOUBLE, city anchor + ±0.05° jitter), registration_date, loyalty_tier (`standard/silver/gold`), `premium_status` (`'premium'`/`'not_premium'`/`NULL` per Premium-tagging rule).
+- **`products`** — **product_id**, product_name, category, subcategory, price_usd, cost_usd, launch_date, is_active.
+- **`production_lots`** — **lot_id**, product_id (FK), production_date, facility, quantity_produced (200–1000 normal; affected lot ~5K), status (`released/on_hold/recalled`).
+- **`orders`** — **order_id**, customer_id (FK), order_date, order_timestamp, region, subtotal_usd, shipping_usd, total_usd, status.
+- **`order_items`** — **order_item_id**, order_id (FK), product_id (FK), lot_id (FK), quantity, unit_price_usd, line_total_usd.
+- **`returns`** — **return_id**, order_item_id (FK), return_date, return_timestamp, refund_amount_usd, return_reason (`quality/didnt_fit/wrong_item/changed_mind`), return_reason_text.
 
 ---
 
@@ -150,12 +104,12 @@ Create pipeline `luxebeauty_operations` transforming raw parquet → analytics t
 
 | Consumer | Needs | From Table |
 |----------|-------|------------|
-| Dashboard KPIs | revenue, orders, items, return_count, returns_usd by date/region/category | gold_daily_summary |
-| Dashboard products | SKU-level return rates with region/category filtering | gold_returns_by_product |
-| Genie investigation | Trace returns → products → lot → feedback | gold_returns_by_lot + silver_returns |
-| Premium-classifier training (`03-ml-premium.md`) | one row per customer with features + premium label (only set on the ~4K labeled subset) | gold_customer_features |
-| Dashboard world map | affected customers + % premium by country | gold_customer_premium_predictions (written by ML notebook in `03-ml-premium.md`) joined with affected-customer list |
-| App agent (tiered offer) | per-customer `final_tier` (`'premium'` if labeled OR predicted) | gold_customer_premium_predictions (mirrored into Lakebase on app boot) |
+| Dashboard KPIs + trend + category split | revenue, orders, return_count, returns_usd, return_rate, refund_rate by date/region/category | `mv_returns` metric view (over `gold_daily_summary`, defined in `02-uc-governance.md`) |
+| Dashboard forecast | weekly `returns_usd` for `AI_FORECAST` | `gold_daily_summary` directly (TVF can't go through MV) |
+| Dashboard map + per-row Investigation widgets (products, lots, country splits, sentiment, comments) | per-return row with denormalized geo + product + lot + anger_score | `silver_returns` (widget-level GROUP BY for product/lot rollups — counts, not rates) |
+| Premium-classifier training (`03-ml-premium.md`) | one row per customer with features + premium label (only set on the ~4K labeled subset) | `gold_customer_features` |
+| Dashboard/Genie premium-cohort answers | affected customers × predicted tier × country | `gold_customer_premium_predictions` (written by ML notebook in `03-ml-premium.md`) joined with affected-customer list from `silver_returns` |
+| App agent (tiered offer) | per-customer `final_tier` (`'premium'` if labeled OR predicted) | `gold_customer_premium_predictions` (mirrored into Lakebase on app boot) |
 
 ### Source → Bronze (1:1 ingestion)
 
@@ -165,19 +119,19 @@ customers/products/production_lots/orders/order_items/returns.parquet → bronze
 
 **silver_order_items**: order_items JOIN orders (→ order_date, region) JOIN products (→ product_name, category) JOIN production_lots (→ facility, production_date). Expectations: `order_item_id IS NOT NULL`, `order_id IS NOT NULL`, `product_id IS NOT NULL`. Columns: order_item_id, order_id, order_date, region, product_id, product_name, category, lot_id, facility, production_date, quantity, unit_price_usd, line_total_usd.
 
-**silver_returns**: returns JOIN silver_order_items ON order_item_id JOIN bronze_orders ON order_id JOIN bronze_customers ON customer_id. Expectations: `return_id IS NOT NULL`, `order_item_id IS NOT NULL`. Columns: return_id, customer_id (FK), order_item_id, order_date, region, **country**, **city**, **customer_lat**, **customer_lng** (all four from bronze_customers, denormalized here so the dashboard bubble map + country panel don't need a re-join), product_id, product_name, category, lot_id, facility, return_date, refund_amount_usd, return_reason, return_reason_text, days_to_return, **`anger_score`**.
+**silver_returns**: returns JOIN silver_order_items ON order_item_id JOIN bronze_orders ON order_id JOIN bronze_customers ON customer_id. Expectations: `return_id IS NOT NULL`, `order_item_id IS NOT NULL`. Columns: return_id, customer_id (FK), order_item_id, order_date, region (= `bronze_orders.region` — matches `gold_daily_summary.region`), **country**, **city**, **customer_lat**, **customer_lng** (all four from bronze_customers, denormalized here so the dashboard bubble map + country panel don't need a re-join), product_id, product_name, category, lot_id, facility, return_date, refund_amount_usd, return_reason, return_reason_text, days_to_return, **`anger_score`**, **`is_bad_lot`** (TRUE iff `lot_id = <AFFECTED>` — drives the Investigation page's affected-vs-everyday splits).
 
 > **`anger_score` — the `ai_classify` showcase.** Compute as `CASE ai_classify(return_reason_text, ARRAY('angry','neutral','benign')) WHEN 'angry' THEN 1.0 WHEN 'neutral' THEN 0.5 ELSE 0.0 END`. One built-in SQL function, no UDF, no separate sentiment service. Consumed in two places: (1) as a feature in `gold_customer_features` (`avg_anger_score_last_90d`, an input to the premium classifier in `03-ml-premium.md`), and (2) exposed per-return in the Returns Console app — the Operations queue is sortable by anger score so operators can prioritize the most upset customers first.
+>
+> **Implementation: run `ai_classify` once, at the bronze→silver step, and not again.** Compute `anger_score` inside `silver_returns` and have every downstream view (`silver_lots`, `gold_*`, `gold_customer_features`) read it from silver — re-calling `ai_classify` on bronze from a second MV silently doubles the pipeline runtime. Keep the input small too: only the bad-lot returns drive the demo's anger narrative, so the rest can default to a low score without going through the model.
 
 ### Silver → Gold (aggregations)
 
-**⚠️ ALL gold tables MUST include `region` and `category` as dimensions for dashboard filtering.**
+**Only two gold MVs.** Per-product and per-lot rollups are computed at widget query time via `GROUP BY` on `silver_returns` (counts, not rates — same trade as the simple demo). `mv_returns` (defined in `02-uc-governance.md`) sits over `gold_daily_summary` and is the canonical metric layer for daily/regional/category aggregates — dashboard KPIs + Genie headline answers + trend chart all read it.
 
-**gold_daily_summary** — dims: date, region, category. Metrics: order_count (COUNT DISTINCT order_id), items_sold (SUM quantity), revenue_usd (SUM line_total_usd), return_count (COUNT returns), returns_usd (SUM refund_amount_usd).
+**⚠️ Dashboard-filter contract.** Every aggregate consumed by the dashboard MUST carry `region` and `category` as filter dimensions — `gold_daily_summary` enforces this directly; `silver_returns` carries both for the widget-level rollups; `mv_returns` inherits them from `gold_daily_summary`. If a future gold MV is added, it MUST follow the same rule or the global filters silently stop applying to it.
 
-**gold_returns_by_product** — dims: product_id, product_name, category, region. Metrics: units_sold, return_count, total_refund_usd, return_rate (return_count/units_sold).
-
-**gold_returns_by_lot** — dims: lot_id, product_id, product_name, category, region, facility, production_date. Metrics: units_sold, return_count, total_refund_usd, return_rate, feedback_samples (COLLECT_LIST return_reason_text).
+**gold_daily_summary** — dims: date, region, category. Metrics: order_count (COUNT DISTINCT order_id), items_sold (SUM quantity), revenue_usd (SUM line_total_usd), return_count (COUNT returns), returns_usd (SUM refund_amount_usd). **Returns leg pulls `region` from `bronze_orders` via the return's `order_id`** so it joins cleanly with the orders leg.
 
 **gold_customer_features** — one row per customer, training/scoring input for the premium classifier in `03-ml-premium.md`. Pass-through dims from `bronze_customers`: `customer_id`, `region`, `country`, `loyalty_tier`, `tenure_months` (DATEDIFF / 30 from `registration_date`), **`premium_status`** (the LABEL — `'premium'` / `'not_premium'` / `NULL`; only the non-null rows train). Features (~6 aggregations, all derivable from silver):
 - `total_orders_lifetime` — `COUNT(DISTINCT order_id)` from silver_order_items
@@ -189,24 +143,12 @@ customers/products/production_lots/orders/order_items/returns.parquet → bronze
 
 Affected-lot customers are unlabeled (`premium_status IS NULL` for ~all 250) but have informative features (recent orders, recent returns) — the model predicts their `is_premium_predicted` and the agent uses it to tier the offer.
 
-### Filter Coherence Matrix
+### Consumer routing
 
-| Filter | gold_daily_summary | gold_returns_by_product | gold_returns_by_lot |
-|--------|-------------------|------------------------|---------------------|
-| date | ✅ | — (cumulative) | — (cumulative) |
-| region | ✅ | ✅ | ✅ |
-| category | ✅ | ✅ | ✅ |
-
-### Column Reference (contract for 03-ml-premium.md and 04-ai-bi.md)
-
-| Table | Filter Columns | Metric Columns |
-|-------|---------------|----------------|
-| gold_daily_summary | date, region, category | revenue_usd, order_count, items_sold, return_count, returns_usd |
-| gold_returns_by_product | region, category | product_id, product_name, units_sold, total_refund_usd, return_rate |
-| gold_returns_by_lot | region, category | lot_id, product_id, product_name, facility, feedback_samples, return_rate |
-| gold_customer_features | region, country, loyalty_tier, premium_status | customer_id, total_orders_lifetime, total_spend_lifetime, returns_lifetime, lifetime_return_rate, avg_anger_score_last_90d, days_since_last_order, tenure_months |
-
-> `02-uc-governance.md` defines `mv_returns`, a metric view over `gold_daily_summary` that the dashboard KPI row and the headline Genie answers consume. The per-product / per-lot gold tables stay as-is — investigation queries still hit them directly. `gold_customer_features` is consumed by the premium classifier in `03-ml-premium.md` only — not by Genie or the dashboard (those read the model's *output*, `gold_customer_premium_predictions`).
+- `mv_returns` (over `gold_daily_summary`) → dashboard KPIs + category donut, Genie headline answers. Same definitions on both surfaces (`02-uc-governance.md`).
+- `gold_daily_summary` → dashboard forecast widget (AI_FORECAST needs a raw subquery, can't go through MV).
+- `silver_returns` → dashboard map + Investigation widgets (products, lots, country splits, sentiment, comments) via widget-level `GROUP BY`. No per-product / per-lot gold tables.
+- `gold_customer_features` → premium classifier training only (`03-ml-premium.md`). Dashboard + Genie read the model's **output** (`gold_customer_premium_predictions`), not the features.
 
 ---
 
@@ -224,27 +166,16 @@ Generate ~10 PDFs in `{raw_data_volume}/incident_pdf/`. Only ONE contains the sm
 
 ## D. Validation
 
-Run before proceeding to 03-ml-premium.md.
+Run before `03-ml-premium.md`. Each row = a one-line query the LLM writes against the table; if it fails, fix the synth before publishing downstream resources.
 
-| Check | Query | Expected |
-|-------|-------|----------|
-| Returns spike | `SELECT DATE_TRUNC('week', date) as week, SUM(returns_usd) FROM gold_daily_summary GROUP BY 1 ORDER BY 1 DESC LIMIT 10` | Peak week ~$180K, recent weeks decaying (~$90K→$70K), baseline ~$60K |
-| Problem products | `SELECT product_id, product_name, return_rate FROM gold_returns_by_product WHERE return_rate > 0.2` | SKU-1001/1002/1003 at ~30% |
-| Common lot | `SELECT lot_id, SUM(return_count), AVG(return_rate) FROM gold_returns_by_lot WHERE return_rate > 0.2 GROUP BY lot_id` | One lot, ~1,500 returns |
-| Texture feedback | `SELECT feedback_samples FROM gold_returns_by_lot WHERE return_rate > 0.25 LIMIT 1` | Contains "grainy", "separated" |
-| Filter dims | `SELECT DISTINCT region FROM gold_daily_summary` | US, EU, APAC |
-| Countries seeded | `SELECT country, COUNT(*) FROM bronze_customers GROUP BY 1` | 9 countries with proportions per the country distribution above |
-| Affected lot leans EU | `SELECT region, COUNT(*) FROM silver_returns WHERE lot_id = '<AFFECTED_LOT>' GROUP BY 1` | EU dominant (~60%), then US (~25%), APAC (~15%) — drives the map narrative |
-| Affected lot top countries | `SELECT country, COUNT(*) FROM silver_returns WHERE lot_id = '<AFFECTED_LOT>' GROUP BY 1 ORDER BY 2 DESC LIMIT 3` | FR leads, then either IT or GB, then US — confirms the map will light up EU |
-| Affected lot top cities | `SELECT city, COUNT(DISTINCT customer_id) AS n FROM silver_returns WHERE lot_id = '<AFFECTED_LOT>' GROUP BY 1 ORDER BY n DESC LIMIT 5` | Paris in top spot (≥ ~30 affected customers), followed by London / Milan / Madrid / Berlin in some order — confirms the bubble map will have one clearly-largest dot over Europe |
-| GPS coords populated | `SELECT COUNT(*) FROM bronze_customers WHERE customer_lat IS NULL OR customer_lng IS NULL` | 0 |
-| GPS coords inside Earth | `SELECT MIN(customer_lat), MAX(customer_lat), MIN(customer_lng), MAX(customer_lng) FROM bronze_customers` | lat in [-90, 90], lng in [-180, 180] — guards against off-by-one bugs in the city table |
-| Anger score on affected lot | `SELECT AVG(anger_score) FROM silver_returns WHERE lot_id = '<AFFECTED_LOT>'` | ≥ 0.6 (skewed angry) |
-| Anger score baseline | `SELECT AVG(anger_score) FROM silver_returns WHERE return_reason <> 'quality'` | ≤ 0.2 (skewed benign) |
-| Premium tags seeded | `SELECT premium_status, COUNT(*) FROM bronze_customers GROUP BY 1` | ~3K `'premium'`, ~1K `'not_premium'`, ~46K NULL |
-| Premium labels reach gold | `SELECT premium_status, COUNT(*) FROM gold_customer_features GROUP BY 1` | matches the bronze counts (pass-through) |
-| Premium behavior separates from standard | `SELECT premium_status, AVG(total_spend_lifetime), AVG(lifetime_return_rate) FROM gold_customer_features GROUP BY 1` | premium avg spend ≥ 2.5× the NULL/not_premium avg; premium return rate ≤ 0.5× the standard rate — if not, the tagging rules above weren't followed and the model will fail |
-| Features non-null | `SELECT COUNT(*) FROM gold_customer_features WHERE avg_anger_score_last_90d IS NULL OR total_spend_lifetime IS NULL` | 0 |
-| Column names | `DESCRIBE gold_daily_summary` / `DESCRIBE gold_returns_by_product` / `DESCRIBE gold_customer_features` | Match specs above |
+**Load-bearing (must pass — these gate the story):**
+- **Returns spike, peak in past** — weekly `SUM(returns_usd)` from `gold_daily_summary`: peak ~$180K ~3w ago, decay ~$90K → $70K, baseline ~$60K. Peak NOT in the current week.
+- **Affected lot is the common thread** — top `lot_id` by `COUNT(*)` for `product_id IN (SKU-1001/1002/1003)` has ~1,500 returns; the next lot is an order of magnitude smaller.
+- **EU skew on the affected lot** — `silver_returns WHERE lot_id = <AFFECTED>` GROUP BY region → EU ≥55%, US ~25%, APAC ~15%. GROUP BY country → FR first, then IT or GB. GROUP BY city → Paris first (≥30 distinct customers), then London / Milan / Madrid / Berlin.
+- **`anger_score` separates** — `AVG(anger_score)` on affected-lot rows ≥ 0.6; on non-quality returns ≤ 0.2.
+- **Premium tags separate** — `gold_customer_features` GROUP BY premium_status: `'premium'` rows show ≥ 2.5× the spend and ≤ 0.5× the return rate of `NULL`/`not_premium`. If this fails, the model won't train (`03-ml-premium.md` breaks).
+- **Texture vocabulary present** — `silver_returns WHERE is_bad_lot` `return_reason_text` includes *"grainy"*, *"separated"*, *"watery"*.
 
-Add pipeline_id to `resources.json`.
+**Smoke checks** (the LLM derives these — verify upstream invariants didn't break): tag counts roughly hit targets (~3K premium / ~1K not_premium / ~46K NULL, pass-through to `gold_customer_features`); `region` enum is `{US, EU, APAC}`; GPS columns non-null and in earth-bounds (lat in [-90,90], lng in [-180,180]); `gold_customer_features` features non-null.
+
+Add `pipeline_id` to `resources.json`.

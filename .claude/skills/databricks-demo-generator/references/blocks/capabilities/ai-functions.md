@@ -35,9 +35,13 @@ The `databricks-ai-functions` ai-dev-kit skill covers implementation details. Sp
 
 - Perfect for enrichment: sentiment analysis, classification, entity extraction
 - Show simplicity: one SQL function call processes entire tables
-- Position in the SDP pipeline, ideally in SQL
-- CAREFUL WITH SIZE — can be slow, avoid on large tables
-- Use databricks-gpt-5-4-nano for fast demo answers
+- Use `databricks-gpt-5-4-nano` for fast demo answers
+
+## Where to put AI functions in the pipeline
+
+**Call AI functions exactly once — at the bronze→silver step.** Every AI call is slow, so calling it again from any downstream silver or gold MV doubles the work. Downstream views must read the scored column from silver, never re-call the AI function on bronze.
+
+**Keep the input set small.** If only part of the table drives the demo narrative, filter to that subset before classifying. Classifying 100K rows when only 5K matter for the story just makes the pipeline slow with no upside.
 
 ## URL
 

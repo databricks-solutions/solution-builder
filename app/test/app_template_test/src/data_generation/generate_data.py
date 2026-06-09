@@ -30,13 +30,21 @@ SCHEMA  = "demo_luxebeauty_test"
 NOW             = datetime.now()
 SPIKE_PEAK      = NOW - timedelta(days=21)
 DECAY_START     = NOW - timedelta(days=14)
-BAD_LOT_PROD_DT = NOW - timedelta(days=28)
+# Lot ships ~6 weeks back, well before the returns surge (peak ~21d ago).
+# Causality: bad batch leaves the factory → distributed and sold over the
+# next ~2 weeks → returns peak 3-4 weeks after ship. The chart's vertical
+# marker for the production incident must land LEFT of the peak.
+BAD_LOT_PROD_DT = NOW - timedelta(days=42)
 BAD_LOT_ID      = f"LOT-{BAD_LOT_PROD_DT.year}-{BAD_LOT_PROD_DT.strftime('%m%d')}"
 BAD_SKUS        = ["SKU-1001", "SKU-1002", "SKU-1003"]
 BAD_FACILITY    = "Lyon-France"
 
-N_CUSTOMERS = 2000
-N_ORDERS    = 12000
+N_CUSTOMERS = 5000
+# Bumped 12K → 120K so the baseline weekly revenue + refund numbers
+# match the spec ($380K/month revenue, $60K/week baseline returns).
+# At 12K orders across 23 months we had ~125 orders/week → return
+# baseline was tiny and the spike vanished into noise.
+N_ORDERS    = 120000
 
 print(f"BAD_LOT_ID: {BAD_LOT_ID}")
 print(f"SPIKE_PEAK: {SPIKE_PEAK.date()}")
@@ -125,12 +133,18 @@ print(f"  Products: {len(prod_df)}")
 
 # ── 2. Customers ────────────────────────────────────────────────────────────
 print("Generating customers...")
-countries_pool = (
-    ["France"]   * 500 + ["Italy"] * 300 + ["UK"] * 200 + ["Germany"] * 200 +
-    ["US"] * 600 + ["Spain"] * 80 + ["Netherlands"] * 60 + ["Canada"] * 60
-)
-np.random.shuffle(countries_pool)
-countries_pool = countries_pool[:N_CUSTOMERS]
+# Weights, not absolute counts — so the country mix stays correct
+# regardless of N_CUSTOMERS. The earlier hardcoded counts only summed
+# to 2000 and broke when N_CUSTOMERS was bumped past that.
+country_weights = {
+    "France": 500, "Italy": 300, "UK": 200, "Germany": 200,
+    "US": 600, "Spain": 80, "Netherlands": 60, "Canada": 60,
+}
+countries_pool = np.random.choice(
+    list(country_weights.keys()),
+    size=N_CUSTOMERS,
+    p=np.array(list(country_weights.values())) / sum(country_weights.values()),
+).tolist()
 
 custs = []
 for i in range(N_CUSTOMERS):
@@ -205,7 +219,10 @@ print(f"  Lots: {len(lots_df)}, BAD_LOT={BAD_LOT_ID}")
 # ── 4. Orders ───────────────────────────────────────────────────────────────
 print("Generating orders...")
 START_HIST = NOW - timedelta(days=24*30)
-END_HIST   = NOW - timedelta(days=32)
+# Run history through yesterday so the chart's rightmost weeks aren't
+# dead. The bad-lot orders below sit in the 25-33 day window which is
+# already inside this range — they're additive, not a separate epoch.
+END_HIST   = NOW - timedelta(days=1)
 span_days  = (END_HIST - START_HIST).days
 all_skus_list = [p[0] for p in products_data]
 
@@ -232,12 +249,14 @@ for i in range(N_ORDERS):
         "region":         c["region"],
     })
 
-# Bad-lot orders (~1500 with EU skew → ~250 pending + 950 approved returns)
+# Bad-lot orders — sized so the weekly refund peak lands ~3× the baseline
+# (per spec). Earlier 5000-order pool produced a 50× spike that flattened
+# the rest of the chart. EU skew 60/40 stays.
 eu_custs    = [r for r in custs if r["country"] in ("France","Italy","UK","Germany")]
 other_custs = [r for r in custs if r["country"] not in ("France","Italy","UK","Germany")]
 bad_cust_pool = (
-    [eu_custs[i % len(eu_custs)]   for i in range(900)] +
-    [other_custs[i % len(other_custs)] for i in range(600)]
+    [eu_custs[i % len(eu_custs)]   for i in range(480)] +
+    [other_custs[i % len(other_custs)] for i in range(320)]
 )
 np.random.shuffle(bad_cust_pool)
 
@@ -245,7 +264,10 @@ for i, c in enumerate(bad_cust_pool):
     sku    = BAD_SKUS[i % 3]
     qty    = np.random.randint(1, 3)
     price  = sku_prices[sku] * qty * (0.9 + np.random.random() * 0.2)
-    ord_dt = NOW - timedelta(days=np.random.randint(25, 33))
+    # Orders for the bad lot fall in a 2-week window after the lot ships
+    # (BAD_LOT_PROD_DT = NOW-42d → orders 28-40d ago → returns 1-30d after
+    # → return-curve peak ~3 weeks ago, lining up with SPIKE_PEAK).
+    ord_dt = NOW - timedelta(days=np.random.randint(28, 41))
     orders.append({
         "order_id":       str(uuid.uuid4()),
         "customer_id":    c["customer_id"],
@@ -321,17 +343,18 @@ for idx in normal_sample:
     })
 
 bad_orders = [o for o in orders if o["lot_id"] == BAD_LOT_ID]
-n_bad_ret  = min(1200, len(bad_orders))
+# 80% of bad orders come back as returns. The 20% who don't keep the
+# product = realistic noise.
+n_bad_ret  = int(len(bad_orders) * 0.8)
 bad_sample = np.random.choice(len(bad_orders), size=n_bad_ret, replace=False)
 
-def bad_return_date(i, total=1200):
-    if i < int(total * 0.52):
-        day_back = np.random.randint(14, 22)
-    elif i < int(total * 0.84):
-        day_back = np.random.randint(7, 14)
-    else:
-        day_back = np.random.randint(1, 7)
-    return (NOW - timedelta(days=day_back)).strftime("%Y-%m-%d %H:%M:%S")
+def bad_return_date(i, total):
+    """Triangular distribution peaking at SPIKE_PEAK (21d ago) with a
+    quick build-up (5 weeks) and a decay tail (~3 weeks back to baseline).
+    Numpy triangular(left, mode, right) returns float days-back from NOW.
+    Earlier 4-bucket uniform pattern produced a flat plateau, not a peak."""
+    day_back = np.random.triangular(left=1, mode=21, right=42)
+    return (NOW - timedelta(days=float(day_back))).strftime("%Y-%m-%d %H:%M:%S")
 
 for i, idx in enumerate(bad_sample):
     o = bad_orders[idx]
