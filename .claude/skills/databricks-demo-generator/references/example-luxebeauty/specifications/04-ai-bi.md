@@ -104,18 +104,17 @@ widgetHeaderAlignment: LEFT
 
 `ds_forecast` is **unfiltered** by all three — `AI_FORECAST` needs a stable trailing window.
 
-### Page 1 — Operations (the glance, 12-column grid)
+### Page 1 — Operations (the glance)
+**Row 1** — title markdown. *"LuxeBeauty Returns — Operations. Claire Dubois, VP Ops. The bad lot LOT-{date} ships in late {month}, the surge follows weeks later. We've traced it; this dashboard tracks the recovery."*
 
-**Row 1 (y=0, h=2, full width)** — title markdown. *"LuxeBeauty Returns — Operations. Claire Dubois, VP Ops. The bad lot LOT-{date} ships in late {month}, the surge follows weeks later. We've traced it; this dashboard tracks the recovery."*
-
-**Row 2 (y=2, h=3, 4 counters side by side, w=3 each)** — KPIs from `ds_metrics`. All `counter` widgets with a `period` encoding (weekly `DATE_TRUNC` bucket from the same dataset) so a sparkline renders behind the headline.
+**Row 2** — KPIs from `ds_metrics`. All `counter` widgets with a `period` encoding (weekly `DATE_TRUNC` bucket from the same dataset) so a sparkline renders behind the headline.
 
 - **Refunds — last 90d** — `MEASURE(total_refunds)`. Format: currency, compact. Sparkline: spike-then-decay — the visual hook.
 - **Returns — last 90d** — `MEASURE(return_count)`. Format: number, compact. Sparkline matches refunds.
 - **Orders — last 90d** — `MEASURE(order_count)`. Format: number, compact. Sparkline: flat — business is fine overall.
 - **Refund Rate (%)** — `MEASURE(return_rate)`. Format: percent. Same metric Genie uses — numbers match exactly.
 
-**Row 3 (y=5, h=5, full width)** — *"Weekly refunds — actuals + forecast"* (`forecast-line`). Source: `ds_forecast`.
+**Row 3** — *"Weekly refunds — actuals + forecast"* (`forecast-line`). Source: `ds_forecast`.
 
 - Encoding: x = `week` (temporal); y `refunds` = actuals (solid); y `refunds_forecast` / `refunds_upper` / `refunds_lower` = forecast band (dashed). Format y as `number-currency` USD compact.
 - Shape: ~6 months weekly actuals → peak ~3 weeks ago → decay → 4-week forecast band continuing the decay back toward baseline. The seam needs a bridging row repeating the last actual as `refunds_forecast`, otherwise the band starts disconnected.
@@ -123,41 +122,40 @@ widgetHeaderAlignment: LEFT
 - **Story invariant**: `AFFECTED_LOT_DATE` (NOW-8w) must be BEFORE `SPIKE_PEAK` (NOW-3w). If the synth produces a lot whose `production_date` is at or after the spike peak, regenerate the synth before publishing.
 - No category color split — keep the forecast view clean.
 
-**Row 4 (y=10, h=6, full width)** — *"Affected customers — bubble map"* (`symbol-map`). Source: `ds_returns` with widget-level filter `is_bad_lot = TRUE` (apply in the widget's `fields` / WHERE, not on the dataset).
+**Row 4** — *"Affected customers — bubble map"* (`symbol-map`). Source: `ds_returns` with widget-level filter `is_bad_lot = TRUE` (apply in the widget's `fields` / WHERE, not on the dataset).
 
 - Encoding: `coordinates: { latitude: AVG(customer_lat), longitude: AVG(customer_lng) }` (nested shape — top-level lat/lng won't render). Grouped by `(city, country)`; bubble size = `COUNT(DISTINCT customer_id)`. Tooltip: city + count + `SUM(refund_amount_usd)`. Bubble color: primary, semi-transparent. `colorRamp.scheme: "RdYlBu"` (capitalized — `"redyellowblue"` silently fails).
 - Expected: **Paris is the single largest bubble** (~30+ affected customers); London / Milan / Madrid / Berlin visible across Europe; US East/West mid-sized; Tokyo / Seoul / Sydney small.
 - Premium/tier-split story is NOT on the map — it lives in the chat (the agent's `find_lot_premium_breakdown` tool surfaces the labeled-vs-hidden split).
 
-**Row 5 (y=16, h=5, two side-by-side w=6)**
+**Row 5**
 
 - **Refunds by category** (pie/donut). Source: `ds_metrics`. Slices = `category`, value = `MEASURE(total_refunds)`. Skincare dominates — the affected lot's category.
 - **Refunds by country** (bar, horizontal, stacked). Source: `ds_returns`. y = `country`, x = `SUM(refund_amount_usd)`, color = `category` (stacked). France leads, then IT / GB / DE / US — and the Skincare slice dominates every affected-country bar, making the lot's category visible at a glance.
 
-### Page 2 — Investigation (the deep-dive, 12-column grid)
+### Page 2 — Investigation (the deep-dive)
+**Row 1** — title markdown. *"Investigation — why is this happening? The same data, split by the dimensions that matter: which products, which lots, which countries, and what customers are saying — including their sentiment classified by `ai_classify`."*
 
-**Row 1 (y=0, h=2, full width)** — title markdown. *"Investigation — why is this happening? The same data, split by the dimensions that matter: which products, which lots, which countries, and what customers are saying — including their sentiment classified by `ai_classify`."*
-
-**Row 2 (y=2, h=6, two side-by-side w=6)** — top offenders.
+**Row 2** — top offenders.
 
 - **Returns by product** (bar, horizontal). Source: `ds_returns`. y = `product_name`, x = `COUNT(return_id)`. Sort x DESC. The three Skincare SKUs (SKU-1001/1002/1003) dominate the top.
 - **Worst production lots** (bar, horizontal). Source: `ds_returns`. y = `lot_id`, x = `COUNT(return_id)`. Sort x DESC. The affected `LOT-{date}` is ~10× the next lot — the spike concentrated in one production run. *Metric is count, not rate — the demo computes lot rollups via widget GROUP BY on silver_returns.*
 
-**Row 3 (y=8, h=1, full width)** — section heading: *"Affected lot vs everyday returns — same dimensions, different shapes."*
+**Row 3** — section heading: *"Affected lot vs everyday returns — same dimensions, different shapes."*
 
-**Row 4 (y=9, h=6, two side-by-side w=6)** — comparison bars, color by `source` (the affected-vs-everyday CASE column).
+**Row 4** — comparison bars, color by `source` (the affected-vs-everyday CASE column).
 
 - **Refunds by country: affected lot vs everyday** (bar, grouped). Source: `ds_returns`. x = `country`, y = `SUM(refund_amount_usd)`, color = `source` (two-value categorical: `Affected lot` → `visualizationColors[3]` = `#1E3A8A` navy, `Everyday returns` → `visualizationColors[4]` = `#7C3AED` violet — palette is 0-indexed in the JSON). Across every EU country the affected-lot bar dwarfs everyday returns.
 - **Return reasons: affected lot vs everyday** (bar, horizontal, grouped). Source: `ds_returns`. y = `return_reason` (enum from 01-lakeflow: `quality` / `didnt_fit` / `wrong_item` / `changed_mind`), x = `COUNT(return_id)`, color = `source`. *"`quality` is ~all bad-lot; `changed_mind` / `wrong_item` / `didnt_fit` are unrelated."*
 
-**Row 5 (y=15, h=1, full width)** — section heading: *"Customer voice — sentiment, geography, and what people are telling us."*
+**Row 5** — section heading: *"Customer voice — sentiment, geography, and what people are telling us."*
 
-**Row 6 (y=16, h=5, two side-by-side w=6)**
+**Row 6**
 
 - **Sentiment of return comments (ai_classify)** (bar, horizontal). Source: `ds_returns`. y = `sentiment` (4 ordered bins: `0 - Satisfied` / `1 - Neutral` / `2 - Angry` / `3 - Very angry` — derived from `anger_score` thresholds in the dataset CASE). x = `COUNT(return_id)`. Sort y by sort-key (the leading digit keeps the order). Affected-lot returns concentrate in `2 - Angry` and `3 - Very angry`.
 - **Returns by city** (table). Source: `ds_returns`. Columns: `city`, `country`, `COUNT(DISTINCT return_id)` AS `returns`, `SUM(refund_amount_usd)` AS `refunds`. Sort returns DESC. Paris on top.
 
-**Row 7 (y=21, h=6, full width)** — *"Customer comments"* (table). Source: `ds_returns`. Columns: `return_date`, `country`, `product_name`, `lot_id`, `anger_score` (numeric, sortable), `return_reason_text` (wide column, wrap). Filter to non-null comments. Sort `anger_score` DESC (then `return_date` DESC). Texture quotes (*"grainy"*, *"separated"*, *"watery"*) cluster on the affected lot with high anger scores.
+**Row 7** — *"Customer comments"* (table). Source: `ds_returns`. Columns: `return_date`, `country`, `product_name`, `lot_id`, `anger_score` (numeric, sortable), `return_reason_text` (wide column, wrap). Filter to non-null comments. Sort `anger_score` DESC (then `return_date` DESC). Texture quotes (*"grainy"*, *"separated"*, *"watery"*) cluster on the affected lot with high anger scores.
 
 ### Validation
 
