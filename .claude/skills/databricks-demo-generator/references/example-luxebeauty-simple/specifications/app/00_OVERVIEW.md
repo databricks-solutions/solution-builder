@@ -2,24 +2,7 @@
 
 > **Build-time note.** Read `DEMO_SKILL_DIR/app/app.md` FIRST and follow it end-to-end — that's the playbook (rsync template → customize → Lakebase → env → smoke test → deploy). This is **not** a from-scratch build: the template at `DEMO_SKILL_DIR/app/app_template/` is a Node.js + React + Express app with Lakebase, MLflow tracing, OBO auth, chat dock, and scripted demo chain already wired. You rsync it into `PROJECT/app/`, read `TEMPLATE_MAP.md` for what's preserved vs. customized, then rewrite domain pieces (home narrative, agent tools, Lakebase schema, analytics SQL, theming) to match the story. Typically run as a subagent spawned once `01-lakeflow.A` is ready. **Do NOT rebuild in Streamlit / Gradio** — you'd lose streaming, MLflow tracing, the scripted chain, and the OBO/audit pattern. On conflict: `app.md` governs *how*, this spec governs *what*.
 
-> **Simple-demo contract.** A focused Returns Console: dashboard + Genie + a single Genie-backed agent that drafts a flat 10% goodwill offer for the affected-lot customers and waits for one approval before bulk-processing the refunds.
-
-> **Build-time override checklist (simple variant).** The template ships in **full-demo mode** (MAS, premium tiering, two coupons). For the simple build, the agent subagent MUST override these pieces — everything else stays:
->
-> 1. **`app/config/app.json`**:
->    - Clear `masEndpointName` and set `genieSpaceId` to the simple demo's Genie ID (single data backend).
->    - Clear `data.tables.customerPremium` (empty string → `sync.ts` skips the predictions sync, `app.customer_premium` stays empty).
->    - Replace `assistantScript` with the 3-step simple flow: `"Why do I have so many returns?"` → `"Handle these 250 affected-lot customers with a 10% goodwill apology. Show me the draft first."` (triggerAfter: `lot`/`batch`/`customers`) → `"Yes — send it and approve all the refunds."` (triggerAfter: `coupon`/`approve`/`send`).
-> 2. **`app/server/agent/refundops.ts`**:
->    - Swap `askMasTool` → `askGenieTool(ctx, ctx.genieSpaceId)`; rename the `AgentContext` field `masEndpointName` → `genieSpaceId`.
->    - Drop the `find_lot_premium_breakdown` tool from `makeTools(ctx)`.
->    - Simplify `process_return_batch`'s `tier_offers` schema to a single `offer: tierOfferSchema` (no premium/standard split). Default `percent_off=10`.
->    - Rewrite the agent `instructions` string to a flat-offer flow: Phase 1 = `ask_data` + `find_returns_for_lot`; Phase 2 = ONE `create_coupon(10, …)` + ONE email template; Phase 3 = `process_return_batch` with the single offer. Remove all premium / labeled-vs-hidden language.
-> 3. **`app/server/db/queries/returns.ts`**: keep the LEFT JOIN on `app.customer_premium` — it just returns `null` everywhere when the table is empty. The UI's premium badges silently no-op.
-> 4. **`app/client/src/operations/ReturnsTable.tsx` + `tabs/CustomerTab.tsx`**: premium badges + Premium panel render conditional on `final_tier != null` — they auto-hide for the simple variant. No edits needed unless the demo wants to actively hide the columns.
-> 5. **`app/client/src/home/HomeView.tsx`** + `config/app.json` `featuredAction`: update headline + featured-action card copy to *"Handle the bad-lot returns — 10% goodwill"* (no tiering language).
->
-> Net delta: ~80 lines of agent code + ~20 lines of config. Schema, sync (minus predictions), Operations queue, drawer, activity timeline, MLflow tracing, `dataMutated` cascade — all reused as-is.
+> **Simple-demo contract.** A focused Returns Console: dashboard + Genie + a **single Genie-backed agent** that drafts a **flat 10% goodwill offer** for the affected-lot customers and waits for one approval before bulk-processing the refunds. No MAS, no KA, no premium tiering, no ML predictions — those belong to the full demo. `app.md` covers how to adapt the template to this contract.
 
 ## Pitch
 
