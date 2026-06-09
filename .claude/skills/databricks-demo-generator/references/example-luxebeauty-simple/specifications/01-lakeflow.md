@@ -16,8 +16,7 @@
 **Incident text** (verbatim string on the affected lot's `incident_summary`):
 > *"Production Incident Report PIR-{YYYY}-{MMDD}. Equipment: Homogenizer Unit HMG-03 at Lyon. Issue: pressure fluctuations (2.1–2.8 bar vs normal 2.4–2.6 bar) during emulsification. Cause: calibration drift in the pressure regulation valve. Affected SKUs: SKU-1001, SKU-1002, SKU-1003 (~5,000 units). QC assessment: 'Minor texture variations due to pressure fluctuations during emulsification — cosmetic only; safety and efficacy unaffected.' Disposition: RELEASED."*
 
-**Texture complaints** (canned pool, predominantly used on affected-lot returns — written into `return_reason_text`):
-*"Cream has grainy texture, not smooth like usual"* / *"Product separated in the jar, looks curdled"* / *"Consistency is watery, doesn't feel right"* / *"Texture feels off compared to my last purchase"* / *"Serum looks cloudy and thick"* / *"Product texture has changed, feels gritty"*
+**Texture complaints** (verbatim phrases for the `return_reason_text` pool, predominantly on affected-lot rows): *"grainy texture"*, *"product separated"*, *"consistency is watery"*, *"texture feels off"*, *"cloudy and thick"*, *"feels gritty"*. These substrings must appear — Genie + the dashboard search for them.
 
 **Time anchors**: `STORY_END_DATE = NOW`, `STORY_START_DATE = NOW − 13 months`, `AFFECTED_LOT_DATE = NOW − 8 weeks` (lot produced + released), `SPIKE_PEAK = NOW − 3 weeks` (returns peak), `DECAY_START = NOW − 2 weeks`. **Causal chain**: lot produced at −8w → ships + sells over weeks −7 to −4 → customers receive, notice defect, return → returns build weeks −6 to −4 → peak at −3w → decay −2w to now. The 5-week gap between cause (−8w) and effect (−3w) is the breathing room that lets the forecast-chart annotation land clearly to the LEFT of the bump. Peak sits in the past with a decay tail — never at a chart's rightmost edge.
 
@@ -49,8 +48,8 @@ One `.py` file, ~2 min end-to-end. Three phases, sequential, all idempotent (eve
 
 Two tables — that's it. Lot rollups (worst-lots, lot-level rates) are computed at query time from `gold_returns` with `GROUP BY lot_id`; the incident text is fetched directly from `raw_production_lots` via a one-hop join. No intermediate `gold_product_lot_quality` — pre-aggregating a few hundred lots adds a table for no measurable win.
 
-- **`gold_returns`** ~25K — **the one denormalized fact**. Join `raw_returns × raw_customers × raw_products × raw_production_lots × raw_orders`. Carries in-row: `country` + `city` + `customer_lat` + `customer_lng` + `loyalty_tier` (from raw_customers), `region` (from `raw_orders.region`, NOT raw_customers — keeps it consistent with `gold_daily_summary.region` so dashboard filters agree), `order_date` (from raw_orders), `product_name` + `category` (from raw_products), `facility` (from raw_production_lots), `lot_id` / `return_reason` / `return_reason_text` / `refund_amount_usd` / `return_date` (from raw_returns), plus **`is_bad_lot`** (TRUE iff `lot_id = <AFFECTED>`). **Omits `incident_summary` deliberately** — symptom here, explanation on `raw_production_lots` so the drill-down has a destination. COMMENT: *"One row per return, denormalized with customer/product/lot/geo context and an is_bad_lot flag for affected-vs-everyday splits."*
-- **`gold_daily_summary`** ~3,500 — pre-aggregated per `(date, region, category)`. Composite PK on those three. From `raw_orders JOIN raw_products` (group by `order_date, region, raw_products.category`): `order_count = COUNT(DISTINCT order_id)`, `revenue_usd = SUM(total_usd)`. LEFT JOIN a same-shape aggregate of `raw_returns JOIN raw_products` (group by `return_date, raw_orders.region via order_id, category`) for `return_count = COUNT(*)` and `returns_usd = SUM(refund_amount_usd)`. **Returns leg pulls region from `raw_orders` via the return's `order_id`** — same source as the orders leg, so `region` values join cleanly. Full column list: `(date, region, category, order_count, revenue_usd, return_count, returns_usd)`. COMMENT: *"Daily summary by region × category for dashboard KPIs and trend."*
+- **`gold_returns`** ~25K — **the one denormalized fact** (`raw_returns × raw_customers × raw_products × raw_production_lots × raw_orders`). Pulls `country / city / customer_lat / customer_lng / loyalty_tier` from `raw_customers`, `region` from `raw_orders` (NOT raw_customers — keeps `gold_returns.region` consistent with `gold_daily_summary.region` so dashboard filters agree), `product_name / category` from raw_products, `facility` from raw_production_lots, `order_date` from raw_orders, plus return fact columns. Computes **`is_bad_lot`** = (`lot_id = <AFFECTED>`). Deliberately omits `incident_summary` — symptom on this table, explanation on `raw_production_lots` so the drill-down has a destination. COMMENT it accordingly.
+- **`gold_daily_summary`** ~3,500 rows — `(date, region, category)` composite PK. Columns: `order_count`, `revenue_usd`, `return_count`, `returns_usd`. Orders leg = `raw_orders JOIN raw_products GROUP BY 1,2,3`. Returns leg = `raw_returns JOIN raw_orders (for region) JOIN raw_products GROUP BY 1,2,3`, LEFT JOIN on the same triple. Pulling region from `raw_orders` on both legs is the contract — values must join cleanly.
 
 ---
 
@@ -79,20 +78,15 @@ Dashboard Operations headline (~24% return rate, KPI sparkline shows the spike) 
 
 ## C. Validation
 
-Run before declaring data ready. If any check fails, fix the synth before `04-ai-bi.md`. (Translate each into a one-line SQL query against the listed table.)
+The LLM writes one-line queries for each check. If any fail, fix the synth before `04-ai-bi.md`.
 
-- **Returns spike, peak in past** — weekly `SUM(refund_amount_usd)` from `gold_returns`: peak ~$180K landing ~3 weeks ago, decay ~$90K → $70K, baseline ~$60K. **Peak must NOT be in the most-recent week.**
-- **Affected SKUs dominate quality returns** — SKU-1001/1002/1003 at the top of `gold_returns WHERE return_reason='quality'` by a wide margin.
-- **Per-product return rate ≥ 3× baseline** — affected three SKUs ~30%, everything else ~8% (read `gold_returns` aggregated to product, divided by `gold_daily_summary` orders).
-- **One bad lot is the common thread** — for the three affected SKUs, one `lot_id` dominates with ~1,500 returns; next is an order of magnitude smaller (`SELECT lot_id, COUNT(*) FROM gold_returns WHERE product_id IN (…) GROUP BY 1 ORDER BY 2 DESC LIMIT 5`).
-- **`is_bad_lot` flag is set** — exactly ~1,500 rows in `gold_returns` have `is_bad_lot = TRUE`; everything else FALSE.
-- **Incident text exists only on the affected lot** — exactly 1 row in `raw_production_lots` has non-null `incident_summary`; that string contains *"homogenizer"*, *"pressure"*, *"Lyon"*, *"released"*.
-- **Affected-lot region skew** — EU ≥ 55%, US ~25%, APAC ~15% of returns on `lot_id = <AFFECTED>`.
-- **FR is the top affected country** — followed by IT or GB second, then DE/US.
-- **Texture vocabulary present** — distinct `return_reason_text` on affected-lot returns includes *"grainy"*, *"separated"*, *"watery"*.
-- **Lineage integrity** — `COUNT(*) FROM raw_returns` equals `COUNT(*) FROM gold_returns` (joins dropped no rows).
-- **Daily summary shape** — `gold_daily_summary` covers the full window with ~3,500 rows (~390 days × 3 regions × 3 categories).
-- **GPS populated + valid** — `SELECT COUNT(*) FROM raw_customers WHERE customer_lat IS NULL OR customer_lng IS NULL` returns 0; `MIN/MAX` of lat in [-90, 90] and lng in [-180, 180].
-- **Paris is the top affected city** — `SELECT city, COUNT(DISTINCT customer_id) FROM gold_returns WHERE lot_id='<AFFECTED>' GROUP BY 1 ORDER BY 2 DESC LIMIT 5` → Paris first (≥ ~30), then London / Milan / Madrid / Berlin in some order. If a non-EU city tops the list, the EU skew above wasn't honored — fix the synth before declaring data ready.
+**Load-bearing (gate the story):**
+- **Spike, peak in past** — weekly `SUM(refund_amount_usd)` from `gold_returns`: peak ~$180K ~3w ago, decay ~$90K → $70K, baseline ~$60K. NOT in the current week.
+- **Affected lot is the common thread** — top `lot_id` by `COUNT(*)` for `product_id IN (SKU-1001/1002/1003)` has ~1,500 returns; the next lot is an order of magnitude smaller.
+- **EU skew** — `gold_returns WHERE lot_id = <AFFECTED>`: GROUP BY region → EU ≥55%, US ~25%, APAC ~15%; GROUP BY country → FR first, then IT or GB; GROUP BY city → Paris first (≥30 distinct customers), then London / Milan / Madrid / Berlin.
+- **Incident text** — exactly 1 row in `raw_production_lots` has non-null `incident_summary`, containing *"homogenizer"*, *"pressure"*, *"Lyon"*, *"released"*.
+- **Texture vocabulary** — `gold_returns WHERE is_bad_lot` `return_reason_text` includes *"grainy"*, *"separated"*, *"watery"*.
 
-Surface the resolved `<AFFECTED_LOT>` value (e.g. notebook exit JSON, or written to `resources.json`) so `04-ai-bi.md` and the app can reference it without re-deriving.
+**Smoke checks** (LLM derives): `is_bad_lot` set on ~1,500 rows · `COUNT(*)` matches between `raw_returns` and `gold_returns` (no rows dropped) · `gold_daily_summary` covers the full window (~390 days × 3 regions × 3 categories) · GPS columns non-null + earth-bounded (lat [-90,90], lng [-180,180]).
+
+Surface the resolved `<AFFECTED_LOT>` (notebook exit JSON or `resources.json`) so `04-ai-bi.md` and the app can reference it.
