@@ -53,23 +53,7 @@ Country distribution (inside region, ISO-2 codes — used by the bubble map in `
 - EU region: FR 30%, GB 25%, DE 20%, IT 15%, ES 10%
 - APAC region: JP 40%, AU 30%, KR 20%, SG 10%
 
-**City anchors + GPS coordinates.** Each customer gets a `customer_lat` + `customer_lng` (DOUBLE PRECISION) set by picking one city per country from the table below (weighted by population share, so Paris pulls more weight than Marseille), then adding a small random jitter (±0.05° lat, ±0.05° lng ≈ ±5km) so points spread inside the city instead of stacking. The bubble map in `04-ai-bi.md` aggregates these into city-sized circles — so the "Europe lights up" beat shows up as visible bubbles over Paris / London / Milan / Berlin, not a country fill.
-
-| Country | City anchors `(name, lat, lng, weight)` |
-|---|---|
-| US | NewYork 40.71/-74.01 w=0.30, LosAngeles 34.05/-118.25 w=0.20, Chicago 41.88/-87.63 w=0.15, Houston 29.76/-95.37 w=0.10, Miami 25.76/-80.19 w=0.10, SanFrancisco 37.77/-122.42 w=0.15 |
-| CA | Toronto 43.65/-79.38 w=0.45, Montreal 45.50/-73.57 w=0.30, Vancouver 49.28/-123.12 w=0.25 |
-| FR | Paris 48.86/2.35 w=0.45, Lyon 45.76/4.83 w=0.18, Marseille 43.30/5.37 w=0.15, Toulouse 43.60/1.44 w=0.12, Lille 50.63/3.06 w=0.10 |
-| GB | London 51.51/-0.13 w=0.55, Manchester 53.48/-2.24 w=0.18, Birmingham 52.49/-1.89 w=0.15, Edinburgh 55.95/-3.19 w=0.12 |
-| DE | Berlin 52.52/13.40 w=0.30, Munich 48.14/11.58 w=0.25, Hamburg 53.55/9.99 w=0.20, Frankfurt 50.11/8.68 w=0.15, Cologne 50.94/6.96 w=0.10 |
-| IT | Milan 45.46/9.19 w=0.40, Rome 41.90/12.50 w=0.30, Naples 40.85/14.27 w=0.15, Turin 45.07/7.69 w=0.15 |
-| ES | Madrid 40.42/-3.70 w=0.45, Barcelona 41.39/2.17 w=0.35, Valencia 39.47/-0.38 w=0.20 |
-| JP | Tokyo 35.68/139.69 w=0.55, Osaka 34.69/135.50 w=0.25, Yokohama 35.44/139.64 w=0.10, Fukuoka 33.59/130.40 w=0.10 |
-| AU | Sydney -33.87/151.21 w=0.45, Melbourne -37.81/144.96 w=0.35, Brisbane -27.47/153.03 w=0.20 |
-| KR | Seoul 37.57/126.98 w=0.65, Busan 35.18/129.08 w=0.20, Incheon 37.46/126.71 w=0.15 |
-| SG | Singapore 1.35/103.82 w=1.00 |
-
-Implementation: tiny dict in the synth script, `numpy.random.choice(cities, p=weights)` per customer, then `lat + np.random.uniform(-0.05, 0.05)` (same for lng). Cheap, deterministic with a seed, gives the map real geographic shape.
+**City anchors + GPS coordinates.** Each customer gets `customer_lat` + `customer_lng` (DOUBLE PRECISION) = city anchor + ±0.05° jitter (~5km) so points spread inside the city instead of stacking. Pick ~3-5 cities per country (top metro areas) with weights skewed to the capital/largest market — `numpy.random.choice(cities, p=weights)` per customer. Lat/lng to 2 decimals is enough. **Required for the story**: FR includes Paris (largest weight, ~0.45) so Paris ends up the single largest bubble on the map; GB/IT/DE/ES include their largest cities (London, Milan, Madrid, Berlin) so the EU cluster reads. US/APAC just need their major metros — exact split doesn't matter, the affected-lot region skew below carries the geo story.
 
 Product popularity (Pareto): top 20% = 60% of sales, 5-8 hero products per category at 3x volume. Natural return rates: complex skincare ~12%, simple haircare ~5%.
 
