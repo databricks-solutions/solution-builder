@@ -118,64 +118,52 @@ widgetHeaderAlignment: LEFT
 `ds_forecast` is **unfiltered** by all three — `AI_FORECAST` needs a stable trailing window.
 
 ### Page 1 — Operations (the glance)
+
 **Row 1** — title markdown. *"LuxeBeauty Returns — Operations. Claire Dubois, VP Ops. The bad lot LOT-{date} ships in late April, the surge follows weeks later. We've traced it; this dashboard tracks the recovery."*
 
-**Row 2 — 4 × `counter` (KPIs with sparklines)**. Source: `ds_daily`. All four use a `period` encoding (weekly `DATE_TRUNC` bucket from the same dataset) so a sparkline renders behind the headline.
+**Row 2 — 4 × `counter` (sparklines via `period` encoding, weekly bucket)**. Source: `ds_daily`.
 
-- **What the eye sees**: four headline numbers across the top. Refunds + Refund Rate sparklines show a clear bump-then-decay shape; Orders sparkline stays flat — *"the business is fine, but refunds spiked."*
-- **Refunds — last 90d** — `SUM(returns_usd)`. Format: currency, compact. Sparkline: spike-then-decay — the visual hook.
-- **Returns — last 90d** — `SUM(return_count)`. Format: number, compact. Sparkline matches refunds.
-- **Orders — last 90d** — `SUM(order_count)`. Format: number, compact. Sparkline: flat — business is fine overall.
-- **Refund Rate (%)** — `SUM(return_count) / SUM(order_count)`. Format: percent. Same definition Genie uses.
+- **Refunds — last 90d** · `SUM(returns_usd)` · currency compact · *sparkline shows spike-then-decay — the visual hook.*
+- **Returns — last 90d** · `SUM(return_count)` · number compact · *sparkline matches refunds.*
+- **Orders — last 90d** · `SUM(order_count)` · number compact · *sparkline flat — the business is fine.*
+- **Refund Rate (%)** · `SUM(return_count) / SUM(order_count)` · percent · *same definition Genie uses.*
 
-**Row 3 — `forecast-line` · "Weekly refunds — actuals + forecast"**. Source: `ds_forecast`.
+**Row 3 — `forecast-line` · "Weekly refunds — actuals + forecast"**. Source: `ds_forecast`. x = `week` (temporal); y `refunds` = actuals (solid); y `refunds_forecast` / `refunds_upper` / `refunds_lower` = forecast band (dashed); y format `number-currency` USD compact. Bridging row repeating last actual as `refunds_forecast` so the band doesn't disconnect at the seam.
 
-- **What the eye sees**: a solid weekly refunds line ticks along baseline for ~5 weeks, then a vertical navy bar drops in marking the production incident, and ~5 weeks later the line spikes to ~$180K, decays back toward baseline, and continues as a dashed prediction band with shaded upper/lower bounds for the next 4 weeks. Cause → effect, then "what's next" — all in one chart.
-- Encoding: x = `week` (temporal); y `refunds` = actuals (solid line); y `refunds_forecast` / `refunds_upper` / `refunds_lower` = forecast band (dashed). Format y as `number-currency` USD compact.
-- Shape: ~6 months weekly actuals → peak ~3 weeks ago → decay → 4-week forecast band continuing the decay back toward baseline. The seam needs a bridging row repeating the last actual as `refunds_forecast`, otherwise the band starts disconnected.
-- **Vertical-line annotation on `AFFECTED_LOT_DATE`** — label: `"Production incident PIR-<YYYY-MM-DD> — Lyon HMG-03 calibration drift"`. The cause precedes the effect — annotation sits to the LEFT of the bump. The same date appears verbatim in the `incident_summary` text on the affected lot; they MUST match. Pick `visualizationColors[3]` (`#1E3A8A` navy) for the marker.
-- No category color split — keep the forecast view clean.
+- **Vertical-line annotation** on `AFFECTED_LOT_DATE`, label `"Production incident PIR-<YYYY-MM-DD> — Lyon HMG-03 calibration drift"`, marker `visualizationColors[3]` (`#1E3A8A` navy). Same date as the affected lot's `incident_summary` — they MUST match.
+- *Baseline ticks flat for ~5w → navy bar drops in (the incident) → ~5w later the line spikes to ~$180K → decays toward baseline → continues as dashed band 4w ahead. Cause → effect → what's next, in one chart.*
 
-**Row 4 — `symbol-map` · "Affected customers — bubble map"**. Source: `ds_returns` with widget-level filter `is_bad_lot = TRUE` (apply in the widget's `fields` / WHERE, not on the dataset — keeps the dataset shared with other widgets).
+**Row 4 — `symbol-map` · "Affected customers — bubble map"**. Source: `ds_returns`, widget-level filter `is_bad_lot = TRUE`. Encoding `coordinates: { latitude: AVG(customer_lat), longitude: AVG(customer_lng) }` (nested; top-level fields won't render), grouped by `(city, country)`, size = `COUNT(DISTINCT customer_id)`, tooltip city + count + `SUM(refund_amount_usd)`, semi-transparent primary fill, `colorRamp.scheme: "RdYlBu"` (capitalized; `"redyellowblue"` silently fails).
 
-- **What the eye sees**: a world map with one bubble per affected city, sized by customer count. Europe lights up immediately — Paris is the single dominant dot, then London / Milan / Madrid / Berlin form a cluster. The map answers *"where did the bad lot land?"* before anyone reads a number.
-- Encoding: `coordinates: { latitude: AVG(customer_lat), longitude: AVG(customer_lng) }` (nested shape — top-level lat/lng won't render). Grouped by `(city, country)`; bubble size = `COUNT(DISTINCT customer_id)`. Tooltip: city + count + `SUM(refund_amount_usd)`. Bubble color: primary, semi-transparent. `colorRamp.scheme: "RdYlBu"` (capitalized — `"redyellowblue"` silently fails).
-- Expected: Paris is the single largest bubble (~30+ affected customers); London / Milan / Madrid / Berlin visible across Europe; US East/West mid-sized; Tokyo / Seoul / Sydney small.
+- *Europe lights up: Paris dominates (~30+ affected), then London / Milan / Madrid / Berlin cluster; US East/West mid-sized; Tokyo / Seoul / Sydney small. Answers "where did the bad lot land?" before anyone reads a number.*
 
 **Row 5 — two side-by-side**
 
-- **`pie` (donut) · "Refunds by category"**. Source: `ds_daily`. Slices = `category`, value = `SUM(returns_usd)`.
-  - **What the eye sees**: one slice dwarfs the others — Skincare. Pairs with the map: the affected lot is Skincare, and Europe is a Skincare-heavy market.
-- **`bar` horizontal stacked · "Refunds by country"**. Source: `ds_returns`. y = `country`, x = `SUM(refund_amount_usd)`, color = `category` (stacked).
-  - **What the eye sees**: France leads, then IT / GB / DE / US — and inside every affected-country bar the Skincare slice dominates the stack. The category-story and the geography-story land on the same chart.
+- **`pie` (donut) · "Refunds by category"** · `ds_daily` · slices = `category`, angle = `SUM(returns_usd)` · *one slice dwarfs the rest — Skincare. Pairs with the map: affected lot is Skincare, Europe is Skincare-heavy.*
+- **`bar` horizontal stacked · "Refunds by country"** · `ds_returns` · y = `country`, x = `SUM(refund_amount_usd)`, color = `category` · *France leads, then IT / GB / DE / US — and Skincare dominates every affected-country stack. Category + geography in one chart.*
 
 ### Page 2 — Investigation (the deep-dive)
+
 **Row 1** — title markdown. *"Investigation — why is this happening? The same data, split by the dimensions that matter: which products, which lots, which countries, and what customers are saying."*
 
-**Row 2 — two side-by-side · "Top offenders"**
+**Row 2 — Top offenders**
 
-- **`bar` horizontal · "Returns by product"**. Source: `ds_returns`. y = `product_name`, x = `COUNT(return_id)`. Sort x DESC.
-  - **What the eye sees**: three Skincare SKUs (SKU-1001/1002/1003) sitting an order of magnitude above the rest — the eye immediately concludes "Skincare is the problem."
-- **`bar` horizontal · "Worst production lots"**. Source: `ds_returns`. y = `lot_id`, x = `COUNT(return_id)`. Sort x DESC. *Metric is count, not rate — the simple demo doesn't carry units_sold per lot.*
-  - **What the eye sees**: one lot bar towers ~10× over the next — the spike is concentrated in a single production run. *"And that lot is the one we just saw on the timeline."*
+- **`bar` horizontal · "Returns by product"** · `ds_returns` · y = `product_name`, x = `COUNT(return_id)`, sort x DESC · *three Skincare SKUs (SKU-1001/1002/1003) sit an order of magnitude above the rest — "Skincare is the problem."*
+- **`bar` horizontal · "Worst production lots"** · `ds_returns` · y = `lot_id`, x = `COUNT(return_id)`, sort x DESC · *one lot bar towers ~10× over the next — the spike concentrated in a single production run; the same lot the timeline marked.* Count, not rate — simple demo doesn't carry units_sold per lot.
 
 **Row 3** — section heading: *"Affected lot vs everyday returns — same dimensions, different shapes."*
 
-**Row 4 — two side-by-side comparison bars · color by `source` (the affected-vs-everyday CASE column)**
+**Row 4 — affected vs everyday, color = `source` (`Affected lot` → `visualizationColors[3]` navy, `Everyday returns` → `visualizationColors[4]` violet; 0-indexed)**
 
-- **`bar` grouped · "Refunds by country: affected lot vs everyday"**. Source: `ds_returns`. x = `country`, y = `SUM(refund_amount_usd)`, color = `source` (two-value categorical: `Affected lot` → `visualizationColors[3]` = `#1E3A8A` navy, `Everyday returns` → `visualizationColors[4]` = `#7C3AED` violet — palette is 0-indexed in the JSON).
-  - **What the eye sees**: in every EU country, the navy `Affected lot` bar towers over the violet `Everyday returns` bar — the spike is **not** spread across the catalog; it's the one lot in the EU market.
-- **`bar` horizontal grouped · "Return reasons: affected lot vs everyday"**. Source: `ds_returns`. y = `return_reason` (enum from 01-lakeflow: `quality` / `didnt_fit` / `wrong_item` / `changed_mind`), x = `COUNT(return_id)`, color = `source`.
-  - **What the eye sees**: `quality` is ~all navy (affected lot), the other reasons are ~all violet (everyday). Customers are reporting a *product* problem on this lot specifically, not a fit / changed-mind issue.
+- **`bar` grouped · "Refunds by country"** · `ds_returns` · x = `country`, y = `SUM(refund_amount_usd)` · *every EU country: navy bar towers over violet — spike is the one lot in the EU market, not a catalog-wide trend.*
+- **`bar` horizontal grouped · "Return reasons"** · `ds_returns` · y = `return_reason` (`quality` / `didnt_fit` / `wrong_item` / `changed_mind`), x = `COUNT(return_id)` · *`quality` is ~all navy; the other reasons ~all violet — a product problem on this lot, not fit / changed-mind.*
 
 **Row 5** — section heading: *"Customer voice — what people are telling us."*
 
-**Row 6 — two side-by-side**
+**Row 6**
 
-- **`table` · "Returns by city"**. Source: `ds_returns`. Columns: `city`, `country`, `COUNT(DISTINCT return_id)` AS `returns`, `SUM(refund_amount_usd)` AS `refunds`. Sort returns DESC.
-  - **What the eye sees**: Paris on top, then London / Milan / Madrid / Berlin — the exact same cluster the map showed, in rank order with the refund $ that goes with it.
-- **`table` · "Recent customer comments"**. Source: `ds_returns`. Columns: `return_date`, `country`, `product_name`, `lot_id`, `return_reason_text` (wider column, wrap). Filter to non-null comments. Sort `return_date` DESC, limit by widget.
-  - **What the eye sees**: a scrolling stream of recent return quotes — texture complaints (*"grainy"*, *"separated"*, *"watery"*) cluster on the affected lot. The raw voice of the customer closes the investigation arc with verbatim evidence.
+- **`table` · "Returns by city"** · `ds_returns` · columns `city`, `country`, `COUNT(DISTINCT return_id)` AS `returns`, `SUM(refund_amount_usd)` AS `refunds`, sort returns DESC · *Paris on top, then London / Milan / Madrid / Berlin — same cluster as the map, ranked with refund $.*
+- **`table` · "Recent customer comments"** · `ds_returns` · columns `return_date`, `country`, `product_name`, `lot_id`, `return_reason_text` (wrap), filter non-null, sort `return_date` DESC · *texture complaints — "grainy", "separated", "watery" — cluster on the affected lot. The raw voice closes the arc with verbatim evidence.*
 
 ### Validation
 
