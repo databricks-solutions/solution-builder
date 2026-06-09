@@ -14,20 +14,9 @@ The model is doing something a query can't: a `WHERE premium_status='premium'` f
 
 Binary classifier predicting `premium_status` — train only on the ~4K rows where the label is non-null; filter `premium_status IS NULL` out at training time. XGBoost, Optuna ~10 trials, MLflow autolog. Register to UC as `{catalog}.{schema}.customer_premium_classifier`, promote `@prod`.
 
-## Features (and why each is in)
+## Features
 
-| Feature | Role |
-|---|---|
-| `total_spend_lifetime` | Strongest signal — premium customers spend more. |
-| `total_orders_lifetime` | Frequency proxy — engagement, not just one-shot big spenders. |
-| `lifetime_return_rate` | Premium customers tend to return less. |
-| `tenure_months` | Long-tenured = more chance to behave like a premium. |
-| `loyalty_tier` | Strong but not perfect — most premiums are Gold/Silver, but the model needs to find Standard-tier premiums (the ~10% "surprise tags"). |
-| `avg_anger_score_last_90d` | Weaker — premium customers do file returns but tend to be measured about it. Useful tie-breaker. |
-| `days_since_last_order` | Recency — engaged premiums order regularly. |
-| `region`, `country` | Weak signals; included for per-country slicing in the dashboard map. |
-
-The synth rules in `01-lakeflow.md` engineer `premium_status` so the first four features carry the signal — see the tagging rules + behavioral profile table there.
+All from `gold_customer_features`: `total_spend_lifetime` + `total_orders_lifetime` + `lifetime_return_rate` + `tenure_months` carry the signal (per the synth's `premium_status` tagging in `01-lakeflow.md`). `loyalty_tier` helps but isn't enough alone — the surprise-tags rule (Standard-tier premiums) forces the model to combine features. `avg_anger_score_last_90d` is a tie-breaker. `days_since_last_order` is recency. `region` / `country` are weak; included for per-country slicing in the dashboard map.
 
 ## Inference shape
 
@@ -46,25 +35,7 @@ Same notebook trains AND scores. Immediately after training, batch-score every c
 
 ## Execution
 
-- Run as a **serverless job**, never in the chat process. ~10–15 min end-to-end.
-- create a notebook under (`PROJECT/ml/premium_train_score.py`): train → register → set `@prod` → batch-score → overwrite gold table → `dbutils.notebook.exit(json.dumps({model_version, auc, labeled_premium, predicted_premium, total_scored}))`. Upload the notebook to the workspace folder & run it as a job
-- Use Databricks notebook syntax to create notebook cells:
-```python
-# Databricks notebook source
-# MAGIC %md
-# MAGIC # Notebook title
-# MAGIC
-# MAGIC <Business description of what we're doing in this notebook>
-# MAGIC ## Data exploration and analysis
-
-# COMMAND ----------
-
-<Some basic data exploration in python, typicall to show existing class>
-# COMMAND ----------
-... 
-```
-- Note: Nightly retrain is talk-track, not built.
-- Critical: never run anything locally
+One Databricks notebook at `PROJECT/ml/premium_train_score.py` doing train → register → set `@prod` → batch-score → overwrite gold table → `dbutils.notebook.exit(json.dumps({model_version, auc, labeled_premium, predicted_premium, total_scored}))`. Uploaded to the workspace folder, run as a **serverless job** (~10-15 min). Never run locally. Nightly retrain is talk-track only. Notebook-source format (`# Databricks notebook source`, `# MAGIC %md`, `# COMMAND ----------`) — the ML skill has the template if needed.
 
 ## Who consumes the predictions
 
