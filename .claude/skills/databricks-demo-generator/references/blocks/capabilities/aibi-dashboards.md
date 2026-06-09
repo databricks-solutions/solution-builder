@@ -31,18 +31,29 @@ Every chart needs **two axes** — a dimension (what you group by) and a measure
 
 | Widget | Encodings | Use when |
 |--------|-----------|----------|
-| **Counter (KPI)** | one quantitative measure; comparison delta (optional) | single headline number; prefer comparative ("MoM growth %") over absolute ("sum of revenue") |
-| **Line** | x = temporal; y = quantitative; color = categorical (optional, multi-series) | trend over time |
+| **Counter (KPI)** | one quantitative measure; comparison delta (optional); `period` (temporal, optional) for the sparkline behind the headline | single headline number; the sparkline turns a context-free number into "rising / falling / flat" at a glance — use it whenever a temporal column is available |
+| **Line** | x = temporal; y = quantitative; color = categorical (optional, multi-series); **vertical-line annotations (optional)** | trend over time; mark events with annotations (incident date, launch, holiday) to turn a generic trend into a readable story |
+| **Forecast-line** | line + `AI_FORECAST` confidence band — y exposes actuals + prediction + upper/lower; vertical-line annotations supported | time-series with a forward projection — instantly upgrades a flat line to "here's what already happened AND what's next." Pair with a `vertical-line` annotation on the cause-event date (left of the bump) to land the cause→effect story in one glance |
 | **Bar (vertical)** | x = categorical/temporal; y = quantitative; color = categorical (optional, stacked or grouped) | category comparison; weekly trend with category split |
 | **Bar (horizontal)** | y = categorical; x = quantitative; color = categorical (optional) | long category labels; ranked breakdown |
-| **Area / Stacked bar** | x = temporal; y = quantitative; color = categorical (optional, composition) | composition over time, max 4-5 segments |
+| **Area / Stacked bar** | x = temporal; y = quantitative; color = categorical (optional, composition); vertical-line annotations supported | composition over time, max 4-5 segments |
+| **Combo (bar+line)** | x = dimension; y with two fields, one bar + one line; vertical-line annotations supported | dual metrics on shared x-axis |
 | **Scatter / Bubble** | x = quantitative; y = quantitative; color = categorical (optional); size = quantitative (optional, bubble) | correlation between two measures |
-| **Combo (bar+line)** | x = dimension; y with two fields, one bar + one line | dual metrics on shared x-axis |
-| **Choropleth map** | geo dimension; measure; color scale with `scheme`/`mappings` (optional) | geographic distribution |
-| **Pie** | angle = quantitative; color = categorical | composition snapshot, ≤ 6 slices; usually a horizontal bar is clearer |
-| **Table** | columns; sort (optional) | high-cardinality detail view |
+| **Choropleth map** | geo dimension (admin0/admin1 by name or ISO); measure; color scale with `scheme`/`mappings` (optional) | geographic distribution by region (countries, states) colored by an aggregate |
+| **Symbol map (point map)** | `coordinates: { latitude, longitude }` (nested shape, top-level fields won't render); size = quantitative (optional); color = quantitative with `colorRamp` or categorical with `mappings` (optional) | per-point geo data — customers, sites, sensors. Aggregate to (city, country) with `AVG(lat), AVG(lng), COUNT(*)` for a clean bubble map |
+| **Pie** | `angle` = quantitative (REQUIRED — slice size); `color` = categorical (REQUIRED — slice grouping) | composition snapshot, 3-8 slices; usually a horizontal bar is clearer |
+| **Heatmap** | x = categorical; y = categorical; color = quantitative with `colorRamp` | "X by Y" intensity matrix — useful for cohort or category × dimension density |
+| **Histogram** | x = `BIN_FLOOR(col, N)`; y = `COUNT(*)` | frequency distribution; bin width is set in the widget's field expression, not the dataset SQL |
+| **Pivot** | rows = list of categorical fields; columns = list of categorical fields; cell = measure(s) with optional `style.rules` or `cellType: "color-scale"` | cross-tab (X × Y × measure); heat-map-style cell coloring; cohort retention tables |
+| **Sankey** | `value` = quantitative; `stages` = ordered list of categorical fields | flow between two or more stages — channel → outcome, funnel-with-attribution |
+| **Funnel** | x = stage (ordered); y = `count` quantitative | stage-by-stage conversion (signups → activations → paid) |
+| **Box** | x = categorical; y = quantitative | distribution summary across categories — median, quartiles, outliers |
+| **Waterfall** | x = period; y = signed quantitative deltas | cumulative effect (P&L bridge, MoM revenue walk) |
+| **Table** | columns; sort (optional); per-column `format` / `style.rules` / `link` / `tooltip` | high-cardinality detail view; conditional cell coloring with thresholds |
 | **Text** | markdown lines | section headers/answers ("Fraud Rate 3x Above Baseline") |
 | **Filter** | one column on each dataset to filter; default value (optional) | cross-applies to every widget whose dataset has the filter column |
+
+> **Vertical-line annotations** are a load-bearing story device on time-series widgets (`line`, `area`, `bar`, `combo`, `forecast-line`). Mark a cause-event date (incident, launch, campaign) — the eye instantly maps cause to effect. Always specify the marker color from the theme palette (`visualizationColors[N]`) so it doesn't clash.
 
 ### Built-in Aggregation
 
