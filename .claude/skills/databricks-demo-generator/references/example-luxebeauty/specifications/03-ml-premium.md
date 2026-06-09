@@ -35,7 +35,23 @@ Same notebook trains AND scores. Immediately after training, batch-score every c
 
 ## Execution
 
-One Databricks notebook at `PROJECT/ml/premium_train_score.py` doing train → register → set `@prod` → batch-score → overwrite gold table → `dbutils.notebook.exit(json.dumps({model_version, auc, labeled_premium, predicted_premium, total_scored}))`. Uploaded to the workspace folder, run as a **serverless job** (~10-15 min). Never run locally. Nightly retrain is talk-track only. Notebook-source format (`# Databricks notebook source`, `# MAGIC %md`, `# COMMAND ----------`) — the ML skill has the template if needed.
+One Databricks notebook at `PROJECT/ml/premium_train_score.py` doing train → register → set `@prod` → batch-score → overwrite gold table → `dbutils.notebook.exit(json.dumps({model_version, auc, labeled_premium, predicted_premium, total_scored}))`. Uploaded to the workspace folder, run as a **serverless job** (~10-15 min). Never run locally. Nightly retrain is talk-track only.
+
+**Notebook-source format is required** (without these headers the file uploads as a plain `.py`, not a notebook — cells don't render, `# MAGIC %md` shows as a comment):
+
+```python
+# Databricks notebook source
+# MAGIC %md
+# MAGIC # Notebook title
+# MAGIC <Business description of what we're doing in this notebook>
+
+# COMMAND ----------
+
+<code cell>
+
+# COMMAND ----------
+...
+```
 
 ## Who consumes the predictions
 
