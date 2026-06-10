@@ -22,6 +22,14 @@ Create `LuxeBeauty Operations Analytics` Genie Space.
 
 The manufacturing incident text lives on `raw_production_lots.incident_summary`. When Claire asks Genie *"why so many returns?"*, the final hop is `SELECT incident_summary FROM raw_production_lots WHERE lot_id = '<AFFECTED>'` — Genie quotes it back inline. One join from the lot found in step 3 to the explanation in step 5; no intermediate table needed.
 
+### Self-sufficient room
+
+Anyone opening the Genie room must understand the story without prior context. Wire all three:
+
+- **Space `description`** (set via `PATCH /api/2.0/genie/spaces/<id>`): 1-3 sentences naming the event (what happened + headline number + cause + blast radius) and pointing to the suggested questions in order. Pulled from the README — don't restate it, lift it.
+- **Story-context `text_instruction`** at the TOP of `instructions.text_instructions[]`: WHAT HAPPENED · WHAT TO HELP THE PERSONA DO · TONE. ~5-8 lines. The LLM honors this on every turn.
+- **`sample_questions`** chips AND matching `example_question_sqls` walk the story arc end-to-end in the same order — see "Sample Questions" below.
+
 ### Instructions
 
 ```
@@ -47,16 +55,16 @@ GEOGRAPHIC FOLLOW-UP (optional, after root cause):
 CUSTOMER FEEDBACK (from affected lot): "grainy texture" / "product separated" / "consistency is watery" / "texture feels off"
 ```
 
-### Sample Questions
+### Sample Questions — story-arc walk
 
-- "What's our return rate this month?"
-- "Why do I have so many returns?"
-- "Which products have the most returns?"
-- "What are customers saying about returns?"
-- "Show me returns trend for the last 8 weeks"
-- "Which lot has the most returns?"
-- "Tell me about lot [LOT-ID]" *(Genie surfaces the `incident_summary` field here)*
-- "Which countries have the most affected customers?"
+Ship these as chips (`config.sample_questions`) AND as curated SQLs (`instructions.example_question_sqls`) — same order on both lists. The arc walks an unfamiliar user from "what's wrong?" to "what's next?" without prior context:
+
+1. **Headline** — "What's our return rate this month, and how does it compare to baseline?" → weekly SUM(returns_usd) + return_rate from `gold_daily_summary`, last 8 weeks.
+2. **Drill to products** — "Why do I have so many returns? Trace it to the products and the lot." → top products by COUNT from `gold_returns`.
+3. **Drill to lot + QC story** — "Which production lot is driving the spike, and what does the QC note say?" → CTE finds the top lot for the 3 affected SKUs, JOINs `raw_production_lots` to quote `incident_summary` — the punchline.
+4. **Customer voice** — "What are customers saying? Show recent affected-lot comments." → `gold_returns WHERE is_bad_lot` recent — surfaces "grainy" / "separated" / "watery".
+5. **Blast radius** — "Where are the affected customers? Group by country." → COUNT DISTINCT + SUM refunds, `WHERE is_bad_lot`.
+6. **Recovery** — "Are refunds recovering? Show the trend and what's next." → last 6 weeks of SUM(returns_usd) showing the decay.
 
 ### Validation
 
@@ -87,6 +95,7 @@ A great Databricks dashboard reads in 5 seconds and supports a deep-dive in 30. 
 - **A map is the visual hook**: bubble map on Operations page, full width — instantly readable, beats any table for *"where are the affected customers?"*.
 - **One AI/BI showcase per page**: Operations gets `AI_FORECAST` (showing AI-native analytics inside a dashboard); Investigation gets the per-row split charts that demonstrate Lakeview's grouped-bar comparisons.
 - **Clean theme — no borders, white canvas, blue palette**: `widgetBorderColor` matches `widgetBackgroundColor` so widgets float on the canvas; left-aligned widget headers; one cohesive cool palette. The result reads as "modern analytics product", not "default template".
+- **Self-sufficient pages**: Row 1 of every page is a markdown `text` widget that names the event (what / when / cause / blast radius) and tells the reader what to look at on this page (which widget answers which question, what shape they should expect to see, how to drill). A user opening this dashboard cold should know the story in 5 seconds. Lift the situation from the README — don't repeat the full narrative, just the dashboard-relevant tour.
 
 ### Theme
 

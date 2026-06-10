@@ -2,103 +2,194 @@
   "version": 2,
   "config": {
     "sample_questions": [
-      {"id": "11111111111111111111111111111111", "question": ["What's our return rate this month?"]},
-      {"id": "22222222222222222222222222222222", "question": ["Why do I have so many returns?"]},
-      {"id": "33333333333333333333333333333333", "question": ["Which products have the highest return rate?"]},
-      {"id": "44444444444444444444444444444444", "question": ["What are customers saying about returns?"]},
-      {"id": "55555555555555555555555555555555", "question": ["How many of the affected customers are premium (tagged or predicted)?"]},
-      {"id": "66666666666666666666666666666666", "question": ["How many hidden premiums did the model find in the affected cohort?"]},
-      {"id": "77777777777777777777777777777777", "question": ["Which countries have the most affected premiums?"]}
+      {
+        "id": "sq1",
+        "question": [
+          "What's our return rate this month, and how does it compare to baseline?"
+        ]
+      },
+      {
+        "id": "sq2",
+        "question": [
+          "Why do I have so many returns? Trace it to the products and the lot."
+        ]
+      },
+      {
+        "id": "sq3",
+        "question": [
+          "Which production lot is driving the spike, and what does the QC note say?"
+        ]
+      },
+      {
+        "id": "sq4",
+        "question": [
+          "What are affected customers saying? Show the angriest comments."
+        ]
+      },
+      {
+        "id": "sq5",
+        "question": [
+          "Where are the affected customers? Group by country."
+        ]
+      },
+      {
+        "id": "sq6",
+        "question": [
+          "How many affected customers are premium (tagged or model-predicted)?"
+        ]
+      },
+      {
+        "id": "sq7",
+        "question": [
+          "Are refunds recovering? Show the trend and what's next."
+        ]
+      }
     ]
   },
   "data_sources": {
     "tables": [
-      {"identifier": "ai_demo_gen.demo_luxebeauty_test.gold_customer_premium_predictions"},
-      {"identifier": "ai_demo_gen.demo_luxebeauty_test.gold_customer_returns"},
-      {"identifier": "ai_demo_gen.demo_luxebeauty_test.gold_daily_summary"},
-      {"identifier": "ai_demo_gen.demo_luxebeauty_test.mv_returns"},
-      {"identifier": "ai_demo_gen.demo_luxebeauty_test.silver_returns"}
+      {
+        "identifier": "ai_demo_gen.demo_luxebeauty_test.gold_customer_premium_predictions"
+      },
+      {
+        "identifier": "ai_demo_gen.demo_luxebeauty_test.gold_customer_returns"
+      },
+      {
+        "identifier": "ai_demo_gen.demo_luxebeauty_test.gold_daily_summary"
+      },
+      {
+        "identifier": "ai_demo_gen.demo_luxebeauty_test.mv_returns"
+      },
+      {
+        "identifier": "ai_demo_gen.demo_luxebeauty_test.silver_returns"
+      }
     ]
   },
   "instructions": {
     "example_question_sqls": [
       {
-        "id": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
-        "question": ["What's our return rate this month?"],
-        "sql": ["SELECT MEASURE(return_rate) AS return_rate FROM ai_demo_gen.demo_luxebeauty_test.mv_returns WHERE date >= DATE_TRUNC('month', current_date())"]
-      },
-      {
-        "id": "a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2",
-        "question": ["Why do I have so many returns?"],
+        "id": "q1_spike_headline",
+        "question": [
+          "What's our return rate this month, and how does it compare to baseline?"
+        ],
         "sql": [
-          "-- Step 1: weekly returns trend (spot the 3x spike)\n",
-          "SELECT date_trunc('week', date) AS week, MEASURE(total_refunds) AS refunds\n",
+          "-- Spike-vs-baseline headline \u00b7 3-week peak ~$180K vs $60K normal\n",
+          "SELECT date_trunc('week', date) AS week,\n",
+          "       MEASURE(total_refunds) AS refunds,\n",
+          "       MEASURE(return_rate)   AS return_rate\n",
           "FROM ai_demo_gen.demo_luxebeauty_test.mv_returns\n",
-          "GROUP BY 1 ORDER BY 1 DESC LIMIT 12"
+          "GROUP BY 1 ORDER BY 1 DESC LIMIT 8"
         ]
       },
       {
-        "id": "a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3",
-        "question": ["Which products have the most returns?"],
+        "id": "q2_why_so_many",
+        "question": [
+          "Why do I have so many returns? Trace it to the products and the lot."
+        ],
         "sql": [
+          "-- Step 1: top products by return volume \u2192 SKU-1001/1002/1003\n",
           "SELECT product_name, category, COUNT(*) AS returns, SUM(refund_amount_usd) AS refunds_usd\n",
           "FROM ai_demo_gen.demo_luxebeauty_test.silver_returns\n",
-          "GROUP BY product_name, category ORDER BY returns DESC LIMIT 10"
+          "GROUP BY 1,2 ORDER BY returns DESC LIMIT 10"
         ]
       },
       {
-        "id": "a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4",
-        "question": ["What are customers saying about returns?"],
+        "id": "q3_which_lot",
+        "question": [
+          "Which production lot is driving the spike, and what does the QC note say?"
+        ],
         "sql": [
-          "SELECT customer_comment, anger_score, lot_id\n",
+          "-- Find the lot dominating the 3 affected SKUs, then quote the incident_summary\n",
+          "WITH top_lot AS (\n",
+          "  SELECT lot_id, COUNT(*) AS n\n",
+          "  FROM ai_demo_gen.demo_luxebeauty_test.silver_returns\n",
+          "  WHERE product_id IN ('SKU-1001','SKU-1002','SKU-1003')\n",
+          "  GROUP BY 1 ORDER BY n DESC LIMIT 1\n",
+          ")\n",
+          "SELECT l.lot_id, l.facility, l.production_date, l.status, l.incident_summary\n",
+          "FROM ai_demo_gen.demo_luxebeauty_test.raw_production_lots l\n",
+          "JOIN top_lot t ON t.lot_id = l.lot_id"
+        ]
+      },
+      {
+        "id": "q4_customer_voice",
+        "question": [
+          "What are affected customers saying? Show the angriest comments."
+        ],
+        "sql": [
+          "-- ai_classify sorted comments \u2014 texture complaints cluster on the bad lot\n",
+          "SELECT customer_comment, anger_score, lot_id, return_date\n",
           "FROM ai_demo_gen.demo_luxebeauty_test.silver_returns\n",
-          "WHERE is_bad_lot = true ORDER BY anger_score DESC LIMIT 10"
+          "WHERE is_bad_lot = true\n",
+          "ORDER BY anger_score DESC LIMIT 10"
         ]
       },
       {
-        "id": "a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5",
-        "question": ["How many of the affected customers are premium (tagged or predicted)?"],
+        "id": "q5_blast_radius",
+        "question": [
+          "Where are the affected customers? Group by country."
+        ],
         "sql": [
-          "SELECT p.final_tier, COUNT(DISTINCT r.customer_id) AS n\n",
+          "-- Blast-radius geography \u2014 FR leads, then IT / GB / DE / US\n",
+          "SELECT country, COUNT(DISTINCT customer_id) AS affected_customers,\n",
+          "       SUM(refund_amount_usd) AS refunds_usd\n",
+          "FROM ai_demo_gen.demo_luxebeauty_test.silver_returns\n",
+          "WHERE is_bad_lot = true\n",
+          "GROUP BY 1 ORDER BY affected_customers DESC"
+        ]
+      },
+      {
+        "id": "q6_premium_cohort",
+        "question": [
+          "How many affected customers are premium (tagged or model-predicted)?"
+        ],
+        "sql": [
+          "-- Premium-cohort split \u2014 distinguishes CS-tagged vs model-found 'hidden' premiums\n",
+          "SELECT p.final_tier,\n",
+          "       COUNT(DISTINCT CASE WHEN p.premium_status_labeled = 'premium' THEN r.customer_id END) AS cs_tagged,\n",
+          "       COUNT(DISTINCT CASE WHEN p.premium_status_labeled IS NULL    THEN r.customer_id END) AS model_found,\n",
+          "       COUNT(DISTINCT r.customer_id) AS total\n",
           "FROM ai_demo_gen.demo_luxebeauty_test.gold_customer_returns r\n",
-          "LEFT JOIN ai_demo_gen.demo_luxebeauty_test.gold_customer_premium_predictions p ON p.customer_id = r.customer_id\n",
+          "LEFT JOIN ai_demo_gen.demo_luxebeauty_test.gold_customer_premium_predictions p\n",
+          "  ON p.customer_id = r.customer_id\n",
           "GROUP BY p.final_tier"
         ]
       },
       {
-        "id": "a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6",
-        "question": ["How many hidden premiums did the model find in the affected cohort?"],
+        "id": "q7_recovery",
+        "question": [
+          "Are refunds recovering? Show the trend and what's next."
+        ],
         "sql": [
-          "SELECT\n",
-          "  COUNT(DISTINCT CASE WHEN p.premium_status_labeled = 'premium' THEN r.customer_id END) AS cs_tagged_premium,\n",
-          "  COUNT(DISTINCT CASE WHEN p.is_premium_predicted = true AND COALESCE(p.premium_status_labeled, '') <> 'premium' THEN r.customer_id END) AS hidden_premium_model_found\n",
-          "FROM ai_demo_gen.demo_luxebeauty_test.gold_customer_returns r\n",
-          "LEFT JOIN ai_demo_gen.demo_luxebeauty_test.gold_customer_premium_predictions p ON p.customer_id = r.customer_id"
-        ]
-      },
-      {
-        "id": "a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7",
-        "question": ["Which countries have the most affected premiums?"],
-        "sql": [
-          "SELECT r.country, COUNT(DISTINCT r.customer_id) AS premium_customers\n",
-          "FROM ai_demo_gen.demo_luxebeauty_test.gold_customer_returns r\n",
-          "JOIN ai_demo_gen.demo_luxebeauty_test.gold_customer_premium_predictions p ON p.customer_id = r.customer_id\n",
-          "WHERE p.final_tier = 'premium'\n",
-          "GROUP BY r.country ORDER BY premium_customers DESC LIMIT 8"
+          "-- Decay confirmation \u2014 last few weeks should trend back toward baseline\n",
+          "SELECT date_trunc('week', date) AS week, MEASURE(total_refunds) AS refunds\n",
+          "FROM ai_demo_gen.demo_luxebeauty_test.mv_returns\n",
+          "WHERE date >= DATEADD(week, -6, current_date())\n",
+          "GROUP BY 1 ORDER BY 1"
         ]
       }
     ],
     "text_instructions": [
       {
+        "id": "b0story0context0000000000000000000",
+        "content": [
+          "\u2550\u2550\u2550 THE STORY (always honor this context when answering) \u2550\u2550\u2550\n",
+          "LuxeBeauty Co. \u2014 D2C beauty brand. Persona: Claire Dubois, VP of Operations (non-technical).\n",
+          "WHAT HAPPENED: 3 weeks ago weekly refunds spiked to ~$180K, 3\u00d7 the $60K baseline. We've traced the cause: production lot **LOT-2026-0427** of 3 Skincare SKUs (SKU-1001 Hydrating Serum, SKU-1002 Vitamin C Cream, SKU-1003 HA Moisture Boost) was released from the Lyon facility despite a QC note about texture variations from a homogenizer pressure issue. ~250 customers affected, concentrated in EU markets (Paris is the single largest cluster, then London / Milan / Madrid / Berlin).\n",
+          "WHAT TO HELP CLAIRE DO: track the recovery, drill into the affected lot, surface customer feedback (texture complaints: \"grainy\", \"separated\", \"watery\"), and segment the affected customers by their premium tier (CS-tagged vs model-predicted) for the retention offer.\n",
+          "TONE: Lead with the number. Concise. Claire is busy.\n"
+        ]
+      },
+      {
         "id": "b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1",
         "content": [
           "You analyze LuxeBeauty operations data for Claire (VP Ops, non-technical). Lead with the number; keep answers concise.\n",
           "BASELINES: Normal weekly returns ~$60K, normal return rate ~8%, anomaly threshold >20%.\n",
-          "HEADLINE NUMBERS — always answer from `mv_returns` for return rate / revenue / refund rate (same definition the dashboard uses).\n",
-          "INVESTIGATION FLOW for 'Why so many returns?': (1) `mv_returns` weekly total_refunds → 3x spike, (2) `silver_returns` GROUP BY lot_id / product_name to identify SKU-1001/1002/1003 + the affected lot, (3) `silver_returns.customer_comment` for texture complaints.\n",
-          "PREMIUM-COHORT QUESTIONS — join `gold_customer_returns` (affected lot) with `gold_customer_premium_predictions` on `customer_id`. `final_tier` is the rule: 'premium' if CS tagged premium OR model predicted; else 'standard'. `premium_status_labeled` is the original CS hand-tag (NULL = never reviewed).\n",
+          "HEADLINE NUMBERS \u2014 always answer from `mv_returns` for return rate / revenue / refund rate (same definition the dashboard uses).\n",
+          "INVESTIGATION FLOW for 'Why so many returns?': (1) `mv_returns` weekly total_refunds \u2192 3x spike, (2) `silver_returns` GROUP BY lot_id / product_name to identify SKU-1001/1002/1003 + the affected lot, (3) `silver_returns.customer_comment` for texture complaints.\n",
+          "PREMIUM-COHORT QUESTIONS \u2014 join `gold_customer_returns` (affected lot) with `gold_customer_premium_predictions` on `customer_id`. `final_tier` is the rule: 'premium' if CS tagged premium OR model predicted; else 'standard'. `premium_status_labeled` is the original CS hand-tag (NULL = never reviewed).\n",
           "HIDDEN PREMIUMS = `is_premium_predicted = true AND (premium_status_labeled IS NULL OR premium_status_labeled <> 'premium')`. The story beat: 'CS tagged X, the model found Y hidden ones'.\n",
-          "CUSTOMER FEEDBACK on the affected lot: 'grainy texture' / 'product separated' / 'consistency is watery' — these are visible in `silver_returns.customer_comment` where `is_bad_lot = true`."
+          "CUSTOMER FEEDBACK on the affected lot: 'grainy texture' / 'product separated' / 'consistency is watery' \u2014 these are visible in `silver_returns.customer_comment` where `is_bad_lot = true`."
         ]
       }
     ]

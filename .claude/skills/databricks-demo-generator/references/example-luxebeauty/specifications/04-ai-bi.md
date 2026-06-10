@@ -20,6 +20,14 @@ Create `LuxeBeauty Operations Analytics` Genie Space.
 
 `mv_returns` (canonical revenue / orders / return-rate / refund-rate metric view, over `gold_daily_summary` — defined in `02-uc-governance.md`), `gold_daily_summary` (raw daily — for AI_FORECAST queries that can't go through MV), `silver_returns` (per-return investigation: denormalized country/region/category/facility/lot/customer + `anger_score` + `is_bad_lot` — used for product/lot rollups via GROUP BY, customer feedback, sentiment), `bronze_products` (catalog), `bronze_production_lots` (lot details + production_date), `bronze_customers` (for the `premium_status` CS-tag + `country` joins), `gold_customer_premium_predictions` (per-customer `premium_prob` + `final_tier`, written by the ML notebook in `03-ml-premium.md`).
 
+### Self-sufficient room
+
+Anyone opening the Genie room must understand the story without prior context. Wire all three:
+
+- **Space `description`** (set via `PATCH /api/2.0/genie/spaces/<id>`): 1-3 sentences naming the event (what happened + headline number + cause + blast radius) and pointing to the suggested questions in order. Pulled from the README — don't restate it, lift it.
+- **Story-context `text_instruction`** at the TOP of `instructions.text_instructions[]` (before the headline-metric rules): WHAT HAPPENED · WHAT TO HELP THE PERSONA DO · TONE. ~5-8 lines. The LLM honors this on every turn.
+- **`sample_questions`** (chips users see) AND the matching `example_question_sqls` walk the story arc end-to-end (7-step pattern below). Each entry has the question phrased naturally + the SQL that answers it. Both lists must be in the same order.
+
 ### Instructions
 
 ```
@@ -46,9 +54,17 @@ PREMIUM-COHORT FOLLOW-UP (after root cause is established):
 CUSTOMER FEEDBACK (from affected lot): "grainy texture" / "product separated" / "consistency is watery" / "texture feels off"
 ```
 
-### Sample Questions
+### Sample Questions — 7-step story arc
 
-"What's our return rate this month?" (→ mv_returns) / "Why do I have so many returns?" / "Which products have the highest return rate?" / "What are customers saying about returns?" / "Show me returns trend for the last 8 weeks" / "Which lot has the most returns?" / "Tell me about lot [LOT-ID]" / **"How many of the affected customers are premium (tagged or predicted)?"** / **"How many hidden premiums did the model find in the affected cohort?"** / **"Which countries have the most affected premiums?"**
+Ship 7 questions, in this order, each as both a chip (`config.sample_questions`) AND a curated SQL (`instructions.example_question_sqls`). The arc walks an unfamiliar user from "what's wrong?" to "what's next?" without them needing to know the story:
+
+1. **Headline** — "What's our return rate this month, and how does it compare to baseline?" → weekly `MEASURE(total_refunds)` + `MEASURE(return_rate)` from `mv_returns`, last 8 weeks.
+2. **Drill to products** — "Why do I have so many returns? Trace it to the products and the lot." → top products by `COUNT(*)` from `silver_returns`.
+3. **Drill to lot + QC story** — "Which production lot is driving the spike, and what does the QC note say?" → `CTE` finds the top lot for the 3 affected SKUs, JOINs `raw_production_lots` to quote `incident_summary` (the punchline).
+4. **Customer voice** — "What are affected customers saying? Show the angriest comments." → `silver_returns WHERE is_bad_lot ORDER BY anger_score DESC` — surfaces "grainy" / "separated" / "watery", ai_classify in action.
+5. **Blast radius** — "Where are the affected customers? Group by country." → COUNT DISTINCT + SUM refunds, `WHERE is_bad_lot`.
+6. **Premium cohort** — "How many affected customers are premium (tagged or model-predicted)?" → JOIN `gold_customer_returns × gold_customer_premium_predictions`, COUNT by `final_tier`, separate `premium_status_labeled = 'premium'` (CS-tagged) from `IS NULL` (model-found hidden premium).
+7. **Recovery** — "Are refunds recovering? Show the trend and what's next." → last 6 weeks of `MEASURE(total_refunds)` showing the decay toward baseline.
 
 ### Validation
 
@@ -74,6 +90,7 @@ A great Databricks dashboard reads in 5 seconds and supports a deep-dive in 30. 
 - **A map is the visual hook**: bubble map on Operations page, full width — instantly readable, beats any table for *"where are the affected customers?"*.
 - **One AI/BI showcase per page**: Operations gets `AI_FORECAST` (AI-native analytics inside a dashboard); Investigation gets `ai_classify`-driven sentiment bins (via `anger_score` on `silver_returns`) and grouped-bar affected-vs-everyday splits.
 - **Clean theme — no borders, white canvas, blue palette**: `widgetBorderColor` matches `widgetBackgroundColor` so widgets float on the canvas; left-aligned widget headers; one cohesive cool palette. Reads as a modern analytics product.
+- **Self-sufficient pages**: Row 1 of every page is a markdown `text` widget that names the event (what / when / cause / blast radius) and tells the reader what to look at on this page (which widget answers which question, what shape they should expect to see, how to drill). A user opening this dashboard cold should know the story in 5 seconds. Lift the situation from the README — don't repeat the full narrative, just the dashboard-relevant tour.
 
 ### Theme
 
