@@ -142,25 +142,25 @@ widgetHeaderAlignment: LEFT
 
 **Row 1** — title markdown. *"LuxeBeauty Returns — Operations. Claire Dubois, VP Ops. The bad lot LOT-{date} ships in late {month}, the surge follows weeks later. We've traced it; this dashboard tracks the recovery."*
 
-**Row 2 — 4 × `counter` (sparklines via `period` encoding, weekly bucket)**. Source: `ds_metrics`.
+**Row 2 — 4 × `counter` (sparklines via `period` encoding, weekly bucket)**. Source: `ds_metrics`. Pin both `value.color` AND `period.color` to the primary literal-hex (`#094074`) — the value color drives the headline number, the period color drives the sparkline line. Without the period pin, the sparkline renders in a desaturated default that's nearly invisible against white.
 
-- **Refunds — last 90d** · `MEASURE(total_refunds)` · currency compact · *sparkline shows spike-then-decay — the visual hook.*
+- **Refunds — last 90d** · `MEASURE(total_refunds)` · `number-currency` USD compact, `decimalPlaces: max 1` · *sparkline shows spike-then-decay — the visual hook.*
 - **Returns — last 90d** · `MEASURE(return_count)` · number compact · *sparkline matches refunds.*
 - **Orders — last 90d** · `MEASURE(order_count)` · number compact · *sparkline flat — the business is fine.*
 - **Refund Rate (%)** · `MEASURE(return_rate)` · percent · *same metric Genie uses; numbers match exactly.*
 
 **Row 3 — `forecast-line` · "Weekly refunds — actuals + forecast"**. Source: `ds_forecast`. x = `week` (temporal); y `refunds` = actuals (solid); y `refunds_forecast` / `refunds_upper` / `refunds_lower` = forecast band (dashed); y format `number-currency` USD compact. Bridging row repeating last actual as `refunds_forecast` so the band doesn't disconnect at the seam.
 
-- **Vertical-line annotation** on `AFFECTED_LOT_DATE` (Shared Context, 01-lakeflow.md), label `"Production incident PIR-<YYYY-MM-DD> — Lyon HMG-03 calibration drift"`, marker literal-hex `#FE9000` (vivid orange — the warm alert pulled from the palette's last stop). Same date as the PIR PDF (Section C) — they MUST match.
+- **Vertical-line annotation** on `AFFECTED_LOT_DATE` (Shared Context, 01-lakeflow.md), label format `"Product issue: lot LOT-<YYYY-MMDD> ships"` (short, executive-readable — the long PIR-id phrasing is too internal). Date-only datatype, no explicit `color` so the marker inherits the theme neutral (the label carries the meaning; coloring it warm steals attention from the spike itself). Same date as the PIR PDF (Section C) — they MUST match.
 - **Story invariant**: `AFFECTED_LOT_DATE` (NOW-8w) BEFORE `SPIKE_PEAK` (NOW-3w) — regenerate synth if violated.
-- *Baseline ticks flat for ~5w → orange bar drops in (the incident) → ~5w later the line spikes to ~$180K → decays toward baseline → continues as dashed band 4w ahead. Cause → effect → what's next, in one chart.*
+- *Baseline ticks flat for ~5w → annotation bar drops in (the lot ships) → ~5w later the line spikes to ~$180K → decays toward baseline → continues as dashed band 4w ahead. Cause → effect → what's next, in one chart.*
 
 **Row 4 — two side-by-side**
 
 - **`pie` (donut) · "Refunds by category"** · `ds_metrics` · slices = `category`, angle = `MEASURE(total_refunds)`, color via literal-hex category pins (above) · *one slice dwarfs the rest — Skincare in deep navy. Pairs with the map below: affected lot is Skincare, Europe is Skincare-heavy.*
 - **`bar` horizontal stacked · "Refunds by country"** · `ds_returns` · y = `country`, x = `SUM(refund_amount_usd)`, color = `category` (same literal-hex pins) · *France leads, then IT / GB / DE / US — and the deep-navy Skincare slice dominates every affected-country stack. Category + geography in one chart.*
 
-**Row 5 — `symbol-map` · "Affected customers — bubble map"** (full width). Source: `ds_returns`, widget-level filter `is_bad_lot = TRUE`. Encoding `coordinates: { latitude: AVG(customer_lat), longitude: AVG(customer_lng) }` (nested; top-level fields won't render), grouped by `(city, country)`, size = `COUNT(DISTINCT customer_id)`, tooltip city + count + `SUM(refund_amount_usd)`, semi-transparent fill, `colorRamp.scheme: "YlOrRd"` (yellow → orange → red; light = low refunds, deep red = highest).
+**Row 5 — `symbol-map` · "Affected customers — bubble map"** (full width). Source: `ds_returns` (no widget-level filter — let the global Date/Region/Category filters scope the cohort). Encoding `coordinates: { latitude: customer_lat, longitude: customer_lng }` (bare field names, NOT `AVG(...)` — Lakeview's `symbol-map` documented pattern wants raw lat/lng; aggregated coords render blank). Group implicit by `(city, country)`, size = `COUNT(DISTINCT customer_id)`, color = `SUM(refund_amount_usd)`, tooltip city + count + refunds. `mark.opacity: 1` (solid — denser bubbles read better than transparent ones at this scale). `colorRamp.scheme: "YlOrRd"` (yellow → orange → red; light = low refunds, deep red = highest — the only quantitative scheme `symbol-map` reliably honors; `custom-sequential` and `Blues` render blank).
 
 - *Europe lights up: Paris dominates (~30+ affected) deep red, then London / Milan / Madrid / Berlin cluster; US East/West mid-sized; Tokyo / Seoul / Sydney small. Answers "where did the bad lot land?" before anyone reads a number.* Premium tier-split lives in chat, not on the map.
 
