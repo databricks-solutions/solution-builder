@@ -91,13 +91,30 @@ A great Databricks dashboard reads in 5 seconds and supports a deep-dive in 30. 
 ### Theme
 
 ```
-canvasBackgroundColor: #FFFFFF (light) / #0F1419 (dark)
+canvasBackgroundColor: #F5F7FB (light, blue-tinted neutral) / #0F1419 (dark)
 widgetBackgroundColor: #FFFFFF (light) / #161B22 (dark)
 widgetBorderColor:     same as widgetBackgroundColor (= no visible border)
-fontColor:             #111827 (light) / #E8ECF0 (dark)
-visualizationColors:   ["#2563EB","#0EA5E9","#0891B2","#1E3A8A","#7C3AED","#0D9488","#F59E0B"]
+fontColor:             #1F2530 (light) / #E8ECF0 (dark)
+selectionColor:        #4F7CE3 (light) / #8ACAFF (dark)
+visualizationColors:   ["#094074","#3C6997","#5ADBFF","#FFDD4A","#FE9000"]
 widgetHeaderAlignment: LEFT
 ```
+
+5-stop palette progresses cool → warm: deep navy → steel blue → sky cyan → soft yellow → vivid orange. Position 0 (`#094074` navy) is the visual anchor — used for the largest category (Skincare in this demo) and KPI sparklines.
+
+**Semantic colors (literal-hex pinned everywhere, NEVER `themeColorType: position N`):**
+- **Affected lot / incident annotation** → `#FFDD4A` soft yellow.
+- **Everyday returns / baseline** → `#3C6997` steel blue.
+
+**Category color pins (literal-hex on every widget colored by `category`)** — Lakeview cycles the palette by SQL-result order, which differs across widgets reading different datasets. Pinning each category guarantees the same color across donut + stacked bar:
+
+| Category | Hex |
+|---|---|
+| Skincare | `#094074` (the affected category — anchor) |
+| Bodycare | `#3C6997` |
+| Makeup | `#5ADBFF` |
+| Haircare | `#FFDD4A` |
+| Fragrance | `#FE9000` |
 
 ### Datasets (3 total)
 
@@ -130,17 +147,17 @@ widgetHeaderAlignment: LEFT
 
 **Row 3 — `forecast-line` · "Weekly refunds — actuals + forecast"**. Source: `ds_forecast`. x = `week` (temporal); y `refunds` = actuals (solid); y `refunds_forecast` / `refunds_upper` / `refunds_lower` = forecast band (dashed); y format `number-currency` USD compact. Bridging row repeating last actual as `refunds_forecast` so the band doesn't disconnect at the seam.
 
-- **Vertical-line annotation** on `AFFECTED_LOT_DATE`, label `"Production incident PIR-<YYYY-MM-DD> — Lyon HMG-03 calibration drift"`, marker `visualizationColors[3]` (`#1E3A8A` navy). Same date as the affected lot's `incident_summary` — they MUST match.
-- *Baseline ticks flat for ~5w → navy bar drops in (the incident) → ~5w later the line spikes to ~$180K → decays toward baseline → continues as dashed band 4w ahead. Cause → effect → what's next, in one chart.*
+- **Vertical-line annotation** on `AFFECTED_LOT_DATE`, label `"Production incident PIR-<YYYY-MM-DD> — Lyon HMG-03 calibration drift"`, marker literal-hex `#FE9000` (vivid orange — the warm alert from the palette's last stop). Same date as the affected lot's `incident_summary` — they MUST match.
+- *Baseline ticks flat for ~5w → orange bar drops in (the incident) → ~5w later the line spikes to ~$180K → decays toward baseline → continues as dashed band 4w ahead. Cause → effect → what's next, in one chart.*
 
-**Row 4 — `symbol-map` · "Affected customers — bubble map"**. Source: `ds_returns`, widget-level filter `is_bad_lot = TRUE`. Encoding `coordinates: { latitude: AVG(customer_lat), longitude: AVG(customer_lng) }` (nested; top-level fields won't render), grouped by `(city, country)`, size = `COUNT(DISTINCT customer_id)`, tooltip city + count + `SUM(refund_amount_usd)`, semi-transparent primary fill, `colorRamp.scheme: "RdYlBu"` (capitalized; `"redyellowblue"` silently fails).
+**Row 4 — two side-by-side**
 
-- *Europe lights up: Paris dominates (~30+ affected), then London / Milan / Madrid / Berlin cluster; US East/West mid-sized; Tokyo / Seoul / Sydney small. Answers "where did the bad lot land?" before anyone reads a number.*
+- **`pie` (donut) · "Refunds by category"** · `ds_daily` · slices = `category`, angle = `SUM(returns_usd)`, color via literal-hex category pins (above) · *one slice dwarfs the rest — Skincare in deep navy. Pairs with the map below: affected lot is Skincare, Europe is Skincare-heavy.*
+- **`bar` horizontal stacked · "Refunds by country"** · `ds_returns` · y = `country`, x = `SUM(refund_amount_usd)`, color = `category` (same literal-hex pins) · *France leads, then IT / GB / DE / US — and the deep-navy Skincare slice dominates every affected-country stack. Category + geography in one chart.*
 
-**Row 5 — two side-by-side**
+**Row 5 — `symbol-map` · "Affected customers — bubble map"** (full width). Source: `ds_returns`, widget-level filter `is_bad_lot = TRUE`. Encoding `coordinates: { latitude: AVG(customer_lat), longitude: AVG(customer_lng) }` (nested; top-level fields won't render), grouped by `(city, country)`, size = `COUNT(DISTINCT customer_id)`, tooltip city + count + `SUM(refund_amount_usd)`, semi-transparent fill, `colorRamp.scheme: "YlOrRd"` (yellow → orange → red; light = low refunds, deep red = highest).
 
-- **`pie` (donut) · "Refunds by category"** · `ds_daily` · slices = `category`, angle = `SUM(returns_usd)` · *one slice dwarfs the rest — Skincare. Pairs with the map: affected lot is Skincare, Europe is Skincare-heavy.*
-- **`bar` horizontal stacked · "Refunds by country"** · `ds_returns` · y = `country`, x = `SUM(refund_amount_usd)`, color = `category` · *France leads, then IT / GB / DE / US — and Skincare dominates every affected-country stack. Category + geography in one chart.*
+- *Europe lights up: Paris dominates (~30+ affected) deep red, then London / Milan / Madrid / Berlin cluster; US East/West mid-sized; Tokyo / Seoul / Sydney small. Answers "where did the bad lot land?" before anyone reads a number.*
 
 ### Page 2 — Investigation (the deep-dive)
 
@@ -153,10 +170,10 @@ widgetHeaderAlignment: LEFT
 
 **Row 3** — section heading: *"Affected lot vs everyday returns — same dimensions, different shapes."*
 
-**Row 4 — affected vs everyday, color = `source` (`Affected lot` → `visualizationColors[3]` navy, `Everyday returns` → `visualizationColors[4]` violet; 0-indexed)**
+**Row 4 — affected vs everyday, color = `source` literal-hex pinned (`Affected lot` → `#FFDD4A` soft yellow, `Everyday returns` → `#3C6997` steel blue) — same pins on BOTH split widgets**
 
-- **`bar` grouped · "Refunds by country"** · `ds_returns` · x = `country`, y = `SUM(refund_amount_usd)` · *every EU country: navy bar towers over violet — spike is the one lot in the EU market, not a catalog-wide trend.*
-- **`bar` horizontal grouped · "Return reasons"** · `ds_returns` · y = `return_reason` (`quality` / `didnt_fit` / `wrong_item` / `changed_mind`), x = `COUNT(return_id)` · *`quality` is ~all navy; the other reasons ~all violet — a product problem on this lot, not fit / changed-mind.*
+- **`bar` grouped · "Refunds by country"** · `ds_returns` · x = `country`, y = `SUM(refund_amount_usd)` · *every EU country: yellow bar towers over steel blue — spike is the one lot in the EU market, not a catalog-wide trend.*
+- **`bar` horizontal grouped · "Return reasons"** · `ds_returns` · y = `return_reason` (`quality` / `didnt_fit` / `wrong_item` / `changed_mind`), x = `COUNT(return_id)` · *`quality` is ~all yellow; the other reasons ~all steel blue — a product problem on this lot, not fit / changed-mind.*
 
 **Row 5** — section heading: *"Customer voice — what people are telling us."*
 
@@ -174,8 +191,8 @@ widgetHeaderAlignment: LEFT
 - Refunds-by-country bar: France first, then IT/GB/DE/US; bars stacked by `category` with Skincare dominating the EU stack.
 - Category donut: Skincare is the largest slice.
 - Investigation page: Worst-lots bar has one bar ~10× the next.
-- Affected-vs-everyday country bars: every EU country shows a navy `Affected lot` bar taller than its violet `Everyday returns` bar.
-- Reasons bar: `quality` is ~all navy; `changed_mind` / `wrong_item` / `didnt_fit` are ~all violet.
+- Affected-vs-everyday country bars: every EU country shows a yellow `Affected lot` bar taller than its steel-blue `Everyday returns` bar.
+- Reasons bar: `quality` is ~all yellow; `changed_mind` / `wrong_item` / `didnt_fit` are ~all steel blue.
 - Comments table: visible *"grainy"*, *"separated"*, *"watery"* in `return_reason_text` rows.
 - Region filter (select "EU") → every widget updates; the map zooms to the EU bounding box (Paris cluster fills the frame).
 - Category filter (select "Skincare") → returns spike pronounced; product bar narrows to skincare SKUs.

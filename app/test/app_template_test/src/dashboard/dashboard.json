@@ -32,15 +32,15 @@
     {
       "name": "overview",
       "displayName": "Operations",
-      "pageType": "PAGE_TYPE_CANVAS",
-      "layoutVersion": "GRID_V1",
       "layout": [
         {
           "widget": {
             "name": "title",
             "multilineTextboxSpec": {
               "lines": [
-                "# LuxeBeauty Returns \u2014 Operations\n\nClaire Dubois, VP Ops. The bad lot LOT-2026-0427 ships in late April, the surge follows weeks later. We've traced it; this dashboard tracks the recovery."
+                "# LuxeBeauty Returns \u2014 Operations\n",
+                "\n",
+                "Claire Dubois, VP Ops. The bad lot LOT-2026-0427 ships in late April, the surge follows weeks later. We've traced it; this dashboard tracks the recovery."
               ]
             }
           },
@@ -88,10 +88,20 @@
                       "type": "max",
                       "places": 1
                     }
+                  },
+                  "color": {
+                    "hex": "#094074"
                   }
                 },
                 "period": {
-                  "fieldName": "weekly(date)"
+                  "fieldName": "weekly(date)",
+                  "color": {
+                    "hex": "#094074"
+                  },
+                  "style": {
+                    "areaFill": true,
+                    "fillOpacity": 0.25
+                  }
                 }
               },
               "frame": {
@@ -135,10 +145,20 @@
               "encodings": {
                 "value": {
                   "fieldName": "sum(return_count)",
-                  "displayName": "Returns (90d)"
+                  "displayName": "Returns (90d)",
+                  "color": {
+                    "hex": "#094074"
+                  }
                 },
                 "period": {
-                  "fieldName": "weekly(date)"
+                  "fieldName": "weekly(date)",
+                  "color": {
+                    "hex": "#094074"
+                  },
+                  "style": {
+                    "areaFill": true,
+                    "fillOpacity": 0.25
+                  }
                 }
               },
               "frame": {
@@ -182,10 +202,20 @@
               "encodings": {
                 "value": {
                   "fieldName": "sum(order_count)",
-                  "displayName": "Orders (90d)"
+                  "displayName": "Orders (90d)",
+                  "color": {
+                    "hex": "#094074"
+                  }
                 },
                 "period": {
-                  "fieldName": "weekly(date)"
+                  "fieldName": "weekly(date)",
+                  "color": {
+                    "hex": "#094074"
+                  },
+                  "style": {
+                    "areaFill": true,
+                    "fillOpacity": 0.25
+                  }
                 }
               },
               "frame": {
@@ -229,10 +259,20 @@
               "encodings": {
                 "value": {
                   "fieldName": "refund_rate",
-                  "displayName": "Refund Rate"
+                  "displayName": "Refund Rate",
+                  "color": {
+                    "hex": "#094074"
+                  }
                 },
                 "period": {
-                  "fieldName": "weekly(date)"
+                  "fieldName": "weekly(date)",
+                  "color": {
+                    "hex": "#094074"
+                  },
+                  "style": {
+                    "areaFill": true,
+                    "fillOpacity": 0.25
+                  }
                 }
               },
               "frame": {
@@ -284,21 +324,43 @@
             ],
             "spec": {
               "version": 1,
+              "annotations": [
+                {
+                  "type": "vertical-line",
+                  "encodings": {
+                    "x": {
+                      "dataValue": "2026-04-27T00:00:00.000",
+                      "dataType": "DATETIME"
+                    },
+                    "label": {
+                      "value": "Product issue: lot LOT-2026-0427 ships"
+                    }
+                  }
+                }
+              ],
+              "frame": {
+                "showTitle": true,
+                "title": "Weekly refunds \u2014 actuals + forecast",
+                "description": "The dashed band is AI_FORECAST's 4-week look-ahead; the marker is when the bad lot shipped."
+              },
               "widgetType": "forecast-line",
               "encodings": {
                 "x": {
                   "fieldName": "week",
-                  "scale": {
-                    "type": "temporal"
-                  },
                   "axis": {
                     "title": "Week"
                   },
-                  "displayName": "Week"
+                  "displayName": "Week",
+                  "scale": {
+                    "type": "temporal"
+                  }
                 },
                 "y": {
                   "scale": {
-                    "type": "quantitative"
+                    "type": "quantitative",
+                    "domain": {
+                      "min": 0
+                    }
                   },
                   "format": {
                     "type": "number-currency",
@@ -320,31 +382,6 @@
                     "fieldName": "refunds_lower"
                   }
                 }
-              },
-              "annotations": [
-                {
-                  "type": "vertical-line",
-                  "encodings": {
-                    "x": {
-                      "dataValue": "2026-04-27T00:00:00.000",
-                      "dataType": "DATETIME"
-                    },
-                    "label": {
-                      "value": "Product issue: lot LOT-2026-0427 ships"
-                    },
-                    "color": {
-                      "value": {
-                        "themeColorType": "visualizationColors",
-                        "position": 6
-                      }
-                    }
-                  }
-                }
-              ],
-              "frame": {
-                "showTitle": true,
-                "title": "Weekly refunds \u2014 actuals + forecast",
-                "description": "The dashed band is AI_FORECAST's 4-week look-ahead; the marker is when the bad lot shipped."
               }
             }
           },
@@ -365,28 +402,20 @@
                   "datasetName": "ds_returns",
                   "fields": [
                     {
-                      "name": "city",
-                      "expression": "`city`"
+                      "name": "sum(refund_amount_usd)",
+                      "expression": "SUM(`refund_amount_usd`)"
                     },
                     {
-                      "name": "country",
-                      "expression": "`country`"
+                      "name": "customer_lat",
+                      "expression": "`customer_lat`"
                     },
                     {
-                      "name": "avg(customer_lat)",
-                      "expression": "AVG(`customer_lat`)"
-                    },
-                    {
-                      "name": "avg(customer_lng)",
-                      "expression": "AVG(`customer_lng`)"
+                      "name": "customer_lng",
+                      "expression": "`customer_lng`"
                     },
                     {
                       "name": "countdistinct(return_id)",
                       "expression": "COUNT(DISTINCT `return_id`)"
-                    },
-                    {
-                      "name": "sum(refund_amount_usd)",
-                      "expression": "SUM(`refund_amount_usd`)"
                     }
                   ],
                   "disaggregated": false
@@ -395,14 +424,36 @@
             ],
             "spec": {
               "version": 2,
+              "frame": {
+                "showTitle": true,
+                "title": "Affected customers \u2014 bubble map",
+                "description": "Bubble size = returns; color = refund dollars."
+              },
+              "mark": {
+                "opacity": 1
+              },
               "widgetType": "symbol-map",
               "encodings": {
                 "coordinates": {
                   "latitude": {
-                    "fieldName": "avg(customer_lat)"
+                    "fieldName": "customer_lat"
                   },
                   "longitude": {
-                    "fieldName": "avg(customer_lng)"
+                    "fieldName": "customer_lng"
+                  }
+                },
+                "color": {
+                  "fieldName": "sum(refund_amount_usd)",
+                  "displayName": "Refunds ($)",
+                  "scale": {
+                    "type": "quantitative",
+                    "colorRamp": {
+                      "mode": "custom-sequential",
+                      "colors": {
+                        "start": "#FAFCFF",
+                        "end": "#2D85DF"
+                      }
+                    }
                   }
                 },
                 "size": {
@@ -411,32 +462,13 @@
                     "type": "quantitative"
                   },
                   "displayName": "Returns"
-                },
-                "color": {
-                  "fieldName": "sum(refund_amount_usd)",
-                  "scale": {
-                    "type": "quantitative",
-                    "colorRamp": {
-                      "mode": "scheme",
-                      "scheme": "RdYlBu"
-                    }
-                  },
-                  "displayName": "Refunds ($)"
                 }
-              },
-              "mark": {
-                "opacity": 0.7
-              },
-              "frame": {
-                "showTitle": true,
-                "title": "Affected customers \u2014 bubble map",
-                "description": "Bubble size = returns; color = refund dollars."
               }
             }
           },
           "position": {
             "x": 0,
-            "y": 10,
+            "y": 15,
             "width": 12,
             "height": 6
           }
@@ -451,12 +483,12 @@
                   "datasetName": "ds_daily",
                   "fields": [
                     {
-                      "name": "category",
-                      "expression": "`category`"
-                    },
-                    {
                       "name": "sum(returns_usd)",
                       "expression": "SUM(`returns_usd`)"
+                    },
+                    {
+                      "name": "category",
+                      "expression": "`category`"
                     }
                   ],
                   "disaggregated": false
@@ -465,6 +497,11 @@
             ],
             "spec": {
               "version": 3,
+              "frame": {
+                "showTitle": true,
+                "title": "Refunds by category",
+                "description": "Skincare dominates \u2014 the bad lot is all Skincare."
+              },
               "widgetType": "pie",
               "encodings": {
                 "angle": {
@@ -476,25 +513,54 @@
                 },
                 "color": {
                   "fieldName": "category",
+                  "displayName": "Category",
                   "scale": {
-                    "type": "categorical"
-                  },
-                  "displayName": "Category"
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Skincare",
+                        "color": {
+                          "themeColorType": "visualizationColors",
+                          "position": 5
+                        }
+                      },
+                      {
+                        "value": "Fragrance",
+                        "color": "#2D85DF"
+                      },
+                      {
+                        "value": "Makeup",
+                        "color": {
+                          "themeColorType": "visualizationColors",
+                          "position": 3
+                        }
+                      },
+                      {
+                        "value": "Haircare",
+                        "color": {
+                          "themeColorType": "visualizationColors",
+                          "position": 4
+                        }
+                      },
+                      {
+                        "value": "Bodycare",
+                        "color": {
+                          "themeColorType": "visualizationColors",
+                          "position": 1
+                        }
+                      }
+                    ]
+                  }
                 },
                 "label": {
                   "show": true
                 }
-              },
-              "frame": {
-                "showTitle": true,
-                "title": "Refunds by category",
-                "description": "Skincare dominates \u2014 the bad lot is all Skincare."
               }
             }
           },
           "position": {
             "x": 0,
-            "y": 16,
+            "y": 10,
             "width": 6,
             "height": 5
           }
@@ -509,16 +575,16 @@
                   "datasetName": "ds_returns",
                   "fields": [
                     {
-                      "name": "country",
-                      "expression": "`country`"
-                    },
-                    {
                       "name": "category",
                       "expression": "`category`"
                     },
                     {
                       "name": "sum(refund_amount_usd)",
                       "expression": "SUM(`refund_amount_usd`)"
+                    },
+                    {
+                      "name": "country",
+                      "expression": "`country`"
                     }
                   ],
                   "disaggregated": false
@@ -526,73 +592,120 @@
               }
             ],
             "spec": {
-              "version": 3,
-              "widgetType": "bar",
-              "encodings": {
-                "x": {
-                  "fieldName": "sum(refund_amount_usd)",
-                  "scale": {
-                    "type": "quantitative"
-                  },
-                  "format": {
-                    "type": "number-currency",
-                    "currencyCode": "USD",
-                    "abbreviation": "compact"
-                  },
-                  "axis": {
-                    "title": "Refunds ($)"
-                  },
-                  "displayName": "Refunds ($)"
-                },
-                "y": {
-                  "fieldName": "country",
-                  "scale": {
-                    "type": "categorical",
-                    "sort": {
-                      "by": "x-reversed"
-                    }
-                  },
-                  "displayName": "Country"
-                },
-                "color": {
-                  "fieldName": "category",
-                  "scale": {
-                    "type": "categorical"
-                  },
-                  "displayName": "Category"
-                }
-              },
               "frame": {
                 "showTitle": true,
                 "title": "Refunds by country",
                 "description": "Stacked by category \u2014 Skincare dominates the affected-lot countries."
               },
+              "version": 3,
               "mark": {
                 "layout": "stack"
+              },
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "sum(refund_amount_usd)",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 2
+                    },
+                    "significantFigures": {
+                      "type": "exact",
+                      "figures": 2
+                    }
+                  },
+                  "axis": {
+                    "title": "Refunds ($)"
+                  },
+                  "displayName": "Refunds ($)",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "y": {
+                  "fieldName": "country",
+                  "displayName": "Country",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "x-reversed"
+                    }
+                  }
+                },
+                "color": {
+                  "fieldName": "category",
+                  "displayName": "Category",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Skincare",
+                        "color": {
+                          "themeColorType": "visualizationColors",
+                          "position": 5
+                        }
+                      },
+                      {
+                        "value": "Fragrance",
+                        "color": "#2D85DF"
+                      },
+                      {
+                        "value": "Makeup",
+                        "color": {
+                          "themeColorType": "visualizationColors",
+                          "position": 3
+                        }
+                      },
+                      {
+                        "value": "Haircare",
+                        "color": {
+                          "themeColorType": "visualizationColors",
+                          "position": 4
+                        }
+                      },
+                      {
+                        "value": "Bodycare",
+                        "color": {
+                          "themeColorType": "visualizationColors",
+                          "position": 1
+                        }
+                      }
+                    ]
+                  }
+                },
+                "label": {
+                  "show": false
+                }
               }
             }
           },
           "position": {
             "x": 6,
-            "y": 16,
+            "y": 10,
             "width": 6,
             "height": 5
           }
         }
-      ]
+      ],
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1"
     },
     {
       "name": "investigation",
       "displayName": "Investigation",
-      "pageType": "PAGE_TYPE_CANVAS",
-      "layoutVersion": "GRID_V1",
       "layout": [
         {
           "widget": {
             "name": "returns_title",
             "multilineTextboxSpec": {
               "lines": [
-                "# Investigation\n\nWhich products and which lots drove the surge, and where the affected customers live. Click any 'Affected lot' bar to filter every other widget on the page."
+                "# Investigation\n",
+                "\n",
+                "Which products and which lots drove the surge, and where the affected customers live. Click any 'Affected lot' bar to filter every other widget on the page."
               ]
             }
           },
@@ -677,12 +790,12 @@
                   "datasetName": "ds_returns",
                   "fields": [
                     {
-                      "name": "lot_id",
-                      "expression": "`lot_id`"
-                    },
-                    {
                       "name": "count(return_id)",
                       "expression": "COUNT(`return_id`)"
+                    },
+                    {
+                      "name": "lot_id",
+                      "expression": "`lot_id`"
                     }
                   ],
                   "disaggregated": false
@@ -691,33 +804,35 @@
             ],
             "spec": {
               "version": 3,
+              "frame": {
+                "showTitle": true,
+                "title": "Worst production lots",
+                "description": "One lot dominates by ~70x."
+              },
               "widgetType": "bar",
               "encodings": {
                 "x": {
                   "fieldName": "count(return_id)",
+                  "axis": {
+                    "title": "Returns",
+                    "hideGrid": false,
+                    "hideLabels": false
+                  },
+                  "displayName": "Returns",
                   "scale": {
                     "type": "quantitative"
-                  },
-                  "axis": {
-                    "title": "Returns"
-                  },
-                  "displayName": "Returns"
+                  }
                 },
                 "y": {
                   "fieldName": "lot_id",
+                  "displayName": "Lot",
                   "scale": {
                     "type": "categorical",
                     "sort": {
                       "by": "x-reversed"
                     }
-                  },
-                  "displayName": "Lot"
+                  }
                 }
-              },
-              "frame": {
-                "showTitle": true,
-                "title": "Worst production lots",
-                "description": "One lot dominates by ~70x."
               }
             }
           },
@@ -754,12 +869,12 @@
                   "datasetName": "ds_returns",
                   "fields": [
                     {
-                      "name": "country",
-                      "expression": "`country`"
-                    },
-                    {
                       "name": "source",
                       "expression": "`source`"
+                    },
+                    {
+                      "name": "country",
+                      "expression": "`country`"
                     },
                     {
                       "name": "sum(refund_amount_usd)",
@@ -772,32 +887,38 @@
             ],
             "spec": {
               "version": 3,
-              "widgetType": "bar",
+              "frame": {
+                "showTitle": true,
+                "title": "Refunds by country: affected lot vs everyday",
+                "description": "Deep-navy bars are the bad lot. In every EU country it dwarfs the everyday returns."
+              },
               "mark": {
                 "layout": "group"
               },
+              "widgetType": "bar",
               "encodings": {
                 "x": {
                   "fieldName": "country",
+                  "displayName": "Country",
                   "scale": {
                     "type": "categorical"
-                  },
-                  "displayName": "Country"
+                  }
                 },
                 "y": {
                   "fieldName": "sum(refund_amount_usd)",
-                  "scale": {
-                    "type": "quantitative"
-                  },
                   "format": {
                     "type": "number-currency",
                     "currencyCode": "USD",
                     "abbreviation": "compact"
                   },
-                  "displayName": "Refunds ($)"
+                  "displayName": "Refunds ($)",
+                  "scale": {
+                    "type": "quantitative"
+                  }
                 },
                 "color": {
                   "fieldName": "source",
+                  "displayName": "",
                   "scale": {
                     "type": "categorical",
                     "mappings": [
@@ -805,25 +926,12 @@
                         "value": "Affected lot",
                         "color": {
                           "themeColorType": "visualizationColors",
-                          "position": 3
-                        }
-                      },
-                      {
-                        "value": "Everyday returns",
-                        "color": {
-                          "themeColorType": "visualizationColors",
                           "position": 5
                         }
                       }
                     ]
-                  },
-                  "displayName": ""
+                  }
                 }
-              },
-              "frame": {
-                "showTitle": true,
-                "title": "Refunds by country: affected lot vs everyday",
-                "description": "Deep-navy bars are the bad lot. In every EU country it dwarfs the everyday returns."
               }
             }
           },
@@ -844,16 +952,16 @@
                   "datasetName": "ds_returns",
                   "fields": [
                     {
-                      "name": "return_reason",
-                      "expression": "`return_reason`"
-                    },
-                    {
                       "name": "source",
                       "expression": "`source`"
                     },
                     {
                       "name": "count(return_id)",
                       "expression": "COUNT(`return_id`)"
+                    },
+                    {
+                      "name": "return_reason",
+                      "expression": "`return_reason`"
                     }
                   ],
                   "disaggregated": false
@@ -862,27 +970,33 @@
             ],
             "spec": {
               "version": 3,
+              "frame": {
+                "showTitle": true,
+                "title": "Return reasons: affected lot vs everyday",
+                "description": "Quality / Texture / Defective are ~all bad-lot. Everyday reasons (Changed mind, Wrong size) are unrelated."
+              },
               "widgetType": "bar",
               "encodings": {
                 "x": {
                   "fieldName": "count(return_id)",
+                  "displayName": "Returns",
                   "scale": {
                     "type": "quantitative"
-                  },
-                  "displayName": "Returns"
+                  }
                 },
                 "y": {
                   "fieldName": "return_reason",
+                  "displayName": "Reason",
                   "scale": {
                     "type": "categorical",
                     "sort": {
                       "by": "x-reversed"
                     }
-                  },
-                  "displayName": "Reason"
+                  }
                 },
                 "color": {
                   "fieldName": "source",
+                  "displayName": "",
                   "scale": {
                     "type": "categorical",
                     "mappings": [
@@ -890,25 +1004,12 @@
                         "value": "Affected lot",
                         "color": {
                           "themeColorType": "visualizationColors",
-                          "position": 3
-                        }
-                      },
-                      {
-                        "value": "Everyday returns",
-                        "color": {
-                          "themeColorType": "visualizationColors",
                           "position": 5
                         }
                       }
                     ]
-                  },
-                  "displayName": ""
+                  }
                 }
-              },
-              "frame": {
-                "showTitle": true,
-                "title": "Return reasons: affected lot vs everyday",
-                "description": "Quality / Texture / Defective are ~all bad-lot. Everyday reasons (Changed mind, Wrong size) are unrelated."
               }
             }
           },
@@ -1156,13 +1257,15 @@
             "height": 6
           }
         }
-      ]
+      ],
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1"
     }
   ],
   "uiSettings": {
     "theme": {
       "canvasBackgroundColor": {
-        "light": "#FFFFFF",
+        "light": "#F5F7FB",
         "dark": "#0F1419"
       },
       "widgetBackgroundColor": {
@@ -1174,21 +1277,19 @@
         "dark": "#161B22"
       },
       "fontColor": {
-        "light": "#111827",
+        "light": "#1F2530",
         "dark": "#E8ECF0"
       },
       "selectionColor": {
-        "light": "#1F6FEB",
-        "dark": "#58A6FF"
+        "light": "#4F7CE3",
+        "dark": "#8ACAFF"
       },
       "visualizationColors": [
-        "#2563EB",
-        "#0EA5E9",
-        "#0891B2",
-        "#1E3A8A",
-        "#7C3AED",
-        "#0D9488",
-        "#F59E0B"
+        "#094074",
+        "#3C6997",
+        "#5ADBFF",
+        "#FFDD4A",
+        "#FE9000"
       ],
       "widgetHeaderAlignment": "LEFT"
     }
