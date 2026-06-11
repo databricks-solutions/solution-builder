@@ -612,6 +612,24 @@ const LiveReasoningPopup = memo(function LiveReasoningPopup({
       origY: rect.top,
     };
 
+    // ── Pointer capture on the drag handle ─────────────────────────────
+    // Without this, dragging fast enough to leave the browser window
+    // (e.g. onto the OS chrome, DevTools, or another monitor) means the
+    // `pointerup` fires outside the document — the listener never sees
+    // it, dragRef stays set, and when the cursor comes back the panel
+    // keeps following without a click. setPointerCapture routes every
+    // subsequent pointermove/up/cancel to this element no matter where
+    // the cursor is. Pair it with `lostpointercapture` as the canonical
+    // end-of-drag signal so any window-leave path still terminates.
+    const handleEl = e.currentTarget as HTMLElement;
+    const pointerId = e.pointerId;
+    try {
+      handleEl.setPointerCapture(pointerId);
+    } catch {
+      // Safari sometimes throws on already-captured pointers; the
+      // window listeners below still cover the common case.
+    }
+
     // During the drag, write position imperatively to `style` via rAF so we
     // don't re-render the (expensive, streaming) reasoning content on every
     // pointermove. We only call setPosition once, at pointerup, so React
@@ -635,20 +653,37 @@ const LiveReasoningPopup = memo(function LiveReasoningPopup({
       if (rafId === null) rafId = requestAnimationFrame(applyPending);
     };
     const handleDragEnd = () => {
+      if (!dragRef.current) return; // already ended via another path
       dragRef.current = null;
       if (rafId !== null) cancelAnimationFrame(rafId);
-      window.removeEventListener("pointermove", handleDragMove);
-      window.removeEventListener("pointerup", handleDragEnd);
-      window.removeEventListener("pointercancel", handleDragEnd);
+      handleEl.removeEventListener("pointermove", handleDragMove);
+      handleEl.removeEventListener("pointerup", handleDragEnd);
+      handleEl.removeEventListener("pointercancel", handleDragEnd);
+      handleEl.removeEventListener("lostpointercapture", handleDragEnd);
+      window.removeEventListener("blur", handleDragEnd);
+      try {
+        if (handleEl.hasPointerCapture(pointerId)) {
+          handleEl.releasePointerCapture(pointerId);
+        }
+      } catch {
+        /* element may already be detached */
+      }
       document.body.style.userSelect = "";
       // Commit the final position to React so subsequent renders keep it.
       setPosition({ x: pendingX, y: pendingY });
     };
     // Prevent text selection flicker mid-drag.
     document.body.style.userSelect = "none";
-    window.addEventListener("pointermove", handleDragMove);
-    window.addEventListener("pointerup", handleDragEnd);
-    window.addEventListener("pointercancel", handleDragEnd);
+    // Listen on the captured element — captured pointer events route here
+    // even when the cursor leaves the window. `lostpointercapture` is the
+    // canonical end-of-drag signal (fires on alt-tab, window switch, etc.).
+    // Window `blur` covers the edge case where the browser loses focus
+    // without the OS dispatching a pointer event.
+    handleEl.addEventListener("pointermove", handleDragMove);
+    handleEl.addEventListener("pointerup", handleDragEnd);
+    handleEl.addEventListener("pointercancel", handleDragEnd);
+    handleEl.addEventListener("lostpointercapture", handleDragEnd);
+    window.addEventListener("blur", handleDragEnd);
   }, []);
 
   const hasContent = thinkingBlocks.length > 0 || tools.size > 0;
