@@ -48,14 +48,14 @@ export async function okOrThrow(res: Response, label: string): Promise<Response>
  * Cancellation: a stale response that resolves after unmount or after a
  * loader change is ignored (won't setState on dead components).
  */
-export type Resource<T> = {
+type Resource<T> = {
   data: T | null;
   error: string | null;
   loading: boolean;
   retry: () => void;
 };
 
-export function useResource<T>(loader: () => Promise<T>): Resource<T> {
+function useResource<T>(loader: () => Promise<T>): Resource<T> {
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -87,7 +87,7 @@ export function useResource<T>(loader: () => Promise<T>): Resource<T> {
   return { data, error, loading, retry };
 }
 
-export type Me = {
+type Me = {
   userName: string;
   userEmail: string | null;
   workspaceUrl: string;
@@ -104,7 +104,7 @@ export type ScriptStep = {
   triggerAfter?: string[];
 };
 
-export type AppConfig = {
+type AppConfig = {
   /** Pinned MLflow experiment id, used by AppHeader's "Experiment" link. */
   mlflowExperimentId: string | null;
   /** Auto-created experiment that holds the agent's traces. The chat's
@@ -115,12 +115,12 @@ export type AppConfig = {
   assistantScript: ScriptStep[];
 };
 
-export async function fetchMe(): Promise<Me> {
+async function fetchMe(): Promise<Me> {
   const res = await okOrThrow(await fetch('/api/me'), '/api/me');
   return res.json();
 }
 
-export async function fetchConfig(): Promise<AppConfig> {
+async function fetchConfig(): Promise<AppConfig> {
   const res = await okOrThrow(await fetch('/api/config'), '/api/config');
   return res.json();
 }

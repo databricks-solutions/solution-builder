@@ -406,8 +406,7 @@ export function ChatDock() {
           onClick={() => setOpen(true)}
           className="fixed bottom-4 right-4 sm:bottom-6 sm:right-6 z-40 inline-flex items-center gap-2 sm:gap-3 rounded-full px-4 sm:px-6 py-3 sm:py-3.5 text-sm sm:text-base font-semibold shadow-lg hover:shadow-xl hover:scale-105 active:scale-100 transition-all duration-200"
           style={{
-            background:
-              'linear-gradient(135deg, color-mix(in oklch, var(--primary) 82%, white) 0%, var(--primary) 55%, color-mix(in oklch, var(--primary) 88%, black) 100%)',
+            background: 'var(--dock-gradient)',
             color: 'var(--primary-foreground)',
           }}
         >

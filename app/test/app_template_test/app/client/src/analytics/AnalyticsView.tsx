@@ -15,9 +15,10 @@
  * regenerate types, then reference them in `<BarChart queryName=... />`.
  */
 import { useEffect, useMemo, useState } from 'react';
-import { BarChart, LineChart, DataTable, useAnalyticsQuery } from '@databricks/appkit-ui/react';
+import { BarChart, LineChart, useAnalyticsQuery } from '@databricks/appkit-ui/react';
 import { Database } from 'lucide-react';
 import { fetchWarehouse, type Warehouse } from '@/lib/api';
+import { BRAND_PALETTE } from '@/lib/brand';
 import { FacilityPanel } from './FacilityPanel';
 
 export function AnalyticsView() {
@@ -78,6 +79,7 @@ export function AnalyticsView() {
               parameters={empty}
               xKey="return_date"
               yKey="total_refund_usd"
+              colors={[BRAND_PALETTE[0]]}
               height={260}
               smooth
             />
@@ -93,6 +95,7 @@ export function AnalyticsView() {
               parameters={empty}
               xKey="product_name"
               yKey="return_count"
+              colors={[BRAND_PALETTE[0]]}
               height={260}
             />
           </ChartCard>
@@ -101,17 +104,13 @@ export function AnalyticsView() {
         <FacilityPanel />
 
         <ChartCard title="Worst production lots" scope="By return rate" flush>
-          {/* Desktop / tablet: paginated table with column-level filter. */}
+          {/* Desktop / tablet: compact custom table — appkit's DataTable
+              auto-mode gives wide auto-sized columns; we want a denser
+              layout where Region + Returns + Rate + Refund fit without
+              overflow. Phone-only card list lives in WorstLotsMobile. */}
           <div className="hidden sm:block">
-            <DataTable
-              queryKey="worst_lots"
-              parameters={empty}
-              filterColumn="lot_id"
-              filterPlaceholder="Filter by lot…"
-              pageSize={10}
-            />
+            <WorstLotsTable />
           </div>
-          {/* Phone: card list — same data, no horizontal scroll. */}
           <div className="sm:hidden">
             <WorstLotsMobile />
           </div>
@@ -158,14 +157,11 @@ function ChartCard({
 }
 
 /**
- * Phone-only renderer for the worst_lots query.
+ * worst_lots — phone card list + desktop dense table.
  *
- * Same data as the desktop DataTable, but one card per lot so all fields
- * are visible without horizontal scroll. The return-rate-% is the headline
- * (right side, big) since the table is sorted by it.
- *
- * Calls `useAnalyticsQuery` directly with the same `worst_lots` query key,
- * so type-safety + parameter binding stay identical to the DataTable.
+ * Both renderers share the query (one fetch), the row shape, the
+ * severity thresholds, and the loading/error/empty states. The only
+ * thing that varies between desktop and mobile is the row layout.
  */
 type WorstLotRow = {
   lot_id: string;
@@ -178,83 +174,145 @@ type WorstLotRow = {
   total_refund_usd: number;
 };
 
-function WorstLotsMobile() {
+/** Color the rate by severity. Uses --severity-* tokens so a re-theme
+ *  picks them up; thresholds are hardcoded business logic. */
+function rateToneClass(pct: number): string {
+  if (pct >= 20) return 'text-[var(--severity-danger)]';
+  if (pct >= 10) return 'text-[var(--severity-warning)]';
+  return 'text-foreground';
+}
+
+const compactUsd = (n: number) =>
+  '$' + Number(n).toLocaleString(undefined, { maximumFractionDigits: 0 });
+
+/** Shared fetch + state-handling. Returns either ready data or a
+ *  fallback ReactNode to render in the empty / loading / error cases. */
+function useWorstLots(): { data: WorstLotRow[] } | { fallback: React.ReactNode } {
   const empty = useMemo(() => ({}), []);
   const { data, isLoading, error } = useAnalyticsQuery<WorstLotRow>(
     'worst_lots',
     empty,
   );
-
   if (error) {
-    return (
-      <div className="px-4 py-3 text-sm text-destructive">
-        Couldn't load lots: {String((error as Error).message ?? error)}
-      </div>
-    );
+    return {
+      fallback: (
+        <div className="px-4 py-3 text-sm text-destructive">
+          Couldn't load lots: {String((error as Error).message ?? error)}
+        </div>
+      ),
+    };
   }
   if (isLoading || !data) {
-    return (
-      <div className="px-4 py-6 text-sm text-muted-foreground text-center">
-        Loading…
-      </div>
-    );
+    return {
+      fallback: (
+        <div className="px-4 py-6 text-sm text-muted-foreground text-center">
+          Loading…
+        </div>
+      ),
+    };
   }
   if (data.length === 0) {
-    return (
-      <div className="px-4 py-6 text-sm text-muted-foreground text-center">
-        No lots returned data.
-      </div>
-    );
+    return {
+      fallback: (
+        <div className="px-4 py-6 text-sm text-muted-foreground text-center">
+          No lots returned data.
+        </div>
+      ),
+    };
   }
+  return { data };
+}
 
+function WorstLotsMobile() {
+  const r = useWorstLots();
+  if ('fallback' in r) return r.fallback;
   return (
     <ul className="divide-y divide-border">
-      {data.map((r) => {
-        // Color the rate badge by severity — same thresholds as the
-        // desktop anger column.
-        const rateTone =
-          r.return_rate_pct >= 20
-            ? 'text-destructive'
-            : r.return_rate_pct >= 10
-              ? 'text-amber-600'
-              : 'text-foreground';
-        return (
-          <li key={r.lot_id} className="px-4 py-3">
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0 flex-1">
-                <div className="font-mono text-xs text-muted-foreground">
-                  {r.lot_id}
-                </div>
-                <div className="text-sm font-medium truncate mt-0.5">
-                  {r.product_name ?? '—'}
-                </div>
-                <div className="text-xs text-muted-foreground mt-0.5">
-                  {[r.facility, r.region].filter(Boolean).join(' · ') || '—'}
-                </div>
+      {r.data.map((row) => (
+        <li key={row.lot_id} className="px-4 py-3">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0 flex-1">
+              <div className="font-mono text-xs text-muted-foreground">
+                {row.lot_id}
               </div>
-              <div className="shrink-0 text-right">
-                <div className={`display text-xl font-semibold ${rateTone}`}>
-                  {r.return_rate_pct}%
-                </div>
-                <div className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
-                  return rate
-                </div>
+              <div className="text-sm font-medium truncate mt-0.5">
+                {row.product_name ?? '—'}
+              </div>
+              <div className="text-xs text-muted-foreground mt-0.5">
+                {[row.facility, row.region].filter(Boolean).join(' · ') || '—'}
               </div>
             </div>
-            <div className="mt-2 flex items-center justify-between gap-3 text-xs text-muted-foreground">
-              <span>
-                {r.return_count.toLocaleString()} returned ·{' '}
-                {r.units_sold.toLocaleString()} sold
-              </span>
-              <span className="font-mono text-foreground">
-                ${Number(r.total_refund_usd).toLocaleString(undefined, {
-                  maximumFractionDigits: 0,
-                })}
-              </span>
+            <div className="shrink-0 text-right">
+              <div
+                className={`display text-xl font-semibold ${rateToneClass(row.return_rate_pct)}`}
+              >
+                {row.return_rate_pct}%
+              </div>
+              <div className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
+                return rate
+              </div>
             </div>
-          </li>
-        );
-      })}
+          </div>
+          <div className="mt-2 flex items-center justify-between gap-3 text-xs text-muted-foreground">
+            <span>
+              {row.return_count.toLocaleString()} returned ·{' '}
+              {row.units_sold.toLocaleString()} sold
+            </span>
+            <span className="font-mono text-foreground">
+              {compactUsd(row.total_refund_usd)}
+            </span>
+          </div>
+        </li>
+      ))}
     </ul>
+  );
+}
+
+function WorstLotsTable() {
+  const r = useWorstLots();
+  if ('fallback' in r) return r.fallback;
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm tabular-nums">
+        <thead className="text-[11px] uppercase tracking-[0.1em] text-muted-foreground">
+          <tr className="border-b border-border">
+            <th className="text-left font-medium px-3 py-2">Lot</th>
+            <th className="text-left font-medium px-3 py-2">Product</th>
+            <th className="text-left font-medium px-3 py-2">Facility</th>
+            <th className="text-left font-medium px-3 py-2">Region</th>
+            <th className="text-right font-medium px-3 py-2">Returns</th>
+            <th className="text-right font-medium px-3 py-2">Rate</th>
+            <th className="text-right font-medium px-3 py-2">Refund</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-border">
+          {r.data.map((row) => (
+            <tr key={row.lot_id} className="hover:bg-muted/40">
+              <td className="px-3 py-2 font-mono text-xs">{row.lot_id}</td>
+              <td className="px-3 py-2 truncate max-w-[14rem]">
+                {row.product_name ?? '—'}
+              </td>
+              <td className="px-3 py-2 text-muted-foreground">
+                {row.facility ?? '—'}
+              </td>
+              <td className="px-3 py-2 text-muted-foreground">
+                {row.region ?? '—'}
+              </td>
+              <td className="px-3 py-2 text-right">
+                {row.return_count.toLocaleString()}
+              </td>
+              <td
+                className={`px-3 py-2 text-right font-semibold ${rateToneClass(row.return_rate_pct)}`}
+              >
+                {row.return_rate_pct}%
+              </td>
+              <td className="px-3 py-2 text-right font-mono">
+                {compactUsd(row.total_refund_usd)}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }

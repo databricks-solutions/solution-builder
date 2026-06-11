@@ -57,87 +57,55 @@
     margin-bottom: 1rem;
   }
 
-  /* Scene block — keep some padding so the SVG breathes but trim
-     the rounded radius to match the smaller card. Center the SVG
-     horizontally so wide-aspect scenes (380×280) don't anchor left
-     when the card shrinks under their natural width. */
+  /* Scene block: tighter padding/radius, centered, no min-height (let
+     the SVG viewBox aspect ratio drive height — capping it makes
+     fixed-position content drift off its anchor). */
   .dx-layer-scene {
     padding: 0.85rem;
     border-radius: 0.85rem;
     justify-content: center;
     align-items: center;
+    min-height: 0;
   }
-  /* Drop the max-height cap — it was forcing SVGs to render shorter
-     than their viewBox aspect ratio expected, which made content
-     anchored to a corner (e.g. the operator in the Act scene) appear
-     in the wrong place. Just let width: 100% drive proportional scale. */
   .dx-scene-svg {
     max-height: none;
   }
-  /* Phone: scene cards inherit a 320px min-height for desktop chrome —
-     drop it so each scene takes only what its viewBox needs. */
-  .dx-layer-scene {
-    min-height: 0;
-  }
-  /* Govern scene specifically renders with a lot of empty whitespace
-     at full-width because the consumer chips sit at viewBox corners.
-     Cap its rendered width so the chip ring stays dense and readable. */
-  .dx-layer[data-layer-id='govern'] .dx-scene-svg {
-    max-width: 260px;
-  }
-  /* Govern scene: kill the inner card chrome so the SVG sits flush
-     against the layer content. Saves the wasted band of padding above
-     and below the chip ring on phone. */
-  .dx-layer[data-layer-id='govern'] .dx-layer-scene {
+
+  /* "Bare scene" modifier — drop the tinted card chrome AND tighten
+     the outer layer padding. Used by layers whose scene draws its own
+     frame (Act's mock browser) or wastes whitespace in the card
+     (Govern's chip ring). Add the `dx-layer--bare-scene` class in JSX
+     to opt a layer in. */
+  .dx-layer--bare-scene .dx-layer-scene {
     padding: 0.25rem 0;
     background: transparent;
     border: none;
   }
-  /* Govern scene: bump SVG text sizes since the scene is denser now —
-     SVG `text` doesn't inherit Tailwind, so override fontSize directly. */
-  .dx-layer[data-layer-id='govern'] .dx-scene-svg text {
-    font-size: 12px;
-  }
-  /* Tighten the vertical spacing around the scene specifically:
-     less layer padding above the scene, less gap between scene and
-     content block below. The card chrome is gone so this is just
-     dead air. */
-  .dx-layer[data-layer-id='govern'] {
+  .dx-layer--bare-scene {
     padding-top: 1.25rem;
+    padding-bottom: 1.25rem;
     row-gap: 0.5rem;
   }
 
-  /* Act scene operator: relocate the avatar to the top-right of the
-     browser frame (which sits at x=80-300, y=32-192). The browser's
-     top-right corner is around (300, 32); placing the avatar at
-     (290, 36) anchors it neatly on the frame's top-right.
-     The label below (OPERATOR) gets hidden — the position carries the
-     meaning, the label would overlap the browser body. */
+  /* Govern scene: cap SVG width — its consumer chips sit at the
+     viewBox corners with a big empty middle, so at full container
+     width it reads sparse. Bump the SVG text size to compensate. */
+  .dx-layer[data-layer-id='govern'] .dx-scene-svg {
+    max-width: 260px;
+  }
+  .dx-layer[data-layer-id='govern'] .dx-scene-svg text {
+    font-size: 12px;
+  }
+
+  /* Act scene operator: relocate the avatar to the browser frame's
+     top-right (which sits at SVG x=80-300, y=32-192). y=48 keeps the
+     full pulse ring (r=26 max) inside the tight viewBox (top y=20).
+     Hide the OPERATOR label — the position carries the meaning. */
   .dx-act-operator-avatar {
-    /* SVG `transform` attribute on the JSX is (40 170); CSS overrides
-       to the new anchor. translate() values are in user space (SVG)
-       units, equivalent to viewBox coordinates.
-       y=48 keeps the full pulse ring (r=26 max) inside the tight
-       viewBox (top y=20): avatar center 48 - 26 = 22 ≥ 20. */
     transform: translate(290px, 48px);
   }
   .dx-act-operator-label {
     display: none;
-  }
-  /* Act scene: kill the inner card chrome (the bluish tinted background)
-     on phone — the mock browser already has its own frame, the outer
-     tint just stacks padding around it. */
-  .dx-layer[data-layer-id='act'] .dx-layer-scene {
-    padding: 0.25rem 0;
-    background: transparent;
-    border: none;
-  }
-  /* Trim the outer layer card padding above/below for the act layer
-     so the scene sits tight against the title block + the next layer. */
-  .dx-layer[data-layer-id='act'] {
-    padding-top: 1.25rem;
-    padding-bottom: 1.25rem;
-    row-gap: 0.5rem;
   }
 
   /* Capability accordion rows — slightly tighter so two rows fit in

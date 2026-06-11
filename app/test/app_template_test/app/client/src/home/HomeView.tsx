@@ -305,29 +305,11 @@ function JourneyDiagram({
           <Fragment key={i}>
             <button
               onClick={s.onClick}
-              className={`text-left rounded-xl px-4 py-4 flex flex-col gap-2 transition-all hover:shadow-sm ${
-                s.highlight
-                  ? 'border-2 bg-card hover:bg-card'
-                  : 'border border-border bg-card hover:border-foreground/30'
-              }`}
-              style={s.highlight ? { borderColor: 'var(--accent)' } : undefined}
+              className={`text-left rounded-xl px-4 py-4 flex flex-col gap-2 transition-all hover:shadow-sm ${stepCardClass(s.highlight)}`}
+              style={stepCardStyle(s.highlight)}
             >
-              <div
-                className="size-8 rounded-lg flex items-center justify-center"
-                style={{
-                  background: s.highlight ? 'var(--accent)' : 'var(--muted)',
-                  color: s.highlight ? 'var(--accent-foreground)' : 'var(--foreground)',
-                }}
-              >
-                {s.icon}
-              </div>
-              <div className="text-sm font-semibold text-foreground">{s.role}</div>
-              <div className="text-xs text-muted-foreground leading-snug italic">
-                {s.quote}
-              </div>
-              <div className="text-[11px] font-medium text-foreground/70 mt-1">
-                {s.cta}
-              </div>
+              <StepIcon step={s} size="sm" />
+              <StepText step={s} />
             </button>
             {i < steps.length - 1 && (
               <div className="flex items-center justify-center text-muted-foreground">
@@ -339,49 +321,95 @@ function JourneyDiagram({
       </div>
 
       {/* Phone: vertical rail of icons on the left (sequential-flow cue),
-          card per step on the right. Highlighted steps get the accent
-          border. */}
+          card per step on the right. */}
       <ol className="md:hidden relative flex flex-col gap-2.5">
         {/* Vertical rail behind the icon column — starts just under
-            step-1's icon and ends just above step-N's, so it reads as
-            a thread connecting the icons. */}
+            step-1's icon and ends just above step-N's. */}
         <div
           aria-hidden
           className="absolute left-[18px] top-7 bottom-7 w-px bg-border"
         />
         {steps.map((s, i) => (
           <li key={i} className="relative flex items-start gap-3">
-            <div
-              className="relative z-10 size-9 rounded-lg flex items-center justify-center shrink-0 mt-1"
-              style={{
-                background: s.highlight ? 'var(--accent)' : 'var(--muted)',
-                color: s.highlight ? 'var(--accent-foreground)' : 'var(--foreground)',
-              }}
-            >
-              {s.icon}
-            </div>
+            <StepIcon step={s} size="md" className="relative z-10 shrink-0 mt-1" />
             <button
               onClick={s.onClick}
-              className={`flex-1 min-w-0 text-left rounded-xl px-3 py-2.5 transition-all hover:shadow-sm ${
-                s.highlight
-                  ? 'border-2 bg-card'
-                  : 'border border-border bg-card'
-              }`}
-              style={s.highlight ? { borderColor: 'var(--accent)' } : undefined}
+              className={`flex-1 min-w-0 text-left rounded-xl px-3 py-2.5 transition-all hover:shadow-sm ${stepCardClass(s.highlight)}`}
+              style={stepCardStyle(s.highlight)}
             >
-              <div className="text-sm font-semibold text-foreground leading-tight">
-                {s.role}
-              </div>
-              <div className="text-xs text-muted-foreground italic leading-snug mt-0.5">
-                {s.quote}
-              </div>
-              <div className="text-[11px] font-medium text-foreground/70 mt-1">
-                {s.cta}
-              </div>
+              <StepText step={s} compact />
             </button>
           </li>
         ))}
       </ol>
+    </>
+  );
+}
+
+// --- Journey step primitives ------------------------------------------------
+// Shared between the desktop grid + the mobile rail. Owning the highlight
+// styling here means a tweak to "what does highlighted look like" lands
+// in one place instead of two.
+
+type JourneyStep = {
+  icon: React.ReactNode;
+  role: string;
+  quote: string;
+  highlight: boolean;
+  cta: string;
+  onClick: () => void;
+};
+
+function stepCardClass(highlight: boolean): string {
+  return highlight
+    ? 'border-2 bg-card'
+    : 'border border-border bg-card hover:border-foreground/30';
+}
+
+function stepCardStyle(highlight: boolean): React.CSSProperties | undefined {
+  return highlight ? { borderColor: 'var(--accent)' } : undefined;
+}
+
+function StepIcon({
+  step,
+  size,
+  className = '',
+}: {
+  step: JourneyStep;
+  size: 'sm' | 'md';
+  className?: string;
+}) {
+  // Literal Tailwind classes so the JIT picks them up at build time.
+  const sizeClass = size === 'sm' ? 'size-8' : 'size-9';
+  return (
+    <div
+      className={`${sizeClass} rounded-lg flex items-center justify-center ${className}`}
+      style={{
+        background: step.highlight ? 'var(--accent)' : 'var(--muted)',
+        color: step.highlight ? 'var(--accent-foreground)' : 'var(--foreground)',
+      }}
+    >
+      {step.icon}
+    </div>
+  );
+}
+
+function StepText({ step, compact = false }: { step: JourneyStep; compact?: boolean }) {
+  return (
+    <>
+      <div
+        className={`text-sm font-semibold text-foreground ${compact ? 'leading-tight' : ''}`}
+      >
+        {step.role}
+      </div>
+      <div
+        className={`text-xs text-muted-foreground leading-snug italic ${compact ? 'mt-0.5' : ''}`}
+      >
+        {step.quote}
+      </div>
+      <div className="text-[11px] font-medium text-foreground/70 mt-1">
+        {step.cta}
+      </div>
     </>
   );
 }

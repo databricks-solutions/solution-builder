@@ -134,11 +134,11 @@ function IngestTransformScene() {
   // Sources, each with a Lucide icon that *feels* right for the source type.
   // Tint colors stay subtle, theme-friendly. Pill widths grow to fit text.
   const sources = [
-    { name: 'SaaS apps', icon: Cloud, x: 14, y: 38, tint: '#0FAAFF' },
-    { name: 'ERP / OLTP', icon: Server, x: 14, y: 90, tint: '#6366f1' },
-    { name: 'Streams', icon: Activity, x: 14, y: 142, tint: '#ef4444' },
-    { name: 'Object store', icon: Box, x: 14, y: 194, tint: '#f59e0b' },
-    { name: 'Databases', icon: HardDrive, x: 14, y: 246, tint: '#10b981' },
+    { name: 'SaaS apps', icon: Cloud, x: 14, y: 38, tint: 'var(--platform-source-saas)' },
+    { name: 'ERP / OLTP', icon: Server, x: 14, y: 90, tint: 'var(--platform-source-erp)' },
+    { name: 'Streams', icon: Activity, x: 14, y: 142, tint: 'var(--platform-source-streams)' },
+    { name: 'Object store', icon: Box, x: 14, y: 194, tint: 'var(--platform-source-object)' },
+    { name: 'Databases', icon: HardDrive, x: 14, y: 246, tint: 'var(--platform-source-db)' },
   ];
   const hubX = 280;
   const hubY = 142;
@@ -169,9 +169,9 @@ function IngestTransformScene() {
       <div className="dx-ingest-mobile-arrow">↓</div>
       <div className="dx-ingest-mobile-hub">
         {[
-          { label: 'Bronze', dot: '#a16207' },
-          { label: 'Silver', dot: '#9ca3af' },
-          { label: 'Gold', dot: '#eab308' },
+          { label: 'Bronze', dot: 'var(--medal-bronze)' },
+          { label: 'Silver', dot: 'var(--medal-silver)' },
+          { label: 'Gold', dot: 'var(--medal-gold)' },
         ].map((tier) => (
           <span key={tier.label} className="dx-ingest-mobile-tier">
             <span
@@ -247,9 +247,9 @@ function IngestTransformScene() {
         />
         {/* tier rows */}
         {[
-          { label: 'Bronze', dot: '#a16207' },
-          { label: 'Silver', dot: '#9ca3af' },
-          { label: 'Gold', dot: '#eab308' },
+          { label: 'Bronze', dot: 'var(--medal-bronze)' },
+          { label: 'Silver', dot: 'var(--medal-silver)' },
+          { label: 'Gold', dot: 'var(--medal-gold)' },
         ].map((tier, i) => (
           <g key={tier.label} transform={`translate(12 ${20 + i * 24})`}>
             <rect
@@ -627,9 +627,9 @@ function ActScene() {
           strokeWidth="1.5"
         />
         <rect width="220" height="22" rx="12" fill="var(--primary)" opacity="0.10" />
-        <circle cx="14" cy="11" r="3" fill="#ef4444" />
-        <circle cx="26" cy="11" r="3" fill="#eab308" />
-        <circle cx="38" cy="11" r="3" fill="#22c55e" />
+        <circle cx="14" cy="11" r="3" fill="var(--trafficlight-red)" />
+        <circle cx="26" cy="11" r="3" fill="var(--trafficlight-yellow)" />
+        <circle cx="38" cy="11" r="3" fill="var(--trafficlight-green)" />
         <rect x="0" y="22" width="44" height="138" fill="var(--muted)" opacity="0.5" />
         <rect x="8" y="32" width="28" height="4" rx="2" fill="var(--muted-foreground)" opacity="0.4" />
         <rect x="8" y="42" width="24" height="4" rx="2" fill="var(--muted-foreground)" opacity="0.4" />
@@ -659,7 +659,7 @@ function ActScene() {
         {/* live feed */}
         <g transform="translate(56 76)">
           <rect width="156" height="78" rx="6" fill="var(--background)" stroke="var(--border)" />
-          <circle cx="10" cy="12" r="3.5" fill="#22c55e">
+          <circle cx="10" cy="12" r="3.5" fill="var(--trafficlight-green)">
             <animate
               attributeName="opacity"
               values="1;0.3;1"
@@ -692,7 +692,7 @@ function ActScene() {
           shrinking mock-app frame and reads as "floating in space".
           CSS moves the avatar to the browser's top-right corner and
           hides the label so the meaning carries from position alone. */}
-      <g className="dx-act-operator dx-act-operator-avatar" transform="translate(40 170)">
+      <g className="dx-act-operator-avatar" transform="translate(40 170)">
         <circle r="20" fill="var(--primary)" opacity="0.10" />
         <circle r="20" fill="none" stroke="var(--primary)" strokeWidth="1.5">
           <animate attributeName="r" values="20;26;20" dur="2.2s" repeatCount="indefinite" />
@@ -708,7 +708,7 @@ function ActScene() {
         <path d="M -7 8 C -7 2 7 2 7 8" fill="var(--primary)" />
       </g>
       <text
-        className="dx-act-operator dx-act-operator-label"
+        className="dx-act-operator-label"
         x="40"
         y="198"
         textAnchor="middle"
@@ -942,9 +942,20 @@ function LayerBand({ layer, index }: { layer: Layer; index: number }) {
   const Scene = layer.Scene;
   const hasStrip =
     layer.id === 'ingest-transform' || layer.id === 'speak-to-data';
+  // Layers whose scene already draws its own frame (Act's mock browser)
+  // or wastes whitespace inside the scene-card (Govern's chip ring) get
+  // the bare-scene modifier: phone-only, drops the outer tinted chrome
+  // and tightens vertical padding around the scene.
+  const bareScene = layer.id === 'govern' || layer.id === 'act';
   return (
     <section
-      className={`dx-layer ${hasStrip ? 'has-genie-strip' : ''}`}
+      className={[
+        'dx-layer',
+        hasStrip && 'has-genie-strip',
+        bareScene && 'dx-layer--bare-scene',
+      ]
+        .filter(Boolean)
+        .join(' ')}
       data-layer-id={layer.id}
       style={{ animationDelay: `${index * 140}ms` }}
     >
