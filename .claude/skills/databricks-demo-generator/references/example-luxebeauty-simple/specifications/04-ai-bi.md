@@ -125,10 +125,6 @@ widgetHeaderAlignment: LEFT
 | Haircare | `#FFDD4A` |
 | Fragrance | `#FE9000` |
 
-### Canonical reference
-
-`dashboard/dashboard.json` next to this spec is the shipped, hand-tuned dashboard. **Copy it and re-point the `catalog` / `schema` placeholders** — every widget below already exists in that file with the right encodings, color pins, frame descriptions, and annotation. The rest of this section explains the *why* behind each widget so future demos can adapt it without re-discovering the rules.
-
 ### Datasets (4 total)
 
 | Name | Source | Powers |

@@ -22,7 +22,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { useLocation } from 'react-router';
-import { ArrowRight, ArrowUp, PenSquare, Sparkles, Square, X } from 'lucide-react';
+import { ArrowRight, ArrowUp, ChevronLeft, PenSquare, Sparkles, Square, X } from 'lucide-react';
 import { Spinner } from '@databricks/appkit-ui/react';
 import {
   fetchDockConversation,
@@ -404,32 +404,52 @@ export function ChatDock() {
       {!open && (
         <button
           onClick={() => setOpen(true)}
-          className="fixed bottom-6 right-6 z-40 inline-flex items-center gap-3 rounded-full px-6 py-3.5 text-base font-semibold shadow-lg hover:shadow-xl hover:scale-105 active:scale-100 transition-all duration-200"
+          className="fixed bottom-4 right-4 sm:bottom-6 sm:right-6 z-40 inline-flex items-center gap-2 sm:gap-3 rounded-full px-4 sm:px-6 py-3 sm:py-3.5 text-sm sm:text-base font-semibold shadow-lg hover:shadow-xl hover:scale-105 active:scale-100 transition-all duration-200"
           style={{
-            background:
-              'linear-gradient(135deg, color-mix(in oklch, var(--primary) 82%, white) 0%, var(--primary) 55%, color-mix(in oklch, var(--primary) 88%, black) 100%)',
+            background: 'var(--dock-gradient)',
             color: 'var(--primary-foreground)',
           }}
         >
           <Sparkles className="size-5 animate-sparkle" />
-          Ask the assistant — from question to resolution
+          <span className="hidden sm:inline">Ask the assistant — from question to resolution</span>
+          <span className="sm:hidden">Ask the assistant</span>
         </button>
       )}
 
       {open && (
-        <div className="fixed bottom-5 right-5 z-40 w-[440px] h-[760px] max-h-[92vh] rounded-2xl border border-border bg-card shadow-2xl flex flex-col overflow-hidden">
+        // Mobile: full-screen sheet (inset-0, no rounded corners).
+        // Tablet/desktop: fixed 440×760 dock flush against the bottom-right
+        // corner (no margin) — reads as a docked panel, not a floating
+        // popup. Only the top-left corner gets rounded so the inside corner
+        // against the viewport edge stays sharp.
+        <div className="fixed inset-0 sm:inset-auto sm:bottom-0 sm:right-0 z-40 sm:w-[440px] sm:h-[760px] sm:max-h-[92vh] sm:rounded-tl-2xl border-0 sm:border-l sm:border-t border-border bg-card shadow-2xl flex flex-col overflow-hidden">
           {/* Header — clicking anywhere on it (outside the action buttons)
-              collapses the dock. Same behavior as the X button. */}
+              collapses the dock. Same behavior as the X button.
+              On mobile the dock is full-screen, so we add a prominent
+              "Back" chevron on the LEFT to make the close affordance
+              obvious (the small X top-right is easy to miss on a phone). */}
           <div
             onClick={closeDock}
-            className="px-4 py-3 border-b border-border flex items-center justify-between cursor-pointer select-none"
+            className="px-3 sm:px-4 py-3 border-b border-border flex items-center justify-between cursor-pointer select-none"
             style={{ background: 'var(--primary)', color: 'var(--primary-foreground)' }}
             role="button"
             aria-label="Collapse assistant"
             title="Click to collapse"
           >
-            <div className="flex items-center gap-2 text-sm font-semibold">
-              <Sparkles className="size-4" />
+            <div className="flex items-center gap-1.5 sm:gap-2 text-sm font-semibold">
+              {/* Phone-only Back chevron. stopPropagation isn't needed —
+                  clicking it ALSO collapses the dock (same handler), the
+                  chevron just makes it look like a "back" action. */}
+              <button
+                type="button"
+                onClick={closeDock}
+                className="sm:hidden -ml-1 p-1 rounded hover:bg-[var(--on-primary-hover)] transition-colors"
+                aria-label="Back"
+                title="Back"
+              >
+                <ChevronLeft className="size-5" strokeWidth={2.5} />
+              </button>
+              <Sparkles className="size-4 hidden sm:inline" />
               Assistant
             </div>
             {/* stopPropagation so clicking the inner buttons doesn't also

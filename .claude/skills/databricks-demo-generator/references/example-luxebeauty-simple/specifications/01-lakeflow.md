@@ -1,8 +1,6 @@
 # Lakeflow — Data Generation + Small Transformation Chain
 
 > **Simple-demo contract.** Python writes 5 pandas DataFrames as Parquet files into a UC Volume; `spark.sql` then runs 5 CTAS statements (parquet → `raw_*` Delta tables) + 2 transforms (`raw_*` → `gold_*` Delta tables) + a constraint block. **No SDP, no metric view, no ai_classify** — interactive SQL is enough for the simple story. Visible lineage in Catalog Explorer. Talking track: *"in production this is where Lakeflow Connect drops files; we'd shape them with SDP."*
->
-> **Canonical reference**: `data_generation/generate_data.py` next to this spec — one self-contained file (synth + Parquet drop + spark.sql transforms). Copy it into the project and re-point CATALOG/SCHEMA/VOLUME (env vars). The rest of this doc explains *why* the file looks the way it does.
 
 ---
 

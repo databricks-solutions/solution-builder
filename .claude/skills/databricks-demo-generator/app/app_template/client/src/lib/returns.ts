@@ -11,12 +11,10 @@
 import { okOrThrow } from './api';
 import type {
   CityBucket,
-  CountryBucket,
   CustomerOrder,
   Decision,
   FacilityLotRow,
   FacilityRow,
-  LotRow,
   ReturnDetail,
   ReturnRow,
   ReturnStatus,
@@ -59,19 +57,6 @@ export async function fetchReturnsSummary(): Promise<ReturnsSummary[]> {
   return res.json();
 }
 
-export async function fetchCountryBreakdown(
-  filters: { status?: ReturnStatus; lot?: string } = {},
-): Promise<CountryBucket[]> {
-  const qs = new URLSearchParams();
-  if (filters.status) qs.set('status', filters.status);
-  if (filters.lot) qs.set('lot', filters.lot);
-  const res = await okOrThrow(
-    await fetch(`/api/returns/by-country?${qs}`),
-    '/api/returns/by-country',
-  );
-  return res.json();
-}
-
 export async function fetchCityBreakdown(
   filters: { status?: ReturnStatus; lot?: string } = {},
 ): Promise<CityBucket[]> {
@@ -81,14 +66,6 @@ export async function fetchCityBreakdown(
   const res = await okOrThrow(
     await fetch(`/api/returns/by-city?${qs}`),
     '/api/returns/by-city',
-  );
-  return res.json();
-}
-
-export async function fetchLotSummary(limit = 6): Promise<LotRow[]> {
-  const res = await okOrThrow(
-    await fetch(`/api/lots/summary?limit=${limit}`),
-    '/api/lots/summary',
   );
   return res.json();
 }

@@ -42,7 +42,7 @@ Remember, the spec could be anything. You must follow them, below are typical sp
 Always first. Everything downstream needs the tables to exist. Typically has (can vary per demo)
 
 - **A. Synthetic data generation** — write the data-gen script (if the spec calls for one), run it, verify volume files exist. Invoke the `databricks-synthetic-data-gen` ai-dev-kit skill for the runtime / framework / writing patterns. **For simple demos** (no SDP), also lift `DEMO_SKILL_DIR/references/example-luxebeauty-simple/data_generation/generate_data.py` as a worked starting point — the Parquet-drop-on-Volume + inline `spark.sql` CTAS pattern is already wired. It's a syntax reference, not a fill-in-the-blanks template — schema, entities, IDs, story-shaping rules, time anchors, and the entire data narrative all change per demo.
-- **B. Spark Declarative Pipeline** — write the SDP code, run the pipeline, verify Bronze/Silver/Gold tables populated. Only when `sdp` is in the buildable capabilities.
+- **B. Spark Declarative Pipeline** — write the SDP code, run the pipeline, verify Bronze/Silver/Gold tables populated. Only when `sdp` is in the buildable capabilities (no SDP in simple demos).
 - **C. PDF** — Generate pdf documents for the demo (only when KA is in scope).
 
 **Gate before step 2:** every Gold table referenced by downstream specs has rows. Quick `SELECT COUNT(*)` per table.

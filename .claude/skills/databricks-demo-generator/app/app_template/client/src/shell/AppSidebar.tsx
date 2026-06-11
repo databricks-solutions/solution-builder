@@ -11,6 +11,7 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarRail,
+  useSidebar,
 } from '@databricks/appkit-ui/react';
 import { Spinner } from '@databricks/appkit-ui/react';
 import { BarChart3, LayoutDashboard, MessagesSquare, PackageOpen, Plus, Trash2 } from 'lucide-react';
@@ -29,6 +30,13 @@ export function AppSidebar() {
   const [creating, setCreating] = useState(false);
   const navigate = useNavigate();
   const { list: convoList } = useConversationList();
+  const { isMobile, setOpenMobile } = useSidebar();
+
+  // On phone the sidebar opens as a full-height overlay; collapse it after
+  // any nav so the user lands on the destination, not a covered screen.
+  const closeOnMobile = () => {
+    if (isMobile) setOpenMobile(false);
+  };
 
   async function newChat() {
     if (creating) return;
@@ -36,6 +44,7 @@ export function AppSidebar() {
     try {
       const c = await conversationStore.create();
       navigate(`/c/${c.id}`);
+      closeOnMobile();
     } finally {
       setCreating(false);
     }
@@ -51,7 +60,7 @@ export function AppSidebar() {
   return (
     <Sidebar collapsible="icon">
       <SidebarHeader>
-        <NavLink to="/" className="flex items-center gap-2.5 px-2 py-2 rounded-md hover:bg-sidebar-accent transition-colors">
+        <NavLink to="/" onClick={closeOnMobile} className="flex items-center gap-2.5 px-2 py-2 rounded-md hover:bg-sidebar-accent transition-colors">
           <div
             className="flex aspect-square size-8 items-center justify-center rounded-md text-primary-foreground font-semibold shrink-0"
             style={{ background: 'var(--primary)' }}
@@ -72,7 +81,7 @@ export function AppSidebar() {
             <SidebarMenu>
               {navItems.map((item) => (
                 <SidebarMenuItem key={item.to}>
-                  <NavLink to={item.to} end={item.end}>
+                  <NavLink to={item.to} end={item.end} onClick={closeOnMobile}>
                     {({ isActive }) => (
                       <SidebarMenuButton isActive={isActive} tooltip={item.label}>
                         <item.icon className="size-4" />
@@ -100,7 +109,7 @@ export function AppSidebar() {
                 >
                   <path
                     d="m 62.064999,8.591 -8.631,4.859 L 44.192,8.258 43.747,8.498 v 3.77 l 9.686999,5.431 8.63,-4.84 v 1.995 l -8.63,4.86 -9.241999,-5.192 -0.445,0.24 v 0.646 l 9.686999,5.432 9.668,-5.432 v -3.769 l -0.445,-0.24 -9.223,5.173 L 44.784,11.732 V 9.736 l 8.649999,4.84 9.668,-5.43 V 5.43 l -0.482,-0.277 -9.186,5.155 -8.204999,-4.582 8.204999,-4.6 6.741,3.787 0.593,-0.332 V 4.119 L 53.433999,0 43.747,5.431 v 0.592 l 9.686999,5.432 8.63,-4.86 z"
-                    fill="#ee3d2c"
+                    fill="var(--databricks-red)"
                   />
                 </svg>
               </span>
@@ -117,7 +126,7 @@ export function AppSidebar() {
           <SidebarGroupContent>
             <SidebarMenu>
               <SidebarMenuItem>
-                <NavLink to="/platform">
+                <NavLink to="/platform" onClick={closeOnMobile}>
                   {({ isActive }) => (
                     <SidebarMenuButton
                       isActive={isActive}
@@ -131,7 +140,7 @@ export function AppSidebar() {
                       >
                         <path
                           d="m 62.064999,8.591 -8.631,4.859 L 44.192,8.258 43.747,8.498 v 3.77 l 9.686999,5.431 8.63,-4.84 v 1.995 l -8.63,4.86 -9.241999,-5.192 -0.445,0.24 v 0.646 l 9.686999,5.432 9.668,-5.432 v -3.769 l -0.445,-0.24 -9.223,5.173 L 44.784,11.732 V 9.736 l 8.649999,4.84 9.668,-5.43 V 5.43 l -0.482,-0.277 -9.186,5.155 -8.204999,-4.582 8.204999,-4.6 6.741,3.787 0.593,-0.332 V 4.119 L 53.433999,0 43.747,5.431 v 0.592 l 9.686999,5.432 8.63,-4.86 z"
-                          fill="#ee3d2c"
+                          fill="var(--databricks-red)"
                         />
                       </svg>
                       <span>Databricks Data + AI</span>
@@ -165,7 +174,7 @@ export function AppSidebar() {
               )}
               {convoList.map((c) => (
                 <SidebarMenuItem key={c.id} className="group/convo">
-                  <NavLink to={`/c/${c.id}`}>
+                  <NavLink to={`/c/${c.id}`} onClick={closeOnMobile}>
                     {({ isActive }) => (
                       <SidebarMenuButton
                         isActive={isActive}
