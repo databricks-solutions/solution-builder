@@ -28,6 +28,11 @@ Before you start writing, check `resources.json` capabilities and read the match
   No `sdp`, no `metric-views`, no `ml-training-serving`, no `knowledge-assistant`, no `supervisor-agent`.
   → Reference: **`DEMO_SKILL_DIR/references/example-luxebeauty-simple/specifications/`**
   (synth → gold tables directly, no SDP / KA / MAS / ML; 2 spec files at the top level + the `app/` subset).
+  Two canonical artifacts ship alongside the simple spec, ready to lift verbatim into the spec text:
+  - **`example-luxebeauty-simple/data_generation/generate_data.py`** — self-contained Python (pandas → Parquet on UC Volume → inline `spark.sql` CTAS for raw + gold + constraints). When writing `01-lakeflow.md`, reference this file so the build agent can use it as the starting skeleton.
+  - **`example-luxebeauty-simple/dashboard/dashboard.json`** — the shipped Lakeview JSON with the 5-stop palette, frame descriptions, and category/source color pins already wired. When writing `04-ai-bi.md`, reference this file so the build agent can use it as the layout starting point.
+
+  **These are examples, not templates.** They exist so you (and the build agent) can see the *syntax* and the file *shape* — what a working Parquet-drop synth looks like, what a populated Lakeview JSON looks like with the right encoding fields. **Everything in them must change per demo**: the story (persona, narrative, hero numbers), the schema (entities, columns, IDs), the widgets (which charts, what they show, what they're titled), positions, types, color pins, descriptions, dataset SQL — all of it. Treat the files as "this is the *kind* of thing you produce", not "fill in the blanks".
 
 - **Full demo** — any of `sdp`, `metric-views`, `ml-training-serving`, `knowledge-assistant`, `supervisor-agent` is selected.
   → Reference: **`DEMO_SKILL_DIR/references/example-luxebeauty/specifications/`**
@@ -75,7 +80,7 @@ Functional specs — **what** to build, not **how**. Each file must be unambiguo
   - **Signal visible to the eye.** When the dashboard renders, anyone in the room should point at the anomaly without squinting. Realistic noise + a subtle event = invisible chart. If signal-to-noise is borderline, dial the event up or the noise down. Make the trade-off explicit (e.g. *"the lot's return spike must dominate baseline daily variance"*).
   - **Temporal realism — peak in the past, avoid at the chart edge.** Build-up → peak → decay back toward baseline. Anchor the peak ~2–4 weeks ago with explicit timestamps (`SPIKE_PEAK = NOW − 3 weeks`, `DECAY_START = NOW − 2 weeks`). A spike at the rightmost edge looks like a cliff, not a story.
 - **Coherence contracts**: which columns/tables are consumed downstream (gold-table dimensions must match dashboard filters, KPI definitions must match Genie answers, KA document content must contain what the demo flow asks about, identifiers must match across data and PDFs).
-- **Dashboard**: review the aibi-dashboard.md for the widget list. Prefer charts group/color by a key dimension (region, category, segment). Bar charts stacked/grouped by the filter dimension; line charts colored by region or category. 
+- **Dashboard**: read the capability block `DEMO_SKILL_DIR/references/blocks/capabilities/aibi-dashboards.md` — it covers widget types, encoding rules, theme + color pinning, frame descriptions, sankey top-N bucketing, the symbol-map nested-coordinates pattern, and all the silent-failure pitfalls. Prefer charts that group/color by a key dimension (region, category, segment). Bar charts stacked/grouped by the filter dimension; line charts colored by region or category. **`databricks-aibi-dashboards`** (the ai-dev-kit skill) handles HOW to emit the JSON during Stage 3; this spec stays WHAT-only.
 - **Genie / MAS**: make sure it's all connected to the data, and typically to the KA (pdf docs) if the MAS + KA capabilities are selected
 - **Shared values defined once**: affected SKUs, lot, persona, baseline metrics live in `01-lakeflow.md`. Later specs reference "from 01" instead of restating.
 

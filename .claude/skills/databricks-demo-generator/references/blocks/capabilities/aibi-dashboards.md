@@ -21,6 +21,14 @@ Three-beat: **what changed** (counters + trend) → **why it matters** (breakdow
 - **Tension**: Breakdown charts and detail table show which categories/regions/entities drive the change.
 - **Handoff**: Dashboard raises the "why?" it can't answer alone → Genie, app, or agent.
 
+### Self-sufficient pages (do this, not optional)
+
+A user opening the dashboard cold should grasp the story in 5 seconds. Two devices:
+
+- **Page-header text widget** (Row 1 of every page, 12-wide markdown). Names the event (what happened + headline number + cause + blast radius) and tells the reader what to look for on this page (which widget answers which question, what shape they should expect to see). ~5 lines. Lift from the README — don't restate the full narrative, just the dashboard-relevant tour.
+- **Frame descriptions** on the load-bearing widgets (1-2 short lines, `frame.description` + `frame.showDescription: true` — the flag is OFF by default so descriptions don't render unless you flip it). Pin them on the chart that needs a caption to read correctly — the forecast (e.g., *"Refunds spiked 3 weeks ago, decaying back toward baseline. Vertical bar = the day the bad lot shipped."*), the counter-argument chart (*"Orders stay flat — the business is fine, only refunds spiked."*), the sankey (*"Three Skincare SKUs all converge on one lot."*), the comments table (*"Sort by Anger to surface the bad-lot complaints."*). Don't paste descriptions on every chart — the visual ones don't need words.
+- **Section headings inside a page**: thin `text` widgets (`height: 1`, 12-wide) with `## Heading` markdown. Use to separate logical groups when a page has more than one beat (e.g., `## Affected lot vs everyday returns` then `## Customer sentiment & geography`).
+
 ## What Dashboards Can Do
 
 Dashboards are SQL-backed: each widget draws from a dataset (a SQL query on Gold tables). The dashboard engine handles aggregation and filtering automatically — you don't write aggregation logic, you design the data shape.
@@ -40,17 +48,17 @@ Every chart needs **two axes** — a dimension (what you group by) and a measure
 | **Combo (bar+line)** | x = dimension; y with two fields, one bar + one line; vertical-line annotations supported | dual metrics on shared x-axis |
 | **Scatter / Bubble** | x = quantitative; y = quantitative; color = categorical (optional); size = quantitative (optional, bubble) | correlation between two measures |
 | **Choropleth map** | geo dimension (admin0/admin1 by name or ISO); measure; color scale with `scheme`/`mappings` (optional) | geographic distribution by region (countries, states) colored by an aggregate |
-| **Symbol map (point map)** | `coordinates: { latitude, longitude }` (nested shape, top-level fields won't render); size = quantitative (optional); color = quantitative with `colorRamp` or categorical with `mappings` (optional) | per-point geo data — customers, sites, sensors. Aggregate to (city, country) with `AVG(lat), AVG(lng), COUNT(*)` for a clean bubble map |
+| **Symbol map (point map)** | `coordinates: { latitude, longitude }` (nested shape, top-level fields won't render); size = quantitative (optional); color = quantitative with `colorRamp.scheme: "YlOrRd"` (the only quantitative scheme symbol-map reliably honors; `custom-sequential` and `Blues` render blank) or categorical with `mappings` (optional) | per-point geo data — customers, sites, sensors. Pass **bare** lat/lng field names (e.g. `customer_lat`, `customer_lng`), NOT `AVG(...)` — Lakeview groups implicitly; aggregated coords render blank. `mark.opacity: 1` reads better than transparent at this scale. |
 | **Pie** | `angle` = quantitative (REQUIRED — slice size); `color` = categorical (REQUIRED — slice grouping) | composition snapshot, 3-8 slices; usually a horizontal bar is clearer |
 | **Heatmap** | x = categorical; y = categorical; color = quantitative with `colorRamp` | "X by Y" intensity matrix — useful for cohort or category × dimension density |
 | **Histogram** | x = `BIN_FLOOR(col, N)`; y = `COUNT(*)` | frequency distribution; bin width is set in the widget's field expression, not the dataset SQL |
 | **Pivot** | rows = list of categorical fields; columns = list of categorical fields; cell = measure(s) with optional `style.rules` or `cellType: "color-scale"` | cross-tab (X × Y × measure); heat-map-style cell coloring; cohort retention tables |
-| **Sankey** | `value` = quantitative; `stages` = ordered list of categorical fields | flow between two or more stages — channel → outcome, funnel-with-attribution |
+| **Sankey** | `value` = quantitative; `stages` = ordered list of categorical fields (2-4 stages) | flow between stages — funnel, attribution chain, category → product → batch. **Top-N bucket the tails in the dataset SQL** (`CASE WHEN field IN top_N THEN field ELSE 'Other'`) before sending to the widget — without it a long-tail dimension produces dozens of pencil-thin flows that drown the dominant path. Top 10 for the middle stage + top 15 for the last is a good default. |
 | **Funnel** | x = stage (ordered); y = `count` quantitative | stage-by-stage conversion (signups → activations → paid) |
 | **Box** | x = categorical; y = quantitative | distribution summary across categories — median, quartiles, outliers |
 | **Waterfall** | x = period; y = signed quantitative deltas | cumulative effect (P&L bridge, MoM revenue walk) |
 | **Table** | columns; sort (optional); per-column `format` / `style.rules` / `link` / `tooltip` | high-cardinality detail view; conditional cell coloring with thresholds |
-| **Text** | markdown lines | section headers/answers ("Fraud Rate 3x Above Baseline") |
+| **Text** | markdown lines (`multilineTextboxSpec.lines`) | page-header narrative (`height: 3-4`), section dividers (`height: 1`, `## Heading`), title-as-answer ("Fraud Rate 3x Above Baseline"). **Gotcha**: lines in the array concatenate WITHOUT newlines — pass a single string with `\n\n` for paragraphs, or one line per array element with explicit `\n` at the end. |
 | **Filter** | one column on each dataset to filter; default value (optional) | cross-applies to every widget whose dataset has the filter column |
 
 > **Vertical-line annotations** are a load-bearing story device on time-series widgets (`line`, `area`, `bar`, `combo`, `forecast-line`). Mark a cause-event date (incident, launch, campaign) — the eye instantly maps cause to effect. Always specify the marker color from the theme palette (`visualizationColors[N]`) so it doesn't clash.
@@ -108,6 +116,32 @@ The anomaly is the whole point. Every design choice must make it impossible to m
 - **Title widgets as answers.** "Fraud Rate 3x Above Baseline" not "Fraud Rate."
 - **Scope every metric.** Units in labels ($, %), active date range, freshness.
 
+### Theme + color pinning
+
+Set a 5-stop `theme.visualizationColors` palette on the dashboard (cool → warm or low → high progression). Position 0 is the anchor — used for the largest/affected category and KPI sparklines. Pair it with `canvasBackgroundColor` (light blue-tinted neutral works well), `widgetBackgroundColor` = white, `widgetBorderColor` = same as widget bg (= no visible border, widgets float on the canvas), `widgetHeaderAlignment: LEFT`.
+
+**Color pins** — for any chart that colors by a category (donut by category, stacked bar by category, affected-vs-everyday by source, etc.):
+
+- Pin **literal hex strings**, never positional refs (`themeColorType: position N` won't survive when Lakeview re-cycles the palette by SQL-result order — different widgets reading different datasets land on different positions for the same category value). The shape is bare-string in `scale.mappings[].color`:
+
+  ```json
+  "color": {
+    "fieldName": "category",
+    "scale": {
+      "type": "categorical",
+      "mappings": [
+        { "value": "Skincare", "color": "#094074" },
+        { "value": "Makeup",   "color": "#5ADBFF" }
+      ]
+    }
+  }
+  ```
+
+  **Bare hex string only** — the object form (`"color": {"hex": "#094074"}`) is silently ignored on chart widgets. The bare-string form is the load-bearing detail; if you see categories swapping colors between widgets, the form was wrong.
+- Pin the SAME category value to the SAME hex across every widget that colors by that dimension on the same page. Mismatched pins = different colors for the same category in two charts = broken story.
+- Semantic pins (affected vs everyday, success vs failure) get their own pair — typically a warm hue (e.g. `#FFDD4A`) for the anomaly and a cool steel/navy for the baseline. Pin both on every affected-vs-everyday chart.
+- Counter sparklines need BOTH `value.color` AND `period.color` pinned to the same hex — without the `period` pin the sparkline renders in a desaturated default that's nearly invisible against white.
+
 ## Chart Design Rules
 
 - **Color by dimension when possible**: charts can group by a second dimension (e.g., returns by week colored by category) to reveal what drives the metric — 3-6 color groups max (ideal in barchart).
@@ -140,12 +174,15 @@ Dashboard design decisions flow backward into the pipeline spec. When specifying
 
 When writing dashboard specifications, include:
 
-1. **Filters table**: Filter name → Column → Datasets it filters → Default value
-2. **Layout, top-to-bottom on the canvas page** — describe each row in one line as `Row N — <widget(s)>: <span> — <intent>`, e.g. `Row 1 — 3 KPIs side by side (4 cols each): Revenue, Orders, Return Rate ⚠️`. Use **column counts out of 12** ("4 cols", "6 cols each", "full width"). No ASCII grid; the skill assigns the actual `x`/`y`/`width`/`height`.
-3. **Per widget**: name (used as title-as-answer), source table, encodings (`x = …; y = …; color = …` for charts; `columns` for tables), and what the user should see (numbers, sort order, anomaly visibility).
-4. **Validation criteria**: KPI values, chart shape (spike position, decay), filter behavior (select X → all widgets update).
+1. **Theme block**: the 5-stop `visualizationColors` palette + canvas/widget/font/selection hex codes. State the position-0 anchor color explicitly (used for sparklines + the affected category).
+2. **Category color pins table**: every category → literal hex. Same pins reused on every chart that colors by that category. Same for any semantic pair (affected vs everyday, success vs failure).
+3. **Filters table**: Filter name → Column → Datasets it filters → Default value.
+4. **Layout** — a small table per page with `(y, x, width, height, widget_name)` rows, derived from the 12-column grid. Walks top-to-bottom; rows with two side-by-side widgets share a `y`. Lets the build agent emit `position` blocks 1:1 without re-deriving the layout.
+5. **Per widget**: name (used as title-as-answer), source dataset, widget type, encodings (`x = …; y = …; color = …` with the literal hex pins for color), frame description if the chart benefits from a caption, and what the user should see (numbers, sort order, anomaly visibility).
+6. **Self-sufficient page header**: spec out the Row-1 markdown text widget — what the persona, the event, the headline number, and the "what to look at on this page" hint should be.
+7. **Validation criteria**: KPI values, chart shape (spike position, decay), filter behavior (select X → all widgets update), and color-pin sanity checks (same category = same color across widgets).
 
-The spec describes WHAT to show. The ai-dev-kit skill handles HOW to build the JSON. Don't put JSON or technical API details in the spec.
+The spec describes WHAT to show. The ai-dev-kit `databricks-aibi-dashboards` skill handles HOW to build the JSON. Don't put full JSON in the spec.
 
 ## Pitfalls
 
@@ -158,6 +195,10 @@ The spec describes WHAT to show. The ai-dev-kit skill handles HOW to build the J
 - **Missing filter columns** — if a dataset lacks the filter column, that widget won't respond to the filter.
 - **Too-fine cardinality in charts** — 50 categories in a bar chart is unreadable, instead get the top ~6 then aggregate as "other" using a window function.
 - **`queryLines` joined without whitespace** — array elements are concatenated verbatim. Each element except the last must end with a space or `\n`, e.g. `["SELECT * ", "FROM items ", "WHERE x = 1"]` (or use a single-element array).
+- **`color` object form is silently ignored** on chart widgets. Use bare-string `"color": "#094074"` in `scale.mappings[].color`, NEVER `"color": {"hex": "#094074"}`. The object form is accepted on theme stops but not on per-widget mappings; mismatched form = palette falls back to defaults with no error in the UI.
+- **Frame descriptions don't render unless `frame.showDescription: true`** is set on that widget. The flag is OFF by default. Setting `frame.description` without the flag = your caption never shows up and you'll think the JSON is broken.
+- **Symbol map with aggregated lat/lng renders blank.** Use bare `customer_lat`, `customer_lng` field names — Lakeview groups implicitly. `AVG(lat), AVG(lng)` in the dataset SQL → no points on the map.
+- **Text widget `lines` concatenate without newlines.** If you pass `["# Title", "Body"]`, you get `# TitleBody`. Either use a single-element array with explicit `\n\n` between paragraphs, OR end every element except the last with `\n`.
 
 ## Connections
 

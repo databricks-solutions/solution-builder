@@ -41,9 +41,9 @@ Remember, the spec could be anything. You must follow them, below are typical sp
 
 Always first. Everything downstream needs the tables to exist. Typically has (can vary per demo)
 
-- **A. Synthetic data generation** — write the data-gen script (if the spec calls for one), run it, verify volume files exist.
-- **B. Spark Declarative Pipeline** — write the SDP code, run the pipeline, verify Bronze/Silver/Gold tables populated.
-- **C. PDF** — Generate pdf documents for the demo
+- **A. Synthetic data generation** — write the data-gen script (if the spec calls for one), run it, verify volume files exist. Invoke the `databricks-synthetic-data-gen` ai-dev-kit skill for the runtime / framework / writing patterns. **For simple demos** (no SDP), also lift `DEMO_SKILL_DIR/references/example-luxebeauty-simple/data_generation/generate_data.py` as a worked starting point — the Parquet-drop-on-Volume + inline `spark.sql` CTAS pattern is already wired. It's a syntax reference, not a fill-in-the-blanks template — schema, entities, IDs, story-shaping rules, time anchors, and the entire data narrative all change per demo.
+- **B. Spark Declarative Pipeline** — write the SDP code, run the pipeline, verify Bronze/Silver/Gold tables populated. Only when `sdp` is in the buildable capabilities.
+- **C. PDF** — Generate pdf documents for the demo (only when KA is in scope).
 
 **Gate before step 2:** every Gold table referenced by downstream specs has rows. Quick `SELECT COUNT(*)` per table.
 
@@ -102,6 +102,8 @@ While the App subagent (if any) runs in the background, work through the rest of
 - `02-uc-governance.md` — UC grants, metric views, row-level security.
 - `03-ml-*.md` — :  ML train / register / inference, usually as a serverless job (10–15 min), usually the predictions table must exist before building 04 or 05 if either consumes it.
 - `04-ai-bi.md` — Genie space, then dashboard (sequential). May read the predictions table from `03`.
+  - **Dashboard**: invoke the `databricks-aibi-dashboards` ai-dev-kit skill — it owns the JSON shape, encoding rules, and grid math. Cross-reference `DEMO_SKILL_DIR/references/blocks/capabilities/aibi-dashboards.md` for the load-bearing patterns (color pinning, frame descriptions, symbol-map coordinates, sankey top-N bucketing, silent-failure pitfalls).
+  - **For simple demos** (no SDP / KA / MAS / ML), additionally lift `DEMO_SKILL_DIR/references/example-luxebeauty-simple/dashboard/dashboard.json` as a worked starting point — every encoding shape, color pin, frame description, and section divider you need is already in there. **It's a syntax reference, not a fill-in-the-blanks template** — the demo's story, persona, widget set, positions, colors, descriptions, and dataset SQL all change per build; lift only what the current story actually needs.
 - `05-agent-bricks.md` — KA, then MAS (sequential; KA needs unstructured docs if the spec calls for them — generate those first as part of this step). May call Genie over the `03` predictions table.
 - Anything else the spec invented — pick the matching ai-dev-kit skill, build, validate, record the ID.
 
