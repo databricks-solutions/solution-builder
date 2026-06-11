@@ -164,7 +164,7 @@ export function OperationsView() {
 
   return (
     <div className="h-full overflow-y-auto">
-      <div className="max-w-7xl mx-auto px-8 py-10 space-y-8">
+      <div className="max-w-7xl mx-auto px-4 sm:px-8 py-6 sm:py-10 space-y-6 sm:space-y-8">
         <div>
           <div className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground mb-2">
             Returns — operations queue

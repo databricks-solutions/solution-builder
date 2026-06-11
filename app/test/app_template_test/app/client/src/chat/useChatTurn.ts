@@ -23,12 +23,12 @@ import { streamChat } from './streamChat';
 import type { ThinkingEvent } from './ThinkingPanel';
 
 /** Minimal shape of a chat message the hook needs to build the stream payload. */
-export type ChatTurnMessage = {
+type ChatTurnMessage = {
   role: 'user' | 'assistant' | 'system';
   content: string;
 };
 
-export type UseChatTurnHandlers = {
+type UseChatTurnHandlers = {
   /** Append a user message optimistically. Called first when `send()` fires. */
   appendUser: (content: string) => void;
   /** Append an empty assistant bubble we'll stream into. */

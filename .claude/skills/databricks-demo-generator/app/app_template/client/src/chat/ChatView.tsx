@@ -146,13 +146,13 @@ export function ChatView() {
           onClose={() => turn.setThinkingClosed(true)}
         />
       )}
-      <div className="px-8 py-4 border-b border-border">
+      <div className="px-4 sm:px-8 py-4 border-b border-border">
         <div className="max-w-4xl mx-auto flex items-center justify-between">
           <h2 className="font-medium text-foreground truncate">{title}</h2>
         </div>
       </div>
       <div ref={scrollRef} onScroll={onMessagesScroll} className="flex-1 overflow-y-auto">
-        <div className="max-w-4xl mx-auto px-8 py-6 space-y-6">
+        <div className="max-w-4xl mx-auto px-4 sm:px-8 py-6 space-y-6">
           {loading && msgs.length === 0 && (
             <div className="flex items-center justify-center py-16">
               <Spinner />
@@ -229,7 +229,7 @@ export function ChatView() {
       </div>
       <div className="border-t border-border bg-background">
         {nextStep && !turn.streaming && msgs.length > 0 && (
-          <div className="max-w-4xl mx-auto px-8 pt-3">
+          <div className="max-w-4xl mx-auto px-4 sm:px-8 pt-3">
             <div className="text-[10px] font-semibold uppercase tracking-[0.15em] text-muted-foreground mb-1.5">
               Suggested next
             </div>
@@ -247,7 +247,7 @@ export function ChatView() {
             </button>
           </div>
         )}
-        <form onSubmit={onSubmit} className="px-8 py-4">
+        <form onSubmit={onSubmit} className="px-4 sm:px-8 py-4">
           <div className="max-w-4xl mx-auto flex items-end gap-2 rounded-2xl border-2 border-foreground/10 bg-card px-4 py-2.5 focus-within:border-foreground/30 transition-colors">
             <input
               value={input}

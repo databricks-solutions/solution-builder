@@ -57,7 +57,12 @@ export function ReturnDrawer({ id, open, onOpenChange, onMutated }: Props) {
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="right"
-        className="!w-full sm:!max-w-[60vw] sm:!w-[60vw] p-0 flex flex-col"
+        // Phone: full-screen drawer (w-full).
+        // Tablet (sm+): 60vw — wide enough to read on iPad.
+        // Desktop (lg+): cap at ~640px so it doesn't dominate a 24" screen.
+        // !important needed because @databricks/appkit-ui Sheet sets its own
+        // default width that wins specificity otherwise.
+        className="!w-full sm:!w-[60vw] sm:!max-w-[60vw] lg:!w-[640px] lg:!max-w-[640px] p-0 flex flex-col"
       >
         {!detail && loading && (
           <div className="p-8 text-muted-foreground">Loading…</div>

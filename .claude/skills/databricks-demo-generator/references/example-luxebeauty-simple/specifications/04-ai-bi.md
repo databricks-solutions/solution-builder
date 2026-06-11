@@ -22,6 +22,14 @@ Create `LuxeBeauty Operations Analytics` Genie Space.
 
 The manufacturing incident text lives on `raw_production_lots.incident_summary`. When Claire asks Genie *"why so many returns?"*, the final hop is `SELECT incident_summary FROM raw_production_lots WHERE lot_id = '<AFFECTED>'` — Genie quotes it back inline. One join from the lot found in step 3 to the explanation in step 5; no intermediate table needed.
 
+### Self-sufficient room
+
+Anyone opening the Genie room must understand the story without prior context. Wire all three:
+
+- **Space `description`** (set via `PATCH /api/2.0/genie/spaces/<id>`): 1-3 sentences naming the event (what happened + headline number + cause + blast radius) and pointing to the suggested questions in order. Pulled from the README — don't restate it, lift it.
+- **Story-context `text_instruction`** at the TOP of `instructions.text_instructions[]`: WHAT HAPPENED · WHAT TO HELP THE PERSONA DO · TONE. ~5-8 lines. The LLM honors this on every turn.
+- **`sample_questions`** chips AND matching `example_question_sqls` walk the story arc end-to-end in the same order — see "Sample Questions" below.
+
 ### Instructions
 
 ```
@@ -47,16 +55,16 @@ GEOGRAPHIC FOLLOW-UP (optional, after root cause):
 CUSTOMER FEEDBACK (from affected lot): "grainy texture" / "product separated" / "consistency is watery" / "texture feels off"
 ```
 
-### Sample Questions
+### Sample Questions — story-arc walk
 
-- "What's our return rate this month?"
-- "Why do I have so many returns?"
-- "Which products have the most returns?"
-- "What are customers saying about returns?"
-- "Show me returns trend for the last 8 weeks"
-- "Which lot has the most returns?"
-- "Tell me about lot [LOT-ID]" *(Genie surfaces the `incident_summary` field here)*
-- "Which countries have the most affected customers?"
+Ship these as chips (`config.sample_questions`) AND as curated SQLs (`instructions.example_question_sqls`) — same order on both lists. The arc walks an unfamiliar user from "what's wrong?" to "what's next?" without prior context:
+
+1. **Headline** — "What's our return rate this month, and how does it compare to baseline?" → weekly SUM(returns_usd) + return_rate from `gold_daily_summary`, last 8 weeks.
+2. **Drill to products** — "Why do I have so many returns? Trace it to the products and the lot." → top products by COUNT from `gold_returns`.
+3. **Drill to lot + QC story** — "Which production lot is driving the spike, and what does the QC note say?" → CTE finds the top lot for the 3 affected SKUs, JOINs `raw_production_lots` to quote `incident_summary` — the punchline.
+4. **Customer voice** — "What are customers saying? Show recent affected-lot comments." → `gold_returns WHERE is_bad_lot` recent — surfaces "grainy" / "separated" / "watery".
+5. **Blast radius** — "Where are the affected customers? Group by country." → COUNT DISTINCT + SUM refunds, `WHERE is_bad_lot`.
+6. **Recovery** — "Are refunds recovering? Show the trend and what's next." → last 6 weeks of SUM(returns_usd) showing the decay.
 
 ### Validation
 
@@ -82,30 +90,51 @@ Reminder: set `--dataset-catalog` and `--dataset-schema` when running `databrick
 A great Databricks dashboard reads in 5 seconds and supports a deep-dive in 30. This one earns its keep on:
 
 - **Two pages, one story**: page 1 is the glance — *"something happened, here's the shape and forecast"*. Page 2 is the deep-dive — *"here's exactly which products, lots, countries, and complaints"*. Operators land on page 1 daily; analysts open page 2 once.
-- **Three datasets, no more**: one daily aggregate (`ds_daily` → KPIs + category donut), one row-level fact (`ds_returns` → map, country splits, comments, product/lot rollups via GROUP BY), one forecast TVF (`ds_forecast`, separate because `AI_FORECAST` can't share). Cross-widget click-filtering works inside each dataset — fewer datasets = more interactivity.
+- **Four datasets, kept lean**: one daily aggregate (`ds_daily` → KPIs + donut + orders area), one row-level fact (`ds_returns` → map, country splits, comments, sentiment), one forecast TVF (`ds_forecast`, separate because `AI_FORECAST` can't share), one pre-bucketized sankey source (`ds_sankey_flow` — top-10 products + top-15 lots, long tails bucketed in-SQL). Cross-widget click-filtering works inside each dataset — keeping `ds_returns` shared across 6 widgets is what makes the Investigation page interactive.
 - **KPI sparklines carry the story at a glance**: each counter uses the `period` encoding so a tiny weekly trend renders behind the headline number. The Refunds counter shows the spike-then-decay shape even before the eye drops to the forecast.
 - **A map is the visual hook**: bubble map on Operations page, full width — instantly readable, beats any table for *"where are the affected customers?"*.
-- **One AI/BI showcase per page**: Operations gets `AI_FORECAST` (showing AI-native analytics inside a dashboard); Investigation gets the per-row split charts that demonstrate Lakeview's grouped-bar comparisons.
+- **One AI showcase per page**: Operations gets `AI_FORECAST` (showing AI-native analytics inside a dashboard); Investigation gets the `ai_classify`-derived sentiment bar (full demo uses the real LLM call at ingest; simple demo computes the same column heuristically — see `01-lakeflow.md` § Anger score).
 - **Clean theme — no borders, white canvas, blue palette**: `widgetBorderColor` matches `widgetBackgroundColor` so widgets float on the canvas; left-aligned widget headers; one cohesive cool palette. The result reads as "modern analytics product", not "default template".
+- **Self-sufficient pages**: Row 1 of every page is a markdown `text` widget that names the event (what / when / cause / blast radius) and tells the reader what to look at on this page (which widget answers which question, what shape they should expect to see, how to drill). A user opening this dashboard cold should know the story in 5 seconds. Lift the situation from the README — don't repeat the full narrative, just the dashboard-relevant tour.
 
 ### Theme
 
 ```
-canvasBackgroundColor: #FFFFFF (light) / #0F1419 (dark)
+canvasBackgroundColor: #F5F7FB (light, blue-tinted neutral) / #0F1419 (dark)
 widgetBackgroundColor: #FFFFFF (light) / #161B22 (dark)
 widgetBorderColor:     same as widgetBackgroundColor (= no visible border)
-fontColor:             #111827 (light) / #E8ECF0 (dark)
-visualizationColors:   ["#2563EB","#0EA5E9","#0891B2","#1E3A8A","#7C3AED","#0D9488","#F59E0B"]
+fontColor:             #1F2530 (light) / #E8ECF0 (dark)
+selectionColor:        #4F7CE3 (light) / #8ACAFF (dark)
+visualizationColors:   ["#094074","#3C6997","#5ADBFF","#FFDD4A","#FE9000"]
 widgetHeaderAlignment: LEFT
 ```
 
-### Datasets (3 total)
+5-stop palette progresses cool → warm: deep navy → steel blue → sky cyan → soft yellow → vivid orange. Position 0 (`#094074` navy) is the visual anchor — used for the largest category (Skincare in this demo) and KPI sparklines.
+
+**Semantic colors (literal-hex pinned everywhere, NEVER `themeColorType: position N`):**
+- **Affected lot / incident annotation** → `#FFDD4A` soft yellow.
+- **Everyday returns / baseline** → `#3C6997` steel blue.
+
+**Category color pins (literal-hex on every widget colored by `category`)** — Lakeview cycles the palette by SQL-result order, which differs across widgets reading different datasets. Pinning each category guarantees the same color across donut + stacked bar:
+
+| Category | Hex |
+|---|---|
+| Skincare | `#094074` (the affected category — anchor) |
+| Bodycare | `#3C6997` |
+| Makeup | `#5ADBFF` |
+| Haircare | `#FFDD4A` |
+| Fragrance | `#FE9000` |
+
+### Datasets (4 total)
 
 | Name | Source | Powers |
 |---|---|---|
-| `ds_daily` | `SELECT date, region, category, order_count, return_count, revenue_usd, returns_usd FROM gold_daily_summary WHERE date >= DATEADD(day, -90, current_date())` | 4 KPI counters + category donut |
-| `ds_returns` | `SELECT return_id, return_date, country, city, customer_lat, customer_lng, region, product_name, category, lot_id, facility, is_bad_lot, CASE WHEN is_bad_lot THEN 'Affected lot' ELSE 'Everyday returns' END AS source, return_reason, return_reason_text, refund_amount_usd FROM gold_returns WHERE return_date >= DATEADD(day, -90, current_date())` | Map, country split bars, product/lot rollups (GROUP BY at widget level), reason splits, comments table |
+| `ds_daily` | `SELECT date, region, category, order_count, return_count, revenue_usd, returns_usd FROM gold_daily_summary WHERE date >= DATEADD(day, -90, current_date())` | 4 KPI counters + category donut + weekly-orders area chart |
+| `ds_returns` | `SELECT return_id, return_date, country, city, customer_lat, customer_lng, region, product_name, category, lot_id, facility, is_bad_lot, CASE WHEN is_bad_lot THEN 'Affected lot' ELSE 'Everyday returns' END AS source, return_reason, customer_comment, anger_score, CASE WHEN anger_score >= 0.9 THEN '3 - Very angry' WHEN anger_score >= 0.5 THEN '2 - Angry' WHEN anger_score >= 0.2 THEN '1 - Neutral' ELSE '0 - Satisfied' END AS sentiment, refund_amount_usd FROM gold_returns WHERE return_date >= DATEADD(day, -90, current_date())` | Bubble map, refunds-by-country bar, affected-vs-everyday split bars (country + reasons), sentiment bar, city table, comments table |
 | `ds_forecast` | `WITH original AS (SELECT DATE_TRUNC('WEEK', date) AS week, SUM(returns_usd) AS refunds FROM gold_daily_summary WHERE DATE_TRUNC('WEEK', date) < DATE_TRUNC('WEEK', current_date()) AND date >= DATEADD(day, -180, current_date()) GROUP BY 1), …, forecast AS (SELECT … FROM AI_FORECAST(TABLE(original), horizon => …, time_col => 'week', value_col => 'refunds')) SELECT actuals UNION ALL forecast UNION ALL <bridging row that repeats the last actual as the forecast seam>` | Forecast-line widget (full pattern in dashboard skill's `4-examples.md` — copy verbatim, swap names) |
+| `ds_sankey_flow` | `WITH product_totals AS (SELECT product_name, COUNT(*) n FROM gold_returns WHERE return_date >= DATEADD(day, -90, current_date()) GROUP BY 1), top_products AS (SELECT product_name FROM product_totals ORDER BY n DESC LIMIT 10), lot_totals AS (...) , top_lots AS (... LIMIT 15) SELECT category, CASE WHEN product_name IN top_products THEN product_name ELSE 'Other products' END AS product_name, CASE WHEN lot_id IN top_lots THEN lot_id ELSE 'Other lots' END AS lot_id, COUNT(*) returns FROM gold_returns r WHERE return_date >= … GROUP BY 1,2,3` | Sankey widget on the Investigation page — top-10 products + top-15 lots, long tails bucketed as "Other …" |
+
+`ds_forecast` and `ds_sankey_flow` aren't shared with anything; the global filters skip them by design.
 
 ### Global filters (left panel — `PAGE_TYPE_GLOBAL_FILTERS`)
 
@@ -115,55 +144,89 @@ widgetHeaderAlignment: LEFT
 | Region | `region` | ds_daily, ds_returns | All |
 | Category | `category` | ds_daily, ds_returns | All |
 
-`ds_forecast` is **unfiltered** by all three — `AI_FORECAST` needs a stable trailing window.
+`ds_forecast` is **unfiltered** by all three — `AI_FORECAST` needs a stable trailing window. `ds_sankey_flow` is also unfiltered — it already top-N bucketizes inside the SQL.
 
 ### Page 1 — Operations (the glance)
 
-**Row 1** — title markdown. *"LuxeBeauty Returns — Operations. Claire Dubois, VP Ops. The bad lot LOT-{date} ships in late April, the surge follows weeks later. We've traced it; this dashboard tracks the recovery."*
+Layout is a 12-column grid; widgets list their `(x, y, width, height)` so the dashboard JSON's `position` blocks are unambiguous.
 
-**Row 2 — 4 × `counter` (sparklines via `period` encoding, weekly bucket)**. Source: `ds_daily`.
+| Row (y) | x | w | h | Widget |
+|---|---|---|---|---|
+| 0  | 0 | 12 | 3 | `title` (markdown) |
+| 3  | 0 |  3 | 3 | `kpi_refunds` |
+| 3  | 3 |  3 | 3 | `kpi_returns` |
+| 3  | 6 |  3 | 3 | `kpi_orders` |
+| 3  | 9 |  3 | 3 | `kpi_refund_rate` |
+| 6  | 0 | 12 | 5 | `trend_chart` (forecast-line) |
+| 11 | 0 |  7 | 6 | `orders_by_region_area` |
+| 11 | 7 |  5 | 7 | `country_chart_refunds` |
+| 17 | 0 |  7 | 6 | `customer_map` (bubble map) |
+| 18 | 7 |  5 | 5 | `category_donut` |
 
-- **Refunds — last 90d** · `SUM(returns_usd)` · currency compact · *sparkline shows spike-then-decay — the visual hook.*
+**`title` — markdown widget**. Self-sufficient page header so a cold reader knows what they're looking at. ~5 lines covering: what happened (refunds spiked 3× three weeks ago) · cause (the affected lot ID + Lyon factory + QC note) · blast radius (250 EU-skewed customers) · what to see on this page (KPI sparklines carry the spike-then-decay shape, forecast marks the incident date with a vertical bar, donut shows Skincare dominates, map lights Europe). Lift the substance from the README — don't repeat it verbatim.
+
+**4 × `counter` (sparklines via `period` encoding, weekly bucket)** — `kpi_refunds`, `kpi_returns`, `kpi_orders`, `kpi_refund_rate`. Source: `ds_daily`. Pin both `value.color` AND `period.color` to the primary literal-hex (`#094074`) — without the period pin, the sparkline renders in a desaturated default that's nearly invisible against white.
+
+- **Refunds — last 90d** · `SUM(returns_usd)` · `number-currency` USD compact, `decimalPlaces: max 1` · *sparkline shows spike-then-decay — the visual hook.*
 - **Returns — last 90d** · `SUM(return_count)` · number compact · *sparkline matches refunds.*
 - **Orders — last 90d** · `SUM(order_count)` · number compact · *sparkline flat — the business is fine.*
 - **Refund Rate (%)** · `SUM(return_count) / SUM(order_count)` · percent · *same definition Genie uses.*
 
-**Row 3 — `forecast-line` · "Weekly refunds — actuals + forecast"**. Source: `ds_forecast`. x = `week` (temporal); y `refunds` = actuals (solid); y `refunds_forecast` / `refunds_upper` / `refunds_lower` = forecast band (dashed); y format `number-currency` USD compact. Bridging row repeating last actual as `refunds_forecast` so the band doesn't disconnect at the seam.
+**`trend_chart` — `forecast-line` "Weekly refunds — actuals + forecast"** (12-wide). Source: `ds_forecast`. x = `week` (temporal); y `refunds` = actuals (solid); y `refunds_forecast` / `refunds_upper` / `refunds_lower` = forecast band (dashed); y format `number-currency` USD compact. Bridging row repeating last actual as `refunds_forecast` so the band doesn't disconnect at the seam.
 
-- **Vertical-line annotation** on `AFFECTED_LOT_DATE`, label `"Production incident PIR-<YYYY-MM-DD> — Lyon HMG-03 calibration drift"`, marker `visualizationColors[3]` (`#1E3A8A` navy). Same date as the affected lot's `incident_summary` — they MUST match.
-- *Baseline ticks flat for ~5w → navy bar drops in (the incident) → ~5w later the line spikes to ~$180K → decays toward baseline → continues as dashed band 4w ahead. Cause → effect → what's next, in one chart.*
+- **Vertical-line annotation** on `AFFECTED_LOT_DATE`, label format `"Product issue: lot LOT-<YYYY-MMDD> ships"` (short, executive-readable). No explicit `color` so the marker inherits the theme neutral — label carries the meaning, coloring it warm steals attention from the spike. Same date as the affected lot's `incident_summary` — they MUST match.
+- **Frame description** (renders below the title): *"Refunds spiked 3 weeks ago, decaying back toward baseline. Vertical bar = the day the bad lot shipped."* Self-explains the chart so a viewer doesn't need to read the spec.
+- *Baseline ticks flat for ~5w → annotation bar drops in (the lot ships) → ~5w later the line spikes to ~$180K → decays toward baseline → continues as dashed band 4w ahead. Cause → effect → what's next, in one chart.*
 
-**Row 4 — `symbol-map` · "Affected customers — bubble map"**. Source: `ds_returns`, widget-level filter `is_bad_lot = TRUE`. Encoding `coordinates: { latitude: AVG(customer_lat), longitude: AVG(customer_lng) }` (nested; top-level fields won't render), grouped by `(city, country)`, size = `COUNT(DISTINCT customer_id)`, tooltip city + count + `SUM(refund_amount_usd)`, semi-transparent primary fill, `colorRamp.scheme: "RdYlBu"` (capitalized; `"redyellowblue"` silently fails).
+**`orders_by_region_area` (7-wide) + `country_chart_refunds` (5-wide) — side by side**
 
-- *Europe lights up: Paris dominates (~30+ affected), then London / Milan / Madrid / Berlin cluster; US East/West mid-sized; Tokyo / Seoul / Sydney small. Answers "where did the bad lot land?" before anyone reads a number.*
+- **`area` · "Weekly orders by region"** (left, 7-wide) · `ds_daily` · x = `weekly(date)`, y = `SUM(order_count)`, color = `region`. **Only US is pinned** (`#FE9000`); EU + APAC fall through to default palette positions. The US line is the visual anchor (70% of sales), so a literal pin keeps it warm-orange across re-renders even if Lakeview re-cycles the palette. Frame description: *"Orders stay flat — the business is fine, only refunds spiked."* *Counter-argument widget — proves the revenue line isn't disturbed. Without this an executive wonders "is this a demand problem too?". This kills that question.*
+- **`bar` horizontal stacked · "Refunds by country"** (right, 5-wide) · `ds_returns` · y = `country`, x = `SUM(refund_amount_usd)`, **color = `category` with the same 5-stop literal-hex pins as the donut** (Skincare→`#094074`, Bodycare→`#3C6997`, Makeup→`#5ADBFF`, Haircare→`#FFDD4A`, Fragrance→`#FE9000`). *France leads, then IT / GB / DE / US — and the deep-navy Skincare slice dominates every affected-country stack. Pinning matches the donut beside it so the same category reads the same color across both widgets (Lakeview cycles the palette by SQL-result order; pinning is the only way to guarantee agreement).*
 
-**Row 5 — two side-by-side**
+**`customer_map` (7-wide) + `category_donut` (5-wide) — side by side**
 
-- **`pie` (donut) · "Refunds by category"** · `ds_daily` · slices = `category`, angle = `SUM(returns_usd)` · *one slice dwarfs the rest — Skincare. Pairs with the map: affected lot is Skincare, Europe is Skincare-heavy.*
-- **`bar` horizontal stacked · "Refunds by country"** · `ds_returns` · y = `country`, x = `SUM(refund_amount_usd)`, color = `category` · *France leads, then IT / GB / DE / US — and Skincare dominates every affected-country stack. Category + geography in one chart.*
+- **`symbol-map` · "Affected customers — bubble map"** (left, 7-wide). Source: `ds_returns` (no widget-level filter — let the global Date/Region/Category filters scope the cohort). Encoding `coordinates: { latitude: customer_lat, longitude: customer_lng }` (bare field names, NOT `AVG(...)` — Lakeview's `symbol-map` documented pattern wants raw lat/lng; aggregated coords render blank). Group implicit by `(city, country)`, size = `COUNT(DISTINCT customer_id)`, color = `SUM(refund_amount_usd)`, tooltip city + count + refunds. `mark.opacity: 1` (solid — denser bubbles read better than transparent at this scale). `colorRamp.scheme: "YlOrRd"` (the only quantitative scheme `symbol-map` reliably honors; `custom-sequential` and `Blues` render blank). *Europe lights up: Paris dominates (~30+ affected) deep red, then London / Milan / Madrid / Berlin cluster.*
+- **`pie` (donut) · "Refunds by category"** (right, 5-wide) · `ds_daily` · slices = `category`, angle = `SUM(returns_usd)`, color via literal-hex category pins (above) · *one slice dwarfs the rest — Skincare in deep navy. Pairs with the map: affected lot is Skincare, Europe is Skincare-heavy.*
 
 ### Page 2 — Investigation (the deep-dive)
 
-**Row 1** — title markdown. *"Investigation — why is this happening? The same data, split by the dimensions that matter: which products, which lots, which countries, and what customers are saying."*
+Same 12-column grid as Page 1. The `sec_*` widgets are thin (`h=1`) markdown section dividers, NOT chart widgets — they just label the next row.
 
-**Row 2 — Top offenders**
+| Row (y) | x | w | h | Widget |
+|---|---|---|---|---|
+|  0 | 0 | 12 | 4 | `returns_title` (markdown) |
+|  4 | 0 | 12 | 8 | `category_product_lot_sankey` |
+| 12 | 0 | 12 | 1 | `sec_compare` (markdown: `## Affected lot vs everyday returns`) |
+| 13 | 0 |  6 | 6 | `country_split_chart` |
+| 13 | 6 |  6 | 6 | `reasons_split_chart` |
+| 19 | 0 | 12 | 1 | `sec_sentiment` (markdown: `## Customer sentiment & geography`) |
+| 20 | 0 |  6 | 5 | `anger_chart` |
+| 20 | 6 |  6 | 5 | `city_table` |
+| 25 | 0 | 12 | 6 | `angry_comments_table` |
 
-- **`bar` horizontal · "Returns by product"** · `ds_returns` · y = `product_name`, x = `COUNT(return_id)`, sort x DESC · *three Skincare SKUs (SKU-1001/1002/1003) sit an order of magnitude above the rest — "Skincare is the problem."*
-- **`bar` horizontal · "Worst production lots"** · `ds_returns` · y = `lot_id`, x = `COUNT(return_id)`, sort x DESC · *one lot bar towers ~10× over the next — the spike concentrated in a single production run; the same lot the timeline marked.* Count, not rate — simple demo doesn't carry units_sold per lot.
+**`returns_title` — markdown widget (12-wide)**. Same pattern as Page 1's title: self-sufficient, ~5 lines. Frames the deep-dive: same data split by the dimensions that matter · the chain that emerges (3 Skincare SKUs → one lot → EU dominance → quality reason → angry sentiment → texture complaints) · interaction hint: "click any 'Affected lot' bar to filter every other widget on the page".
 
-**Row 3** — section heading: *"Affected lot vs everyday returns — same dimensions, different shapes."*
+**`category_product_lot_sankey` — `sankey` "Returns flow — Category → Product → Production lot"** (12-wide). Source: `ds_sankey_flow`. `value = returns`, `stages = [category, product_name, lot_id]`. Frame description: *"Three Skincare SKUs all converge on one lot."*
 
-**Row 4 — affected vs everyday, color = `source` (`Affected lot` → `visualizationColors[3]` navy, `Everyday returns` → `visualizationColors[4]` violet; 0-indexed)**
+- *Replaces the older "Returns by product" + "Worst lots" horizontal bars. The sankey shows the chain visually in one widget — Skincare → SKU-1001/1002/1003 → LOT-{YYYY-MMDD} flow lines dominate the diagram. Long tails bucketed as "Other products" / "Other lots" so the dominant flow stays readable.*
 
-- **`bar` grouped · "Refunds by country"** · `ds_returns` · x = `country`, y = `SUM(refund_amount_usd)` · *every EU country: navy bar towers over violet — spike is the one lot in the EU market, not a catalog-wide trend.*
-- **`bar` horizontal grouped · "Return reasons"** · `ds_returns` · y = `return_reason` (`quality` / `didnt_fit` / `wrong_item` / `changed_mind`), x = `COUNT(return_id)` · *`quality` is ~all navy; the other reasons ~all violet — a product problem on this lot, not fit / changed-mind.*
+**`sec_compare` — section heading (12-wide, h=1)**: markdown `## Affected lot vs everyday returns`.
 
-**Row 5** — section heading: *"Customer voice — what people are telling us."*
+**`country_split_chart` (6-wide) + `reasons_split_chart` (6-wide) — side by side**. Both color by `source` with literal-hex pins (`Affected lot` → `#FFDD4A` soft yellow, `Everyday returns` → `#3C6997` steel blue) — same pins on BOTH widgets so the affected vs everyday read is consistent across the row.
 
-**Row 6**
+- **`bar` grouped · "Refunds by country: affected lot vs everyday"** (left) · `ds_returns` · x = `country`, y = `SUM(refund_amount_usd)`, color = `source` · *every EU country: yellow bar towers over steel blue — spike is the one lot in the EU market, not a catalog-wide trend.*
+- **`bar` horizontal grouped · "Return reasons: affected lot vs everyday"** (right) · `ds_returns` · y = `return_reason` (`quality` / `didnt_fit` / `wrong_item` / `changed_mind`), x = `COUNT(return_id)`, color = `source` · *`quality` is ~all yellow; the other reasons ~all steel blue — a product problem on this lot, not fit / changed-mind.*
 
-- **`table` · "Returns by city"** · `ds_returns` · columns `city`, `country`, `COUNT(DISTINCT return_id)` AS `returns`, `SUM(refund_amount_usd)` AS `refunds`, sort returns DESC · *Paris on top, then London / Milan / Madrid / Berlin — same cluster as the map, ranked with refund $.*
-- **`table` · "Recent customer comments"** · `ds_returns` · columns `return_date`, `country`, `product_name`, `lot_id`, `return_reason_text` (wrap), filter non-null, sort `return_date` DESC · *texture complaints — "grainy", "separated", "watery" — cluster on the affected lot. The raw voice closes the arc with verbatim evidence.*
+**`sec_sentiment` — section heading (12-wide, h=1)**: markdown `## Customer sentiment & geography`.
+
+**`anger_chart` (6-wide) + `city_table` (6-wide) — side by side**
+
+- **`bar` · "Sentiment of return comments (ai_classify)"** (left) · `ds_returns` · x = `sentiment` (the bucketed label from the dataset SELECT — `3 - Very angry` / `2 - Angry` / `1 - Neutral` / `0 - Satisfied`, sorted natural so the bars line up worst-to-best), y = `COUNT(return_id)`. *Title says `(ai_classify)` because the FULL demo computes sentiment via `ai_classify` over the comment text. In the simple demo `anger_score` is heuristic (see `01-lakeflow.md` § Anger score) — same shape, no LLM. Talking track: "in production this column comes from an LLM at ingest; for the demo we're computing it deterministically."* *Very-angry + Angry bars dwarf the rest because the affected-lot returns carry texture vocabulary.*
+- **`table` · "Returns by city"** (right) · `ds_returns` · columns `city`, `country`, `COUNT(DISTINCT return_id)` AS `Returns`, `SUM(refund_amount_usd)` AS `Refund $`, sort `Returns` DESC · *Paris on top, then London / Milan / Madrid / Berlin — same cluster as the map, ranked with refund $.*
+
+**`angry_comments_table` — `table` "Customer comments"** (12-wide, bottom). Source: `ds_returns`. Columns: `return_date` (Date), `product_name` (Product), `country`, `city`, `anger_score` (Anger), `refund_amount_usd` (Refund $), `customer_comment` (Comment, wrap). Frame description: *"Sort by Anger to surface the bad-lot complaints."*
+
+- *Texture complaints — "grainy", "separated", "watery" — cluster at the top when sorted by anger. The raw voice closes the arc with verbatim evidence. Full-width because the Comment column needs the horizontal room to read.*
 
 ### Validation
 
@@ -171,13 +234,15 @@ widgetHeaderAlignment: LEFT
 - Each KPI counter shows a weekly sparkline behind its value. Refunds and Refund Rate sparklines show the spike-then-decay shape clearly.
 - Forecast-line: actuals through ~last full week, dashed prediction band continuing 4 weeks forward, **vertical annotation line on `AFFECTED_LOT_DATE`** labeled with the lot ID. Peak **not** at the rightmost edge.
 - Bubble map: Paris is the single largest bubble (≥ ~30 affected customers), followed by visible London / Milan / Madrid / Berlin clusters; US East/West mid-sized; Tokyo / Seoul / Sydney small. Tooltip shows city + count + refund total.
-- Refunds-by-country bar: France first, then IT/GB/DE/US; bars stacked by `category` with Skincare dominating the EU stack.
-- Category donut: Skincare is the largest slice.
-- Investigation page: Worst-lots bar has one bar ~10× the next.
-- Affected-vs-everyday country bars: every EU country shows a navy `Affected lot` bar taller than its violet `Everyday returns` bar.
-- Reasons bar: `quality` is ~all navy; `changed_mind` / `wrong_item` / `didnt_fit` are ~all violet.
-- Comments table: visible *"grainy"*, *"separated"*, *"watery"* in `return_reason_text` rows.
+- Category donut: Skincare is the largest slice (deep navy).
+- Refunds-by-country bar: France first, then IT / GB / DE / US.
+- Weekly-orders area chart: lines stay flat across the whole window — visibly UNLIKE the refunds spike.
+- Investigation sankey: the Skincare → {SKU-1001, SKU-1002, SKU-1003} → LOT-{YYYY-MMDD} flow lines visibly dominate. "Other products" / "Other lots" buckets exist but stay thin.
+- Affected-vs-everyday country bars: every EU country shows a yellow `Affected lot` bar taller than its steel-blue `Everyday returns` bar.
+- Reasons bar: `quality` is ~all yellow; `changed_mind` / `wrong_item` / `didnt_fit` are ~all steel blue.
+- Sentiment bar: `3 - Very angry` + `2 - Angry` together carry ~all of the affected-lot returns; `0 - Satisfied` + `1 - Neutral` carry the baseline.
+- Comments table sorted by Anger DESC: top rows contain "grainy" / "separated" / "watery" texture complaints.
 - Region filter (select "EU") → every widget updates; the map zooms to the EU bounding box (Paris cluster fills the frame).
-- Category filter (select "Skincare") → returns spike pronounced; product bar narrows to skincare SKUs.
+- Category filter (select "Skincare") → returns spike pronounced; sankey collapses to a single category.
 
 Add `dashboard_id` to `resources.json`.

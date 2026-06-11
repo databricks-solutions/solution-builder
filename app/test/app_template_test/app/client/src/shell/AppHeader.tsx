@@ -133,11 +133,12 @@ export function AppHeader() {
       <AlertDialog open={resetOpen} onOpenChange={setResetOpen}>
         <AlertDialogTrigger asChild>
           <button
-            className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1 text-xs text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors"
+            className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-2.5 sm:px-3 py-1 text-xs text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors"
             title="Wipe the app's Lakebase tables (conversations, feedback, customers/orders/returns) and re-sync from Delta"
+            aria-label="Reset demo"
           >
             <RotateCcw className="size-3.5" />
-            Reset demo
+            <span className="hidden sm:inline">Reset demo</span>
           </button>
         </AlertDialogTrigger>
         <AlertDialogContent>

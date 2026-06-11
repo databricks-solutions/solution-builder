@@ -265,9 +265,11 @@ When the user asks you to create a DAB, read `DEMO_SKILL_DIR/references/dab/dab.
 Browse `DEMO_SKILL_DIR/references/` for worked examples showing file format, detail level, and how files connect. Two examples ship — pick the one that matches the build's capability set:
 
 - **`example-luxebeauty/`** — full-stack reference (SDP bronze→silver→gold, metric view, ML premium classifier, Knowledge Assistant, Multi-Agent Supervisor, app with tiered offers). Use this when the build includes any of `sdp` / `metric-views` / `ml-training-serving` / `knowledge-assistant` / `supervisor-agent`.
-- **`example-luxebeauty-simple/`** — fast reference for the Simple-tab capability set (synth → gold tables directly, AI/BI Dashboard + Genie, optional Databricks App + Lakebase, no SDP / KA / MAS / ML). Use this when the build sticks to that subset.
+- **`example-luxebeauty-simple/`** — fast reference for the Simple-tab capability set (synth → gold tables directly, AI/BI Dashboard + Genie, optional Databricks App + Lakebase, no SDP / KA / MAS / ML). Use this when the build sticks to that subset. **Ships two canonical artifacts** alongside the spec markdown — both are syntax references, not fill-in-the-blanks templates:
+  - `data_generation/generate_data.py` — one self-contained Python file (pandas → Parquet on UC Volume → inline `spark.sql` CTAS for raw + gold + constraints).
+  - `dashboard/dashboard.json` — a populated Lakeview JSON with the 5-stop palette, frame descriptions, sankey top-N bucketing, and category/source color pins already wired.
 
-Adapt the structure, don't copy the narrative.
+Adapt the structure, don't copy the narrative. Every story, schema, widget, position, color, and description must be rewritten for the current demo — the artifacts only show what a working file *looks like*, not what to put in one.
 
 ---
 

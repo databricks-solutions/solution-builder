@@ -16,86 +16,145 @@
 }
 
 :root {
-  /* --- Light theme (business-first, editorial) --- */
+  /* ========================================================================
+   * BRAND PALETTE — single source of truth.
+   *
+   * These five stops mirror the LuxeBeauty AI/BI dashboard's
+   * visualizationColors theme so the app + dashboard read as one product.
+   * Every other token below derives from these — change a stop here and
+   * the whole app shifts. Edit cautiously.
+   *
+   * To re-skin the app for a different demo, replace these 5 hex stops
+   * (and the canvas/font/selection block right below) — that is the
+   * complete branding surface. Component code does NOT hardcode hex
+   * outside of intentionally-decorative SVGs (the source-pill tints in
+   * PlatformView also point back to these tokens).
+   * ====================================================================== */
+  --brand-1: #094074;   /* deep navy   — primary, chart anchor */
+  --brand-2: #3C6997;   /* slate blue  — primary tint, chart 2 */
+  --brand-3: #5ADBFF;   /* electric cyan — chart 3, highlights */
+  --brand-4: #FFDD4A;   /* lemon       — chart 4, warning-adjacent */
+  --brand-5: #FE9000;   /* warm orange — accent / CTA, chart 5 */
+
+  /* Dashboard-theme surfaces */
+  --brand-canvas: #F5F7FB;     /* dashboard canvas */
+  --brand-surface: #FFFFFF;    /* dashboard widget background */
+  --brand-ink: #1F2530;        /* dashboard font color */
+  --brand-selection: #4F7CE3;  /* dashboard selection */
+
+  /* ========================================================================
+   * SEMANTIC TOKENS — what components actually consume.
+   * Always reference via these (NOT brand-* directly) so future re-themes
+   * don't require touching component code.
+   * ====================================================================== */
+
   --radius: 0.625rem;
 
-  /* Neutrals */
-  --background: oklch(0.99 0.003 260);
-  --foreground: oklch(0.18 0.015 255);
-  --muted: oklch(0.965 0.006 255);
-  --muted-foreground: oklch(0.52 0.015 255);
-  --border: oklch(0.915 0.008 255);
-  --input: oklch(0.93 0.008 255);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.18 0.015 255);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.18 0.015 255);
-  --ring: oklch(0.58 0.16 255);
+  /* Neutrals (anchored to dashboard canvas + ink) */
+  --background: var(--brand-canvas);
+  --foreground: var(--brand-ink);
+  --card: var(--brand-surface);
+  --card-foreground: var(--brand-ink);
+  --popover: var(--brand-surface);
+  --popover-foreground: var(--brand-ink);
+  --muted: #ECF0F6;             /* canvas tinted 1 step toward ink */
+  --muted-foreground: #5B6573;
+  --border: #E1E6EE;
+  --input: #E1E6EE;
+  --ring: var(--brand-selection);
+  --overlay: rgb(31 37 48 / 0.4);
 
-  /* Brand — deep indigo primary */
-  --primary: oklch(0.32 0.095 264);
-  --primary-foreground: oklch(0.99 0.003 260);
+  /* Brand — primary = deep navy, accent = warm orange */
+  --primary: var(--brand-1);
+  --primary-foreground: var(--brand-surface);
+  --primary-light: var(--brand-2);
+  --on-primary-hover: rgb(255 255 255 / 0.1);
 
-  --secondary: oklch(0.965 0.006 255);
-  --secondary-foreground: oklch(0.28 0.02 255);
+  --secondary: var(--muted);
+  --secondary-foreground: var(--foreground);
 
-  --accent: oklch(0.72 0.125 195);  /* electric teal */
-  --accent-foreground: oklch(0.18 0.015 255);
+  --accent: var(--brand-5);
+  --accent-foreground: var(--brand-ink);
 
-  /* Destructive — warm red */
-  --destructive: oklch(0.62 0.195 25);
-  --destructive-foreground: oklch(0.99 0.003 260);
+  /* Status colors — semantic, not from brand palette */
+  --destructive: #D64545;
+  --destructive-foreground: var(--brand-surface);
+  --success: #2F9E6F;
+  --success-foreground: var(--brand-surface);
+  --warning: var(--brand-4);
+  --warning-foreground: var(--brand-ink);
 
-  --success: oklch(0.6 0.13 160);
-  --success-foreground: oklch(1 0 0);
-  --warning: oklch(0.78 0.15 75);
-  --warning-foreground: oklch(0.2 0.025 255);
+  /* Subtle status tints (light bg + dark text for badges, pills) */
+  --success-subtle: #DCF1E7;
+  --success-subtle-foreground: #1F6F4E;
+  --warning-subtle: #FFF4CC;
+  --warning-subtle-foreground: #7A5A00;
+  --info-subtle: #D9E3F8;
+  --info-subtle-foreground: #1F3A78;
 
-  /* Subtle status tints (light bg + dark text for badges, pills, activity icons) */
-  --success-subtle: oklch(0.94 0.08 160);
-  --success-subtle-foreground: oklch(0.35 0.1 160);
-  --warning-subtle: oklch(0.94 0.08 85);
-  --warning-subtle-foreground: oklch(0.3 0.08 60);
-  --info-subtle: oklch(0.94 0.06 245);
-  --info-subtle-foreground: oklch(0.38 0.12 250);
-
-  /* Tier badges (domain-specific, easy to swap) */
-  --tier-gold: oklch(0.94 0.08 85);
-  --tier-gold-foreground: oklch(0.3 0.08 60);
-  --tier-silver: oklch(0.94 0.01 255);
-  --tier-silver-foreground: oklch(0.42 0.02 255);
-  --tier-bronze: oklch(0.94 0.06 55);
-  --tier-bronze-foreground: oklch(0.35 0.1 40);
-  --tier-platinum: oklch(0.94 0.06 295);
-  --tier-platinum-foreground: oklch(0.38 0.1 295);
+  /* Tier badges (domain-specific, easy to swap per demo) */
+  --tier-gold: #FFF4CC;
+  --tier-gold-foreground: #7A5A00;
+  --tier-silver: #EAECF1;
+  --tier-silver-foreground: #4A5466;
+  --tier-bronze: #FAE3D1;
+  --tier-bronze-foreground: #7A4A1F;
+  --tier-platinum: #EDE3F5;
+  --tier-platinum-foreground: #5A3585;
 
   /* Status indicator dots */
-  --status-running: oklch(0.6 0.17 150);
-  --status-idle: oklch(0.75 0.15 75);
+  --status-running: var(--success);
+  --status-idle: var(--brand-4);
 
-  /* Overlay backdrop */
-  --overlay: oklch(0.15 0.02 255 / 0.4);
+  /* Severity colors for inline text (return rate, anger score, etc.)
+     — distinct from --warning (which is a fill color, too light to
+     read as text on white). Same family but darker. */
+  --severity-warning: #C26A00;
+  --severity-danger:  var(--destructive);
 
-  /* Primary variant for animations / hover on dark surfaces */
-  --primary-light: oklch(0.40 0.14 245);
-  --on-primary-hover: oklch(1 0 0 / 0.1);
+  /* Charts — full dashboard 5-stop palette in canonical order.
+     Recharts / appkit charts read --chart-1..5 by index, so this
+     mapping makes any "first series" land on navy, just like the
+     dashboard's "Refunds (90d)" counter. */
+  --chart-1: var(--brand-1);
+  --chart-2: var(--brand-2);
+  --chart-3: var(--brand-3);
+  --chart-4: var(--brand-4);
+  --chart-5: var(--brand-5);
 
-  /* Charts — editorial sequence */
-  --chart-1: oklch(0.32 0.095 264);  /* indigo */
-  --chart-2: oklch(0.72 0.125 195);  /* teal */
-  --chart-3: oklch(0.62 0.195 25);   /* warm red */
-  --chart-4: oklch(0.78 0.15 75);    /* amber */
-  --chart-5: oklch(0.5 0.09 295);    /* purple */
+  /* Sidebar — light surface, slightly cooler than canvas */
+  --sidebar: #EEF2F8;
+  --sidebar-foreground: var(--brand-ink);
+  --sidebar-primary: var(--primary);
+  --sidebar-primary-foreground: var(--primary-foreground);
+  --sidebar-accent: #DDE4EE;
+  --sidebar-accent-foreground: var(--brand-ink);
+  --sidebar-border: #D0D8E3;
+  --sidebar-ring: var(--ring);
 
-  /* Sidebar — light, distinguished from canvas */
-  --sidebar: oklch(0.975 0.005 255);
-  --sidebar-foreground: oklch(0.22 0.02 255);
-  --sidebar-primary: oklch(0.32 0.095 264);
-  --sidebar-primary-foreground: oklch(0.99 0.003 260);
-  --sidebar-accent: oklch(0.93 0.015 255);
-  --sidebar-accent-foreground: oklch(0.2 0.02 255);
-  --sidebar-border: oklch(0.91 0.008 255);
-  --sidebar-ring: oklch(0.58 0.16 255);
+  /* ========================================================================
+   * SCENE-LEVEL DECORATIONS (PlatformView)
+   * Source-pill tints mapped onto the brand palette so the platform page
+   * stays unified with the dashboard. Medallion tier dots and traffic-light
+   * dots get their own tokens too — change them once here, never in JSX.
+   * ====================================================================== */
+  --platform-source-saas:     var(--brand-1);
+  --platform-source-erp:      var(--brand-2);
+  --platform-source-streams:  var(--brand-3);
+  --platform-source-object:   var(--brand-4);
+  --platform-source-db:       var(--brand-5);
+
+  --medal-bronze: #A16207;
+  --medal-silver: #9CA3AF;
+  --medal-gold:   #EAB308;
+
+  --trafficlight-red:    #EF4444;
+  --trafficlight-yellow: #EAB308;
+  --trafficlight-green:  #22C55E;
+
+  /* Databricks brand red — used by the sidebar "Data + AI" pitch glow.
+     External brand asset, not part of LuxeBeauty's palette. */
+  --databricks-red: #EE3D2C;
 }
 
 /* Force light even if OS is dark — this is a business-facing demo */
@@ -172,40 +231,46 @@ h3,
   letter-spacing: -0.01em;
 }
 
-/* Chat dock trigger — slide-up entrance + synced sparkle & color breathe */
+/* Chat dock trigger — slide-up entrance + synced sparkle & color breathe.
+   The two diagonal gradients (one in --primary, one in --primary-light)
+   appear in 4 places; the @property declarations let dockBreathe
+   crossfade between them via CSS animation. */
+/* Animatable color custom prop so dockBreathe can crossfade the
+   gradient by reassigning --dock-tint instead of redefining the whole
+   linear-gradient on every keyframe. */
+@property --dock-tint {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: #094074;
+}
+/* dockBreathe sets `--dock-tint` on the breathing element; for static
+   uses (the dock entry button before it starts breathing) we anchor it
+   to --primary at the document root. */
+:root {
+  --dock-tint: var(--primary);
+  --dock-gradient: linear-gradient(
+    135deg,
+    color-mix(in oklch, var(--dock-tint) 82%, white) 0%,
+    var(--dock-tint) 55%,
+    color-mix(in oklch, var(--dock-tint) 88%, black) 100%
+  );
+}
+
 @keyframes dockEnter {
-  from {
-    opacity: 0; transform: translateY(16px) scale(0.95);
-    background: linear-gradient(135deg,
-      color-mix(in oklch, var(--primary) 82%, white) 0%,
-      var(--primary) 55%,
-      color-mix(in oklch, var(--primary) 88%, black) 100%);
-  }
-  to {
-    opacity: 1; transform: translateY(0) scale(1);
-    background: linear-gradient(135deg,
-      color-mix(in oklch, var(--primary) 82%, white) 0%,
-      var(--primary) 55%,
-      color-mix(in oklch, var(--primary) 88%, black) 100%);
-  }
+  from { opacity: 0; transform: translateY(16px) scale(0.95); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
 }
 @keyframes sparkle {
-  0%, 100% { opacity: 1; transform: rotate(0deg) scale(1); }
+  0%, 100% { opacity: 1;   transform: rotate(0deg)  scale(1); }
   50%      { opacity: 0.4; transform: rotate(20deg) scale(1.15); }
 }
 @keyframes dockBreathe {
   0%, 100% {
-    background: linear-gradient(135deg,
-      color-mix(in oklch, var(--primary) 82%, white) 0%,
-      var(--primary) 55%,
-      color-mix(in oklch, var(--primary) 88%, black) 100%);
+    --dock-tint: var(--primary);
     box-shadow: 0 4px 14px oklch(from var(--primary) l c h / 0.3);
   }
   50% {
-    background: linear-gradient(135deg,
-      color-mix(in oklch, var(--primary-light) 82%, white) 0%,
-      var(--primary-light) 55%,
-      color-mix(in oklch, var(--primary-light) 88%, black) 100%);
+    --dock-tint: var(--primary-light);
     box-shadow: 0 4px 20px oklch(from var(--primary-light) l c h / 0.45);
   }
 }
@@ -223,10 +288,10 @@ h3,
   border-radius: 0.7rem;
   background: linear-gradient(
     135deg,
-    color-mix(in oklch, var(--primary) 16%, var(--sidebar)) 0%,
-    color-mix(in oklch, var(--primary) 8%, var(--sidebar)) 100%
+    color-mix(in oklch, var(--accent) 18%, var(--sidebar)) 0%,
+    color-mix(in oklch, var(--accent) 9%, var(--sidebar)) 100%
   );
-  border: 1px solid color-mix(in oklch, var(--primary) 38%, var(--sidebar-border));
+  border: 1px solid color-mix(in oklch, var(--accent) 42%, var(--sidebar-border));
   text-decoration: none;
   color: var(--sidebar-foreground);
   overflow: hidden;
@@ -235,14 +300,14 @@ h3,
     border-color 200ms ease,
     box-shadow 200ms ease;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03),
-              0 8px 20px -10px color-mix(in oklch, var(--primary) 30%, transparent);
+              0 8px 20px -10px color-mix(in oklch, var(--accent) 35%, transparent);
 }
 
 .dx-sidebar-pitch:hover {
   transform: translateY(-1px);
-  border-color: color-mix(in oklch, var(--primary) 55%, var(--sidebar-border));
+  border-color: color-mix(in oklch, var(--accent) 60%, var(--sidebar-border));
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04),
-              0 12px 28px -10px color-mix(in oklch, var(--primary) 45%, transparent);
+              0 12px 28px -10px color-mix(in oklch, var(--accent) 50%, transparent);
 }
 
 .dx-sidebar-pitch-glow {
@@ -254,7 +319,7 @@ h3,
   border-radius: 9999px;
   background: radial-gradient(
     circle,
-    color-mix(in oklch, var(--primary) 30%, transparent) 0%,
+    color-mix(in oklch, var(--accent) 35%, transparent) 0%,
     transparent 70%
   );
   pointer-events: none;
@@ -276,14 +341,14 @@ h3,
   align-items: center;
   justify-content: center;
   background: var(--card);
-  border: 1px solid color-mix(in oklch, #ee3d2c 30%, var(--sidebar-border));
-  box-shadow: 0 0 0 0 color-mix(in oklch, #ee3d2c 50%, transparent);
+  border: 1px solid color-mix(in oklch, var(--databricks-red) 30%, var(--sidebar-border));
+  box-shadow: 0 0 0 0 color-mix(in oklch, var(--databricks-red) 50%, transparent);
   animation: dx-sidebar-pitch-icon-pulse 2.4s ease-in-out infinite;
 }
 
 @keyframes dx-sidebar-pitch-icon-pulse {
-  0%, 100% { box-shadow: 0 0 0 0 color-mix(in oklch, #ee3d2c 55%, transparent); }
-  50%      { box-shadow: 0 0 0 6px color-mix(in oklch, #ee3d2c 0%, transparent); }
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in oklch, var(--databricks-red) 55%, transparent); }
+  50%      { box-shadow: 0 0 0 6px color-mix(in oklch, var(--databricks-red) 0%, transparent); }
 }
 
 .dx-sidebar-pitch-text {

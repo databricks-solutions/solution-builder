@@ -21,6 +21,14 @@ Three-beat: **what changed** (counters + trend) → **why it matters** (breakdow
 - **Tension**: Breakdown charts and detail table show which categories/regions/entities drive the change.
 - **Handoff**: Dashboard raises the "why?" it can't answer alone → Genie, app, or agent.
 
+### Make the page self-sufficient
+
+A user opening the dashboard cold should grasp the story without needing a guide. Three devices, use them where they earn their place — don't paste them everywhere:
+
+- **Page-header text widget** (top of every page, full-width markdown). Names the event and points the reader at what to look at on this page. A few sentences — lifted from the README in spirit, not duplicated verbatim.
+- **Frame descriptions** on the chart that needs a caption to read correctly — a forecast where the vertical-line marker would otherwise be opaque, a counter-argument chart whose meaning depends on context, a sankey whose punchline is the convergence pattern. One short sentence. Set `frame.description` AND `frame.showDescription: true` (the flag is OFF by default — descriptions don't render without it; common silent-failure). Skip captions on widgets that read themselves (a sorted bar chart with clear labels doesn't need words).
+- **Section dividers**: thin markdown `text` widgets (1-row tall, full-width) with `## Heading`. Use to separate logical beats when a page has more than one act.
+
 ## What Dashboards Can Do
 
 Dashboards are SQL-backed: each widget draws from a dataset (a SQL query on Gold tables). The dashboard engine handles aggregation and filtering automatically — you don't write aggregation logic, you design the data shape.
@@ -40,17 +48,17 @@ Every chart needs **two axes** — a dimension (what you group by) and a measure
 | **Combo (bar+line)** | x = dimension; y with two fields, one bar + one line; vertical-line annotations supported | dual metrics on shared x-axis |
 | **Scatter / Bubble** | x = quantitative; y = quantitative; color = categorical (optional); size = quantitative (optional, bubble) | correlation between two measures |
 | **Choropleth map** | geo dimension (admin0/admin1 by name or ISO); measure; color scale with `scheme`/`mappings` (optional) | geographic distribution by region (countries, states) colored by an aggregate |
-| **Symbol map (point map)** | `coordinates: { latitude, longitude }` (nested shape, top-level fields won't render); size = quantitative (optional); color = quantitative with `colorRamp` or categorical with `mappings` (optional) | per-point geo data — customers, sites, sensors. Aggregate to (city, country) with `AVG(lat), AVG(lng), COUNT(*)` for a clean bubble map |
+| **Symbol map (point map)** | latitude + longitude; size = quantitative (optional); color = quantitative with a color ramp or categorical with `mappings` | **A bubble map is one of the strongest demo moments — use it whenever the data has any geographic dimension** (customers, stores, facilities, sites, sensors, vehicles, claims, transactions). It answers *"where is this happening?"* before anyone reads a number, makes the affected region pop instantly, and turns an abstract anomaly into a concrete place. Costs you nothing — if you have customer / store / site rows with lat/lng (or you can geocode a city / region / postal code in the synth), put a map on Page 1. |
 | **Pie** | `angle` = quantitative (REQUIRED — slice size); `color` = categorical (REQUIRED — slice grouping) | composition snapshot, 3-8 slices; usually a horizontal bar is clearer |
 | **Heatmap** | x = categorical; y = categorical; color = quantitative with `colorRamp` | "X by Y" intensity matrix — useful for cohort or category × dimension density |
 | **Histogram** | x = `BIN_FLOOR(col, N)`; y = `COUNT(*)` | frequency distribution; bin width is set in the widget's field expression, not the dataset SQL |
 | **Pivot** | rows = list of categorical fields; columns = list of categorical fields; cell = measure(s) with optional `style.rules` or `cellType: "color-scale"` | cross-tab (X × Y × measure); heat-map-style cell coloring; cohort retention tables |
-| **Sankey** | `value` = quantitative; `stages` = ordered list of categorical fields | flow between two or more stages — channel → outcome, funnel-with-attribution |
+| **Sankey** | `value` = quantitative; `stages` = ordered list of categorical fields (2-4 stages) | flow between stages — funnel, attribution chain, category → product → batch. **Top-N bucket the tails in the dataset SQL** (`CASE WHEN field IN top_N THEN field ELSE 'Other'`) before sending to the widget — without it a long-tail dimension produces dozens of pencil-thin flows that drown the dominant path. Top 10 for the middle stage + top 15 for the last is a good default. |
 | **Funnel** | x = stage (ordered); y = `count` quantitative | stage-by-stage conversion (signups → activations → paid) |
 | **Box** | x = categorical; y = quantitative | distribution summary across categories — median, quartiles, outliers |
 | **Waterfall** | x = period; y = signed quantitative deltas | cumulative effect (P&L bridge, MoM revenue walk) |
 | **Table** | columns; sort (optional); per-column `format` / `style.rules` / `link` / `tooltip` | high-cardinality detail view; conditional cell coloring with thresholds |
-| **Text** | markdown lines | section headers/answers ("Fraud Rate 3x Above Baseline") |
+| **Text** | markdown | page-header narrative, section dividers (`## Heading`), title-as-answer ("Fraud Rate 3x Above Baseline") |
 | **Filter** | one column on each dataset to filter; default value (optional) | cross-applies to every widget whose dataset has the filter column |
 
 > **Vertical-line annotations** are a load-bearing story device on time-series widgets (`line`, `area`, `bar`, `combo`, `forecast-line`). Mark a cause-event date (incident, launch, campaign) — the eye instantly maps cause to effect. Always specify the marker color from the theme palette (`visualizationColors[N]`) so it doesn't clash.
@@ -108,6 +116,14 @@ The anomaly is the whole point. Every design choice must make it impossible to m
 - **Title widgets as answers.** "Fraud Rate 3x Above Baseline" not "Fraud Rate."
 - **Scope every metric.** Units in labels ($, %), active date range, freshness.
 
+### Theme + color guidelines
+
+Define a small palette (~5 stops, cool → warm or low → high) at the dashboard level and let one anchor color carry the story — the affected category, the dominant region, the KPI sparkline trend. Pair it with a light blue-tinted canvas, white widget backgrounds, no visible widget borders, left-aligned widget headers — widgets float on the canvas, the data is the focus.
+
+**Color is signal, not decoration.** Decide which categories deserve their own hex and which can ride the palette default. Pin the load-bearing ones explicitly so the same category reads the same color across every chart that shows it. For affected-vs-everyday or success-vs-failure splits, pin both sides — a warm hue for the anomaly, a cool neutral for the baseline.
+
+The dashboard skill owns the exact JSON shape for theme + per-widget color mappings (it has the gotchas — bare-string form, sparkline `value`+`period` pairing, etc.). At spec time, list the categories and the hex pins; the build step wires them.
+
 ## Chart Design Rules
 
 - **Color by dimension when possible**: charts can group by a second dimension (e.g., returns by week colored by category) to reveal what drives the metric — 3-6 color groups max (ideal in barchart).
@@ -140,12 +156,15 @@ Dashboard design decisions flow backward into the pipeline spec. When specifying
 
 When writing dashboard specifications, include:
 
-1. **Filters table**: Filter name → Column → Datasets it filters → Default value
-2. **Layout, top-to-bottom on the canvas page** — describe each row in one line as `Row N — <widget(s)>: <span> — <intent>`, e.g. `Row 1 — 3 KPIs side by side (4 cols each): Revenue, Orders, Return Rate ⚠️`. Use **column counts out of 12** ("4 cols", "6 cols each", "full width"). No ASCII grid; the skill assigns the actual `x`/`y`/`width`/`height`.
-3. **Per widget**: name (used as title-as-answer), source table, encodings (`x = …; y = …; color = …` for charts; `columns` for tables), and what the user should see (numbers, sort order, anomaly visibility).
-4. **Validation criteria**: KPI values, chart shape (spike position, decay), filter behavior (select X → all widgets update).
+1. **Theme block**: the 5-stop `visualizationColors` palette + canvas/widget/font/selection hex codes. State the position-0 anchor color explicitly (used for sparklines + the affected category).
+2. **Category color pins table**: every category → literal hex. Same pins reused on every chart that colors by that category. Same for any semantic pair (affected vs everyday, success vs failure).
+3. **Filters table**: Filter name → Column → Datasets it filters → Default value.
+4. **Layout** — a small table per page with `(y, x, width, height, widget_name)` rows, derived from the 12-column grid. Walks top-to-bottom; rows with two side-by-side widgets share a `y`. Lets the build agent emit `position` blocks 1:1 without re-deriving the layout.
+5. **Per widget**: name (used as title-as-answer), source dataset, widget type, encodings (`x = …; y = …; color = …` with the literal hex pins for color), frame description if the chart benefits from a caption, and what the user should see (numbers, sort order, anomaly visibility).
+6. **Self-sufficient page header**: spec out the Row-1 markdown text widget — what the persona, the event, the headline number, and the "what to look at on this page" hint should be.
+7. **Validation criteria**: KPI values, chart shape (spike position, decay), filter behavior (select X → all widgets update), and color-pin sanity checks (same category = same color across widgets).
 
-The spec describes WHAT to show. The ai-dev-kit skill handles HOW to build the JSON. Don't put JSON or technical API details in the spec.
+The spec describes WHAT to show. The ai-dev-kit `databricks-aibi-dashboards` skill handles HOW to build the JSON. Don't put full JSON in the spec.
 
 ## Pitfalls
 
