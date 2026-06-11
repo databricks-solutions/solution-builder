@@ -48,10 +48,16 @@ export function ReturnTab({
 
   return (
     <div className="space-y-6 max-w-2xl">
-      <dl className="grid grid-cols-3 gap-y-4 text-sm">
+      {/* Phone: 2-up grid so short fields pair up (Return date / Order date,
+          Order total / Region) — saves vertical space so the drawer fits
+          without scroll. Reason spans both columns (long text).
+          sm+: 1 column of full-width rows; DetailRow renders its own
+          internal label/value split. */}
+      <dl className="grid grid-cols-2 sm:grid-cols-1 gap-x-4 gap-y-3 sm:gap-y-4 text-sm">
         <DetailRow
           label="Reason"
           value={detail.return_reason_text ?? detail.return_reason ?? '—'}
+          full
         />
         <DetailRow
           label="Refund"
@@ -134,17 +140,29 @@ export function ReturnTab({
 function DetailRow({
   label,
   value,
+  full,
 }: {
   label: string;
   value: React.ReactNode;
+  /** When true, the row spans both columns on phone (used for long Reason text). */
+  full?: boolean;
 }) {
+  // Layout:
+  // - Phone (parent grid-cols-2): each cell = one field with label above value.
+  //   `full` cells span both columns (Reason text).
+  // - sm+ (parent grid-cols-1): each cell becomes a sub-grid with label
+  //   taking 1/3 width and value 2/3 — the classic side-by-side layout.
   return (
-    <>
-      <dt className="text-xs uppercase tracking-[0.15em] text-muted-foreground col-span-1 pt-0.5">
+    <div
+      className={`flex flex-col sm:grid sm:grid-cols-3 ${
+        full ? 'col-span-2 sm:col-span-1' : ''
+      }`}
+    >
+      <dt className="text-xs uppercase tracking-[0.15em] text-muted-foreground pt-0.5">
         {label}
       </dt>
-      <dd className="col-span-2">{value}</dd>
-    </>
+      <dd className="sm:col-span-2">{value}</dd>
+    </div>
   );
 }
 

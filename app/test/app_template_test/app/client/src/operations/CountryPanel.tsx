@@ -142,7 +142,7 @@ export function CountryPanel({
           />
         ))}
       </ul>
-      <div className="px-4 py-2 border-t border-border flex items-center gap-3 text-[10px] text-muted-foreground">
+      <div className="px-4 py-2 border-t border-border flex items-center gap-2 sm:gap-3 text-[10px] text-muted-foreground flex-wrap">
         <span className="inline-flex items-center gap-1">
           <span className="inline-block size-2 rounded-sm bg-primary" />
           premium · CS-tagged
@@ -192,12 +192,12 @@ function CountryRow({
         } ${pulse ? 'animate-pulse-row' : ''}`}
         title={`${r.total} affected · ${r.premium} premium (${r.premium_labeled} CS-tagged + ${r.premium_hidden} hidden)`}
       >
-        <div className="flex items-center gap-3 text-sm">
+        <div className="flex items-center gap-2 sm:gap-3 text-sm">
           <span className="text-base shrink-0" aria-hidden>
             {flag(r.country)}
           </span>
           <span
-            className={`shrink-0 w-32 truncate ${
+            className={`shrink-0 w-20 sm:w-32 truncate ${
               active ? 'font-semibold text-foreground' : 'text-foreground'
             }`}
           >
@@ -223,8 +223,9 @@ function CountryRow({
               title={`${r.total - r.premium} standard`}
             />
           </div>
-          <div className="shrink-0 text-xs font-mono tabular-nums text-muted-foreground w-24 text-right">
-            {r.total} · {pctPremium}% prem
+          <div className="shrink-0 text-xs font-mono tabular-nums text-muted-foreground w-16 sm:w-24 text-right">
+            <span className="sm:hidden">{r.total}·{pctPremium}%</span>
+            <span className="hidden sm:inline">{r.total} · {pctPremium}% prem</span>
           </div>
         </div>
       </button>

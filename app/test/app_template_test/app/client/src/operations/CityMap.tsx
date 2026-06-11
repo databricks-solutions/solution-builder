@@ -127,7 +127,7 @@ export function CityMap({ status, lot }: Props) {
 
   if (cities === null) {
     return (
-      <div className="rounded-xl border border-border bg-card h-[340px] flex items-center justify-center text-sm text-muted-foreground gap-2">
+      <div className="rounded-xl border border-border bg-card h-[280px] sm:h-[340px] flex items-center justify-center text-sm text-muted-foreground gap-2">
         <RefreshCw className="size-3.5 animate-spin" />
         Loading map…
       </div>
@@ -138,19 +138,19 @@ export function CityMap({ status, lot }: Props) {
 
   return (
     <div className="rounded-xl border border-border bg-card overflow-hidden">
-      <div className="px-4 py-3 border-b border-border flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Globe2 className="size-4 text-muted-foreground" />
-          <h3 className="text-sm font-semibold">
+      <div className="px-4 py-3 border-b border-border flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 min-w-0">
+          <Globe2 className="size-4 text-muted-foreground shrink-0" />
+          <h3 className="text-sm font-semibold truncate">
             Affected customers by city
           </h3>
         </div>
-        <div className="text-xs text-muted-foreground">
+        <div className="text-xs text-muted-foreground shrink-0">
           {cities.length} {cities.length === 1 ? 'city' : 'cities'} ·{' '}
-          {totalCustomers} customers
+          {totalCustomers}
         </div>
       </div>
-      <div className="h-[340px] relative">
+      <div className="h-[280px] sm:h-[340px] relative">
         {cities.length === 0 ? (
           <div className="h-full flex items-center justify-center text-sm text-muted-foreground">
             No affected customers in the current scope.

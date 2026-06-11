@@ -15,7 +15,7 @@
  * regenerate types, then reference them in `<BarChart queryName=... />`.
  */
 import { useEffect, useMemo, useState } from 'react';
-import { BarChart, LineChart, DataTable } from '@databricks/appkit-ui/react';
+import { BarChart, LineChart, DataTable, useAnalyticsQuery } from '@databricks/appkit-ui/react';
 import { Database } from 'lucide-react';
 import { fetchWarehouse, type Warehouse } from '@/lib/api';
 import { FacilityPanel } from './FacilityPanel';
@@ -30,8 +30,8 @@ export function AnalyticsView() {
 
   return (
     <div className="h-full overflow-y-auto">
-      <div className="max-w-6xl mx-auto px-8 py-10 space-y-10">
-        <div className="flex items-start justify-between gap-6">
+      <div className="max-w-6xl mx-auto px-4 sm:px-8 py-6 sm:py-10 space-y-6 sm:space-y-10">
+        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 sm:gap-6">
           <div>
             <div className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground mb-2">
               Operations analytics
@@ -101,13 +101,20 @@ export function AnalyticsView() {
         <FacilityPanel />
 
         <ChartCard title="Worst production lots" scope="By return rate" flush>
-          <DataTable
-            queryKey="worst_lots"
-            parameters={empty}
-            filterColumn="lot_id"
-            filterPlaceholder="Filter by lot…"
-            pageSize={10}
-          />
+          {/* Desktop / tablet: paginated table with column-level filter. */}
+          <div className="hidden sm:block">
+            <DataTable
+              queryKey="worst_lots"
+              parameters={empty}
+              filterColumn="lot_id"
+              filterPlaceholder="Filter by lot…"
+              pageSize={10}
+            />
+          </div>
+          {/* Phone: card list — same data, no horizontal scroll. */}
+          <div className="sm:hidden">
+            <WorstLotsMobile />
+          </div>
         </ChartCard>
       </div>
     </div>
@@ -147,5 +154,107 @@ function ChartCard({
       </div>
       <div className={flush ? '' : 'p-4'}>{children}</div>
     </div>
+  );
+}
+
+/**
+ * Phone-only renderer for the worst_lots query.
+ *
+ * Same data as the desktop DataTable, but one card per lot so all fields
+ * are visible without horizontal scroll. The return-rate-% is the headline
+ * (right side, big) since the table is sorted by it.
+ *
+ * Calls `useAnalyticsQuery` directly with the same `worst_lots` query key,
+ * so type-safety + parameter binding stay identical to the DataTable.
+ */
+type WorstLotRow = {
+  lot_id: string;
+  product_name: string | null;
+  facility: string | null;
+  region: string | null;
+  return_count: number;
+  units_sold: number;
+  return_rate_pct: number;
+  total_refund_usd: number;
+};
+
+function WorstLotsMobile() {
+  const empty = useMemo(() => ({}), []);
+  const { data, isLoading, error } = useAnalyticsQuery<WorstLotRow>(
+    'worst_lots',
+    empty,
+  );
+
+  if (error) {
+    return (
+      <div className="px-4 py-3 text-sm text-destructive">
+        Couldn't load lots: {String((error as Error).message ?? error)}
+      </div>
+    );
+  }
+  if (isLoading || !data) {
+    return (
+      <div className="px-4 py-6 text-sm text-muted-foreground text-center">
+        Loading…
+      </div>
+    );
+  }
+  if (data.length === 0) {
+    return (
+      <div className="px-4 py-6 text-sm text-muted-foreground text-center">
+        No lots returned data.
+      </div>
+    );
+  }
+
+  return (
+    <ul className="divide-y divide-border">
+      {data.map((r) => {
+        // Color the rate badge by severity — same thresholds as the
+        // desktop anger column.
+        const rateTone =
+          r.return_rate_pct >= 20
+            ? 'text-destructive'
+            : r.return_rate_pct >= 10
+              ? 'text-amber-600'
+              : 'text-foreground';
+        return (
+          <li key={r.lot_id} className="px-4 py-3">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0 flex-1">
+                <div className="font-mono text-xs text-muted-foreground">
+                  {r.lot_id}
+                </div>
+                <div className="text-sm font-medium truncate mt-0.5">
+                  {r.product_name ?? '—'}
+                </div>
+                <div className="text-xs text-muted-foreground mt-0.5">
+                  {[r.facility, r.region].filter(Boolean).join(' · ') || '—'}
+                </div>
+              </div>
+              <div className="shrink-0 text-right">
+                <div className={`display text-xl font-semibold ${rateTone}`}>
+                  {r.return_rate_pct}%
+                </div>
+                <div className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
+                  return rate
+                </div>
+              </div>
+            </div>
+            <div className="mt-2 flex items-center justify-between gap-3 text-xs text-muted-foreground">
+              <span>
+                {r.return_count.toLocaleString()} returned ·{' '}
+                {r.units_sold.toLocaleString()} sold
+              </span>
+              <span className="font-mono text-foreground">
+                ${Number(r.total_refund_usd).toLocaleString(undefined, {
+                  maximumFractionDigits: 0,
+                })}
+              </span>
+            </div>
+          </li>
+        );
+      })}
+    </ul>
   );
 }

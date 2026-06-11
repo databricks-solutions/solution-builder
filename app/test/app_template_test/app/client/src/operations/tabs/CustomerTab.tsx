@@ -20,9 +20,13 @@ export function CustomerTab({ detail }: { detail: ReturnDetail }) {
 
   return (
     <div className="space-y-6 max-w-2xl">
-      <dl className="grid grid-cols-3 gap-y-4 text-sm">
+      {/* Phone: 2-up grid pairs short fields (Tier/Region, Country/Customer since)
+          so the drawer doesn't scroll. Email and Customer id span both
+          columns since they're long strings. sm+: 1-col stack, each row a
+          label/value sub-grid. */}
+      <dl className="grid grid-cols-2 sm:grid-cols-1 gap-x-4 gap-y-3 sm:gap-y-4 text-sm">
         <DetailRow label="Name" value={detail.customer_name ?? '—'} />
-        <DetailRow label="Email" value={detail.customer_email ?? '—'} />
+        <DetailRow label="Email" value={detail.customer_email ?? '—'} full />
         <DetailRow
           label="Tier"
           value={
@@ -35,7 +39,7 @@ export function CustomerTab({ detail }: { detail: ReturnDetail }) {
           label="Customer since"
           value={detail.registration_date ?? '—'}
         />
-        <DetailRow label="Customer id" value={detail.customer_id ?? '—'} />
+        <DetailRow label="Customer id" value={detail.customer_id ?? '—'} full />
       </dl>
 
       {detail.final_tier && detail.premium_prob !== null && (
@@ -153,16 +157,25 @@ export function CustomerTab({ detail }: { detail: ReturnDetail }) {
 function DetailRow({
   label,
   value,
+  full,
 }: {
   label: string;
   value: React.ReactNode;
+  /** When true, the row spans both columns on phone (used for long strings). */
+  full?: boolean;
 }) {
+  // Phone (parent grid-cols-2): each cell = one field with label above value.
+  // sm+ (parent grid-cols-1): each cell becomes a 3-col sub-grid (label 1/3, value 2/3).
   return (
-    <>
-      <dt className="text-xs uppercase tracking-[0.15em] text-muted-foreground col-span-1 pt-0.5">
+    <div
+      className={`flex flex-col sm:grid sm:grid-cols-3 ${
+        full ? 'col-span-2 sm:col-span-1' : ''
+      }`}
+    >
+      <dt className="text-xs uppercase tracking-[0.15em] text-muted-foreground pt-0.5">
         {label}
       </dt>
-      <dd className="col-span-2">{value}</dd>
-    </>
+      <dd className="sm:col-span-2">{value}</dd>
+    </div>
   );
 }

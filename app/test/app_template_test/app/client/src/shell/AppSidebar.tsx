@@ -11,6 +11,7 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarRail,
+  useSidebar,
 } from '@databricks/appkit-ui/react';
 import { Spinner } from '@databricks/appkit-ui/react';
 import { BarChart3, LayoutDashboard, MessagesSquare, PackageOpen, Plus, Trash2 } from 'lucide-react';
@@ -29,6 +30,13 @@ export function AppSidebar() {
   const [creating, setCreating] = useState(false);
   const navigate = useNavigate();
   const { list: convoList } = useConversationList();
+  const { isMobile, setOpenMobile } = useSidebar();
+
+  // On phone the sidebar opens as a full-height overlay; collapse it after
+  // any nav so the user lands on the destination, not a covered screen.
+  const closeOnMobile = () => {
+    if (isMobile) setOpenMobile(false);
+  };
 
   async function newChat() {
     if (creating) return;
@@ -36,6 +44,7 @@ export function AppSidebar() {
     try {
       const c = await conversationStore.create();
       navigate(`/c/${c.id}`);
+      closeOnMobile();
     } finally {
       setCreating(false);
     }
@@ -51,7 +60,7 @@ export function AppSidebar() {
   return (
     <Sidebar collapsible="icon">
       <SidebarHeader>
-        <NavLink to="/" className="flex items-center gap-2.5 px-2 py-2 rounded-md hover:bg-sidebar-accent transition-colors">
+        <NavLink to="/" onClick={closeOnMobile} className="flex items-center gap-2.5 px-2 py-2 rounded-md hover:bg-sidebar-accent transition-colors">
           <div
             className="flex aspect-square size-8 items-center justify-center rounded-md text-primary-foreground font-semibold shrink-0"
             style={{ background: 'var(--primary)' }}
@@ -72,7 +81,7 @@ export function AppSidebar() {
             <SidebarMenu>
               {navItems.map((item) => (
                 <SidebarMenuItem key={item.to}>
-                  <NavLink to={item.to} end={item.end}>
+                  <NavLink to={item.to} end={item.end} onClick={closeOnMobile}>
                     {({ isActive }) => (
                       <SidebarMenuButton isActive={isActive} tooltip={item.label}>
                         <item.icon className="size-4" />
@@ -117,7 +126,7 @@ export function AppSidebar() {
           <SidebarGroupContent>
             <SidebarMenu>
               <SidebarMenuItem>
-                <NavLink to="/platform">
+                <NavLink to="/platform" onClick={closeOnMobile}>
                   {({ isActive }) => (
                     <SidebarMenuButton
                       isActive={isActive}
@@ -165,7 +174,7 @@ export function AppSidebar() {
               )}
               {convoList.map((c) => (
                 <SidebarMenuItem key={c.id} className="group/convo">
-                  <NavLink to={`/c/${c.id}`}>
+                  <NavLink to={`/c/${c.id}`} onClick={closeOnMobile}>
                     {({ isActive }) => (
                       <SidebarMenuButton
                         isActive={isActive}

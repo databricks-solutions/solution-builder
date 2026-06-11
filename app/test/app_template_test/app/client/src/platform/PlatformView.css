@@ -21,6 +21,279 @@
   padding: 4rem 2rem 6rem;
 }
 
+@media (max-width: 640px) {
+  /* Outer container — tighter side gutters so cards stretch the full width. */
+  .dx-platform-inner {
+    padding: 1.5rem 0.75rem 3rem;
+  }
+
+  /* Hero */
+  .dx-hero {
+    margin-bottom: 2rem;
+  }
+  .dx-hero-sub {
+    font-size: 0.9rem;
+  }
+
+  /* Layer cards: smaller padding, rounded a touch less so they don't
+     hug the tiny gutter awkwardly. */
+  .dx-layer {
+    border-radius: 1rem;
+    padding: 1.25rem 1rem;
+    gap: 1.25rem;
+  }
+
+  /* Title/tagline/pitch — knock the type size down so the headline
+     doesn't break across 3 lines on a 375px screen. */
+  .dx-layer-title {
+    font-size: 1.5rem;
+    line-height: 1.15;
+  }
+  .dx-layer-tagline {
+    font-size: 0.9rem;
+  }
+  .dx-layer-pitch {
+    font-size: 0.88rem;
+    margin-bottom: 1rem;
+  }
+
+  /* Scene block — keep some padding so the SVG breathes but trim
+     the rounded radius to match the smaller card. Center the SVG
+     horizontally so wide-aspect scenes (380×280) don't anchor left
+     when the card shrinks under their natural width. */
+  .dx-layer-scene {
+    padding: 0.85rem;
+    border-radius: 0.85rem;
+    justify-content: center;
+    align-items: center;
+  }
+  /* Drop the max-height cap — it was forcing SVGs to render shorter
+     than their viewBox aspect ratio expected, which made content
+     anchored to a corner (e.g. the operator in the Act scene) appear
+     in the wrong place. Just let width: 100% drive proportional scale. */
+  .dx-scene-svg {
+    max-height: none;
+  }
+  /* Phone: scene cards inherit a 320px min-height for desktop chrome —
+     drop it so each scene takes only what its viewBox needs. */
+  .dx-layer-scene {
+    min-height: 0;
+  }
+  /* Govern scene specifically renders with a lot of empty whitespace
+     at full-width because the consumer chips sit at viewBox corners.
+     Cap its rendered width so the chip ring stays dense and readable. */
+  .dx-layer[data-layer-id='govern'] .dx-scene-svg {
+    max-width: 260px;
+  }
+  /* Govern scene: kill the inner card chrome so the SVG sits flush
+     against the layer content. Saves the wasted band of padding above
+     and below the chip ring on phone. */
+  .dx-layer[data-layer-id='govern'] .dx-layer-scene {
+    padding: 0.25rem 0;
+    background: transparent;
+    border: none;
+  }
+  /* Govern scene: bump SVG text sizes since the scene is denser now —
+     SVG `text` doesn't inherit Tailwind, so override fontSize directly. */
+  .dx-layer[data-layer-id='govern'] .dx-scene-svg text {
+    font-size: 12px;
+  }
+  /* Tighten the vertical spacing around the scene specifically:
+     less layer padding above the scene, less gap between scene and
+     content block below. The card chrome is gone so this is just
+     dead air. */
+  .dx-layer[data-layer-id='govern'] {
+    padding-top: 1.25rem;
+    row-gap: 0.5rem;
+  }
+
+  /* Act scene operator: relocate the avatar to the top-right of the
+     browser frame (which sits at x=80-300, y=32-192). The browser's
+     top-right corner is around (300, 32); placing the avatar at
+     (290, 36) anchors it neatly on the frame's top-right.
+     The label below (OPERATOR) gets hidden — the position carries the
+     meaning, the label would overlap the browser body. */
+  .dx-act-operator-avatar {
+    /* SVG `transform` attribute on the JSX is (40 170); CSS overrides
+       to the new anchor. translate() values are in user space (SVG)
+       units, equivalent to viewBox coordinates.
+       y=48 keeps the full pulse ring (r=26 max) inside the tight
+       viewBox (top y=20): avatar center 48 - 26 = 22 ≥ 20. */
+    transform: translate(290px, 48px);
+  }
+  .dx-act-operator-label {
+    display: none;
+  }
+  /* Act scene: kill the inner card chrome (the bluish tinted background)
+     on phone — the mock browser already has its own frame, the outer
+     tint just stacks padding around it. */
+  .dx-layer[data-layer-id='act'] .dx-layer-scene {
+    padding: 0.25rem 0;
+    background: transparent;
+    border: none;
+  }
+  /* Trim the outer layer card padding above/below for the act layer
+     so the scene sits tight against the title block + the next layer. */
+  .dx-layer[data-layer-id='act'] {
+    padding-top: 1.25rem;
+    padding-bottom: 1.25rem;
+    row-gap: 0.5rem;
+  }
+
+  /* Capability accordion rows — slightly tighter so two rows fit in
+     the same vertical slot as one on desktop. */
+  .dx-cap-row {
+    gap: 0.55rem;
+    padding: 0.55rem 0.7rem;
+  }
+  .dx-cap-name {
+    font-size: 0.86rem;
+  }
+  .dx-cap-product {
+    font-size: 0.72rem;
+  }
+
+  /* Genie Code + Agentic Apps strips — head label + demo stage stack
+     vertically (already done at 720px); we just trim the gap. */
+  .dx-genie-strip {
+    padding: 0.55rem 0.7rem;
+  }
+  .dx-genie-strip-label strong {
+    font-size: 0.85rem;
+  }
+  .dx-genie-strip-sub {
+    font-size: 0.75rem;
+  }
+  /* Center the typed prompt + artifact under the head label so the
+     "$ … pipeline.sql" demo doesn't hug the left edge. */
+  .dx-genie-stage {
+    justify-items: center;
+  }
+  .dx-genie-prompt,
+  .dx-genie-artifact {
+    width: 100%;
+    max-width: 18rem;
+  }
+
+  /* Ingest scene: SVG is fixed-coord and unreadable below ~360px wide.
+     Swap it for a stacked HTML rendering on phone. */
+  .dx-ingest-svg {
+    display: none;
+  }
+  .dx-ingest-mobile {
+    display: flex;
+  }
+  /* Ingest scene mobile card holds its own padding — drop the outer
+     scene card's chrome so the stack doesn't look boxed-in-a-box. */
+  .dx-layer-scene:has(.dx-ingest-mobile) {
+    background: transparent;
+    border: none;
+    padding: 0;
+    min-height: 0;
+  }
+
+  /* Flow connector between layers — shorten so the page doesn't have
+     a giant gap between bands on a tiny screen. */
+  .dx-flow-connector {
+    height: 32px;
+  }
+  .dx-flow-connector svg {
+    height: 32px;
+  }
+
+  /* Closing block — was 4rem top margin + 3rem top padding = a wasteland
+     of empty space on phone. Tighten to roughly the same as the layer
+     gap. */
+  .dx-closing {
+    margin-top: 2rem;
+    padding-top: 1.5rem;
+  }
+  .dx-closing-rule {
+    margin-bottom: 1.25rem;
+  }
+  .dx-closing-text {
+    font-size: 0.92rem;
+  }
+}
+
+/* -------- Ingest scene: mobile fallback (HTML stack) --------
+   Hidden on desktop/tablet; shown by the @media (max-width: 640px)
+   block above which sets `display: flex` and hides the SVG. */
+.dx-ingest-mobile {
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.55rem;
+  width: 100%;
+}
+.dx-ingest-mobile-sources {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.4rem;
+}
+.dx-ingest-mobile-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.3rem 0.55rem;
+  border-radius: 999px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--foreground);
+  white-space: nowrap;
+}
+.dx-ingest-mobile-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.dx-ingest-mobile-arrow {
+  font-size: 1rem;
+  font-weight: 700;
+  color: color-mix(in oklch, var(--primary) 55%, var(--muted-foreground));
+  line-height: 1;
+}
+.dx-ingest-mobile-hub {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 0.4rem 0.6rem;
+  padding: 0.55rem 0.85rem 0.65rem;
+  border-radius: 0.85rem;
+  background: color-mix(in oklch, var(--primary) 6%, var(--background));
+  border: 1px solid color-mix(in oklch, var(--primary) 32%, var(--border));
+}
+.dx-ingest-mobile-tier {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.2rem 0.5rem;
+  border-radius: 0.4rem;
+  background: var(--card);
+  border: 1px solid var(--border);
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--foreground);
+}
+.dx-ingest-mobile-tier-dot {
+  display: inline-block;
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 999px;
+}
+.dx-ingest-mobile-hub-label {
+  flex-basis: 100%;
+  text-align: center;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--primary);
+}
+
 /* -------- Hero -------- */
 
 .dx-hero {
@@ -388,14 +661,20 @@
 @media (max-width: 840px) {
   .dx-layer.has-genie-strip {
     padding: 1.75rem 0 0;
+    grid-template-rows: none;
+    row-gap: 1.25rem;
   }
-  .dx-layer.has-genie-strip .dx-layer-scene {
-    margin-left: 1.5rem;
-    margin-right: 1.5rem;
-  }
+  /* Reset the desktop row pinning — at single-column phone width,
+     scene + content + strip must flow naturally (scene → content → strip),
+     not all share row 1 (which would overlap them). */
+  .dx-layer.has-genie-strip .dx-layer-scene,
   .dx-layer.has-genie-strip .dx-layer-content {
+    grid-row: auto;
     margin-left: 1.5rem;
     margin-right: 1.5rem;
+  }
+  .dx-layer.has-genie-strip .dx-genie-strip {
+    grid-row: auto;
   }
 }
 
