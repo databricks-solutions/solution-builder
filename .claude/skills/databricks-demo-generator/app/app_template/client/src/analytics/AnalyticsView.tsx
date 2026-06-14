@@ -16,10 +16,10 @@
  */
 import { useEffect, useMemo, useState } from 'react';
 import { BarChart, LineChart, useAnalyticsQuery } from '@databricks/appkit-ui/react';
-import { Database } from 'lucide-react';
 import { fetchWarehouse, type Warehouse } from '@/lib/api';
 import { BRAND_PALETTE } from '@/lib/brand';
 import { FacilityPanel } from './FacilityPanel';
+import { RtPitch } from '@/architecture/RtPitch';
 
 export function AnalyticsView() {
   const empty = useMemo(() => ({}), []);
@@ -32,40 +32,28 @@ export function AnalyticsView() {
   return (
     <div className="h-full overflow-y-auto">
       <div className="max-w-6xl mx-auto px-4 sm:px-8 py-6 sm:py-10 space-y-6 sm:space-y-10">
-        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 sm:gap-6">
-          <div>
-            <div className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground mb-2">
-              Operations analytics
-            </div>
-            <h1 className="display text-4xl font-semibold tracking-tight text-foreground mb-2">
-              Where the returns are coming from.
-            </h1>
-            <p className="text-muted-foreground max-w-2xl">
-              Live queries against the SQL warehouse — the same numbers the
-              assistant reasons about, on a single page. Use the queue to take
-              action; use this page to spot patterns.
-            </p>
+        <div>
+          <div className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground mb-2">
+            Operations analytics
           </div>
-          {warehouse?.id && (
-            <div
-              className="shrink-0 inline-flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5 text-sm"
-              title={`Warehouse id: ${warehouse.id}`}
-            >
-              <Database className="size-3.5 text-muted-foreground" />
-              <span className="text-muted-foreground">Warehouse</span>
-              <span className="font-medium">{warehouse.name}</span>
-              {warehouse.state && (
-                <span
-                  className={`inline-block size-1.5 rounded-full ${
-                    warehouse.state === 'RUNNING'
-                      ? 'bg-[var(--status-running)]'
-                      : 'bg-[var(--status-idle)]'
-                  }`}
-                />
-              )}
-            </div>
-          )}
+          <h1 className="display text-4xl font-semibold tracking-tight text-foreground mb-2">
+            Where the returns are coming from.
+          </h1>
+          <p className="text-muted-foreground max-w-2xl">
+            Live queries against the SQL warehouse — the same numbers the
+            assistant reasons about, on a single page. Use the queue to take
+            action; use this page to spot patterns.
+          </p>
         </div>
+
+        <RtPitch
+          warehouse={
+            warehouse?.name
+              ? { name: warehouse.name, state: warehouse.state ?? null }
+              : null
+          }
+          latencyMs={null}
+        />
 
         {/* Top row: two charts side-by-side. Trend (wider) + product mix. */}
         <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
@@ -189,15 +177,19 @@ const compactUsd = (n: number) =>
  *  fallback ReactNode to render in the empty / loading / error cases. */
 function useWorstLots(): { data: WorstLotRow[] } | { fallback: React.ReactNode } {
   const empty = useMemo(() => ({}), []);
-  const { data, isLoading, error } = useAnalyticsQuery<WorstLotRow>(
-    'worst_lots',
-    empty,
-  );
+  // appkit-ui types union the result across all known queries; cast to the
+  // specific row shape since we know `worst_lots` returns WorstLotRow.
+  const result = useAnalyticsQuery('worst_lots', empty) as unknown as {
+    data: WorstLotRow[] | null;
+    error: unknown;
+    isLoading?: boolean;
+  };
+  const { data, error, isLoading } = result;
   if (error) {
     return {
       fallback: (
         <div className="px-4 py-3 text-sm text-destructive">
-          Couldn't load lots: {String((error as Error).message ?? error)}
+          Couldn't load lots: {String((error as { message?: string })?.message ?? error)}
         </div>
       ),
     };
