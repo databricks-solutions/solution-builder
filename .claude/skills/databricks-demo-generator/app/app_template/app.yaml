@@ -12,24 +12,28 @@
 
 command: ['node', '--env-file-if-exists=.env', 'dist/server.js']
 
+# Scopes minted into the user's OBO token (x-forwarded-access-token).
+# Without `model-serving` here, calls to /serving-endpoints fail with
+# "Provided OAuth token does not have required scopes: model-serving".
+# Add scopes only as the demo needs them — each one requires user consent
+# on first visit.
+user_authorization:
+  scopes:
+    - model-serving      # OpenAI Agents loop hits /serving-endpoints/responses
+    - genie              # ask_data → Genie space
+    - sql                # warehouse-backed analytics queries
+    - postgres           # Lakebase pool
+    - ai-gateway         # AI Gateway routing for the Responses API
+    - catalog.catalogs:read
+    - catalog.schemas:read
+    - catalog.tables:read
+
 env:
   - name: NODE_ENV
     value: production
 
-  # Resource bindings declared in databricks.yml's apps.<name>.resources
-  # don't auto-inject env vars. AppKit expects each binding's fields to
-  # be surfaced via `valueFrom` references here. The resource name on
-  # the right MUST match the `name:` of the corresponding entry in the
-  # bundle's `apps.<name>.resources:` list.
-  - name: DATABRICKS_WAREHOUSE_ID
-    valueFrom: sql-warehouse
-
-  # ── Lakebase wiring ──────────────────────────────────────────────────
-  # The `postgres` binding declared in databricks.yml auto-injects
-  # PGHOST / PGDATABASE / PGSSLMODE / PGUSER / PGPORT / PGAPPNAME when
-  # the App container starts. Only LAKEBASE_ENDPOINT must be wired
-  # explicitly so AppKit's lakebase plugin can mint OAuth tokens
-  # against the right endpoint. Drop this entry if the demo doesn't
-  # use Lakebase.
-  - name: LAKEBASE_ENDPOINT
-    valueFrom: postgres
+  # Interactive-deploy path (no databricks.yml DAB resource bindings):
+  # runtime config comes from the .env file shipped with the source.
+  # If you switch to a DAB-deploy flow, re-add `valueFrom: sql-warehouse`
+  # / `valueFrom: postgres` entries here and wire the matching resources
+  # in databricks.yml's apps.<name>.resources block.

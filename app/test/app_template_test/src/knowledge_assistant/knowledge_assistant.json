@@ -2,7 +2,7 @@
   "_README": "Knowledge Assistant config — re-creatable via `databricks knowledge-assistants create-knowledge-assistant`. Pair with the knowledge_sources entry below (each KA can have one or more sources).",
 
   "knowledge_assistant": {
-    "display_name": "luxebeauty-test-incidents",
+    "display_name": "luxebeauty-incidents",
     "description": "Lyon manufacturing incident reports + QC summaries + equipment maintenance logs. Used to answer 'why did this lot have texture issues?' style questions in the Returns Console agent loop."
   },
 
@@ -12,14 +12,14 @@
       "description": "Lyon production incident reports, QC summaries, maintenance logs",
       "source_type": "files",
       "files": {
-        "path": "/Volumes/ai_demo_gen/demo_luxebeauty_test/manufacturing_reports/"
+        "path": "/Volumes/retail_consumer_goods/luxebeauty_demo/manufacturing_reports/"
       }
     }
   ],
 
   "_deployed_state": {
-    "knowledge_assistant_id": "d2f6a0b3-0980-46a9-9442-a3696f37be7a",
-    "endpoint_name": "ka-d2f6a0b3-endpoint",
-    "experiment_id": "112419715816739"
+    "knowledge_assistant_id": null,
+    "endpoint_name": null,
+    "experiment_id": null
   }
 }

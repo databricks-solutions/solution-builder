@@ -21,27 +21,30 @@
     ]
   },
   "created_resources": {
-    "workspace_folder": "/Workspace/Users/quentin.ambard@databricks.com/luxebeauty_test",
-    "catalog": "ai_demo_gen",
-    "schema": "demo_luxebeauty_test",
-    "warehouse_id": "862f1d757f0424f7",
-    "pipeline_id": "6ee399c7-904b-4543-95c0-4fca0e716979",
-    "ml_model_name": "ai_demo_gen.demo_luxebeauty_test.customer_premium_classifier",
-    "mlflow_experiment_path": "/Workspace/Users/quentin.ambard@databricks.com/luxebeauty_test/experiments/premium_classifier",
-    "metric_view_name": "ai_demo_gen.demo_luxebeauty_test.mv_returns",
-    "genie_space_id": "01f15cd76d7914febe016a1444652a47",
-    "dashboard_id": "01f15cdfd0eb17eaa61e644bc6c852db",
-    "knowledge_assistant_id": "d2f6a0b3-0980-46a9-9442-a3696f37be7a",
-    "knowledge_assistant_endpoint": "ka-d2f6a0b3-endpoint",
-    "multi_agent_supervisor_id": "e882dd2e-739b-4abd-a59f-be46d9751d0b",
-    "multi_agent_supervisor_endpoint": "mas-e882dd2e-endpoint",
-    "lakebase_project_id": "1bcf612a-c719-42a4-981e-44f70a041da8",
+    "workspace_folder": "/Workspace/Users/quentin.ambard@databricks.com/luxebeauty_demo",
+    "catalog": "retail_consumer_goods",
+    "schema": "luxebeauty_demo",
+    "warehouse_id": "75fd8278393d07eb",
+    "pipeline_id": "6899b481-76df-47cc-bb0e-5311bbbd22d7",
+    "ml_model_name": "retail_consumer_goods.luxebeauty_demo.customer_premium_classifier",
+    "mlflow_experiment_path": "/Workspace/Users/quentin.ambard@databricks.com/luxebeauty_demo/experiments/premium_classifier",
+    "metric_view_name": "retail_consumer_goods.luxebeauty_demo.mv_returns",
+    "genie_space_id": "01f165c3f19e19968a1e180ff8fd5e94",
+    "dashboard_id": "01f165c28bfd13a79fb66a71c49d56ca",
+    "knowledge_assistant_id": "6e89d700-2656-4e51-8f3b-6632db0476ec",
+    "knowledge_assistant_endpoint": "ka-6e89d700-endpoint",
+    "multi_agent_supervisor_id": "9d253a6f-da03-4ec9-9bee-2e0d3ec7d6f2",
+    "multi_agent_supervisor_endpoint": "mas-9d253a6f-endpoint",
+    "lakebase_project_id": "8423d8ac-55d8-4761-aeed-8668fbbfa2d2",
     "lakebase_project_slug": "dbdemos-asset-generator",
-    "lakebase_database": "dbgen_luxebeauty_test",
-    "pdf_volume": "/Volumes/ai_demo_gen/demo_luxebeauty_test/manufacturing_reports",
+    "lakebase_database": "dbgen_luxebeauty_demo",
+    "pdf_volume": "/Volumes/retail_consumer_goods/luxebeauty_demo/manufacturing_reports",
     "app": {
-      "name": "luxebeauty-test-app",
-      "deployment_note": "Not deployed — local smoke test only."
-    }
+      "name": "sln-builder-luxebeauty-demo",
+      "id": "99eb2656-da78-4210-9d41-cc704c9b870c",
+      "url": "https://sln-builder-luxebeauty-demo-2556758628403379.aws.databricksapps.com",
+      "deployment_note": "Deployed to e2-demo-west. SP role 99eb2656... granted public-schema CREATE+USAGE via lakebase_grant_app_credential.sh (role pre-created manually since interactive deploy doesn't auto-provision)."
+    },
+    "bad_lot_id": "LOT-2026-0430"
   }
 }

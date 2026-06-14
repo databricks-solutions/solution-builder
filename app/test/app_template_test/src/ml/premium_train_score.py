@@ -25,10 +25,10 @@ from sklearn.metrics import roc_auc_score
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import OneHotEncoder
 
-CATALOG = "ai_demo_gen"
-SCHEMA  = "demo_luxebeauty_test"
+CATALOG = "retail_consumer_goods"
+SCHEMA  = "luxebeauty_demo"
 MODEL_NAME = f"{CATALOG}.{SCHEMA}.customer_premium_classifier"
-EXPERIMENT_PATH = "/Workspace/Users/quentin.ambard@databricks.com/luxebeauty_test/experiments/premium_classifier"
+EXPERIMENT_PATH = "/Workspace/Users/quentin.ambard@databricks.com/luxebeauty_demo/experiments/premium_classifier"
 
 # UC registry + experiment (parent folder pre-created externally — see SKILL.md)
 mlflow.set_registry_uri("databricks-uc")

@@ -372,6 +372,24 @@ resources:
       lifecycle:
         prevent_destroy: true
 
+      # OBO scopes minted into the user's token (x-forwarded-access-token)
+      # when an authenticated end user hits the app. The agent loop runs as
+      # the OBO identity, NOT as the App SP, so without these scopes any
+      # call to /serving-endpoints fails with:
+      #   "Provided OAuth token does not have required scopes: model-serving"
+      # Mirror what app.yaml declares — both files need this block for the
+      # interactive and DAB deploy paths respectively.
+      user_authorization:
+        scopes:
+          - model-serving      # OpenAI Agents loop hits /serving-endpoints/responses
+          - genie              # ask_data → Genie space
+          - sql                # warehouse-backed analytics queries
+          - postgres           # Lakebase pool
+          - ai-gateway         # AI Gateway routing for the Responses API
+          - catalog.catalogs:read
+          - catalog.schemas:read
+          - catalog.tables:read
+
       resources:
         # Genie Space binding (existing space — pass the id as a var).
         - name: genie-space

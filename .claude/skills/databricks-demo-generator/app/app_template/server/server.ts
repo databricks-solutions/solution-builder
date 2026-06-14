@@ -41,6 +41,17 @@
  * for the domain types and is the FIRST thing to update when swapping
  * the data model.
  */
+// Normalize DATABRICKS_HOST: in Databricks Apps, the runtime sometimes
+// injects a bare hostname (`e2-demo-west.cloud.databricks.com`) overriding
+// the .env value, which breaks every `new URL()` call downstream
+// (MLflow bootstrap, OpenAI agent endpoint, Genie/MAS routing). Force a
+// scheme + strip a trailing slash exactly once, at module load.
+if (process.env.DATABRICKS_HOST) {
+  let h = process.env.DATABRICKS_HOST.trim().replace(/\/+$/, '');
+  if (!/^https?:\/\//i.test(h)) h = 'https://' + h;
+  process.env.DATABRICKS_HOST = h;
+}
+
 import { installLogger } from './lib/logger.js';
 installLogger();
 

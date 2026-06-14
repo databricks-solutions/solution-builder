@@ -1,6 +1,6 @@
 version: 1.1
 
-source: ai_demo_gen.demo_luxebeauty_test.gold_daily_summary
+source: retail_consumer_goods.luxebeauty_demo.gold_daily_summary
 
 dimensions:
   - name: date
