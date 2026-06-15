@@ -1,16 +1,43 @@
 {
-  "_README": "App config \u2014 read by server/server.ts at boot, exposed (minus secrets) to the client via /api/config (server/routes/config.ts). JSON has no comments, so help text lives in `_*_help` keys; ignore them at runtime. Update one field at a time + restart the dev server (config is read once at boot).",
-  "_dataBackend_help": "The agent talks to ONE data backend. Template ships with MAS \u2192 server/agent/refundops.ts registers `ask_mas` (server/agent/tools/mas.ts). For Genie-only demos: set genieSpaceId, clear masEndpointName, swap to askGenieTool in refundops.ts AgentContext + makeTools. For demos with both: register both factories with distinct names + tell the model in instructions when to prefer each.",
+  // App config (JSONC). Loaded by server/server.ts loadAppConfig.
+  // Exposed: /api/config (branding/script/dashboard) + /api/resources (deep-links).
+  // Fields are ordered by deploy sequence — fill top→bottom as resources land.
+  // Restart the dev server after edits (config is read once at boot).
+
+  // ─ Agent backend: set ONE. masEndpointName → ask_mas tool registered.
+  //   genieSpaceId → swap to askGenieTool in server/agent/refundops.ts makeTools.
+  //   Empty both → no data tool → agent can't answer "why" questions.
   "masEndpointName": "mas-9d253a6f-endpoint",
   "genieSpaceId": "",
-  "_agentModel_help": "Foundation Model serving endpoint that powers the OpenAI Agents loop (server/agent/refundops.ts \u2192 configureAgentsSdk). MUST be `databricks-gpt-5-4`. Why: the Agents SDK defaults to the OpenAI Responses API, which Databricks gates per-model. GPT-5-4 is the only Databricks-hosted model with `openai/v1/responses` enabled today \u2014 Anthropic models (Sonnet 4.6, etc.) return 400 BAD_REQUEST. Using anything other than GPT-5-4 will break the agent.",
+
+  // Agent LLM. MUST be databricks-gpt-5-4 (only Databricks model with
+  // openai/v1/responses enabled — others 400 BAD_REQUEST). Don't change.
   "agentModel": "databricks-gpt-5-4",
-  "_mlflow_help": "Two MLflow IDs land in the AppHeader (client/src/shell/AppHeader.tsx). `mlflowExperimentId` is a pinned legacy id (optional). `agentMlflowExperimentPath` auto-creates the experiment at boot via lib/mlflow.ts and is what the chat 'View trace' link points at \u2014 REQUIRED, or every assistant message shows 'Trace pending\u2026' forever. Path format: /Users/<your-email>/<app-name>-agent-traces (unique per app).",
+
+  // MLflow trace path. Empty → chat shows "Trace pending…" forever.
+  // Auto-created at boot via lib/mlflow.ts. Format: /Users/<email>/<app>-traces.
   "mlflowExperimentId": "",
   "agentMlflowExperimentPath": "/Users/quentin.ambard@databricks.com/luxebeauty_demo/luxebeauty-demo-app-agent-traces",
-  "_dashboard_help": "AI/BI dashboard embedded as iframe on /dashboard route (client/src/dashboard/DashboardView.tsx). Set to the dashboard's UUID; remove the route + sidebar entry if your demo has none.",
+
+  // Embedded AI/BI dashboard (UUID). Empty → drop the /dashboard route +
+  // sidebar entry (App.tsx + shell/AppHeader.tsx). Also tile on /platform.
   "dashboardId": "01f165c28bfd13a79fb66a71c49d56ca",
-  "_data_help": "Delta source for the one-shot Lakebase mirror sync at boot (server/db/sync.ts). The `tables` keys are domain-specific \u2014 they match the columns of TS types in client/src/shared/types.ts and Drizzle schema in server/db/schema.ts. When swapping the data model, update all three together. `customerPremium` is optional \u2014 set it to the ML predictions table from spec 03-ml-premium.md (e.g. `gold_customer_premium_predictions`) if your demo has a model; leave it as empty string to skip the predictions sync.",
+
+  // Workspace resource IDs → composed into deep-link URLs by /api/resources
+  // (PlatformDiagram on /platform). Empty id → tile renders inert.
+  // Fill in after each resource is deployed.
+  "pipelineId": "6899b481-76df-47cc-bb0e-5311bbbd22d7",                            // Lakeflow SDP pipeline UUID
+  "warehouseId": "75fd8278393d07eb",                                               // SQL warehouse id (hex)
+  "kaEndpointName": "ka-6e89d700-endpoint",                                        // Knowledge Assistant endpoint (ka-<id>-endpoint)
+  "lakebaseProjectId": "8423d8ac-55d8-4761-aeed-8668fbbfa2d2",                     // Lakebase project UUID
+  "appUrl": "https://sln-builder-luxebeauty-demo-2556758628403379.aws.databricksapps.com", // This app's deployed URL (different host)
+  "mlModelName": "retail_consumer_goods.luxebeauty_demo.customer_premium_classifier", // 3-part UC name: catalog.schema.model
+  "pdfVolumePath": "/Volumes/retail_consumer_goods/luxebeauty_demo/manufacturing_reports", // /Volumes/<catalog>/<schema>/<volume>
+
+  // Delta source for boot-time Lakebase mirror (server/db/sync.ts).
+  // Table names map to TS types in client/src/shared/types.ts + Drizzle
+  // schema in server/db/schema.ts — change all three together.
+  // customerPremium: empty → skip ML predictions sync.
   "data": {
     "catalog": "retail_consumer_goods",
     "schema": "luxebeauty_demo",
@@ -21,30 +48,26 @@
       "customerPremium": "gold_customer_premium_predictions"
     }
   },
-  "_branding_help": "App name surfaces in the dock header + page titles. White-label here, not in code.",
+
+  // Surfaces in dock header + page titles.
   "branding": {
     "appName": "LuxeBeauty Returns Console"
   },
-  "_assistantScript_help": "Scripted demo chain \u2014 the dock's 'Suggested next' chip walks this list. First step is always available; subsequent steps unlock once the previous assistant message contains any of the `triggerAfter` substrings. Picker logic lives in client/src/chat/script.ts. Step 2 is the demo's load-bearing moment: the agent calls find_lot_premium_breakdown \u2192 quotes the labeled-vs-hidden split \u2192 drafts two emails (20% premium + 5% standard). Step 3 sends both with one bulk-tool call.",
+
+  // Dock's "Suggested next" chip walks this list. Step N unlocks once the
+  // previous assistant message contains any triggerAfter[] substring.
+  // Picker: client/src/chat/script.ts.
   "assistantScript": [
     {
       "prompt": "Why do I have so many returns?"
     },
     {
-      "prompt": "Handle these affected customers. Use the premium classifier to pick who gets the bigger save \u2014 draft a 20% personal apology for premium customers (CS-tagged plus the ones the model finds) and a 5% goodwill for the rest. Show me both before sending.",
-      "triggerAfter": [
-        "lot",
-        "batch",
-        "customers"
-      ]
+      "prompt": "Handle these affected customers. Use the premium classifier to pick who gets the bigger save — draft a 20% personal apology for premium customers (CS-tagged plus the ones the model finds) and a 5% goodwill for the rest. Show me both before sending.",
+      "triggerAfter": ["lot", "batch", "customers"]
     },
     {
-      "prompt": "Yes \u2014 send both and approve all the refunds.",
-      "triggerAfter": [
-        "tier",
-        "premium",
-        "coupon"
-      ]
+      "prompt": "Yes — send both and approve all the refunds.",
+      "triggerAfter": ["tier", "premium", "coupon"]
     }
   ]
 }

@@ -64,6 +64,7 @@ import {
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
+import { parse as parseJsonc, type ParseError, printParseErrorCode } from 'jsonc-parser';
 import { z } from 'zod';
 
 import * as mlflow from 'mlflow-tracing';
@@ -119,6 +120,20 @@ type AppConfig = {
   agentMlflowExperimentPath?: string;
   agentModel?: string;
   dashboardId: string;
+  /** Workspace resource ids/paths surfaced by /api/resources. Leave any
+   * field empty to mark the corresponding tile inert (no deep-link).
+   * The server composes URLs from these + DATABRICKS_HOST. */
+  pipelineId?: string;
+  warehouseId?: string;
+  kaEndpointName?: string;
+  lakebaseProjectId?: string;
+  /** Full URL of THIS app (different host than the workspace), as
+   * returned by `databricks apps get`. Stored verbatim, not composed. */
+  appUrl?: string;
+  /** Three-part UC model name `catalog.schema.model`. */
+  mlModelName?: string;
+  /** Volume path `/Volumes/<catalog>/<schema>/<volume>`. */
+  pdfVolumePath?: string;
   branding: { appName: string };
   assistantScript?: Array<{
     label: string;
@@ -163,6 +178,13 @@ const appConfigSchema = z
     agentMlflowExperimentPath: z.string().optional(),
     agentModel: z.string().optional(),
     dashboardId: z.string(),
+    pipelineId: z.string().optional(),
+    warehouseId: z.string().optional(),
+    kaEndpointName: z.string().optional(),
+    lakebaseProjectId: z.string().optional(),
+    appUrl: z.string().optional(),
+    mlModelName: z.string().optional(),
+    pdfVolumePath: z.string().optional(),
     branding: z.object({ appName: z.string().min(1) }),
     assistantScript: z
       .array(
@@ -180,8 +202,10 @@ const appConfigSchema = z
         tables: tablesSchema,
       })
       .optional(),
-  })
-  .passthrough(); // _*_help keys + future fields are fine
+  });
+  // Strict by default — unknown keys are a config typo, not a feature. The
+  // file is JSONC (parsed via jsonc-parser) so help text lives in real
+  // `//` comments rather than `_*_help` JSON keys.
 
 const CONFIG_PATH = resolve(
   dirname(fileURLToPath(import.meta.url)),
@@ -198,12 +222,20 @@ function loadAppConfig(): AppConfig {
     );
   }
 
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch (e) {
+  // Parse with jsonc-parser so config/app.json supports `//` and `/* */`
+  // comments + trailing commas. We still write a `.json` file (no extension
+  // change, no DAB / IDE churn) — only the parser is more permissive.
+  const errors: ParseError[] = [];
+  const parsed: unknown = parseJsonc(raw, errors, { allowTrailingComma: true });
+  if (errors.length > 0) {
+    const list = errors
+      .map(
+        (e) =>
+          `  • offset ${e.offset}+${e.length}: ${printParseErrorCode(e.error)}`,
+      )
+      .join('\n');
     throw new Error(
-      `[config] ${CONFIG_PATH} is not valid JSON: ${(e as Error).message}`,
+      `[config] ${CONFIG_PATH} is not valid JSONC:\n${list}`,
     );
   }
 

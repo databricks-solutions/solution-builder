@@ -136,6 +136,34 @@ export async function fetchWarehouse(): Promise<Warehouse> {
   return res.json();
 }
 
+/** One workspace resource: its id (or endpoint name) + a deep-link URL.
+ *  Composed server-side from DATABRICKS_HOST + config/app.json. Either
+ *  field can be the empty string when the resource isn't configured for
+ *  this demo — callers should treat empty `url` as "render the tile
+ *  non-clickable". */
+export type ResourceEntry = { id: string; url: string };
+
+/** All workspace resources exposed by /api/resources. Keys map 1:1 to
+ *  the buildResources() table in server/routes/config.ts. */
+export type WorkspaceResources = {
+  dashboard: ResourceEntry;
+  genie:     ResourceEntry;
+  pipeline:  ResourceEntry;
+  warehouse: ResourceEntry;
+  lakebase:  ResourceEntry;
+  mas:       ResourceEntry;
+  ka:        ResourceEntry;
+  catalog:   ResourceEntry;
+  model:     ResourceEntry;
+  volume:    ResourceEntry;
+  app:       ResourceEntry;
+};
+
+export async function fetchResources(): Promise<WorkspaceResources> {
+  const res = await okOrThrow(await fetch('/api/resources'), '/api/resources');
+  return res.json();
+}
+
 /** The persistent dock conversation for the current user. */
 export type DockConversation = {
   id: string;

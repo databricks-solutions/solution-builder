@@ -38,6 +38,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import './PlatformView.css';
+import { PlatformDiagram } from '@/architecture/PlatformDiagram';
 
 // ===========================================================================
 // Types
@@ -1160,6 +1161,8 @@ export function PlatformView() {
   return (
     <div className="dx-platform">
       <div className="dx-platform-inner">
+        <PlatformDiagram />
+
         <header className="dx-hero">
           <div className="dx-hero-eyebrow">Databricks Data + AI Platform</div>
           <h1 className="dx-hero-title">Democratize data and AI.</h1>

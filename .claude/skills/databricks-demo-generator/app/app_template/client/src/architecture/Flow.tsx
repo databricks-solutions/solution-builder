@@ -18,12 +18,12 @@ export function FlowKeyframes() {
     <style>{`
       @keyframes db-flow-dot { 0% { transform: translateX(0); opacity: 0 } 12% { opacity: 1 } 88% { opacity: 1 } 100% { transform: translateX(var(--db-flow-w, 48px)); opacity: 0 } }
       .db-flow-dot-animate { animation: db-flow-dot 2s linear infinite; fill: #EF5B3F; filter: drop-shadow(0 0 4px #EF5B3F); }
-      /* Fork dots: ride each curve via offset-path; works in modern Chromium/WebKit. */
-      @keyframes db-fork-up   { 0% { offset-distance: 0%; opacity: 0 } 12% { opacity: 1 } 88% { opacity: 1 } 100% { offset-distance: 100%; opacity: 0 } }
-      @keyframes db-fork-down { 0% { offset-distance: 0%; opacity: 0 } 12% { opacity: 1 } 88% { opacity: 1 } 100% { offset-distance: 100%; opacity: 0 } }
-      .db-fork-dot { fill: #EF5B3F; filter: drop-shadow(0 0 4px #EF5B3F); }
-      .db-fork-dot-up   { offset-path: path('M0 65 C30 65 50 22 72 22'); animation: db-fork-up 2s linear infinite; }
-      .db-fork-dot-down { offset-path: path('M0 65 C30 65 50 108 72 108'); animation: db-fork-down 2s linear infinite; }
+      /* Fork dots use SVG <animateMotion> (not CSS offset-path) so they
+         ride the same <path> element the trunk renders — coordinates can
+         never drift. The fade is a separate CSS keyframe on opacity. */
+      @keyframes db-fork-fade { 0% { opacity: 0 } 12% { opacity: 1 } 88% { opacity: 1 } 100% { opacity: 0 } }
+      .db-fork-dot { fill: #EF5B3F; filter: drop-shadow(0 0 4px #EF5B3F);
+        animation: db-fork-fade 2s linear infinite; }
     `}</style>
   );
 }
@@ -107,7 +107,12 @@ export function Stage({
 
 /** Fork connector: trunk on the left, splits into two bezier branches that
  *  rise to a top tile (y≈22) and drop to a bottom tile (y≈108) in a 72×130
- *  fan. Pair with a vertically-stacked pair of <Stage> nodes on the right. */
+ *  fan. Pair with a vertically-stacked pair of <Stage> nodes on the right.
+ *
+ *  Each branch is drawn as its own <path>; the riding dot uses
+ *  <animateMotion><mpath/></animateMotion> to follow that exact path
+ *  element — coordinates are shared by reference, not by string, so the
+ *  dot can never drift off the curve. */
 export function Fork() {
   return (
     <span
@@ -120,15 +125,35 @@ export function Fork() {
       }}
     >
       <svg viewBox="0 0 72 130" width={72} height={130} style={{ overflow: 'visible' }}>
+        {/* Trunk + upper branch as ONE continuous path so a single
+            animateMotion runs from trunk start (x=0) to upper branch end. */}
         <path
-          d="M0 65 H30 M30 65 C52 65 50 22 72 22 M30 65 C52 65 50 108 72 108"
+          id="db-fork-path-up"
+          d="M0 65 C30 65 50 22 72 22"
           fill="none"
           stroke="var(--muted-foreground)"
           strokeWidth={1.4}
           opacity={0.5}
         />
-        <circle className="db-fork-dot db-fork-dot-up" r={2.4} />
-        <circle className="db-fork-dot db-fork-dot-down" r={2.4} />
+        {/* Lower branch shares the same trunk start (0,65) and dives down. */}
+        <path
+          id="db-fork-path-down"
+          d="M0 65 C30 65 50 108 72 108"
+          fill="none"
+          stroke="var(--muted-foreground)"
+          strokeWidth={1.4}
+          opacity={0.5}
+        />
+        <circle className="db-fork-dot" r={2.4}>
+          <animateMotion dur="2s" repeatCount="indefinite">
+            <mpath href="#db-fork-path-up" />
+          </animateMotion>
+        </circle>
+        <circle className="db-fork-dot" r={2.4}>
+          <animateMotion dur="2s" repeatCount="indefinite">
+            <mpath href="#db-fork-path-down" />
+          </animateMotion>
+        </circle>
       </svg>
     </span>
   );
