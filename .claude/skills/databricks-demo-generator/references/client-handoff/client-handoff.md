@@ -1,5 +1,7 @@
 # Client Handoff — authoring guide
 
+> **`SKILL_VERSION: 1.1`** — the single source of truth for this skill's version. Stamp this EXACT value into `ADAPTATION_FACTS.skill_version` (Step 5.5) AND the generated adaptation `SKILL.md` (Step 6) so a stale shipped skill is detectable by comparing the two. Bump it when you change the handoff contract.
+
 When asked to make a built + DAB-packaged demo "client-ready" or "handoff-ready", apply this transformation. The result is a self-contained, IP-stripped, Genie-Code-skill-bundled project the SA can publish as a public git repo (or hand directly to the client). The single shipping artifact is a ZIP archive.
 
 ## Prerequisites
@@ -17,10 +19,11 @@ This stage operates on a project that already has Stage 3 (Build) and Stage 4 (P
 
 | # | Output | Produced by |
 |---|---|---|
-| 1 | Modified `databricks.yml` with synth-data toggle + targets-pattern + migrated variable refs | Step 3 |
+| 1 | Modified `databricks.yml` with synth-data toggle + targets-pattern + migrated variable refs + de-hardcoded catalog/schema literals | Step 3 (3.1–3.2b) |
 | 2 | Stripped environment fingerprint across all non-bundle files + `resources.json` | Step 2 |
 | 3 | Updated `dab_instructions.md` — client-oriented deploy commands | Step 4 |
 | 4 | Auto-patched Stage-4 codegen defects (widgets API, cluster security mode) | Step 5.0 — see `presubmit.md` |
+| 4b | `ADAPTATION_FACTS.json` — introspected per-demo facts contract the adaptation skill reads | Step 5.5 |
 | 5 | `.assistant/skills/<demo-slug>-adaptation/` — Genie Code skill (in-repo; installed by the 3-line CLI snippet in README Step 8) | Step 6 |
 | 6 | `ADAPTATION_GUIDE.md` — human-readable conversion guide | Step 7 |
 | 7 | `README.md` updated with a "First Run (Client)" section (v1.1 — uses CLI snippet, not setup target) | Step 8 |
@@ -44,7 +47,7 @@ A non-empty `resources.json.created_resources` + a present `databricks.yml` are 
    If none, Stage 4 produced a hollow bundle — fail prereq.
 4. **`include:` paths resolve.** If `databricks.yml` has `include: - resources/*.yml`, glob and confirm at least one file matches. If none match, either drop `include:` in Step 3 or fail prereq.
 5. **Synth-data generator path matches specs.** If specs reference synthetic data or `src/data_generation/`, that path must exist on disk. If absent, either fail prereq OR document `# TODO(client-handoff): no synth generator — client must wire real data via Step 3` in `HANDOFF_NOTES.md`.
-6. **Resolve `{{job-name}}`.** Read `databricks.yml` (and any `resources/*.yml` referenced by `include:`) and pick the primary job's key. Record it — Steps 4, 7, and 8 need it for the deploy commands and Step 6 needs it for the Genie Code skill template.
+6. **Resolve `{{run-target}}` — pipeline OR job (do NOT assume a job).** Read `databricks.yml` (and any `resources/*.yml` referenced by `include:`) and pick the primary run target: the resource that materializes the demo's tables. It may be `resources.jobs.<key>` OR `resources.pipelines.<key>` — many demos are pipeline-only (no job at all). Record both its `kind` (`pipeline`|`job`) and `resource_key`. Steps 4, 7, 8 need it for the `databricks bundle run <key>` command; Steps 5.5 and 6 record it in `ADAPTATION_FACTS.json` (`deploy_target`). If both a job and a pipeline exist, the primary is the one that produces the gold tables. If neither exists, fail prereq. *(Older drafts said "primary job's key" — that assumed a job and broke on pipeline-only demos.)*
 7. **Resolve `{{demo-slug}}`.** Derive from the project's `bundle.name` in `databricks.yml` (or from the project folder name as fallback). Record it — Steps 6 and 11 need it.
 
 If any check fails, prompt:
@@ -104,6 +107,29 @@ Run (across `databricks.yml`, `resources/*.yml`, `src/**/*.py`, `src/**/*.sql`, 
 
 **Pick ONE convention and apply globally.** Don't leave a mix of `catalog` and `client_catalog` — that produces footguns. We use `client_catalog` / `client_schema` because the Genie Code skill, the README "First Run" section, and the ADAPTATION_GUIDE all reference those names.
 
+#### 3.2b — De-hardcode RAW catalog/schema LITERALS (not just `${var.*}` refs) — [CODEGEN-CLEANUP]
+
+3.2 above migrates `${var.*}` *references*. But Stage 4 also bakes the SA's **raw catalog/schema literal** (e.g. `acme_prod_catalog`, schema `quality_analytics`) directly into source — these are NOT `${var.*}` refs and the 3.2 table will not catch them. Left in, they ship the SA's workspace identity to the client AND make the bundle deploy data into the SA's catalog instead of the client's. (Stage-4 defect — see `dab-defects-catalog` / D-CATLIT; this sub-step retires when Stage 4 stops emitting literals.)
+
+**Detect first.** Read the real catalog/schema from the *original* (pre-Step-2) `databricks.yml` `variables.catalog`/`variables.schema` defaults, then grep the whole tree:
+
+```bash
+grep -rIn -e "<real_catalog_literal>" -e "<real_schema_literal>" src/ resources/ databricks.yml | grep -v '\${var\.'
+```
+
+**De-hardcode by file type** (the mechanism differs — apply the one that's verified to work for each; do NOT invent SQL substitution):
+
+| File type | Fix |
+|---|---|
+| `databricks.yml` `variables.*.default` | → placeholder (`"<your_catalog>"` / `"<your_schema>"`). Handled by 3.1. |
+| Pipeline resource (`resources/*.yml` `pipelines.<k>.catalog`/`.target`) | → `${var.client_catalog}` / `${var.client_schema}`. This parameterizes the **output** location. |
+| Dashboard resource (`resources/*.yml` `dashboards.<k>.dataset_catalog`/`.dataset_schema`) | → `${var.client_catalog}` / `${var.client_schema}`. (If the dashboard already uses these, no action.) |
+| Python (`*.py` — data-gen, scoring) | Read from config, not a constant. Three cases by how the file runs: **(a) pipeline** → `spark.conf.get("demo.client_catalog")`; **(b) job/notebook** → `dbutils.widgets.text(...)` + `dbutils.widgets.get(...)`; **(c) standalone Databricks Connect script** (runs outside any pipeline/job — common for data generators) → neither conf nor widgets are auto-populated, so use `spark.conf.get("demo.client_catalog", "<your_catalog>")` with a placeholder fallback default, and note in `HANDOFF_NOTES.md` that the client must set that conf (or edit the constant) before running the generator. Replace every literal occurrence regardless of case. |
+| **SQL pipeline `read_files()` SOURCE path** (`'/Volumes/<cat>/<sch>/...'`) | SQL string literals can't take a variable: Databricks SQL named params are `:name` *bind values* (cannot build a path string), and there is no supported `${...}` textual substitution into a `read_files` path. **Convert that one ingestion to Python** per `databricks.yml.patch.md` §3 (`spark.conf.get` + f-string path), DELETE the original `*_bronze.sql`, update `pipeline.libraries[]`/`glob` to include the `.py`, and record the conversion in `HANDOFF_NOTES.md`. The output catalog/target are already parameterized by the pipeline resource, so only the source path needs this. |
+| `genie_space.json` | Replace every `<cat>.<sch>` literal with the placeholder/token convention. **Note:** `bundle deploy` does NOT create the Genie space (it's only `sync.include`'d, never a DAB resource — see D-CATLIT/DAB-skips-Genie). So the literal here is off the deploy path, but it still must be stripped (IP) and the adaptation skill / `dab_instructions.md` must tell the client how their Genie space is (re)created against their catalog. |
+
+After de-hardcoding, the Step 5 grep gate (broadened) confirms zero raw literals remain anywhere in shipped files. If a literal can't be safely de-hardcoded (unusual structure), leave a `TODO(client-handoff)` and let Step 5 hard-fail — never silently ship the SA's catalog.
+
 #### 3.3 — Wire the synth-data toggle into the actual job/pipeline (not just the root YAML)
 
 Two patterns — pick whichever fits the demo's existing structure:
@@ -120,6 +146,8 @@ If the demo includes an Apps deploy (per Stage 4's `artifacts.default.build` + `
 #### 3.5 — Leave TODO markers where automation can't be perfect
 
 Format: `# TODO(client-handoff): verify <X> still works for client_catalog/schema`. Step 5 validation flags critical-path TODOs (pipeline source, synth gate) as hard fails; non-critical-path TODOs (cosmetic thresholds, optional features) are reported as warnings.
+
+**Expected exception — external/standalone data-gen.** When the synthetic-data generator runs OUTSIDE the bundle (a standalone Databricks Connect script, not a DAB job task or pipeline node), there is no pipeline/job hook to gate `run_with_synthetic_data` against, so a synth-toggle `TODO(client-handoff)` in pipeline config is the NORMAL, expected outcome — not a defect needing per-run SA sign-off. Surface the toggle into pipeline `configuration:` (so the value is at least threaded), record the limitation in `HANDOFF_NOTES.md`, and treat this specific TODO as accepted automatically. Step 5 should NOT hard-fail on it. (Only a TODO that leaves the pipeline unable to find its DATA is a true critical-path fail.)
 
 #### 3.6 — (removed in v1.1)
 
@@ -165,7 +193,7 @@ Validation checklist (every item must pass):
   - `@databricks.com` (SA email)
   - `/Workspace/Users/<sa-username>/` (SA workspace paths)
   - `databricks.prod.yml` (deleted file shouldn't be referenced)
-  - **Any workspace-specific FEVM catalog/schema literal** (e.g., `morgan_stable_classic_6df0yw_catalog`) in the bundled Genie Code skill. Generic placeholders only — never a real catalog name. Discovered 2026-05-29 V3.
+  - **The SA's real catalog/schema literal anywhere in shipped files** (not just the Genie skill). Take the real catalog/schema from the original pre-Step-2 `databricks.yml` defaults and grep all of `src/`, `resources/`, `databricks.yml`, `*.json` (genie/dashboard), and the bundled adaptation skill: `grep -rIn -e "<real_catalog>" -e "<real_schema>" src/ resources/ databricks.yml *.json .assistant/ | grep -v '\${var\.'` must return zero **true** hits. Any true hit means 3.2b missed a literal. **Expected non-hits to ignore:** a DAB resource KEY derived from the schema name (e.g. schema `quality_analytics` → resource key `quality_analytics_pipeline`) is identical for every client and is NOT a fingerprint — filter it with `| grep -vE '<real_schema>_[a-z]'` (or eyeball that the only matches are `<schema>_pipeline`/`<schema>_job`-style keys). Generic placeholders / `${var.client_*}` only — never a real catalog name. Discovered 2026-05-29 V3 (Genie skill); broadened to all files 2026-06-18 after D-CATLIT (raw literals in bronze SQL + genie_space.json on Lakeside).
 - **`include:` patterns match real files.** Grep `include:` lines in `databricks.yml`, glob the patterns, confirm every glob has ≥1 match.
 - **No orphaned `${var.catalog}` / `${var.schema}` refs.** `grep -rE '\$\{var\.(catalog|schema)\}'` across project root must return zero matches (only `${var.client_catalog}` / `${var.client_schema}` should remain).
 - **No critical-path `TODO(client-handoff)` in pipeline source, synth gate, or `databricks.yml`** — unless the SA has explicitly accepted manual follow-up (record acceptance in `HANDOFF_NOTES.md` at Step 9; carry it forward for Step 10's summary).
@@ -183,6 +211,27 @@ Aborting before Step 6. Manual fixes required.
 
 Do not write skill, ADAPTATION_GUIDE, README client section, HANDOFF_NOTES, diff summary, or ZIP. The point of the gate is to never ship a broken bundle.
 
+### Step 5.5 — Generate `ADAPTATION_FACTS.json` (introspected facts contract) — [NOVEL]
+
+Runs only after the Step 5 gate passes (it reads the FINAL restructured + de-hardcoded bundle). Produces `<project>/ADAPTATION_FACTS.json` — the deterministic, per-demo facts the adaptation (Genie Code) skill READS instead of reconstructing context at runtime. Schema + per-field derivation rules: `templates/ADAPTATION_FACTS.schema.json`.
+
+**Compute every value by introspecting THIS project's own files — never assume a medallion/RFM/table-family shape.** Derivations (all read from the post-Step-3 bundle):
+
+1. `skill_version` — copy the handoff-skill version constant (stamp the identical value into the adaptation SKILL.md in Step 6 so staleness is detectable).
+2. `demo_slug` — `bundle.name` (fallback: folder name).
+3. `name_vars` — read the `variables:` block: the catalog/schema/warehouse variable names after 3.2 migration (e.g. `client_catalog`).
+4. `deploy_target` — the `{{run-target}}` resolved in Step 1.6: `{kind: pipeline|job, resource_key, run_command}`.
+5. `source_inputs[]` — for each bronze/ingest definition classify `source_type`: `read_files(`/`cloud_files(` or `format("cloudFiles")` → `volume_files`; reads another UC table via `STREAM`/`readStream.table`/`stream(...)` → `uc_streaming_table`; `FROM <cat>.<sch>.<tbl>` or `spark.read.table` → `uc_static_table`. Record `locator` with catalog/schema shown as the variable token, not the literal.
+6. `table_contract` (by layer) — for each table: `produced_columns` from the explicit SELECT list; if it's `SELECT *` from a source (not statically knowable) set `null` + add an `unresolved[]` entry. `consumed_columns_downstream` = columns the downstream SQL/py/dashboard/genie actually reference (always computable).
+7. `dependency_map[]` — parse each ST/MV's FROM/JOIN for `upstream`; invert for `downstream`. `dashboard_refs` from the dashboard JSON datasets; `genie_refs` from `genie_space.json` `data_sources`/`instructions`.
+8. `grain_constraints[]` — `candidate_columns` from GROUP BY (+ CLUSTER BY / PARTITIONED BY → `partition_clause`). `min_partition_size` is DATA-DEPENDENT: leave `null` + `unresolved[]` unless you ran a live row-count query at handoff.
+9. `verify_queries[]` — emit parameterized verify SQL (using `${catalog}.${schema}` tokens) per transform type present, derived from `table_contract` + `grain_constraints`.
+10. `lock_targets[]` — derive per task class from `dependency_map` + `source_inputs` (e.g. for `rename_column`, lock the ingestion-contract files). Every path must exist on disk.
+
+**FAIL CLOSED.** Any field you cannot derive with confidence is `null` AND gets an `unresolved[]` entry `{field, table?, reason, needs_author_input: true}`. A wrong fact (e.g. an incorrect dependency map) is worse than a missing one — the adaptation skill halts on unresolved facts rather than guessing.
+
+**Validate before writing:** the emitted JSON must conform to `ADAPTATION_FACTS.schema.json` (required keys present; enums valid). If it doesn't, fix the generation — do not ship a malformed facts file. Ship `ADAPTATION_FACTS.json` at the project root (included in the Step 11 ZIP).
+
 ### Step 6 — Drop the Genie Code skill bundle (in-repo carrier; CLI snippet in README copies to canonical path)
 
 Generate the skill files into `<project>/.assistant/skills/<slug>-adaptation/`. This in-repo path is the source the README Step 8 CLI snippet copies to `/Workspace/Users/<user>/.assistant/skills/<slug>-adaptation/` (the canonical path Genie Code auto-loads from per Databricks docs — it does NOT auto-discover from the in-repo path).
@@ -193,7 +242,7 @@ Generate the skill files into `<project>/.assistant/skills/<slug>-adaptation/`. 
    - `{{demo-name}}` → from `README.md` title (e.g., "Harvestly Co. — Loyalty Segmentation").
    - `{{demo-persona}}` → the protagonist named in README (e.g., `Harvestly Co.`).
    - `{{job-name}}` → from Step 1.
-   - `{{table-names}}` → from `specifications/01-lakeflow.md` (the spec table that lists gold/silver/bronze tables), OR from `src/pipeline/bronze.sql` / `.py` if specs are absent. **Do NOT read from `resources.json.created_resources`** — Step 2 gutted that. Record which source you used in `HANDOFF_NOTES.md` at Step 9.
+   - `{{table-names}}` (and any dependency/grain/source facts the template needs) → read from `ADAPTATION_FACTS.json` (Step 5.5) — it already introspected tables, layers, dependency map, and source types from the actual bundle. This is the canonical source now: do NOT re-derive from specs and do NOT read `resources.json.created_resources` (Step 2 gutted that). Only fall back to `specifications/01-lakeflow.md` / `src/pipeline/*` if a needed value is in `ADAPTATION_FACTS.unresolved[]`, and record the fallback in `HANDOFF_NOTES.md` at Step 9.
 3. Write resolved files into `<project>/.assistant/skills/<demo-slug>-adaptation/`.
 
 **Do NOT emit `install.sh`** (v0 artifact) **or a `setup` bundle target** (v1 artifact). The 3-line `databricks workspace import-dir` CLI snippet in Step 8's README is the install mechanism in v1.1.

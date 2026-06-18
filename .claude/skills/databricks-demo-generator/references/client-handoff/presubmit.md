@@ -96,9 +96,11 @@ Run after all auto-fixes have been applied. This is the hard gate of `client-han
 
 ```bash
 cd "$HANDOFF_DIR"
-DATABRICKS_AUTH_STORAGE=plaintext databricks bundle validate --target client --profile "$CLIENT_PROFILE"
+databricks bundle validate --target client --profile "$CLIENT_PROFILE"
 # Expected: exit 0 + "Validation OK!"
 ```
+
+Do NOT prefix with `DATABRICKS_AUTH_STORAGE=plaintext` — it forces a stale plaintext token store and yields a misleading "Refresh token is invalid" on profiles that authenticate fine via the default keychain store (a first-time runner mis-reads this as a broken bundle). Use the profile's normal auth. Note: the shipped `client:` target carries a **placeholder** host, so validate will fail on host-mismatch alone until the client sets their host — that is expected and is NOT a structural failure. To confirm the bundle is structurally sound during handoff, run validate with a profile whose host you temporarily point at a real workspace, then revert the placeholder before shipping.
 
 If this fails after auto-fixes and the upstream checks pass, the failure is structural (YAML error, missing include, etc.) — report exit code + error verbatim.
 

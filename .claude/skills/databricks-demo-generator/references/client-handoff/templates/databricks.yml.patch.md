@@ -34,6 +34,19 @@ grep -rE 'spark\.conf\.get\("demo\.(catalog|schema)"\)' .
 
 This is enforced as a hard-fail check in `client-handoff.md` Step 5 — don't skip it.
 
+### 0b — De-hardcode RAW catalog/schema literals (not only `${var.*}` refs)
+
+Section 0 above only rewrites `${var.catalog}`-style *references*. Stage 4 frequently also bakes the SA's **raw literal** catalog/schema (e.g. `acme_prod_catalog`, `quality_analytics`) straight into source — those have no `${var.}` wrapper, so the table in §0 misses them. Detect with the real names taken from the original `databricks.yml` defaults:
+
+```bash
+grep -rIn -e "<real_catalog_literal>" -e "<real_schema_literal>" src/ resources/ databricks.yml *.json | grep -v '\${var\.'
+```
+
+Mechanism is file-type-specific (see `client-handoff.md` §3.2b for the full table). The two non-obvious cases:
+
+- **SQL pipeline `read_files()` source path** — a string literal that can't take a variable (Databricks SQL named params are `:name` bind values and there is no `${...}` substitution into a path). Convert that ingestion to **Python** per §3 below; the pipeline `catalog:`/`target:` already parameterize the output, only the source path is stuck.
+- **`genie_space.json`** — `bundle deploy` does NOT create the Genie space (it is only `sync.include`'d, never a DAB resource). Strip the literals to the placeholder/token convention anyway (IP + correctness), and make `dab_instructions.md` / the adaptation skill explain how the client's Genie space is created against their catalog.
+
 Why `client_catalog` / `client_schema` instead of keeping `catalog` / `schema`? Two reasons: (1) the new names self-document the intent ("set this to YOUR catalog, client") so the placeholder defaults `<your_catalog>` read consistently; (2) the Genie Code skill's discovery-and-write flow uses these exact names — keeping them prevents the skill's edit from accidentally clobbering an unrelated `catalog` var if the demo ever grew one.
 
 ## 1 — Reshape `databricks.yml` to the targets pattern
