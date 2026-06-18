@@ -13,9 +13,9 @@
  * helper, badge, and SQL projection uses what's defined here. When you
  * swap the data model:
  *
- *   1. Replace the entity types below (`ReturnRow`, `LotRow`,
- *      `FacilityRow`, `CustomerOrder`, `ActivityEvent`, etc.) with the
- *      shape your demo cares about.
+ *   1. Replace the entity types below (`ReturnRow`, `FacilityRow`,
+ *      `CustomerOrder`, `ActivityEvent`, etc.) with the shape your
+ *      demo cares about.
  *   2. Update the matching SQL/Drizzle queries in
  *      `server/db/queries/returns.ts` so `/api/...` endpoints return
  *      rows that match the new types. Rename the queries file too.
@@ -27,7 +27,7 @@
  *      matching color mapping in `badges.tsx`.
  *   5. The agent's tool argument schemas in
  *      `server/agent/refundops.ts` reference these types implicitly
- *      (the Zod schemas mirror `ReturnRow`/`LotRow` field names).
+ *      (the Zod schemas mirror `ReturnRow` field names).
  *      Update tool descriptions + Zod shapes when you swap entities.
  *
  * Search the codebase for each type name below to find all references
@@ -134,19 +134,6 @@ export type ReturnsSummary = {
   total_usd: string;
 };
 
-/** Per-country aggregation of the current queue, scoped by the same
- *  status/lot filter. Drives the Operations page "where the affected
- *  customers live" panel — click a country to filter the queue.
- *  `premium = premium_labeled + premium_hidden`. */
-export type CountryBucket = {
-  country: string;
-  total: number;
-  premium: number;
-  premium_labeled: number;
-  premium_hidden: number;
-  refund_usd: number;
-};
-
 /** Per-city aggregation for the Operations bubble map. One row per
  *  (city, country) with averaged customer_lat / customer_lng. The map
  *  plots a circle at (lat, lng), sized by `total`, colored by the
@@ -159,16 +146,6 @@ export type CityBucket = {
   total: number;
   premium: number;
   refund_usd: number;
-};
-
-export type LotRow = {
-  lot_id: string;
-  return_count: number;
-  pending_count: number;
-  total_refund_usd: string;
-  facility: string | null;
-  product_count: number;
-  product_names: string | null;
 };
 
 export type FacilityRow = {

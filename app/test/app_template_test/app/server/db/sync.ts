@@ -29,9 +29,9 @@ type DataConfig = {
     /** silver_returns — already carries customer_id + product + lot per
      *  spec 01-lakeflow.md, so no joins are needed in sync. */
     returns: string;
-    /** bronze_orders — provides order-level customer_id + totalUsd. */
+    /** silver_orders — order-level customer_id + totalUsd (aggregated from raw line items). */
     orders: string;
-    /** bronze_customers — primary customer dimension with geo + premium tag. */
+    /** raw_customers — primary customer dimension with geo + premium tag. */
     customers: string;
     /** Predictions written by the ML notebook (spec 03-ml-premium.md).
      *  Optional: omit for demos without an ML model — sync just skips. */

@@ -30,15 +30,11 @@ KEY DOCUMENT: Incident report for the affected lot contains:
 RESPONSE PATTERN: Cite document name + report number → quote QC assessment → mention lot was released → connect to customer complaints about "grainy texture" and "separated product".
 ```
 
-### Certified Q&A
+### Certified Q&A (validate before publishing)
 
-| Question | Expected |
-|----------|----------|
-| "Was there any incident for this lot?" | Finds report, pressure fluctuations, QC note, release decision |
-| "What caused the texture problems?" | Homogenizer pressure during emulsification |
-| "Why was the lot released?" | QC visual inspection passed, deemed "cosmetic variation only" |
+*"Was there any incident for this lot?"* → finds the report, quotes pressure fluctuations + QC note + release decision. *"What caused the texture problems?"* → homogenizer pressure during emulsification. *"Why was the lot released?"* → QC deemed it "cosmetic variation only".
 
-Add knowledge_assistant_id to `resources.json`.
+Add `knowledge_assistant_id` to `resources.json`.
 
 ---
 
@@ -83,14 +79,13 @@ TONE: Claire is busy. Lead with the answer, then details.
 ### Demo Flow
 
 | Step | Claire asks | Routes to | Response |
-|------|-------------|-----------|----------|
+|---|---|---|---|
 | 1 | "Why do I have so many returns?" | data_analyst | 3x spike, SKU-1001/1002/1003, texture complaints, suggests checking incidents |
 | 2 | "Was there an incident for that lot?" | incident_expert | Homogenizer pressure, QC note, lot released anyway |
-| 3 | "Help me handle the 250 affected customers" *(or featured action)* | data_analyst | Joins affected set with `gold_customer_premium_predictions` → "67 premium (18 already tagged + 49 the model found, mostly FR + IT), 183 standard. Drafting tiered offers: 20% + personal apology for the 67, 5% goodwill for the rest." |
+| 3 | "Help me handle the 250 affected customers" *(or featured action)* | data_analyst | Joins affected set with `gold_customer_premium_predictions` → "67 premium (18 already tagged + 49 the model found, mostly FR + IT), 183 standard. Drafting tiered offers: 20% + apology for the 67, 5% goodwill for the rest." |
 
 ### Validation
 
-- Steps 1-2: two questions lead to complete root cause (WHAT + WHY).
-- Step 3: agent calls `gold_customer_premium_predictions`, returns a tier split close to ~67/~183 with the labeled-vs-predicted breakdown visible (~18 labeled + ~49 hidden). Numbers vary by training run — the *behavior* is what's validated: a meaningful premium minority and the model contributes most of them. MLflow trace shows the prediction lookup as a tool call.
+Steps 1–2: two questions reach full root cause (WHAT + WHY). Step 3: agent joins affected-customer set with `gold_customer_premium_predictions`, returns a tier split near ~67/~183 with the labeled-vs-predicted breakdown visible (~18 labeled + ~49 hidden). Numbers vary by training run — the *behavior* is what's validated: meaningful premium minority, model contributes most of them. MLflow trace shows the prediction lookup as a tool call.
 
-Add multi_agent_supervisor_id to `resources.json`.
+Add `multi_agent_supervisor_id` to `resources.json`.

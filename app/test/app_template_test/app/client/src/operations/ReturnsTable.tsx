@@ -170,13 +170,13 @@ export function ReturnsTable({
             );
           })}
         </div>
-        <div className="flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5 text-sm">
-          <Search className="size-3.5 text-muted-foreground" />
+        <div className="flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5 text-sm flex-1 sm:flex-initial min-w-[180px]">
+          <Search className="size-3.5 text-muted-foreground shrink-0" />
           <input
             value={search}
             onChange={(e) => onSearch(e.target.value)}
             placeholder="Search name, SKU, reason…"
-            className="bg-transparent outline-none w-60 placeholder:text-muted-foreground"
+            className="bg-transparent outline-none w-full sm:w-60 placeholder:text-muted-foreground"
           />
         </div>
         {lotFilter && (
@@ -230,12 +230,47 @@ export function ReturnsTable({
             />
           </div>
         )}
+        {/* ───── PHONE: card list ─────
+            Status + offer badges live INSIDE the card so the agent's
+            pending→approved flip is always visible (the table-with-horizontal-
+            scroll variant hid the status column off-screen by default).
+            Same `usePulseOnChange(status)` ring so the live cascade reads
+            on phone too. */}
+        <ul className={`sm:hidden divide-y divide-border transition-opacity duration-150 ${
+          loading && rows.length > 0 ? 'opacity-70' : 'opacity-100'
+        }`}>
+          {loading && rows.length === 0 && (
+            <li className="px-4 py-6 text-center text-muted-foreground text-sm">
+              Loading…
+            </li>
+          )}
+          {!loading && rows.length === 0 && (
+            <li className="px-4 py-8 text-center text-muted-foreground text-sm">
+              No returns match the current filters.
+            </li>
+          )}
+          {rows.map((r) => (
+            <MobileCard
+              key={r.id}
+              row={r}
+              tierFilter={tierFilter}
+              onSelect={onSelect}
+              onLotFilter={onLotFilter}
+              onTierFilter={onTierFilter}
+            />
+          ))}
+        </ul>
+
+        {/* ───── TABLET + DESKTOP: full table ─────
+            Hidden on phone (sm:block reveals it ≥ 640px). overflow-x-auto +
+            min-w-[920px] keeps the 8 columns readable on tablet via
+            horizontal scroll if the viewport is narrow. */}
         <div
-          className={`transition-opacity duration-150 ${
+          className={`hidden sm:block transition-opacity duration-150 overflow-x-auto ${
             loading && rows.length > 0 ? 'opacity-70' : 'opacity-100'
           }`}
         >
-        <table className="w-full text-sm">
+        <table className="w-full min-w-[920px] text-sm">
           <thead className="bg-muted text-xs uppercase tracking-wider text-muted-foreground">
             <tr>
               <th className="text-left px-4 py-2 font-semibold">Customer</th>
@@ -418,5 +453,130 @@ function Row({
         <StatusBadge status={r.status} />
       </td>
     </tr>
+  );
+}
+
+/**
+ * Phone-only card for one return. Stacks the same fields the desktop Row
+ * shows, with the status badge prominent top-right so the agent's
+ * pending→approved flip is impossible to miss. Same pulse-ring on status
+ * change as the desktop row.
+ */
+function MobileCard({
+  row: r,
+  tierFilter,
+  onSelect,
+  onLotFilter,
+  onTierFilter,
+}: {
+  row: ReturnRow;
+  tierFilter: 'premium' | 'standard' | null;
+  onSelect: (id: string) => void;
+  onLotFilter: (lot: string) => void;
+  onTierFilter: (t: 'premium' | 'standard' | null) => void;
+}) {
+  const statusPulse = usePulseOnChange(r.status);
+  return (
+    <li
+      onClick={() => onSelect(r.id)}
+      className={`px-4 py-3 cursor-pointer hover:bg-muted/50 transition-colors ${
+        statusPulse ? 'animate-pulse-row' : ''
+      }`}
+    >
+      {/* Row 1 — name (left) + status & offer badges (right) */}
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="font-medium text-sm truncate">{r.customerName}</div>
+          <div className="text-xs text-muted-foreground flex items-center gap-1.5 flex-wrap mt-0.5">
+            {r.loyaltyTier && <TierBadge tier={r.loyaltyTier} />}
+            {r.finalTier === 'premium' && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onTierFilter(tierFilter === 'premium' ? null : 'premium');
+                }}
+                className={
+                  r.premiumStatusLabeled === 'premium'
+                    ? 'rounded-full px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider bg-primary/15 text-primary'
+                    : 'rounded-full px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider bg-primary/8 text-primary border border-primary/30 border-dashed'
+                }
+              >
+                {r.premiumStatusLabeled === 'premium' ? 'premium' : 'premium · hidden'}
+              </button>
+            )}
+            {r.region}
+          </div>
+        </div>
+        <div className="flex flex-col items-end gap-1 shrink-0">
+          <StatusBadge status={r.status} />
+          {r.couponPctApplied !== null && (
+            <span
+              className={`rounded-md px-1.5 py-0.5 text-[10px] font-mono ${
+                r.couponPctApplied >= 20
+                  ? 'bg-primary/15 text-primary'
+                  : 'bg-muted text-muted-foreground'
+              }`}
+            >
+              {r.couponPctApplied}% coupon
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Row 2 — product + SKU */}
+      <div className="mt-2 text-sm">
+        <span className="text-foreground">{r.productName ?? '—'}</span>
+        <span className="text-xs text-muted-foreground">
+          {r.category ? ` · ${r.category}` : ''}
+          {r.sku ? ` · ${r.sku}` : ''}
+        </span>
+      </div>
+
+      {/* Row 3 — lot + reason + value (right-aligned $) */}
+      <div className="mt-1.5 flex items-center justify-between gap-3 text-xs text-muted-foreground">
+        <div className="flex items-center gap-2 min-w-0 flex-wrap">
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onLotFilter(r.lot ?? '');
+            }}
+            className="font-mono hover:text-foreground"
+          >
+            {r.lot ?? '—'}
+          </button>
+          {r.returnReason && (
+            <>
+              <span>·</span>
+              <span>{r.returnReason}</span>
+            </>
+          )}
+        </div>
+        <div className="font-mono text-foreground shrink-0">
+          ${r.returnValueUsd}
+        </div>
+      </div>
+
+      {/* Row 4 — anger bar */}
+      {r.angerScore !== null && (
+        <div className="mt-2 flex items-center gap-1.5 text-[10px] text-muted-foreground">
+          <span className="uppercase tracking-[0.12em] font-semibold">Anger</span>
+          <div className="h-1.5 flex-1 max-w-[120px] rounded-full bg-muted overflow-hidden">
+            <div
+              className={
+                r.angerScore >= 0.7
+                  ? 'h-full bg-destructive'
+                  : r.angerScore >= 0.4
+                    ? 'h-full bg-amber-500'
+                    : 'h-full bg-muted-foreground/50'
+              }
+              style={{ width: `${Math.min(100, Math.max(0, r.angerScore * 100))}%` }}
+            />
+          </div>
+          <span className="font-mono tabular-nums w-6 text-right">
+            {(r.angerScore * 100).toFixed(0)}
+          </span>
+        </div>
+      )}
+    </li>
   );
 }

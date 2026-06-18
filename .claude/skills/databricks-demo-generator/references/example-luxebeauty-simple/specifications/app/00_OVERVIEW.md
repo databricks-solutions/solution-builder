@@ -2,7 +2,7 @@
 
 > **Build-time note.** Read `DEMO_SKILL_DIR/app/app.md` FIRST and follow it end-to-end — that's the playbook (rsync template → customize → Lakebase → env → smoke test → deploy). This is **not** a from-scratch build: the template at `DEMO_SKILL_DIR/app/app_template/` is a Node.js + React + Express app with Lakebase, MLflow tracing, OBO auth, chat dock, and scripted demo chain already wired. You rsync it into `PROJECT/app/`, read `TEMPLATE_MAP.md` for what's preserved vs. customized, then rewrite domain pieces (home narrative, agent tools, Lakebase schema, analytics SQL, theming) to match the story. Typically run as a subagent spawned once `01-lakeflow.A` is ready. **Do NOT rebuild in Streamlit / Gradio** — you'd lose streaming, MLflow tracing, the scripted chain, and the OBO/audit pattern. On conflict: `app.md` governs *how*, this spec governs *what*.
 
-> **Simple-demo contract.** A focused Returns Console: dashboard + Genie + a single Genie-backed agent that drafts a flat 10% goodwill offer for the affected-lot customers and waits for one approval before bulk-processing the refunds.
+> **Simple-demo contract.** A focused Returns Console: dashboard + Genie + a **single Genie-backed agent** that drafts a **flat 10% goodwill offer** for the affected-lot customers and waits for one approval before bulk-processing the refunds. No MAS, no KA, no premium tiering, no ML predictions — those belong to the full demo. `app.md` covers how to adapt the template to this contract.
 
 ## Pitch
 

@@ -89,6 +89,12 @@ function Index() {
   const [isCreating, setIsCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [autoMode, setAutoMode] = useState(true);
+  // Pro mode: skip the story-suggestion UX entirely. The user types what they
+  // want, picks capabilities manually, and the agent gets only that as the
+  // initial prompt — no auto-generated story ideas, no idea hook prepended.
+  // Always resets on successful project creation (per-session preference,
+  // not sticky).
+  const [proMode, setProMode] = useState(false);
   const [selectedProducts, setSelectedProducts] = useState<Set<string>>(
     new Set(DEFAULT_SELECTED_PRODUCTS)
   );
@@ -495,7 +501,9 @@ function Index() {
     // Need EITHER 3+ chars of topic OR at least one file. A file with no
     // typed text gets a generic prompt — the backend sees the file
     // content via context_text and picks ideas from it.
-    if ((trimmedTopic.length < 3 && !hasFiles) || !capabilitiesReady) {
+    // Pro mode skips suggestion entirely — the user picks capabilities by
+    // hand and types their own prompt; no auto-generated story ideas.
+    if ((trimmedTopic.length < 3 && !hasFiles) || !capabilitiesReady || proMode) {
       setIsSuggestingCapabilities(false);
       return;
     }
@@ -518,7 +526,7 @@ function Index() {
       // mid-stream cancel to the user.
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [topic, capabilitiesReady, uploadedFilesKey]);
+  }, [topic, capabilitiesReady, uploadedFilesKey, proMode]);
 
   // Re-suggest when the user explicitly toggles a capability — so the
   // story/ideas regenerate to reflect what they want included. Skipped on
@@ -545,7 +553,7 @@ function Index() {
     }
     lastExplicitKeyRef.current = key;
 
-    if (topic.trim().length < 3 || !capabilitiesReady) {
+    if (topic.trim().length < 3 || !capabilitiesReady || proMode) {
       return;
     }
 
@@ -613,10 +621,16 @@ function Index() {
     idea?: UseCaseIdea,
   ) => {
     e?.preventDefault();
+    // In Pro mode the suggestion stream never ran, so there's no `idea` to
+    // bind — the user's typed prompt + their picked capabilities are the
+    // entire contract. Caller still passes `undefined` for `idea`; we just
+    // ignore it explicitly below to keep the flow obvious.
+    const effectiveIdea = proMode ? undefined : idea;
     // Allow creating with only files (no typed text) — the description
     // falls back to the picked idea's hook (which was generated from the
-    // file content) or to a file-only summary string.
-    if (isCreating || (!topic.trim() && !idea && uploadedFiles.length === 0)) return;
+    // file content) or to a file-only summary string. Pro mode REQUIRES
+    // typed text (or files) since there's no idea fallback.
+    if (isCreating || (!topic.trim() && !effectiveIdea && uploadedFiles.length === 0)) return;
 
     // Capabilities are always from selectedProducts (shared across all ideas)
     const capabilityIds = Array.from(selectedProducts);
@@ -627,11 +641,11 @@ function Index() {
       // Build description: if we have an idea, use it; otherwise use raw topic
       let description: string;
 
-      if (idea) {
+      if (effectiveIdea) {
         // Use the idea's title + hook as description
-        description = `${idea.title}\n\n${idea.hook}`;
-        if (idea.datasources && idea.datasources.length > 0) {
-          description += `\n\nData sources: ${idea.datasources.join(", ")}`;
+        description = `${effectiveIdea.title}\n\n${effectiveIdea.hook}`;
+        if (effectiveIdea.datasources && effectiveIdea.datasources.length > 0) {
+          description += `\n\nData sources: ${effectiveIdea.datasources.join(", ")}`;
         }
       } else if (topic.trim().length > 0) {
         // Raw topic mode
@@ -659,9 +673,12 @@ function Index() {
         : "";
 
       let initialPrompt: string;
-      if (idea) {
-        initialPrompt = `Help me build a databricks solution.\n\nUser request:\n${topic.trim()}\n\n**${idea.title}**\n\n${idea.hook}${authoritativeCapsLine}`;
+      if (effectiveIdea) {
+        initialPrompt = `Help me build a databricks solution.\n\nUser request:\n${topic.trim()}\n\n**${effectiveIdea.title}**\n\n${effectiveIdea.hook}${authoritativeCapsLine}`;
       } else {
+        // Pro mode (or auto mode with no idea picked yet): just the user's
+        // typed text. The agent receives the prompt as-is — no auto-generated
+        // story narrative inserted on top.
         initialPrompt = `Help me build a databricks solution.\n\nSolution description:\n${topic.trim() || description}${authoritativeCapsLine}`;
       }
 
@@ -701,6 +718,10 @@ function Index() {
         initialPrompt,
         uploadedFiles.length > 0 ? uploadedFiles : undefined,
       );
+
+      // Per-session preference: Pro mode resets after each create so the
+      // next project starts in the default Auto flow with story ideas.
+      setProMode(false);
 
       navigate({
         to: "/project/$projectId",
@@ -899,22 +920,28 @@ function Index() {
                   </div>
                 )}
 
-                {/* Ideas section - shows when we have ideas or loading */}
+                {/* Ideas section header — toggles row renders whenever the
+                    hero is collapsed (user has typed or attached files).
+                    In Pro mode the ideas grid below is skipped entirely
+                    and the header label switches to a "manual mode" hint. */}
                 {isHeroCollapsed && (
                   <div className="pt-2 pb-1">
                     <div className="flex items-center justify-between gap-3 mb-3">
                       <div className="flex items-center gap-2">
                         <Lightbulb className="h-4 w-4 text-primary" />
                         <span className="text-sm font-medium">
-                          {isSuggestingCapabilities
-                            ? "Generating story ideas..."
-                            : ideas.length === 1
-                              ? "Your solution story"
-                              : "Choose a story direction"}
+                          {proMode
+                            ? "Pro mode — pick your capabilities below"
+                            : isSuggestingCapabilities
+                              ? "Generating story ideas..."
+                              : ideas.length === 1
+                                ? "Your solution story"
+                                : "Choose a story direction"}
                         </span>
                         {/* Regenerate stories — paired with the title so it
-                            reads as part of the "your stories" header. */}
-                        {ideas.length > 0 && !isSuggestingCapabilities && (
+                            reads as part of the "your stories" header.
+                            Hidden in Pro mode (no stories to regenerate). */}
+                        {!proMode && ideas.length > 0 && !isSuggestingCapabilities && (
                           <button
                             type="button"
                             onClick={handleRegenerate}
@@ -926,39 +953,71 @@ function Index() {
                           </button>
                         )}
                       </div>
-                      {/* Auto-build toggle — when on, picking a use case
-                          runs every stage end-to-end without prompts.
-                          Uses the shadcn Tooltip so the explanation shows
-                          on hover (the bare `title` attr was too slow). */}
-                      <TooltipProvider delayDuration={100}>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <label
-                              className="flex items-center gap-1.5 cursor-pointer select-none text-xs text-muted-foreground hover:text-foreground transition-colors"
-                            >
-                              <Checkbox
-                                checked={autoMode}
-                                onCheckedChange={(v) => setAutoMode(v === true)}
-                                aria-label="Enable auto build mode"
-                              />
-                              <Zap className="h-3 w-3 text-primary" strokeWidth={2.5} />
-                              <span className="font-medium">Auto mode</span>
-                            </label>
-                          </TooltipTrigger>
-                          <TooltipContent side="top" align="end" className="max-w-xs">
-                            <p className="text-xs leading-relaxed">
-                              <strong>Auto mode</strong> runs every build stage
-                              end-to-end (story → specs → resources → deploy)
-                              without pausing for confirmation. Takes ~30 min.
-                              Turn it off if you want to review each step
-                              manually as the assistant works.
-                            </p>
-                          </TooltipContent>
-                        </Tooltip>
-                      </TooltipProvider>
+                      {/* Auto-build toggle + Pro mode link.
+                          - Auto mode (checkbox): when on, the agent runs
+                            every build stage end-to-end without prompts.
+                          - Pro mode (link): skips story-suggestion UX. User
+                            picks capabilities by hand, agent gets the typed
+                            prompt as-is. Resets after each create. */}
+                      <div className="flex items-center gap-3">
+                        <TooltipProvider delayDuration={100}>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <label
+                                className="flex items-center gap-1.5 cursor-pointer select-none text-xs text-muted-foreground hover:text-foreground transition-colors"
+                              >
+                                <Checkbox
+                                  checked={autoMode}
+                                  onCheckedChange={(v) => setAutoMode(v === true)}
+                                  aria-label="Enable auto build mode"
+                                />
+                                <Zap className="h-3 w-3 text-primary" strokeWidth={2.5} />
+                                <span className="font-medium">Auto mode</span>
+                              </label>
+                            </TooltipTrigger>
+                            <TooltipContent side="top" align="end" className="max-w-xs">
+                              <p className="text-xs leading-relaxed">
+                                <strong>Auto mode</strong> runs every build stage
+                                end-to-end (story → specs → resources → deploy)
+                                without pausing for confirmation. Takes ~30 min.
+                                Turn it off if you want to review each step
+                                manually as the assistant works.
+                              </p>
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                        <TooltipProvider delayDuration={100}>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <button
+                                type="button"
+                                onClick={() => setProMode((v) => !v)}
+                                className={cn(
+                                  "text-xs underline-offset-2 hover:underline transition-colors cursor-pointer",
+                                  proMode
+                                    ? "text-foreground font-medium"
+                                    : "text-muted-foreground hover:text-foreground",
+                                )}
+                                aria-pressed={proMode}
+                              >
+                                {proMode ? "Pro mode · on" : "Pro mode"}
+                              </button>
+                            </TooltipTrigger>
+                            <TooltipContent side="top" align="end" className="max-w-xs">
+                              <p className="text-xs leading-relaxed">
+                                <strong>Pro mode</strong> skips the auto-generated
+                                story ideas. Type exactly what you want, pick the
+                                capabilities below, and the agent gets your prompt
+                                as-is. Resets after each create.
+                              </p>
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                      </div>
                     </div>
-                    {/* Initial loading state before count arrives */}
-                    {isSuggestingCapabilities && expectedIdeaCount === 0 && ideas.length === 0 && (
+                    {/* Initial loading state before count arrives — hidden
+                        in Pro mode (no suggestion stream runs). */}
+                    {!proMode && isSuggestingCapabilities && expectedIdeaCount === 0 && ideas.length === 0 && (
                       <div className="flex items-center justify-center min-h-[180px] rounded-lg border border-border bg-card/50">
                         <div className="flex flex-col items-center gap-3 text-muted-foreground">
                           <Loader2 className="h-6 w-6 animate-spin text-primary/60" />
@@ -966,6 +1025,11 @@ function Index() {
                         </div>
                       </div>
                     )}
+                    {/* Story-ideas grid — entirely skipped in Pro mode.
+                        The CapabilitiesPanel below becomes the source of
+                        truth for what gets built; the typed prompt is what
+                        the agent receives. */}
+                    {!proMode && (
                     <div className={`grid gap-3 ${
                       expectedIdeaCount === 1 ? "grid-cols-1" : expectedIdeaCount === 2 ? "grid-cols-1 md:grid-cols-2" : "grid-cols-1 md:grid-cols-3"
                     } ${isSuggestingCapabilities && expectedIdeaCount === 0 && ideas.length === 0 ? "hidden" : ""}`}>
@@ -1192,6 +1256,7 @@ function Index() {
                         });
                       })()}
                     </div>
+                    )}
                   </div>
                 )}
 
@@ -1212,8 +1277,11 @@ function Index() {
 
                 {/* Primary CTA — direct create. Capability set is fully
                     user-visible (locked baseline in Simple, granular tile
-                    in Custom), so no confirm dialog is needed. */}
-                {isHeroCollapsed && ideas.length > 0 && (
+                    in Custom), so no confirm dialog is needed.
+                    Shows in Auto mode once at least one idea has streamed
+                    in, OR in Pro mode as soon as the user has typed (no
+                    ideas exist in Pro). */}
+                {isHeroCollapsed && (proMode || ideas.length > 0) && (
                   <div className="flex flex-col items-center gap-2 pt-2">
                     <button
                       type="button"
@@ -1222,16 +1290,18 @@ function Index() {
                       }
                       disabled={
                         isCreating
-                        || isSuggestingCapabilities
-                        // Need ONE of: typed text, picked idea, or uploaded
-                        // files. The `ideas.length > 0` outer guard already
-                        // ensures there's at least one idea, but we still
-                        // check `selectedIdeaIdx` since it could be -1 in
-                        // edge cases (stream errored before any idea landed).
+                        // Auto-mode-only: don't allow create while the
+                        // suggestion stream is still resolving (the user
+                        // hasn't seen what they're picking yet). Pro mode
+                        // never runs the suggestion stream, so skip this.
+                        || (!proMode && isSuggestingCapabilities)
+                        // Pro mode requires typed text (or files) since
+                        // there's no idea fallback. Auto mode accepts any
+                        // of typed text / picked idea / uploaded files.
                         || (
-                          !topic.trim()
-                          && !ideas[selectedIdeaIdx]
-                          && uploadedFiles.length === 0
+                          proMode
+                            ? !topic.trim() && uploadedFiles.length === 0
+                            : !topic.trim() && !ideas[selectedIdeaIdx] && uploadedFiles.length === 0
                         )
                       }
                       className="inline-flex items-center justify-center gap-2 px-6 py-2.5 rounded-md text-sm font-semibold transition-all bg-destructive text-destructive-foreground hover:bg-destructive/90 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer shadow-sm"
@@ -1243,9 +1313,11 @@ function Index() {
                       )}
                       {isCreating
                         ? "Creating…"
-                        : ideas[selectedIdeaIdx]
-                          ? `Build with "${ideas[selectedIdeaIdx].title}"`
-                          : "Build this solution"}
+                        : proMode
+                          ? "Build this solution"
+                          : ideas[selectedIdeaIdx]
+                            ? `Build with "${ideas[selectedIdeaIdx].title}"`
+                            : "Build this solution"}
                     </button>
                   </div>
                 )}

@@ -7,7 +7,7 @@
 # 2. Static files (PDFs) synced via sync.include, then copied to volume by workflow task
 # 3. Parallel tasks: tasks without depends_on run simultaneously
 # 4. Task value passing: dbutils.jobs.taskValues.set() + {{tasks.*.values.*}}
-# 5. SDK environments: sdk_latest (>=0.102.0) required for Genie/KA/MAS APIs
+# 5. SDK environments: sdk_latest (>=0.114.0) required for Genie/KA/MAS APIs
 # 6. Dashboard dataset_catalog/dataset_schema: overrides catalog/schema at deploy time
 # 7. (Optional) Lakebase Postgres project/branch/endpoint for stateful demos
 # 8. (Optional) Databricks App with build hook + sync overrides + env injection
@@ -229,7 +229,7 @@ resources:
               catalog: ${var.catalog}
               schema: ${var.schema}
               warehouse_id: ${var.warehouse_id}
-          environment_key: sdk_latest  # REQUIRED: SDK >= 0.102.0
+          environment_key: sdk_latest  # REQUIRED: SDK >= 0.114.0
 
         # Task 4: Deploy Knowledge Assistant (after PDFs uploaded)
         # Outputs: ka_tile_id via taskValues
@@ -241,7 +241,7 @@ resources:
             base_parameters:
               catalog: ${var.catalog}
               schema: ${var.schema}
-          environment_key: sdk_latest  # REQUIRED: SDK >= 0.102.0
+          environment_key: sdk_latest  # REQUIRED: SDK >= 0.114.0
 
         # Task 5: Deploy Multi-Agent Supervisor (after both Genie and KA)
         # Receives IDs from upstream tasks via task value passing
@@ -256,13 +256,13 @@ resources:
               schema: ${var.schema}
               genie_space_id: "{{tasks.deploy_genie.values.genie_space_id}}"
               ka_tile_id: "{{tasks.deploy_ka.values.ka_tile_id}}"
-          environment_key: sdk_latest  # REQUIRED: SDK >= 0.102.0
+          environment_key: sdk_latest  # REQUIRED: SDK >= 0.114.0
 
       # ══════════════════════════════════════════════════════════════════════
       # ENVIRONMENTS: SDK version matters!
       # The pre-installed SDK on Databricks serverless is too old for
       # Genie, Knowledge Assistant, and MAS APIs. Those tasks MUST use
-      # sdk_latest with databricks-sdk>=0.102.0.
+      # sdk_latest with databricks-sdk>=0.114.0.
       # ══════════════════════════════════════════════════════════════════════
       environments:
         # Use for: data generation, file operations, basic SDK calls
@@ -271,12 +271,12 @@ resources:
             client: "4"
 
         # Use for: deploy_genie, deploy_ka, deploy_mas
-        # CRITICAL: w.genie.list_spaces(), w.knowledge_assistants.* require >=0.102.0
+        # CRITICAL: w.genie.list_spaces(), w.knowledge_assistants.* require >=0.114.0
         - environment_key: sdk_latest
           spec:
             client: "4"
             dependencies:
-              - "databricks-sdk>=0.102.0"
+              - "databricks-sdk>=0.114.0"
 
       permissions:
         - level: CAN_VIEW

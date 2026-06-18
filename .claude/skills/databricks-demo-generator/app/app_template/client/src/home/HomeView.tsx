@@ -18,7 +18,6 @@ import { useNavigate } from 'react-router';
 import {
   AlertTriangle,
   ArrowRight,
-  ArrowDown,
   Brain,
   CheckCircle2,
   Eye,
@@ -109,17 +108,17 @@ export function HomeView() {
 
   return (
     <div className="h-full overflow-y-auto">
-      <div className="max-w-5xl mx-auto px-8 py-14 space-y-14">
+      <div className="max-w-5xl mx-auto px-4 sm:px-8 py-6 sm:py-14 space-y-7 sm:space-y-14">
         {/* Hero */}
         <section className="space-y-5">
           <div className="inline-flex items-center gap-2 text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
             <span className="inline-block h-px w-8 bg-foreground/40" />
             {HERO.name} · {HERO.role}
           </div>
-          <h1 className="display text-5xl lg:text-6xl font-semibold leading-[1.05] tracking-tight text-foreground">
+          <h1 className="display text-3xl sm:text-5xl lg:text-6xl font-semibold leading-[1.05] tracking-tight text-foreground">
             {STORY.headline}
           </h1>
-          <p className="text-lg text-muted-foreground leading-relaxed max-w-3xl">
+          <p className="hidden sm:block text-lg text-muted-foreground leading-relaxed max-w-3xl">
             {STORY.situation}
           </p>
           <p
@@ -135,32 +134,35 @@ export function HomeView() {
 
         {/* Persona journey diagram */}
         <section className="space-y-5">
-          <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+          <div className="hidden sm:block text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
             A week of work · before noon
           </div>
           <JourneyDiagram heroName={heroFirstName} script={config.assistantScript} />
           <p className="text-sm text-foreground/80 leading-relaxed max-w-3xl">
             <span className="font-medium">One person. One conversation.</span>{' '}
-            What used to take a cross-functional team a week — analysts pulling
-            data, CSMs drafting emails, ops approving refunds — is done by noon.
+            <span className="hidden sm:inline">
+              What used to take a cross-functional team a week — analysts pulling
+              data, CSMs drafting emails, ops approving refunds — is done by noon.
+            </span>
+            <span className="sm:hidden">A week's work, done by noon.</span>
           </p>
         </section>
 
         {/* Starter prompts — each opens the floating assistant dock */}
         <section className="space-y-3">
-          <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+          <div className="hidden sm:block text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
             Try asking
           </div>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-col sm:flex-row sm:flex-wrap gap-2">
             {STARTER_QUESTIONS.map((q) => (
               <button
                 key={q}
                 onClick={() => dockController.newAndSend(q)}
-                className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-4 py-2 text-sm text-foreground hover:border-foreground/30 hover:shadow-sm transition-all"
+                className="flex w-full sm:w-auto sm:inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-4 py-2 text-sm text-foreground hover:border-foreground/30 hover:shadow-sm transition-all"
               >
-                <Sparkles className="size-3.5 text-muted-foreground" />
-                {q}
-                <ArrowRight className="size-3.5 text-muted-foreground" />
+                <Sparkles className="size-3.5 text-muted-foreground shrink-0" />
+                <span className="flex-1 text-left sm:flex-none">{q}</span>
+                <ArrowRight className="size-3.5 text-muted-foreground shrink-0" />
               </button>
             ))}
           </div>
@@ -181,14 +183,14 @@ export function HomeView() {
               style={{ background: 'var(--accent)' }}
             />
             <div className="relative">
-              <div className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.18em] opacity-80 mb-3">
+              <div className="hidden sm:inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.18em] opacity-80 mb-3">
                 <Zap className="size-3.5" />
                 Let the assistant handle it
               </div>
               <h3 className="display text-2xl font-semibold mb-2 leading-tight">
                 Handle the bad-lot returns — tier the offer by premium status
               </h3>
-              <p className="text-sm opacity-85 leading-relaxed mb-5 max-w-2xl">
+              <p className="hidden sm:block text-sm opacity-85 leading-relaxed mb-5 max-w-2xl">
                 The assistant traces the spike to one lot, then asks the
                 premium classifier which of the affected customers your CS
                 team has tagged AND which hidden premiums the model has
@@ -196,6 +198,10 @@ export function HomeView() {
                 ones). It drafts two apology emails (20% personal apology
                 for premium, 5% goodwill for the rest), and waits for your
                 approval before anything goes out.
+              </p>
+              <p className="sm:hidden text-sm opacity-85 leading-relaxed mb-5">
+                Trace the spike, tier the offer (premium vs. rest), draft
+                the apology emails — approve before anything goes out.
               </p>
               <button
                 onClick={() => dockController.newAndSend(FEATURED_ACTION_PROMPT)}
@@ -210,7 +216,7 @@ export function HomeView() {
         {/* Proof — activity feed */}
         {activity.length > 0 && (
           <section className="space-y-4">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+            <div className="hidden sm:block text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
               Recent activity
             </div>
             <ActivityFeed
@@ -292,48 +298,119 @@ function JourneyDiagram({
   ];
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-[1fr_auto_1fr_auto_1fr_auto_1fr] gap-3 items-stretch">
-      {steps.map((s, i) => (
-        <Fragment key={i}>
-          <button
-            onClick={s.onClick}
-            className={`text-left rounded-xl px-4 py-4 flex flex-col gap-2 transition-all hover:shadow-sm ${
-              s.highlight
-                ? 'border-2 bg-card hover:bg-card'
-                : 'border border-border bg-card hover:border-foreground/30'
-            }`}
-            style={s.highlight ? { borderColor: 'var(--accent)' } : undefined}
-          >
-            <div
-              className="size-8 rounded-lg flex items-center justify-center"
-              style={{
-                background: s.highlight ? 'var(--accent)' : 'var(--muted)',
-                color: s.highlight ? 'var(--accent-foreground)' : 'var(--foreground)',
-              }}
+    <>
+      {/* Desktop / tablet: 4 cards in a row with arrows between. */}
+      <div className="hidden md:grid grid-cols-[1fr_auto_1fr_auto_1fr_auto_1fr] gap-3 items-stretch">
+        {steps.map((s, i) => (
+          <Fragment key={i}>
+            <button
+              onClick={s.onClick}
+              className={`text-left rounded-xl px-4 py-4 flex flex-col gap-2 transition-all hover:shadow-sm ${stepCardClass(s.highlight)}`}
+              style={stepCardStyle(s.highlight)}
             >
-              {s.icon}
-            </div>
-            <div className="text-sm font-semibold text-foreground">{s.role}</div>
-            <div className="text-xs text-muted-foreground leading-snug italic">
-              {s.quote}
-            </div>
-            <div className="text-[11px] font-medium text-foreground/70 mt-1">
-              {s.cta}
-            </div>
-          </button>
-          {i < steps.length - 1 && (
-            <>
-              <div className="hidden md:flex items-center justify-center text-muted-foreground">
+              <StepIcon step={s} size="sm" />
+              <StepText step={s} />
+            </button>
+            {i < steps.length - 1 && (
+              <div className="flex items-center justify-center text-muted-foreground">
                 <ArrowRight className="size-4" />
               </div>
-              <div className="md:hidden flex items-center justify-center text-muted-foreground py-1">
-                <ArrowDown className="size-4" />
-              </div>
-            </>
-          )}
-        </Fragment>
-      ))}
+            )}
+          </Fragment>
+        ))}
+      </div>
+
+      {/* Phone: vertical rail of icons on the left (sequential-flow cue),
+          card per step on the right. */}
+      <ol className="md:hidden relative flex flex-col gap-2.5">
+        {/* Vertical rail behind the icon column — starts just under
+            step-1's icon and ends just above step-N's. */}
+        <div
+          aria-hidden
+          className="absolute left-[18px] top-7 bottom-7 w-px bg-border"
+        />
+        {steps.map((s, i) => (
+          <li key={i} className="relative flex items-start gap-3">
+            <StepIcon step={s} size="md" className="relative z-10 shrink-0 mt-1" />
+            <button
+              onClick={s.onClick}
+              className={`flex-1 min-w-0 text-left rounded-xl px-3 py-2.5 transition-all hover:shadow-sm ${stepCardClass(s.highlight)}`}
+              style={stepCardStyle(s.highlight)}
+            >
+              <StepText step={s} compact />
+            </button>
+          </li>
+        ))}
+      </ol>
+    </>
+  );
+}
+
+// --- Journey step primitives ------------------------------------------------
+// Shared between the desktop grid + the mobile rail. Owning the highlight
+// styling here means a tweak to "what does highlighted look like" lands
+// in one place instead of two.
+
+type JourneyStep = {
+  icon: React.ReactNode;
+  role: string;
+  quote: string;
+  highlight: boolean;
+  cta: string;
+  onClick: () => void;
+};
+
+function stepCardClass(highlight: boolean): string {
+  return highlight
+    ? 'border-2 bg-card'
+    : 'border border-border bg-card hover:border-foreground/30';
+}
+
+function stepCardStyle(highlight: boolean): React.CSSProperties | undefined {
+  return highlight ? { borderColor: 'var(--accent)' } : undefined;
+}
+
+function StepIcon({
+  step,
+  size,
+  className = '',
+}: {
+  step: JourneyStep;
+  size: 'sm' | 'md';
+  className?: string;
+}) {
+  // Literal Tailwind classes so the JIT picks them up at build time.
+  const sizeClass = size === 'sm' ? 'size-8' : 'size-9';
+  return (
+    <div
+      className={`${sizeClass} rounded-lg flex items-center justify-center ${className}`}
+      style={{
+        background: step.highlight ? 'var(--accent)' : 'var(--muted)',
+        color: step.highlight ? 'var(--accent-foreground)' : 'var(--foreground)',
+      }}
+    >
+      {step.icon}
     </div>
+  );
+}
+
+function StepText({ step, compact = false }: { step: JourneyStep; compact?: boolean }) {
+  return (
+    <>
+      <div
+        className={`text-sm font-semibold text-foreground ${compact ? 'leading-tight' : ''}`}
+      >
+        {step.role}
+      </div>
+      <div
+        className={`text-xs text-muted-foreground leading-snug italic ${compact ? 'mt-0.5' : ''}`}
+      >
+        {step.quote}
+      </div>
+      <div className="text-[11px] font-medium text-foreground/70 mt-1">
+        {step.cta}
+      </div>
+    </>
   );
 }
 

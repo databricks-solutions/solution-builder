@@ -19,8 +19,10 @@
 
 | Table | Source | Key fields |
 |---|---|---|
-| `customers` | `gold_customers` | id, email, name, region, **country**, loyaltyTier |
-| `returns` | `gold_returns` | id, orderId, customerId, refundAmountUsd, returnReason, returnReasonText, productName, lotId, facility, status (`pending` / `approved` / `rejected` / `escalated`), **couponPctApplied** (int — recorded when the agent's bulk tool runs; null until then; always `10` for the affected-lot rows after approval), **emails** (append-only JSONB array), **aiAuditTrail** (append-only JSONB array) |
+| `customers` | `raw_customers` | id, email, name, region, **country**, loyaltyTier (the simple demo has no `gold_customers` — it pulls customer attributes directly from `raw_customers`, scoped to customers who appear in the returns table) |
+| `returns` | `gold_returns` | id, orderId, customerId, refundAmountUsd, returnReason, returnReasonText, productName, lotId, facility, region, status (`pending` / `approved` / `rejected` / `escalated`), **couponPctApplied** (int — recorded when the agent's bulk tool runs; null until then; always `10` for the affected-lot rows after approval), **emails** (append-only JSONB array), **aiAuditTrail** (append-only JSONB array) |
+
+> The Operations country panel reads `country` via JOIN against `customers` at query time (`/api/returns/by-country`), so `country` doesn't need to live on the `returns` row.
 
 The two append-only arrays on `returns` make each row a standalone timeline — the agent's bulk tool appends email + audit per row in one atomic UPDATE. The Operations Activity tab renders from one row read.
 

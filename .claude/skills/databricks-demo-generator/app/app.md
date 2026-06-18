@@ -80,6 +80,7 @@ Handle missing components example during this step:
 - **No MAS, no Genie**: Use a pure OpenAI Agents SDK agent with custom tools (no `ask_data` passthrough).
 - **No dashboard**: Remove Dashboard route + sidebar entry.
 - **No KA**: MAS routes everything to Genie — no code change needed.
+- **No ML / no premium tiering** (e.g. Simple-tab demos): clear `data.tables.customerPremium` in `app.json` so `sync.ts` skips the predictions sync. Drop `find_lot_premium_breakdown` from the agent's `makeTools`, collapse `process_return_batch`'s `tier_offers` to a single `offer`, and rewrite the agent `instructions` to a flat-offer flow (one `create_coupon`, one email template). UI premium badges already render conditional on `final_tier != null`, so they auto-hide.
 
 Make sure you do an extensive review - no mention to the template specific use-case, everything is migrate to the new app story, rename/delete file to support the new specification, review the full implementation to make sure it's all up to date and we'll be able to start and make the app work.
 

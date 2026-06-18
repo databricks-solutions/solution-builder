@@ -1,7 +1,11 @@
 # Databricks notebook source
 """
 Deploy Genie Space - Reference script for DAB workflow task.
-REQUIRES: databricks-sdk>=0.102.0 (use sdk_latest environment)
+
+REQUIRES: databricks-sdk>=0.114.0 (use sdk_latest environment).
+The SDK call shapes below match this version — reuse this script verbatim,
+only edit business content (SPACE_NAME, table identifiers, description).
+Do NOT rewrite the SDK calls from memory; this is the current correct syntax.
 
 Creates or updates a Genie Space using the Databricks SDK.
 Idempotent: safe to re-run.
@@ -90,21 +94,16 @@ description = f"Ask questions about {catalog}.{schema} data"
 
 # COMMAND ----------
 
-# Check whether the space already exists (SDK requires pagination)
+# Check whether the space already exists.
+# list_*() returns a generator in databricks-sdk>=0.114 — iterate directly.
 existing_id = None
-page_token = None
 
 print("Searching for existing Genie Spaces...")
-while True:
-    resp = w.genie.list_spaces(page_size=200, page_token=page_token)
-    for space in resp.spaces or []:
-        if space.title == SPACE_NAME:
-            existing_id = space.space_id
-            print(f"  Found: {space.title} ({existing_id})")
-            break
-    if existing_id or not resp.next_page_token:
+for space in w.genie.list_spaces(page_size=200):
+    if space.title == SPACE_NAME:
+        existing_id = space.space_id
+        print(f"  Found: {space.title} ({existing_id})")
         break
-    page_token = resp.next_page_token
 
 # COMMAND ----------
 

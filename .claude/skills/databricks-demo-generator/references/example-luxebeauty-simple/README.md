@@ -53,7 +53,7 @@ If the app is included, Claire's team works the queue in the Returns Console: KP
 
 KPI tiles read $180K / 30% return rate / spike vs baseline. The weekly bar chart shows a clear 3x peak three weeks back and a decay curve through the recent weeks — the spike sits in the past with a tail trending back to normal, not pinned at the right edge.
 
-Below, the products table is sorted by return rate descending: SKU-1001 / SKU-1002 / SKU-1003 all at ~30% versus ~8% for everything else. The map row lights up Europe (FR + IT lead, then GB / DE) — affected customers concentrated in the EU market.
+On the Investigation page, the Returns-by-product bar is dominated by SKU-1001 / SKU-1002 / SKU-1003 — three Skincare SKUs sitting an order of magnitude above the rest. The map on the Operations page lights up Europe (FR + IT lead, then GB / DE) — affected customers concentrated in the EU market.
 
 > *"This is **AI/BI Dashboards** — built in clicks, no React code, governed by **Unity Catalog**. The data behind every tile came in through **Lakeflow Connect** from Shopify, Zendesk, and the ERP — no custom plumbing. The Gold tables it reads from were populated directly by a fast SQL load (production demos run **Spark Declarative Pipelines** for this — bronze→silver→gold with data quality expectations, schema enforcement, and incremental refresh. We're showing the simplest, fastest path today to make the dashboard land in minutes)."*
 
@@ -65,7 +65,7 @@ Below, the products table is sorted by return rate descending: SKU-1001 / SKU-10
 
 **Claire types:** `Why do I have so many returns?`
 
-Genie walks the data: weekly returns trend → spots the 3x spike → drills into per-product return rate → finds the three SKUs all sharing one lot → reads the lot's `incident_summary` column inline and surfaces it as part of the answer: *"Homogenizer pressure fluctuations during emulsification — calibration drift on Lyon's HMG-03 unit. Lot was released despite the QC note about texture variations."*
+Genie walks the data: weekly returns trend → spots the 3x spike → finds the three SKUs dominating return volume → all sharing one lot → reads the lot's `incident_summary` column inline and surfaces it as part of the answer: *"Homogenizer pressure fluctuations during emulsification — calibration drift on Lyon's HMG-03 unit. Lot was released despite the QC note about texture variations."*
 
 > *"This is **AI/BI Genie** — natural language over Unity Catalog. Claire didn't write a JOIN, didn't open a notebook, didn't tag anyone in Slack. She asked. The same **Unity Catalog** that powers the dashboard powers Genie — same data, same permissions, same numbers. No glue to maintain."*
 >

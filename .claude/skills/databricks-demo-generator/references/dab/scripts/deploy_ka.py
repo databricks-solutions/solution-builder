@@ -1,7 +1,11 @@
 # Databricks notebook source
 """
 Deploy Knowledge Assistant - Reference script for DAB workflow task.
-REQUIRES: databricks-sdk>=0.102.0 (use sdk_latest environment)
+
+REQUIRES: databricks-sdk>=0.114.0 (use sdk_latest environment).
+The SDK call shapes below match this version — reuse this script verbatim,
+only edit business content (KA_NAME, VOLUME_PATH, instructions). Do NOT
+rewrite the SDK calls from memory; this is the current correct syntax.
 
 Creates or updates a Knowledge Assistant using the Databricks SDK.
 Idempotent: safe to re-run.
@@ -44,22 +48,17 @@ instructions = "Be helpful and cite sources when answering questions. Provide sp
 
 # COMMAND ----------
 
-# Check whether the KA already exists
+# Check whether the KA already exists.
+# list_*() returns a generator in databricks-sdk>=0.114 — iterate directly.
 existing_id = None
-page_token = None
 
 print("Searching for existing Knowledge Assistants...")
-while True:
-    resp = w.knowledge_assistants.list_knowledge_assistants(page_size=100, page_token=page_token)
-    for ka in resp.knowledge_assistants or []:
-        if ka.display_name == KA_NAME:
-            existing_id = ka.name.split("/")[-1] if ka.name else None
-            resource_name = ka.name
-            print(f"  Found: {ka.display_name} ({existing_id})")
-            break
-    if existing_id or not resp.next_page_token:
+for ka in w.knowledge_assistants.list_knowledge_assistants(page_size=100):
+    if ka.display_name == KA_NAME:
+        existing_id = ka.name.split("/")[-1] if ka.name else None
+        resource_name = ka.name
+        print(f"  Found: {ka.display_name} ({existing_id})")
         break
-    page_token = resp.next_page_token
 
 # COMMAND ----------
 

@@ -1,7 +1,7 @@
 # Databricks notebook source
 """
 Deploy Multi-Agent Supervisor (MAS) - Reference script for DAB workflow task.
-REQUIRES: databricks-sdk>=0.102.0 (use sdk_latest environment)
+REQUIRES: databricks-sdk>=0.114.0 (use sdk_latest environment)
 
 Creates or updates a Multi-Agent Supervisor using direct REST API calls.
 The MAS API is not yet fully in the SDK, so we use authenticated HTTP requests.
