@@ -5,7 +5,7 @@ description: "Pre-submit validation AND auto-fix for an industry-demo-prompts St
 
 # Stage 5 Handoff Pre-Submit — validate AND auto-fix
 
-After Stage 5 produces a handoff package (typically `<project>/` with `databricks.yml` at root), this skill runs 9 checks. Checks 1 and 3 are **auto-fix** — known upstream Stage-4 codegen defects patched in place. The rest are detect-and-report.
+After Stage 5 produces a handoff package (typically `<project>/` with `databricks.yml` at root), this skill runs 10 checks. Checks 1 and 3 are **auto-fix** — known upstream Stage-4 codegen defects patched in place. The rest are detect-and-report.
 
 Each defect caught here saves ~5 minutes of bundle deploy + job run + failure diagnosis on the client workspace.
 
@@ -54,14 +54,19 @@ If the bundle uses serverless compute (no `new_cluster:` anywhere), log `PASS: c
 
 The handoff must not contain literal references to the SA's build workspace. Grep for the patterns below across `*.py *.yml *.json *.md` (exclude `HANDOFF_NOTES.md` — that file is meta-commentary and may reference SA fingerprints intentionally):
 
+**Derive the demo-specific fingerprints — do NOT hardcode one demo's names.** Read the SA's real catalog/schema from the ORIGINAL pre-Step-2 `databricks.yml` `variables.catalog`/`variables.schema` defaults (or `resources.json`), and combine with the SA's constant fingerprints:
+
 ```bash
+# REAL_CATALOG / REAL_SCHEMA come from the original databricks.yml defaults (per-demo).
 FORBIDDEN_PATTERNS=(
-  'ai_demo_gen[^_]'                              # SA catalog literal
-  '@databricks\.com'                              # SA email
-  'e2-demo-field-eng\.cloud\.databricks\.com'    # SA workspace URL
-  'demo_harvestly_v3_rebuild_sdk_patched'        # SA schema literal
-  '/Workspace/Users/morgan\.williams'             # SA workspace path
+  "$REAL_CATALOG"                                 # this demo's SA catalog literal
+  "$REAL_SCHEMA"                                  # this demo's SA schema literal
+  '@databricks\.com'                              # SA email (constant)
+  '(e2-demo-field-eng|fevm-[a-z0-9-]+)\.cloud\.databricks\.com'  # SA/FEVM workspace URL (constant)
+  '/Workspace/Users/[^/ ]+@databricks\.com'      # SA workspace path (constant shape)
 )
+# Ignore expected non-fingerprints: a resource KEY derived from the schema name
+# (e.g. <schema>_pipeline) is identical for every client — filter `<schema>_[a-z]`.
 ```
 
 No auto-fix — the agent removes the leak (likely a Stage 2 strip miss).
@@ -115,6 +120,17 @@ v1.1 packages must not contain v1 setup-target artifacts. Fail if any of:
 - `README.md` is missing the v1.1 CLI snippet (`workspace import-dir .assistant/skills`).
 
 Background: DAB v1.1.0 doesn't support `${resources.jobs.<key>}` self-reference, so the v1 `setup` target inherited all bundle resources and failed at terraform apply on placeholder catalog/warehouse values (observed on FEVM 2026-06-02). v1.1 installs via a 3-line CLI snippet pasted into the web terminal. The skill carrier at `.assistant/skills/<slug>-adaptation/` still ships in v1.1 — only the setup-target machinery is gone. No auto-fix — re-run `client-handoff.md` Step 6 and Step 8.
+
+### Check 10 — ADAPTATION_FACTS present, schema-valid, version-consistent (DETECT)
+
+The handoff must ship a facts contract the adaptation skill can trust. Fail (do not auto-fix) if any of:
+- `ADAPTATION_FACTS.json` is absent at the project root.
+- It does not conform to `templates/ADAPTATION_FACTS.schema.json` (required keys present; enums valid). Use `jsonschema` if available, else a structural check.
+- `ADAPTATION_FACTS.skill_version` != the `SKILL_VERSION` stamped in the bundled `.assistant/skills/<slug>-adaptation/SKILL.md` (a mismatch ships a stale skill that will refuse to run).
+- Any path in `lock_targets[].paths` does not exist on disk.
+- `deploy_target.resource_key` is null/empty (the client can't be told what to run).
+
+Note: `unresolved[]` entries are EXPECTED and NOT a failure (fail-closed by design) — they are values the adaptation skill will ask about at runtime.
 
 ## Output format
 

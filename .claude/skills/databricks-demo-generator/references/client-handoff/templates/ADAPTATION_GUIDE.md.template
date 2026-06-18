@@ -38,3 +38,19 @@ The handoff package uses the Databricks Asset Bundle `targets:` pattern. All wor
 - **Genie Code** in your workspace knows this project — ask it specific adaptation questions.
 - **`README.md`** describes the demo's story and walkthrough.
 - **`{{project-map-path}}`** lists what every file does.
+
+## Compatibility contract — what the adaptation skill guarantees
+
+The bundled Genie Code skill (`.assistant/skills/{{demo-slug}}-adaptation/`) reads a generated facts file (`ADAPTATION_FACTS.json`) and can, for THIS demo:
+
+- **Guarantees:** detect your workspace/catalog/schema/warehouse and write `databricks.yml`; deploy on synthetic data; rename table identifiers (with a data-handling choice); change silver/gold transform logic (thresholds, metric formulas, aggregations, grain) behind a check-first playbook; point at your real tables.
+- **Cannot do automatically (will tell you + hand off):** migrate existing data old→new tables; refactor SQL semantics beyond the requested change; rename columns that aren't factually wrong; edit Knowledge-Assistant source documents; create resources that `bundle deploy` does not own (e.g. a Genie space — see `dab_instructions.md`).
+- **Halts and asks the demo author when:** a needed fact is unresolved in `ADAPTATION_FACTS.json`; a source table/column is missing; a dependency map is incomplete; a verification query fails. A wrong change is worse than a paused one.
+
+## Refreshing after an SA update (stale-skill detection)
+
+When the SA pushes a new version of this repo:
+1. `git pull` in this folder.
+2. Re-run the README "First Run" Step 2 to re-import the helper skill to your workspace.
+3. **Hard-refresh the Genie Code browser tab** (skills are cached per tab; a new chat thread alone is not enough) and start a NEW chat.
+4. The skill compares its `SKILL_VERSION` against `ADAPTATION_FACTS.skill_version` on entry — if they differ it will tell you the package is stale and to re-import. Don't proceed past that warning.
