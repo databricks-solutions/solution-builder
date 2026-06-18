@@ -134,7 +134,7 @@ After de-hardcoding, the Step 5 grep gate (broadened) confirms zero raw literals
 
 Two patterns — pick whichever fits the demo's existing structure:
 
-- **Pattern A — DAB `condition_task`** (preferred): gate the synth-gen task with `${var.run_with_synthetic_data} == "yes"`.
+- **Pattern A — DAB `condition_task`** (preferred): gate the synth-gen task with `${var.run_with_synthetic_data} == "yes"`. **Multi-task jobs — guard the gate fan-out:** when a `condition_task` evaluates false, its downstream is marked skipped, and any task that `depends_on` it under the DEFAULT rule (`ALL_SUCCESS`) is skipped too. So on the real-data path (`"no"`) every task sequenced AFTER the synth-gen — Genie/KA/dashboard deploy, pipeline trigger, etc. — would be silently skipped. Gate ONLY the synth-gen task; for each downstream task that must still run, add `run_if: ALL_DONE` (or `NONE_FAILED`/`AT_LEAST_ONE_SUCCESS` as fits). Verify with `databricks bundle summary -t client` that the real-data path still reaches table creation + every deploy task. (Found 2026-06-18 on FreshMart: `deploy_genie` depended on `generate_data`; without `run_if: ALL_DONE` the real-data path skipped Genie deployment.)
 - **Pattern B — notebook early-return**: inject `if os.environ.get("RUN_WITH_SYNTHETIC_DATA", "yes") == "no": dbutils.notebook.exit("Skipped — using client data")` at the top, and pass via `base_parameters`.
 
 For SDP/pipeline bronze: SDP SQL **cannot** interpolate Spark conf vars in `read_files()` — Python bronze is required. If the existing bronze is SQL, convert it per `databricks.yml.patch.md` Section 3, DELETE the original `*_bronze.sql`, update `pipeline.libraries[]` to the `.py`, and record the deletion in `HANDOFF_NOTES.md`. (Alternative: leave a `TODO(client-handoff)` and let Step 5 hard-fail — never silently continue.)
@@ -226,7 +226,7 @@ Runs only after the Step 5 gate passes (it reads the FINAL restructured + de-har
 7. `dependency_map[]` — parse each ST/MV's FROM/JOIN for `upstream`; invert for `downstream`. `dashboard_refs` from the dashboard JSON datasets; `genie_refs` from `genie_space.json` `data_sources`/`instructions`.
 8. `grain_constraints[]` — `candidate_columns` from GROUP BY (+ CLUSTER BY / PARTITIONED BY → `partition_clause`). `min_partition_size` is DATA-DEPENDENT: leave `null` + `unresolved[]` unless you ran a live row-count query at handoff.
 9. `verify_queries[]` — emit parameterized verify SQL (using `${catalog}.${schema}` tokens) per transform type present, derived from `table_contract` + `grain_constraints`.
-10. `lock_targets[]` — derive per task class from `dependency_map` + `source_inputs` (e.g. for `rename_column`, lock the ingestion-contract files). Every path must exist on disk.
+10. `lock_targets[]` — derive per task class from `dependency_map` + `source_inputs` (e.g. for `rename_column`, lock the ingestion-contract files). Use the family vocabulary the adaptation skill matches on — rename family (`rename_column`/`rename_table`), transform family (`add_metric`/`change_grain`/`add_segment`/…), `setup`. Every path must exist on disk.
 
 **FAIL CLOSED.** Any field you cannot derive with confidence is `null` AND gets an `unresolved[]` entry `{field, table?, reason, needs_author_input: true}`. A wrong fact (e.g. an incorrect dependency map) is worse than a missing one — the adaptation skill halts on unresolved facts rather than guessing.
 

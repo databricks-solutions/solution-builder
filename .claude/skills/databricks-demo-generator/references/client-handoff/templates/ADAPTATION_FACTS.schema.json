@@ -124,7 +124,7 @@
         "additionalProperties": false,
         "required": ["task_class", "paths", "reason"],
         "properties": {
-          "task_class": { "type": "string", "description": "e.g. 'rename_column', 'add_metric', 'change_grain'." },
+          "task_class": { "type": "string", "description": "Granular operation key. rename family for identifier renames ('rename_column','rename_table'); transform family for metric/threshold/grain/segment/formula edits ('add_metric','change_grain','add_segment'); 'setup' for deploy-time. The adaptation skill matches these to its intent classes (rename/transform/setup) by FAMILY, not exact string." },
           "paths": { "type": "array", "items": { "type": "string" }, "description": "Exact relative file paths to lock." },
           "reason": { "type": "string" }
         }

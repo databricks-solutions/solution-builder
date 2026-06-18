@@ -38,7 +38,7 @@ description: Configure, run, and adapt the {{demo-name}} demo in the user's Data
 ## 3. Global hard locks [GENERIC]
 
 - `MUST NOT EDIT` anything under `.assistant/**` — including this skill file. The adaptation skill MUST NOT modify itself or any skill. (This is the one prohibition that always binds.)
-- For each task class, treat every path in `lock_targets[].paths` as `MUST NOT EDIT \`<exact-path>\``. If you are about to write to a locked path, STOP — that is a reasoning defect.
+- Locks are keyed by `lock_targets[].task_class`, which may be GRANULAR (e.g. `rename_column`, `add_metric`, `change_grain`). Match your current intent to its family: **rename** → every entry whose `task_class` contains `rename`; **transform** → every metric/threshold/grain/segment/formula entry (`add_metric`, `change_grain`, `add_segment`, …); **setup** → `setup`/deploy entries. Treat every path in a matching entry as `MUST NOT EDIT \`<exact-path>\``. If unsure which entries apply, the UNION of all `lock_targets[].paths` is the safe floor. Writing to a locked path is a reasoning defect — STOP.
 - **Never deploy from inside Genie Code.** The CLI is sandboxed in `executeCode` and can't `cd` to the bundle root. Always OUTPUT web-terminal commands and stop.
 
 ## 4. Setup flow — "run in my workspace" [GENERIC]
@@ -96,7 +96,7 @@ If a rename drops a layer prefix, flag it and still wait for a/b/c. For (b), ver
 <!-- /pre-edit-confirmation -->
 ```
 
-**R3 — Atomic identifier rename (HARD SCOPE).** Rename ONLY bare table-identifier strings. No SQL-logic refactors, no column renames, no catalog/schema edits. Editable files come from the rename entry of `lock_targets` (inverse: anything NOT locked for `rename` and listed in `table_contract.defined_in` / `dependency_map.defined_in`). Distinguish table identifiers from volume source-path / subdir strings (`source_inputs[].locator`) — do NOT rewrite a volume path as if it were a table name. Use bounded exact-string replacement (renaming `foo` must not touch `foo_count`). Show a per-file diff. For each (b): emit `ALTER TABLE <catalog>.<schema>.<old> RENAME TO <new>;` (run before redeploy). For each (c): emit a post-deploy `DROP TABLE IF EXISTS ...` to run only after the pipeline succeeds.
+**R3 — Atomic identifier rename (HARD SCOPE).** Rename ONLY bare table-identifier strings. No SQL-logic refactors, no column renames, no catalog/schema edits. Editable files = the inverse of the rename-family locks: anything listed in `table_contract.defined_in` / `dependency_map.defined_in` that is NOT in any `lock_targets` entry whose `task_class` is in the rename family (contains `rename`). Distinguish table identifiers from volume source-path / subdir strings (`source_inputs[].locator`) — do NOT rewrite a volume path as if it were a table name. Use bounded exact-string replacement (renaming `foo` must not touch `foo_count`). Show a per-file diff. For each (b): emit `ALTER TABLE <catalog>.<schema>.<old> RENAME TO <new>;` (run before redeploy). For each (c): emit a post-deploy `DROP TABLE IF EXISTS ...` to run only after the pipeline succeeds.
 
 **R4 — Redeploy.** Same shape as §4 step 5; append the per-strategy note ((a) old tables remain; (b) run ALTERs first; (c) run, then DROP).
 
@@ -161,5 +161,5 @@ Keep this skill lean: do not append unbounded "gotchas". Each hard-scope excepti
 > ```bash
 > {{deploy_target.run_command}}
 > ```
-> Example lock (from `lock_targets`): `MUST NOT EDIT \`<source-contract-file>\`` for the `rename` task class.
+> Example lock (from `lock_targets`): `MUST NOT EDIT \`<source-contract-file>\`` for a rename-family task class (e.g. `rename_column`).
 > Example verify (from `verify_queries`): `SELECT <grain-col>, MIN(<rank-col>) FROM ${catalog}.${schema}.<gold-table> GROUP BY <grain-col>;`
