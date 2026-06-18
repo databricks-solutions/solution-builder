@@ -241,7 +241,9 @@ Generate the skill files into `<project>/.assistant/skills/<slug>-adaptation/`. 
    - `{{demo-slug}}` → from Step 1.
    - `{{demo-name}}` → from `README.md` title (e.g., "Harvestly Co. — Loyalty Segmentation").
    - `{{demo-persona}}` → the protagonist named in README (e.g., `Harvestly Co.`).
-   - `{{job-name}}` → from Step 1.
+   - `{{job-name}}` → from Step 1. *(No longer used by the genie-code-skill template, which now uses `{{deploy_target.run_command}}`; still used by Steps 7–8's README/guide.)*
+   - `{{skill-version}}` → the `SKILL_VERSION` value from the top of this file. Stamp the IDENTICAL value into `ADAPTATION_FACTS.skill_version` (Step 5.5) so the shipped skill and facts file agree — the adaptation skill's entry gate compares them to detect a stale package.
+   - `{{deploy_target.run_command}}` → from `ADAPTATION_FACTS.deploy_target.run_command` (Step 5.5) — the pipeline-or-job run command.
    - `{{table-names}}` (and any dependency/grain/source facts the template needs) → read from `ADAPTATION_FACTS.json` (Step 5.5) — it already introspected tables, layers, dependency map, and source types from the actual bundle. This is the canonical source now: do NOT re-derive from specs and do NOT read `resources.json.created_resources` (Step 2 gutted that). Only fall back to `specifications/01-lakeflow.md` / `src/pipeline/*` if a needed value is in `ADAPTATION_FACTS.unresolved[]`, and record the fallback in `HANDOFF_NOTES.md` at Step 9.
 3. Write resolved files into `<project>/.assistant/skills/<demo-slug>-adaptation/`.
 
