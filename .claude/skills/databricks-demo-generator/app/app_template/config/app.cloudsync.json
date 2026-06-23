@@ -1,8 +1,8 @@
 {
   "_comment": "Working CloudSync config kept for smoke-testing. Copy over app.json to re-test chat + feedback + dashboard end-to-end.",
-  "masEndpointName": "",
-  "mlflowExperimentId": "",
-  "dashboardId": "",
+  "masEndpointName": "mas-xxxxxxxx-endpoint",
+  "mlflowExperimentId": "1234567890123456",
+  "dashboardId": "0123456789abcdef0123456789abcdef",
   "branding": {
     "appName": "CloudSync Operations"
   }
