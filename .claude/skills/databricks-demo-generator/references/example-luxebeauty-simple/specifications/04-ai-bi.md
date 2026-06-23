@@ -68,7 +68,7 @@ Ship these as chips (`config.sample_questions`) AND as curated SQLs (`instructio
 
 ### Validation
 
-- "What's our return rate this month?" → matches the dashboard's Refund Rate KPI tile exactly (both read `gold_daily_summary`).
+- "What's our return rate this month?" → answered from `gold_daily_summary`: `SUM(return_count) / SUM(order_count)` for the current month, with a baseline comparison.
 - "Why so many returns?" → walks to the 3x spike → SKU-1001/1002/1003 dominate by volume → common lot → texture feedback → **quotes the incident_summary text inline** (homogenizer / pressure / Lyon / released). All five beats present.
 - "What are customers saying?" → surfaces *"grainy"*, *"separated"*, *"watery"*.
 - "Which countries have the most affected customers?" → FR is the largest, then IT or GB, then US.
@@ -129,10 +129,12 @@ widgetHeaderAlignment: LEFT
 
 | Name | Source | Powers |
 |---|---|---|
-| `ds_daily` | `SELECT date, region, category, order_count, return_count, revenue_usd, returns_usd FROM gold_daily_summary WHERE date >= DATEADD(day, -90, current_date())` | 4 KPI counters + category donut + weekly-orders area chart |
-| `ds_returns` | `SELECT return_id, return_date, country, city, customer_lat, customer_lng, region, product_name, category, lot_id, facility, is_bad_lot, CASE WHEN is_bad_lot THEN 'Affected lot' ELSE 'Everyday returns' END AS source, return_reason, customer_comment, anger_score, CASE WHEN anger_score >= 0.9 THEN '3 - Very angry' WHEN anger_score >= 0.5 THEN '2 - Angry' WHEN anger_score >= 0.2 THEN '1 - Neutral' ELSE '0 - Satisfied' END AS sentiment, refund_amount_usd FROM gold_returns WHERE return_date >= DATEADD(day, -90, current_date())` | Bubble map, refunds-by-country bar, affected-vs-everyday split bars (country + reasons), sentiment bar, city table, comments table |
-| `ds_forecast` | `WITH original AS (SELECT DATE_TRUNC('WEEK', date) AS week, SUM(returns_usd) AS refunds FROM gold_daily_summary WHERE DATE_TRUNC('WEEK', date) < DATE_TRUNC('WEEK', current_date()) AND date >= DATEADD(day, -180, current_date()) GROUP BY 1), …, forecast AS (SELECT … FROM AI_FORECAST(TABLE(original), horizon => …, time_col => 'week', value_col => 'refunds')) SELECT actuals UNION ALL forecast UNION ALL <bridging row that repeats the last actual as the forecast seam>` | Forecast-line widget (full pattern in dashboard skill's `4-examples.md` — copy verbatim, swap names) |
-| `ds_sankey_flow` | `WITH product_totals AS (SELECT product_name, COUNT(*) n FROM gold_returns WHERE return_date >= DATEADD(day, -90, current_date()) GROUP BY 1), top_products AS (SELECT product_name FROM product_totals ORDER BY n DESC LIMIT 10), lot_totals AS (...) , top_lots AS (... LIMIT 15) SELECT category, CASE WHEN product_name IN top_products THEN product_name ELSE 'Other products' END AS product_name, CASE WHEN lot_id IN top_lots THEN lot_id ELSE 'Other lots' END AS lot_id, COUNT(*) returns FROM gold_returns r WHERE return_date >= … GROUP BY 1,2,3` | Sankey widget on the Investigation page — top-10 products + top-15 lots, long tails bucketed as "Other …" |
+| `ds_daily` | `SELECT date, region, category, order_count, return_count, revenue_usd, returns_usd FROM gold_daily_summary` | 4 KPI counters + category donut + weekly-orders area chart |
+| `ds_returns` | `SELECT return_id, return_date, country, city, customer_lat, customer_lng, region, product_name, category, lot_id, facility, is_bad_lot, CASE WHEN is_bad_lot THEN 'Affected lot' ELSE 'Everyday returns' END AS source, return_reason, customer_comment, anger_score, CASE WHEN anger_score >= 0.9 THEN '3 - Very angry' WHEN anger_score >= 0.5 THEN '2 - Angry' WHEN anger_score >= 0.2 THEN '1 - Neutral' ELSE '0 - Satisfied' END AS sentiment, refund_amount_usd FROM gold_returns` | Bubble map, refunds-by-country bar, affected-vs-everyday split bars (country + reasons), sentiment bar, city table, comments table |
+| `ds_forecast` | `WITH original AS (SELECT DATE_TRUNC('WEEK', date) AS week, SUM(returns_usd) AS refunds FROM gold_daily_summary WHERE DATE_TRUNC('WEEK', date) < DATE_TRUNC('WEEK', current_date()) AND date >= DATEADD(day, -180, current_date()) GROUP BY 1), …, forecast AS (SELECT … FROM AI_FORECAST(TABLE(original), horizon => …, time_col => 'week', value_col => 'refunds', parameters => '{"global_floor": 0}')) SELECT actuals UNION ALL forecast UNION ALL <bridging row that repeats the last actual as the forecast seam>` | Forecast-line widget (full pattern in dashboard skill's `4-examples.md` — copy verbatim, swap names). The `parameters => '{"global_floor": 0}'` keeps the lower confidence band from dipping into negative refunds. The 180-day window is a forecast-input choice (AI_FORECAST needs a stable trailing history) — NOT a display filter — so the global Date filter doesn't touch this dataset. |
+| `ds_sankey_flow` | `WITH product_totals AS (SELECT product_name, COUNT(*) n FROM gold_returns GROUP BY 1), top_products AS (SELECT product_name FROM product_totals ORDER BY n DESC LIMIT 10), lot_totals AS (...) , top_lots AS (... LIMIT 15) SELECT category, CASE WHEN product_name IN top_products THEN product_name ELSE 'Other products' END AS product_name, CASE WHEN lot_id IN top_lots THEN lot_id ELSE 'Other lots' END AS lot_id, COUNT(*) returns FROM gold_returns r GROUP BY 1,2,3` | Sankey widget on the Investigation page — top-10 products + top-15 lots, long tails bucketed as "Other …" |
+
+**No hardcoded date clamps on `ds_daily` / `ds_returns` / `ds_sankey_flow`** — global Date Range filter is the single source of windowing. Adding a `WHERE date >= DATEADD(...)` inside the dataset SQL narrows what the filter can possibly select. `ds_forecast` is the one exception: its 180-day window is AI_FORECAST input shape, not display filtering.
 
 `ds_forecast` and `ds_sankey_flow` aren't shared with anything; the global filters skip them by design.
 
@@ -140,11 +142,14 @@ widgetHeaderAlignment: LEFT
 
 | Filter | Column | Datasets | Default |
 |---|---|---|---|
-| Date Range | `date` (ds_daily) / `return_date` (ds_returns) | ds_daily, ds_returns | Last 6 months |
-| Region | `region` | ds_daily, ds_returns | All |
-| Category | `category` | ds_daily, ds_returns | All |
+| Date Range | `date` (ds_daily) / `return_date` (ds_returns) | ds_daily, ds_returns, ds_sankey_flow | All (no clamp) |
+| Region | `region` | ds_daily, ds_returns, ds_sankey_flow | All |
+| Category | `category` | ds_daily, ds_returns, ds_sankey_flow | All |
+| Source | `source` ("Affected lot" / "Everyday returns" — derived column on ds_returns) | ds_returns | All |
 
-`ds_forecast` is **unfiltered** by all three — `AI_FORECAST` needs a stable trailing window. `ds_sankey_flow` is also unfiltered — it already top-N bucketizes inside the SQL.
+`ds_forecast` is **unfiltered** by all four — `AI_FORECAST` needs a stable trailing window. Without a Date Range default, the dashboard renders the full data span on first load; the user narrows it interactively.
+
+**Important JSON wiring**: each filter widget on the `PAGE_TYPE_GLOBAL_FILTERS` page has an explicit `filterTargets[]` array listing the datasets it binds to. **Do NOT bind any filter to `ds_forecast`** — Lakeview's default is to bind to every dataset that contains a column with the matching name, which would silently drop `AI_FORECAST`'s history window every time the user selects a Date Range. Explicit `filterTargets: ["ds_daily", "ds_returns", "ds_sankey_flow"]` (and `["ds_returns"]` for the Source filter) is the safer pattern.
 
 ### Page 1 — Operations (the glance)
 
@@ -156,7 +161,7 @@ Layout is a 12-column grid; widgets list their `(x, y, width, height)` so the da
 | 3  | 0 |  3 | 3 | `kpi_refunds` |
 | 3  | 3 |  3 | 3 | `kpi_returns` |
 | 3  | 6 |  3 | 3 | `kpi_orders` |
-| 3  | 9 |  3 | 3 | `kpi_refund_rate` |
+| 3  | 9 |  3 | 3 | `kpi_revenue` (name stays `kpi_refund_rate` in JSON for layout-position compat) |
 | 6  | 0 | 12 | 5 | `trend_chart` (forecast-line) |
 | 11 | 0 |  7 | 6 | `orders_by_region_area` |
 | 11 | 7 |  5 | 7 | `country_chart_refunds` |
@@ -165,12 +170,14 @@ Layout is a 12-column grid; widgets list their `(x, y, width, height)` so the da
 
 **`title` — markdown widget**. Self-sufficient page header so a cold reader knows what they're looking at. ~5 lines covering: what happened (refunds spiked 3× three weeks ago) · cause (the affected lot ID + Lyon factory + QC note) · blast radius (250 EU-skewed customers) · what to see on this page (KPI sparklines carry the spike-then-decay shape, forecast marks the incident date with a vertical bar, donut shows Skincare dominates, map lights Europe). Lift the substance from the README — don't repeat it verbatim.
 
-**4 × `counter` (sparklines via `period` encoding, weekly bucket)** — `kpi_refunds`, `kpi_returns`, `kpi_orders`, `kpi_refund_rate`. Source: `ds_daily`. Pin both `value.color` AND `period.color` to the primary literal-hex (`#094074`) — without the period pin, the sparkline renders in a desaturated default that's nearly invisible against white.
+**4 × `counter`** — `kpi_refunds`, `kpi_returns`, `kpi_orders`, `kpi_refund_rate` (this last name kept for layout-position stability; the tile renders Revenue). Source: `ds_daily`. **No `period` encoding** — the counter displays the dataset-level sum over whatever the global Date filter has selected. (We tried `period`-based sparklines earlier; the counter then shows only the last-period value, which doesn't match "totals over the filtered window" — the natural mental model with global filters.) Pin `value.color` to the primary literal-hex (`#094074`) for the spike-anchor tiles.
 
-- **Refunds — last 90d** · `SUM(returns_usd)` · `number-currency` USD compact, `decimalPlaces: max 1` · *sparkline shows spike-then-decay — the visual hook.*
-- **Returns — last 90d** · `SUM(return_count)` · number compact · *sparkline matches refunds.*
-- **Orders — last 90d** · `SUM(order_count)` · number compact · *sparkline flat — the business is fine.*
-- **Refund Rate (%)** · `SUM(return_count) / SUM(order_count)` · percent · *same definition Genie uses.*
+- **Refunds** · `SUM(returns_usd)` · `number-currency` USD compact, `decimalPlaces: max 1` · color `#094074` · *the spike's headline number.*
+- **Returns** · `SUM(return_count)` · number compact · color `#094074`.
+- **Orders** · `SUM(order_count)` · number compact · color `#094074`.
+- **Revenue** · `SUM(revenue_usd)` · `number-currency` USD compact, `decimalPlaces: max 2` · color `#094074` · *paired with Refunds — the "this is a refund-rate problem, not a demand problem" story without needing a separate Refund Rate tile.*
+
+Refund rate as a number isn't shown on the dashboard, but the gen produces refunds + revenue + counts, so Genie can answer "what's our refund rate?" naturally over the same `gold_daily_summary` rows.
 
 **`trend_chart` — `forecast-line` "Weekly refunds — actuals + forecast"** (12-wide). Source: `ds_forecast`. x = `week` (temporal); y `refunds` = actuals (solid); y `refunds_forecast` / `refunds_upper` / `refunds_lower` = forecast band (dashed); y format `number-currency` USD compact. Bridging row repeating last actual as `refunds_forecast` so the band doesn't disconnect at the seam.
 
@@ -231,7 +238,8 @@ Same 12-column grid as Page 1. The `sec_*` widgets are thin (`h=1`) markdown sec
 ### Validation
 
 - Operations page renders without horizontal scroll on a 1440px screen; widgets float on a white canvas with no visible borders.
-- Each KPI counter shows a weekly sparkline behind its value. Refunds and Refund Rate sparklines show the spike-then-decay shape clearly.
+- All 4 KPI tiles display a sensible dataset-level total: Refunds in compact USD (the spike's headline), Returns + Orders as compact integers, Revenue in compact USD (with 2 decimals).
+- Changing the global Date Range filter updates all 4 KPI values live (without changing the dataset SQL).
 - Forecast-line: actuals through ~last full week, dashed prediction band continuing 4 weeks forward, **vertical annotation line on `AFFECTED_LOT_DATE`** labeled with the lot ID. Peak **not** at the rightmost edge.
 - Bubble map: Paris is the single largest bubble (≥ ~30 affected customers), followed by visible London / Milan / Madrid / Berlin clusters; US East/West mid-sized; Tokyo / Seoul / Sydney small. Tooltip shows city + count + refund total.
 - Category donut: Skincare is the largest slice (deep navy).
