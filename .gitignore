@@ -52,3 +52,6 @@ app/src/demo_prompt_generator/ui/public/the_vision/
 
 # Local dogfood fixture — kept on disk, not shipped publicly (carries real demo resource IDs)
 app/test/app_template_test/
+
+# Internal FE ops tool — not part of the public repo (kept locally)
+add_team_to_workspace.py
