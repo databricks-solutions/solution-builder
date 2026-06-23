@@ -43,17 +43,20 @@ import {
 // the template where IDs haven't been filled in. Each entry has an empty
 // URL → the <Prod> renderer treats that as "non-clickable tile".
 const EMPTY: WorkspaceResources = {
-  dashboard: { id: '', url: '' },
-  genie:     { id: '', url: '' },
-  pipeline:  { id: '', url: '' },
-  warehouse: { id: '', url: '' },
-  lakebase:  { id: '', url: '' },
-  mas:       { id: '', url: '' },
-  ka:        { id: '', url: '' },
-  catalog:   { id: '', url: '' },
-  model:     { id: '', url: '' },
-  volume:    { id: '', url: '' },
-  app:       { id: '', url: '' },
+  dashboard:     { id: '', url: '' },
+  genie:         { id: '', url: '' },
+  pipeline:      { id: '', url: '' },
+  warehouse:     { id: '', url: '' },
+  lakebase:      { id: '', url: '' },
+  mas:           { id: '', url: '' },
+  ka:            { id: '', url: '' },
+  gateway:       { id: '', url: '' },
+  databricksOne: { id: '', url: '' },
+  agentBricks:   { id: '', url: '' },
+  catalog:       { id: '', url: '' },
+  model:         { id: '', url: '' },
+  volume:        { id: '', url: '' },
+  app:           { id: '', url: '' },
 };
 
 // ─── Component-scoped CSS. Names are prefixed `pd-` so they can't collide
@@ -315,26 +318,61 @@ export function PlatformDiagram() {
             sub="Data-smart coworkers for every employee"
             two
           >
-            <a
-              className="pd-prod"
-              href={href(R.genie.url)}
-              target="_blank"
-              rel="noopener noreferrer"
-              title="Opens the Genie space in the Databricks workspace"
-            >
-              <span className="pd-tile"><GenieIcon /></span>
+            {/* Genie tile — the Genie icon + name + sub are wrapped in
+                an anchor pointing at the Genie space, exactly as before.
+                The ONE / AGENTS / CODE chips sit inline with the title;
+                ONE is broken out as its OWN anchor pointing at the
+                Databricks One landing page (nested <a> would be invalid,
+                so the chips have to live outside the Genie anchor). */}
+            <div className="pd-prod">
+              <a
+                href={href(R.genie.url)}
+                target="_blank"
+                rel="noopener noreferrer"
+                title="Opens the Genie space in the Databricks workspace"
+                style={{ display: 'flex', alignItems: 'center', gap: 11,
+                  color: 'inherit', textDecoration: 'none' }}
+              >
+                <span className="pd-tile"><GenieIcon /></span>
+              </a>
               <span className="pd-tx">
                 <span className="pd-trow">
-                  <b>Genie<span className="pd-live" /></b>
-                  <span className="pd-chip"><OneIcon />ONE</span>
+                  <a
+                    href={href(R.genie.url)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{ color: 'inherit', textDecoration: 'none',
+                      display: 'inline-flex', alignItems: 'center' }}
+                    title="Opens the Genie space in the Databricks workspace"
+                  >
+                    <b>Genie<span className="pd-live" /></b>
+                  </a>
+                  <a
+                    className="pd-chip"
+                    href={href(R.databricksOne.url)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title="Opens Databricks One in the workspace"
+                    style={{ textDecoration: 'none' }}
+                  >
+                    <OneIcon />ONE
+                  </a>
                   <span className="pd-chip"><AgentsIcon />AGENTS</span>
                   <span className="pd-chip"><CodeIcon />CODE</span>
                 </span>
                 <span className="pd-sub">"Why do I have so many returns?"</span>
               </span>
-            </a>
+            </div>
+            {/* Default href = the workspace-wide Agent Bricks landing
+                page ({host}/ml/agents) — works on any workspace, even
+                when the demo doesn't deploy a MAS.
+                If your demo DOES deploy a specific Multi-Agent
+                Supervisor endpoint (set masEndpointName in
+                config/app.json), swap the href below to:
+                  href={href(R.mas.url)}
+                which deep-links to {host}/ml/endpoints/{masEndpointName}. */}
             <Prod
-              href={href(R.mas.url)}
+              href={href(R.agentBricks.url)}
               icon={<AgentBricksIcon />}
               title="Agent Bricks"
               sub="Diagnose the spike, draft apology emails, file refunds"
@@ -354,6 +392,7 @@ export function PlatformDiagram() {
               sub="retail_consumer_goods.luxebeauty_demo — one governed schema + lineage"
             />
             <Prod
+              href={href(R.gateway.url)}
               icon={<GatewayIcon />}
               title="Unity AI Gateway"
               sub="Every agent LLM call governed — security + cost"

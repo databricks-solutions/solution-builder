@@ -79,9 +79,13 @@ function buildResources(
       id: cfg.pipelineId ?? '',
       url: composeUrl(host, '/pipelines/', cfg.pipelineId),
     },
+    // RT warehouse tile links to the workspace-wide SQL warehouses list,
+    // not a single warehouse page — operators usually want to browse and
+    // compare warehouses, not deep-link into one. The id is kept so other
+    // consumers can grab it.
     warehouse: {
       id: cfg.warehouseId ?? '',
-      url: composeUrl(host, '/sql/warehouses/', cfg.warehouseId),
+      url: host ? `${host}/compute/sql-warehouses` : '',
     },
     lakebase: {
       id: cfg.lakebaseProjectId ?? '',
@@ -94,6 +98,26 @@ function buildResources(
     ka: {
       id: cfg.kaEndpointName ?? '',
       url: composeUrl(host, '/ml/endpoints/', cfg.kaEndpointName),
+    },
+    // AI Gateway is a workspace-wide page (no id) — same URL for every
+    // demo in this workspace.
+    gateway: {
+      id: '',
+      url: host ? `${host}/ml/ai-gateway` : '',
+    },
+    // Databricks One — the unified Genie + agent experience landing page.
+    databricksOne: {
+      id: '',
+      url: host ? `${host}/one` : '',
+    },
+    // Agent Bricks — workspace-wide landing page. Used as the default for
+    // the Agent Bricks tile on /platform when the demo doesn't deploy a
+    // specific MAS endpoint (the common case for most demos). If the demo
+    // DOES deploy a MAS, the PlatformDiagram author can swap the tile to
+    // `R.mas.url` for a direct deep-link.
+    agentBricks: {
+      id: '',
+      url: host ? `${host}/ml/agents` : '',
     },
     catalog: { id: `${catalog}.${schema}`, url: host && catalogPath ? `${host}${catalogPath}` : '' },
     model: { id: cfg.mlModelName ?? '', url: host && modelPath ? `${host}${modelPath}` : '' },

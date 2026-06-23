@@ -64,7 +64,7 @@ Every demo touches these. They're what makes your demo yours, not LuxeBeauty's.
 - **Agent tools** (`server/agent/<name>.ts`) — the file is renamed per demo (`refundops.ts` → `supportops.ts`) and the import in `chat-stream/agent-stream.ts` updated. Tool names and bodies swap; if you keep the 3-phase chain, the *shape* of the tools (read-only discovery tool + batch write tool + pure-function draft helper) is what's preserved. The data-backend tool comes from `server/agent/tools/{mas,genie}.ts` factories — pick one based on config.
 - **Domain CRUD** (`server/db/queries/<entity>.ts`, `server/routes/<entity>.ts`).
 - **Operations view** — table columns, drawer tab content, filter dimensions.
-- **Analytics SQL** in `config/queries/` — 2–4 queries aligned to the story's key numbers.
+- **Analytics SQL** in `config/queries/` — the template ships LuxeBeauty example queries (returns/refunds/production lots). **Rewrite or delete every file for your demo's domain** — 2–4 queries aligned to your story's key numbers, hitting whatever tables your synth + SDP wrote. The placeholder `ai_demo_gen.demo_demo_project` in the example `FROM` clauses is from the template and points at nothing — until each `.sql` is updated to your real catalog + schema, `/analytics` will log `TABLE_OR_VIEW_NOT_FOUND` on every widget. Also update `client/src/analytics/AnalyticsView.tsx` so its `queryKey` list matches whichever files you keep.
 - **Theme tokens** in `client/src/index.css` — brand palette and, if they exist, tier badges.
 
 ## Adapting to a reduced capability set

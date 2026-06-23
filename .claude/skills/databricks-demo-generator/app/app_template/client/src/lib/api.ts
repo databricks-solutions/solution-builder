@@ -146,17 +146,20 @@ export type ResourceEntry = { id: string; url: string };
 /** All workspace resources exposed by /api/resources. Keys map 1:1 to
  *  the buildResources() table in server/routes/config.ts. */
 export type WorkspaceResources = {
-  dashboard: ResourceEntry;
-  genie:     ResourceEntry;
-  pipeline:  ResourceEntry;
-  warehouse: ResourceEntry;
-  lakebase:  ResourceEntry;
-  mas:       ResourceEntry;
-  ka:        ResourceEntry;
-  catalog:   ResourceEntry;
-  model:     ResourceEntry;
-  volume:    ResourceEntry;
-  app:       ResourceEntry;
+  dashboard:     ResourceEntry;
+  genie:         ResourceEntry;
+  pipeline:      ResourceEntry;
+  warehouse:     ResourceEntry;
+  lakebase:      ResourceEntry;
+  mas:           ResourceEntry;
+  ka:            ResourceEntry;
+  gateway:       ResourceEntry;
+  databricksOne: ResourceEntry;
+  agentBricks:   ResourceEntry;
+  catalog:       ResourceEntry;
+  model:         ResourceEntry;
+  volume:        ResourceEntry;
+  app:           ResourceEntry;
 };
 
 export async function fetchResources(): Promise<WorkspaceResources> {

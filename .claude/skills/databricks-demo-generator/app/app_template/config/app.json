@@ -7,6 +7,10 @@
   // ─ Agent backend: set ONE. masEndpointName → ask_mas tool registered.
   //   genieSpaceId → swap to askGenieTool in server/agent/refundops.ts makeTools.
   //   Empty both → no data tool → agent can't answer "why" questions.
+  //   Note: the /platform Agent Bricks tile defaults to the workspace-wide
+  //   landing page (R.agentBricks.url) so it works without a MAS deployed.
+  //   If your demo deploys a MAS, edit PlatformDiagram.tsx to swap that
+  //   tile's href to R.mas.url for a direct deep-link.
   "masEndpointName": "",
   "genieSpaceId": "",
 
