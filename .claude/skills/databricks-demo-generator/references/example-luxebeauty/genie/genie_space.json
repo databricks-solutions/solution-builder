@@ -68,15 +68,17 @@
   "instructions": {
     "example_question_sqls": [
       {
-        "id": "0a5a9883ae5044b594afa79c1fe3488c",
+        "id": "e70e94084bf84adfb832fd0dbc0f8dce",
         "question": [
-          "Why do I have so many returns? Trace it to the products and the lot."
+          "What's our return rate this month, and how does it compare to baseline?"
         ],
         "sql": [
-          "-- Step 1: top products by return volume \u2192 SKU-1001/1002/1003\n",
-          "SELECT product_name, category, COUNT(*) AS returns, SUM(refund_amount_usd) AS refunds_usd\n",
-          "FROM <your-catalog>.<your-schema>.silver_returns\n",
-          "GROUP BY 1,2 ORDER BY returns DESC LIMIT 10"
+          "-- Spike-vs-baseline headline \u00b7 3-week peak ~$180K vs $60K normal\n",
+          "SELECT date_trunc('week', date) AS week,\n",
+          "       MEASURE(total_refunds) AS refunds,\n",
+          "       MEASURE(return_rate)   AS return_rate\n",
+          "FROM <your-catalog>.<your-schema>.mv_returns\n",
+          "GROUP BY 1 ORDER BY 1 DESC LIMIT 8"
         ]
       },
       {
@@ -95,60 +97,6 @@
           "SELECT l.lot_id, l.facility, l.production_date, l.status, l.incident_summary\n",
           "FROM <your-catalog>.<your-schema>.raw_production_lots l\n",
           "JOIN top_lot t ON t.lot_id = l.lot_id"
-        ]
-      },
-      {
-        "id": "890d3e7f0eb34734aed75212e0cea9ee",
-        "question": [
-          "Are refunds recovering? Show the trend and what's next."
-        ],
-        "sql": [
-          "-- Decay confirmation \u2014 last few weeks should trend back toward baseline\n",
-          "SELECT date_trunc('week', date) AS week, MEASURE(total_refunds) AS refunds\n",
-          "FROM <your-catalog>.<your-schema>.mv_returns\n",
-          "WHERE date >= DATEADD(week, -6, current_date())\n",
-          "GROUP BY 1 ORDER BY 1"
-        ]
-      },
-      {
-        "id": "9a1db435534c430b8a780c27da8f3b9c",
-        "question": [
-          "Where are the affected customers? Group by country."
-        ],
-        "sql": [
-          "-- Blast-radius geography \u2014 FR leads, then IT / GB / DE / US\n",
-          "SELECT country, COUNT(DISTINCT customer_id) AS affected_customers,\n",
-          "       SUM(refund_amount_usd) AS refunds_usd\n",
-          "FROM <your-catalog>.<your-schema>.silver_returns\n",
-          "WHERE is_bad_lot = true\n",
-          "GROUP BY 1 ORDER BY affected_customers DESC"
-        ]
-      },
-      {
-        "id": "e70e94084bf84adfb832fd0dbc0f8dce",
-        "question": [
-          "What's our return rate this month, and how does it compare to baseline?"
-        ],
-        "sql": [
-          "-- Spike-vs-baseline headline \u00b7 3-week peak ~$180K vs $60K normal\n",
-          "SELECT date_trunc('week', date) AS week,\n",
-          "       MEASURE(total_refunds) AS refunds,\n",
-          "       MEASURE(return_rate)   AS return_rate\n",
-          "FROM <your-catalog>.<your-schema>.mv_returns\n",
-          "GROUP BY 1 ORDER BY 1 DESC LIMIT 8"
-        ]
-      },
-      {
-        "id": "ea0f0f3b6d5a403daf032602edfd9d27",
-        "question": [
-          "What are affected customers saying? Show the angriest comments."
-        ],
-        "sql": [
-          "-- ai_classify sorted comments \u2014 texture complaints cluster on the bad lot\n",
-          "SELECT customer_comment, anger_score, lot_id, return_date\n",
-          "FROM <your-catalog>.<your-schema>.silver_returns\n",
-          "WHERE is_bad_lot = true\n",
-          "ORDER BY anger_score DESC LIMIT 10"
         ]
       },
       {

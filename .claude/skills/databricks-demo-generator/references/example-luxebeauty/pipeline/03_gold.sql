@@ -61,7 +61,7 @@ SELECT
   r.lot_id, r.refund_amount_usd, r.return_date,
   r.anger_score, r.return_reason, r.customer_comment, r.status
 FROM silver_returns r
-JOIN <your-catalog>.<your-schema>.raw_customers c
+JOIN raw_customers c
   ON r.customer_id = c.customer_id
 WHERE r.is_bad_lot = TRUE AND r.status = 'pending';
 
@@ -83,7 +83,7 @@ WITH order_agg AS (
          COUNT(*)                       AS total_orders_lifetime,
          SUM(total_usd)                 AS total_spend_lifetime,
          MAX(CAST(order_date AS DATE))  AS last_order_date
-  FROM <your-catalog>.<your-schema>.raw_orders
+  FROM raw_orders
   GROUP BY customer_id
 ),
 return_agg AS (
@@ -114,7 +114,7 @@ SELECT
   END                                           AS lifetime_return_rate,
   COALESCE(a90.avg_anger_score_last_90d, 0.0)   AS avg_anger_score_last_90d,
   DATEDIFF(current_date(), oa.last_order_date)  AS days_since_last_order
-FROM <your-catalog>.<your-schema>.raw_customers c
+FROM raw_customers c
 LEFT JOIN order_agg  oa  ON c.customer_id = oa.customer_id
 LEFT JOIN return_agg ra  ON c.customer_id = ra.customer_id
 LEFT JOIN anger_90d  a90 ON c.customer_id = a90.customer_id;

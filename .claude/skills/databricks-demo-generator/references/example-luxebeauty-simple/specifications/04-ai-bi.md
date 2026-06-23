@@ -57,14 +57,20 @@ CUSTOMER FEEDBACK (from affected lot): "grainy texture" / "product separated" / 
 
 ### Sample Questions — story-arc walk
 
-Ship these as chips (`config.sample_questions`) AND as curated SQLs (`instructions.example_question_sqls`) — same order on both lists. The arc walks an unfamiliar user from "what's wrong?" to "what's next?" without prior context:
+Ship the **full 6-question arc as chips** (`config.sample_questions`) so the user can pick any beat, but curate **only 3 as `instructions.example_question_sqls`** — the load-bearing ones where the SQL Genie picks matters. The other 3 chip-only questions Genie composes from scratch each time, which is fine (single-table aggregations Genie handles well unaided). Less curated SQL means cleaner room instructions and less drift when the schema evolves.
 
-1. **Headline** — "What's our return rate this month, and how does it compare to baseline?" → weekly SUM(returns_usd) + return_rate from `gold_daily_summary`, last 8 weeks.
-2. **Drill to products** — "Why do I have so many returns? Trace it to the products and the lot." → top products by COUNT from `gold_returns`.
-3. **Drill to lot + QC story** — "Which production lot is driving the spike, and what does the QC note say?" → CTE finds the top lot for the 3 affected SKUs, JOINs `raw_production_lots` to quote `incident_summary` — the punchline.
-4. **Customer voice** — "What are customers saying? Show recent affected-lot comments." → `gold_returns WHERE is_bad_lot` recent — surfaces "grainy" / "separated" / "watery".
-5. **Blast radius** — "Where are the affected customers? Group by country." → COUNT DISTINCT + SUM refunds, `WHERE is_bad_lot`.
-6. **Recovery** — "Are refunds recovering? Show the trend and what's next." → last 6 weeks of SUM(returns_usd) showing the decay.
+Chips (all 6, in arc order):
+1. **Headline** — "What's our return rate this month, and how does it compare to baseline?"
+2. **Drill to products** — "Why do I have so many returns? Trace it to the products and the lot."
+3. **Drill to lot + QC story** — "Which production lot is driving the spike, and what does the QC note say?"
+4. **Customer voice** — "What are customers saying? Show recent affected-lot comments."
+5. **Blast radius** — "Where are the affected customers? Group by country."
+6. **Recovery** — "Are refunds recovering? Show the trend and what's next."
+
+Curated SQLs (3 — the ones where Genie shouldn't have to guess):
+- **Headline** — weekly SUM(returns_usd) + return_rate from `gold_daily_summary`, last 8 weeks.
+- **Drill to lot + QC story** — CTE finds the top lot for the 3 affected SKUs, JOINs `raw_production_lots` to quote `incident_summary` — the punchline. This SQL is load-bearing because it crosses 2 tables for a join Genie would otherwise miss.
+- **Recovery** — last 6 weeks of SUM(returns_usd) showing the decay.
 
 ### Validation
 
