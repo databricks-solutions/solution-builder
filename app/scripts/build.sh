@@ -197,6 +197,22 @@ EOF
 cp "$WHEEL" "dist/uv-stage/"
 (cd dist/uv-stage && uv lock --quiet)
 
+# Rewrite the internal PyPI proxy out of the lock when deploying to a workspace
+# whose Apps containers can't reach pypi-proxy.dev.databricks.com (e.g. field-eng).
+# The proxy mirrors public PyPI with identical /simple/ and /packages/<hash>/ paths,
+# so a pure URL swap to pypi.org / files.pythonhosted.org keeps hashes valid — no
+# re-resolution needed (which matters: the build host often can't reach public PyPI).
+# Gated on REWRITE_LOCK_TO_PUBLIC_PYPI=1 so internal-only deploys are unaffected.
+if [[ "${REWRITE_LOCK_TO_PUBLIC_PYPI:-}" == "1" ]]; then
+    echo "  Rewriting uv.lock internal proxy URLs -> public PyPI"
+    perl -i -pe 's{https://pypi-proxy\.dev\.databricks\.com/simple/}{https://pypi.org/simple/}g; s{https://pypi-proxy\.dev\.databricks\.com/packages/}{https://files.pythonhosted.org/packages/}g' dist/uv-stage/uv.lock
+    if grep -q "pypi-proxy.dev.databricks.com" dist/uv-stage/uv.lock; then
+        echo "ERROR: uv.lock still references pypi-proxy after rewrite" >&2
+        grep -n "pypi-proxy.dev.databricks.com" dist/uv-stage/uv.lock | head >&2
+        exit 1
+    fi
+fi
+
 # --- 4. Assemble $BUILD_DIR ---
 echo -e "${BLUE}[4/4] Assembling $BUILD_DIR ...${NC}"
 rm -rf "$BUILD_DIR"
