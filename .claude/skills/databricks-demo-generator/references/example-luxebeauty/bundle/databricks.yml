@@ -1,0 +1,13 @@
+bundle:
+  name: luxebeauty_demo_pipeline
+
+targets:
+  dev:
+    mode: development
+    default: true
+    workspace:
+      host: https://<your-workspace>.cloud.databricks.com
+      root_path: /Workspace/Users/<your-user>/luxebeauty_demo/.bundle
+
+include:
+  - resources/*.yml

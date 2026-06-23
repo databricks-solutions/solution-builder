@@ -1,0 +1,12 @@
+resources:
+  pipelines:
+    luxebeauty_pipeline:
+      name: luxebeauty_demo_pipeline
+      catalog: <your-catalog>
+      schema: <your-schema>
+      serverless: true
+      photon: true
+      development: true
+      libraries:
+        - glob:
+            include: ../src/**
