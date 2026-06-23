@@ -25,8 +25,10 @@ No pandas_udf used: name pools (~700 rows) are generated on the driver via
 Faker then broadcast-joined; reason/comment picks use F.element_at against
 literal arrays. So no executor-side Python dependency is required.
 
-Time: pinned by default (STORY_NOW = 2026-06-12) so every artefact aligns
-forever. LUXE_REL_TIME=1 opts into rolling time relative to today.
+Time: rolling by default (NOW = datetime.now()) so the dashboard's last
+data point lands on yesterday-real every run. Set LUXE_PIN_TIME=1 to
+freeze NOW to STORY_PINNED_NOW (2026-06-12) for reproducible demos where
+every artefact (lot id, dates, KA docs) needs to match a recorded baseline.
 
 PDFs for the Knowledge Assistant are produced by the separate
 `src/documents/html_to_pdf.py` — run it after this script.
@@ -59,16 +61,31 @@ N_LOTS_PER_SKU = 18           # 6 months × 3 lots/mo; ~1.6K lots total.
 N_BAD_ORDERS = 5_000          # bad-lot cohort size (≈ 5K units / 3 SKUs).
 
 # ── Story timeline ─────────────────────────────────────────────────────────
-# STORY_NOW is the single source of truth. Pinned by default so every
-# artefact aligns forever and the demo is reproducible across workspaces.
+# NOW is the single source of truth — every other date below derives from it.
+# Default is ROLLING TIME (`datetime.now()`) so the dashboard always feels
+# "live" (last data point lands on yesterday-real). Set LUXE_PIN_TIME=1 to
+# freeze NOW to STORY_PINNED_NOW for reproducible demos where every artefact
+# (lot id, dates, KA docs) needs to match a recorded baseline across runs.
 STORY_PINNED_NOW = datetime(2026, 6, 12)
 NOW = (
-    datetime.now()
-    if os.environ.get("LUXE_REL_TIME") == "1"
-    else STORY_PINNED_NOW
+    STORY_PINNED_NOW
+    if os.environ.get("LUXE_PIN_TIME") == "1"
+    else datetime.now()
 )
 SPIKE_PEAK      = NOW - timedelta(days=21)
-BAD_LOT_PROD_DT = NOW - timedelta(days=43)    # 2026-04-30 with the pinned default
+
+# Bad-lot timing: default is NOW − 43d. If that lands on (or its return
+# peak ~5w later lands on) Black Friday week or the Dec holiday ramp, the
+# return spike would visually dissolve into the seasonal volume — slide
+# the lot back week-by-week until both anchors clear the peaks. With the
+# default pinned NOW = 2026-06-12 the lot is 2026-04-30, well off-peak.
+def _is_peak_day(d: datetime) -> bool:
+    m, day = d.month, d.day
+    return (m == 11 and 20 <= day <= 30) or (m == 12 and 1 <= day <= 26)
+
+BAD_LOT_PROD_DT = NOW - timedelta(days=43)
+while _is_peak_day(BAD_LOT_PROD_DT) or _is_peak_day(BAD_LOT_PROD_DT + timedelta(weeks=5)):
+    BAD_LOT_PROD_DT -= timedelta(weeks=1)
 BAD_LOT_ID      = f"LOT-{BAD_LOT_PROD_DT.year}-{BAD_LOT_PROD_DT.strftime('%m%d')}"
 BAD_SKUS        = ["SKU-1001", "SKU-1002", "SKU-1003"]
 BAD_FACILITY    = "Lyon-France"
@@ -88,7 +105,7 @@ INCIDENT_SUMMARY = (
     "Disposition: RELEASED."
 )
 
-print(f"NOW: {NOW.date()} ({'pinned' if os.environ.get('LUXE_REL_TIME') != '1' else 'rolling'})")
+print(f"NOW: {NOW.date()} ({'pinned' if os.environ.get('LUXE_PIN_TIME') == '1' else 'rolling'})")
 print(f"BAD_LOT_ID:   {BAD_LOT_ID}")
 print(f"BAD_LOT_DATE: {BAD_LOT_PROD_DT.date()}")
 print(f"SPIKE_PEAK:   {SPIKE_PEAK.date()}")
@@ -512,13 +529,36 @@ cust_lookup_df = spark.table(f"{CATALOG}.{SCHEMA}.raw_customers") \
 # (Black Friday 3x, Holiday 2.2x, Mother's Day 2x, Valentine's 1.8x,
 # Summer 0.75x dip) but inside an F.when chain rather than a Python function.
 def _season_mult(date_col: "F.Column") -> "F.Column":
+    """Per-day seasonal multiplier — designed so the trend line shows
+    **two distinct shopping spikes** (Black Friday + Christmas) with a
+    visible valley between them. Calibrated to a beauty-retail calendar:
+      Nov 24-30  — Black Friday tent (2.0 → 3.2 on Nov 28 → 2.0)
+      Dec 1-10   — early-Dec valley (1.3, separates the two peaks)
+      Dec 11-21  — Christmas ramp (1.5 → 3.2 on Dec 21)
+      Dec 22     — last-day plateau (3.0)
+      Dec 23-26  — post-cutoff lull (0.6)
+      Dec 27-31  — post-Christmas self-buying (1.3)
+      May 7-14   — Mother's Day (2.0)
+      Feb 7-14   — Valentine's (1.8)
+      Jul / Aug  — summer dip (0.75)
+    Mirrors the simple-demo's `_season_multiplier` — expressed as nested
+    F.when() chains so it runs as a vectorised Spark expression."""
     m = F.month(date_col); d = F.dayofmonth(date_col)
     return (
-        F.when((m == 11) & d.between(24, 30), F.lit(3.0))
-         .when((m == 12) & d.between(1, 24),  F.lit(2.2))
-         .when((m == 5)  & d.between(7, 14),  F.lit(2.0))
-         .when((m == 2)  & d.between(7, 14),  F.lit(1.8))
-         .when(m.isin(7, 8),                  F.lit(0.75))
+        # Black Friday tent: 3.2 − 0.3 × |day − 28|
+        F.when((m == 11) & d.between(24, 30),
+               F.lit(3.2) - F.lit(0.3) * F.abs(d - F.lit(28)))
+         # Early-Dec valley
+         .when((m == 12) & d.between(1, 10),   F.lit(1.3))
+         # Christmas ramp: 1.5 + ((day − 11) / 10) × 1.7 → caps at 3.2 on Dec 21
+         .when((m == 12) & d.between(11, 21),
+               F.lit(1.5) + ((d - F.lit(11)).cast("double") / F.lit(10.0)) * F.lit(1.7))
+         .when((m == 12) & (d == 22),          F.lit(3.0))
+         .when((m == 12) & d.between(23, 26),  F.lit(0.6))
+         .when((m == 12) & (d >= 27),          F.lit(1.3))
+         .when((m == 5)  & d.between(7, 14),   F.lit(2.0))
+         .when((m == 2)  & d.between(7, 14),   F.lit(1.8))
+         .when(m.isin(7, 8),                   F.lit(0.75))
          .otherwise(F.lit(1.0))
     )
 
@@ -539,8 +579,11 @@ normal_hdr = (
             ).cast("timestamp"))
          .withColumn("_season",  _season_mult(F.col("order_date")))
          .withColumn("_keep",    F.rand(seed=302))
-         # Keep row with probability proportional to season multiplier (max 3.0).
-         .filter(F.col("_keep") * 3.0 < F.col("_season"))
+         # Keep row with probability proportional to season multiplier.
+         # Divisor matches the max multiplier in _season_mult (3.2 from
+         # the Black Friday + Christmas tent peaks) so peak days retain
+         # ~100% of their oversampled rows.
+         .filter(F.col("_keep") * 3.2 < F.col("_season"))
          .limit(N_ORDERS)
          .withColumn("_r_cust",  F.rand(seed=303))
          .withColumn("customer_idx", (F.col("_r_cust") * N_CUSTOMERS).cast("long"))
@@ -781,11 +824,17 @@ def _pick_from(idx_col: "F.Column", pool: list[str]) -> "F.Column":
     n = F.lit(len(pool))
     return F.element_at(arr, (F.pmod(idx_col, n) + 1).cast("int"))
 
-# Normal returns: 8% of non-bad-lot orders. Tiered timing 60/30/10.
+# Normal returns: 8% baseline of non-bad-lot orders, with a 10.4% bump
+# on Dec-ordered items so the post-Christmas gift-return surge shows up
+# in the Jan dashboard view (most Dec orders return 7-30d later, landing
+# in Jan 1-15). 10.4% = 8% × 1.3.
 ret_normal = (
     orders_for_ret.filter(F.col("lot_id") != F.lit(BAD_LOT_ID))
     .withColumn("_r_keep", F.rand(seed=501))
-    .filter(F.col("_r_keep") < 0.08)
+    .withColumn("_return_rate",
+        F.when(F.month(F.col("order_date")) == 12, F.lit(0.104))
+         .otherwise(F.lit(0.08)))
+    .filter(F.col("_r_keep") < F.col("_return_rate"))
     .withColumn("_r_time", F.rand(seed=502))
     .withColumn("days_after",
         F.when(F.col("_r_time") < 0.60, (F.rand(seed=503) * 7 + 1).cast("int"))

@@ -48,7 +48,20 @@ VOLUME  = os.environ.get("LUXE_VOLUME",  "raw_drop")
 NOW             = datetime.now()
 SPIKE_PEAK      = NOW - timedelta(weeks=3)
 DECAY_START     = NOW - timedelta(weeks=2)
-BAD_LOT_PROD_DT = NOW - timedelta(weeks=8)  # lot produced 8w before NOW
+
+# Bad-lot timing: defaults to NOW − 8w, but if that lands in a major
+# shopping peak (Black Friday week, Dec holiday ramp), shift it back so
+# the return spike isn't visually swallowed by the seasonal volume. The
+# anomaly is the load-bearing story — it has to read through the noise.
+def _is_peak_day(d: datetime) -> bool:
+    m, day = d.month, d.day
+    return (m == 11 and 20 <= day <= 30) or (m == 12 and 1 <= day <= 26)
+
+BAD_LOT_PROD_DT = NOW - timedelta(weeks=8)
+while _is_peak_day(BAD_LOT_PROD_DT) or _is_peak_day(BAD_LOT_PROD_DT + timedelta(weeks=5)):
+    # Slide back one more week until both the lot ship date AND the
+    # return-peak window (~5w later) clear the holiday surge.
+    BAD_LOT_PROD_DT -= timedelta(weeks=1)
 BAD_LOT_ID      = f"LOT-{BAD_LOT_PROD_DT.year}-{BAD_LOT_PROD_DT.strftime('%m%d')}"
 BAD_SKUS        = ["SKU-1001", "SKU-1002", "SKU-1003"]
 BAD_FACILITY    = "Lyon-France"
@@ -260,11 +273,55 @@ lots_df = pd.DataFrame(lots)
 # 1.d Orders (~200K). One row per order/SKU line. Quantity small (1 usually).
 # Bad-lot orders are appended explicitly so we control the date window
 # (lot ships → orders placed weeks −7..−4 → returns peak −3w).
+#
+# Time window: 1 year of history. Order dates are sampled with seasonal
+# weights (Black Friday + Holiday peak, Mother's Day + Valentine's bumps,
+# summer dip) so the trend line has natural humps rather than a flat
+# uniform-random envelope. Bad-lot orders sit on top of whatever season
+# they land in.
 print(f"Generating {N_ORDERS:,} orders...")
-START_HIST = NOW - timedelta(days=395)  # ~13 months back per spec
+START_HIST = NOW - timedelta(days=365)
 END_HIST   = NOW - timedelta(days=1)
 span_days  = (END_HIST - START_HIST).days
 all_skus = [p[0] for p in products_data]
+
+def _season_multiplier(d: datetime) -> float:
+    """Per-day order-volume multiplier. Returns 1.0 for a flat day, higher
+    for shopping peaks, lower for dips. Calibrated to give the trend line
+    **two distinct shopping spikes** with a valley between them: a sharp
+    Black Friday peak, a small dip through early December, then a Christmas
+    rush peaking ~Dec 20-22, then a post-cutoff lull. Tweak the bands if
+    your demo lives in a different vertical."""
+    m, day = d.month, d.day
+    # Black Friday spike — sharp triangular peak centered Nov 28
+    if m == 11 and 24 <= day <= 30:
+        # tent from 2.0 (Nov 24) → 3.2 (Nov 28) → 2.0 (Nov 30)
+        return 3.2 - 0.3 * abs(day - 28)
+    # Early-December valley between the two peaks (visual separation)
+    if m == 12 and 1 <= day <= 10:      return 1.3
+    # Christmas rush — sharper rise, peaks Dec 20-22, then drops
+    if m == 12 and 11 <= day <= 22:
+        # 1.5 (Dec 11) → 3.2 (Dec 21) → 3.0 (Dec 22)
+        if day <= 21:
+            return 1.5 + ((day - 11) / 10) * 1.7
+        return 3.0
+    # Post-shipping-cutoff lull (Dec 23-26)
+    if m == 12 and 23 <= day <= 26:     return 0.6
+    # Post-Christmas self-buying rebound (Dec 27-31)
+    if m == 12 and day >= 27:           return 1.3
+    if m == 5 and 7 <= day <= 14:       return 2.0   # Mother's Day week
+    if m == 2 and 7 <= day <= 14:       return 1.8   # Valentine's week
+    if m in (7, 8):                     return 0.75  # Summer dip
+    return 1.0
+
+# Pre-compute a per-day weight vector across the 365-day window. ±15%
+# gaussian jitter keeps the curve from looking too clean.
+_day_offsets = np.arange(span_days + 1)
+_day_dates   = [START_HIST + timedelta(days=int(o)) for o in _day_offsets]
+_day_weights = np.array([_season_multiplier(d) for d in _day_dates])
+_day_weights *= (1.0 + np.random.normal(0, 0.15, size=_day_weights.shape))
+_day_weights = np.clip(_day_weights, 0.05, None)
+_day_weights /= _day_weights.sum()
 
 # Product popularity: top 20% of SKUs ≈ 60% of sales. Affected SKUs are
 # mid-tier sellers (not top 20%), so the spike reads as a rate anomaly,
@@ -278,15 +335,19 @@ for sku in BAD_SKUS:
     sku_weights[all_skus.index(sku)] = 2.5
 sku_weights /= sku_weights.sum()
 
+# Pre-sample order day-offsets in one shot — much faster than calling
+# np.random.choice per-row, and lets the seasonal humps shape the volume.
+_order_days = np.random.choice(_day_offsets, size=N_ORDERS, p=_day_weights)
+
 orders = []
-for _ in range(N_ORDERS):
+for i in range(N_ORDERS):
     cid    = f"CUST-{np.random.randint(0, N_CUSTOMERS):06d}"
     sku    = np.random.choice(all_skus, p=sku_weights)
     passed_lots = [(l, f) for l, f in lots_by_sku[sku] if l != BAD_LOT_ID]
     lot_id, fac = passed_lots[np.random.randint(0, len(passed_lots))]
     qty    = int(np.random.choice([1, 1, 1, 1, 2], p=[0.55, 0.2, 0.1, 0.1, 0.05]))
     price  = sku_prices[sku] * qty * (0.95 + np.random.random() * 0.10)
-    ord_dt = START_HIST + timedelta(days=int(np.random.randint(0, span_days)))
+    ord_dt = START_HIST + timedelta(days=int(_order_days[i]))
     c      = cust_lookup[cid]
     orders.append({
         "order_id":   f"ORD-{ord_dt.strftime('%Y%m%d')}-{uuid.uuid4().hex[:6].upper()}",
@@ -358,10 +419,23 @@ NORMAL_COMMENTS = [
     "Changed my mind, will reorder later.",
 ]
 
+# Baseline returns. The "December → January gift-return surge" is a real
+# retail pattern: ~1.3× extra returns landing in the first 2 weeks of
+# January as customers return holiday gifts. We achieve this by sampling
+# slightly more than 8% baseline (capped at len) and weighting the
+# sampling so December-ordered items are 1.3× more likely to be picked
+# (their return date naturally lands in early Jan).
 returns_rows = []
 non_bad_orders = [o for o in orders if o["lot_id"] != BAD_LOT_ID]
 n_baseline = int(len(non_bad_orders) * 0.08)
-baseline_idx = np.random.choice(len(non_bad_orders), size=n_baseline, replace=False)
+_return_weights = np.array([
+    1.3 if datetime.strptime(o["order_date"], "%Y-%m-%d %H:%M:%S").month == 12 else 1.0
+    for o in non_bad_orders
+])
+_return_weights /= _return_weights.sum()
+baseline_idx = np.random.choice(
+    len(non_bad_orders), size=n_baseline, replace=False, p=_return_weights,
+)
 for idx in baseline_idx:
     o = non_bad_orders[idx]
     ord_dt = datetime.strptime(o["order_date"], "%Y-%m-%d %H:%M:%S")
@@ -482,29 +556,28 @@ spark.sql(f"""
     CREATE OR REPLACE TABLE {CATALOG}.{SCHEMA}.gold_returns
     COMMENT 'Denormalized per-return fact. The dashboard + Genie both read this table — every column needed for filtering, mapping, sentiment, and the bad-lot vs everyday split lives here in-row. The incident text stays on raw_production_lots so Genie surfaces it on a one-hop drill-down (symptom here, explanation there).'
     AS SELECT
-      r.return_id          COMMENT 'Return PK — RET-XXXXXXXX (synthetic).' AS return_id,
-      r.order_id           COMMENT 'FK to raw_orders.order_id.'           AS order_id,
-      r.customer_id        COMMENT 'FK to raw_customers.customer_id.'     AS customer_id,
-      r.product_id         COMMENT 'FK to raw_products.product_id.'       AS product_id,
-      r.lot_id             COMMENT 'FK to raw_production_lots.lot_id.'    AS lot_id,
-      CAST(r.return_date AS TIMESTAMP) COMMENT 'When the customer initiated the return (ISO timestamp).' AS return_date,
-      CAST(o.order_date  AS TIMESTAMP) COMMENT 'When the original order was placed.'                     AS order_date,
-      o.region             COMMENT 'Order destination region (US / EU / APAC) — matches gold_daily_summary.region by contract.' AS region,
-      c.country            COMMENT 'Customer ISO-2 country (FR / US / GB / …).'                          AS country,
-      c.city               COMMENT 'Customer city (anchor for the bubble map).'                          AS city,
-      c.customer_lat       COMMENT 'Customer latitude (city anchor + jitter, ~5km).'                     AS customer_lat,
-      c.customer_lng       COMMENT 'Customer longitude (city anchor + jitter, ~5km).'                    AS customer_lng,
-      c.loyalty_tier       COMMENT 'Customer tier: gold / silver / standard.'                            AS loyalty_tier,
-      p.product_name       COMMENT 'SKU display name.'                                                   AS product_name,
-      p.category           COMMENT 'Product category (Skincare / Makeup / Haircare / Bodycare / Fragrance).' AS category,
-      l.facility           COMMENT 'Manufacturing facility (Lyon-France / Milan-Italy / London-UK / NJ-USA).' AS facility,
-      CAST(r.refund_amount_usd AS DOUBLE) COMMENT 'Refund amount in USD.'                                AS refund_amount_usd,
-      r.return_reason      COMMENT 'Reason taxonomy: quality / didnt_fit / wrong_item / changed_mind.'   AS return_reason,
-      r.return_reason_text COMMENT 'Free-text reason given by the customer.'                             AS return_reason_text,
-      r.customer_comment   COMMENT 'Alias for return_reason_text — kept for dashboards that read this column name.' AS customer_comment,
-      CAST(r.anger_score AS DOUBLE) COMMENT 'Pre-computed sentiment (0..1). Full demo runs ai_classify on the comment.' AS anger_score,
-      CASE WHEN r.lot_id = '{BAD_LOT_ID}' THEN TRUE ELSE FALSE END
-                           COMMENT 'TRUE for the one affected lot — drives the affected-vs-everyday split across every chart.' AS is_bad_lot
+      r.return_id                                                          AS return_id,
+      r.order_id                                                           AS order_id,
+      r.customer_id                                                        AS customer_id,
+      r.product_id                                                         AS product_id,
+      r.lot_id                                                             AS lot_id,
+      CAST(r.return_date AS TIMESTAMP)                                     AS return_date,
+      CAST(o.order_date  AS TIMESTAMP)                                     AS order_date,
+      o.region                                                             AS region,
+      c.country                                                            AS country,
+      c.city                                                               AS city,
+      c.customer_lat                                                       AS customer_lat,
+      c.customer_lng                                                       AS customer_lng,
+      c.loyalty_tier                                                       AS loyalty_tier,
+      p.product_name                                                       AS product_name,
+      p.category                                                           AS category,
+      l.facility                                                           AS facility,
+      CAST(r.refund_amount_usd AS DOUBLE)                                  AS refund_amount_usd,
+      r.return_reason                                                      AS return_reason,
+      r.return_reason_text                                                 AS return_reason_text,
+      r.customer_comment                                                   AS customer_comment,
+      CAST(r.anger_score AS DOUBLE)                                        AS anger_score,
+      CASE WHEN r.lot_id = '{BAD_LOT_ID}' THEN TRUE ELSE FALSE END         AS is_bad_lot
     FROM {CATALOG}.{SCHEMA}.raw_returns      r
     JOIN {CATALOG}.{SCHEMA}.raw_orders       o ON r.order_id    = o.order_id
     JOIN {CATALOG}.{SCHEMA}.raw_customers    c ON r.customer_id = c.customer_id
@@ -512,6 +585,37 @@ spark.sql(f"""
     LEFT JOIN {CATALOG}.{SCHEMA}.raw_production_lots l
            ON r.lot_id = l.lot_id AND r.product_id = l.product_id
 """)
+
+# Column-level docs. Spark SQL's CTAS doesn't allow inline COMMENTs on
+# SELECT expressions (parser rejects them); the standards-portable path
+# is to write them as separate ALTER COMMENT ON COLUMN statements after
+# the CTAS. Genie / Catalog Explorer pick these up identically.
+_GOLD_RETURNS_COMMENTS = {
+    "return_id":         "Return PK — RET-XXXXXXXX (synthetic).",
+    "order_id":          "FK to raw_orders.order_id.",
+    "customer_id":       "FK to raw_customers.customer_id.",
+    "product_id":        "FK to raw_products.product_id.",
+    "lot_id":            "FK to raw_production_lots.lot_id.",
+    "return_date":       "When the customer initiated the return (ISO timestamp).",
+    "order_date":        "When the original order was placed.",
+    "region":            "Order destination region (US / EU / APAC) — matches gold_daily_summary.region by contract.",
+    "country":           "Customer ISO-2 country (FR / US / GB / …).",
+    "city":              "Customer city (anchor for the bubble map).",
+    "customer_lat":      "Customer latitude (city anchor + jitter, ~5km).",
+    "customer_lng":      "Customer longitude (city anchor + jitter, ~5km).",
+    "loyalty_tier":      "Customer tier: gold / silver / standard.",
+    "product_name":      "SKU display name.",
+    "category":          "Product category (Skincare / Makeup / Haircare / Bodycare / Fragrance).",
+    "facility":          "Manufacturing facility (Lyon-France / Milan-Italy / London-UK / NJ-USA).",
+    "refund_amount_usd": "Refund amount in USD.",
+    "return_reason":     "Reason taxonomy: quality / didnt_fit / wrong_item / changed_mind.",
+    "return_reason_text":"Free-text reason given by the customer.",
+    "customer_comment":  "Alias for return_reason_text — kept for dashboards that read this column name.",
+    "anger_score":       "Pre-computed sentiment (0..1). Full demo runs ai_classify on the comment.",
+    "is_bad_lot":        "TRUE for the one affected lot — drives the affected-vs-everyday split across every chart.",
+}
+for col, txt in _GOLD_RETURNS_COMMENTS.items():
+    spark.sql(f"COMMENT ON COLUMN {CATALOG}.{SCHEMA}.gold_returns.{col} IS '{txt}'")
 
 print("Building gold_daily_summary ...")
 spark.sql(f"""
@@ -541,17 +645,29 @@ spark.sql(f"""
       GROUP BY 1, 2, 3
     )
     SELECT
-      oa.d                          COMMENT 'Calendar date.'                AS date,
-      oa.region                     COMMENT 'Region (US / EU / APAC).'      AS region,
-      oa.category                   COMMENT 'Product category.'             AS category,
-      oa.order_count                COMMENT 'Number of orders that day.'    AS order_count,
-      COALESCE(ra.return_count, 0)  COMMENT 'Number of returns that day.'   AS return_count,
-      oa.revenue_usd                COMMENT 'Order revenue in USD.'         AS revenue_usd,
-      COALESCE(ra.returns_usd, 0.0) COMMENT 'Refund amount in USD.'         AS returns_usd
+      oa.d                          AS date,
+      oa.region                     AS region,
+      oa.category                   AS category,
+      oa.order_count                AS order_count,
+      COALESCE(ra.return_count, 0)  AS return_count,
+      oa.revenue_usd                AS revenue_usd,
+      COALESCE(ra.returns_usd, 0.0) AS returns_usd
     FROM orders_agg oa
     LEFT JOIN returns_agg ra
       ON oa.d = ra.d AND oa.region = ra.region AND oa.category = ra.category
 """)
+
+_GOLD_DAILY_COMMENTS = {
+    "date":         "Calendar date.",
+    "region":       "Region (US / EU / APAC).",
+    "category":     "Product category.",
+    "order_count":  "Number of orders that day.",
+    "return_count": "Number of returns that day.",
+    "revenue_usd":  "Order revenue in USD.",
+    "returns_usd":  "Refund amount in USD.",
+}
+for col, txt in _GOLD_DAILY_COMMENTS.items():
+    spark.sql(f"COMMENT ON COLUMN {CATALOG}.{SCHEMA}.gold_daily_summary.{col} IS '{txt}'")
 
 # ── Phase 5 — Constraints (render as lineage arrows in Catalog Explorer) ──
 print("Applying PK / FK constraints ...")

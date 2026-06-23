@@ -3,20 +3,24 @@
 
 -- gold_daily_summary: (date, region, category) — powers `mv_returns`
 -- metric view per spec 02-uc-governance.md and the dashboard KPI/trend.
+-- raw_orders is order-level (order_id, customer_id, order_date, region,
+-- total_usd, n_items) and raw_order_items carries the per-line
+-- (product_id, quantity, unit_price_usd, line_total_usd) — so we join the
+-- two to roll up by (date, region, category).
 CREATE OR REFRESH MATERIALIZED VIEW gold_daily_summary
 COMMENT 'Daily orders + revenue + returns broken down by (region, category) — powers mv_returns metric view + dashboard KPIs/trend'
 AS
 WITH orders_d AS (
+  -- silver_order_items already carries order_date / region / category in-row
+  -- so this rollup is a single GROUP BY, no joins.
   SELECT
-    CAST(o.order_date AS DATE) AS date,
-    o.region,
-    p.category,
-    COUNT(*)                                       AS order_count,
-    SUM(o.unit_price_usd * o.quantity)             AS revenue_usd,
-    SUM(o.quantity)                                AS items_sold
-  FROM retail_consumer_goods.luxebeauty_demo.raw_orders o
-  JOIN retail_consumer_goods.luxebeauty_demo.raw_products p
-    ON p.product_id = o.product_id
+    order_date                  AS date,
+    region,
+    category,
+    COUNT(DISTINCT order_id)    AS order_count,
+    SUM(line_total_usd)         AS revenue_usd,
+    SUM(quantity)               AS items_sold
+  FROM silver_order_items
   GROUP BY 1, 2, 3
 ),
 returns_d AS (
@@ -69,9 +73,15 @@ CREATE OR REFRESH MATERIALIZED VIEW gold_customer_features
 COMMENT 'Per-customer features + premium_status label (NULL on the unlabeled cohort)'
 AS
 WITH order_agg AS (
+  -- Per-customer order rollup. raw_orders is order-level (carries
+  -- customer_id + order_date + total_usd) so we read it directly — no
+  -- need to re-join silver_order_items just for these three metrics.
+  -- Spec § "Premium-classifier features": total_orders_lifetime =
+  -- COUNT(DISTINCT order_id), total_spend_lifetime = SUM(line_total_usd)
+  -- — both equivalent at order-grain since total_usd = SUM(line_total).
   SELECT customer_id,
-         COUNT(*) AS total_orders_lifetime,
-         SUM(unit_price_usd * quantity) AS total_spend_lifetime,
+         COUNT(*)                       AS total_orders_lifetime,
+         SUM(total_usd)                 AS total_spend_lifetime,
          MAX(CAST(order_date AS DATE))  AS last_order_date
   FROM retail_consumer_goods.luxebeauty_demo.raw_orders
   GROUP BY customer_id
