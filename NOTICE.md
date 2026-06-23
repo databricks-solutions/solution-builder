@@ -37,10 +37,8 @@ Licensed under the [MIT License](https://opensource.org/licenses/MIT).
 | sqlfluff | ≥3.0.0 | https://github.com/sqlfluff/sqlfluff | 2018-2026 Alan Cruickshank |
 | sqlglot | ≥20.0.0 | https://github.com/tobymao/sqlglot | 2026 Toby Mao |
 | sqlmodel | ≥0.0.27 | https://github.com/tiangolo/sqlmodel | 2021 Sebastián Ramírez |
-| tailwindcss | ^4.2.4 | https://github.com/tailwindlabs/tailwindcss | Tailwind Labs, Inc. |
 | TanStack Query | 5.90.16 | https://github.com/TanStack/query | 2021-present Tanner Linsley |
 | TanStack Router | 1.145.7 | https://github.com/TanStack/router | 2021-present Tanner Linsley |
-| Vite | ^8.0.10 | https://github.com/vitejs/vite | 2019-present VoidZero Inc. and Vite contributors |
 | xyflow | ^12.10.2 | https://github.com/xyflow/xyflow | 2019-2025 webkid GmbH |
 
 ---
@@ -54,7 +52,6 @@ Licensed under the [Apache License 2.0](https://www.apache.org/licenses/LICENSE-
 | databricks-sdk-py | ≥0.114.0 | https://github.com/databricks/databricks-sdk-py | 2023 Databricks, Inc. |
 | fastmcp | ==3.1.1 | https://github.com/jlowin/fastmcp | fastmcp Authors |
 | pglite | ≥0.2.0 | https://github.com/electric-sql/pglite | pglite Authors |
-| Playwright | — | https://github.com/microsoft/playwright | Portions Copyright (c) Microsoft Corporation; Portions Copyright 2017 Google Inc. |
 | watchdog | ≥4.0.0 | https://github.com/gorakhargosh/watchdog | 2018-2025 Mickaël Schoentgen & contributors; 2014-2018 Thomas Amland & contributors; 2012-2014 Google, Inc.; 2011-2012 Yesudeep Mangalapilly |
 
 ---
