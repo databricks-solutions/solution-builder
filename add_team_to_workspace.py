@@ -20,10 +20,10 @@ Flow:
      access to it).
 
 Usage:
-    python add_team_to_workspace.py tom.perez@databricks.com
-    python add_team_to_workspace.py tom.perez@databricks.com \\
+    python add_team_to_workspace.py user@example.com
+    python add_team_to_workspace.py user@example.com \\
         --group-name dbdemos-generator-sales \\
-        --workspace-host https://fevm-demo-generator.cloud.databricks.com/
+        --workspace-host https://your-workspace.cloud.databricks.com/
 
 Prereqs:
     - `databricks auth login --host <workspace-host> --profile FEVM_DEMO_GENERATOR`
@@ -44,7 +44,7 @@ from typing import Iterable
 LOGFOOD_PROFILE = "logfood"
 LOGFOOD_WAREHOUSE_ID = "927ac096f9833442"
 WORKSPACE_PROFILE = "FEVM_DEMO_GENERATOR"
-DEFAULT_WORKSPACE_HOST = "https://fevm-demo-generator.cloud.databricks.com/"
+DEFAULT_WORKSPACE_HOST = "https://your-workspace.cloud.databricks.com/"
 DEFAULT_GROUP_NAME = "dbdemos-generator-sales"
 # Walk depth from manager down. 5 covers every realistic Databricks chain
 # (Tom → his directs → their directs → … typical max is 3).
@@ -192,7 +192,7 @@ def assign_to_workspace(ac, workspace_id: int, principal_id: str, email: str) ->
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("manager_email",
-                    help="The root of the org tree to enroll (e.g. tom.perez@databricks.com).")
+                    help="The root of the org tree to enroll (e.g. user@example.com).")
     ap.add_argument("--group-name", default=DEFAULT_GROUP_NAME,
                     help=f"Workspace group to populate (default: {DEFAULT_GROUP_NAME}).")
     ap.add_argument("--workspace-host", default=DEFAULT_WORKSPACE_HOST,

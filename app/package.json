@@ -7,7 +7,7 @@
     "author": "Databricks Field Engineering",
     "repository": {
         "type": "git",
-        "url": "https://github.com/databricks-solutions/databricks-solution-builder.git"
+        "url": "https://github.com/databricks-solutions/solution-builder.git"
     },
     "scripts": {
         "dev": "./scripts/dev.sh",
@@ -118,7 +118,7 @@
         "publish": {
             "provider": "github",
             "owner": "databricks-solutions",
-            "repo": "databricks-solution-builder",
+            "repo": "solution-builder",
             "releaseType": "release"
         },
         "mac": {

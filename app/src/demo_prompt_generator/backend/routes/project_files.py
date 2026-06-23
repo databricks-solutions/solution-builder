@@ -857,7 +857,7 @@ _RESOURCE_URL_PATTERNS: dict[str, tuple[str, str]] = {
     # `/ml/experiments/<id>/runs?o=<workspace_id>`.
     # Lakebase project URL — the project UUID powers the entire DB page
     # (DBs, branches, settings). Example URL:
-    #   {host}/lakebase/projects/002f3c65-5c96-4773-874c-1c39faae0974
+    #   {host}/lakebase/projects/<project-uuid>
     "lakebase_project_id": ("{host}/lakebase/projects/{id}", "Lakebase"),
 }
 
