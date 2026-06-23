@@ -477,8 +477,9 @@ Licensed under the [Databricks License](LICENSE). Built on top of and powered by
 | Package | Version | License | Project URL |
 |---------|---------|---------|-------------|
 | [claude-agent-sdk](https://github.com/anthropics/claude-agent-sdk) | ≥0.2.83 | MIT | https://github.com/anthropics/claude-agent-sdk |
-
-> Databricks-owned components (`databricks-sdk`, `databricks-connect`, `ai-dev-kit`, `dbdemos-tracker`) are first-party and governed by the [Databricks License](LICENSE); they are intentionally omitted from this third-party attribution list.
+| [databricks-sdk](https://github.com/databricks/databricks-sdk-py) | ≥0.114.0 | Apache-2.0 | https://github.com/databricks/databricks-sdk-py |
+| [databricks-connect](https://docs.databricks.com/dev-tools/databricks-connect.html) | ≥16.1,&lt;16.2 | Databricks | https://docs.databricks.com/dev-tools/databricks-connect.html |
+| [ai-dev-kit](https://github.com/databricks-solutions/ai-dev-kit) | — | Databricks | https://github.com/databricks-solutions/ai-dev-kit |
 
 ### Backend (Python)
 
@@ -491,7 +492,7 @@ Licensed under the [Databricks License](LICENSE). Built on top of and powered by
 | [sqlalchemy](https://github.com/sqlalchemy/sqlalchemy) | ≥2.0 | MIT | https://github.com/sqlalchemy/sqlalchemy |
 | [alembic](https://github.com/sqlalchemy/alembic) | ≥1.16 | MIT | https://github.com/sqlalchemy/alembic |
 | [psycopg](https://github.com/psycopg/psycopg) | ≥3.2.11 | LGPL-3.0 | https://github.com/psycopg/psycopg |
-| [pglite](https://pypi.org/project/pglite/) | ≥0.2.0 | LGPL | https://pypi.org/project/pglite/ |
+| [pglite](https://github.com/electric-sql/pglite) | ≥0.2.0 | Apache-2.0 | https://github.com/electric-sql/pglite |
 | [httpx](https://github.com/encode/httpx) | ≥0.28.0 | BSD-3-Clause | https://github.com/encode/httpx |
 | [watchdog](https://github.com/gorakhargosh/watchdog) | ≥4.0.0 | Apache-2.0 | https://github.com/gorakhargosh/watchdog |
 | [pyyaml](https://github.com/yaml/pyyaml) | ≥6.0 | MIT | https://github.com/yaml/pyyaml |
@@ -502,11 +503,6 @@ Licensed under the [Databricks License](LICENSE). Built on top of and powered by
 | [sqlfluff](https://github.com/sqlfluff/sqlfluff) | ≥3.0.0 | MIT | https://github.com/sqlfluff/sqlfluff |
 | [plutoprint](https://github.com/plutoprint/plutoprint) | ==0.19.0 | MIT | https://github.com/plutoprint/plutoprint |
 | [faker](https://github.com/joke2k/faker) | ≥30.0 | MIT | https://github.com/joke2k/faker |
-| [python-multipart](https://github.com/Kludex/python-multipart) | ≥0.0.22 | Apache-2.0 | https://github.com/Kludex/python-multipart |
-| [holidays](https://github.com/vacanza/holidays) | ≥0.55 | MIT | https://github.com/vacanza/holidays |
-| [zstandard](https://github.com/indygreg/python-zstandard) | ≥0.25.0 | BSD-3-Clause | https://github.com/indygreg/python-zstandard |
-| [pypdf](https://github.com/py-pdf/pypdf) | ≥4.0 | BSD-3-Clause | https://github.com/py-pdf/pypdf |
-| [openpyxl](https://foss.heptapod.net/openpyxl/openpyxl) | ≥3.1 | MIT | https://foss.heptapod.net/openpyxl/openpyxl |
 
 ### Frontend (TypeScript)
 
