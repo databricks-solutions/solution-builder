@@ -1,0 +1,515 @@
+/**
+ * Home / landing page.
+ *
+ * Template concern: this is where you tell the STORY of the use case.
+ * The narrative pieces (hero persona, headline, situation, goal, journey
+ * diagram quotes, starter prompts, featured action) are hardcoded in this
+ * file as an EXAMPLE — rewrite them for your demo. Only `assistantScript`
+ * and `branding` stay config-driven (script chain is reused by the chat
+ * dock; branding is also read by the shell header).
+ *
+ * The journey diagram's 4 cards wire into the floating chat dock via
+ * `dockController` (pub/sub in `chat/dockController.ts`) — clicking a card
+ * either navigates somewhere, opens the dock, or opens the dock and
+ * auto-sends a scripted prompt. That's the "see the demo in action" path.
+ */
+import { Fragment, useEffect, useState } from 'react';
+import { useNavigate } from 'react-router';
+import {
+  AlertTriangle,
+  ArrowRight,
+  Brain,
+  CheckCircle2,
+  Eye,
+  Mail,
+  MessageCircleQuestion,
+  Sparkles,
+  Wrench,
+  Zap,
+} from 'lucide-react';
+import { useSession, type ScriptStep } from '@/lib/api';
+import { fetchActivity } from '@/lib/returns';
+import type { ActivityEvent } from '@/shared/types';
+import { dataMutated } from '@/lib/events';
+import { dockController } from '@/chat/dockController';
+
+// ---------------------------------------------------------------------------
+// Narrative — REPLACE for your demo.
+// This is what the landing page shows. Hero persona, headline, situation,
+// starter prompts, and the "featured action" are the story hooks that tell
+// the viewer what this app does. Rewrite these to match your use case.
+// ---------------------------------------------------------------------------
+
+const HERO = {
+  name: 'Claire Dubois',
+  role: 'VP of Operations',
+};
+
+const STORY = {
+  headline: "Returns are running 3x normal — and we don't know why.",
+  situation:
+    "Three weeks ago returns jumped from ~$60K/week to $180K, driven by three skincare SKUs with a 30% return rate. They're still elevated at ~$80K. Revenue looks fine, orders look fine — but the refunds line is eating the quarter.",
+  goal: 'Find the root cause, confirm the blast radius, and decide on a recall or field fix.',
+};
+
+const STARTER_QUESTIONS = [
+  'Why do I have so many returns?',
+  'Was there an incident for that lot?',
+  'Which of the affected customers are premium (CS-tagged or model-found)?',
+];
+
+// The featured action's copy is inlined in the JSX below — the section is just
+// HTML, edit it freely. The prompt text is the single thing the agent runs.
+const FEATURED_ACTION_PROMPT =
+  "Something is off with our returns right now. Find the worst production lot, then use the premium classifier to split the affected customers — CS-tagged premium PLUS the hidden premiums the model surfaces — from the standard cohort. Draft two apology email templates: a 20% personal apology for premium, a 5% goodwill for standard. Show me both, including the count of CS-tagged vs model-found premiums, before sending. Wait for my approval. Once I say go, email everyone with their tier's coupon and approve all the refunds.";
+
+export function HomeView() {
+  const { config, configError, retry: retrySession } = useSession();
+  const [activity, setActivity] = useState<ActivityEvent[]>([]);
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    // Activity feed errors are non-fatal (feed silently empty). Logged for
+    // dev debugging; the page still renders the story without it.
+    const reload = () =>
+      fetchActivity(20).then(setActivity).catch((e) => {
+        console.error('[home] activity feed failed', e);
+      });
+    void reload();
+    return dataMutated.subscribe(reload);
+  }, []);
+
+  if (configError) {
+    return (
+      <div className="p-12 max-w-xl text-sm">
+        <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-4 text-destructive flex items-start gap-3">
+          <AlertTriangle className="size-5 mt-0.5 shrink-0" />
+          <div className="space-y-2">
+            <div className="font-semibold">Couldn't load app config</div>
+            <div className="text-destructive/80">{configError}</div>
+            <button
+              type="button"
+              onClick={retrySession}
+              className="mt-1 inline-flex items-center gap-1.5 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-1 text-xs hover:bg-destructive/15 transition-colors"
+            >
+              Retry
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!config) {
+    return <div className="p-12 text-muted-foreground">Loading…</div>;
+  }
+
+  const heroFirstName = HERO.name.split(/\s+/)[0];
+
+  return (
+    <div className="h-full overflow-y-auto">
+      <div className="max-w-5xl mx-auto px-4 sm:px-8 py-6 sm:py-14 space-y-7 sm:space-y-14">
+        {/* Hero */}
+        <section className="space-y-5">
+          <div className="inline-flex items-center gap-2 text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
+            <span className="inline-block h-px w-8 bg-foreground/40" />
+            {HERO.name} · {HERO.role}
+          </div>
+          <h1 className="display text-3xl sm:text-5xl lg:text-6xl font-semibold leading-[1.05] tracking-tight text-foreground">
+            {STORY.headline}
+          </h1>
+          <p className="hidden sm:block text-lg text-muted-foreground leading-relaxed max-w-3xl">
+            {STORY.situation}
+          </p>
+          <p
+            className="inline-block text-sm text-foreground italic border-l-2 pl-3 py-0.5 max-w-3xl"
+            style={{ borderColor: 'var(--accent)' }}
+          >
+            <span className="font-semibold not-italic uppercase tracking-[0.15em] text-xs text-muted-foreground mr-2">
+              Goal
+            </span>
+            {STORY.goal}
+          </p>
+        </section>
+
+        {/* Persona journey diagram */}
+        <section className="space-y-5">
+          <div className="hidden sm:block text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+            A week of work · before noon
+          </div>
+          <JourneyDiagram heroName={heroFirstName} script={config.assistantScript} />
+          <p className="text-sm text-foreground/80 leading-relaxed max-w-3xl">
+            <span className="font-medium">One person. One conversation.</span>{' '}
+            <span className="hidden sm:inline">
+              What used to take a cross-functional team a week — analysts pulling
+              data, CSMs drafting emails, ops approving refunds — is done by noon.
+            </span>
+            <span className="sm:hidden">A week's work, done by noon.</span>
+          </p>
+        </section>
+
+        {/* Starter prompts — each opens the floating assistant dock */}
+        <section className="space-y-3">
+          <div className="hidden sm:block text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+            Try asking
+          </div>
+          <div className="flex flex-col sm:flex-row sm:flex-wrap gap-2">
+            {STARTER_QUESTIONS.map((q) => (
+              <button
+                key={q}
+                onClick={() => dockController.newAndSend(q)}
+                className="flex w-full sm:w-auto sm:inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-4 py-2 text-sm text-foreground hover:border-foreground/30 hover:shadow-sm transition-all"
+              >
+                <Sparkles className="size-3.5 text-muted-foreground shrink-0" />
+                <span className="flex-1 text-left sm:flex-none">{q}</span>
+                <ArrowRight className="size-3.5 text-muted-foreground shrink-0" />
+              </button>
+            ))}
+          </div>
+        </section>
+
+        {/* Featured action — climax. Inline the copy; edit this HTML freely. */}
+        <section>
+          <div
+            className="rounded-2xl p-7 relative overflow-hidden"
+            style={{
+              background:
+                'linear-gradient(135deg, color-mix(in oklch, var(--primary) 96%, white) 0%, color-mix(in oklch, var(--primary) 88%, var(--accent) 12%) 100%)',
+              color: 'var(--primary-foreground)',
+            }}
+          >
+            <div
+              className="absolute -right-16 -top-16 size-52 rounded-full opacity-20"
+              style={{ background: 'var(--accent)' }}
+            />
+            <div className="relative">
+              <div className="hidden sm:inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.18em] opacity-80 mb-3">
+                <Zap className="size-3.5" />
+                Let the assistant handle it
+              </div>
+              <h3 className="display text-2xl font-semibold mb-2 leading-tight">
+                Handle the bad-lot returns — tier the offer by premium status
+              </h3>
+              <p className="hidden sm:block text-sm opacity-85 leading-relaxed mb-5 max-w-2xl">
+                The assistant traces the spike to one lot, then asks the
+                premium classifier which of the affected customers your CS
+                team has tagged AND which hidden premiums the model has
+                surfaced (untagged customers who look just like the tagged
+                ones). It drafts two apology emails (20% personal apology
+                for premium, 5% goodwill for the rest), and waits for your
+                approval before anything goes out.
+              </p>
+              <p className="sm:hidden text-sm opacity-85 leading-relaxed mb-5">
+                Trace the spike, tier the offer (premium vs. rest), draft
+                the apology emails — approve before anything goes out.
+              </p>
+              <button
+                onClick={() => dockController.newAndSend(FEATURED_ACTION_PROMPT)}
+                className="inline-flex items-center gap-2 rounded-full bg-background text-foreground px-5 py-2 text-sm font-medium hover:opacity-90 transition-opacity"
+              >
+                Run this <ArrowRight className="size-4" />
+              </button>
+            </div>
+          </div>
+        </section>
+
+        {/* Proof — activity feed */}
+        {activity.length > 0 && (
+          <section className="space-y-4">
+            <div className="hidden sm:block text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+              Recent activity
+            </div>
+            <ActivityFeed
+              events={activity}
+              onJumpToReturn={(id) => navigate(`/operations?return=${id}`)}
+            />
+          </section>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// --- Journey diagram -------------------------------------------------------
+
+/**
+ * Four-step narrative. Each step is clickable and fires the demo:
+ *   - "Claire operates"    → navigate to Operations page
+ *   - "She asks"           → open dock, auto-send "Why so many returns?"
+ *   - "AI investigates"    → open dock (shows the investigation in progress)
+ *   - "AI takes action"    → open dock, auto-send the final "send it" prompt
+ *
+ * `script` comes from config — the handlers pull the matching prompts.
+ */
+function JourneyDiagram({
+  heroName,
+  script,
+}: {
+  heroName: string;
+  script: ScriptStep[];
+}) {
+  const navigate = useNavigate();
+  const step0 = script[0];
+  const step1 = script[1];
+  const step2 = script[2];
+
+  const steps = [
+    {
+      icon: <Eye className="size-5" />,
+      role: `${heroName} operates`,
+      quote: '"Returns are everywhere — my dashboard lit up."',
+      highlight: false,
+      cta: 'Open the queue →',
+      onClick: () => navigate('/operations'),
+    },
+    {
+      icon: <MessageCircleQuestion className="size-5" />,
+      role: 'She asks',
+      quote: '"Why do I have so many returns?"',
+      highlight: false,
+      cta: 'Ask the assistant →',
+      onClick: () =>
+        step0
+          ? dockController.newAndSend(step0.prompt)
+          : dockController.open(),
+    },
+    {
+      icon: <Brain className="size-5" />,
+      role: 'AI investigates',
+      quote: '"A bad production batch at one facility. 3 SKUs. Quality issue on the line."',
+      highlight: true,
+      cta: 'See the answer →',
+      onClick: () => dockController.open(),
+    },
+    {
+      icon: <Wrench className="size-5" />,
+      role: 'AI takes action',
+      quote: '"Model found 49 hidden premiums on top of the 18 CS tagged — 20% to those 67, 5% to the rest. Reviewed. Sent. Refunds approved."',
+      highlight: true,
+      cta: 'Run the workflow →',
+      onClick: () => {
+        // Fire step-1 (accept + draft). If user is mid-chain the dock will
+        // still open; they can then click "Yes — send it" from the chip.
+        if (step1) dockController.openAndSend(step1.prompt);
+        else if (step2) dockController.openAndSend(step2.prompt);
+        else dockController.open();
+      },
+    },
+  ];
+
+  return (
+    <>
+      {/* Desktop / tablet: 4 cards in a row with arrows between. */}
+      <div className="hidden md:grid grid-cols-[1fr_auto_1fr_auto_1fr_auto_1fr] gap-3 items-stretch">
+        {steps.map((s, i) => (
+          <Fragment key={i}>
+            <button
+              onClick={s.onClick}
+              className={`text-left rounded-xl px-4 py-4 flex flex-col gap-2 transition-all hover:shadow-sm ${stepCardClass(s.highlight)}`}
+              style={stepCardStyle(s.highlight)}
+            >
+              <StepIcon step={s} size="sm" />
+              <StepText step={s} />
+            </button>
+            {i < steps.length - 1 && (
+              <div className="flex items-center justify-center text-muted-foreground">
+                <ArrowRight className="size-4" />
+              </div>
+            )}
+          </Fragment>
+        ))}
+      </div>
+
+      {/* Phone: vertical rail of icons on the left (sequential-flow cue),
+          card per step on the right. */}
+      <ol className="md:hidden relative flex flex-col gap-2.5">
+        {/* Vertical rail behind the icon column — starts just under
+            step-1's icon and ends just above step-N's. */}
+        <div
+          aria-hidden
+          className="absolute left-[18px] top-7 bottom-7 w-px bg-border"
+        />
+        {steps.map((s, i) => (
+          <li key={i} className="relative flex items-start gap-3">
+            <StepIcon step={s} size="md" className="relative z-10 shrink-0 mt-1" />
+            <button
+              onClick={s.onClick}
+              className={`flex-1 min-w-0 text-left rounded-xl px-3 py-2.5 transition-all hover:shadow-sm ${stepCardClass(s.highlight)}`}
+              style={stepCardStyle(s.highlight)}
+            >
+              <StepText step={s} compact />
+            </button>
+          </li>
+        ))}
+      </ol>
+    </>
+  );
+}
+
+// --- Journey step primitives ------------------------------------------------
+// Shared between the desktop grid + the mobile rail. Owning the highlight
+// styling here means a tweak to "what does highlighted look like" lands
+// in one place instead of two.
+
+type JourneyStep = {
+  icon: React.ReactNode;
+  role: string;
+  quote: string;
+  highlight: boolean;
+  cta: string;
+  onClick: () => void;
+};
+
+function stepCardClass(highlight: boolean): string {
+  return highlight
+    ? 'border-2 bg-card'
+    : 'border border-border bg-card hover:border-foreground/30';
+}
+
+function stepCardStyle(highlight: boolean): React.CSSProperties | undefined {
+  return highlight ? { borderColor: 'var(--accent)' } : undefined;
+}
+
+function StepIcon({
+  step,
+  size,
+  className = '',
+}: {
+  step: JourneyStep;
+  size: 'sm' | 'md';
+  className?: string;
+}) {
+  // Literal Tailwind classes so the JIT picks them up at build time.
+  const sizeClass = size === 'sm' ? 'size-8' : 'size-9';
+  return (
+    <div
+      className={`${sizeClass} rounded-lg flex items-center justify-center ${className}`}
+      style={{
+        background: step.highlight ? 'var(--accent)' : 'var(--muted)',
+        color: step.highlight ? 'var(--accent-foreground)' : 'var(--foreground)',
+      }}
+    >
+      {step.icon}
+    </div>
+  );
+}
+
+function StepText({ step, compact = false }: { step: JourneyStep; compact?: boolean }) {
+  return (
+    <>
+      <div
+        className={`text-sm font-semibold text-foreground ${compact ? 'leading-tight' : ''}`}
+      >
+        {step.role}
+      </div>
+      <div
+        className={`text-xs text-muted-foreground leading-snug italic ${compact ? 'mt-0.5' : ''}`}
+      >
+        {step.quote}
+      </div>
+      <div className="text-[11px] font-medium text-foreground/70 mt-1">
+        {step.cta}
+      </div>
+    </>
+  );
+}
+
+// --- Activity feed ---------------------------------------------------------
+
+function ActivityFeed({
+  events,
+  onJumpToReturn,
+}: {
+  events: ActivityEvent[];
+  onJumpToReturn: (returnId: string) => void;
+}) {
+  return (
+    <ul className="rounded-xl border border-border bg-card divide-y divide-border overflow-hidden">
+      {events.map((e, i) => (
+        <li
+          key={i}
+          className="px-4 py-3 flex items-start gap-3 text-sm"
+        >
+          <ActivityIcon kind={e.kind} />
+          <div className="flex-1 min-w-0">
+            <ActivityBody event={e} onJumpToReturn={onJumpToReturn} />
+          </div>
+          <div className="text-xs text-muted-foreground shrink-0">
+            {relativeTime(e.at)}
+          </div>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function ActivityIcon({ kind }: { kind: ActivityEvent['kind'] }) {
+  const Icon = kind === 'email' ? Mail : CheckCircle2;
+  const bg =
+    kind === 'email'
+      ? 'bg-[var(--info-subtle)] text-[var(--info-subtle-foreground)]'
+      : 'bg-[var(--success-subtle)] text-[var(--success-subtle-foreground)]';
+  return (
+    <div
+      className={`size-7 rounded-full flex items-center justify-center shrink-0 ${bg}`}
+    >
+      <Icon className="size-3.5" />
+    </div>
+  );
+}
+
+function ActivityBody({
+  event,
+  onJumpToReturn,
+}: {
+  event: ActivityEvent;
+  onJumpToReturn: (returnId: string) => void;
+}) {
+  if (event.kind === 'email') {
+    return (
+      <>
+        <div className="text-foreground truncate">
+          <span className="font-medium">Email</span> to{' '}
+          <span className="text-muted-foreground">{event.to ?? '—'}</span>:{' '}
+          <span className="text-muted-foreground">"{event.subject}"</span>
+        </div>
+        <button
+          onClick={() => onJumpToReturn(event.return_id)}
+          className="mt-0.5 text-xs text-muted-foreground hover:text-foreground"
+        >
+          View return →
+        </button>
+      </>
+    );
+  }
+  return (
+    <>
+      <div className="text-foreground">
+        <span className="font-medium capitalize">{event.action}</span>
+        {event.notes && (
+          <span className="text-muted-foreground"> · {event.notes}</span>
+        )}
+        <span className="text-xs text-muted-foreground ml-2">by {event.by}</span>
+      </div>
+      <button
+        onClick={() => onJumpToReturn(event.return_id)}
+        className="mt-0.5 text-xs text-muted-foreground hover:text-foreground"
+      >
+        View return →
+      </button>
+    </>
+  );
+}
+
+function relativeTime(iso: string): string {
+  const d = new Date(iso).getTime();
+  const now = Date.now();
+  const sec = Math.max(1, Math.round((now - d) / 1000));
+  if (sec < 60) return `${sec}s ago`;
+  const min = Math.round(sec / 60);
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.round(min / 60);
+  if (hr < 24) return `${hr}h ago`;
+  const day = Math.round(hr / 24);
+  return `${day}d ago`;
+}

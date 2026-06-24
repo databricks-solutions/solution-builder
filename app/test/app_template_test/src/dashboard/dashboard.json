@@ -1,0 +1,1325 @@
+{
+  "datasets": [
+    {
+      "name": "ds_daily",
+      "displayName": "Daily summary",
+      "queryLines": [
+        "SELECT date, region, category, order_count, return_count, revenue_usd, returns_usd FROM gold_daily_summary WHERE date >= DATEADD(day, -90, current_date())"
+      ],
+      "catalog": "ai_demo_gen",
+      "schema": "demo_luxebeauty_test"
+    },
+    {
+      "name": "ds_returns",
+      "displayName": "Returns (last 90 days, per-row)",
+      "queryLines": [
+        "SELECT return_id, return_date, country, city, customer_lat, customer_lng, region, product_name, category, lot_id, facility, is_bad_lot, CASE WHEN is_bad_lot THEN 'Affected lot' ELSE 'Everyday returns' END AS source, return_reason, customer_comment, anger_score, CASE WHEN anger_score >= 0.9 THEN '3 - Very angry' WHEN anger_score >= 0.5 THEN '2 - Angry' WHEN anger_score >= 0.2 THEN '1 - Neutral' ELSE '0 - Satisfied' END AS sentiment, refund_amount_usd FROM silver_returns WHERE return_date >= DATEADD(day, -90, current_date())"
+      ],
+      "catalog": "ai_demo_gen",
+      "schema": "demo_luxebeauty_test"
+    },
+    {
+      "name": "ds_forecast",
+      "displayName": "Weekly refunds \u2014 actuals + forecast",
+      "queryLines": [
+        "WITH original AS ( SELECT DATE_TRUNC('WEEK', date) AS week, SUM(returns_usd) AS refunds FROM gold_daily_summary WHERE DATE_TRUNC('WEEK', date) < DATE_TRUNC('WEEK', current_date()) AND date >= DATEADD(day, -180, current_date()) GROUP BY 1), dates AS ( SELECT MAX(week) AS max_w FROM original), forecast AS ( SELECT week, refunds_forecast, refunds_upper, refunds_lower FROM AI_FORECAST(   TABLE(original),   horizon => (SELECT max_w + INTERVAL 28 DAYS FROM dates),   time_col => 'week',   value_col => 'refunds' )), actuals AS ( SELECT week, CAST(NULL AS DOUBLE) AS refunds_forecast,        CAST(NULL AS DOUBLE) AS refunds_upper,        CAST(NULL AS DOUBLE) AS refunds_lower, refunds FROM original), forecast_aligned AS ( SELECT week, refunds_forecast, refunds_upper, refunds_lower,        CAST(NULL AS DOUBLE) AS refunds FROM forecast) SELECT week, refunds_forecast, refunds_upper, refunds_lower, refunds FROM actuals UNION ALL SELECT week, refunds_forecast, refunds_upper, refunds_lower, refunds FROM forecast_aligned UNION ALL SELECT (SELECT max_w FROM dates) AS week,        refunds AS refunds_forecast, refunds AS refunds_upper,        refunds AS refunds_lower, CAST(NULL AS DOUBLE) AS refunds FROM original WHERE week = (SELECT max_w FROM dates)"
+      ],
+      "catalog": "ai_demo_gen",
+      "schema": "demo_luxebeauty_test"
+    },
+    {
+      "name": "ds_sankey_flow",
+      "displayName": "Category \u2192 product \u2192 top lot flow (long tails bucketed)",
+      "queryLines": [
+        "WITH product_totals AS ( SELECT product_name, COUNT(*) AS n FROM silver_returns WHERE return_date >= DATEADD(day, -90, current_date()) GROUP BY product_name), top_products AS ( SELECT product_name FROM product_totals ORDER BY n DESC LIMIT 10), lot_totals AS ( SELECT lot_id, COUNT(*) AS n FROM silver_returns WHERE return_date >= DATEADD(day, -90, current_date()) GROUP BY lot_id), top_lots AS ( SELECT lot_id FROM lot_totals ORDER BY n DESC LIMIT 15) SELECT category, CASE WHEN r.product_name IN (SELECT product_name FROM top_products) THEN r.product_name ELSE 'Other products' END AS product_name, CASE WHEN r.lot_id IN (SELECT lot_id FROM top_lots) THEN r.lot_id ELSE 'Other lots' END AS lot_id, COUNT(*) AS returns FROM silver_returns r WHERE return_date >= DATEADD(day, -90, current_date()) GROUP BY category, CASE WHEN r.product_name IN (SELECT product_name FROM top_products) THEN r.product_name ELSE 'Other products' END, CASE WHEN r.lot_id IN (SELECT lot_id FROM top_lots) THEN r.lot_id ELSE 'Other lots' END"
+      ],
+      "catalog": "ai_demo_gen",
+      "schema": "demo_luxebeauty_test"
+    }
+  ],
+  "pages": [
+    {
+      "name": "overview",
+      "displayName": "Operations",
+      "layout": [
+        {
+          "widget": {
+            "name": "title",
+            "multilineTextboxSpec": {
+              "lines": [
+                "# LuxeBeauty Returns \u2014 Operations\n",
+                "\n",
+                "**The story** \u2014 weekly refunds spiked to ~$180K three weeks ago (3\u00d7 our $60K baseline). Cause: production lot **LOT-2026-0427** of three Skincare SKUs (SKU-1001/1002/1003) released from Lyon despite a QC note about texture variations. ~250 customers affected, concentrated EU (Paris > London > Milan).\n",
+                "\n",
+                "**What to see** \u2014 KPI sparklines carry the spike-then-decay shape \u00b7 forecast-line marks the production-incident date as a vertical bar to the LEFT of the bump (cause \u2192 effect \u2192 4-week recovery forecast) \u00b7 donut shows Skincare dominates refunds \u00b7 bubble map lights up Europe with Paris deepest red."
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 12,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_refunds",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_daily",
+                  "fields": [
+                    {
+                      "name": "weekly(date)",
+                      "expression": "DATE_TRUNC(\"WEEK\", `date`)"
+                    },
+                    {
+                      "name": "sum(returns_usd)",
+                      "expression": "SUM(`returns_usd`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "sum(returns_usd)",
+                  "displayName": "Refunds (90d)",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  },
+                  "color": {
+                    "hex": "#094074"
+                  }
+                },
+                "period": {
+                  "fieldName": "weekly(date)",
+                  "color": {
+                    "hex": "#094074"
+                  },
+                  "style": {
+                    "areaFill": true,
+                    "fillOpacity": 0.25
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Refunds \u2014 last 90d"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 3,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_returns",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_daily",
+                  "fields": [
+                    {
+                      "name": "weekly(date)",
+                      "expression": "DATE_TRUNC(\"WEEK\", `date`)"
+                    },
+                    {
+                      "name": "sum(return_count)",
+                      "expression": "SUM(`return_count`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "sum(return_count)",
+                  "displayName": "Returns (90d)",
+                  "color": {
+                    "hex": "#094074"
+                  }
+                },
+                "period": {
+                  "fieldName": "weekly(date)",
+                  "color": {
+                    "hex": "#094074"
+                  },
+                  "style": {
+                    "areaFill": true,
+                    "fillOpacity": 0.25
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Returns \u2014 last 90d"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 3,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_orders",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_daily",
+                  "fields": [
+                    {
+                      "name": "weekly(date)",
+                      "expression": "DATE_TRUNC(\"WEEK\", `date`)"
+                    },
+                    {
+                      "name": "sum(order_count)",
+                      "expression": "SUM(`order_count`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "sum(order_count)",
+                  "displayName": "Orders (90d)",
+                  "color": {
+                    "hex": "#094074"
+                  }
+                },
+                "period": {
+                  "fieldName": "weekly(date)",
+                  "color": {
+                    "hex": "#094074"
+                  },
+                  "style": {
+                    "areaFill": true,
+                    "fillOpacity": 0.25
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Orders \u2014 last 90d"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 3,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_refund_rate",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_daily",
+                  "fields": [
+                    {
+                      "name": "weekly(date)",
+                      "expression": "DATE_TRUNC(\"WEEK\", `date`)"
+                    },
+                    {
+                      "name": "refund_rate",
+                      "expression": "SUM(`returns_usd`) * 100.0 / NULLIF(SUM(`revenue_usd`), 0)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "refund_rate",
+                  "displayName": "Refund Rate",
+                  "color": {
+                    "hex": "#094074"
+                  }
+                },
+                "period": {
+                  "fieldName": "weekly(date)",
+                  "color": {
+                    "hex": "#094074"
+                  },
+                  "style": {
+                    "areaFill": true,
+                    "fillOpacity": 0.25
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Refund Rate (%)"
+              }
+            }
+          },
+          "position": {
+            "x": 9,
+            "y": 3,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "trend_chart",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_forecast",
+                  "fields": [
+                    {
+                      "name": "week",
+                      "expression": "`week`"
+                    },
+                    {
+                      "name": "refunds",
+                      "expression": "`refunds`"
+                    },
+                    {
+                      "name": "refunds_forecast",
+                      "expression": "`refunds_forecast`"
+                    },
+                    {
+                      "name": "refunds_upper",
+                      "expression": "`refunds_upper`"
+                    },
+                    {
+                      "name": "refunds_lower",
+                      "expression": "`refunds_lower`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 1,
+              "annotations": [
+                {
+                  "type": "vertical-line",
+                  "encodings": {
+                    "x": {
+                      "dataValue": "2026-04-27T00:00:00.000",
+                      "dataType": "DATETIME"
+                    },
+                    "label": {
+                      "value": "Product issue: lot LOT-2026-0427 ships"
+                    }
+                  }
+                }
+              ],
+              "frame": {
+                "showTitle": true,
+                "title": "Weekly refunds \u2014 actuals + forecast",
+                "description": "Refunds spiked 3 weeks ago, decaying back toward baseline. Vertical bar = the day the bad lot shipped.",
+                "showDescription": true
+              },
+              "widgetType": "forecast-line",
+              "encodings": {
+                "x": {
+                  "fieldName": "week",
+                  "axis": {
+                    "title": "Week"
+                  },
+                  "displayName": "Week",
+                  "scale": {
+                    "type": "temporal"
+                  }
+                },
+                "y": {
+                  "scale": {
+                    "type": "quantitative",
+                    "domain": {
+                      "min": 0
+                    }
+                  },
+                  "original": {
+                    "fieldName": "refunds",
+                    "displayName": "Refunds (actual)"
+                  },
+                  "prediction": {
+                    "fieldName": "refunds_forecast",
+                    "displayName": "4-week forecast"
+                  },
+                  "predictionUpper": {
+                    "fieldName": "refunds_upper"
+                  },
+                  "predictionLower": {
+                    "fieldName": "refunds_lower"
+                  },
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "exact",
+                      "places": 2
+                    }
+                  }
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 6,
+            "width": 12,
+            "height": 5
+          }
+        },
+        {
+          "widget": {
+            "name": "customer_map",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_returns",
+                  "fields": [
+                    {
+                      "name": "sum(refund_amount_usd)",
+                      "expression": "SUM(`refund_amount_usd`)"
+                    },
+                    {
+                      "name": "customer_lat",
+                      "expression": "`customer_lat`"
+                    },
+                    {
+                      "name": "customer_lng",
+                      "expression": "`customer_lng`"
+                    },
+                    {
+                      "name": "countdistinct(return_id)",
+                      "expression": "COUNT(DISTINCT `return_id`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "showTitle": true,
+                "title": "Affected customers \u2014 bubble map",
+                "showDescription": false
+              },
+              "mark": {
+                "opacity": 1
+              },
+              "widgetType": "symbol-map",
+              "encodings": {
+                "coordinates": {
+                  "latitude": {
+                    "fieldName": "customer_lat"
+                  },
+                  "longitude": {
+                    "fieldName": "customer_lng"
+                  }
+                },
+                "color": {
+                  "fieldName": "sum(refund_amount_usd)",
+                  "displayName": "Refunds ($)",
+                  "scale": {
+                    "type": "quantitative",
+                    "colorRamp": {
+                      "mode": "custom-sequential",
+                      "colors": {
+                        "start": "#EFF3FF",
+                        "end": "#094074"
+                      }
+                    }
+                  }
+                },
+                "size": {
+                  "fieldName": "countdistinct(return_id)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Returns"
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 17,
+            "width": 7,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "category_donut",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_daily",
+                  "fields": [
+                    {
+                      "name": "sum(returns_usd)",
+                      "expression": "SUM(`returns_usd`)"
+                    },
+                    {
+                      "name": "category",
+                      "expression": "`category`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "frame": {
+                "showTitle": true,
+                "title": "Refunds by category",
+                "showDescription": false
+              },
+              "widgetType": "pie",
+              "encodings": {
+                "angle": {
+                  "fieldName": "sum(returns_usd)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Refunds ($)"
+                },
+                "color": {
+                  "fieldName": "category",
+                  "displayName": "Category",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Skincare",
+                        "color": "#094074"
+                      },
+                      {
+                        "value": "Bodycare",
+                        "color": "#3C6997"
+                      },
+                      {
+                        "value": "Makeup",
+                        "color": "#5ADBFF"
+                      },
+                      {
+                        "value": "Haircare",
+                        "color": "#FFDD4A"
+                      },
+                      {
+                        "value": "Fragrance",
+                        "color": "#FE9000"
+                      }
+                    ]
+                  }
+                },
+                "label": {
+                  "show": true
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 7,
+            "y": 18,
+            "width": 5,
+            "height": 5
+          }
+        },
+        {
+          "widget": {
+            "name": "country_chart_refunds",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_returns",
+                  "fields": [
+                    {
+                      "name": "category",
+                      "expression": "`category`"
+                    },
+                    {
+                      "name": "sum(refund_amount_usd)",
+                      "expression": "SUM(`refund_amount_usd`)"
+                    },
+                    {
+                      "name": "country",
+                      "expression": "`country`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": "Refunds by country",
+                "showDescription": false
+              },
+              "version": 3,
+              "mark": {
+                "layout": "stack"
+              },
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "sum(refund_amount_usd)",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 2
+                    },
+                    "significantFigures": {
+                      "type": "exact",
+                      "figures": 2
+                    }
+                  },
+                  "axis": {
+                    "title": "Refunds ($)"
+                  },
+                  "displayName": "Refunds ($)",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "y": {
+                  "fieldName": "country",
+                  "displayName": "Country",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "x-reversed"
+                    }
+                  }
+                },
+                "color": {
+                  "fieldName": "category",
+                  "displayName": "Category",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Skincare",
+                        "color": "#094074"
+                      },
+                      {
+                        "value": "Bodycare",
+                        "color": "#3C6997"
+                      },
+                      {
+                        "value": "Makeup",
+                        "color": "#5ADBFF"
+                      },
+                      {
+                        "value": "Haircare",
+                        "color": "#FFDD4A"
+                      },
+                      {
+                        "value": "Fragrance",
+                        "color": "#FE9000"
+                      }
+                    ]
+                  }
+                },
+                "label": {
+                  "show": false
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 7,
+            "y": 11,
+            "width": 5,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "orders_by_region_area",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_daily",
+                  "fields": [
+                    {
+                      "name": "weekly(date)",
+                      "expression": "DATE_TRUNC(\"WEEK\", `date`)"
+                    },
+                    {
+                      "name": "region",
+                      "expression": "`region`"
+                    },
+                    {
+                      "name": "sum(order_count)",
+                      "expression": "SUM(`order_count`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "area",
+              "encodings": {
+                "x": {
+                  "fieldName": "weekly(date)",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "displayName": "Week"
+                },
+                "y": {
+                  "fieldName": "sum(order_count)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "axis": {
+                    "title": "Orders"
+                  },
+                  "displayName": "Orders"
+                },
+                "color": {
+                  "fieldName": "region",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "US",
+                        "color": "#FE9000"
+                      }
+                    ]
+                  },
+                  "displayName": "Region"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Weekly orders by region",
+                "showDescription": true,
+                "description": "Orders stay flat \u2014 the business is fine, only refunds spiked."
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 11,
+            "width": 7,
+            "height": 6
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1"
+    },
+    {
+      "name": "investigation",
+      "displayName": "Investigation",
+      "layout": [
+        {
+          "widget": {
+            "name": "returns_title",
+            "multilineTextboxSpec": {
+              "lines": [
+                "# Investigation \u2014 why is this happening?\n",
+                "\n",
+                "**Same data, split by the dimensions that matter** \u2014 which products, which lots, which countries, what customers are saying. \n",
+                "\n",
+                "The story emerges: 3 Skincare SKUs sit an order of magnitude above the rest \u00b7 all on ONE lot (`LOT-2026-0427`, \\~10\u00d7 any other) \u00b7 the affected-lot bars dwarf everyday returns in every EU country and `quality` is the dominant reason \u00b7 `ai_classify` puts most affected-lot comments into Angry / Very angry \u00b7 the comments cluster on \"grainy\", \"separated\", \"watery\".\n",
+                "\n",
+                "Click any **'Affected lot'** bar to filter every other widget on the page."
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 12,
+            "height": 4
+          }
+        },
+        {
+          "widget": {
+            "name": "category_product_lot_sankey",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_sankey_flow",
+                  "fields": [
+                    {
+                      "name": "category",
+                      "expression": "`category`"
+                    },
+                    {
+                      "name": "product_name",
+                      "expression": "`product_name`"
+                    },
+                    {
+                      "name": "lot_id",
+                      "expression": "`lot_id`"
+                    },
+                    {
+                      "name": "returns",
+                      "expression": "`returns`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 1,
+              "widgetType": "sankey",
+              "encodings": {
+                "value": {
+                  "fieldName": "returns"
+                },
+                "stages": [
+                  {
+                    "fieldName": "category",
+                    "displayName": "Category"
+                  },
+                  {
+                    "fieldName": "product_name",
+                    "displayName": "Product"
+                  },
+                  {
+                    "fieldName": "lot_id",
+                    "displayName": "Lot"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Returns flow \u2014 Category \u2192 Product \u2192 Production lot",
+                "description": "Three Skincare SKUs all converge on one lot.",
+                "showDescription": true
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 4,
+            "width": 12,
+            "height": 8
+          }
+        },
+        {
+          "widget": {
+            "name": "sec_compare",
+            "multilineTextboxSpec": {
+              "lines": [
+                "## Affected lot vs everyday returns"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 12,
+            "width": 12,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "country_split_chart",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_returns",
+                  "fields": [
+                    {
+                      "name": "source",
+                      "expression": "`source`"
+                    },
+                    {
+                      "name": "country",
+                      "expression": "`country`"
+                    },
+                    {
+                      "name": "sum(refund_amount_usd)",
+                      "expression": "SUM(`refund_amount_usd`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "frame": {
+                "showTitle": true,
+                "title": "Refunds by country: affected lot vs everyday",
+                "showDescription": false
+              },
+              "mark": {
+                "layout": "group"
+              },
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "country",
+                  "displayName": "Country",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "y": {
+                  "fieldName": "sum(refund_amount_usd)",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "exact",
+                      "places": 2
+                    }
+                  },
+                  "displayName": "Refunds ($)",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "color": {
+                  "fieldName": "source",
+                  "displayName": "",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Affected lot",
+                        "color": "#FFDD4A"
+                      },
+                      {
+                        "value": "Everyday returns",
+                        "color": "#3C6997"
+                      }
+                    ]
+                  }
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 13,
+            "width": 6,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "reasons_split_chart",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_returns",
+                  "fields": [
+                    {
+                      "name": "source",
+                      "expression": "`source`"
+                    },
+                    {
+                      "name": "count(return_id)",
+                      "expression": "COUNT(`return_id`)"
+                    },
+                    {
+                      "name": "return_reason",
+                      "expression": "`return_reason`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "frame": {
+                "showTitle": true,
+                "title": "Return reasons: affected lot vs everyday",
+                "showDescription": false
+              },
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "count(return_id)",
+                  "displayName": "Returns",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "y": {
+                  "fieldName": "return_reason",
+                  "displayName": "Reason",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "x-reversed"
+                    }
+                  }
+                },
+                "color": {
+                  "fieldName": "source",
+                  "displayName": "",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Affected lot",
+                        "color": "#FFDD4A"
+                      },
+                      {
+                        "value": "Everyday returns",
+                        "color": "#3C6997"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 13,
+            "width": 6,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "sec_sentiment",
+            "multilineTextboxSpec": {
+              "lines": [
+                "## Customer sentiment & geography"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 19,
+            "width": 12,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "anger_chart",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_returns",
+                  "fields": [
+                    {
+                      "name": "sentiment",
+                      "expression": "`sentiment`"
+                    },
+                    {
+                      "name": "count(return_id)",
+                      "expression": "COUNT(`return_id`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "sentiment",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "natural"
+                    }
+                  },
+                  "axis": {
+                    "title": "Sentiment"
+                  },
+                  "displayName": "Sentiment"
+                },
+                "y": {
+                  "fieldName": "count(return_id)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "axis": {
+                    "title": "Returns"
+                  },
+                  "displayName": "Returns"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Sentiment of return comments (ai_classify)",
+                "showDescription": false
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 20,
+            "width": 6,
+            "height": 5
+          }
+        },
+        {
+          "widget": {
+            "name": "city_table",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_returns",
+                  "fields": [
+                    {
+                      "name": "city",
+                      "expression": "`city`"
+                    },
+                    {
+                      "name": "country",
+                      "expression": "`country`"
+                    },
+                    {
+                      "name": "countdistinct(return_id)",
+                      "expression": "COUNT(DISTINCT `return_id`)"
+                    },
+                    {
+                      "name": "sum(refund_amount_usd)",
+                      "expression": "SUM(`refund_amount_usd`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "city",
+                    "displayName": "City"
+                  },
+                  {
+                    "fieldName": "country",
+                    "displayName": "Country"
+                  },
+                  {
+                    "fieldName": "countdistinct(return_id)",
+                    "displayName": "Returns"
+                  },
+                  {
+                    "fieldName": "sum(refund_amount_usd)",
+                    "displayName": "Refund $"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Returns by city"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 20,
+            "width": 6,
+            "height": 5
+          }
+        },
+        {
+          "widget": {
+            "name": "angry_comments_table",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_returns",
+                  "fields": [
+                    {
+                      "name": "product_name",
+                      "expression": "`product_name`"
+                    },
+                    {
+                      "name": "country",
+                      "expression": "`country`"
+                    },
+                    {
+                      "name": "city",
+                      "expression": "`city`"
+                    },
+                    {
+                      "name": "anger_score",
+                      "expression": "`anger_score`"
+                    },
+                    {
+                      "name": "customer_comment",
+                      "expression": "`customer_comment`"
+                    },
+                    {
+                      "name": "refund_amount_usd",
+                      "expression": "`refund_amount_usd`"
+                    },
+                    {
+                      "name": "return_date",
+                      "expression": "`return_date`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "return_date",
+                    "displayName": "Date"
+                  },
+                  {
+                    "fieldName": "product_name",
+                    "displayName": "Product"
+                  },
+                  {
+                    "fieldName": "country",
+                    "displayName": "Country"
+                  },
+                  {
+                    "fieldName": "city",
+                    "displayName": "City"
+                  },
+                  {
+                    "fieldName": "anger_score",
+                    "displayName": "Anger"
+                  },
+                  {
+                    "fieldName": "refund_amount_usd",
+                    "displayName": "Refund $"
+                  },
+                  {
+                    "fieldName": "customer_comment",
+                    "displayName": "Comment"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Customer comments",
+                "description": "Sort by Anger to surface the bad-lot complaints.",
+                "showDescription": true
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 25,
+            "width": 12,
+            "height": 6
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1"
+    }
+  ],
+  "uiSettings": {
+    "theme": {
+      "canvasBackgroundColor": {
+        "light": "#F5F7FB",
+        "dark": "#0F1419"
+      },
+      "widgetBackgroundColor": {
+        "light": "#FFFFFF",
+        "dark": "#161B22"
+      },
+      "widgetBorderColor": {
+        "light": "#FFFFFF",
+        "dark": "#161B22"
+      },
+      "fontColor": {
+        "light": "#1F2530",
+        "dark": "#E8ECF0"
+      },
+      "selectionColor": {
+        "light": "#4F7CE3",
+        "dark": "#8ACAFF"
+      },
+      "visualizationColors": [
+        "#094074",
+        "#3C6997",
+        "#5ADBFF",
+        "#FFDD4A",
+        "#FE9000"
+      ],
+      "widgetHeaderAlignment": "LEFT"
+    }
+  }
+}

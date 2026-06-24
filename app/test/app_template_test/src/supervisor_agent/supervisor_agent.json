@@ -1,0 +1,35 @@
+{
+  "_README": "Multi-Agent Supervisor (MAS) config — re-creatable via `databricks supervisor-agents create-supervisor-agent` then `create-tool` once per tool. The MAS endpoint is what the Databricks App's `ask_data` tool talks to (config/app.json → masEndpointName).",
+
+  "supervisor_agent": {
+    "display_name": "luxebeauty-test-supervisor",
+    "description": "Routes returns-investigation questions to Genie (data) and KA (incident reports)",
+    "instructions": "You answer questions from Claire, VP Ops at LuxeBeauty. Route data/SQL questions to the data_analyst tool (Genie). Route manufacturing incident / equipment / QC report questions to the incident_expert tool (KA). For multi-part questions, call both and synthesize. Quote the incident summary verbatim when you have it. Keep answers short — lead with the number."
+  },
+
+  "tools": [
+    {
+      "tool_id": "incident_expert",
+      "description": "Use for questions about manufacturing incidents, QC reports, equipment, calibration — answers from PIR / QC / maintenance PDFs",
+      "tool_type": "knowledge_assistant",
+      "knowledge_assistant": {
+        "knowledge_assistant_id": "d2f6a0b3-0980-46a9-9442-a3696f37be7a",
+        "serving_endpoint_name": "ka-d2f6a0b3-endpoint"
+      }
+    },
+    {
+      "tool_id": "data_analyst",
+      "description": "Use for any data/SQL question — returns, products, lots, customers, revenue, premium-cohort splits",
+      "tool_type": "genie_space",
+      "genie_space": {
+        "id": "01f15cd76d7914febe016a1444652a47"
+      }
+    }
+  ],
+
+  "_deployed_state": {
+    "supervisor_agent_id": "e882dd2e-739b-4abd-a59f-be46d9751d0b",
+    "endpoint_name": "mas-e882dd2e-endpoint",
+    "experiment_id": "112419715816740"
+  }
+}
