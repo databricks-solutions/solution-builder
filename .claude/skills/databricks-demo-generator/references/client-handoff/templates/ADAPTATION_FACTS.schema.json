@@ -124,7 +124,7 @@
         "additionalProperties": false,
         "required": ["task_class", "paths", "reason"],
         "properties": {
-          "task_class": { "type": "string", "description": "Granular operation key. rename family for identifier renames ('rename_column','rename_table'); transform family for metric/threshold/grain/segment/formula edits ('add_metric','change_grain','add_segment'); 'setup' for deploy-time. The adaptation skill matches these to its intent classes (rename/transform/setup) by FAMILY, not exact string." },
+          "task_class": { "type": "string", "description": "Granular, operation-specific key: 'rename_table' and 'rename_column' are DISTINCT operations; transform ops ('add_metric','change_grain','add_segment'); 'setup' for deploy-time. The adaptation skill matches each lock to the SPECIFIC operation (a table rename matches only 'rename_table' locks, NOT 'rename_column'); it must NOT substring-match the 'rename' stem." },
           "paths": { "type": "array", "items": { "type": "string" }, "description": "Exact relative file paths to lock." },
           "reason": { "type": "string" }
         }
