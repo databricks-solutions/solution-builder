@@ -35,7 +35,7 @@ dependencies = [
     "plutoprint==0.19.0",
     "alembic",
     # Data-generation helpers used by the demo-building agent.
-    "databricks-connect>=16.1,<16.2",
+    "databricks-connect>=16.1,<18.4",
     "faker>=30.0",
     "holidays>=0.55",
     "dbdemos-tracker>=0.1.12",
