@@ -81,6 +81,8 @@ Real thinking (surprising results, tradeoffs, ambiguity, errors) is welcome. Fil
 Source of truth for what capabilities the demo includes. Created during spec phase with capabilities, updated during build with resource IDs. Structure mirrors `DEMO_SKILL_DIR/references/example-luxebeauty/resources.json`.
 You must keep this exact naming convention.
 
+**`created_resources` starts empty `{}` and grows one key at a time.** Add a resource's ID key **only after that resource is actually created and validated** (Stage 3, build loop step 5). **Never pre-seed a key** — not with a placeholder like `<your-dashboard-uuid>`, not with `""`, not by copying the example file's keys wholesale. The reference example below shows the *final* shape of a fully-built demo; it is a naming reference, **not a scaffold to paste in up front**. The UI's resource-link builder renders a clickable link for any present, non-empty ID, so a pre-seeded `dashboard_id`/`genie_space_id` becomes a dead link to a resource that doesn't exist yet.
+
 **After build** (populated with created resource IDs — do not add links here). **Use these exact key names**; the UI's resource-link builder is wired to them. Skip a section entirely when the demo doesn't include that capability, but do NOT rename keys. Authoritative reference: `DEMO_SKILL_DIR/references/example-luxebeauty/resources.json`. Lakebase sub-keys are defined in `DEMO_SKILL_DIR/app/app.md`.
 
 ```json

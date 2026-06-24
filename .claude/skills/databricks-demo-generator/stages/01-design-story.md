@@ -38,20 +38,20 @@ Emit `Write` calls for `resources.json`, `architecture.md`, and `README.md` **in
 
 ### `./resources.json`
 
-The user's message may include a capabilities list — follow it unless something is missing or incoherent (e.g. user wants an app but it's not listed, or data gen is missing). In that case, adjust and note the adjustment. Avoid adding capabilities just for the sake of it.
+`resources.json` is **already seeded** at the project root with the selected capabilities and an empty `created_resources: {}`. Your job is to **verify/adjust the capabilities** in the existing file and rewrite it — not to invent it from scratch. The user's message may include a capabilities list — follow it unless something is missing or incoherent (e.g. user wants an app but it's not listed, or data gen is missing). In that case, adjust and note the adjustment. Avoid adding capabilities just for the sake of it.
 
-Structure mirrors the matching example (`example-luxebeauty-simple/resources.json` for simple builds, `example-luxebeauty/resources.json` for full builds):
+Structure (the matching example — `example-luxebeauty-simple/resources.json` for simple builds, `example-luxebeauty/resources.json` for full builds — is a **naming reference for the keys the build phase will add**, NOT a scaffold to copy; its `created_resources` is shown fully populated because it's a *finished* demo):
 
 ```json
 {
   "capabilities": { "buildable": [...], "talking_track": [...] },
-  "created_resources": { /* filled during build */ }
+  "created_resources": {}
 }
 ```
 
 - **buildable**: capabilities that require actual Databricks resources (pipelines, dashboards, agents, apps).
 - **talking_track**: capabilities mentioned in the demo narrative but not requiring resource creation.
-- **created_resources**: left empty now; the build phase fills it in with IDs.
+- **created_resources**: **leave it `{}` now.** Do NOT copy the example's IDs or pre-seed placeholder/empty keys — the build phase adds each real ID only after it creates that resource. The UI renders a link for any key present here, so a placeholder becomes a dead link.
 
 Capability IDs come from `DEMO_SKILL_DIR/references/platform_architecture.md`.
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import hashlib
+import json
 import re
 import shutil
 from datetime import datetime, timezone
@@ -38,6 +39,7 @@ from ..models import (
 )
 from ..services.file_sync import FileSyncService, decompress_content
 from ..services.skills_manager import (
+    build_initial_resources_json,
     create_project_directory,
     get_project_directory,
 )
@@ -498,6 +500,20 @@ def create_project(
     # Create project directory (no README yet - agent will create it).
     # Passing capabilities scopes the copied skills to what this demo needs.
     create_project_directory(project.id, capabilities=body.capabilities)
+
+    # Seed a clean resources.json up front: the selected capabilities,
+    # classified buildable/talking_track, with `created_resources` EMPTY.
+    # The build agent appends real IDs as it creates each resource. Seeding
+    # an empty file (rather than letting the agent invent one by mirroring
+    # the example, whose `created_resources` is fully populated) guarantees a
+    # freshly created project never carries placeholder IDs — a pre-seeded
+    # `dashboard_id`/`genie_space_id` would otherwise render as a dead link
+    # to a resource that doesn't exist yet.
+    project_dir = get_project_directory(project.id)
+    (project_dir / "resources.json").write_text(
+        json.dumps(build_initial_resources_json(body.capabilities or []), indent=2),
+        encoding="utf-8",
+    )
 
     # Save uploaded context files (home-page widget) + the legacy
     # single-document fallback.
