@@ -8,8 +8,8 @@ Prerequisites: [`uv`](https://docs.astral.sh/uv/), [`bun`](https://bun.sh/), and
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/databricks-solutions/databricks-solution-builder.git
-   cd databricks-solution-builder/app
+   git clone https://github.com/databricks-solutions/solution-builder.git
+   cd solution-builder/app
    ```
 
 2. Configure environment:

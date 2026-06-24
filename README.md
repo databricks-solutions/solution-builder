@@ -77,8 +77,8 @@ Every solution becomes context for the next. Reskin one industry for another; sw
 
 ```bash
 # 1. Clone
-git clone https://github.com/databricks-solutions/databricks-solution-builder.git
-cd databricks-solution-builder/app
+git clone https://github.com/databricks-solutions/solution-builder.git
+cd solution-builder/app
 
 # 2. Authenticate the Databricks CLI (one-time)
 databricks auth login --host https://<workspace-url> --profile MY_WORKSPACE
@@ -247,7 +247,7 @@ To cut a versioned release:
 Install the Solution Generator skill (and, optionally, the [AI Dev Kit](https://github.com/databricks-solutions/ai-dev-kit)) into your `~/.claude/` once, then drive everything from any terminal:
 
 ```bash
-bash <(curl -sL https://raw.githubusercontent.com/databricks-solutions/databricks-solution-builder/main/install.sh)
+bash <(curl -sL https://raw.githubusercontent.com/databricks-solutions/solution-builder/main/install.sh)
 ```
 
 `cd` into any project, run `claude`, and the skill loads automatically — the agent can design, write, and build Databricks assets end-to-end from the terminal.
@@ -392,7 +392,7 @@ Tables are auto-created on startup via SQLModel + DDL migrations in `lakebase.py
 <br>
 
 ```
-databricks-solution-builder/
+solution-builder/
 ├── app/                          # Full-stack application (see app/CLAUDE.md)
 │   ├── src/demo_prompt_generator/
 │   │   ├── backend/
@@ -455,11 +455,11 @@ Blocks on disk are automatically available to the agent's system prompt for all 
 
 ## ⭐ Star history
 
-<a href="https://star-history.com/#databricks-solutions/databricks-solution-builder&Date">
+<a href="https://star-history.com/#databricks-solutions/solution-builder&Date">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=databricks-solutions/databricks-solution-builder&type=Date&theme=dark" />
-    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=databricks-solutions/databricks-solution-builder&type=Date" />
-    <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=databricks-solutions/databricks-solution-builder&type=Date" />
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=databricks-solutions/solution-builder&type=Date&theme=dark" />
+    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=databricks-solutions/solution-builder&type=Date" />
+    <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=databricks-solutions/solution-builder&type=Date" />
   </picture>
 </a>
 

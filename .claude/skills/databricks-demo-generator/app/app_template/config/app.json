@@ -2,7 +2,7 @@
   "_README": "App config — read by server/server.ts at boot, exposed (minus secrets) to the client via /api/config (server/routes/config.ts). JSON has no comments, so help text lives in `_*_help` keys; ignore them at runtime. Update one field at a time + restart the dev server (config is read once at boot).",
 
   "_dataBackend_help": "The agent talks to ONE data backend. Template ships with MAS → server/agent/refundops.ts registers `ask_mas` (server/agent/tools/mas.ts). For Genie-only demos: set genieSpaceId, clear masEndpointName, swap to askGenieTool in refundops.ts AgentContext + makeTools. For demos with both: register both factories with distinct names + tell the model in instructions when to prefer each.",
-  "masEndpointName": "mas-4bf872c5-endpoint",
+  "masEndpointName": "mas-xxxxxxxx-endpoint",
   "genieSpaceId": "",
 
   "_agentModel_help": "Foundation Model serving endpoint that powers the OpenAI Agents loop (server/agent/refundops.ts → configureAgentsSdk). MUST be `databricks-gpt-5-4`. Why: the Agents SDK defaults to the OpenAI Responses API, which Databricks gates per-model. GPT-5-4 is the only Databricks-hosted model with `openai/v1/responses` enabled today — Anthropic models (Sonnet 4.6, etc.) return 400 BAD_REQUEST. Using anything other than GPT-5-4 will break the agent.",

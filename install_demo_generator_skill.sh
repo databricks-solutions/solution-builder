@@ -4,12 +4,12 @@
 # For most users the curl-piped installer is simpler — it doesn't require a
 # clone and can also install the AI Dev Kit alongside the skill:
 #
-#   bash <(curl -sL https://raw.githubusercontent.com/databricks-solutions/databricks-solution-builder/main/install.sh) --project
+#   bash <(curl -sL https://raw.githubusercontent.com/databricks-solutions/solution-builder/main/install.sh) --project
 #
 # This script remains for running install from a local clone.
 #
 # Usage (requires gh CLI authenticated):
-#   gh repo clone databricks-solutions/databricks-solution-builder /tmp/dsb && /tmp/dsb/install_demo_generator_skill.sh && rm -rf /tmp/dsb
+#   gh repo clone databricks-solutions/solution-builder /tmp/dsb && /tmp/dsb/install_demo_generator_skill.sh && rm -rf /tmp/dsb
 #
 # Or if you have the repo cloned:
 #   ./install_demo_generator_skill.sh
