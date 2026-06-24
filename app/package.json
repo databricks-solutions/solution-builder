@@ -61,7 +61,7 @@
         "clsx": "2.1.1",
         "electron": "^33.4.11",
         "electron-builder": "^25.1.8",
-        "lucide-react": "^0.575.0",
+        "lucide-react": "^1.21.0",
         "mermaid": "^11.14.0",
         "motion": "12.24.10",
         "react": "19.2.3",
