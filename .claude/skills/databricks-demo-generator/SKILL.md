@@ -22,6 +22,7 @@ The main loop lives in this file (SKILL.md) — it describes **the flow**: stage
 | **2. Write Specs** | Write `01-lakeflow.md`, then the other top-level specs, then the app spec (if app needed), coherence review | ✅ *"Ready to build?"* | `stages/02-write-specs.md` |
 | **3. Build** (opt) | Create Databricks resources via ai-dev-kit skills | — (build completes) | `stages/03-build.md` |
 | **4. Package as a DAB** (opt) | On user request only, post-build | — | `references/dab/dab.md` |
+| **5. Client Handoff** (opt, prompted) | Strip SA-environment fingerprint, wire synth/real toggle, bundle Genie Code skill | ✅ *"Ready to publish for the client?"* | `references/client-handoff/client-handoff.md` |
 
 **Cross-cutting (not a stage):**
 - **App creation** — folded into stages 2 + 3: `DEMO_SKILL_DIR/app/app.md`
@@ -259,6 +260,11 @@ If the user confirms, **read `DEMO_SKILL_DIR/stages/03-build.md` now** and follo
 ## Stage 4 — Package as a DAB (optional)
 
 When the user asks you to create a DAB, read `DEMO_SKILL_DIR/references/dab/dab.md` and create the DAB specification.
+
+After the DAB is packaged, prompt the user:
+> "DAB packaged. Want to make this client-handoff-ready? (Stage 5 strips SA-env, adds a synth-data toggle, and bundles a Genie Code skill for the client.) Reply 'yes' to continue or 'no' to stop."
+
+On `yes`, invoke `references/client-handoff/client-handoff.md`.
 
 ---
 
