@@ -61,7 +61,7 @@ import {
   lakebase,
   analytics,
 } from '@databricks/appkit';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { parse as parseJsonc, type ParseError, printParseErrorCode } from 'jsonc-parser';
@@ -79,6 +79,7 @@ import { registerChatRoutes } from './routes/chat.js';
 import { registerReturnsRoutes } from './routes/returns.js';
 import { registerActivityRoutes } from './routes/activity.js';
 import { registerAdminRoutes } from './routes/admin.js';
+import { registerChartRoutes } from './routes/charts.js';
 import { registerDevLogRoutes } from './routes/dev-log.js';
 
 // ============================================================================
@@ -147,6 +148,9 @@ type AppConfig = {
       returns: string;
       orders: string;
       customers: string;
+      // Optional ML predictions table — db/sync.ts skips when falsy.
+      // Mirrors tablesSchema below; keep the two in sync.
+      customerPremium?: string;
     };
   };
 };
@@ -197,8 +201,14 @@ const appConfigSchema = z
       .optional(),
     data: z
       .object({
-        catalog: z.string().min(1),
-        schema: z.string().min(1),
+        // NOT `.min(1)`: in local-dev / preview mode DEMO_CATALOG/DEMO_SCHEMA
+        // may be unset, so the `${DEMO_CATALOG}` placeholders resolve to "".
+        // We must BOOT (degraded) rather than crash — the Delta→Lakebase sync
+        // already no-ops when DATABRICKS_WAREHOUSE_ID is unset (db/sync.ts),
+        // which is the same condition, so empty catalog/schema never reaches
+        // a query. Deployed mode always has all three set together.
+        catalog: z.string(),
+        schema: z.string(),
         tables: tablesSchema,
       })
       .optional(),
@@ -221,6 +231,16 @@ function loadAppConfig(): AppConfig {
       `[config] Could not read ${CONFIG_PATH}: ${(e as Error).message}`,
     );
   }
+
+  // Pre-process `${VAR}` / `${VAR:default}` placeholders against process.env
+  // so the same config file works across DAB deployments. Unknown vars with
+  // no default resolve to "" (the zod schema accepts empty strings for the
+  // optional fields). This runs BEFORE the JSONC parse so substituted text
+  // is part of the parsed document.
+  raw = raw.replace(/\$\{([A-Z_][A-Z0-9_]*)(?::([^}]*))?\}/g, (_, name, dflt) => {
+    const v = process.env[name];
+    return v !== undefined && v !== '' ? v : (dflt ?? '');
+  });
 
   // Parse with jsonc-parser so config/app.json supports `//` and `/* */`
   // comments + trailing commas. We still write a `.json` file (no extension
@@ -470,6 +490,22 @@ appkit.server.extend((app) => {
   registerReturnsRoutes(app, { db });
   registerActivityRoutes(app, { db });
   registerAdminRoutes(app, { db, data: appConfig.data });
+
+  // Analytics charts — custom route that substitutes catalog/schema into the
+  // SQL (the AppKit analytics plugin can't template identifiers). Served at
+  // /api/charts/<key>; AnalyticsView feeds the rows to charts via `data`.
+  if (appConfig.data) {
+    registerChartRoutes(app, {
+      query: (sql, params, formatParameters) =>
+        appkit.analytics.query(sql, params, formatParameters),
+      catalog: appConfig.data.catalog,
+      schema: appConfig.data.schema,
+      queriesDir: resolve(
+        dirname(fileURLToPath(import.meta.url)),
+        '../config/queries',
+      ),
+    });
+  }
 
   if (process.env.DEV_CLIENT_ERROR_LOG === '1') {
     registerDevLogRoutes(app, logErrorCompact);

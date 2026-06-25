@@ -25,10 +25,21 @@ from sklearn.metrics import roc_auc_score
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import OneHotEncoder
 
-CATALOG = "retail_consumer_goods"
-SCHEMA  = "luxebeauty_demo"
+# Catalog + schema are widget-overridable so this notebook works under DAB
+# (set via task base_parameters) and during manual runs (defaults).
+try:
+    dbutils.widgets.text("catalog", "retail_consumer_goods", "Catalog")
+    dbutils.widgets.text("schema",  "luxebeauty_demo",       "Schema")
+    CATALOG = dbutils.widgets.get("catalog")
+    SCHEMA  = dbutils.widgets.get("schema")
+except NameError:
+    import os
+    CATALOG = os.environ.get("DEMO_CATALOG") or "retail_consumer_goods"
+    SCHEMA  = os.environ.get("DEMO_SCHEMA")  or "luxebeauty_demo"
+
 MODEL_NAME = f"{CATALOG}.{SCHEMA}.customer_premium_classifier"
-EXPERIMENT_PATH = "/Workspace/Users/quentin.ambard@databricks.com/luxebeauty_demo/experiments/premium_classifier"
+# Per-user experiment path keeps each deploy's MLflow experiment isolated.
+EXPERIMENT_PATH = f"/Shared/{CATALOG}_{SCHEMA}_premium_classifier"
 
 # UC registry + experiment (parent folder pre-created externally — see SKILL.md)
 mlflow.set_registry_uri("databricks-uc")

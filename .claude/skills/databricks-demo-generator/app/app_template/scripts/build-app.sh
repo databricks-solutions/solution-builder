@@ -11,6 +11,12 @@
 #      bakes those URLs into the lockfile; the Apps container can't reach
 #      the proxy, so its install hangs ~8 min and dies with the misleading
 #      "Exit handler never called!". No-op when already public (off-VPN).
+#
+# Env var injection: NOT done here. The setup job's final task
+# (patch_app_env.py) POSTs a new app deployment with the full env list
+# (bundle-resolved IDs + task-value Genie/KA/MAS IDs). Doing it post-job
+# keeps everything in one place AND lets us include task-value-derived
+# data the bundle can't know at deploy time.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -47,5 +53,6 @@ fi
     echo "[build-app] ERROR: client/dist/index.html missing — client build failed?" >&2
     exit 1
 }
+
 
 echo "[build-app] done — dist/ + client/dist/ ready, lockfile points at public registry"

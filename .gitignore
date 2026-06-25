@@ -31,6 +31,13 @@ bun.lockb
 !.claude/skills/databricks-demo-generator/app/app_template/package.json
 !.claude/skills/databricks-demo-generator/app/app_template/package-lock.json
 
+# Same exception for the test app — the bundle CLI honors .gitignore at
+# the repo root when packaging the app source, so without these un-ignore
+# rules the Apps platform receives no dependencies file and the container
+# crashes with `ERR_MODULE_NOT_FOUND` at boot.
+!app/test/app_template_test/app/package.json
+!app/test/app_template_test/app/package-lock.json
+
 # Playwright artifacts
 playwright-report/
 test-results/

@@ -5,36 +5,28 @@
       "displayName": "Daily summary",
       "queryLines": [
         "SELECT date, region, category, order_count, return_count, revenue_usd, returns_usd FROM gold_daily_summary"
-      ],
-      "catalog": "<your-catalog>",
-      "schema": "<your-schema>"
+      ]
     },
     {
       "name": "ds_returns",
       "displayName": "Returns (per-row)",
       "queryLines": [
         "SELECT return_id, return_date, country, city, customer_lat, customer_lng, region, product_name, category, lot_id, facility, is_bad_lot, CASE WHEN is_bad_lot THEN 'Affected lot' ELSE 'Everyday returns' END AS source, return_reason, customer_comment, anger_score, CASE WHEN anger_score >= 0.9 THEN '3 - Very angry' WHEN anger_score >= 0.5 THEN '2 - Angry' WHEN anger_score >= 0.2 THEN '1 - Neutral' ELSE '0 - Satisfied' END AS sentiment, refund_amount_usd FROM gold_returns"
-      ],
-      "catalog": "<your-catalog>",
-      "schema": "<your-schema>"
+      ]
     },
     {
       "name": "ds_forecast",
       "displayName": "Weekly refunds \u2014 actuals + forecast",
       "queryLines": [
         "WITH original AS ( SELECT DATE_TRUNC('WEEK', date) AS week, SUM(returns_usd) AS refunds FROM gold_daily_summary WHERE DATE_TRUNC('WEEK', date) < DATE_TRUNC('WEEK', current_date()) AND date >= DATEADD(day, -180, current_date()) GROUP BY 1), dates AS ( SELECT MAX(week) AS max_w FROM original), forecast AS ( SELECT week, refunds_forecast, refunds_upper, refunds_lower FROM AI_FORECAST(   TABLE(original),   horizon => (SELECT max_w + INTERVAL 28 DAYS FROM dates),   time_col => 'week',   value_col => 'refunds', parameters => '{\"global_floor\": 0}' )), actuals AS ( SELECT week, CAST(NULL AS DOUBLE) AS refunds_forecast,        CAST(NULL AS DOUBLE) AS refunds_upper,        CAST(NULL AS DOUBLE) AS refunds_lower, refunds FROM original), forecast_aligned AS ( SELECT week, refunds_forecast, refunds_upper, refunds_lower,        CAST(NULL AS DOUBLE) AS refunds FROM forecast) SELECT week, refunds_forecast, refunds_upper, refunds_lower, refunds FROM actuals UNION ALL SELECT week, refunds_forecast, refunds_upper, refunds_lower, refunds FROM forecast_aligned UNION ALL SELECT (SELECT max_w FROM dates) AS week,        refunds AS refunds_forecast, refunds AS refunds_upper,        refunds AS refunds_lower, CAST(NULL AS DOUBLE) AS refunds FROM original WHERE week = (SELECT max_w FROM dates)"
-      ],
-      "catalog": "<your-catalog>",
-      "schema": "<your-schema>"
+      ]
     },
     {
       "name": "ds_sankey_flow",
       "displayName": "Category \u2192 product \u2192 top lot flow (long tails bucketed)",
       "queryLines": [
         "WITH product_totals AS ( SELECT product_name, COUNT(*) AS n FROM gold_returns GROUP BY product_name), top_products AS ( SELECT product_name FROM product_totals ORDER BY n DESC LIMIT 10), lot_totals AS ( SELECT lot_id, COUNT(*) AS n FROM gold_returns GROUP BY lot_id), top_lots AS ( SELECT lot_id FROM lot_totals ORDER BY n DESC LIMIT 15) SELECT category, CASE WHEN r.product_name IN (SELECT product_name FROM top_products) THEN r.product_name ELSE 'Other products' END AS product_name, CASE WHEN r.lot_id IN (SELECT lot_id FROM top_lots) THEN r.lot_id ELSE 'Other lots' END AS lot_id, COUNT(*) AS returns FROM gold_returns r GROUP BY category, CASE WHEN r.product_name IN (SELECT product_name FROM top_products) THEN r.product_name ELSE 'Other products' END, CASE WHEN r.lot_id IN (SELECT lot_id FROM top_lots) THEN r.lot_id ELSE 'Other lots' END"
-      ],
-      "catalog": "<your-catalog>",
-      "schema": "<your-schema>"
+      ]
     }
   ],
   "pages": [

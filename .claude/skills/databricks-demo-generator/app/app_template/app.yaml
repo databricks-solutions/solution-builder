@@ -1,22 +1,22 @@
 # Databricks App manifest — read by the runtime when the container starts.
 #
+# This is the TEMPLATE app.yaml. scripts/finalize_app.sh renders the deployed
+# app.yaml from it: keeps this header + command + scopes + binding-derived env,
+# and appends the plain-value env vars (DEMO_CATALOG, DASHBOARD_ID,
+# GENIE_SPACE_ID, …) harvested from the setup job's export_resources output.
+# Plain values live in exactly one place (finalize_app.sh), assembled after
+# the job runs — the bundle can't know the Genie/KA/MAS IDs at deploy time.
+# Binding-derived vars (DATABRICKS_WAREHOUSE_ID, LAKEBASE_ENDPOINT) stay here.
+#
 # Lifecycle on the Apps container (in order):
-#   1. `npm install` runs against the shipped lockfile. .npmrc has
-#      `omit=dev` so only runtime deps install — fast and small.
-#   2. `npm run build` runs. Our package.json's `build` script is a
-#      no-op echo (the real build ran locally via scripts/build-app.sh
-#      and dist/server.js + client/dist/ are shipped via DAB sync).
-#      Apps platform requires this step to succeed; the no-op satisfies
-#      it while avoiding tsdown/vite which aren't installed at runtime.
-#   3. The `command:` below runs to start the server.
+#   1. `npm install` against the shipped lockfile.
+#   2. `npm run build` (no-op echo — real build runs locally via
+#      scripts/build-app.sh and dist/ ships via DAB sync.include).
+#   3. The `command:` below starts the server.
 
 command: ['node', '--env-file-if-exists=.env', 'dist/server.js']
 
 # Scopes minted into the user's OBO token (x-forwarded-access-token).
-# Without `model-serving` here, calls to /serving-endpoints fail with
-# "Provided OAuth token does not have required scopes: model-serving".
-# Add scopes only as the demo needs them — each one requires user consent
-# on first visit.
 user_authorization:
   scopes:
     - model-serving      # OpenAI Agents loop hits /serving-endpoints/responses
@@ -32,8 +32,15 @@ env:
   - name: NODE_ENV
     value: production
 
-  # Interactive-deploy path (no databricks.yml DAB resource bindings):
-  # runtime config comes from the .env file shipped with the source.
-  # If you switch to a DAB-deploy flow, re-add `valueFrom: sql-warehouse`
-  # / `valueFrom: postgres` entries here and wire the matching resources
-  # in databricks.yml's apps.<name>.resources block.
+  # ── Binding-derived ─────────────────────────────────────────────────
+  # AppKit's ResourceRegistry expects DATABRICKS_WAREHOUSE_ID and the
+  # standard PG* vars from the postgres binding (PGHOST/PGDATABASE/PGUSER
+  # /PGPORT/PGSSLMODE are auto-injected by the platform).
+  - name: DATABRICKS_WAREHOUSE_ID
+    valueFrom: sql-warehouse
+  - name: LAKEBASE_ENDPOINT
+    valueFrom: postgres
+  # Mirror DATABRICKS_WAREHOUSE_ID into WAREHOUSE_ID for config/app.json
+  # placeholder resolution.
+  - name: WAREHOUSE_ID
+    valueFrom: sql-warehouse

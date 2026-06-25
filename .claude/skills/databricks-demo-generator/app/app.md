@@ -123,6 +123,27 @@ When this app step runs, add the following fields to `created_resources` in `res
 
 ### Step 4: Configure environment
 
+**How config works (read this first).** `config/app.json` is JSONC with `${VAR}`
+/ `${VAR:default}` placeholders that `server.ts` substitutes from `process.env`
+at boot. So catalog/schema + every resource ID live in **env vars — one source
+of truth** — not as literals in the JSON. You fill those env vars differently
+per run mode, but the SAME names everywhere:
+
+| Run mode | Where env comes from |
+|----------|----------------------|
+| **Preview** (default — embedded in the generator) | `.env`, sourced by `start.sh` which the generator's preview runner spawns |
+| **Local dev** (`./start.sh`) | `.env`, sourced by `start.sh` |
+| **Deployed** (DAB) | bindings + `app.yaml` env, written by `scripts/finalize_app.sh` after the setup job |
+
+The key env vars `config/app.json` reads: `DEMO_CATALOG`, `DEMO_SCHEMA` (the
+demo's UC catalog/schema), `DASHBOARD_ID`, `PIPELINE_ID`, `WAREHOUSE_ID`,
+`GENIE_SPACE_ID`, `KA_ENDPOINT_NAME`, `MAS_ENDPOINT_NAME`,
+`AGENT_MLFLOW_EXPERIMENT_PATH`. Unset → that field degrades (inert tile /
+skipped feature); the app still boots. So **the agent never edits resource IDs
+into `config/app.json`** — it sets them in `.env` (preview/local) or lets the
+DAB flow inject them (deployed). Only the domain bits in `config/app.json`
+(branding, `assistantScript`, `data.tables` names) are hand-edited per demo.
+
 **Lakebase: use OAuth, not password.** The AppKit `lakebase()` plugin fetches and auto-refreshes 1-hour OAuth tokens (2-minute refresh buffer) and injects them into every `pg.Pool` connection. Code is just `createDb(appkit.lakebase.pool)`. Do not set `PGPASSWORD`.
 
 Identity: local dev = your Databricks user (`databricks auth describe`). Deployed = the app's service principal, auto-granted `CONNECT_AND_CREATE` via the `databricks.yml` Postgres resource.
@@ -173,11 +194,30 @@ databricks postgres delete-database \
 
 Copy the values printed by `lakebase_setup_db.sh` (Step 4a) into `.env`, plus the workspace + warehouse identifiers.
 
+Use `.env.template` as the canonical list (copy it to `.env`, fill in). It
+covers workspace + warehouse + the demo's catalog/schema + resource-deep-link
+IDs + Lakebase:
+
 ```env
 # Databricks workspace
 DATABRICKS_HOST=https://<workspace>.cloud.databricks.com
 DATABRICKS_WORKSPACE_ID=<workspace-id>
-DATABRICKS_WAREHOUSE_ID=<warehouse-id>          # powers analytics + Delta→Lakebase sync
+DATABRICKS_WAREHOUSE_ID=<warehouse-id>          # analytics + Delta→Lakebase sync
+WAREHOUSE_ID=<warehouse-id>                     # same value; /platform deep-link tile
+
+# Demo data (Unity Catalog) — drives config/app.json data.* + analytics SQL.
+# Set these for working /analytics + data sync; unset → those degrade.
+DEMO_CATALOG=<catalog>
+DEMO_SCHEMA=<schema>
+
+# Resource deep-links + agent wiring — empty = inert tile / disabled tool.
+# Fill from resources.json once the resources are deployed.
+DASHBOARD_ID=
+PIPELINE_ID=
+GENIE_SPACE_ID=
+KA_ENDPOINT_NAME=
+MAS_ENDPOINT_NAME=
+AGENT_MLFLOW_EXPERIMENT_PATH=
 
 # Lakebase — values come from lakebase_setup_db.sh. AppKit's lakebase plugin
 # mints a short-lived OAuth token via the SDK auth chain (no PGUSER/PGPASSWORD).
@@ -291,6 +331,41 @@ The script reads `.env` and does it all: uploads source to `/Workspace/Users/<me
 
 The UI's deployed-resources bar reads `app.name` to build the `/apps/<name>` link. `deployment_note` is where you record caveats (quota errors, partial deploys) for next session.
 
-#### When the user wants to ship the demo as a bundle
+#### When the user wants to ship the demo as a bundle (DAB)
 
-Separate from the interactive deploy above: if the user asks for "a DAB / bundle" or "let me deploy this myself," the project's `databricks.yml` plus `scripts/lakebase_setup_db.sh` and `scripts/lakebase_grant_app_credential.sh` are already in place. Point them at those — the user runs them on their own machine. The skill does NOT run `databricks bundle deploy`. If not in place, instructions are in dab.md - but it's a bigger task
+Separate from the interactive deploy above: when the user asks for "a DAB /
+bundle" or "let me deploy this myself," you author a project-root
+`databricks.yml` that provisions **everything** (schema, volumes, pipeline,
+dashboard, app shell) + a setup job that fills them in. The full authoring
+guide is in `references/dab/dab.md`; a complete, working reference DAB lives in
+the test app at `app/test/app_template_test/databricks.yml` — copy its shape.
+
+The deploy is **5 commands** (the user runs them; the skill does NOT run
+`databricks bundle deploy` itself):
+
+```bash
+# 1. Lakebase DB (pre-deploy)
+./app/scripts/lakebase_setup_db.sh --db-name dbgen_<demo>
+# 2. Provision resource shells + setup job
+databricks bundle deploy --var catalog=… --var schema=… --var warehouse_id=…
+# 3. Run the setup job (data → pipeline → MV/ML → genie/ka/mas → export_resources)
+databricks bundle run <demo>_setup --var …
+# 4. Grant the app SP on Lakebase schemas (post-deploy)
+./app/scripts/lakebase_grant_app_credential.sh --app-name … --project-id … --db-name …
+# 5. Harvest resolved IDs → write app.yaml env → deploy the app
+./app/scripts/finalize_app.sh
+```
+
+Why env is finalized OUTSIDE the bundle (steps 3+5): the Genie/KA/MAS endpoint
+IDs only exist AFTER the setup job's SDK tasks run, so the bundle can't know
+them at `deploy` time. The job's last task (`export_resources`) exits a JSON
+manifest of every resolved ID; `finalize_app.sh` reads it back
+(`get-run-output`) and writes `app.yaml`'s env. This keeps a bare
+`bundle deploy` from ever shipping a half-configured app — env is assembled in
+exactly one place.
+
+⚠️ **Never run `databricks apps update --json` to tweak a deployed app's
+scopes/config out of band** — `update` replaces the whole app spec and silently
+drops the `resources` bindings (→ Lakebase SP role deprovisioned → Postgres
+auth fails). Change app config only in `databricks.yml` + redeploy via the
+bundle, or in `app.yaml` via `finalize_app.sh`.

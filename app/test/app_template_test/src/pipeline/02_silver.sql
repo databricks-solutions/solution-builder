@@ -15,7 +15,7 @@ COMMENT 'Distinct customer comments → ai_classify anger score. Read by silver_
 AS
 WITH distinct_comments AS (
   SELECT DISTINCT customer_comment
-  FROM retail_consumer_goods.luxebeauty_demo.raw_returns
+  FROM raw_returns
   WHERE customer_comment IS NOT NULL
 )
 SELECT
@@ -54,12 +54,12 @@ SELECT
   i.quantity,
   i.unit_price_usd,
   i.line_total_usd
-FROM retail_consumer_goods.luxebeauty_demo.raw_order_items i
-JOIN retail_consumer_goods.luxebeauty_demo.raw_orders o
+FROM raw_order_items i
+JOIN raw_orders o
   ON o.order_id = i.order_id
-JOIN retail_consumer_goods.luxebeauty_demo.raw_products p
+JOIN raw_products p
   ON p.product_id = i.product_id
-LEFT JOIN retail_consumer_goods.luxebeauty_demo.raw_production_lots l
+LEFT JOIN raw_production_lots l
   ON l.lot_id = i.lot_id AND l.product_id = i.product_id;
 
 -- silver_returns: each return carries customer city/lat/lng + region/country
@@ -91,12 +91,12 @@ SELECT
   r.region,
   r.status,
   r.is_bad_lot
-FROM retail_consumer_goods.luxebeauty_demo.raw_returns r
-JOIN retail_consumer_goods.luxebeauty_demo.raw_products p
+FROM raw_returns r
+JOIN raw_products p
   ON r.product_id  = p.product_id
-LEFT JOIN retail_consumer_goods.luxebeauty_demo.raw_customers c
+LEFT JOIN raw_customers c
   ON r.customer_id = c.customer_id
-LEFT JOIN retail_consumer_goods.luxebeauty_demo.raw_orders o
+LEFT JOIN raw_orders o
   ON r.order_id    = o.order_id
 LEFT JOIN comment_anger_scores s
   ON r.customer_comment = s.customer_comment;
@@ -118,4 +118,4 @@ SELECT
   -- raw_orders has no order-level status in this synth; emit NULL so the
   -- sync's expected column exists. The app's drawer treats it as optional.
   CAST(NULL AS STRING)       AS status
-FROM retail_consumer_goods.luxebeauty_demo.raw_orders o;
+FROM raw_orders o;
