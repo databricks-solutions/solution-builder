@@ -116,6 +116,35 @@ export interface NodePosition {
   h?: number;
   /** Manual content scale (0.5..1.5). Optional; defaults to 1. */
   scale?: number;
+  /** Canvas-edited label (double-click to rename). Overrides the catalog/agent
+   *  label for this node only. */
+  label?: string;
+  /** Canvas-picked icon — set when the node's TYPE was changed on the canvas.
+   *  Overrides the component's default icon. */
+  icon?: DatabricksIconName;
+  /** Free-form annotation node (text / box / logo / image). Present only for
+   *  annotation nodes (id starts with "anno-"); catalog nodes leave it unset. */
+  annotation?: AnnotationData;
+}
+
+/** A free-form canvas annotation — not a Databricks catalog component. One node
+ *  kind with four variants; all props persist in the layout. */
+export type AnnotationVariant = "text" | "box" | "logo" | "image";
+export interface AnnotationData {
+  variant: AnnotationVariant;
+  /** text/box: the (editable) text. */
+  text?: string;
+  /** text/box: font size in px (default 14). */
+  fontSize?: number;
+  /** text/box: show a border (box defaults true, text defaults false). */
+  border?: boolean;
+  /** box: vertical × horizontal text placement (default "middle"/"center"). */
+  vAlign?: "top" | "middle" | "bottom";
+  hAlign?: "left" | "center" | "right";
+  /** logo: the chosen icon key (any DatabricksIconName). */
+  icon?: DatabricksIconName;
+  /** image: a URL, or a `data:` base64 string for pasted images. */
+  src?: string;
 }
 
 export interface PlatformEdge {
@@ -447,6 +476,13 @@ export function buildLayout(
   for (const [nid, pos] of Object.entries(savedNodes)) {
     if (nid in nodes || nid.indexOf("#") === -1) continue;
     if (nodes[baseId(nid)]) nodes[nid] = pos;
+  }
+
+  // Carry over free-form ANNOTATION nodes (ids start with "anno-"). They have
+  // no catalog component — their full props live in pos.annotation.
+  for (const [nid, pos] of Object.entries(savedNodes)) {
+    if (nid in nodes) continue;
+    if (nid.startsWith("anno-") && pos.annotation) nodes[nid] = pos;
   }
 
   // Edges: saved if present, else auto-seed the real demo flow.

@@ -24,6 +24,8 @@ export interface NodeData {
   onSelect: (id: string) => void;
   /** Right-click on a node → open its context menu (rotate, remove). */
   onContext: (id: string, clientX: number, clientY: number) => void;
+  /** Commit a new label for this node (double-click to rename). */
+  onRename: (id: string, label: string) => void;
   /** Resize callback (from NodeResizer) — w/h are the un-rotated card size. */
   onResize: (id: string, w: number, h: number) => void;
   selected: boolean;
@@ -80,6 +82,7 @@ export function RotatableCard({
   editMode,
   selected,
   forceDots = false,
+  hideHandles = false,
   onContext,
   onResize,
   children,
@@ -91,6 +94,9 @@ export function RotatableCard({
   editMode: boolean;
   selected: boolean;
   forceDots?: boolean;
+  /** Suppress the 4 standard side handles — composite nodes draw their own
+   *  named ports instead and don't want the generic dots. */
+  hideHandles?: boolean;
   onContext: (e: React.MouseEvent) => void;
   onResize: (w: number, h: number) => void;
   children: React.ReactNode;
@@ -137,7 +143,7 @@ export function RotatableCard({
         lineClassName="!border-primary/50"
         handleClassName="!bg-primary !border-2 !border-background !w-3.5 !h-3.5 !rounded-sm !shadow-md"
       />
-      <NodeHandles show={editMode && !selected} forceDots={forceDots} />
+      {!hideHandles && <NodeHandles show={editMode && !selected} forceDots={forceDots} />}
       {/* Card sized to EXACTLY the (un-rotated) card box and rotated about the
           shell center — fills the footprint so its border == the box edges.
           `--cs` lets the card scale its content with the box. */}

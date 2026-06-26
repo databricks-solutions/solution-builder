@@ -127,19 +127,32 @@ export const LakeflowBlock = memo(function LakeflowBlock({ data, selected }: Nod
       editMode={d.editMode}
       selected={!!selected}
       forceDots={isDropTarget}
+      hideHandles
       onResize={(w, h) => d.onResize(d.nodeId, w, h)}
       onContext={(e) => { e.preventDefault(); d.onContext(d.nodeId, e.clientX, e.clientY); }}
     >
-      {/* 3 left input ports (lakeflow-connect / zerobus / direct) + right output.
-          All type="source" (loose mode) so they connect both ways. */}
-      {d.editMode &&
-        LF_PORTS.map((p) => (
-          <Handle key={p.port} type="source" position={Position.Left} id={`in-${p.port}`} isConnectable
-            className="!h-2.5 !w-2.5 !border-2 !border-primary !bg-background" style={{ top: `${p.frac * 100}%` }} />
-        ))}
-      {d.editMode && (
-        <Handle type="source" position={Position.Right} id="r" isConnectable className="!h-2.5 !w-2.5 !border-2 !border-primary !bg-background" />
-      )}
+      {/* Named input ports (lakeflow-connect / zerobus / direct) + right output.
+          Like the standard handles: hidden at rest, fade in on hover (in edit
+          mode), and FORCED visible when this block is a reconnect drop target —
+          so they replace the generic 4-side dots, not coexist with them. */}
+      {(() => {
+        const show = d.editMode && !selected;
+        const vis = isDropTarget
+          ? "opacity-100"
+          : show
+            ? "opacity-0 transition-opacity duration-150 group-hover:opacity-100"
+            : "opacity-0 pointer-events-none";
+        const cls = `!h-2.5 !w-2.5 !border-2 !border-primary !bg-background ${vis}`;
+        return (
+          <>
+            {LF_PORTS.map((p) => (
+              <Handle key={p.port} type="source" position={Position.Left} id={`in-${p.port}`}
+                isConnectable={show} className={cls} style={{ top: `${p.frac * 100}%` }} />
+            ))}
+            <Handle type="source" position={Position.Right} id="r" isConnectable={show} className={cls} />
+          </>
+        );
+      })()}
 
       <div
         onClick={() => d.onSelect(d.nodeId)}

@@ -66,6 +66,7 @@ import {
   type PlatformComponent,
   type PlatformSchema,
   type PlatformEdge,
+  type NodePosition,
   type BandId,
 } from "@/lib/platform-architecture";
 import {
@@ -94,6 +95,17 @@ import {
   PORT_FRAC,
   portAnchor,
 } from "./platform-diagram/composite-lakeflow";
+import {
+  AnnotationNode,
+  IconPicker,
+  ANNOTATION_DEFAULT_SIZE,
+  imageFileToDownscaledDataUrl,
+  type AnnotationNodeData,
+} from "./platform-diagram/annotations";
+import {
+  type AnnotationData,
+  type AnnotationVariant,
+} from "@/lib/platform-architecture";
 import { saveProjectFile, type DeployedResourceLink } from "@/lib/custom-api";
 import { Button } from "@/components/ui/button";
 import {
@@ -114,6 +126,14 @@ import {
   Undo2,
   Redo2,
   Scaling,
+  Replace,
+  Type,
+  Square,
+  Shapes,
+  Image as ImageIcon,
+  AlignLeft,
+  AlignCenter,
+  AlignRight,
 } from "lucide-react";
 
 /** The standard product/source node — brand icon tile + label. */
@@ -130,6 +150,16 @@ const ComponentNode = memo(function ComponentNode({ data, selected }: NodeProps)
   // SDP renders bronze/silver/gold as little tables inside the node.
   const isSdp = c.id === "sdp";
   const nat = baseSize(c);
+
+  // Inline label editing (double-click). `editing` holds the draft text.
+  const [editing, setEditing] = useState<string | null>(null);
+  const commitRename = () => {
+    if (editing !== null) {
+      const v = editing.trim();
+      if (v && v !== c.label) d.onRename(d.nodeId, v);
+      setEditing(null);
+    }
+  };
 
   return (
     <RotatableCard
@@ -168,8 +198,30 @@ const ComponentNode = memo(function ComponentNode({ data, selected }: NodeProps)
         </span>
         <span className="min-w-0">
           <span className="flex items-center gap-1.5 text-[13px] font-semibold leading-tight text-foreground">
-            <span className="truncate">{c.label}</span>
-            {live && (
+            {editing !== null ? (
+              <input
+                autoFocus
+                value={editing}
+                onChange={(e) => setEditing(e.target.value)}
+                onBlur={commitRename}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") commitRename();
+                  else if (e.key === "Escape") setEditing(null);
+                }}
+                onClick={(e) => e.stopPropagation()}
+                onDoubleClick={(e) => e.stopPropagation()}
+                className="w-full min-w-0 rounded border border-primary/50 bg-background px-1 text-[13px] font-semibold text-foreground outline-none"
+              />
+            ) : (
+              <span
+                className="truncate"
+                title="Double-click to rename"
+                onDoubleClick={(e) => { e.stopPropagation(); setEditing(c.label); }}
+              >
+                {c.label}
+              </span>
+            )}
+            {live && editing === null && (
               <span
                 className="h-1.5 w-1.5 shrink-0 rounded-full"
                 style={{ background: "var(--primary)", boxShadow: "0 0 6px var(--primary)" }}
@@ -190,7 +242,7 @@ const ComponentNode = memo(function ComponentNode({ data, selected }: NodeProps)
   );
 });
 
-const nodeTypes = { component: ComponentNode, composite: LakeflowBlock };
+const nodeTypes = { component: ComponentNode, composite: LakeflowBlock, annotation: AnnotationNode };
 
 // ---------------------------------------------------------------------------
 // Animated "data flowing" edge — red dot travels the path (template style)
@@ -269,11 +321,49 @@ const FlowEdge = memo(function FlowEdge(props: EdgeProps) {
     // 3 sources into one port spread slightly instead of stacking).
     const portFan = (base: number, i: number, n: number) =>
       n <= 1 ? base : Math.min(0.95, Math.max(0.05, base + (i - (n - 1) / 2) * 0.06));
+
+    // Stagger the vertical mid-segment (centerX) for edges converging on the
+    // same target anchor, so their elbows don't stack on one vertical line.
+    // The direction depends on which SIDE of the anchor the source sits:
+    //   • source ABOVE the anchor  → bend its vertical to the LEFT  (out, then
+    //     drop down into the anchor) — farther above ⇒ farther left;
+    //   • source BELOW the anchor  → bend to the RIGHT (drop up into it).
+    // This makes the lines fan symmetrically around the anchor without crossing,
+    // and behaves correctly for a top port (most sources below it), a bottom
+    // port (most sources above it), or a middle one. Magnitude = rank among
+    // same-side siblings so two sources on the same side still separate.
+    // Only meaningful when the target end is a horizontal side (l/r).
+    const tEndSide = tPort?.side ?? ts;
+    const tFrac = tPort ? portFan(tPort.frac, tg.i < 0 ? 0 : tg.i, tg.n) : spreadFrac(tg.i < 0 ? 0 : tg.i, tg.n);
+    let centerX: number | undefined;
+    if (tg.n > 1 && (tEndSide === "l" || tEndSide === "r")) {
+      const midX = (sCtr.x + tCtr.x) / 2;
+      const STEP = 22; // px between adjacent verticals
+      // Anchor point's Y on the target side (computed from the rect we have in
+      // the selector — `tp` isn't available until after the selector runs).
+      const anchorY = sidePoint(tR, tEndSide, tFrac).y;
+      const sibs = (groups.get(tPort ? `${target}|${targetHandleId}` : `${target}|${ts}`) ?? [])
+        .slice()
+        .sort((a, b) => a.key - b.key || (a.id < b.id ? -1 : 1));
+      const above = sCtr.y < anchorY; // this source sits above the anchor
+      // Same-side siblings, ordered so the row NEAREST the anchor offsets least.
+      const sameSide = sibs.filter((e) => (above ? e.key < anchorY : e.key >= anchorY));
+      const pos = sameSide.findIndex((e) => e.id === id);
+      // Magnitude by distance from the anchor: the source FARTHEST from the
+      // anchor (top of an above-half / bottom of a below-half) offsets most, so
+      // same-side lines fan out without crossing. `sameSide` is sorted top→bottom
+      // by source Y; the row nearest the anchor offsets least in both halves.
+      const mag = sameSide.length - pos;
+      // Per the original spec: source ABOVE the anchor bends its vertical RIGHT
+      // (+, toward/closer to the anchor), source BELOW bends LEFT (−).
+      centerX = midX + (above ? 1 : -1) * mag * STEP;
+    }
     return {
       sSide: sPort?.side ?? ss,
       tSide: tPort?.side ?? ts,
       sFrac: sPort ? portFan(sPort.frac, sg.i < 0 ? 0 : sg.i, sg.n) : spreadFrac(sg.i < 0 ? 0 : sg.i, sg.n),
-      tFrac: tPort ? portFan(tPort.frac, tg.i < 0 ? 0 : tg.i, tg.n) : spreadFrac(tg.i < 0 ? 0 : tg.i, tg.n),
+      tFrac,
+      centerX,
     };
   },
   // Shallow-compare so the selector doesn't trigger a re-render every store
@@ -281,7 +371,7 @@ const FlowEdge = memo(function FlowEdge(props: EdgeProps) {
   (a, b) =>
     !!a && !!b &&
     a.sSide === b.sSide && a.tSide === b.tSide &&
-    a.sFrac === b.sFrac && a.tFrac === b.tFrac);
+    a.sFrac === b.sFrac && a.tFrac === b.tFrac && a.centerX === b.centerX);
 
   // Live endpoint drag (reconnect). Hook runs unconditionally before guards.
   const [drag, setDrag] = useState<{ end: "source" | "target"; x: number; y: number; side?: Side; handle?: string } | null>(null);
@@ -313,9 +403,14 @@ const FlowEdge = memo(function FlowEdge(props: EdgeProps) {
   const tPos = drag?.end === "target" ? POS_OF[drag.side ?? "l"] : targetPos;
 
   const shape = d?.shape ?? "smooth";
+  // Staggered vertical mid-segment so edges converging on one anchor don't
+  // overlap (see fan.centerX). Skip it while dragging an endpoint (the path
+  // should track the cursor with the default midpoint).
+  const centerX = drag ? undefined : fan.centerX;
   const args = {
     sourceX: sPt.x, sourceY: sPt.y, targetX: tPt.x, targetY: tPt.y,
     sourcePosition: sPos, targetPosition: tPos,
+    ...(centerX !== undefined ? { centerX } : {}),
   };
   const [path] =
     shape === "straight"
@@ -468,17 +563,62 @@ const LibraryPalette = memo(function LibraryPalette({
   schema,
   placedIds,
   onAdd,
+  picking = false,
+  onPick,
+  onCancelPick,
+  onAddAnnotation,
 }: {
   schema: PlatformSchema;
   placedIds: Set<string>;
   onAdd: (componentId: string) => void;
+  onAddAnnotation: (variant: AnnotationVariant) => void;
+  /** When set, the palette is in "select a replacement type" mode: clicking a
+   *  component calls onPick instead of dragging/adding. */
+  picking?: boolean;
+  onPick?: (componentId: string) => void;
+  onCancelPick?: () => void;
 }) {
   return (
-    <div className="flex w-52 shrink-0 flex-col border-r border-border bg-muted/20">
-      <div className="border-b border-border px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
-        Components
-      </div>
+    <div className={`relative flex w-52 shrink-0 flex-col border-r border-border bg-muted/20 ${picking ? "z-50 ring-2 ring-primary" : ""}`}>
+      {picking ? (
+        <div className="flex items-center justify-between gap-1 border-b border-border bg-primary px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-primary-foreground">
+          <span>Pick the new type →</span>
+          <button type="button" onClick={onCancelPick} className="rounded p-0.5 hover:bg-white/20" title="Cancel">
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      ) : (
+        <div className="border-b border-border px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+          Components
+        </div>
+      )}
       <div className="flex-1 overflow-y-auto p-2">
+        {/* Free-form annotations (not Databricks catalog components). */}
+        {!picking && (
+          <div className="mb-3">
+            <div className="px-1 py-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Annotations</div>
+            {([
+              { v: "text" as const, icon: <Type className="h-4 w-4" />, label: "Text" },
+              { v: "box" as const, icon: <Square className="h-4 w-4" />, label: "Box" },
+              { v: "logo" as const, icon: <Shapes className="h-4 w-4" />, label: "Logo" },
+              { v: "image" as const, icon: <ImageIcon className="h-4 w-4" />, label: "Image" },
+            ]).map((it) => (
+              <button
+                key={it.v}
+                type="button"
+                draggable
+                onDragStart={(e) => { e.dataTransfer.setData("application/x-annotation", it.v); e.dataTransfer.effectAllowed = "copy"; }}
+                onDoubleClick={() => onAddAnnotation(it.v)}
+                title={`Drag onto the canvas (or double-click to add): ${it.label}`}
+                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12.5px] text-foreground hover:bg-muted"
+              >
+                <GripVertical className="h-3 w-3 shrink-0 text-muted-foreground/40" />
+                <span className="grid h-4 w-4 place-items-center text-muted-foreground">{it.icon}</span>
+                <span className="truncate">{it.label}</span>
+              </button>
+            ))}
+          </div>
+        )}
         {schema.bands.map((band) => {
           // Always list the FULL catalog (don't hide placed ones — it's
           // confusing). Placed components are just dimmed + marked "on canvas".
@@ -497,19 +637,20 @@ const LibraryPalette = memo(function LibraryPalette({
                   <button
                     key={c.id}
                     type="button"
-                    draggable
-                    onDragStart={(e) => {
+                    draggable={!picking}
+                    onDragStart={picking ? undefined : (e) => {
                       e.dataTransfer.setData("application/x-component-id", c.id);
                       e.dataTransfer.effectAllowed = "copy";
                     }}
-                    onDoubleClick={() => onAdd(c.id)}
-                    title={onCanvas ? `${c.label} — already on the canvas (drag to add another)` : `Drag onto the canvas (or double-click to add): ${c.label}`}
-                    className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12.5px] hover:bg-muted ${onCanvas ? "opacity-60" : ""}`}
+                    onClick={picking ? () => onPick?.(c.id) : undefined}
+                    onDoubleClick={picking ? undefined : () => onAdd(c.id)}
+                    title={picking ? `Change to: ${c.label}` : onCanvas ? `${c.label} — already on the canvas (drag to add another)` : `Drag onto the canvas (or double-click to add): ${c.label}`}
+                    className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12.5px] hover:bg-muted ${!picking && onCanvas ? "opacity-60" : ""}`}
                   >
-                    <GripVertical className="h-3 w-3 shrink-0 text-muted-foreground/40" />
+                    {!picking && <GripVertical className="h-3 w-3 shrink-0 text-muted-foreground/40" />}
                     <Icon className="h-4 w-4 shrink-0" style={isBrand ? undefined : { color: BAND_COLOR[band.id] }} />
                     <span className="truncate text-foreground">{c.label}</span>
-                    {onCanvas && <Check className="ml-auto h-3 w-3 shrink-0 text-primary/60" />}
+                    {!picking && onCanvas && <Check className="ml-auto h-3 w-3 shrink-0 text-primary/60" />}
                   </button>
                 );
               })}
@@ -539,17 +680,54 @@ function schemaToFlow(
   editMode: boolean,
   onContext: (id: string, x: number, y: number) => void,
   onResize: (id: string, w: number, h: number) => void,
+  onRename: (id: string, label: string) => void,
+  onAnnotate: (id: string, patch: Partial<AnnotationData>) => void,
 ): { nodes: Node[]; edges: Edge[] } {
   const lookup = componentLookup(schema);
   const hidden = new Set(schema.layout.hidden);
 
   const nodes: Node[] = [];
   for (const [id, pos] of Object.entries(schema.layout.nodes)) {
+    // Free-form annotation node (text/box/logo/image) — no catalog component;
+    // build it straight from the saved annotation props.
+    if (pos.annotation) {
+      const sz = ANNOTATION_DEFAULT_SIZE[pos.annotation.variant];
+      const fp = nodeFootprint({ id, label: "", icon: "data", desc: "", state: "active" } as PlatformComponent, { w: pos.w ?? sz.w, h: pos.h ?? sz.h, rot: pos.rot });
+      nodes.push({
+        id,
+        type: "annotation",
+        position: { x: pos.x, y: pos.y },
+        draggable: editMode,
+        width: fp.w,
+        height: fp.h,
+        style: { width: fp.w, height: fp.h },
+        data: {
+          nodeId: id,
+          annotation: pos.annotation,
+          component: { id, label: "", icon: "data", desc: "", state: "active" } as PlatformComponent,
+          bandId: "sources" as BandId,
+          bandColor: "#64748b",
+          deepLink: null,
+          onSelect, onContext, onResize, onRename, onAnnotate,
+          selected: id === selectedId,
+          editMode,
+          rot: pos.rot ?? 0,
+          w: pos.w, h: pos.h, scale: pos.scale,
+        } satisfies AnnotationNodeData,
+      });
+      continue;
+    }
     // Node id may be an instance id (`genie#2`); resolve the catalog component
     // by its base id, but keep the instance id as the ReactFlow node id.
     const found = lookup.get(baseId(id));
     if (!found || hidden.has(id)) continue;
-    const { component, bandId } = found;
+    const { bandId } = found;
+    // Apply canvas-edited overrides (double-click rename / change-type) saved in
+    // the layout: label + icon win over the catalog component for this node.
+    const component =
+      pos.label !== undefined || pos.icon !== undefined
+        ? { ...found.component, ...(pos.label !== undefined ? { label: pos.label } : {}), ...(pos.icon !== undefined ? { icon: pos.icon } : {}) }
+        : found.component;
     const fp = nodeFootprint(component, pos);
     nodes.push({
       id,
@@ -570,6 +748,7 @@ function schemaToFlow(
         onSelect,
         onContext,
         onResize,
+        onRename,
         selected: id === selectedId,
         editMode,
         rot: pos.rot ?? 0,
@@ -624,32 +803,108 @@ type CtxMenu =
   | { kind: "edge"; id: string; x: number; y: number }
   | null;
 
+type MenuItemFn = (p: { icon: React.ReactNode; label: string; onClick: () => void; active?: boolean }) => React.ReactElement;
+
+/** The right-click menu body for a free-form annotation node — varies by
+ *  variant (text/box: font + border + alignment; logo: pick; image: set URL). */
+function AnnotationMenu({
+  a, Item, onAnno, onPickLogo, onSetImageUrl, onRotate, onRemove,
+}: {
+  a: AnnotationData;
+  Item: MenuItemFn;
+  onAnno: (patch: Partial<AnnotationData>) => void;
+  onPickLogo: () => void;
+  onSetImageUrl: () => void;
+  onRotate: () => void;
+  onRemove: () => void;
+}) {
+  const isTextual = a.variant === "text" || a.variant === "box";
+  const fontSize = a.fontSize ?? 14;
+  const hAlign = a.hAlign ?? "center";
+  return (
+    <>
+      {a.variant === "logo" && <Item icon={<Shapes className="h-3.5 w-3.5" />} label="Pick logo…" onClick={onPickLogo} />}
+      {a.variant === "image" && <Item icon={<ImageIcon className="h-3.5 w-3.5" />} label="Set image URL…" onClick={onSetImageUrl} />}
+      {isTextual && (
+        <>
+          {/* Font size */}
+          <div className="px-2 py-1.5">
+            <div className="mb-1 flex items-center justify-between text-[11px] text-muted-foreground">
+              <span className="flex items-center gap-1.5"><Type className="h-3.5 w-3.5" /> Font</span>
+              <span>{fontSize}px</span>
+            </div>
+            <input type="range" min={9} max={48} step={1} value={fontSize}
+              onChange={(e) => onAnno({ fontSize: Number(e.target.value) })}
+              onClick={(e) => e.stopPropagation()} className="h-1.5 w-full cursor-pointer accent-primary" />
+          </div>
+          <Item icon={<Square className="h-3.5 w-3.5" />} label="Border" onClick={() => onAnno({ border: !(a.border ?? a.variant === "box") })} active={a.border ?? a.variant === "box"} />
+          {/* Horizontal text alignment */}
+          <div className="flex items-center gap-1 px-2 py-1.5">
+            <span className="mr-auto text-[11px] text-muted-foreground">Align</span>
+            {([["left", AlignLeft], ["center", AlignCenter], ["right", AlignRight]] as const).map(([al, Ico]) => (
+              <button key={al} type="button" onClick={() => onAnno({ hAlign: al })}
+                className={`grid h-6 w-6 place-items-center rounded ${hAlign === al ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}>
+                <Ico className="h-3.5 w-3.5" />
+              </button>
+            ))}
+          </div>
+          {a.variant === "box" && (
+            <div className="flex items-center gap-1 px-2 py-1.5">
+              <span className="mr-auto text-[11px] text-muted-foreground">Position</span>
+              {(["top", "middle", "bottom"] as const).map((v) => (
+                <button key={v} type="button" onClick={() => onAnno({ vAlign: v })}
+                  className={`rounded px-1.5 py-0.5 text-[10px] capitalize ${(a.vAlign ?? "middle") === v ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}>
+                  {v[0]}
+                </button>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+      <div className="my-1 border-t border-border/60" />
+      <Item icon={<RotateCw className="h-3.5 w-3.5" />} label="Rotate 90°" onClick={onRotate} />
+      <Item icon={<Trash2 className="h-3.5 w-3.5" />} label="Remove" onClick={onRemove} />
+    </>
+  );
+}
+
 /** Floating right-click menu for a node (rotate/remove) or an edge
  *  (toggle flow, dashed, routing shape, delete). */
 const ContextMenu = memo(function ContextMenu({
   menu,
   edge,
   nodeScale = 1,
+  annotation,
   onClose,
   onRotate,
   onRemoveNode,
+  onChangeType,
   onSetScale,
   onToggleFlow,
   onToggleDashed,
   onSetShape,
   onRemoveEdge,
+  onAnno,
+  onPickLogo,
+  onSetImageUrl,
 }: {
   menu: NonNullable<CtxMenu>;
   edge?: Edge;
   nodeScale?: number;
+  /** Present when the right-clicked node is a free-form annotation. */
+  annotation?: AnnotationData;
   onClose: () => void;
   onRotate: () => void;
   onRemoveNode: () => void;
+  onChangeType: () => void;
   onSetScale: (s: number) => void;
   onToggleFlow: () => void;
   onToggleDashed: () => void;
   onSetShape: (s: "smooth" | "straight" | "step") => void;
   onRemoveEdge: () => void;
+  onAnno: (patch: Partial<AnnotationData>) => void;
+  onPickLogo: () => void;
+  onSetImageUrl: () => void;
 }) {
   const ed = edge?.data as { animated?: boolean; dashed?: boolean; shape?: string } | undefined;
   const Item = ({ icon, label, onClick, active }: { icon: React.ReactNode; label: string; onClick: () => void; active?: boolean }) => (
@@ -671,8 +926,11 @@ const ContextMenu = memo(function ContextMenu({
         className="fixed z-50 w-44 rounded-lg border border-border bg-card p-1 shadow-lg"
         style={{ left: menu.x, top: menu.y }}
       >
-        {menu.kind === "node" ? (
+        {menu.kind === "node" && annotation ? (
+          <AnnotationMenu a={annotation} Item={Item} onAnno={onAnno} onPickLogo={onPickLogo} onSetImageUrl={onSetImageUrl} onRotate={onRotate} onRemove={onRemoveNode} />
+        ) : menu.kind === "node" ? (
           <>
+            <Item icon={<Replace className="h-3.5 w-3.5" />} label="Change type…" onClick={onChangeType} />
             <Item icon={<RotateCw className="h-3.5 w-3.5" />} label="Rotate 90°" onClick={onRotate} />
             {/* Content scale slider — shrink/grow the icon+label inside the box
                 (the box itself is unchanged; content is cropped if too big). */}
@@ -715,6 +973,11 @@ function Canvas({ schema, deepLinks, onPersist }: CanvasProps) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [editMode, setEditMode] = useState(true);
   const [menu, setMenu] = useState<CtxMenu>(null);
+  // Node id whose TYPE we're changing (right-click → Change type). While set,
+  // the library palette is in "pick a replacement" mode + the canvas is dimmed.
+  const [pickingFor, setPickingFor] = useState<string | null>(null);
+  // Annotation node id whose LOGO we're picking (opens the IconPicker modal).
+  const [logoPickerFor, setLogoPickerFor] = useState<string | null>(null);
   const { screenToFlowPosition } = useReactFlow();
   const wrapRef = useRef<HTMLDivElement>(null);
 
@@ -757,10 +1020,40 @@ function Canvas({ schema, deepLinks, onPersist }: CanvasProps) {
     });
   }, []);
 
+  // Rename a node (double-click on its label). Overrides the component label for
+  // this node; persisted in the layout (scheduleSave diffs it vs the catalog).
+  // Stable + ref-based so it can be passed into schemaToFlow before scheduleSave
+  // is declared below (same ordering trick as onResize).
+  const onRename = useCallback((id: string, label: string) => {
+    setNodesRef.current?.((nds) => {
+      const next = nds.map((n) => {
+        if (n.id !== id) return n;
+        const dd = n.data as NodeData;
+        return { ...n, data: { ...dd, component: { ...dd.component, label } } };
+      });
+      scheduleSaveRef.current?.(next, edgesRef.current);
+      return next;
+    });
+  }, []);
+
+  // Patch an annotation node's props (text/icon/src/alignment/fontSize/border).
+  // Ref-based for the same use-before-define reason as onRename/onResize.
+  const onAnnotate = useCallback((id: string, patch: Partial<AnnotationData>) => {
+    setNodesRef.current?.((nds) => {
+      const next = nds.map((n) => {
+        if (n.id !== id) return n;
+        const dd = n.data as AnnotationNodeData;
+        return { ...n, data: { ...dd, annotation: { ...dd.annotation, ...patch } } };
+      });
+      scheduleSaveRef.current?.(next, edgesRef.current);
+      return next;
+    });
+  }, []);
+
   const initial = useMemo(
-    () => schemaToFlow(schema, deepLinks, null, onSelect, true, onContext, onResize),
+    () => schemaToFlow(schema, deepLinks, null, onSelect, true, onContext, onResize, onRename, onAnnotate),
     // Rebuild only when schema identity changes (not on every selection).
-    [schema, deepLinks, onSelect, onContext, onResize],
+    [schema, deepLinks, onSelect, onContext, onResize, onRename, onAnnotate],
   );
 
   const [nodes, setNodes, onNodesChange] = useNodesState(initial.nodes);
@@ -796,6 +1089,36 @@ function Canvas({ schema, deepLinks, onPersist }: CanvasProps) {
     );
   }, [selectedId, editMode, setNodes]);
 
+  // Paste an image (Ctrl/Cmd+V) anywhere on the canvas → downscaled base64
+  // image annotation at the canvas center. Ref-indirect because addAnnotation
+  // is declared below. Ignored when typing in an input/textarea.
+  const addAnnotationRef = useRef<((v: AnnotationVariant, at?: { x: number; y: number }, extra?: Partial<AnnotationData>) => void) | null>(null);
+  useEffect(() => {
+    if (!editMode) return;
+    const onPaste = async (e: ClipboardEvent) => {
+      const tag = (e.target as HTMLElement | null)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA") return;
+      const item = Array.from(e.clipboardData?.items ?? []).find((i) => i.type.startsWith("image/"));
+      if (!item) return;
+      const file = item.getAsFile();
+      if (!file) return;
+      e.preventDefault();
+      const src = await imageFileToDownscaledDataUrl(file);
+      // Warn (but still allow) if the encoded image is large.
+      if (src.length > 1.5 * 1024 * 1024) {
+        // eslint-disable-next-line no-console
+        console.warn(`[platform-diagram] pasted image is large (${Math.round(src.length / 1024)}KB base64) — architecture.md will grow.`);
+      }
+      const rect = wrapRef.current?.getBoundingClientRect();
+      const at = rect
+        ? screenToFlowPosition({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 })
+        : { x: 200, y: 200 };
+      addAnnotationRef.current?.("image", at, { src });
+    };
+    document.addEventListener("paste", onPaste);
+    return () => document.removeEventListener("paste", onPaste);
+  }, [editMode, screenToFlowPosition]);
+
   // --- Persistence: debounce-save the layout whenever nodes/edges settle ----
   const persistRef = useRef(onPersist);
   persistRef.current = onPersist;
@@ -811,10 +1134,18 @@ function Canvas({ schema, deepLinks, onPersist }: CanvasProps) {
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => {
       endBurstRef.current?.(nds, eds);
-      const positions: Record<string, { x: number; y: number; rot?: number; w?: number; h?: number; scale?: number }> = {};
+      const catalog = componentLookup(schema);
+      const positions: Record<string, NodePosition> = {};
       nds.forEach((n) => {
         const dd = n.data as NodeData;
         const rot = dd.rot ?? 0;
+        // Persist label/icon only when they DIFFER from the catalog base — i.e.
+        // the user renamed the node or changed its type on the canvas.
+        const base = catalog.get(baseId(n.id))?.component;
+        const labelOv = base && dd.component.label !== base.label ? dd.component.label : undefined;
+        const iconOv = base && dd.component.icon !== base.icon ? dd.component.icon : undefined;
+        // Annotation nodes carry their full props (text/icon/src/alignment).
+        const anno = (dd as Partial<AnnotationNodeData>).annotation;
         positions[n.id] = {
           x: Math.round(n.position.x),
           y: Math.round(n.position.y),
@@ -822,6 +1153,9 @@ function Canvas({ schema, deepLinks, onPersist }: CanvasProps) {
           ...(dd.w ? { w: Math.round(dd.w) } : {}),
           ...(dd.h ? { h: Math.round(dd.h) } : {}),
           ...(dd.scale && dd.scale !== 1 ? { scale: Math.round(dd.scale * 100) / 100 } : {}),
+          ...(labelOv !== undefined ? { label: labelOv } : {}),
+          ...(iconOv !== undefined ? { icon: iconOv } : {}),
+          ...(anno ? { annotation: anno } : {}),
         };
       });
       // `hidden` is keyed by catalog (base) ids: a component is hidden iff NO
@@ -980,7 +1314,9 @@ function Canvas({ schema, deepLinks, onPersist }: CanvasProps) {
       if (!params.source || !params.target || params.source === params.target) return;
       setEdges((eds) => {
         if (eds.some((e) => e.source === params.source && e.target === params.target)) return eds;
-        const id = `e-${params.source}-${params.target}-${eds.length}`;
+        // Stable, collision-free id from the (now-guaranteed-unique) endpoint
+        // pair + handles — NOT eds.length, which repeats after a delete.
+        const id = `e-${params.source}-${params.sourceHandle ?? ""}-${params.target}-${params.targetHandle ?? ""}`;
         const next = addEdge(
           {
             ...params,
@@ -1108,6 +1444,7 @@ function Canvas({ schema, deepLinks, onPersist }: CanvasProps) {
               onSelect,
               onContext,
               onResize,
+              onRename,
               selected: false,
               editMode: true,
               rot: 0,
@@ -1118,18 +1455,72 @@ function Canvas({ schema, deepLinks, onPersist }: CanvasProps) {
         return next;
       });
     },
-    [schema, deepLinks, onSelect, onContext, onResize, setNodes, scheduleSave, edges],
+    [schema, deepLinks, onSelect, onContext, onResize, onRename, setNodes, scheduleSave, edges],
   );
+
+  // Add a free-form annotation node (text / box / logo / image). Returns the
+  // new node id so callers can act on it (e.g. open the logo picker).
+  const annoCounter = useRef(0);
+  const addAnnotation = useCallback(
+    (variant: AnnotationVariant, at?: { x: number; y: number }, extra?: Partial<AnnotationData>): string => {
+      const pos = at ?? { x: 160, y: 160 };
+      const defaults: AnnotationData =
+        variant === "box" ? { variant, text: "", border: true, vAlign: "middle", hAlign: "center", fontSize: 14 }
+        : variant === "text" ? { variant, text: "Text", border: false, fontSize: 14 }
+        : variant === "logo" ? { variant, icon: "data" }
+        : { variant }; // image — src set via menu/paste
+      const annotation = { ...defaults, ...extra };
+      annoCounter.current += 1;
+      const id = `anno-${variant}-${Date.now().toString(36)}-${annoCounter.current}`;
+      setNodes((nds) => {
+        const sz = ANNOTATION_DEFAULT_SIZE[variant];
+        const next = [
+          ...nds,
+          {
+            id,
+            type: "annotation",
+            position: pos,
+            width: sz.w,
+            height: sz.h,
+            style: { width: sz.w, height: sz.h },
+            data: {
+              nodeId: id,
+              annotation,
+              component: { id, label: "", icon: "data", desc: "", state: "active" } as PlatformComponent,
+              bandId: "sources" as BandId,
+              bandColor: "#64748b",
+              deepLink: null,
+              onSelect, onContext, onResize, onRename, onAnnotate,
+              selected: false,
+              editMode: true,
+              rot: 0,
+            } satisfies AnnotationNodeData,
+          } as Node,
+        ];
+        scheduleSave(next, edges);
+        return next;
+      });
+      return id;
+    },
+    [onSelect, onContext, onResize, onRename, onAnnotate, setNodes, scheduleSave, edges],
+  );
+  addAnnotationRef.current = addAnnotation;
 
   const onDrop = useCallback(
     (e: React.DragEvent) => {
       e.preventDefault();
+      const pos = screenToFlowPosition({ x: e.clientX, y: e.clientY });
+      const anno = e.dataTransfer.getData("application/x-annotation");
+      if (anno) {
+        const id = addAnnotation(anno as AnnotationVariant, pos);
+        if (anno === "logo") setLogoPickerFor(id); // pick the logo right away
+        return;
+      }
       const id = e.dataTransfer.getData("application/x-component-id");
       if (!id) return;
-      const pos = screenToFlowPosition({ x: e.clientX, y: e.clientY });
       addComponent(id, pos);
     },
-    [addComponent, screenToFlowPosition],
+    [addComponent, addAnnotation, screenToFlowPosition],
   );
 
   // Rotate a node by +90° (wraps 0→90→180→270→0). From the right-click menu.
@@ -1156,6 +1547,68 @@ function Canvas({ schema, deepLinks, onPersist }: CanvasProps) {
       return next;
     });
   }, [setNodes, scheduleSave, edges]);
+
+  // Change a node's TYPE: replace it with a node of the chosen catalog
+  // component at the SAME position/size, and rewire its edges to the new id.
+  // (Type is an identity change, so the node id must follow the new component —
+  // a stale id would desync the active/hidden bookkeeping on reload.) A custom
+  // label (from a rename) is carried over; otherwise the new component's label.
+  const changeNodeType = useCallback((id: string, newComponentId: string) => {
+    const found = componentLookup(schema).get(baseId(newComponentId));
+    if (!found) return;
+    setNodes((nds) => {
+      if (!nds.some((n) => n.id === id)) return nds;
+      const dd = nds.find((n) => n.id === id)!.data as NodeData;
+      const oldBase = componentLookup(schema).get(baseId(id))?.component;
+      const renamed = oldBase && dd.component.label !== oldBase.label;
+      // Mint a unique node id for the new type (dedupe like addComponent).
+      const wanted = found.component.id;
+      let newId = wanted;
+      if (nds.some((n) => n.id === newId && n.id !== id)) {
+        let k = 2;
+        while (nds.some((n) => n.id === `${wanted}#${k}`)) k++;
+        newId = `${wanted}#${k}`;
+      }
+      const component = renamed ? { ...found.component, label: dd.component.label } : found.component;
+      const fp = nodeFootprint(component, { w: dd.w, h: dd.h, rot: dd.rot });
+      const next = nds.map((n) =>
+        n.id !== id
+          ? n
+          : {
+              ...n,
+              id: newId,
+              type: component.kind ? "composite" : "component",
+              width: fp.w,
+              height: fp.h,
+              style: { ...n.style, width: fp.w, height: fp.h },
+              data: { ...dd, nodeId: newId, component, bandId: found.bandId, bandColor: BAND_COLOR[found.bandId], deepLink: deepLinks[baseId(newComponentId)] ?? null },
+            },
+      );
+      // Rewire edges from the old id → new id (handles preserved), then drop
+      // any that now duplicate an existing source→target pair (the rewire can
+      // collide with a pre-existing edge to/from the new id).
+      setEdges((eds) => {
+        const seen = new Set<string>();
+        const e2 = eds
+          .map((e) => ({
+            ...e,
+            ...(e.source === id ? { source: newId } : {}),
+            ...(e.target === id ? { target: newId } : {}),
+          }))
+          .filter((e) => {
+            if (e.source === e.target) return false; // self-loop from the swap
+            const k = `${e.source}->${e.target}`;
+            if (seen.has(k)) return false;
+            seen.add(k);
+            return true;
+          });
+        scheduleSave(next, e2);
+        return e2;
+      });
+      return next;
+    });
+    setSelectedId((cur) => (cur === id ? null : cur));
+  }, [schema, deepLinks, setNodes, setEdges, scheduleSave]);
 
   const removeNode = useCallback((id: string) => {
     setNodes((nds) => {
@@ -1230,16 +1683,37 @@ function Canvas({ schema, deepLinks, onPersist }: CanvasProps) {
   // least one instance is on the canvas (but it stays draggable for duplicates).
   const placedIds = useMemo(() => new Set(nodes.map((n) => baseId(n.id))), [nodes]);
   const menuEdge = menu?.kind === "edge" ? edges.find((e) => e.id === menu.id) : undefined;
+  // The right-clicked node's annotation props, if it's a free-form annotation.
+  const menuAnno = menu?.kind === "node"
+    ? (nodes.find((n) => n.id === menu.id)?.data as Partial<AnnotationNodeData> | undefined)?.annotation
+    : undefined;
 
   return (
     <EdgeOpsContext.Provider value={edgeOps}>
     <DropTargetContext.Provider value={dropTargetId}>
     <div className="flex min-h-0 flex-1" ref={wrapRef}>
       {editMode && (
-        <LibraryPalette schema={schema} placedIds={placedIds} onAdd={(id) => addComponent(id)} />
+        <LibraryPalette
+          schema={schema}
+          placedIds={placedIds}
+          onAdd={(id) => addComponent(id)}
+          onAddAnnotation={(v) => { const id = addAnnotation(v); if (v === "logo") setLogoPickerFor(id); }}
+          picking={pickingFor !== null}
+          onPick={(id) => { if (pickingFor) changeNodeType(pickingFor, id); setPickingFor(null); }}
+          onCancelPick={() => setPickingFor(null)}
+        />
       )}
 
       <div className="relative min-w-0 flex-1" onDrop={onDrop} onDragOver={(e) => e.preventDefault()}>
+        {/* Dim + block the canvas while choosing a replacement type — the only
+            interactive surface is the highlighted library on the left. */}
+        {pickingFor !== null && (
+          <div
+            className="absolute inset-0 z-40 cursor-pointer bg-background/60"
+            onClick={() => setPickingFor(null)}
+            title="Click a component in the library, or click here to cancel"
+          />
+        )}
         {/* arrow marker def */}
         <svg className="pointer-events-none absolute h-0 w-0">
           <defs>
@@ -1336,15 +1810,33 @@ function Canvas({ schema, deepLinks, onPersist }: CanvasProps) {
           <ContextMenu
             menu={menu}
             edge={menuEdge}
+            annotation={menuAnno}
             nodeScale={(nodes.find((n) => n.id === menu.id)?.data as NodeData | undefined)?.scale ?? 1}
             onClose={() => setMenu(null)}
             onRotate={() => { rotateNode(menu.id); setMenu(null); }}
             onRemoveNode={() => { removeNode(menu.id); setMenu(null); }}
+            onChangeType={() => { setPickingFor(menu.id); setSelectedId(null); setMenu(null); }}
             onSetScale={(s) => setNodeScale(menu.id, s)}
             onToggleFlow={() => toggleEdgeFlow(menu.id)}
             onToggleDashed={() => toggleEdgeDashed(menu.id)}
             onSetShape={(s) => setEdgeShape(menu.id, s)}
             onRemoveEdge={() => { removeEdge(menu.id); setMenu(null); }}
+            onAnno={(patch) => onAnnotate(menu.id, patch)}
+            onPickLogo={() => { setLogoPickerFor(menu.id); setMenu(null); }}
+            onSetImageUrl={() => {
+              const cur = menuAnno?.src ?? "";
+              const url = window.prompt("Image URL:", cur);
+              if (url !== null) onAnnotate(menu.id, { src: url.trim() });
+              setMenu(null);
+            }}
+          />
+        )}
+
+        {/* Searchable logo picker for a "Logo" annotation. */}
+        {logoPickerFor && (
+          <IconPicker
+            onPick={(key) => onAnnotate(logoPickerFor, { icon: key })}
+            onClose={() => setLogoPickerFor(null)}
           />
         )}
       </div>
