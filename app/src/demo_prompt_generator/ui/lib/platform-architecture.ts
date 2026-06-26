@@ -122,6 +122,10 @@ export interface PlatformEdge {
   id: string;
   source: string;
   target: string;
+  /** Which handle each end attaches to — a composite port id ("in-zerobus")
+   *  or a side ("l"/"r"/"t"/"b"). Preserved so the anchor survives a reload. */
+  sourceHandle?: string | null;
+  targetHandle?: string | null;
   /** Red-dot "data flowing" animation along the edge. */
   animated?: boolean;
   /** Dashed/dotted stroke instead of solid. */
@@ -262,11 +266,11 @@ const CATALOG: Record<BandId, CatalogComponent[]> = {
     // ingest feeding a bronze→silver→gold pipeline, with 3 left input ports.
     { id: "lakeflow-block", label: "Lakeflow", icon: "lakeflowConnectBrand", kind: "lakeflow", desc: "One block: managed ingest (Lakeflow Connect), real-time streams (Zerobus) and direct file landing, all flowing into a declarative bronze → silver → gold pipeline." },
     { id: "lakeflow-connect", label: "Lakeflow Connect", icon: "lakeflowConnectBrand", desc: "Managed connectors ingest from databases and SaaS apps under governance." },
+    { id: "zerobus-ingest", label: "Lakeflow Zerobus", icon: "zerobus", desc: "Real-time, direct ingest of streaming events into the lakehouse." },
+    { id: "sdp", label: "Lakeflow SDP", icon: "sdpBrand", desc: "Spark Declarative Pipelines — declarative bronze → silver → gold that self-heal and scale." },
     { id: "uc-volume", label: "UC Volume", icon: "volume", desc: "Governed file storage in Unity Catalog — where raw documents (PDFs) land." },
-    { id: "sdp", label: "Spark Declarative Pipelines", icon: "sdpBrand", desc: "Declarative bronze → silver → gold pipelines that self-heal and scale." },
     { id: "lakeflow-jobs", label: "Lakeflow Jobs", icon: "lakeflowJobsBrand", desc: "Orchestrate the whole pipeline on a schedule or trigger." },
     { id: "notebooks-eda", label: "Notebooks", icon: "notebooks", desc: "Interactive exploration and analysis on governed data." },
-    { id: "zerobus-ingest", label: "Zerobus Ingest", icon: "streaming", desc: "Real-time, direct ingest of streaming events into the lakehouse." },
     { id: "delta-sharing", label: "Delta Sharing", icon: "deltaSharing", desc: "Open, cross-org data sharing with no copies." },
     { id: "marketplace", label: "Marketplace", icon: "deltaSharing", desc: "Discover and consume third-party data and AI assets." },
     { id: "lakebase", label: "Lakebase", icon: "lakebaseBrand", desc: "Managed Postgres for app state — reads/writes the live queue." },
@@ -410,6 +414,14 @@ function autoPos(bandId: BandId, index: number): NodePosition {
   return { x, y: CANVAS.topY + index * CANVAS.rowGap };
 }
 
+/** A canvas node id is `<componentId>` or, for an extra placement of the same
+ *  component, `<componentId>#2`, `#3`, … `baseId` recovers the catalog
+ *  component id from any node/layout/edge id. */
+export function baseId(nodeId: string): string {
+  const h = nodeId.indexOf("#");
+  return h === -1 ? nodeId : nodeId.slice(0, h);
+}
+
 /** Build the full layout: start from auto-positions + auto flow edges, then
  *  overlay anything the saved layout (architecture.md) pinned. */
 export function buildLayout(
@@ -428,6 +440,14 @@ export function buildLayout(
       nodes[c.id] = savedNodes[c.id] ?? autoPos(band.id, i);
     });
   });
+
+  // Carry over EXTRA placements (instance ids like `genie#2`) — duplicates the
+  // user dropped that have no schema component of their own. Their base must be
+  // a real, visible component; pin them at their saved position (or near base).
+  for (const [nid, pos] of Object.entries(savedNodes)) {
+    if (nid in nodes || nid.indexOf("#") === -1) continue;
+    if (nodes[baseId(nid)]) nodes[nid] = pos;
+  }
 
   // Edges: saved if present, else auto-seed the real demo flow.
   const edges: PlatformEdge[] = saved?.edges?.length ? saved.edges : seedEdges(bands, hidden);
@@ -530,7 +550,10 @@ export function serializeArchitecture(
   schema: PlatformSchema,
   layout: PlatformLayout,
 ): string {
-  const placed = new Set(Object.keys(layout.nodes));
+  // Visibility is keyed by catalog (base) id — duplicates (`genie#2`) collapse
+  // to their base so the component stays "active". The layout keeps the
+  // instance ids verbatim so each duplicate keeps its own position/edges.
+  const placed = new Set(Object.keys(layout.nodes).map(baseId));
   const out: ArchitectureOverride = { ...schemaToOverride(schema, placed), layout };
   return "```json\n" + JSON.stringify(out, null, 2) + "\n```\n";
 }

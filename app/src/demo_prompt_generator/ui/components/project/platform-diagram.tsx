@@ -28,7 +28,6 @@ import {
   useEffect,
   useRef,
   useCallback,
-  createContext,
   useContext,
 } from "react";
 import {
@@ -44,9 +43,6 @@ import {
   useReactFlow,
   useInternalNode,
   useStore,
-  Handle,
-  Position,
-  NodeResizer,
   BaseEdge,
   getSmoothStepPath,
   getStraightPath,
@@ -58,12 +54,13 @@ import {
   type NodeChange,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { DATABRICKS_ICONS, BRAND_ICONS, type DatabricksIconName } from "../databricks-icons";
+import { DATABRICKS_ICONS, BRAND_ICONS } from "../databricks-icons";
 import {
   buildSchema,
   parseOverride,
   resolveDeepLink,
   serializeArchitecture,
+  baseId,
   BAND_COLOR,
   BAND_META,
   type PlatformComponent,
@@ -71,6 +68,32 @@ import {
   type PlatformEdge,
   type BandId,
 } from "@/lib/platform-architecture";
+import {
+  type NodeData,
+  RotatableCard,
+  DropTargetContext,
+  baseSize,
+  nodeFootprint,
+} from "./platform-diagram/shared";
+import {
+  type Side,
+  type Rect,
+  type EdgeOps,
+  EdgeOpsContext,
+  POS_OF,
+  sidePoint,
+  nearestSide,
+  spreadFrac,
+  endSide,
+  rectOf,
+} from "./platform-diagram/edge-routing";
+import {
+  LakeflowBlock,
+  MedallionRow,
+  LF_PORTS,
+  PORT_FRAC,
+  portAnchor,
+} from "./platform-diagram/composite-lakeflow";
 import { saveProjectFile, type DeployedResourceLink } from "@/lib/custom-api";
 import { Button } from "@/components/ui/button";
 import {
@@ -93,200 +116,6 @@ import {
   Scaling,
 } from "lucide-react";
 
-// ---------------------------------------------------------------------------
-// Node data + props
-// ---------------------------------------------------------------------------
-
-interface NodeData {
-  component: PlatformComponent;
-  bandId: BandId;
-  bandColor: string;
-  deepLink: string | null;
-  onSelect: (id: string) => void;
-  /** Right-click on a node → open its context menu (rotate, remove). */
-  onContext: (id: string, clientX: number, clientY: number) => void;
-  /** Resize callback (from NodeResizer) — w/h are the un-rotated card size. */
-  onResize: (id: string, w: number, h: number) => void;
-  selected: boolean;
-  /** Edit mode shows connection handles; view mode hides them for a cleaner look. */
-  editMode: boolean;
-  /** Rotation in degrees (0/90/180/270). */
-  rot: number;
-  /** User-resized footprint (px); undefined → natural size. */
-  w?: number;
-  h?: number;
-  /** Manual content scale (right-click slider); default 1. */
-  scale?: number;
-  [key: string]: unknown;
-}
-
-/** Base (un-rotated) footprint of each node type — needed so the rotatable
- *  shell can swap W/H for 90°/270° and ReactFlow's handles land on the real
- *  rotated edges (not the original box). */
-function baseSize(c: PlatformComponent): { w: number; h: number } {
-  if (c.kind === "lakeflow") return { w: 360, h: 176 }; // composite super-block
-  if (c.id === "sdp") return { w: 230, h: 112 };
-  return { w: 200, h: 56 };
-}
-
-/** On-canvas footprint of a node = its card dims (natural or resized) with W/H
- *  swapped for 90°/270° rotation. This is what ReactFlow uses as the node size
- *  so handles, the selection frame, and the resizer all match the rotated box. */
-function nodeFootprint(
-  c: PlatformComponent,
-  pos: { w?: number; h?: number; rot?: number },
-): { w: number; h: number } {
-  const nat = baseSize(c);
-  const w = pos.w ?? nat.w;
-  const h = pos.h ?? nat.h;
-  const q = (((pos.rot ?? 0) % 360) + 360) % 360;
-  return q === 90 || q === 270 ? { w: h, h: w } : { w, h };
-}
-
-/** Shell that gives a node TRUE rotation + resize:
- *   - outer box = the on-canvas footprint (W/H swapped for 90/270) so handles,
- *     snap, and the resizer use the real rotated bounds;
- *   - inner card rendered at NATURAL size then uniformly SCALED to fill the
- *     resized box → text + icons scale proportionally with no per-size code;
- *   - inner card rotated about the shell center.
- *  `w`/`h` are the un-rotated card size (natural or user-resized). */
-function RotatableCard({
-  rot,
-  w,
-  h,
-  scale,
-  editMode,
-  selected,
-  forceDots = false,
-  onContext,
-  onResize,
-  children,
-}: {
-  rot: number;
-  w: number;
-  h: number;
-  scale: number;
-  editMode: boolean;
-  selected: boolean;
-  forceDots?: boolean;
-  onContext: (e: React.MouseEvent) => void;
-  onResize: (w: number, h: number) => void;
-  children: React.ReactNode;
-}) {
-  const quarter = ((rot % 360) + 360) % 360;
-  // The card renders at its OWN card dims (w×h, un-rotated). Rotating it 90/270
-  // makes its bounding box (h×w) — which exactly equals the node footprint
-  // (see nodeFootprint, which swaps for 90/270). So the rotated card fills the
-  // box. We must NOT swap here too (that double-swap was the bug where only the
-  // selection box rotated, not the card).
-  const cardW = w;
-  const cardH = h;
-  // Content scale is now MANUAL (right-click → Scale slider; default 1). The
-  // card content renders at its natural size × this scale and is CROPPED by
-  // the box (overflow-hidden) if it doesn't fit — no auto-fit.
-  const contentScale = scale;
-  // The shell FILLS the ReactFlow node box (ReactFlow + NodeResizer own the
-  // node's width/height — see schemaToFlow). Filling 100% keeps the selection
-  // frame, the resizer, and the visual all the same size (no drift on resize).
-  // NodeResizer's min/max apply to the FOOTPRINT (the node box), which is
-  // axis-swapped when rotated 90/270. If we passed the card-axis mins, a
-  // rotated node whose footprint-width (= card height ≈56) is below minWidth=96
-  // would get force-bumped on the first drag → the "vertical drag shrinks the
-  // horizontal for no reason" bug. So swap the mins to match the footprint.
-  const swapped90 = quarter === 90 || quarter === 270;
-  const minW = swapped90 ? 40 : 96;
-  const minH = swapped90 ? 96 : 40;
-  return (
-    <div className="group relative h-full w-full" onContextMenu={onContext}>
-      <NodeResizer
-        isVisible={editMode && selected}
-        minWidth={minW}
-        minHeight={minH}
-        // Free width/height (no locked aspect). Snap each dimension to the 16px
-        // grid so resized boxes stay aligned with everything else (magnet).
-        // Resize SMOOTHLY (raw px) during the drag — snapping every tick made
-        // the resizer's internal delta tracking fight the fed-back width and
-        // jump. Snap to the 16px grid only once, on release.
-        onResize={(_, p) => onResize(p.width, p.height)}
-        onResizeEnd={(_, p) => {
-          const snap = (v: number) => Math.round(v / 16) * 16;
-          onResize(snap(p.width), snap(p.height));
-        }}
-        lineClassName="!border-primary/50"
-        handleClassName="!bg-primary !border-2 !border-background !w-3.5 !h-3.5 !rounded-sm !shadow-md"
-      />
-      <NodeHandles show={editMode && !selected} forceDots={forceDots} />
-      {/* Card sized to EXACTLY the (un-rotated) card box and rotated about the
-          shell center — fills the footprint so its border == the box edges.
-          `--cs` lets the card scale its content with the box. */}
-      <div
-        style={
-          {
-            position: "absolute",
-            top: "50%",
-            left: "50%",
-            width: cardW,
-            height: cardH,
-            transform: `translate(-50%, -50%) rotate(${quarter}deg)`,
-            transformOrigin: "center center",
-            ["--cs" as string]: contentScale,
-          } as React.CSSProperties
-        }
-      >
-        {children}
-      </div>
-    </div>
-  );
-}
-
-const MEDALLION = [
-  { label: "Bronze", color: "#cd7f32" },
-  { label: "Silver", color: "#9ca3af" },
-  { label: "Gold", color: "#d4a72c" },
-] as const;
-
-/** The four connection dots (top/right/bottom/left) every node carries so the
- *  user can link from any side. Each side is both source + target. */
-function NodeHandles({ show, forceDots = false }: { show: boolean; forceDots?: boolean }) {
-  // Two-part design so the DOT can float outside the box while EDGES still
-  // terminate ON the box edge:
-  //   • the real <Handle> stays on the node border (ReactFlow anchors edges to
-  //     it → lines touch the box, no floating gap). It's a small invisible
-  //     hit-area.
-  //   • a separate decorative dot is pushed ~9px OUTSIDE the border (visual
-  //     only). Dots fade in on node hover in edit mode (so the canvas isn't a
-  //     sea of dots at rest), OR are FORCED visible when this tile is the
-  //     reconnect drop target — so the user sees the anchor points to aim at.
-  const vis = show
-    ? "opacity-0 transition-opacity duration-150 group-hover:opacity-100"
-    : "opacity-0 pointer-events-none";
-  // Invisible-ish hit handle pinned to the border.
-  const handle = `!w-3 !h-3 !bg-transparent !border-0 ${vis}`;
-  // Decorative dot, offset outward per side. Larger + always-on when forced.
-  const dotVis = forceDots ? "opacity-100" : vis;
-  const dot =
-    `pointer-events-none absolute z-10 rounded-full bg-background shadow-sm ${dotVis} ` +
-    (forceDots ? "h-3 w-3 border-2 border-primary" : "h-2.5 w-2.5 border-2 border-primary/70");
-  // All handles are type="source"; with ConnectionMode.Loose on the canvas a
-  // source handle can be BOTH the start and the end of a connection — so every
-  // side is grabbable to start a link AND a valid drop target. (Previously
-  // r/b were source-only and l/t target-only, so you couldn't start from the
-  // left/top — that was the "nothing on mouseover left" bug.)
-  return (
-    <>
-      <Handle type="source" position={Position.Right} id="r" className={handle} isConnectable={show} />
-      <Handle type="source" position={Position.Left} id="l" className={handle} isConnectable={show} />
-      <Handle type="source" position={Position.Bottom} id="b" className={handle} isConnectable={show} />
-      <Handle type="source" position={Position.Top} id="t" className={handle} isConnectable={show} />
-      {/* decorative outward dots (don't affect edge anchoring) */}
-      <span className={dot} style={{ right: -9, top: "50%", transform: "translateY(-50%)" }} />
-      <span className={dot} style={{ left: -9, top: "50%", transform: "translateY(-50%)" }} />
-      <span className={dot} style={{ bottom: -9, left: "50%", transform: "translateX(-50%)" }} />
-      <span className={dot} style={{ top: -9, left: "50%", transform: "translateX(-50%)" }} />
-    </>
-  );
-}
-
 /** The standard product/source node — brand icon tile + label. */
 const ComponentNode = memo(function ComponentNode({ data, selected }: NodeProps) {
   const d = data as NodeData;
@@ -296,7 +125,7 @@ const ComponentNode = memo(function ComponentNode({ data, selected }: NodeProps)
   const live = !!d.deepLink;
   const muted = c.state === "mentioned";
   // Lit up when a dragged edge endpoint is hovering this tile (magnet).
-  const isDropTarget = useContext(DropTargetContext) === c.id;
+  const isDropTarget = useContext(DropTargetContext) === d.nodeId;
 
   // SDP renders bronze/silver/gold as little tables inside the node.
   const isSdp = c.id === "sdp";
@@ -311,14 +140,14 @@ const ComponentNode = memo(function ComponentNode({ data, selected }: NodeProps)
       editMode={d.editMode}
       selected={!!selected}
       forceDots={isDropTarget}
-      onResize={(w, h) => d.onResize(c.id, w, h)}
+      onResize={(w, h) => d.onResize(d.nodeId, w, h)}
       onContext={(e) => {
         e.preventDefault();
-        d.onContext(c.id, e.clientX, e.clientY);
+        d.onContext(d.nodeId, e.clientX, e.clientY);
       }}
     >
     <div
-      onClick={() => d.onSelect(c.id)}
+      onClick={() => d.onSelect(d.nodeId)}
       className={`group relative flex h-full w-full flex-col overflow-hidden rounded-xl border bg-card transition-shadow ${
         selected ? "ring-2 ring-primary/60 shadow-md" : "shadow-sm hover:shadow-md"
       }`}
@@ -350,177 +179,13 @@ const ComponentNode = memo(function ComponentNode({ data, selected }: NodeProps)
         </span>
       </div>
 
-      {/* SDP medallion tables */}
+      {/* SDP medallion databases */}
       {isSdp && (
-        <div className="flex gap-1.5 border-t border-border/60 px-3 py-2">
-          {MEDALLION.map((m) => (
-            <div
-              key={m.label}
-              className="flex-1 overflow-hidden rounded-md border"
-              style={{ borderColor: `${m.color}55` }}
-            >
-              <div
-                className="px-1.5 py-0.5 text-[8.5px] font-bold uppercase tracking-wide text-white"
-                style={{ background: m.color }}
-              >
-                {m.label}
-              </div>
-              <div className="space-y-0.5 bg-background/60 p-1">
-                <div className="h-1 w-full rounded-full" style={{ background: `${m.color}40` }} />
-                <div className="h-1 w-3/4 rounded-full" style={{ background: `${m.color}30` }} />
-                <div className="h-1 w-5/6 rounded-full" style={{ background: `${m.color}30` }} />
-              </div>
-            </div>
-          ))}
+        <div className="border-t border-border/60 px-3 py-2" style={{ minHeight: 44 }}>
+          <MedallionRow />
         </div>
       )}
     </div>
-    </RotatableCard>
-  );
-});
-
-// ---------------------------------------------------------------------------
-// Composite "Lakeflow" block — Lakeflow Connect + Zerobus + direct ingest
-// feeding a bronze→silver→gold pipeline, in one nicely-designed card with 3
-// labelled input ports on the left and a single output on the right.
-// ---------------------------------------------------------------------------
-
-// The 3 left input ports. Lakeflow Connect + Zerobus are shown as vertical
-// boxes; "direct" is an unlabelled anchor in the empty space below them.
-// Anchor fractions aligned to the stacked left rails: Connect (top rail),
-// Zerobus (middle rail), direct (the empty zone at the bottom). Keep in sync
-// with PORT_FRAC used by the edge anchor logic.
-const LF_PORTS = [
-  { port: "lakeflow-connect", frac: 0.17 },
-  { port: "zerobus", frac: 0.5 },
-  { port: "direct", frac: 0.83 },
-] as const;
-
-/** A small vertical ingest box for the block's left column. */
-/** A couple of stacked, agnostic "data file" sheets (CSV/Parquet/etc) — used
- *  for the direct-files ingest zone instead of a format-specific logo. */
-function StackedFiles() {
-  return (
-    <svg viewBox="0 0 24 24" className="h-4 w-4 shrink-0" fill="none">
-      <rect x="7" y="3" width="11" height="14" rx="1.5" fill="#fff" stroke="#94a3b8" strokeWidth="1.4" />
-      <rect x="4" y="6" width="11" height="14" rx="1.5" fill="#fff" stroke="#64748b" strokeWidth="1.4" />
-      <path d="M7 10h5M7 13h5M7 16h3" stroke="#64748b" strokeWidth="1.2" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-/** An ingest "zone" flush against the block's left edge — icon on top + a
- *  single line of VERTICAL text reading downward. Tinted band fill, no rounded
- *  pill, so it reads as part of the block's left side (zones), not a tile. */
-function IngestBox({ icon, iconEl, label, bandColor, first }: { icon?: DatabricksIconName; iconEl?: React.ReactNode; label: string; bandColor: string; first?: boolean }) {
-  const Icon = icon ? DATABRICKS_ICONS[icon] || DATABRICKS_ICONS.data : null;
-  return (
-    <div
-      className={`flex flex-1 flex-col items-center justify-center gap-1 ${first ? "" : "border-t"}`}
-      style={{ borderColor: `${bandColor}33`, background: `${bandColor}12` }}
-    >
-      {iconEl ?? (Icon ? <Icon className="h-4 w-4 shrink-0" /> : null)}
-      <span
-        className="text-[8px] font-bold uppercase tracking-[0.1em] text-foreground/80"
-        style={{ writingMode: "vertical-rl", textOrientation: "mixed" }}
-      >
-        {label}
-      </span>
-    </div>
-  );
-}
-
-/** A tiny DATABASE-TABLE glyph: colored header (the layer name) + a few
- *  "column" rows. Used for the bronze/silver/gold layers inside the block. */
-function DbTable({ label, color }: { label: string; color: string }) {
-  return (
-    <div className="flex flex-1 flex-col overflow-hidden rounded-[3px] border bg-card shadow-sm" style={{ borderColor: `${color}66` }}>
-      <div className="px-1 py-[3px] text-center text-[7.5px] font-bold uppercase tracking-wide text-white" style={{ background: color }}>
-        {label}
-      </div>
-      <div className="flex flex-1 flex-col justify-center gap-[3px] px-1 py-1">
-        {[0, 1, 2].map((r) => (
-          <div key={r} className="flex items-center gap-1">
-            <span className="h-1 w-1 shrink-0 rounded-[1px]" style={{ background: color }} />
-            <span className="h-[3px] flex-1 rounded-sm" style={{ background: `${color}28` }} />
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-const LakeflowBlock = memo(function LakeflowBlock({ data, selected }: NodeProps) {
-  const d = data as NodeData;
-  const isDropTarget = useContext(DropTargetContext) === d.component.id;
-  const nat = baseSize(d.component);
-  return (
-    <RotatableCard
-      rot={d.rot}
-      w={d.w ?? nat.w}
-      h={d.h ?? nat.h}
-      scale={d.scale ?? 1}
-      editMode={d.editMode}
-      selected={!!selected}
-      forceDots={isDropTarget}
-      onResize={(w, h) => d.onResize(d.component.id, w, h)}
-      onContext={(e) => { e.preventDefault(); d.onContext(d.component.id, e.clientX, e.clientY); }}
-    >
-      {/* 3 left input ports (lakeflow-connect / zerobus / direct) + right output.
-          All type="source" (loose mode) so they connect both ways. */}
-      {d.editMode &&
-        LF_PORTS.map((p) => (
-          <Handle key={p.port} type="source" position={Position.Left} id={`in-${p.port}`} isConnectable
-            className="!h-2.5 !w-2.5 !border-2 !border-primary !bg-background" style={{ top: `${p.frac * 100}%` }} />
-        ))}
-      {d.editMode && (
-        <Handle type="source" position={Position.Right} id="r" isConnectable className="!h-2.5 !w-2.5 !border-2 !border-primary !bg-background" />
-      )}
-
-      <div
-        onClick={() => d.onSelect(d.component.id)}
-        className={`flex h-full w-full flex-col overflow-hidden rounded-2xl border bg-card shadow-sm transition-shadow ${
-          selected ? "ring-2 ring-primary/60 shadow-md" : "hover:shadow-md"
-        }`}
-        style={{ borderColor: `${d.bandColor}66` }}
-      >
-        <div className="flex h-full w-full" style={{ transform: "scale(var(--cs, 1))", transformOrigin: "top left" }}>
-          {/* LEFT: ingest zones flush against the block edge — Connect (top),
-              Zerobus (middle), empty (bottom = direct port). */}
-          <div className="flex w-10 shrink-0 flex-col border-r" style={{ borderColor: `${d.bandColor}33` }}>
-            <IngestBox icon="lakeflowConnectBrand" label="Connect" bandColor={d.bandColor} first />
-            <IngestBox icon="zerobus" label="Zerobus" bandColor={d.bandColor} />
-            {/* bottom zone = "direct" port — agnostic data files (CSV/Parquet). */}
-            <IngestBox iconEl={<StackedFiles />} label="Files" bandColor={d.bandColor} />
-          </div>
-
-          {/* RIGHT: title + SDP tables + Open Format underneath them. */}
-          <div className="flex flex-1 flex-col p-2.5">
-            <div className="mb-1.5 flex items-center gap-1.5">
-              <span className="text-[12px] font-bold text-foreground">{d.component.label}</span>
-            </div>
-            <div className="flex flex-1 flex-col rounded-lg border border-border/60 bg-background/60 p-2">
-              <div className="mb-1.5 flex items-center gap-1.5">
-                {(() => { const I = DATABRICKS_ICONS.sdpBrand; return <I className="h-4 w-4 shrink-0" />; })()}
-                <span className="truncate text-[9.5px] font-bold leading-tight text-foreground">Spark Declarative Pipelines</span>
-              </div>
-              <div className="flex flex-1 items-stretch gap-1.5">
-                {MEDALLION.map((m) => (
-                  <DbTable key={m.label} label={m.label} color={m.color} />
-                ))}
-              </div>
-              {/* Open Format — under the tables to save height. */}
-              <div className="mt-1.5 flex items-center gap-1.5 border-t border-border/60 pt-1.5">
-                <span className="text-[8px] font-semibold uppercase tracking-wider text-muted-foreground">Open Format</span>
-                {(() => { const I = DATABRICKS_ICONS.deltaLakeLogo; return <I className="h-3.5 w-3.5" />; })()}
-                <span className="text-[9px] font-medium text-muted-foreground">Delta</span>
-                {(() => { const I = DATABRICKS_ICONS.icebergLogo; return <I className="h-3.5 w-3.5" />; })()}
-                <span className="text-[9px] font-medium text-muted-foreground">Iceberg</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
     </RotatableCard>
   );
 });
@@ -530,115 +195,6 @@ const nodeTypes = { component: ComponentNode, composite: LakeflowBlock };
 // ---------------------------------------------------------------------------
 // Animated "data flowing" edge — red dot travels the path (template style)
 // ---------------------------------------------------------------------------
-
-type Side = "t" | "r" | "b" | "l";
-type Rect = { x: number; y: number; w: number; h: number };
-
-/** A point on a border SIDE of a rect at `frac` (0..1) ALONG that side — 0.5 is
- *  the center. Lets multiple edges sharing a side fan out instead of stacking.
- *  Deterministic per (side, frac) → doesn't drift when the node moves. */
-function sidePoint(r: Rect, side: Side, frac = 0.5): { x: number; y: number } {
-  switch (side) {
-    case "t": return { x: r.x + r.w * frac, y: r.y };
-    case "b": return { x: r.x + r.w * frac, y: r.y + r.h };
-    case "l": return { x: r.x, y: r.y + r.h * frac };
-    default: return { x: r.x + r.w, y: r.y + r.h * frac }; // "r"
-  }
-}
-
-/** The border side whose CENTER is nearest a point — used so a dragged
- *  reconnect endpoint snaps to the anchor closest to the cursor (lets the user
- *  aim at any of the 4 sides), not always the geometrically-facing one. */
-function nearestSide(r: Rect, px: number, py: number): Side {
-  const sides: Side[] = ["t", "r", "b", "l"];
-  let best: Side = "r";
-  let bestD = Infinity;
-  for (const s of sides) {
-    const c = sidePoint(r, s, 0.5);
-    const dx = c.x - px;
-    const dy = c.y - py;
-    const dd = dx * dx + dy * dy;
-    if (dd < bestD) { bestD = dd; best = s; }
-  }
-  return best;
-}
-
-/** Fraction along a side for edge `index` of `count` sharing it. Packed
- *  tightly around the CENTER (0.5) with a small fixed gap, instead of spreading
- *  across the whole side — so multiple lines stay close together near the
- *  middle. 1→0.5; 2→0.43/0.57; 3→0.36/0.5/0.64; clamped to stay on the side. */
-function spreadFrac(index: number, count: number): number {
-  if (count <= 1) return 0.5;
-  const gap = 0.14; // spacing between adjacent lines, as a fraction of the side
-  const f = 0.5 + (index - (count - 1) / 2) * gap;
-  return Math.min(0.92, Math.max(0.08, f));
-}
-
-/** Pick the border side that best faces a target point (used when the edge has
- *  no explicit handle, e.g. auto-seeded edges). */
-function facingSide(r: Rect, tx: number, ty: number): Side {
-  const cx = r.x + r.w / 2;
-  const cy = r.y + r.h / 2;
-  const dx = tx - cx;
-  const dy = ty - cy;
-  // Compare normalized distances to decide horizontal vs vertical dominance.
-  if (Math.abs(dx) / (r.w / 2) >= Math.abs(dy) / (r.h / 2)) return dx >= 0 ? "r" : "l";
-  return dy >= 0 ? "b" : "t";
-}
-
-const POS_OF: Record<Side, Position> = {
-  t: Position.Top, r: Position.Right, b: Position.Bottom, l: Position.Left,
-};
-
-/** Composite blocks expose named input ports on their LEFT side at fixed
- *  fractions (handle id `in-<port>`). An edge connected to such a handle
- *  anchors there directly (no fan spread). Returns null for normal handles. */
-// Single source of truth for composite port fractions: handle id → left-side
-// fraction. Derived from LF_PORTS so the rendered handle, the drag-snap
-// (portsOf), and the committed-edge anchor (portAnchor) can never drift.
-const PORT_FRAC: Record<string, number> = Object.fromEntries(
-  LF_PORTS.map((p) => [`in-${p.port}`, p.frac]),
-);
-function portAnchor(handleId: string | null | undefined): { side: Side; frac: number } | null {
-  if (handleId && handleId in PORT_FRAC) return { side: "l", frac: PORT_FRAC[handleId] };
-  return null;
-}
-
-/** Edge-editing ops shared with the custom edge (which can't take arbitrary
- *  props). Drives the click-to-select → drag-endpoint → magnet-reconnect flow. */
-interface EdgeOps {
-  editMode: boolean;
-  retarget: (edgeId: string, end: "source" | "target", nodeId: string, handle?: string) => void;
-  nodeAt: (fx: number, fy: number) => string | null;
-  rectOf: (nodeId: string) => Rect | null;
-  setDropTarget: (nodeId: string | null) => void;
-  toFlow: (clientX: number, clientY: number) => { x: number; y: number };
-  /** Named input ports of a composite node, as absolute flow-coord anchors +
-   *  their handle id. Empty for plain tiles. */
-  portsOf: (nodeId: string) => { handle: string; x: number; y: number }[];
-}
-const EdgeOpsContext = createContext<EdgeOps | null>(null);
-/** Node id currently under a dragged endpoint (magnet highlight). */
-const DropTargetContext = createContext<string | null>(null);
-
-const rectOf = (n: { internals: { positionAbsolute: { x: number; y: number } }; measured: { width?: number; height?: number } }): Rect => ({
-  x: n.internals.positionAbsolute.x,
-  y: n.internals.positionAbsolute.y,
-  w: n.measured.width ?? 200,
-  h: n.measured.height ?? 56,
-});
-
-/** Which side of a node a given edge-end attaches to (explicit handle wins,
- *  else the side facing the other node's center). Module-level so the store
- *  selector and the edge can agree. */
-function endSide(
-  rect: Rect,
-  handleId: string | null | undefined,
-  otherCenter: { x: number; y: number },
-): Side {
-  if (handleId && ["t", "r", "b", "l"].includes(handleId)) return handleId as Side;
-  return facingSide(rect, otherCenter.x, otherCenter.y);
-}
 
 const FlowEdge = memo(function FlowEdge(props: EdgeProps) {
   const { id, source, target, sourceHandleId, targetHandleId, markerEnd, style, data, selected } = props;
@@ -924,7 +480,9 @@ const LibraryPalette = memo(function LibraryPalette({
       </div>
       <div className="flex-1 overflow-y-auto p-2">
         {schema.bands.map((band) => {
-          const items = band.components.filter((c) => !placedIds.has(c.id));
+          // Always list the FULL catalog (don't hide placed ones — it's
+          // confusing). Placed components are just dimmed + marked "on canvas".
+          const items = band.components;
           if (items.length === 0) return null;
           return (
             <div key={band.id} className="mb-3">
@@ -934,6 +492,7 @@ const LibraryPalette = memo(function LibraryPalette({
               {items.map((c) => {
                 const Icon = DATABRICKS_ICONS[c.icon] || DATABRICKS_ICONS.data;
                 const isBrand = BRAND_ICONS.has(c.icon);
+                const onCanvas = placedIds.has(c.id);
                 return (
                   <button
                     key={c.id}
@@ -941,26 +500,22 @@ const LibraryPalette = memo(function LibraryPalette({
                     draggable
                     onDragStart={(e) => {
                       e.dataTransfer.setData("application/x-component-id", c.id);
-                      e.dataTransfer.effectAllowed = "move";
+                      e.dataTransfer.effectAllowed = "copy";
                     }}
                     onDoubleClick={() => onAdd(c.id)}
-                    title={`Drag onto the canvas (or double-click to add): ${c.label}`}
-                    className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12.5px] hover:bg-muted"
+                    title={onCanvas ? `${c.label} — already on the canvas (drag to add another)` : `Drag onto the canvas (or double-click to add): ${c.label}`}
+                    className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12.5px] hover:bg-muted ${onCanvas ? "opacity-60" : ""}`}
                   >
                     <GripVertical className="h-3 w-3 shrink-0 text-muted-foreground/40" />
                     <Icon className="h-4 w-4 shrink-0" style={isBrand ? undefined : { color: BAND_COLOR[band.id] }} />
                     <span className="truncate text-foreground">{c.label}</span>
+                    {onCanvas && <Check className="ml-auto h-3 w-3 shrink-0 text-primary/60" />}
                   </button>
                 );
               })}
             </div>
           );
         })}
-        {schema.bands.every((b) => b.components.every((c) => placedIds.has(c.id))) && (
-          <div className="px-2 py-4 text-center text-[11px] text-muted-foreground">
-            All components are on the canvas.
-          </div>
-        )}
       </div>
     </div>
   );
@@ -990,7 +545,9 @@ function schemaToFlow(
 
   const nodes: Node[] = [];
   for (const [id, pos] of Object.entries(schema.layout.nodes)) {
-    const found = lookup.get(id);
+    // Node id may be an instance id (`genie#2`); resolve the catalog component
+    // by its base id, but keep the instance id as the ReactFlow node id.
+    const found = lookup.get(baseId(id));
     if (!found || hidden.has(id)) continue;
     const { component, bandId } = found;
     const fp = nodeFootprint(component, pos);
@@ -1005,10 +562,11 @@ function schemaToFlow(
       height: fp.h,
       style: { width: fp.w, height: fp.h },
       data: {
+        nodeId: id,
         component,
         bandId,
         bandColor: BAND_COLOR[bandId],
-        deepLink: deepLinks[id] ?? null,
+        deepLink: deepLinks[baseId(id)] ?? null,
         onSelect,
         onContext,
         onResize,
@@ -1034,8 +592,10 @@ function flowToEdge(e: PlatformEdge): Edge {
     id: e.id,
     source: e.source,
     target: e.target,
-    sourceHandle: "r",
-    targetHandle: "l",
+    // Restore saved handles (composite port id or side); fall back to the
+    // default L→R so older/auto-seeded edges still render.
+    sourceHandle: e.sourceHandle ?? "r",
+    targetHandle: e.targetHandle ?? "l",
     type: "flow",
     data: { animated: e.animated ?? false, dashed: e.dashed ?? false, shape: e.shape ?? "smooth" },
     label: e.label,
@@ -1264,7 +824,9 @@ function Canvas({ schema, deepLinks, onPersist }: CanvasProps) {
           ...(dd.scale && dd.scale !== 1 ? { scale: Math.round(dd.scale * 100) / 100 } : {}),
         };
       });
-      const placed = new Set(nds.map((n) => n.id));
+      // `hidden` is keyed by catalog (base) ids: a component is hidden iff NO
+      // instance of it is on the canvas (collapse `genie#2` → `genie`).
+      const placed = new Set(nds.map((n) => baseId(n.id)));
       const hidden = [...componentLookup(schema).keys()].filter((id) => !placed.has(id));
       const layoutEdges: PlatformEdge[] = eds.map((e) => {
         const ed = e.data as { animated?: boolean; dashed?: boolean; shape?: "smooth" | "straight" | "step" } | undefined;
@@ -1272,6 +834,8 @@ function Canvas({ schema, deepLinks, onPersist }: CanvasProps) {
           id: e.id,
           source: e.source,
           target: e.target,
+          ...(e.sourceHandle ? { sourceHandle: e.sourceHandle } : {}),
+          ...(e.targetHandle ? { targetHandle: e.targetHandle } : {}),
           animated: ed?.animated ?? false,
           dashed: ed?.dashed ?? false,
           shape: ed?.shape ?? "smooth",
@@ -1512,26 +1076,35 @@ function Canvas({ schema, deepLinks, onPersist }: CanvasProps) {
   // --- Add from library (drop or double-click) ------------------------------
   const addComponent = useCallback(
     (componentId: string, at?: { x: number; y: number }) => {
-      const found = componentLookup(schema).get(componentId);
+      const found = componentLookup(schema).get(baseId(componentId));
       if (!found) return;
       const pos = at ?? { x: 120, y: 120 };
       setNodes((nds) => {
-        if (nds.some((n) => n.id === componentId)) return nds;
+        // Same component can be placed more than once: if the base id is taken,
+        // mint a fresh instance id (`<id>#2`, `#3`, …) so node ids stay unique.
+        const base = baseId(componentId);
+        let nodeId = base;
+        if (nds.some((n) => n.id === nodeId)) {
+          let k = 2;
+          while (nds.some((n) => n.id === `${base}#${k}`)) k++;
+          nodeId = `${base}#${k}`;
+        }
         const fp = nodeFootprint(found.component, {});
         const next = [
           ...nds,
           {
-            id: componentId,
+            id: nodeId,
             type: found.component.kind ? "composite" : "component",
             position: pos,
             width: fp.w,
             height: fp.h,
             style: { width: fp.w, height: fp.h },
             data: {
+              nodeId,
               component: found.component,
               bandId: found.bandId,
               bandColor: BAND_COLOR[found.bandId],
-              deepLink: deepLinks[componentId] ?? null,
+              deepLink: deepLinks[base] ?? null,
               onSelect,
               onContext,
               onResize,
@@ -1652,8 +1225,10 @@ function Canvas({ schema, deepLinks, onPersist }: CanvasProps) {
     setMenu({ kind: "edge", id: edge.id, x: e.clientX, y: e.clientY });
   }, []);
 
-  const selected = selectedId ? componentLookup(schema).get(selectedId) : null;
-  const placedIds = useMemo(() => new Set(nodes.map((n) => n.id)), [nodes]);
+  const selected = selectedId ? componentLookup(schema).get(baseId(selectedId)) : null;
+  // Base ids of every placed instance — the library dims a catalog item when at
+  // least one instance is on the canvas (but it stays draggable for duplicates).
+  const placedIds = useMemo(() => new Set(nodes.map((n) => baseId(n.id))), [nodes]);
   const menuEdge = menu?.kind === "edge" ? edges.find((e) => e.id === menu.id) : undefined;
 
   return (
