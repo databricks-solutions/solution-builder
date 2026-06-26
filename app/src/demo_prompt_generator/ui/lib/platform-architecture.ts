@@ -29,6 +29,11 @@
  */
 
 import type { DatabricksIconName } from "@/components/databricks-icons";
+
+/** An icon reference: a built-in DatabricksIconName, or a file-icon key like
+ *  "file:vendor/kafka" / "file:cloud/aws/storage/s3". The `& {}` keeps
+ *  autocomplete for the known built-ins while allowing any file-icon string. */
+export type IconKey = DatabricksIconName | (string & {});
 import { CAPABILITY_META } from "./capabilities";
 import type { DeployedResourceLink } from "./custom-api";
 
@@ -52,7 +57,7 @@ export interface PlatformComponent {
    *  components get demo-authored ids (e.g. "src-shopify"). */
   id: string;
   label: string;
-  icon: DatabricksIconName;
+  icon: IconKey;
   /** Story-tied, per-demo blurb shown in the detail panel. Catalog ships a
    *  generic fallback; the agent overrides it with something demo-specific. */
   desc: string;
@@ -130,7 +135,7 @@ export interface NodePosition {
   label?: string;
   /** Canvas-picked icon — set when the node's TYPE was changed on the canvas.
    *  Overrides the component's default icon. */
-  icon?: DatabricksIconName;
+  icon?: IconKey;
   /** Free-form annotation node (text / box / logo / image). Present only for
    *  annotation nodes (id starts with "anno-"); catalog nodes leave it unset. */
   annotation?: AnnotationData;
@@ -200,7 +205,7 @@ export interface PlatformLayout {
 export interface ComponentOverride {
   id: string;
   label?: string;
-  icon?: DatabricksIconName;
+  icon?: IconKey;
   desc?: string;
   state?: ComponentState;
   capability?: string;
@@ -333,12 +338,17 @@ const CATALOG: Record<BandId, CatalogComponent[]> = {
   // the diagram reads as a complete architecture out of the box; the agent
   // REPLACES these (via the `sources` band `add` + hiding these) with the
   // demo's real systems. Each declares its `ingest` path.
+  // Default sources are OSS + generic only (license-safe to show as real
+  // logos out of the box). Commercial SaaS sources (Salesforce, SAP, Shopify…)
+  // are NOT defaults — add them via "+ more data sources" (they badge until
+  // the trademark toggle is on). The agent replaces these per demo.
   sources: [
-    { id: "src-shopify", label: "Shopify", icon: "shopifyLogo", ingest: "lakeflow-connect", desc: "Orders & returns — 400K rows over 24 months, via Lakeflow Connect." },
-    { id: "src-zendesk", label: "Zendesk", icon: "zendeskLogo", ingest: "lakeflow-connect", desc: "Customer-service tickets & return reasons, via Lakeflow Connect." },
-    { id: "src-erp", label: "ERP", icon: "sapLogo", ingest: "lakeflow-connect", desc: "Production lots & QC records, via Lakeflow Connect." },
-    { id: "src-sensors", label: "Sensor data", icon: "sensorSource", ingest: "zerobus", desc: "Real-time manufacturing line telemetry, streamed via Zerobus." },
-    { id: "src-pdf", label: "PDF documents", icon: "pdfLogo", ingest: "direct", desc: "Manufacturing incident-report PDFs — landed as files on a UC Volume." },
+    { id: "src-kafka", label: "Kafka", icon: "file:vendor/kafka", ingest: "zerobus", desc: "Streaming events ingested in real time via Zerobus." },
+    { id: "src-postgres", label: "PostgreSQL", icon: "file:vendor/postgresql", ingest: "lakeflow-connect", desc: "Operational Postgres database, ingested via Lakeflow Connect." },
+    { id: "src-mysql", label: "MySQL", icon: "file:vendor/mysql", ingest: "lakeflow-connect", desc: "Operational MySQL database, ingested via Lakeflow Connect." },
+    { id: "src-sqlserver", label: "SQL Server", icon: "file:vendor/microsoft-sql-server", ingest: "lakeflow-connect", desc: "Microsoft SQL Server, ingested via Lakeflow Connect." },
+    { id: "src-sensors", label: "Sensor data", icon: "sensorSource", ingest: "zerobus", desc: "Real-time sensor / IoT telemetry, streamed via Zerobus." },
+    { id: "src-pdf", label: "PDF documents", icon: "pdfLogo", ingest: "direct", desc: "Documents (PDFs) — landed as files on a UC Volume." },
   ],
 };
 

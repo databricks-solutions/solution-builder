@@ -9,7 +9,7 @@
  */
 import { useEffect, useState } from "react";
 import { DATABRICKS_ICONS, BRAND_ICONS, TRADEMARK_ICONS, type DatabricksIconName } from "../../databricks-icons";
-import { isFileIconKey, getFileIcon, getFileIconColor, FileSvgIcon } from "../../file-icons";
+import { isFileIconKey, getFileIcon, getFileIconColor, FileSvgIcon, logoMetaForKey } from "../../file-icons";
 
 /** Brand colors for the built-in trademarked vendor logos (badge background). */
 const BUILTIN_BADGE_COLOR: Partial<Record<string, string>> = {
@@ -19,12 +19,14 @@ const BUILTIN_BADGE_COLOR: Partial<Record<string, string>> = {
 };
 
 /** Is this icon key a third-party trademarked mark (gated behind the toggle)?
- *  Cloud file icons + Databricks built-ins are NOT gated. */
+ *  Cloud marks + OSS logos + Databricks built-ins are NOT gated. Driven by the
+ *  logo catalog (trademark && !oss) for file icons. */
 export function isTrademarkMark(iconKey: string): boolean {
   if (isFileIconKey(iconKey)) {
     const f = getFileIcon(iconKey);
-    // cloud/* is always allowed; vendor/* (and anything else) is gated.
-    return !!f && f.group !== "cloud";
+    if (!f || f.group === "cloud") return false; // cloud always allowed
+    const m = logoMetaForKey(iconKey);
+    return m.trademark && !m.oss;
   }
   return TRADEMARK_ICONS.has(iconKey as DatabricksIconName);
 }

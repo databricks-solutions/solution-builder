@@ -54,7 +54,6 @@ import {
   type NodeChange,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { DATABRICKS_ICONS, BRAND_ICONS } from "../databricks-icons";
 import {
   buildSchema,
   parseOverride,
@@ -556,8 +555,6 @@ const DetailPanel = memo(function DetailPanel({
   deepLink: string | null;
   onClose: () => void;
 }) {
-  const Icon = DATABRICKS_ICONS[component.icon] || DATABRICKS_ICONS.data;
-  const isBrand = BRAND_ICONS.has(component.icon);
   return (
     <div className="flex h-full w-[320px] shrink-0 flex-col border-l border-border bg-card">
       <div className="flex items-start justify-between gap-2 border-b border-border px-5 py-4">
@@ -566,7 +563,7 @@ const DetailPanel = memo(function DetailPanel({
             className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-background"
             style={{ boxShadow: `inset 0 0 0 1px ${bandColor}33` }}
           >
-            <Icon className="h-6 w-6" style={isBrand ? undefined : { color: bandColor }} />
+            <BrandMark iconKey={component.icon} label={component.label} bandColor={bandColor} allowTrademark className="h-6 w-6" />
           </span>
           <div>
             <div className="text-[15px] font-bold leading-tight text-foreground">{component.label}</div>
@@ -611,6 +608,7 @@ const LibraryPalette = memo(function LibraryPalette({
   onAddAnnotation,
   onAddLogo,
   onToggleTrademark,
+  onMoreSources,
 }: {
   schema: PlatformSchema;
   placedIds: Set<string>;
@@ -620,6 +618,8 @@ const LibraryPalette = memo(function LibraryPalette({
   onAddLogo: (iconKey: string) => void;
   /** Toggle the trademark-logo opt-in (Canvas handles the confirm flow). */
   onToggleTrademark?: () => void;
+  /** Open the "+ more data sources" picker. */
+  onMoreSources?: () => void;
   /** When set, the palette is in "select a replacement type" mode: clicking a
    *  component calls onPick instead of dragging/adding. */
   picking?: boolean;
@@ -733,6 +733,17 @@ const LibraryPalette = memo(function LibraryPalette({
                   </button>
                 );
               })}
+              {/* + more data sources — opens the source picker (sources only). */}
+              {band.id === "sources" && !picking && (
+                <button
+                  type="button"
+                  onClick={() => onMoreSources?.()}
+                  className="mt-0.5 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12px] font-medium text-primary hover:bg-muted"
+                >
+                  <span className="grid h-4 w-4 shrink-0 place-items-center text-primary">+</span>
+                  <span className="truncate">More data sources…</span>
+                </button>
+              )}
             </div>
           );
         })}
@@ -926,6 +937,7 @@ interface CanvasProps {
   deepLinks: Record<string, string | null>;
   onPersist: (layout: PlatformSchema["layout"]) => void;
   onSetTrademark: (on: boolean) => void;
+  onAddSource: (c: PlatformComponent) => void;
 }
 
 type CtxMenu =
@@ -1237,8 +1249,9 @@ const ContextMenu = memo(function ContextMenu({
   );
 });
 
-function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasProps) {
+function Canvas({ schema, deepLinks, onPersist, onSetTrademark, onAddSource }: CanvasProps) {
   const [confirmTrademark, setConfirmTrademark] = useState(false);
+  const [sourcePicker, setSourcePicker] = useState(false);
   // Turning logos ON requires a permission ack; turning OFF is immediate.
   const toggleTrademark = useCallback(() => {
     if (schema.enableTrademarkLogos) onSetTrademark(false);
@@ -1793,6 +1806,39 @@ function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasProps) {
   );
   addAnnotationRef.current = addAnnotation;
 
+  // Add a NEW data source from the "+ more data sources" picker. Synthesizes a
+  // source component (id `src-<name>`), registers it with the parent so it
+  // round-trips, and drops a node for it at a sensible spot.
+  const addSourceFromIcon = useCallback((iconKey: string) => {
+    const raw = iconKey.replace(/^file:.*\//, "").replace(/^file:/, "");
+    const name = raw.replace(/[-_]/g, " ").replace(/\b\w/g, (m) => m.toUpperCase());
+    const id = `src-${raw.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
+    const component: PlatformComponent = { id, label: name, icon: iconKey as PlatformComponent["icon"], desc: "", state: "active", ingest: "lakeflow-connect" };
+    onAddSource(component);
+    setSourcePicker(false);
+    // Drop a node now (don't wait for the schema round-trip). Stack sources at x=0.
+    setNodes((nds) => {
+      if (nds.some((n) => n.id === id)) return nds;
+      const fp = nodeFootprint(component, {});
+      const srcYs = nds.filter((n) => baseId(n.id).startsWith("src-")).map((n) => n.position.y);
+      const y = srcYs.length ? Math.max(...srcYs) + 96 : 0;
+      const next = [
+        ...nds,
+        {
+          id, type: "component", position: { x: 0, y }, width: fp.w, height: fp.h, style: { width: fp.w, height: fp.h },
+          data: {
+            nodeId: id, component, bandId: "sources" as BandId, bandColor: BAND_COLOR.sources,
+            deepLink: null, onSelect, onContext, onResize, onRename,
+            allowTrademark: !!schema.enableTrademarkLogos,
+            selected: false, editMode: true, rot: 0,
+          } satisfies NodeData,
+        } as Node,
+      ];
+      scheduleSave(next, edges);
+      return next;
+    });
+  }, [onAddSource, onSelect, onContext, onResize, onRename, schema.enableTrademarkLogos, setNodes, scheduleSave, edges]);
+
   const onDrop = useCallback(
     (e: React.DragEvent) => {
       e.preventDefault();
@@ -2025,6 +2071,7 @@ function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasProps) {
           onAddAnnotation={(v) => { const id = addAnnotation(v); if (v === "logo") setLogoPickerFor(id); }}
           onAddLogo={(iconKey) => addAnnotation("logo", undefined, { icon: iconKey })}
           onToggleTrademark={toggleTrademark}
+          onMoreSources={() => setSourcePicker(true)}
           picking={pickingFor !== null}
           onPick={(id) => { if (pickingFor) changeNodeType(pickingFor, id); setPickingFor(null); }}
           onCancelPick={() => setPickingFor(null)}
@@ -2195,11 +2242,24 @@ function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasProps) {
           />
         )}
 
-        {/* Searchable logo picker for a "Logo" annotation. */}
+        {/* Searchable logo picker for a "Logo" annotation. Honors the
+            trademark gate so gated logos show as a monogram here too. */}
         {logoPickerFor && (
           <IconPicker
+            allowTrademark={!!schema.enableTrademarkLogos}
             onPick={(key) => onAnnotate(logoPickerFor, { icon: key })}
             onClose={() => setLogoPickerFor(null)}
+          />
+        )}
+
+        {/* "+ More data sources" picker — same component, restricted to actual
+            data sources; picking adds a source tile. */}
+        {sourcePicker && (
+          <IconPicker
+            sourcesOnly
+            allowTrademark={!!schema.enableTrademarkLogos}
+            onPick={(key) => addSourceFromIcon(key)}
+            onClose={() => setSourcePicker(false)}
           />
         )}
       </div>
@@ -2242,11 +2302,21 @@ function PlatformDiagram({ content, capabilities, deployedResources, projectId }
   // seeded from the file, and fold it back onto the schema so both render and
   // save see it. (null until the user toggles → use the file's value.)
   const [trademark, setTrademark] = useState<boolean | null>(null);
-  useEffect(() => { setTrademark(null); }, [built]); // re-seed when the file reloads
-  const schema = useMemo<PlatformSchema>(
-    () => (trademark === null ? built : { ...built, enableTrademarkLogos: trademark }),
-    [built, trademark],
-  );
+  // Extra data sources added on the canvas ("+ more data sources"). Folded into
+  // the sources band so they render AND round-trip through serialize.
+  const [extraSources, setExtraSources] = useState<PlatformComponent[]>([]);
+  useEffect(() => { setTrademark(null); setExtraSources([]); }, [built]); // re-seed on file reload
+  const schema = useMemo<PlatformSchema>(() => {
+    let s = trademark === null ? built : { ...built, enableTrademarkLogos: trademark };
+    if (extraSources.length) {
+      const have = new Set(built.bands.find((b) => b.id === "sources")?.components.map((c) => c.id) ?? []);
+      const add = extraSources.filter((c) => !have.has(c.id));
+      if (add.length) {
+        s = { ...s, bands: s.bands.map((b) => (b.id === "sources" ? { ...b, components: [...b.components, ...add] } : b)) };
+      }
+    }
+    return s;
+  }, [built, trademark, extraSources]);
 
   const deepLinks = useMemo(() => {
     const map: Record<string, string | null> = {};
@@ -2273,6 +2343,12 @@ function PlatformDiagram({ content, capabilities, deployedResources, projectId }
     [projectId],
   );
 
+  // Register a new data source on the canvas (from the "+ more sources" picker).
+  // Returns the source component id so Canvas can drop a node for it.
+  const onAddSource = useCallback((c: PlatformComponent): void => {
+    setExtraSources((prev) => (prev.some((p) => p.id === c.id) ? prev : [...prev, c]));
+  }, []);
+
   // Toggle the trademark-logo opt-in and persist (re-serializes with the flag).
   const onSetTrademark = useCallback((on: boolean) => {
     setTrademark(on);
@@ -2298,7 +2374,7 @@ function PlatformDiagram({ content, capabilities, deployedResources, projectId }
         <SaveChip status={status} />
       </div>
       <ReactFlowProvider>
-        <Canvas schema={schema} deepLinks={deepLinks} onPersist={onPersist} onSetTrademark={onSetTrademark} />
+        <Canvas schema={schema} deepLinks={deepLinks} onPersist={onPersist} onSetTrademark={onSetTrademark} onAddSource={onAddSource} />
       </ReactFlowProvider>
     </div>
   );

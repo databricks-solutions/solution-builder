@@ -52,6 +52,25 @@ export function isFileIconKey(key: string | undefined | null): key is string {
   return typeof key === "string" && key.startsWith("file:") && BY_KEY.has(key);
 }
 
+// --- Logo metadata catalog (trademark / oss / data-source) ------------------
+import LOGO_CATALOG from "../icons/logo-catalog.json";
+
+export interface LogoMeta { trademark: boolean; oss: boolean; source: boolean }
+const CAT = LOGO_CATALOG as unknown as Record<string, Partial<LogoMeta>> & { defaults: LogoMeta };
+const LOGO_DEFAULTS: LogoMeta = CAT.defaults ?? { trademark: true, oss: false, source: true };
+
+/** Metadata for a logo by its canonical NAME (e.g. "kafka", "shopify", "s3"). */
+export function logoMetaByName(name: string): LogoMeta {
+  const e = CAT[name];
+  return { ...LOGO_DEFAULTS, ...(e && typeof e === "object" ? e : {}) };
+}
+
+/** Metadata for a file-icon KEY ("file:vendor/kafka" / "file:cloud/aws/storage/s3"). */
+export function logoMetaForKey(iconKey: string): LogoMeta {
+  const icon = getFileIcon(iconKey);
+  return icon ? logoMetaByName(icon.name) : LOGO_DEFAULTS;
+}
+
 /** Render a file-based SVG icon by key as an <img> pointing at the built asset
  *  URL (loaded on demand, not inlined into the JS bundle). */
 export function FileSvgIcon({ iconKey, className, style }: { iconKey: string; className?: string; style?: React.CSSProperties }) {

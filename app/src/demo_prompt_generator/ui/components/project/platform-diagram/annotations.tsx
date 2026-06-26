@@ -8,8 +8,9 @@
 import { memo, useContext, useState, useMemo } from "react";
 import { type NodeProps } from "@xyflow/react";
 import { DATABRICKS_ICONS, BRAND_ICONS, type DatabricksIconName } from "../../databricks-icons";
-import { FILE_ICONS, FileSvgIcon, isFileIconKey } from "../../file-icons";
+import { FILE_ICONS, FileSvgIcon, isFileIconKey, logoMetaByName } from "../../file-icons";
 import INDUSTRY_MAP from "../../../icons/industry-map.json";
+import { BrandMark } from "./brand-mark";
 import { type AnnotationData, type AnnotationVariant } from "@/lib/platform-architecture";
 import { RotatableCard, DropTargetContext, type NodeData } from "./shared";
 
@@ -150,7 +151,7 @@ export const AnnotationNode = memo(function AnnotationNode({ data, selected }: N
 /** A searchable picker over EVERY icon we ship — built-in catalog/brand/vendor
  *  React icons AND the file-based icon library (vendor logos, cloud marks).
  *  Used by the "Logo" annotation + the source/cloud library flows. */
-interface PickItem { key: string; label: string; search: string; tabs: string[] }
+interface PickItem { key: string; label: string; search: string; tabs: string[]; source: boolean }
 
 // Which industry buckets each canonical vendor logo belongs to (built from the
 // dedup mapping). Lets one canonical file appear under several industry tabs.
@@ -167,13 +168,15 @@ const INDUSTRY_BY_NAME: Record<string, string[]> = (() => {
 function buildPickIndex(): { items: PickItem[]; tabs: string[] } {
   const items: PickItem[] = [];
   for (const k of Object.keys(DATABRICKS_ICONS) as DatabricksIconName[]) {
-    items.push({ key: k, label: k, search: k.toLowerCase(), tabs: ["Databricks"] });
+    // Databricks built-ins: treat product/source-ish ones as sources; the rest
+    // (agents, governance glyphs) aren't data sources. Keep it permissive.
+    items.push({ key: k, label: k, search: k.toLowerCase(), tabs: ["Databricks"], source: true });
   }
   for (const f of FILE_ICONS) {
     const tabs = f.group === "cloud"
       ? ["Cloud"]
       : ["Vendors", ...(INDUSTRY_BY_NAME[f.name] ?? [])]; // vendor → Vendors + its industries
-    items.push({ key: f.key, label: f.name, search: `${f.group} ${f.category} ${f.name}`.toLowerCase(), tabs });
+    items.push({ key: f.key, label: f.name, search: `${f.group} ${f.category} ${f.name}`.toLowerCase(), tabs, source: logoMetaByName(f.name).source });
   }
   const order = ["Databricks", "Cloud", "Vendors"];
   const allTabs = new Set<string>();
@@ -186,12 +189,26 @@ function buildPickIndex(): { items: PickItem[]; tabs: string[] } {
   return { items, tabs };
 }
 
-export function IconPicker({ onPick, onClose }: { onPick: (key: string) => void; onClose: () => void }) {
+export function IconPicker({
+  onPick,
+  onClose,
+  allowTrademark = false,
+  sourcesOnly = false,
+}: {
+  onPick: (key: string) => void;
+  onClose: () => void;
+  /** Honor the trademark gate (gated logos render as a badge here too). */
+  allowTrademark?: boolean;
+  /** Restrict to actual data sources (for the "+ more data sources" picker). */
+  sourcesOnly?: boolean;
+}) {
   const [q, setQ] = useState("");
   const [tab, setTab] = useState("All");
   const { items, tabs } = useMemo(buildPickIndex, []);
   const ql = q.trim().toLowerCase();
-  const matches = items.filter((i) => (tab === "All" || i.tabs.includes(tab)) && (!ql || i.search.includes(ql)));
+  const matches = items.filter(
+    (i) => (tab === "All" || i.tabs.includes(tab)) && (!ql || i.search.includes(ql)) && (!sourcesOnly || i.source),
+  );
   return (
     <div className="fixed inset-0 z-[60] grid place-items-center bg-background/60" onClick={onClose}>
       <div
@@ -230,7 +247,9 @@ export function IconPicker({ onPick, onClose }: { onPick: (key: string) => void;
               title={i.key}
               className="flex flex-col items-center gap-1 rounded-lg border border-transparent p-2 hover:border-border hover:bg-muted"
             >
-              <AnyIcon iconKey={i.key} className="h-7 w-7 [&_svg]:h-7 [&_svg]:w-7" />
+              <span className="grid h-7 w-7 place-items-center">
+                <BrandMark iconKey={i.key} label={i.label} bandColor="#64748b" allowTrademark={allowTrademark} className="h-7 w-7" mono />
+              </span>
               <span className="w-full truncate text-center text-[8px] text-muted-foreground">{i.label}</span>
             </button>
           ))}
