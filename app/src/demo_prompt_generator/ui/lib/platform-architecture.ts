@@ -298,7 +298,7 @@ const CATALOG: Record<BandId, CatalogComponent[]> = {
     { id: "ml-training-serving", label: "ML Models", icon: "mlModel", desc: "Train, register, and serve models on governed data." },
     { id: "vector-search", label: "Vector Search", icon: "vectorSearch", desc: "Semantic search and retrieval that grounds agents in your data." },
     { id: "information-extraction", label: "Information Extraction", icon: "unstructuredData", desc: "Turn PDFs and documents into structured, queryable data." },
-    { id: "genie-code", label: "Built with Genie Code", icon: "genieCodeBrand", kind: "genie-code", desc: "Describe the pipeline — Genie Code writes the SQL, the DAG, the tests." },
+    { id: "genie-code", label: "Built with Genie Code", icon: "genieCodeBrand", kind: "genie-code", desc: "Describe it — Genie Code ingests the data and builds the dashboard, end to end." },
   ],
   "unified-governance": [
     { id: "unity-catalog", label: "Unity Catalog", icon: "unityCatalogBrand", desc: "One governed catalog — access, lineage, and semantics across data + AI." },

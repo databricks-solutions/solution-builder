@@ -64,7 +64,7 @@ export function nodeTypeFor(c: PlatformComponent): string {
  *  rotated edges (not the original box). */
 export function baseSize(c: PlatformComponent): { w: number; h: number } {
   if (c.kind === "lakeflow") return { w: 224, h: 148 }; // composite super-block
-  if (c.kind === "genie-code") return { w: 340, h: 116 }; // wide "built with Genie Code" strip
+  if (c.kind === "genie-code") return { w: 340, h: 128 }; // wide "built with Genie Code" strip
   if (c.id === "sdp") return { w: 230, h: 112 };
   // A sub-line + (optional) badge needs a slightly wider, taller tile.
   if (c.sublabel) return { w: 230, h: 70 };
