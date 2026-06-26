@@ -73,8 +73,13 @@ export const AnnotationNode = memo(function AnnotationNode({ data, selected }: N
       {(a.variant === "text" || a.variant === "box") && (
         <div
           onClick={() => d.onSelect(d.nodeId)}
-          className={`flex h-full w-full overflow-hidden rounded-md ${V_CLASS[vA]} ${H_CLASS[hA]} ${showBorder ? "border bg-card/80" : ""} ${selected ? "ring-2 ring-primary/60" : ""}`}
-          style={{ borderColor: showBorder ? "var(--border)" : undefined, padding: showBorder ? 8 : 2 }}
+          className={`flex h-full w-full overflow-hidden rounded-md ${V_CLASS[vA]} ${H_CLASS[hA]} ${showBorder ? "border" : ""} ${showBorder && !d.fillColor ? "bg-card/80" : ""} ${selected ? "ring-2 ring-primary/60" : ""}`}
+          style={{
+            borderColor: showBorder ? "var(--border)" : undefined,
+            padding: showBorder ? 8 : 2,
+            opacity: d.opacity ?? 1,
+            ...(d.fillColor ? { background: d.fillColor } : {}),
+          }}
         >
           {editing !== null ? (
             <textarea
@@ -88,13 +93,13 @@ export const AnnotationNode = memo(function AnnotationNode({ data, selected }: N
                 e.stopPropagation();
               }}
               onClick={(e) => e.stopPropagation()}
-              className="h-full w-full resize-none bg-transparent text-foreground outline-none"
-              style={{ fontSize, textAlign: hA }}
+              className={`h-full w-full resize-none bg-transparent outline-none ${d.fontColor ? "" : "text-foreground"}`}
+              style={{ fontSize, textAlign: hA, ...(d.fontColor ? { color: d.fontColor } : {}) }}
             />
           ) : (
             <span
-              className="whitespace-pre-wrap break-words text-foreground"
-              style={{ fontSize, transform: "scale(var(--cs, 1))" }}
+              className={`whitespace-pre-wrap break-words ${d.fontColor ? "" : "text-foreground"}`}
+              style={{ fontSize, transform: "scale(var(--cs, 1))", ...(d.fontColor ? { color: d.fontColor } : {}) }}
               title="Double-click to edit"
               onDoubleClick={(e) => { e.stopPropagation(); setEditing(a.text ?? ""); }}
             >

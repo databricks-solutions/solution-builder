@@ -38,6 +38,11 @@ export interface NodeData {
   h?: number;
   /** Manual content scale (right-click slider); default 1. */
   scale?: number;
+  /** Per-node style overrides (right-click): whole-node opacity (0..1), box
+   *  fill color, text/label color. Undefined → use the node's defaults. */
+  opacity?: number;
+  fillColor?: string;
+  fontColor?: string;
   [key: string]: unknown;
 }
 

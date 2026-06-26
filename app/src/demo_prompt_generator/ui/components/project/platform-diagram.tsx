@@ -181,12 +181,14 @@ const ComponentNode = memo(function ComponentNode({ data, selected }: NodeProps)
     >
     <div
       onClick={() => d.onSelect(d.nodeId)}
-      className={`group relative flex h-full w-full flex-col overflow-hidden rounded-xl border bg-card transition-shadow ${
-        selected ? "ring-2 ring-primary/60 shadow-md" : "shadow-sm hover:shadow-md"
-      }`}
+      className={`group relative flex h-full w-full flex-col overflow-hidden rounded-xl border transition-shadow ${
+        d.fillColor ? "" : "bg-card"
+      } ${selected ? "ring-2 ring-primary/60 shadow-md" : "shadow-sm hover:shadow-md"}`}
       style={{
         borderColor: muted ? undefined : `${bandColor}66`,
-        opacity: muted ? 0.6 : 1,
+        opacity: d.opacity ?? (muted ? 0.6 : 1),
+        ...(d.fillColor ? { background: d.fillColor } : {}),
+        ...(d.fontColor ? { color: d.fontColor } : {}),
       }}
     >
       <div
@@ -200,7 +202,7 @@ const ComponentNode = memo(function ComponentNode({ data, selected }: NodeProps)
           <Icon className="h-5 w-5" style={isBrand ? undefined : { color: bandColor }} />
         </span>
         <span className="min-w-0">
-          <span className="flex items-center gap-1.5 text-[13px] font-semibold leading-tight text-foreground">
+          <span className={`flex items-center gap-1.5 text-[13px] font-semibold leading-tight ${d.fontColor ? "" : "text-foreground"}`} style={d.fontColor ? { color: d.fontColor } : undefined}>
             {editing !== null ? (
               <input
                 autoFocus
@@ -777,6 +779,7 @@ function schemaToFlow(
           editMode,
           rot: pos.rot ?? 0,
           w: pos.w, h: pos.h, scale: pos.scale,
+          opacity: pos.opacity, fillColor: pos.fillColor, fontColor: pos.fontColor,
         } satisfies AnnotationNodeData,
       });
       continue;
@@ -819,6 +822,9 @@ function schemaToFlow(
         w: pos.w,
         h: pos.h,
         scale: pos.scale,
+        opacity: pos.opacity,
+        fillColor: pos.fillColor,
+        fontColor: pos.fontColor,
       } satisfies NodeData,
     });
   }
@@ -932,6 +938,48 @@ function AnnotationMenu({
   );
 }
 
+/** Opacity / fill-color / font-color controls shared by single + multi-select.
+ *  A color swatch with a reset (×) that clears the override (back to default). */
+function StyleControls({
+  style,
+  onStyle,
+}: {
+  style?: { opacity?: number; fillColor?: string; fontColor?: string };
+  onStyle: (patch: { opacity?: number; fillColor?: string; fontColor?: string }) => void;
+}) {
+  const opacityPct = Math.round((style?.opacity ?? 1) * 100);
+  const Swatch = ({ label, value, onPick }: { label: string; value?: string; onPick: (v: string) => void }) => (
+    <div className="flex items-center gap-2 px-2 py-1">
+      <span className="mr-auto text-[11px] text-muted-foreground">{label}</span>
+      <input
+        type="color"
+        value={value || "#ffffff"}
+        onChange={(e) => onPick(e.target.value)}
+        onClick={(e) => e.stopPropagation()}
+        className="h-5 w-7 cursor-pointer rounded border border-border bg-transparent p-0"
+        title={label}
+      />
+    </div>
+  );
+  return (
+    <>
+      <div className="px-2 py-1.5">
+        <div className="mb-1 flex items-center justify-between text-[11px] text-muted-foreground">
+          <span>Opacity</span><span>{opacityPct}%</span>
+        </div>
+        <input
+          type="range" min={10} max={100} step={5} value={opacityPct}
+          onChange={(e) => onStyle({ opacity: Number(e.target.value) / 100 })}
+          onClick={(e) => e.stopPropagation()}
+          className="h-1.5 w-full cursor-pointer accent-primary"
+        />
+      </div>
+      <Swatch label="Fill" value={style?.fillColor} onPick={(v) => onStyle({ fillColor: v })} />
+      <Swatch label="Text color" value={style?.fontColor} onPick={(v) => onStyle({ fontColor: v })} />
+    </>
+  );
+}
+
 /** Floating right-click menu for a node (rotate/remove) or an edge
  *  (toggle flow, dashed, routing shape, delete). */
 const ContextMenu = memo(function ContextMenu({
@@ -951,6 +999,9 @@ const ContextMenu = memo(function ContextMenu({
   onAnno,
   onPickLogo,
   onSetImageUrl,
+  style,
+  selectionCount = 1,
+  onStyle,
 }: {
   menu: NonNullable<CtxMenu>;
   edge?: Edge;
@@ -969,6 +1020,11 @@ const ContextMenu = memo(function ContextMenu({
   onAnno: (patch: Partial<AnnotationData>) => void;
   onPickLogo: () => void;
   onSetImageUrl: () => void;
+  /** Current style of the right-clicked node (for the controls' values). */
+  style?: { opacity?: number; fillColor?: string; fontColor?: string };
+  /** How many nodes the style controls will affect (>1 → multi-select). */
+  selectionCount?: number;
+  onStyle: (patch: { opacity?: number; fillColor?: string; fontColor?: string }) => void;
 }) {
   const ed = edge?.data as { animated?: boolean; dashed?: boolean; shape?: string } | undefined;
   const Item = ({ icon, label, onClick, active }: { icon: React.ReactNode; label: string; onClick: () => void; active?: boolean }) => (
@@ -990,8 +1046,22 @@ const ContextMenu = memo(function ContextMenu({
         className="fixed z-50 w-44 rounded-lg border border-border bg-card p-1 shadow-lg"
         style={{ left: menu.x, top: menu.y }}
       >
-        {menu.kind === "node" && annotation ? (
-          <AnnotationMenu a={annotation} Item={Item} onAnno={onAnno} onPickLogo={onPickLogo} onSetImageUrl={onSetImageUrl} onRotate={onRotate} onRemove={onRemoveNode} />
+        {menu.kind === "node" && selectionCount > 1 ? (
+          /* MULTI-SELECT: only the options common to ALL selected nodes — the
+             style controls. They apply to every selected node at once; nodes a
+             given option doesn't fit just ignore it. */
+          <>
+            <div className="px-2 py-1 text-[11px] font-semibold text-muted-foreground">{selectionCount} selected</div>
+            <StyleControls style={style} onStyle={onStyle} />
+            <div className="my-1 border-t border-border/60" />
+            <Item icon={<Trash2 className="h-3.5 w-3.5" />} label="Remove all" onClick={onRemoveNode} />
+          </>
+        ) : menu.kind === "node" && annotation ? (
+          <>
+            <AnnotationMenu a={annotation} Item={Item} onAnno={onAnno} onPickLogo={onPickLogo} onSetImageUrl={onSetImageUrl} onRotate={onRotate} onRemove={onRemoveNode} />
+            <div className="my-1 border-t border-border/60" />
+            <StyleControls style={style} onStyle={onStyle} />
+          </>
         ) : menu.kind === "node" ? (
           <>
             <Item icon={<Replace className="h-3.5 w-3.5" />} label="Change type…" onClick={onChangeType} />
@@ -1014,6 +1084,9 @@ const ContextMenu = memo(function ContextMenu({
                 className="h-1.5 w-full cursor-pointer accent-primary"
               />
             </div>
+            <div className="my-1 border-t border-border/60" />
+            <StyleControls style={style} onStyle={onStyle} />
+            <div className="my-1 border-t border-border/60" />
             <Item icon={<Trash2 className="h-3.5 w-3.5" />} label="Remove" onClick={onRemoveNode} />
           </>
         ) : (
@@ -1042,6 +1115,12 @@ function Canvas({ schema, deepLinks, onPersist }: CanvasProps) {
   const [pickingFor, setPickingFor] = useState<string | null>(null);
   // Annotation node id whose LOGO we're picking (opens the IconPicker modal).
   const [logoPickerFor, setLogoPickerFor] = useState<string | null>(null);
+  // Ids of all currently-selected nodes (lasso / shift-click). Drives whether
+  // the right-click style controls apply to one node or the whole selection.
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const onSelectionChange = useCallback(({ nodes: sel }: { nodes: Node[] }) => {
+    setSelectedIds(sel.map((n) => n.id));
+  }, []);
   const { screenToFlowPosition } = useReactFlow();
   const wrapRef = useRef<HTMLDivElement>(null);
 
@@ -1220,6 +1299,9 @@ function Canvas({ schema, deepLinks, onPersist }: CanvasProps) {
           ...(labelOv !== undefined ? { label: labelOv } : {}),
           ...(iconOv !== undefined ? { icon: iconOv } : {}),
           ...(anno ? { annotation: anno } : {}),
+          ...(dd.opacity !== undefined ? { opacity: dd.opacity } : {}),
+          ...(dd.fillColor !== undefined ? { fillColor: dd.fillColor } : {}),
+          ...(dd.fontColor !== undefined ? { fontColor: dd.fontColor } : {}),
         };
       });
       // `hidden` is keyed by catalog (base) ids: a component is hidden iff NO
@@ -1605,6 +1687,20 @@ function Canvas({ schema, deepLinks, onPersist }: CanvasProps) {
     });
   }, [setNodes, scheduleSave, edges]);
 
+  // Apply a STYLE patch (opacity / fillColor / fontColor) to one or many nodes.
+  // Used by the right-click menu — operates on the whole selection so lasso-
+  // selecting several boxes and changing a color updates all of them at once.
+  // Options that don't apply to a given node type are simply stored and ignored
+  // by that node's renderer (no-op), per the requested behavior.
+  const styleNodes = useCallback((ids: string[], patch: { opacity?: number; fillColor?: string; fontColor?: string }) => {
+    const idset = new Set(ids);
+    setNodes((nds) => {
+      const next = nds.map((n) => (idset.has(n.id) ? { ...n, data: { ...n.data, ...patch } } : n));
+      scheduleSave(next, edges);
+      return next;
+    });
+  }, [setNodes, scheduleSave, edges]);
+
   // Set a node's manual content scale (from the right-click slider).
   const setNodeScale = useCallback((id: string, scale: number) => {
     setNodes((nds) => {
@@ -1753,6 +1849,15 @@ function Canvas({ schema, deepLinks, onPersist }: CanvasProps) {
   const menuAnno = menu?.kind === "node"
     ? (nodes.find((n) => n.id === menu.id)?.data as Partial<AnnotationNodeData> | undefined)?.annotation
     : undefined;
+  // Style controls operate on the whole selection IF the right-clicked node is
+  // part of a 2+ selection; otherwise just that node.
+  const styleTargets =
+    menu?.kind === "node" && selectedIds.length > 1 && selectedIds.includes(menu.id)
+      ? selectedIds
+      : menu?.kind === "node"
+        ? [menu.id]
+        : [];
+  const menuNodeData = menu?.kind === "node" ? (nodes.find((n) => n.id === menu.id)?.data as NodeData | undefined) : undefined;
 
   return (
     <EdgeOpsContext.Provider value={edgeOps}>
@@ -1852,8 +1957,12 @@ function Canvas({ schema, deepLinks, onPersist }: CanvasProps) {
           onConnect={onConnect}
           onPaneClick={() => { setSelectedId(null); setMenu(null); }}
           onEdgeContextMenu={onEdgeContextMenu}
+          onSelectionChange={onSelectionChange}
           onMoveStart={() => setMenu(null)}
           nodeOrigin={[0.5, 0.5]}
+          selectionOnDrag
+          panOnDrag={[1, 2]}
+          selectNodesOnDrag={false}
           fitView
           fitViewOptions={{ padding: 0.2 }}
           minZoom={0.3}
@@ -1881,7 +1990,7 @@ function Canvas({ schema, deepLinks, onPersist }: CanvasProps) {
             nodeScale={(nodes.find((n) => n.id === menu.id)?.data as NodeData | undefined)?.scale ?? 1}
             onClose={() => setMenu(null)}
             onRotate={() => { rotateNode(menu.id); setMenu(null); }}
-            onRemoveNode={() => { removeNode(menu.id); setMenu(null); }}
+            onRemoveNode={() => { (styleTargets.length > 1 ? styleTargets : [menu.id]).forEach(removeNode); setMenu(null); }}
             onChangeType={() => { setPickingFor(menu.id); setSelectedId(null); setMenu(null); }}
             onSetScale={(s) => setNodeScale(menu.id, s)}
             onToggleFlow={() => toggleEdgeFlow(menu.id)}
@@ -1896,6 +2005,9 @@ function Canvas({ schema, deepLinks, onPersist }: CanvasProps) {
               if (url !== null) onAnnotate(menu.id, { src: url.trim() });
               setMenu(null);
             }}
+            style={{ opacity: menuNodeData?.opacity, fillColor: menuNodeData?.fillColor, fontColor: menuNodeData?.fontColor }}
+            selectionCount={styleTargets.length}
+            onStyle={(patch) => styleNodes(styleTargets, patch)}
           />
         )}
 

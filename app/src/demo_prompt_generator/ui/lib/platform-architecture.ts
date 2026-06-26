@@ -125,6 +125,10 @@ export interface NodePosition {
   /** Free-form annotation node (text / box / logo / image). Present only for
    *  annotation nodes (id starts with "anno-"); catalog nodes leave it unset. */
   annotation?: AnnotationData;
+  /** Per-node style overrides (right-click menu) — apply to any node's box. */
+  opacity?: number;        // 0..1, whole-node opacity
+  fillColor?: string;      // box/background color (hex)
+  fontColor?: string;      // text/label color (hex)
 }
 
 /** A free-form canvas annotation — not a Databricks catalog component. One node
