@@ -86,7 +86,7 @@ Author the demo's **real** source systems under the `sources` band's `add` — u
 ```json
 { "id": "sources", "add": [
   { "id": "src-shopify", "label": "Shopify", "icon": "shopifyLogo", "ingest": "lakeflow-connect", "desc": "Orders & returns via Lakeflow Connect." },
-  { "id": "src-sensors", "label": "Line Sensors", "icon": "sensorSource", "ingest": "zerobus", "desc": "Realtime telemetry via Zerobus." }
+  { "id": "src-sensors", "label": "Sensor data", "icon": "sensorSource", "ingest": "zerobus", "desc": "Realtime telemetry via Zerobus." }
 ],
   "set": [ { "id": "synthetic-data-gen", "state": "hidden" } ]
 }
@@ -133,7 +133,7 @@ Note how small it is: states come from `resources.json`; this file just adds sou
         { "id": "src-shopify", "label": "Shopify", "icon": "inputData", "desc": "Orders & returns — 400K rows, 24 months", "state": "active" },
         { "id": "src-zendesk", "label": "Zendesk", "icon": "inputData", "desc": "Customer feedback & return reasons", "state": "active" },
         { "id": "src-erp", "label": "ERP", "icon": "inputData", "desc": "Production lots & QC", "state": "active" },
-        { "id": "src-mfg", "label": "Mfg Reports", "icon": "unstructuredData", "desc": "Incident report PDFs → Knowledge Assistant", "state": "active" }
+        { "id": "src-mfg", "label": "PDF documents", "icon": "unstructuredData", "desc": "Incident report PDFs → Knowledge Assistant", "state": "active" }
       ]
     },
     {

@@ -318,7 +318,7 @@ const CATALOG: Record<BandId, CatalogComponent[]> = {
     { id: "src-zendesk", label: "Zendesk", icon: "zendeskLogo", ingest: "lakeflow-connect", desc: "Customer-service tickets & return reasons, via Lakeflow Connect." },
     { id: "src-erp", label: "ERP", icon: "sapLogo", ingest: "lakeflow-connect", desc: "Production lots & QC records, via Lakeflow Connect." },
     { id: "src-sensors", label: "Sensor data", icon: "sensorSource", ingest: "zerobus", desc: "Real-time manufacturing line telemetry, streamed via Zerobus." },
-    { id: "src-pdf", label: "Mfg Reports", icon: "pdfLogo", ingest: "direct", desc: "Manufacturing incident-report PDFs — landed as files on a UC Volume." },
+    { id: "src-pdf", label: "PDF documents", icon: "pdfLogo", ingest: "direct", desc: "Manufacturing incident-report PDFs — landed as files on a UC Volume." },
   ],
 };
 
