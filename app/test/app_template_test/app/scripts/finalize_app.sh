@@ -9,11 +9,21 @@
 #                                                  exiting a resources JSON
 #   3. ./app/scripts/finalize_app.sh            # THIS — wires env + deploys app
 #
-# Why a separate step (not in-bundle): the Genie/KA/MAS IDs only exist after
-# the setup job's SDK tasks run; the bundle can't know them at deploy time.
-# The job's `export_resources` task exits a JSON with everything; we read it
-# back here via `get-run-output` (the exit value IS retrievable post-run,
-# unlike task-values) and bake it into app.yaml.
+# WHY a separate step (not in-bundle): the Genie/KA/MAS endpoint IDs only exist
+# AFTER the setup job's SDK tasks run, so the bundle can't know them at deploy
+# time — and the apps `config.env` block is silently dropped during the bundle's
+# terraform render anyway (names survive, values vanish). So env can't be baked
+# in at `bundle deploy`. Instead the job's `export_resources` task exits a JSON
+# with every resolved ID; we read it back here via `get-run-output` (the exit
+# value IS retrievable post-run, unlike task-values) and write it into app.yaml.
+#
+# WHY the app.yaml.template dance: app.yaml has two parts — the hand-authored
+# header (command + user_authorization scopes + valueFrom: bindings) and the
+# plain-value env we inject here. To re-render idempotently we snapshot the
+# hand-authored app.yaml -> app.yaml.template on the FIRST run, then on every
+# run rebuild app.yaml = template + freshly-harvested env. That way re-running
+# finalize never doubles the env block or loses your scopes/bindings. The
+# .template file is generated — don't hand-write or commit it.
 #
 # Usage:
 #   ./app/scripts/finalize_app.sh [--profile <p>] [--job-id <id>] [--run-id <id>]
