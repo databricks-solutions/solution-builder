@@ -63,6 +63,13 @@ rsync -a \
 
 ### Step 3: Customize the template
 
+**The template's component set is an EXAMPLE, not the contract. Your contract is the demo's spec (`specifications/app/` + README).** The template you copied is wired for the full LuxeBeauty stack — MAS + Genie + embedded dashboard + Knowledge Assistant + ML premium tiering + a returns-queue operations page + tiered-offer agent tools. **Your demo almost certainly has a different set.** Before customizing, diff the two:
+
+- **Fewer components than the template** → *remove* the wiring, don't relabel it. The demo has no dashboard? Delete the Dashboard route + sidebar entry, don't ship an empty iframe. No ML tiering? Strip the premium-tier logic (see the "no ML" example below), don't leave dead `final_tier` branches. No KA, no MAS? Collapse the agent down to what's actually there. A relabeled-but-still-present component reads as "they forgot to finish the template."
+- **More / different components than the template** → *add* them. The demo's spec calls for a second operations entity, an extra page, a map the template never had, an agent tool the template never had, a different primary surface? Build it. The template gives you the *patterns* (3-phase action chain, append-only audit columns, KPI cards that tick on write, the thinking panel, Delta→Lakebase sync) — apply those patterns to whatever the spec describes, even where the template has no matching file. Don't constrain the demo to the template's shape.
+
+The litmus test: after Step 3, every component in the app traces to a line in the spec, and every component in the spec is present in the app. Nothing is in the app *only because the template had it*.
+
 This is a heavy edit — the initial files you have are from a template with a use case for luxe beauty. It's a skeleton, not a drop-in ready to use.  You are free to re-org pages to respect the spec.
 Use the demo's app specs as your blueprint and rewrite all the customizable areas (see table above) to match the story. For each spec and area, read the existing template code, understand the pattern, then entirely rewrite for the new domain. Typically, the operational part needs to be fully updated
 Remember - change the style / features so that it respects the user intent and matches with the story.
