@@ -397,17 +397,29 @@ const LF_PORTS = [
 ] as const;
 
 /** A small vertical ingest box for the block's left column. */
+/** A couple of stacked, agnostic "data file" sheets (CSV/Parquet/etc) — used
+ *  for the direct-files ingest zone instead of a format-specific logo. */
+function StackedFiles() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-4 w-4 shrink-0" fill="none">
+      <rect x="7" y="3" width="11" height="14" rx="1.5" fill="#fff" stroke="#94a3b8" strokeWidth="1.4" />
+      <rect x="4" y="6" width="11" height="14" rx="1.5" fill="#fff" stroke="#64748b" strokeWidth="1.4" />
+      <path d="M7 10h5M7 13h5M7 16h3" stroke="#64748b" strokeWidth="1.2" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 /** An ingest "zone" flush against the block's left edge — icon on top + a
  *  single line of VERTICAL text reading downward. Tinted band fill, no rounded
  *  pill, so it reads as part of the block's left side (zones), not a tile. */
-function IngestBox({ icon, label, bandColor, first }: { icon: DatabricksIconName; label: string; bandColor: string; first?: boolean }) {
-  const Icon = DATABRICKS_ICONS[icon] || DATABRICKS_ICONS.data;
+function IngestBox({ icon, iconEl, label, bandColor, first }: { icon?: DatabricksIconName; iconEl?: React.ReactNode; label: string; bandColor: string; first?: boolean }) {
+  const Icon = icon ? DATABRICKS_ICONS[icon] || DATABRICKS_ICONS.data : null;
   return (
     <div
       className={`flex flex-1 flex-col items-center justify-center gap-1 ${first ? "" : "border-t"}`}
       style={{ borderColor: `${bandColor}33`, background: `${bandColor}12` }}
     >
-      <Icon className="h-4 w-4 shrink-0" />
+      {iconEl ?? (Icon ? <Icon className="h-4 w-4 shrink-0" /> : null)}
       <span
         className="text-[8px] font-bold uppercase tracking-[0.1em] text-foreground/80"
         style={{ writingMode: "vertical-rl", textOrientation: "mixed" }}
@@ -478,8 +490,8 @@ const LakeflowBlock = memo(function LakeflowBlock({ data, selected }: NodeProps)
           <div className="flex w-10 shrink-0 flex-col border-r" style={{ borderColor: `${d.bandColor}33` }}>
             <IngestBox icon="lakeflowConnectBrand" label="Connect" bandColor={d.bandColor} first />
             <IngestBox icon="zerobus" label="Zerobus" bandColor={d.bandColor} />
-            {/* bottom zone = "direct" port — file landing (not blank). */}
-            <IngestBox icon="pdfLogo" label="Files" bandColor={d.bandColor} />
+            {/* bottom zone = "direct" port — agnostic data files (CSV/Parquet). */}
+            <IngestBox iconEl={<StackedFiles />} label="Files" bandColor={d.bandColor} />
           </div>
 
           {/* RIGHT: title + SDP tables + Open Format underneath them. */}
@@ -581,11 +593,12 @@ const POS_OF: Record<Side, Position> = {
 /** Composite blocks expose named input ports on their LEFT side at fixed
  *  fractions (handle id `in-<port>`). An edge connected to such a handle
  *  anchors there directly (no fan spread). Returns null for normal handles. */
-const PORT_FRAC: Record<string, number> = {
-  "in-lakeflow-connect": 0.32,
-  "in-zerobus": 0.6,
-  "in-direct": 0.86,
-};
+// Single source of truth for composite port fractions: handle id → left-side
+// fraction. Derived from LF_PORTS so the rendered handle, the drag-snap
+// (portsOf), and the committed-edge anchor (portAnchor) can never drift.
+const PORT_FRAC: Record<string, number> = Object.fromEntries(
+  LF_PORTS.map((p) => [`in-${p.port}`, p.frac]),
+);
 function portAnchor(handleId: string | null | undefined): { side: Side; frac: number } | null {
   if (handleId && handleId in PORT_FRAC) return { side: "l", frac: PORT_FRAC[handleId] };
   return null;
@@ -595,11 +608,14 @@ function portAnchor(handleId: string | null | undefined): { side: Side; frac: nu
  *  props). Drives the click-to-select → drag-endpoint → magnet-reconnect flow. */
 interface EdgeOps {
   editMode: boolean;
-  retarget: (edgeId: string, end: "source" | "target", nodeId: string, side?: Side) => void;
+  retarget: (edgeId: string, end: "source" | "target", nodeId: string, handle?: string) => void;
   nodeAt: (fx: number, fy: number) => string | null;
   rectOf: (nodeId: string) => Rect | null;
   setDropTarget: (nodeId: string | null) => void;
   toFlow: (clientX: number, clientY: number) => { x: number; y: number };
+  /** Named input ports of a composite node, as absolute flow-coord anchors +
+   *  their handle id. Empty for plain tiles. */
+  portsOf: (nodeId: string) => { handle: string; x: number; y: number }[];
 }
 const EdgeOpsContext = createContext<EdgeOps | null>(null);
 /** Node id currently under a dragged endpoint (magnet highlight). */
@@ -663,7 +679,11 @@ const FlowEdge = memo(function FlowEdge(props: EdgeProps) {
           side === "l" || side === "r"
             ? otherR.y + otherR.h / 2 // order by other tile's vertical center
             : otherR.x + otherR.w / 2; // top/bottom → horizontal center
-        const key = `${nid}|${side}`;
+        // Group by the specific PORT handle if this end targets one (so edges
+        // sharing a port fan within it); else by node|side.
+        const handle = end === "source" ? e.sourceHandle : e.targetHandle;
+        const port = handle && handle in PORT_FRAC ? handle : null;
+        const key = port ? `${nid}|${port}` : `${nid}|${side}`;
         const arr = groups.get(key) ?? [];
         arr.push({ id: e.id, key: sortKey });
         groups.set(key, arr);
@@ -684,16 +704,20 @@ const FlowEdge = memo(function FlowEdge(props: EdgeProps) {
     const tCtr = { x: tR.x + tR.w / 2, y: tR.y + tR.h / 2 };
     const ss = endSide(sR, sourceHandleId, tCtr);
     const ts = endSide(tR, targetHandleId, sCtr);
-    const sg = idx(`${source}|${ss}`);
-    const tg = idx(`${target}|${ts}`);
-    // Composite port handles anchor at a FIXED side+fraction (no fan spread).
     const sPort = portAnchor(sourceHandleId);
     const tPort = portAnchor(targetHandleId);
+    // Group index/count: by port if the end targets one, else by side.
+    const sg = idx(sPort ? `${source}|${sourceHandleId}` : `${source}|${ss}`);
+    const tg = idx(tPort ? `${target}|${targetHandleId}` : `${target}|${ts}`);
+    // Edges sharing a PORT fan around its base fraction with a tight gap (so
+    // 3 sources into one port spread slightly instead of stacking).
+    const portFan = (base: number, i: number, n: number) =>
+      n <= 1 ? base : Math.min(0.95, Math.max(0.05, base + (i - (n - 1) / 2) * 0.06));
     return {
       sSide: sPort?.side ?? ss,
       tSide: tPort?.side ?? ts,
-      sFrac: sPort?.frac ?? spreadFrac(sg.i < 0 ? 0 : sg.i, sg.n),
-      tFrac: tPort?.frac ?? spreadFrac(tg.i < 0 ? 0 : tg.i, tg.n),
+      sFrac: sPort ? portFan(sPort.frac, sg.i < 0 ? 0 : sg.i, sg.n) : spreadFrac(sg.i < 0 ? 0 : sg.i, sg.n),
+      tFrac: tPort ? portFan(tPort.frac, tg.i < 0 ? 0 : tg.i, tg.n) : spreadFrac(tg.i < 0 ? 0 : tg.i, tg.n),
     };
   },
   // Shallow-compare so the selector doesn't trigger a re-render every store
@@ -704,7 +728,7 @@ const FlowEdge = memo(function FlowEdge(props: EdgeProps) {
     a.sFrac === b.sFrac && a.tFrac === b.tFrac);
 
   // Live endpoint drag (reconnect). Hook runs unconditionally before guards.
-  const [drag, setDrag] = useState<{ end: "source" | "target"; x: number; y: number; side?: Side } | null>(null);
+  const [drag, setDrag] = useState<{ end: "source" | "target"; x: number; y: number; side?: Side; handle?: string } | null>(null);
 
   if (!sNode || !tNode || !fan) return null;
 
@@ -761,15 +785,27 @@ const FlowEdge = memo(function FlowEdge(props: EdgeProps) {
     if (valid) {
       const r = ops!.rectOf(valid);
       if (r) {
-        // Snap to the anchor (side center) NEAREST the cursor, so the user can
-        // aim at any of the 4 sides by moving toward it.
+        // If the tile exposes named ports (composite block), snap to the PORT
+        // nearest the cursor and remember its handle id. Otherwise snap to the
+        // nearest side center.
+        const ports = ops!.portsOf(valid);
+        if (ports.length) {
+          let best = ports[0];
+          let bestD = Infinity;
+          for (const p of ports) {
+            const dx = p.x - f.x, dy = p.y - f.y, dd = dx * dx + dy * dy;
+            if (dd < bestD) { bestD = dd; best = p; }
+          }
+          setDrag({ ...drag, x: best.x, y: best.y, side: "l", handle: best.handle });
+          return;
+        }
         const side = nearestSide(r, f.x, f.y);
         const snap = sidePoint(r, side, 0.5);
-        setDrag({ ...drag, x: snap.x, y: snap.y, side });
+        setDrag({ ...drag, x: snap.x, y: snap.y, side, handle: undefined });
         return;
       }
     }
-    setDrag({ ...drag, x: f.x, y: f.y, side: undefined });
+    setDrag({ ...drag, x: f.x, y: f.y, side: undefined, handle: undefined });
   };
   const end = (e: React.PointerEvent) => {
     if (!drag) return;
@@ -777,7 +813,7 @@ const FlowEdge = memo(function FlowEdge(props: EdgeProps) {
     const f = ops!.toFlow(e.clientX, e.clientY);
     const over = ops!.nodeAt(f.x, f.y);
     const otherEnd = drag.end === "source" ? target : source;
-    if (over && over !== otherEnd) ops!.retarget(id, drag.end, over, drag.side); // else keep old edge
+    if (over && over !== otherEnd) ops!.retarget(id, drag.end, over, drag.handle ?? drag.side); // else keep old edge
     ops!.setDropTarget(null);
     setDrag(null);
   };
@@ -1401,16 +1437,16 @@ function Canvas({ schema, deepLinks, onPersist }: CanvasProps) {
 
   // --- Re-target an edge endpoint to another node (from the custom drag).
   const retargetEdge = useCallback(
-    (edgeId: string, end: "source" | "target", nodeId: string, side?: Side) => {
+    (edgeId: string, end: "source" | "target", nodeId: string, handle?: string) => {
       setEdges((eds) => {
         const next = eds.map((e) =>
           e.id === edgeId
             ? {
                 ...e,
                 [end]: nodeId,
-                // Pin the handle to the side the user aimed at (so the fan
-                // anchors there); null lets the edge auto-derive the side.
-                [end === "source" ? "sourceHandle" : "targetHandle"]: side ?? null,
+                // Pin to the aimed handle (a composite port id like "in-zerobus"
+                // or a side "l/r/t/b"); null lets the edge auto-derive the side.
+                [end === "source" ? "sourceHandle" : "targetHandle"]: handle ?? null,
               }
             : e,
         );
@@ -1452,12 +1488,25 @@ function Canvas({ schema, deepLinks, onPersist }: CanvasProps) {
   );
   const [dropTargetId, setDropTargetId] = useState<string | null>(null);
   const setDropTarget = useCallback((nid: string | null) => setDropTargetId(nid), []);
+  // A composite block's named input ports as absolute flow-coord anchors so the
+  // reconnect drag can snap to (and target) the RIGHT one, not just "left".
+  const portsOf = useCallback(
+    (nid: string): { handle: string; x: number; y: number }[] => {
+      const n = nodes.find((x) => x.id === nid);
+      const kind = (n?.data as NodeData | undefined)?.component.kind;
+      if (!n || kind !== "lakeflow") return [];
+      const r = nodeRect(nid);
+      if (!r) return [];
+      return LF_PORTS.map((p) => ({ handle: `in-${p.port}`, x: r.x, y: r.y + r.h * p.frac }));
+    },
+    [nodes, nodeRect],
+  );
   const edgeOps = useMemo<EdgeOps>(
     () => ({
-      editMode, retarget: retargetEdge, nodeAt, rectOf: nodeRect, setDropTarget,
+      editMode, retarget: retargetEdge, nodeAt, rectOf: nodeRect, setDropTarget, portsOf,
       toFlow: (cx: number, cy: number) => screenToFlowPosition({ x: cx, y: cy }),
     }),
-    [editMode, retargetEdge, nodeAt, nodeRect, setDropTarget, screenToFlowPosition],
+    [editMode, retargetEdge, nodeAt, nodeRect, setDropTarget, portsOf, screenToFlowPosition],
   );
 
   // --- Add from library (drop or double-click) ------------------------------
