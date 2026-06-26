@@ -66,9 +66,26 @@ export interface PlatformComponent {
    *    "zerobus"          → realtime path (Zerobus), drawn distinctly
    *    "direct"           → no rail (e.g. files landing on a Volume) */
   ingest?: IngestPath;
+  /** Renders as a richer COMPOSITE block instead of a plain tile. The first is
+   *  "lakeflow" — bundles Lakeflow Connect + Zerobus + direct ingest feeding a
+   *  bronze→silver→gold pipeline, with 3 labelled input ports on the left. */
+  kind?: CompositeKind;
 }
 
 export type IngestPath = "lakeflow-connect" | "zerobus" | "direct";
+
+/** Composite block kinds (super-set components that draw an inner mini-diagram
+ *  and expose multiple named ports). Extend this as we add more blocks. */
+export type CompositeKind = "lakeflow";
+
+/** The 3 left input ports a "lakeflow" composite exposes. Edge handle ids on
+ *  the block are `in-${port}` (+ a single `r` output on the right). */
+export const LAKEFLOW_PORTS = [
+  { id: "lakeflow-connect", label: "Lakeflow Connect" },
+  { id: "zerobus", label: "Zerobus" },
+  { id: "direct", label: "Direct" },
+] as const;
+export type LakeflowPort = (typeof LAKEFLOW_PORTS)[number]["id"];
 
 export interface PlatformBand {
   id: BandId;
@@ -97,6 +114,8 @@ export interface NodePosition {
   /** User-resized width/height (px). Optional; defaults to the node's natural size. */
   w?: number;
   h?: number;
+  /** Manual content scale (0.5..1.5). Optional; defaults to 1. */
+  scale?: number;
 }
 
 export interface PlatformEdge {
@@ -133,6 +152,7 @@ export interface ComponentOverride {
   state?: ComponentState;
   capability?: string;
   ingest?: IngestPath;
+  kind?: CompositeKind;
 }
 
 export interface BandOverride {
@@ -238,6 +258,9 @@ const CATALOG: Record<BandId, CatalogComponent[]> = {
     { id: "data-classification", label: "Data Classification", icon: "unityCatalog", desc: "Automatically tag and govern sensitive data." },
   ],
   "agentic-data": [
+    // Composite "Lakeflow" super-block: Lakeflow Connect + Zerobus + direct
+    // ingest feeding a bronze→silver→gold pipeline, with 3 left input ports.
+    { id: "lakeflow-block", label: "Lakeflow", icon: "lakeflowConnectBrand", kind: "lakeflow", desc: "One block: managed ingest (Lakeflow Connect), real-time streams (Zerobus) and direct file landing, all flowing into a declarative bronze → silver → gold pipeline." },
     { id: "lakeflow-connect", label: "Lakeflow Connect", icon: "lakeflowConnectBrand", desc: "Managed connectors ingest from databases and SaaS apps under governance." },
     { id: "uc-volume", label: "UC Volume", icon: "volume", desc: "Governed file storage in Unity Catalog — where raw documents (PDFs) land." },
     { id: "sdp", label: "Spark Declarative Pipelines", icon: "sdpBrand", desc: "Declarative bronze → silver → gold pipelines that self-heal and scale." },
@@ -326,6 +349,7 @@ export function buildSchema({ override, capabilities }: BuildInputs): PlatformSc
         desc: a.desc ?? "",
         capability: a.capability,
         ingest: a.ingest,
+        kind: a.kind,
       };
       const existing = baseIndex.get(a.id);
       if (existing !== undefined) base[existing] = merged;
@@ -341,6 +365,7 @@ export function buildSchema({ override, capabilities }: BuildInputs): PlatformSc
         desc: patch?.desc ?? c.desc,
         capability: patch?.capability ?? c.capability,
         ingest: patch?.ingest ?? c.ingest,
+        kind: patch?.kind ?? c.kind,
         state: patch?.state ?? defaultState(bandId, c.id, capabilities),
       };
     });
@@ -467,20 +492,28 @@ function seedEdges(bands: PlatformBand[], hidden: Set<string>): PlatformEdge[] {
  *  the bulletproof part: the canvas always writes the full semantic content
  *  rebuilt from the live schema, so a save can NEVER strip bands/descriptions
  *  — even if the file it loaded from was a partial/corrupt override. */
-function schemaToOverride(schema: PlatformSchema): ArchitectureOverride {
+function schemaToOverride(schema: PlatformSchema, placed: Set<string>): ArchitectureOverride {
   const bands: BandOverride[] = schema.bands.map((band) => {
     const catalogIds = new Set(CATALOG[band.id].map((c) => c.id));
     const add: ComponentOverride[] = [];
     const set: ComponentOverride[] = [];
     for (const c of band.components) {
+      // The CANVAS is the source of truth for visibility: a component placed
+      // on it is active; one that isn't is hidden. This keeps state in sync
+      // with the layout — fixes a library-added (default-hidden) component
+      // vanishing on reload because its computed state stayed "hidden".
+      const state: ComponentState = placed.has(c.id)
+        ? c.state === "mentioned" ? "mentioned" : "active"
+        : "hidden";
       const entry: ComponentOverride = {
         id: c.id,
         label: c.label,
         icon: c.icon,
         desc: c.desc,
-        state: c.state,
+        state,
         ...(c.capability ? { capability: c.capability } : {}),
         ...(c.ingest ? { ingest: c.ingest } : {}),
+        ...(c.kind ? { kind: c.kind } : {}),
       };
       if (catalogIds.has(c.id)) set.push(entry);
       else add.push(entry);
@@ -491,12 +524,14 @@ function schemaToOverride(schema: PlatformSchema): ArchitectureOverride {
 }
 
 /** Build the JSON string to persist as architecture.md: the full semantic
- *  override rebuilt from the live schema + the edited canvas layout. */
+ *  override rebuilt from the live schema + the edited canvas layout. The
+ *  layout's node keys are the placed (visible) components. */
 export function serializeArchitecture(
   schema: PlatformSchema,
   layout: PlatformLayout,
 ): string {
-  const out: ArchitectureOverride = { ...schemaToOverride(schema), layout };
+  const placed = new Set(Object.keys(layout.nodes));
+  const out: ArchitectureOverride = { ...schemaToOverride(schema, placed), layout };
   return "```json\n" + JSON.stringify(out, null, 2) + "\n```\n";
 }
 
