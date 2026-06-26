@@ -39,22 +39,35 @@ export interface NodeData {
   /** Manual content scale (right-click slider); default 1. */
   scale?: number;
   /** Per-node style overrides (right-click): whole-node opacity (0..1), box
-   *  fill color, text/label color. Undefined → use the node's defaults. */
+   *  fill color, text/label color, border. Undefined → use node defaults. */
   opacity?: number;
   fillColor?: string;
   fontColor?: string;
+  borderWidth?: number;
+  borderStyle?: "solid" | "dashed";
+  borderColor?: string;
   [key: string]: unknown;
 }
 
 /** Node id currently under a dragged endpoint (magnet highlight). */
 export const DropTargetContext = createContext<string | null>(null);
 
+/** ReactFlow node `type` for a component, by its composite kind. */
+export function nodeTypeFor(c: PlatformComponent): string {
+  if (c.kind === "lakeflow") return "composite";
+  if (c.kind === "genie-code") return "genieCode";
+  return "component";
+}
+
 /** Base (un-rotated) footprint of each node type — needed so the rotatable
  *  shell can swap W/H for 90°/270° and ReactFlow's handles land on the real
  *  rotated edges (not the original box). */
 export function baseSize(c: PlatformComponent): { w: number; h: number } {
   if (c.kind === "lakeflow") return { w: 224, h: 148 }; // composite super-block
+  if (c.kind === "genie-code") return { w: 340, h: 116 }; // wide "built with Genie Code" strip
   if (c.id === "sdp") return { w: 230, h: 112 };
+  // A sub-line + (optional) badge needs a slightly wider, taller tile.
+  if (c.sublabel) return { w: 230, h: 70 };
   return { w: 200, h: 56 };
 }
 

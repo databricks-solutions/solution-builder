@@ -340,6 +340,21 @@ export function GenieBrandIcon(props: IconProps) {
   );
 }
 
+// Genie Code — the Genie genie/lamp mark with a code </> glyph above it
+// (instead of Genie's star), in the coral brand palette.
+export function GenieCodeBrandIcon(props: IconProps) {
+  return (
+    <svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
+      {/* code </> above (replaces the star) */}
+      <path d="M9 5.5 3.5 12 9 18.5M15 5.5 20.5 12 15 18.5" transform="translate(14.5 -1.5)" fill="none" stroke="#EF5B3F" strokeWidth="4" strokeLinecap="butt" strokeLinejoin="miter" />
+      {/* genie lamp */}
+      <path fill="#F5C5BC" d="M11 28.5 C9.8 32.8 12.8 36.4 17.5 37.4 L27.5 37.4 C33 36.8 36.4 33.6 37.6 30 C38.6 26.9 40.8 24.3 44.2 22.4 C45 22 44.9 20.9 44 20.7 C40.4 20 37.1 21.3 34.9 23.6 C32.4 22.6 29.2 22.6 26.7 23.6 L17 23.6 C13.8 23.7 11.8 25.4 11 28.5 Z" />
+      <path fill="#F5C5BC" d="M11.5 28 C6 27.6 4.8 33.4 9.6 35.4 C7.6 33.2 8.2 30.2 11.6 29.6 Z" />
+      <path fill="#EF5B3F" d="M18.5 39.5 H30.5 C31.4 39.5 32.2 40 32.6 40.8 L33.5 42.6 C33.9 43.4 33.3 44.3 32.4 44.3 H16.6 C15.7 44.3 15.1 43.4 15.5 42.6 L16.4 40.8 C16.8 40 17.6 39.5 18.5 39.5 Z" />
+    </svg>
+  );
+}
+
 export function AIBIBrandIcon(props: IconProps) {
   return (
     <svg viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
@@ -385,6 +400,20 @@ export function LakebaseBrandIcon(props: IconProps) {
       <path d="M100 119.513C88.875 115.609 76.111 113.379 62.5 113.379C48.889 113.379 36.1388 115.609 25 119.513V79.6436H175V119.513C163.861 123.259 151.111 125.399 137.5 125.399C124.314 125.399 111.924 123.391 101.048 119.859L100 119.513Z" fill="#FABFBA"/>
       <path d="M62.6758 128.042C75.7994 128.042 88.1324 129.947 98.957 133.298L101.043 133.956C111.868 137.306 124.2 139.212 137.324 139.212C150.448 139.212 162.767 137.306 173.604 133.956L174.647 133.627H175V175H25V133.627H25.3525C36.4389 130.073 49.1289 128.042 62.6758 128.042Z" fill="#FF5F46"/>
       <rect x="25" y="25" width="150" height="41.3728" fill="#FABFBA"/>
+    </svg>
+  );
+}
+
+// AI Gateway — coral/peach brand mark (gateway arch + radiating nodes).
+export function AIGatewayBrandIcon(props: IconProps) {
+  return (
+    <svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
+      <rect x="35.2" y="23.7" width="7.6" height="7.6" fill="#F5C5BC" transform="rotate(0 39 27.5)" />
+      <rect x="27.7" y="10.709618943233423" width="7.6" height="7.6" fill="#F5C5BC" transform="rotate(-60 31.5 14.509618943233422)" />
+      <rect x="12.700000000000003" y="10.70961894323342" width="7.6" height="7.6" fill="#F5C5BC" transform="rotate(-120 16.500000000000004 14.50961894323342)" />
+      <rect x="5.2" y="23.699999999999996" width="7.6" height="7.6" fill="#F5C5BC" transform="rotate(-180 9 27.499999999999996)" />
+      <path fill="#EF5B3F" d="M16.5 36.5 V26 a7.5 7.5 0 0 1 15 0 V36.5 Z" />
+      <path fill="#F5C5BC" d="M12 44.5 L36 44.5 L31.5 38.5 L16.5 38.5 Z" />
     </svg>
   );
 }
@@ -563,6 +592,8 @@ export const DATABRICKS_ICONS = {
   unityCatalogBrand: UnityCatalogBrandIcon,
   lakehouseBrand: LakehouseBrandIcon,
   lakebaseBrand: LakebaseBrandIcon,
+  aiGatewayBrand: AIGatewayBrandIcon,
+  genieCodeBrand: GenieCodeBrandIcon,
   lakeflowConnectBrand: LakeflowConnectBrandIcon,
   lakeflowJobsBrand: LakeflowJobsBrandIcon,
   sdpBrand: SDPBrandIcon,
@@ -592,6 +623,8 @@ export const BRAND_ICONS = new Set<DatabricksIconName>([
   "lakeflowConnectBrand",
   "lakeflowJobsBrand",
   "sdpBrand",
+  "aiGatewayBrand",
+  "genieCodeBrand",
   "shopifyLogo",
   "zendeskLogo",
   "sapLogo",

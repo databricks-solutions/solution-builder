@@ -75,7 +75,9 @@ import {
   DropTargetContext,
   baseSize,
   nodeFootprint,
+  nodeTypeFor,
 } from "./platform-diagram/shared";
+import { GenieCodeBlock } from "./platform-diagram/composite-genie-code";
 import {
   type Side,
   type Rect,
@@ -137,7 +139,19 @@ import {
   AlignCenter,
   AlignRight,
   Search,
+  BringToFront,
+  SendToBack,
 } from "lucide-react";
+
+/** A per-node style patch from the right-click menu (applied to 1 or many). */
+type StylePatch = {
+  opacity?: number;
+  fillColor?: string;
+  fontColor?: string;
+  borderWidth?: number;
+  borderStyle?: "solid" | "dashed";
+  borderColor?: string;
+};
 
 /** The standard product/source node — brand icon tile + label. */
 const ComponentNode = memo(function ComponentNode({ data, selected }: NodeProps) {
@@ -181,11 +195,14 @@ const ComponentNode = memo(function ComponentNode({ data, selected }: NodeProps)
     >
     <div
       onClick={() => d.onSelect(d.nodeId)}
-      className={`group relative flex h-full w-full flex-col overflow-hidden rounded-xl border transition-shadow ${
+      className={`group relative flex h-full w-full flex-col overflow-hidden rounded-xl transition-shadow ${
         d.fillColor ? "" : "bg-card"
       } ${selected ? "ring-2 ring-primary/60 shadow-md" : "shadow-sm hover:shadow-md"}`}
       style={{
-        borderColor: muted ? undefined : `${bandColor}66`,
+        // Border defaults to a 1px band-tinted line; overridable per node.
+        borderStyle: (d.borderWidth ?? 1) > 0 ? (d.borderStyle ?? "solid") : "none",
+        borderWidth: d.borderWidth ?? 1,
+        borderColor: d.borderColor ?? (muted ? "transparent" : `${bandColor}66`),
         opacity: d.opacity ?? (muted ? 0.6 : 1),
         ...(d.fillColor ? { background: d.fillColor } : {}),
         ...(d.fontColor ? { color: d.fontColor } : {}),
@@ -226,6 +243,18 @@ const ComponentNode = memo(function ComponentNode({ data, selected }: NodeProps)
                 {c.label}
               </span>
             )}
+            {c.badge && editing === null && (
+              <span
+                className="inline-flex shrink-0 items-center gap-0.5 rounded px-1 py-0.5 text-[8px] font-bold uppercase tracking-wide text-white"
+                style={{ background: "#EF5B3F", lineHeight: 1 }}
+                title={`${c.label} — ${c.badge}`}
+              >
+                {c.badge === "RT" && (
+                  <svg viewBox="0 0 24 24" fill="currentColor" width="8" height="8"><path d="M13 2 4 14h6l-1 8 9-12h-6l1-8z" /></svg>
+                )}
+                {c.badge}
+              </span>
+            )}
             {live && editing === null && (
               <span
                 className="h-1.5 w-1.5 shrink-0 rounded-full"
@@ -233,6 +262,9 @@ const ComponentNode = memo(function ComponentNode({ data, selected }: NodeProps)
               />
             )}
           </span>
+          {c.sublabel && (
+            <span className="mt-0.5 block truncate text-[9.5px] font-normal leading-tight text-muted-foreground">{c.sublabel}</span>
+          )}
         </span>
       </div>
 
@@ -247,7 +279,7 @@ const ComponentNode = memo(function ComponentNode({ data, selected }: NodeProps)
   );
 });
 
-const nodeTypes = { component: ComponentNode, composite: LakeflowBlock, annotation: AnnotationNode };
+const nodeTypes = { component: ComponentNode, composite: LakeflowBlock, genieCode: GenieCodeBlock, annotation: AnnotationNode };
 
 // ---------------------------------------------------------------------------
 // Animated "data flowing" edge — red dot travels the path (template style)
@@ -766,6 +798,7 @@ function schemaToFlow(
         draggable: editMode,
         width: fp.w,
         height: fp.h,
+        zIndex: pos.z ?? 0,
         style: { width: fp.w, height: fp.h },
         data: {
           nodeId: id,
@@ -780,6 +813,7 @@ function schemaToFlow(
           rot: pos.rot ?? 0,
           w: pos.w, h: pos.h, scale: pos.scale,
           opacity: pos.opacity, fillColor: pos.fillColor, fontColor: pos.fontColor,
+          borderWidth: pos.borderWidth, borderStyle: pos.borderStyle, borderColor: pos.borderColor,
         } satisfies AnnotationNodeData,
       });
       continue;
@@ -798,13 +832,14 @@ function schemaToFlow(
     const fp = nodeFootprint(component, pos);
     nodes.push({
       id,
-      type: component.kind ? "composite" : "component",
+      type: nodeTypeFor(component),
       position: { x: pos.x, y: pos.y },
       draggable: editMode,
       // ReactFlow OWNS the node size — NodeResizer drives these, and the shell
       // fills 100%, so the selection frame + resizer + visual never drift.
       width: fp.w,
       height: fp.h,
+      zIndex: pos.z ?? 0,
       style: { width: fp.w, height: fp.h },
       data: {
         nodeId: id,
@@ -825,6 +860,9 @@ function schemaToFlow(
         opacity: pos.opacity,
         fillColor: pos.fillColor,
         fontColor: pos.fontColor,
+        borderWidth: pos.borderWidth,
+        borderStyle: pos.borderStyle,
+        borderColor: pos.borderColor,
       } satisfies NodeData,
     });
   }
@@ -907,7 +945,6 @@ function AnnotationMenu({
               onChange={(e) => onAnno({ fontSize: Number(e.target.value) })}
               onClick={(e) => e.stopPropagation()} className="h-1.5 w-full cursor-pointer accent-primary" />
           </div>
-          <Item icon={<Square className="h-3.5 w-3.5" />} label="Border" onClick={() => onAnno({ border: !(a.border ?? a.variant === "box") })} active={a.border ?? a.variant === "box"} />
           {/* Horizontal text alignment */}
           <div className="flex items-center gap-1 px-2 py-1.5">
             <span className="mr-auto text-[11px] text-muted-foreground">Align</span>
@@ -944,23 +981,15 @@ function StyleControls({
   style,
   onStyle,
 }: {
-  style?: { opacity?: number; fillColor?: string; fontColor?: string };
-  onStyle: (patch: { opacity?: number; fillColor?: string; fontColor?: string }) => void;
+  style?: StylePatch;
+  onStyle: (patch: StylePatch) => void;
 }) {
   const opacityPct = Math.round((style?.opacity ?? 1) * 100);
-  const Swatch = ({ label, value, onPick }: { label: string; value?: string; onPick: (v: string) => void }) => (
-    <div className="flex items-center gap-2 px-2 py-1">
-      <span className="mr-auto text-[11px] text-muted-foreground">{label}</span>
-      <input
-        type="color"
-        value={value || "#ffffff"}
-        onChange={(e) => onPick(e.target.value)}
-        onClick={(e) => e.stopPropagation()}
-        className="h-5 w-7 cursor-pointer rounded border border-border bg-transparent p-0"
-        title={label}
-      />
-    </div>
-  );
+  const isTransparent = style?.fillColor === "transparent";
+  // Default fonts to the theme's dark foreground so the picker shows it.
+  const DEFAULT_FONT = "#1e293b";
+  const borderW = style?.borderWidth ?? 1;
+  const borderStyle = style?.borderStyle ?? "solid";
   return (
     <>
       <div className="px-2 py-1.5">
@@ -974,8 +1003,74 @@ function StyleControls({
           className="h-1.5 w-full cursor-pointer accent-primary"
         />
       </div>
-      <Swatch label="Fill" value={style?.fillColor} onPick={(v) => onStyle({ fillColor: v })} />
-      <Swatch label="Text color" value={style?.fontColor} onPick={(v) => onStyle({ fontColor: v })} />
+      {/* Fill: color swatch + a "transparent" toggle. */}
+      <div className="flex items-center gap-2 px-2 py-1">
+        <span className="mr-auto text-[11px] text-muted-foreground">Fill</span>
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onStyle({ fillColor: "transparent" }); }}
+          className={`rounded px-1.5 py-0.5 text-[10px] ${isTransparent ? "bg-primary text-primary-foreground" : "border border-border hover:bg-muted"}`}
+          title="Transparent fill"
+        >
+          None
+        </button>
+        <input
+          type="color"
+          value={isTransparent || !style?.fillColor ? "#ffffff" : style.fillColor}
+          onChange={(e) => onStyle({ fillColor: e.target.value })}
+          onClick={(e) => e.stopPropagation()}
+          className="h-5 w-7 cursor-pointer rounded border border-border bg-transparent p-0"
+          title="Fill color"
+        />
+      </div>
+      {/* Text color. */}
+      <div className="flex items-center gap-2 px-2 py-1">
+        <span className="mr-auto text-[11px] text-muted-foreground">Text color</span>
+        <input
+          type="color"
+          value={style?.fontColor || DEFAULT_FONT}
+          onChange={(e) => onStyle({ fontColor: e.target.value })}
+          onClick={(e) => e.stopPropagation()}
+          className="h-5 w-7 cursor-pointer rounded border border-border bg-transparent p-0"
+          title="Text color"
+        />
+      </div>
+      {/* Border: width slider, solid/dashed toggle, color. */}
+      <div className="px-2 py-1.5">
+        <div className="mb-1 flex items-center justify-between text-[11px] text-muted-foreground">
+          <span>Border</span><span>{borderW}px</span>
+        </div>
+        <input
+          type="range" min={0} max={6} step={1} value={borderW}
+          onChange={(e) => onStyle({ borderWidth: Number(e.target.value) })}
+          onClick={(e) => e.stopPropagation()}
+          className="h-1.5 w-full cursor-pointer accent-primary"
+        />
+        <div className="mt-1.5 flex items-center gap-2">
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onStyle({ borderStyle: "solid" }); }}
+            className={`flex-1 rounded px-1.5 py-0.5 text-[10px] ${borderStyle === "solid" ? "bg-primary text-primary-foreground" : "border border-border hover:bg-muted"}`}
+          >
+            Solid
+          </button>
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onStyle({ borderStyle: "dashed" }); }}
+            className={`flex-1 rounded px-1.5 py-0.5 text-[10px] ${borderStyle === "dashed" ? "bg-primary text-primary-foreground" : "border border-border hover:bg-muted"}`}
+          >
+            Dashed
+          </button>
+          <input
+            type="color"
+            value={style?.borderColor || "#94a3b8"}
+            onChange={(e) => onStyle({ borderColor: e.target.value })}
+            onClick={(e) => e.stopPropagation()}
+            className="h-5 w-7 shrink-0 cursor-pointer rounded border border-border bg-transparent p-0"
+            title="Border color"
+          />
+        </div>
+      </div>
     </>
   );
 }
@@ -1002,6 +1097,7 @@ const ContextMenu = memo(function ContextMenu({
   style,
   selectionCount = 1,
   onStyle,
+  onZ,
 }: {
   menu: NonNullable<CtxMenu>;
   edge?: Edge;
@@ -1025,6 +1121,7 @@ const ContextMenu = memo(function ContextMenu({
   /** How many nodes the style controls will affect (>1 → multi-select). */
   selectionCount?: number;
   onStyle: (patch: { opacity?: number; fillColor?: string; fontColor?: string }) => void;
+  onZ: (dir: "front" | "back") => void;
 }) {
   const ed = edge?.data as { animated?: boolean; dashed?: boolean; shape?: string } | undefined;
   const Item = ({ icon, label, onClick, active }: { icon: React.ReactNode; label: string; onClick: () => void; active?: boolean }) => (
@@ -1037,6 +1134,12 @@ const ContextMenu = memo(function ContextMenu({
       {label}
       {active && <Check className="ml-auto h-3.5 w-3.5" />}
     </button>
+  );
+  const ZItems = (
+    <>
+      <Item icon={<BringToFront className="h-3.5 w-3.5" />} label="Bring to front" onClick={() => onZ("front")} />
+      <Item icon={<SendToBack className="h-3.5 w-3.5" />} label="Send to back" onClick={() => onZ("back")} />
+    </>
   );
   return (
     <>
@@ -1054,6 +1157,8 @@ const ContextMenu = memo(function ContextMenu({
             <div className="px-2 py-1 text-[11px] font-semibold text-muted-foreground">{selectionCount} selected</div>
             <StyleControls style={style} onStyle={onStyle} />
             <div className="my-1 border-t border-border/60" />
+            {ZItems}
+            <div className="my-1 border-t border-border/60" />
             <Item icon={<Trash2 className="h-3.5 w-3.5" />} label="Remove all" onClick={onRemoveNode} />
           </>
         ) : menu.kind === "node" && annotation ? (
@@ -1061,6 +1166,8 @@ const ContextMenu = memo(function ContextMenu({
             <AnnotationMenu a={annotation} Item={Item} onAnno={onAnno} onPickLogo={onPickLogo} onSetImageUrl={onSetImageUrl} onRotate={onRotate} onRemove={onRemoveNode} />
             <div className="my-1 border-t border-border/60" />
             <StyleControls style={style} onStyle={onStyle} />
+            <div className="my-1 border-t border-border/60" />
+            {ZItems}
           </>
         ) : menu.kind === "node" ? (
           <>
@@ -1086,6 +1193,8 @@ const ContextMenu = memo(function ContextMenu({
             </div>
             <div className="my-1 border-t border-border/60" />
             <StyleControls style={style} onStyle={onStyle} />
+            <div className="my-1 border-t border-border/60" />
+            {ZItems}
             <div className="my-1 border-t border-border/60" />
             <Item icon={<Trash2 className="h-3.5 w-3.5" />} label="Remove" onClick={onRemoveNode} />
           </>
@@ -1302,6 +1411,10 @@ function Canvas({ schema, deepLinks, onPersist }: CanvasProps) {
           ...(dd.opacity !== undefined ? { opacity: dd.opacity } : {}),
           ...(dd.fillColor !== undefined ? { fillColor: dd.fillColor } : {}),
           ...(dd.fontColor !== undefined ? { fontColor: dd.fontColor } : {}),
+          ...(dd.borderWidth !== undefined ? { borderWidth: dd.borderWidth } : {}),
+          ...(dd.borderStyle !== undefined ? { borderStyle: dd.borderStyle } : {}),
+          ...(dd.borderColor !== undefined ? { borderColor: dd.borderColor } : {}),
+          ...(typeof n.zIndex === "number" && n.zIndex !== 0 ? { z: n.zIndex } : {}),
         };
       });
       // `hidden` is keyed by catalog (base) ids: a component is hidden iff NO
@@ -1576,7 +1689,7 @@ function Canvas({ schema, deepLinks, onPersist }: CanvasProps) {
           ...nds,
           {
             id: nodeId,
-            type: found.component.kind ? "composite" : "component",
+            type: nodeTypeFor(found.component),
             position: pos,
             width: fp.w,
             height: fp.h,
@@ -1692,10 +1805,23 @@ function Canvas({ schema, deepLinks, onPersist }: CanvasProps) {
   // selecting several boxes and changing a color updates all of them at once.
   // Options that don't apply to a given node type are simply stored and ignored
   // by that node's renderer (no-op), per the requested behavior.
-  const styleNodes = useCallback((ids: string[], patch: { opacity?: number; fillColor?: string; fontColor?: string }) => {
+  const styleNodes = useCallback((ids: string[], patch: StylePatch) => {
     const idset = new Set(ids);
     setNodes((nds) => {
       const next = nds.map((n) => (idset.has(n.id) ? { ...n, data: { ...n.data, ...patch } } : n));
+      scheduleSave(next, edges);
+      return next;
+    });
+  }, [setNodes, scheduleSave, edges]);
+
+  // Bring a node to front / send to back by setting its zIndex just past the
+  // current extreme. Works for a single node or a whole selection.
+  const setNodeZ = useCallback((ids: string[], dir: "front" | "back") => {
+    const idset = new Set(ids);
+    setNodes((nds) => {
+      const zs = nds.map((n) => (typeof n.zIndex === "number" ? n.zIndex : 0));
+      const target = dir === "front" ? Math.max(0, ...zs) + 1 : Math.min(0, ...zs) - 1;
+      const next = nds.map((n) => (idset.has(n.id) ? { ...n, zIndex: target } : n));
       scheduleSave(next, edges);
       return next;
     });
@@ -1739,7 +1865,7 @@ function Canvas({ schema, deepLinks, onPersist }: CanvasProps) {
           : {
               ...n,
               id: newId,
-              type: component.kind ? "composite" : "component",
+              type: nodeTypeFor(component),
               width: fp.w,
               height: fp.h,
               style: { ...n.style, width: fp.w, height: fp.h },
@@ -2008,6 +2134,7 @@ function Canvas({ schema, deepLinks, onPersist }: CanvasProps) {
             style={{ opacity: menuNodeData?.opacity, fillColor: menuNodeData?.fillColor, fontColor: menuNodeData?.fontColor }}
             selectionCount={styleTargets.length}
             onStyle={(patch) => styleNodes(styleTargets, patch)}
+            onZ={(dir) => { setNodeZ(styleTargets.length ? styleTargets : [menu.id], dir); setMenu(null); }}
           />
         )}
 

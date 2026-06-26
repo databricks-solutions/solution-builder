@@ -13,7 +13,7 @@ renders as a **foundation bar spanning the full width underneath** them:
 | Band id | Label | Renders as | Holds (capability slugs) |
 |---------|-------|-----------|--------------------------|
 | `sources` | Sources | column 1 (left) | `synthetic-data-gen` (+ your demo's source systems) |
-| `agentic-data` | Agentic Data | column 2 | `lakeflow-connect`, `sdp`, `lakeflow-jobs`, `notebooks-eda`, `zerobus-ingest`, `delta-sharing`, `marketplace`, `lakebase` |
+| `agentic-data` | Agentic Data | column 2 | `lakeflow-connect`, `sdp`, `lakeflow-jobs`, `notebooks-eda`, `zerobus-ingest`, `delta-sharing`, `marketplace`, `lakebase`, `lakehouse` |
 | `agentic-work` | Agentic Work | column 3 | `genie`, `knowledge-assistant`, `supervisor-agent`, `ml-training-serving`, `vector-search`, `information-extraction`, `genie-code` |
 | `agentic-apps` | Agentic Apps | column 4 (right) | `databricks-apps`, `aibi-dashboards`, `databricks-one` |
 | `unified-governance` | Unified Governance | foundation bar (below) | `unity-catalog`, `ai-gateway`, `data-quality`, `abac`, `data-classification` |

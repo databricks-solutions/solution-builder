@@ -54,7 +54,11 @@ export const AnnotationNode = memo(function AnnotationNode({ data, selected }: N
   };
 
   const fontSize = a.fontSize ?? 14;
-  const showBorder = a.border ?? a.variant === "box";
+  // Border: borderWidth is the source of truth. Fall back to the legacy `border`
+  // boolean (box defaulted on) for older saved annotations.
+  const legacyBorderOn = a.border ?? a.variant === "box";
+  const borderW = d.borderWidth ?? (legacyBorderOn ? 1 : 0);
+  const showBorder = borderW > 0;
   const vA = a.vAlign ?? "middle";
   const hA = a.hAlign ?? "center";
 
@@ -70,15 +74,21 @@ export const AnnotationNode = memo(function AnnotationNode({ data, selected }: N
       onResize={(w, h) => d.onResize(d.nodeId, w, h)}
       onContext={(e) => { e.preventDefault(); d.onContext(d.nodeId, e.clientX, e.clientY); }}
     >
-      {(a.variant === "text" || a.variant === "box") && (
+      {(a.variant === "text" || a.variant === "box") && (() => {
+        // Fill default: a BOX is solid white unless the user sets a color (or
+        // "transparent"); plain TEXT is transparent by default.
+        const fill = d.fillColor ?? (a.variant === "box" ? "#ffffff" : "transparent");
+        return (
         <div
           onClick={() => d.onSelect(d.nodeId)}
-          className={`flex h-full w-full overflow-hidden rounded-md ${V_CLASS[vA]} ${H_CLASS[hA]} ${showBorder ? "border" : ""} ${showBorder && !d.fillColor ? "bg-card/80" : ""} ${selected ? "ring-2 ring-primary/60" : ""}`}
+          className={`flex h-full w-full overflow-hidden rounded-md ${V_CLASS[vA]} ${H_CLASS[hA]} ${selected ? "ring-2 ring-primary/60" : ""}`}
           style={{
-            borderColor: showBorder ? "var(--border)" : undefined,
+            borderStyle: showBorder ? (d.borderStyle ?? "solid") : undefined,
+            borderWidth: showBorder ? borderW : undefined,
+            borderColor: showBorder ? (d.borderColor ?? "var(--border)") : undefined,
             padding: showBorder ? 8 : 2,
             opacity: d.opacity ?? 1,
-            ...(d.fillColor ? { background: d.fillColor } : {}),
+            background: fill,
           }}
         >
           {editing !== null ? (
@@ -107,7 +117,8 @@ export const AnnotationNode = memo(function AnnotationNode({ data, selected }: N
             </span>
           )}
         </div>
-      )}
+        );
+      })()}
 
       {a.variant === "logo" && (
         <div

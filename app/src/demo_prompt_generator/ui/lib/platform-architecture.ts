@@ -70,13 +70,17 @@ export interface PlatformComponent {
    *  "lakeflow" — bundles Lakeflow Connect + Zerobus + direct ingest feeding a
    *  bronze→silver→gold pipeline, with 3 labelled input ports on the left. */
   kind?: CompositeKind;
+  /** Small grey sub-line under the label (e.g. a one-line value prop). */
+  sublabel?: string;
+  /** A tiny colored pill next to the label (e.g. "RT" for real-time). */
+  badge?: string;
 }
 
 export type IngestPath = "lakeflow-connect" | "zerobus" | "direct";
 
 /** Composite block kinds (super-set components that draw an inner mini-diagram
  *  and expose multiple named ports). Extend this as we add more blocks. */
-export type CompositeKind = "lakeflow";
+export type CompositeKind = "lakeflow" | "genie-code";
 
 /** The 3 left input ports a "lakeflow" composite exposes. Edge handle ids on
  *  the block are `in-${port}` (+ a single `r` output on the right). */
@@ -129,6 +133,12 @@ export interface NodePosition {
   opacity?: number;        // 0..1, whole-node opacity
   fillColor?: string;      // box/background color (hex)
   fontColor?: string;      // text/label color (hex)
+  /** Border styling. borderWidth 0 = no border. */
+  borderWidth?: number;    // px
+  borderStyle?: "solid" | "dashed";
+  borderColor?: string;    // hex
+  /** Stacking order (bring to front / send to back). Default 0. */
+  z?: number;
 }
 
 /** A free-form canvas annotation — not a Databricks catalog component. One node
@@ -191,6 +201,8 @@ export interface ComponentOverride {
   capability?: string;
   ingest?: IngestPath;
   kind?: CompositeKind;
+  sublabel?: string;
+  badge?: string;
 }
 
 export interface BandOverride {
@@ -286,11 +298,11 @@ const CATALOG: Record<BandId, CatalogComponent[]> = {
     { id: "ml-training-serving", label: "ML Models", icon: "mlModel", desc: "Train, register, and serve models on governed data." },
     { id: "vector-search", label: "Vector Search", icon: "vectorSearch", desc: "Semantic search and retrieval that grounds agents in your data." },
     { id: "information-extraction", label: "Information Extraction", icon: "unstructuredData", desc: "Turn PDFs and documents into structured, queryable data." },
-    { id: "genie-code", label: "Genie Code", icon: "agents", desc: "Generate and run code against your data from natural language." },
+    { id: "genie-code", label: "Built with Genie Code", icon: "genieCodeBrand", kind: "genie-code", desc: "Describe the pipeline — Genie Code writes the SQL, the DAG, the tests." },
   ],
   "unified-governance": [
     { id: "unity-catalog", label: "Unity Catalog", icon: "unityCatalogBrand", desc: "One governed catalog — access, lineage, and semantics across data + AI." },
-    { id: "ai-gateway", label: "Unity AI Gateway", icon: "aiGateway", desc: "Every model and agent call governed — security, cost, and rate limits." },
+    { id: "ai-gateway", label: "Unity AI Gateway", icon: "aiGatewayBrand", desc: "Every model and agent call governed — security, cost, and rate limits." },
     { id: "data-quality", label: "Data Quality", icon: "unityCatalog", desc: "Expectations and monitors keep bad data out of the gold layer." },
     { id: "abac", label: "ABAC", icon: "unityCatalog", desc: "Attribute-based access control — fine-grained, policy-driven permissions." },
     { id: "data-classification", label: "Data Classification", icon: "unityCatalog", desc: "Automatically tag and govern sensitive data." },
@@ -307,7 +319,8 @@ const CATALOG: Record<BandId, CatalogComponent[]> = {
     { id: "notebooks-eda", label: "Notebooks", icon: "notebooks", desc: "Interactive exploration and analysis on governed data." },
     { id: "delta-sharing", label: "Delta Sharing", icon: "deltaSharing", desc: "Open, cross-org data sharing with no copies." },
     { id: "marketplace", label: "Marketplace", icon: "deltaSharing", desc: "Discover and consume third-party data and AI assets." },
-    { id: "lakebase", label: "Lakebase", icon: "lakebaseBrand", desc: "Managed Postgres for app state — reads/writes the live queue." },
+    { id: "lakebase", label: "Lakebase", icon: "lakebaseBrand", sublabel: "Serverless Postgres — instant start, branch", desc: "Managed Postgres for app state — reads/writes the live queue." },
+    { id: "lakehouse", label: "Lakehouse", icon: "lakehouseBrand", badge: "RT", sublabel: "~100 ms charts, thousands of concurrent users", desc: "One copy of governed data for BI + AI — real-time queries at scale." },
   ],
   // Sources are demo-authored. The catalog ships the LuxeBeauty example set so
   // the diagram reads as a complete architecture out of the box; the agent
@@ -388,6 +401,8 @@ export function buildSchema({ override, capabilities }: BuildInputs): PlatformSc
         capability: a.capability,
         ingest: a.ingest,
         kind: a.kind,
+        sublabel: a.sublabel,
+        badge: a.badge,
       };
       const existing = baseIndex.get(a.id);
       if (existing !== undefined) base[existing] = merged;
@@ -404,6 +419,8 @@ export function buildSchema({ override, capabilities }: BuildInputs): PlatformSc
         capability: patch?.capability ?? c.capability,
         ingest: patch?.ingest ?? c.ingest,
         kind: patch?.kind ?? c.kind,
+        sublabel: patch?.sublabel ?? c.sublabel,
+        badge: patch?.badge ?? c.badge,
         state: patch?.state ?? defaultState(bandId, c.id, capabilities),
       };
     });
