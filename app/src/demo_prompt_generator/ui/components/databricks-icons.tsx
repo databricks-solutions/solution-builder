@@ -322,6 +322,180 @@ export function DeltaSharingIcon(props: IconProps) {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Official Databricks brand product icons (two-tone, multi-color).
+// Extracted glyph-only from the official lockups. Unlike the line icons above
+// these carry their OWN brand colors (#FF5F46 / #FABFBA) and IGNORE
+// `currentColor` — callers must not recolor them. Used by the architecture
+// tab's platform diagram. 200×200 canvas with 25px padding.
+// ---------------------------------------------------------------------------
+
+export function GenieBrandIcon(props: IconProps) {
+  return (
+    <svg viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
+      <path d="M81.7909 159.789C75.0244 159.789 69.5392 166.599 69.5392 175H126.368C126.368 166.599 120.883 159.789 114.116 159.789H81.7909Z" fill="#FF5F46"/>
+      <path d="M179.614 80.7871C167.525 100.208 149.376 126.933 141.272 133.79C133.167 140.647 121.149 153.009 93.2907 153.009C73.7741 153.009 56.9864 140.474 49.5352 122.498C49.5353 122.519 49.5356 122.54 49.5358 122.561C48.4799 119.938 45.9132 118.085 42.9121 118.085C38.969 118.085 35.7721 121.282 35.7721 125.225C35.7722 126.15 35.9484 126.997 36.2689 127.752C37.984 131.793 42.5469 131.965 42.5469 144.569C42.5469 143.103 42.5469 146.404 42.5469 144.569C30.6947 144.569 21.0865 134.96 21.0863 123.108C21.0863 111.256 30.6945 101.647 42.5469 101.647H45.4249V101.644H79.5153C82.062 101.644 84.5067 102.722 86.0978 104.71C88.8856 108.194 91.0222 111.438 92.5969 114.114C94.056 116.594 98.4255 116.618 99.8699 114.13C101.393 111.506 103.416 108.337 105.98 104.929C107.573 102.813 110.103 101.644 112.752 101.644H125.427C143.951 101.644 154.105 92.7623 159.289 86.3612C161.972 83.049 165.782 80.7871 170.045 80.7871H179.614Z" fill="#FABFBA"/>
+      <path d="M96.3843 111.768C96.3842 87.8629 77.3194 68.4739 53.768 68.3843C77.3196 68.2949 96.3845 48.9049 96.3845 25C96.3845 25 96.3845 25 96.3845 25C96.3845 48.9602 115.538 68.3838 139.165 68.3838C115.538 68.3838 96.3844 87.8075 96.3843 111.768Z" fill="#FF5F46"/>
+    </svg>
+  );
+}
+
+export function AIBIBrandIcon(props: IconProps) {
+  return (
+    <svg viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
+      <path d="M94.143 100.396V18.75C49.0526 18.75 12.4995 55.3031 12.4995 100.394C12.4995 100.394 12.4995 100.393 12.4995 100.394L94.143 100.396Z" fill="#FABFBA"/>
+      <path d="M62.3506 113.216C65.2535 129.02 78.0859 141.35 94.1406 143.499V181.123C57.4521 178.984 28.0252 149.801 25.5039 113.216H62.3506Z" fill="#FABFBA"/>
+      <path d="M106.969 35.1527C144.98 37.7724 175.002 69.4369 175.002 108.114C175.002 146.902 144.807 178.637 106.641 181.096V143.433C124.717 140.789 138.598 125.223 138.598 106.412C138.597 87.7162 124.885 72.2229 106.969 69.4398V35.1527Z" fill="#FF5F46"/>
+    </svg>
+  );
+}
+
+export function UnityCatalogBrandIcon(props: IconProps) {
+  return (
+    <svg viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
+      <path d="M99.7571 72.3687L75.8477 86.1844V113.816L99.7571 127.632L123.667 113.816V86.1844L99.7571 72.3687Z" fill="#FF5F46"/>
+      <path d="M150.168 70.9293H177.678L163.851 47.0396L150.168 70.9293Z" fill="#FF5F46"/>
+      <path d="M150.168 129.215L163.995 153.105L177.822 129.215H150.168Z" fill="#FF5F46"/>
+      <path d="M85.9297 182.031H113.44L99.6128 158.142L85.9297 182.031Z" fill="#FF5F46"/>
+      <path d="M21.6914 129.215L35.5186 153.105L49.3457 129.215H21.6914Z" fill="#FF5F46"/>
+      <path d="M21.6914 70.9293H49.2017L35.3745 47.0396L21.6914 70.9293Z" fill="#FF5F46"/>
+      <path d="M85.9297 17.9688L99.7568 41.8585L113.584 17.9688H85.9297Z" fill="#FF5F46"/>
+      <path d="M125.972 22.7178L109.984 50.3493L137.639 66.3238L153.626 38.6923L125.972 22.7178Z" fill="#FABFBA"/>
+      <path d="M179.839 84.0254H147.863V115.974H179.839V84.0254Z" fill="#FABFBA"/>
+      <path d="M137.639 133.82L109.984 149.794L125.972 177.426L153.626 161.451L137.639 133.82Z" fill="#FABFBA"/>
+      <path d="M61.7338 133.82L45.7461 161.451L73.4004 177.426L89.3881 149.794L61.7338 133.82Z" fill="#FABFBA"/>
+      <path d="M51.5066 84.0254H19.5312V115.974H51.5066V84.0254Z" fill="#FABFBA"/>
+      <path d="M73.4004 22.7178L45.7461 38.6923L61.7338 66.3238L89.3881 50.3493L73.4004 22.7178Z" fill="#FABFBA"/>
+    </svg>
+  );
+}
+
+export function LakehouseBrandIcon(props: IconProps) {
+  return (
+    <svg viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
+      <path d="M174.872 81.3814V123.339H174.875L174.872 123.34V123.358H174.833C163.714 128.478 150.991 131.404 137.41 131.404C123.829 131.404 111.092 128.478 99.9877 123.358H99.9953C88.8897 118.226 76.1482 115.293 62.5609 115.293C48.9736 115.293 36.246 118.226 25.1265 123.358H25.125V81.9536H25.1334V81.3814L99.6627 22.8701L174.872 81.3814Z" fill="#FABFBA"/>
+      <path d="M62.5891 131.405C76.1708 131.405 88.908 134.331 100.013 139.451H100.004C111.109 144.583 123.851 147.515 137.438 147.515C150.601 147.515 162.957 144.763 173.826 139.926L174.872 139.451V175.886H174.876C174.875 175.886 174.873 175.887 174.872 175.887V175.904H174.835C163.716 181.025 150.992 183.95 137.411 183.95C123.829 183.95 111.092 181.025 99.9869 175.904H99.9961C88.8905 170.772 76.149 167.84 62.5617 167.84C49.3988 167.84 37.0427 170.592 26.174 175.43L25.1273 175.904H25.1258L25.1265 139.469V139.451H25.1654C36.2841 134.331 49.0075 131.405 62.5891 131.405Z" fill="#FF5F46"/>
+    </svg>
+  );
+}
+
+export function LakebaseBrandIcon(props: IconProps) {
+  return (
+    <svg viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
+      <path d="M100 119.513C88.875 115.609 76.111 113.379 62.5 113.379C48.889 113.379 36.1388 115.609 25 119.513V79.6436H175V119.513C163.861 123.259 151.111 125.399 137.5 125.399C124.314 125.399 111.924 123.391 101.048 119.859L100 119.513Z" fill="#FABFBA"/>
+      <path d="M62.6758 128.042C75.7994 128.042 88.1324 129.947 98.957 133.298L101.043 133.956C111.868 137.306 124.2 139.212 137.324 139.212C150.448 139.212 162.767 137.306 173.604 133.956L174.647 133.627H175V175H25V133.627H25.3525C36.4389 130.073 49.1289 128.042 62.6758 128.042Z" fill="#FF5F46"/>
+      <rect x="25" y="25" width="150" height="41.3728" fill="#FABFBA"/>
+    </svg>
+  );
+}
+
+export function LakeflowConnectBrandIcon(props: IconProps) {
+  return (
+    <svg viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
+      <path d="M25 175.404L25.0006 104.197L57.1626 104.197L57.1625 142.872L95.5182 142.872L95.5182 175.404L25 175.404Z" fill="#FABFBA"/>
+      <path d="M174.997 25.0005L174.996 96.2082L142.834 96.2082L142.835 57.5327L104.479 57.5327L104.479 25.0005L174.997 25.0005Z" fill="#FABFBA"/>
+      <rect width="53.6735" height="53.6752" transform="matrix(1 0 5.39465e-06 1 25 25.0005)" fill="#FF5F46"/>
+      <rect width="53.6737" height="53.6752" transform="matrix(1 0 5.39465e-06 1 121.775 121.744)" fill="#FF5F46"/>
+    </svg>
+  );
+}
+
+export function LakeflowJobsBrandIcon(props: IconProps) {
+  return (
+    <svg viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
+      <path d="M86.0967 156.774L141.713 100.485L86.0967 44.1964L86.0967 21.875L117.024 21.875L117.024 53.3375L122.807 55.7779L144.645 33.5304L166.684 55.9846L144.846 78.2321L147.242 84.1233H178.126V115.877H147.242L144.846 121.768L166.684 144.015L144.645 166.47L122.806 144.222L117.024 146.663L117.024 178.125H86.0967L86.0967 156.774Z" fill="#FABFBA"/>
+      <path d="M61.1655 39.4468V39.3445L120.617 100.001L61.1655 160.657V160.549L55.3559 166.468L33.3162 144.014L55.1546 121.767L52.7583 115.875H21.875V84.1219H52.7583L55.1546 78.2307L33.3162 55.9832L55.3559 33.5291L61.1655 39.4468Z" fill="#FF5F46"/>
+    </svg>
+  );
+}
+
+export function SDPBrandIcon(props: IconProps) {
+  return (
+    <svg viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
+      <path d="M175.466 78.0699L149.571 78.0699L75.8379 167.969L25 167.969L25 121.066L57.8006 121.066L131.534 31.25L175.5 31.25L175.466 78.0699Z" fill="#FF5F46"/>
+      <path d="M142.7 121.065L175.5 121.065L175.5 167.969L124.662 167.969L110.099 150.213L138.351 115.767L142.7 121.065ZM68.9668 31.25L90.3975 57.3545L62.1543 91.7578L50.9287 78.0703L25.0342 78.0703L25 31.25L68.9668 31.25Z" fill="#FABFBA"/>
+    </svg>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Source-system vendor logos (real brand SVGs, single-path, brand color).
+// Used for the demo's data-source tiles. Like the brand product icons these
+// carry their own color and must not be recolored. 0 0 24 24 canvas.
+// ---------------------------------------------------------------------------
+
+export function ShopifyLogo(props: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" {...props}>
+      <path fill="#95BF47" d="M15.337 23.979l7.216-1.561s-2.604-17.613-2.625-17.73c-.018-.116-.114-.192-.211-.192s-1.929-.136-1.929-.136-1.275-1.274-1.439-1.411c-.045-.037-.075-.057-.121-.074l-.914 21.104h.023zM11.71 11.305s-.81-.424-1.774-.424c-1.447 0-1.504.906-1.504 1.141 0 1.232 3.24 1.715 3.24 4.629 0 2.295-1.44 3.76-3.406 3.76-2.354 0-3.54-1.465-3.54-1.465l.646-2.086s1.245 1.066 2.28 1.066c.675 0 .975-.545.975-.932 0-1.619-2.654-1.694-2.654-4.359-.034-2.237 1.571-4.416 4.827-4.416 1.257 0 1.875.361 1.875.361l-.945 2.715-.02.01zM11.17.83c.136 0 .271.038.405.135-.984.465-2.064 1.639-2.508 3.992-.656.213-1.293.405-1.889.578C7.697 3.75 8.951.84 11.17.84V.83zm1.235 2.949v.135c-.754.232-1.583.484-2.394.736.466-1.777 1.333-2.645 2.085-2.971.193.501.309 1.176.309 2.1zm.539-2.234c.694.074 1.141.867 1.429 1.755-.349.114-.735.231-1.158.366v-.252c0-.752-.096-1.371-.271-1.871v.002zm2.992 1.289c-.02 0-.06.021-.078.021s-.289.075-.714.21c-.423-1.233-1.176-2.37-2.508-2.37h-.115C12.135.209 11.669 0 11.265 0 8.159 0 6.675 3.877 6.21 5.846c-1.194.365-2.063.636-2.16.674-.675.213-.694.232-.772.87-.075.462-1.83 14.063-1.83 14.063L15.009 24l.927-21.166z" />
+    </svg>
+  );
+}
+
+export function ZendeskLogo(props: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" {...props}>
+      <path fill="#03363D" d="M12.914 2.904V16.29L24 2.905H12.914zM0 2.906C0 5.966 2.483 8.45 5.543 8.45s5.542-2.484 5.543-5.544H0zm11.086 4.807L0 21.096h11.086V7.713zm7.37 7.84c-3.063 0-5.542 2.48-5.542 5.543H24c0-3.06-2.48-5.543-5.543-5.543z" />
+    </svg>
+  );
+}
+
+export function SAPLogo(props: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" {...props}>
+      <path fill="#0FAAFF" d="M0 6.064v11.872h12.13L24 6.064zm3.264 2.208h.005c.863.001 1.915.245 2.676.633l-.82 1.43c-.835-.404-1.255-.442-1.73-.467-.708-.038-1.064.215-1.069.488-.007.332.669.633 1.305.838.964.306 2.19.715 2.377 1.9L7.77 8.437h2.046l2.064 5.576-.007-5.575h2.37c2.257 0 3.318.764 3.318 2.519 0 1.575-1.09 2.514-2.936 2.514h-.763l-.01 2.094-3.588-.003-.25-.908c-.37.122-.787.189-1.23.189-.456 0-.885-.071-1.263-.2l-.358.919-2 .006.09-.462c-.029.025-.057.05-.087.074-.535.43-1.208.629-2.037.644l-.213.002a5.075 5.075 0 0 1-2.581-.675l.73-1.448c.79.467 1.286.572 1.956.558.347-.007.598-.07.761-.239a.557.557 0 0 0 .156-.369c.007-.376-.53-.553-1.185-.756-.531-.164-1.135-.389-1.606-.735-.559-.41-.825-.924-.812-1.65a1.99 1.99 0 0 1 .566-1.377c.519-.537 1.357-.863 2.363-.863zm10.597 1.67v1.904h.521c.694 0 1.247-.23 1.248-.964 0-.709-.554-.94-1.248-.94zm-5.087.767l-.748 2.362c.223.085.481.133.757.133.268 0 .52-.047.742-.126l-.736-2.37z" />
+    </svg>
+  );
+}
+
+/** PDF document logo — red dog-eared page with "PDF" wordmark. */
+export function PdfLogo(props: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" {...props}>
+      <path
+        fill="#E0392B"
+        d="M6 2h8l4 4v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2z"
+      />
+      <path fill="#B71C1C" d="M14 2l4 4h-4z" />
+      <text
+        x="12"
+        y="17"
+        textAnchor="middle"
+        fontSize="6"
+        fontWeight="700"
+        fill="#fff"
+        fontFamily="Arial, sans-serif"
+      >
+        PDF
+      </text>
+    </svg>
+  );
+}
+
+/** Unity Catalog Volume — a storage drum / disk stack (governed file storage). */
+export function VolumeIcon(props: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" {...props}>
+      <ellipse cx="12" cy="5.5" rx="7" ry="2.6" fill="#7C3AED" />
+      <path
+        fill="#8B5CF6"
+        d="M5 5.5v13c0 1.44 3.13 2.6 7 2.6s7-1.16 7-2.6v-13c0 1.44-3.13 2.6-7 2.6s-7-1.16-7-2.6z"
+      />
+      <ellipse cx="12" cy="5.5" rx="7" ry="2.6" fill="#A78BFA" />
+    </svg>
+  );
+}
+
+/** Generic realtime-sensor source (no vendor) — radio/signal waves. */
+export function SensorIcon(props: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="#0EA5E9" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <circle cx="12" cy="12" r="2" fill="#0EA5E9" stroke="none" />
+      <path d="M7.76 7.76a6 6 0 0 0 0 8.48M16.24 16.24a6 6 0 0 0 0-8.48M4.93 4.93a10 10 0 0 0 0 14.14M19.07 19.07a10 10 0 0 0 0-14.14" />
+    </svg>
+  );
+}
+
 // Export an icon map for easy lookup
 export const DATABRICKS_ICONS = {
   dashboard: DashboardIcon,
@@ -351,6 +525,42 @@ export const DATABRICKS_ICONS = {
   metricViews: MetricViewsIcon,
   aiFunctions: AIFunctionsIcon,
   deltaSharing: DeltaSharingIcon,
+  // Official brand product icons (multi-color, self-colored — do not recolor).
+  genieBrand: GenieBrandIcon,
+  aibiBrand: AIBIBrandIcon,
+  unityCatalogBrand: UnityCatalogBrandIcon,
+  lakehouseBrand: LakehouseBrandIcon,
+  lakebaseBrand: LakebaseBrandIcon,
+  lakeflowConnectBrand: LakeflowConnectBrandIcon,
+  lakeflowJobsBrand: LakeflowJobsBrandIcon,
+  sdpBrand: SDPBrandIcon,
+  // Source-system vendor logos (brand-colored, self-colored).
+  shopifyLogo: ShopifyLogo,
+  zendeskLogo: ZendeskLogo,
+  sapLogo: SAPLogo,
+  sensorSource: SensorIcon,
+  pdfLogo: PdfLogo,
+  volume: VolumeIcon,
 } as const;
 
 export type DatabricksIconName = keyof typeof DATABRICKS_ICONS;
+
+/** Brand icons carry their own colors and must NOT be recolored by the caller
+ *  (no `color`/`currentColor` override). The platform diagram checks this set
+ *  to decide whether to skip its band-tinting. */
+export const BRAND_ICONS = new Set<DatabricksIconName>([
+  "genieBrand",
+  "aibiBrand",
+  "unityCatalogBrand",
+  "lakehouseBrand",
+  "lakebaseBrand",
+  "lakeflowConnectBrand",
+  "lakeflowJobsBrand",
+  "sdpBrand",
+  "shopifyLogo",
+  "zendeskLogo",
+  "sapLogo",
+  "sensorSource",
+  "pdfLogo",
+  "volume",
+]);

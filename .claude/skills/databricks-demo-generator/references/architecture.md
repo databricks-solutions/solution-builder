@@ -1,301 +1,164 @@
 # Architecture Diagram Schema Reference
 
-Generate architecture diagrams for Databricks demos using a simple JSON schema. The schema is automatically rendered as an interactive diagram.
+`architecture.md` drives an **interactive architecture canvas** (a Lucidchart-style ReactFlow editor) framed like the Databricks "Data + AI Platform" slide. The full platform (capability bands + their components) is **always available from a built-in catalog**; your `architecture.md` declares what is *different for this demo* (sources, descriptions, which components are active).
 
-## Schema Structure
+**The canvas is user-editable.** Users drag nodes, add/remove components from a library palette, draw edges, and toggle "data flowing" animation. Those edits are saved back into a `layout` block in this file (positions + edges). You normally **don't author `layout`** — leave it out and the canvas auto-lays-out by band (Sources → Agentic Data → Agentic Work → Agentic Apps, with Unified Governance underneath) and seeds flow edges. Only the semantic parts below are yours to write.
 
-```json
-{
-  "name": "Demo Name",
-  "columns": [...],
-  "edges": [...],
-  "bars": [...]
-}
-```
+## What the renderer already knows (you don't repeat it)
 
-| Field | Required | Description |
-|-------|----------|-------------|
-| `name` | Yes | Name of the architecture |
-| `columns` | Yes | Array of vertical columns (left to right) |
-| `edges` | Yes | Connections between nodes |
-| `bars` | No | Horizontal foundation bars at bottom |
+The diagram ships a fixed catalog of capability **bands**. Four of them render
+as **columns flowing left → right** (data flows toward the user); `unified-governance`
+renders as a **foundation bar spanning the full width underneath** them:
 
----
+| Band id | Label | Renders as | Holds (capability slugs) |
+|---------|-------|-----------|--------------------------|
+| `sources` | Sources | column 1 (left) | `synthetic-data-gen` (+ your demo's source systems) |
+| `agentic-data` | Agentic Data | column 2 | `lakeflow-connect`, `sdp`, `lakeflow-jobs`, `notebooks-eda`, `zerobus-ingest`, `delta-sharing`, `marketplace`, `lakebase` |
+| `agentic-work` | Agentic Work | column 3 | `genie`, `knowledge-assistant`, `supervisor-agent`, `ml-training-serving`, `vector-search`, `information-extraction`, `genie-code` |
+| `agentic-apps` | Agentic Apps | column 4 (right) | `databricks-apps`, `aibi-dashboards`, `databricks-one` |
+| `unified-governance` | Unified Governance | foundation bar (below) | `unity-catalog`, `ai-gateway`, `data-quality`, `abac`, `data-classification` |
 
-## Columns
+**Component ids ARE the capability slugs** from `resources.json` (and `references/platform_architecture.md`). They line up 1:1, so:
 
-Columns are positioned automatically left-to-right. Each column can contain nodes, vertical bars, or be wrapped in a group.
+- Each component's **state is auto-seeded from `resources.json`**: `buildable` → **active** (highlighted, glowing deep-link dot once deployed), `talking_track` → **mentioned** (muted "talking track" tile), everything else → **hidden**.
+- Each component has a generic fallback description. You override it with **story-tied copy**.
 
-```json
-{
-  "columns": [
-    { "nodes": [...] },
-    { "group": {...}, "nodes": [...] },
-    { "bars": [...] }
-  ]
-}
-```
-
-**IMPORTANT — Column ordering rules:**
-
-Each tier/category belongs in its own column. Do NOT mix tiers in the same column.
-
-**Typical column order (left to right):**
-1. **Sources** — External data (tier: `source`)
-2. **SDP Pipeline** — Bronze/Silver/Gold in a group (tiers: `bronze`, `silver`, `gold`)
-3. **Compute** — SQL Warehouse, Notebooks (tier: `compute`)
-4. **Analytics** — Dashboards, BI reports (tier: `analytics`)
-5. **AI** — Genie, KA, MAS, ML Models (tier: `ai`)
-6. **Interface** — Databricks One vertical bar (tier: `interface`)
-7. **Consumer** — End users (tier: `consumer`)
-
-Columns 3-5 can be reordered or merged depending on the demo, but **never put compute infrastructure (SQL Warehouse) in the same column/tier as AI components (Genie, KA)**.
+So a perfectly good `architecture.md` is *small*. You mostly add the demo's **sources** and rewrite a few **descriptions**.
 
 ---
 
-## Nodes
+## Schema
 
 ```json
 {
-  "id": "unique-id",
-  "label": "Display Name",
-  "icon": "deltaTable",
-  "tier": "bronze",
-  "desc": "Optional subtitle",
-  "row": 0
-}
-```
-
-| Field | Required | Description |
-|-------|----------|-------------|
-| `id` | Yes | Unique identifier (used in edges) |
-| `label` | Yes | Display name |
-| `icon` | Yes | Icon key (see Available Icons) |
-| `tier` | Yes | Color scheme (see Available Tiers) |
-| `desc` | No | Short description shown below label |
-| `row` | No | Vertical position (auto-increments if omitted). Use decimals for fine positioning (e.g., `0.5`, `2.5`) |
-
-**Consumer nodes:** Always use `"label": "Users"` with `"desc": "End Users"` -- never use specific people's names.
-
----
-
-## Groups
-
-Wrap nodes in a dashed border container. Use for "SDP Pipeline" groupings.
-
-```json
-{
-  "group": { "label": "SDP Pipeline", "tier": "sdp" },
-  "nodes": [
-    { "id": "bronze", "label": "Bronze Layer", "icon": "deltaTable", "tier": "bronze" },
-    { "id": "silver", "label": "Silver Layer", "icon": "deltaTable", "tier": "silver" },
-    { "id": "gold", "label": "Gold Layer", "icon": "deltaTable", "tier": "gold" }
-  ]
-}
-```
-
----
-
-## Vertical Bars
-
-Use for interface elements like "Databricks One":
-
-```json
-{
-  "bars": [
-    { "id": "db-one", "label": "Databricks One", "tier": "interface", "vertical": true }
-  ]
-}
-```
-
----
-
-## Foundation Bars
-
-Horizontal bars at the bottom of the diagram. Use `startColumn` and `endColumn` to control which columns the bar spans (0-indexed):
-
-```json
-{
-  "bars": [
-    { "label": "Databricks Workflows — Orchestration", "tier": "orchestration", "startColumn": 1, "endColumn": 4 },
-    { "label": "Unity Catalog — Governance & Security", "tier": "governance", "startColumn": 0, "endColumn": 6 }
+  "name": "<Demo Name> Architecture",
+  "story": "One line framing the demo (optional).",
+  "bands": [
+    {
+      "id": "sources",
+      "add": [ /* the demo's source systems — see below */ ],
+      "set": [ /* per-component overrides keyed by id */ ]
+    }
   ]
 }
 ```
 
 | Field | Required | Description |
 |-------|----------|-------------|
-| `label` | Yes | Display text for the bar |
-| `tier` | Yes | Color scheme (orchestration, governance) |
-| `startColumn` | No | First column to span (0-indexed, default: 1 to skip sources) |
-| `endColumn` | No | Last column to span (0-indexed, default: stops before interface/consumer) |
+| `name` | No | Title shown in the toolbar. Defaults to "Solution architecture". |
+| `story` | No | One-line caption under the title. |
+| `bands` | No | Array of band overrides. Omit a band entirely to accept all its defaults. |
 
----
-
-## Edges
+### Band override
 
 ```json
-{
-  "from": "source-node-id",
-  "to": "target-node-id",
-  "label": "Optional label",
-  "animated": true
-}
+{ "id": "agentic-work", "add": [...], "set": [...] }
+```
+
+- `id` — one of the band ids above.
+- `add` — components NOT in the catalog. Used almost exclusively for **sources**.
+- `set` — patches to catalog (or added) components, keyed by `id`.
+
+### Component override (used in both `add` and `set`)
+
+```json
+{ "id": "genie", "label": "AI/BI Genie", "icon": "genie",
+  "desc": "\"Why do I have so many returns?\" — ask in plain language.",
+  "state": "active", "capability": "genie" }
 ```
 
 | Field | Required | Description |
 |-------|----------|-------------|
-| `from` | Yes | Source node ID |
-| `to` | Yes | Target node ID |
-| `label` | No | Edge label (use sparingly) |
-| `animated` | No | Animated dashed line for active data flow |
+| `id` | Yes | Capability slug (catalog component) or a new id (e.g. `src-shopify`). |
+| `label` | for `add` | Display name. Catalog components keep their label unless you set it. |
+| `icon` | for `add` | Icon key (see Available Icons). |
+| `desc` | recommended | **Story-tied** one-liner shown in the detail panel. |
+| `state` | No | `active` \| `mentioned` \| `hidden`. **Omit to use the resources.json default** — only set it to override. |
+| `capability` | No | Backing capability slug for deep-links when `id` isn't itself a slug. Defaults to `id`. |
+| `ingest` | sources only | `lakeflow-connect` (default) \| `zerobus` (realtime) \| `direct`. Draws the ingest rail between Sources and Agentic Data. Use `zerobus` for streaming/sensor sources. |
+
+---
+
+## Data sources (the left column)
+
+Author the demo's **real** source systems under the `sources` band's `add` — use functional names + real vendor logos, NOT "synthetic data". Each source sets an `ingest` path so the diagram shows HOW it reaches the lakehouse:
+
+```json
+{ "id": "sources", "add": [
+  { "id": "src-shopify", "label": "Shopify", "icon": "shopifyLogo", "ingest": "lakeflow-connect", "desc": "Orders & returns via Lakeflow Connect." },
+  { "id": "src-sensors", "label": "Line Sensors", "icon": "sensorSource", "ingest": "zerobus", "desc": "Realtime telemetry via Zerobus." }
+],
+  "set": [ { "id": "synthetic-data-gen", "state": "hidden" } ]
+}
+```
+
+The catalog ships a default LuxeBeauty source set (Shopify/Zendesk/ERP/Line-Sensors). **Hide `synthetic-data-gen`** and add your demo's real sources. SDP automatically renders its bronze → silver → gold sub-strip — you don't author that.
+
+**Vendor logos** (`icon` values that render the real brand mark): `shopifyLogo`, `zendeskLogo`, `sapLogo` (ERP), `sensorSource` (generic realtime sensor). For a source with no bundled logo, use the generic `inputData` (DB/API) or `unstructuredData` (files/PDFs).
 
 ---
 
 ## Available Icons
 
-| Icon | Use For |
-|------|---------|
-| `inputData` | External data sources, inputs |
-| `unstructuredData` | Documents, PDFs, unstructured data |
-| `lakeflowConnect` | Lakeflow Connect, data ingestion |
-| `deltaTable` | Delta Tables (Bronze/Silver/Gold layers) |
-| `data` | Generic data storage |
-| `deltaLake` | Delta Lake |
-| `sdpPipeline` | SDP Pipelines |
-| `streaming` | Real-time streaming, Structured Streaming |
-| `sqlWarehouse` | SQL Warehouse (compute) |
-| `notebooks` | Databricks Notebooks (compute) |
-| `jobsPipelines` | Jobs, Pipelines, Workflows (compute) |
-| `dashboard` | AI/BI Dashboards, visualizations (analytics) |
-| `metricViews` | Metric Views, governed KPIs (analytics) |
-| `genie` | AI/BI Genie, natural language analytics (AI) |
-| `knowledgeAssistant` | Knowledge Assistant, document search (AI) |
-| `multiAgentSupervisor` | Multi-Agent Supervisor, routing (AI) |
-| `agents` | AI Agents (AI) |
-| `mlModel` | ML Models (AI) |
-| `modelServing` | Model serving endpoints (compute) |
-| `aiGateway` | AI Gateway (AI) |
-| `aiFunctions` | AI Functions — ai_query, ai_classify, ai_extract (AI) |
-| `vectorSearch` | Vector Search, semantic search, RAG (AI) |
-| `unityCatalog` | Unity Catalog, governance |
-| `deltaSharing` | Delta Sharing, cross-org data sharing |
-| `lakebase` | Lakebase (managed PostgreSQL), app backend |
-| `databricksApps` | Databricks Apps, web applications |
-| `businessUser` | End users (consumer) |
+Sources / vendor logos: `shopifyLogo`, `zendeskLogo`, `sapLogo`, `sensorSource`, `inputData`, `unstructuredData`.
+
+Products / platform: `lakeflowConnect`, `deltaTable`, `data`, `deltaLake`, `sdpPipeline`, `streaming`, `sqlWarehouse`, `notebooks`, `jobsPipelines`, `dashboard`, `metricViews`, `genie`, `knowledgeAssistant`, `multiAgentSupervisor`, `agents`, `mlModel`, `modelServing`, `aiGateway`, `aiFunctions`, `vectorSearch`, `unityCatalog`, `deltaSharing`, `lakebase`, `databricksApps`, `businessUser`.
+
+Brand product glyphs (multi-color, used by catalog defaults — you rarely set these directly): `genieBrand`, `aibiBrand`, `unityCatalogBrand`, `lakehouseBrand`, `lakebaseBrand`, `lakeflowConnectBrand`, `lakeflowJobsBrand`, `sdpBrand`.
 
 ---
 
-## Available Tiers
+## Authoring rules
 
-**CRITICAL -- Use the correct tier for each component:**
-
-| Tier | Color | Use For |
-|------|-------|---------|
-| `source` | Gray | External data sources (SQL Server, PostgreSQL, S3, APIs) |
-| `bronze` | Bronze/copper | Bronze layer (raw ingested data) |
-| `silver` | Silver/gray | Silver layer (cleaned/joined data) |
-| `gold` | Gold/amber | Gold layer (analytics-ready data) |
-| `compute` | Violet/purple | **SQL Warehouse, Notebooks, Jobs/Pipelines, Model Serving** |
-| `analytics` | Pink | **AI/BI Dashboards, reports, BI visualizations** |
-| `ai` | Indigo | **Genie, Knowledge Assistant, Multi-Agent Supervisor, ML Models, AI Agents** |
-| `consumer` | Emerald green | End users |
-| `sdp` | Teal | SDP Pipeline groups (wraps bronze/silver/gold) |
-| `governance` | Dark slate | Unity Catalog foundation bar |
-| `orchestration` | Sky blue | Databricks Workflows foundation bar |
-| `interface` | Rose/pink | Databricks One vertical bar |
-| `ingest` | Blue | Ingestion layer (if separate from sources) |
+1. **Don't list catalog components you accept as-is.** State auto-seeds from `resources.json` — if a capability is `buildable`/`talking_track` it already appears with the right emphasis. Touch a catalog component only to (a) give it a story-tied `desc`, or (b) force a non-default `state`.
+2. **Always add the demo's sources** under the `sources` band — these are the only components the catalog can't know. Give each a short `desc` (what it is + volume), e.g. `{ "id": "src-shopify", "label": "Shopify", "icon": "inputData", "desc": "400K orders / returns, 24 months", "state": "active" }`.
+3. **Descriptions are the point.** Make them demo-specific and human — what the user *does* with it ("ask 'why so many returns?'"), not the product datasheet. This is what shows when someone clicks a tile.
+4. **Coherence:** the set of `active` + `mentioned` components must match the **Products Showcased** in README and the capabilities in `resources.json`. Since states derive from `resources.json`, this is usually automatic — verify you haven't force-set a `state` that contradicts it.
+5. **Keep it short.** A typical `architecture.md` is just `name` + `story` + a `sources` band with `add`, plus a handful of `desc` overrides on the key components.
 
 ---
 
-## Complete Example
+## Complete Example (LuxeBeauty Returns)
 
-This is a reference example. **Adapt to match your demo's actual components.**
+Note how small it is: states come from `resources.json`; this file just adds sources and tells each headline component's story.
 
 ```json
 {
-  "name": "<Replace with Demo Name Architecture>",
-  "columns": [
+  "name": "LuxeBeauty Returns Intelligence Architecture",
+  "story": "From a $180K returns spike to root cause and action — on one governed platform.",
+  "bands": [
     {
-      "nodes": [
-        { "id": "src-banking", "label": "Core Banking", "icon": "inputData", "tier": "source", "desc": "Transactions" },
-        { "id": "src-processor", "label": "Card Processor", "icon": "inputData", "tier": "source", "desc": "Auth Data" },
-        { "id": "src-salesforce", "label": "Salesforce", "icon": "inputData", "tier": "source", "desc": "Merchants" },
-        { "id": "src-docs", "label": "Security Audits", "icon": "unstructuredData", "tier": "source", "desc": "PDF Reports", "row": 3.5 }
+      "id": "sources",
+      "add": [
+        { "id": "src-shopify", "label": "Shopify", "icon": "inputData", "desc": "Orders & returns — 400K rows, 24 months", "state": "active" },
+        { "id": "src-zendesk", "label": "Zendesk", "icon": "inputData", "desc": "Customer feedback & return reasons", "state": "active" },
+        { "id": "src-erp", "label": "ERP", "icon": "inputData", "desc": "Production lots & QC", "state": "active" },
+        { "id": "src-mfg", "label": "Mfg Reports", "icon": "unstructuredData", "desc": "Incident report PDFs → Knowledge Assistant", "state": "active" }
       ]
     },
     {
-      "group": { "label": "SDP Pipeline", "tier": "sdp" },
-      "nodes": [
-        { "id": "bronze", "label": "Bronze Layer", "icon": "deltaTable", "tier": "bronze", "desc": "Raw Data" },
-        { "id": "silver", "label": "Silver Layer", "icon": "deltaTable", "tier": "silver", "desc": "Cleaned" },
-        { "id": "gold", "label": "Gold Layer", "icon": "deltaTable", "tier": "gold", "desc": "Analytics Ready" },
-        { "id": "volume", "label": "Document Volume", "icon": "unstructuredData", "tier": "bronze", "desc": "Unstructured", "row": 3.5 }
+      "id": "agentic-work",
+      "set": [
+        { "id": "genie", "desc": "\"Which lots drove the spike?\" — lot-level tracing in plain language." },
+        { "id": "knowledge-assistant", "desc": "Grounded answers from manufacturing incident reports." },
+        { "id": "supervisor-agent", "desc": "Routes a question across Genie + Knowledge Assistant and composes the answer." },
+        { "id": "ml-training-serving", "label": "Premium Classifier", "desc": "XGBoost flags premium-return risk; registered in UC." }
       ]
     },
     {
-      "nodes": [
-        { "id": "warehouse", "label": "SQL Warehouse", "icon": "sqlWarehouse", "tier": "compute", "desc": "Serverless" }
+      "id": "agentic-apps",
+      "set": [
+        { "id": "databricks-apps", "label": "Returns Console", "desc": "Ops team triages the queue and fires refunds — agent in the loop." },
+        { "id": "aibi-dashboards", "desc": "The $180K spike, by category and lot — same numbers, one page." }
       ]
     },
     {
-      "nodes": [
-        { "id": "dashboard", "label": "AI/BI Dashboard", "icon": "dashboard", "tier": "analytics" },
-        { "id": "genie", "label": "AI/BI Genie", "icon": "genie", "tier": "ai", "desc": "Natural Language", "row": 1.5 },
-        { "id": "ka", "label": "Knowledge Assistant", "icon": "knowledgeAssistant", "tier": "ai", "desc": "Doc Search", "row": 2.5 }
-      ]
-    },
-    {
-      "nodes": [
-        { "id": "mas", "label": "Multi-Agent Supervisor", "icon": "multiAgentSupervisor", "tier": "ai", "desc": "Routing", "row": 1 }
-      ]
-    },
-    {
-      "bars": [
-        { "id": "db-one", "label": "Databricks One", "tier": "interface", "vertical": true }
-      ]
-    },
-    {
-      "nodes": [
-        { "id": "user", "label": "Users", "icon": "businessUser", "tier": "consumer", "desc": "End Users", "row": 1 }
+      "id": "agentic-data",
+      "set": [
+        { "id": "sdp", "desc": "Bronze → silver → gold; ai_classify enriches return reasons in gold." },
+        { "id": "lakebase", "desc": "Backs the Returns Console queue + audit log — branch on reset." }
       ]
     }
-  ],
-  "edges": [
-    { "from": "src-banking", "to": "bronze", "label": "Lakeflow Connect", "animated": true },
-    { "from": "src-processor", "to": "bronze", "animated": true },
-    { "from": "src-salesforce", "to": "bronze", "animated": true },
-    { "from": "src-docs", "to": "volume", "label": "Auto Loader", "animated": true },
-    { "from": "bronze", "to": "silver", "animated": true },
-    { "from": "silver", "to": "gold", "animated": true },
-    { "from": "gold", "to": "warehouse" },
-    { "from": "warehouse", "to": "dashboard" },
-    { "from": "warehouse", "to": "genie" },
-    { "from": "volume", "to": "ka" },
-    { "from": "genie", "to": "mas" },
-    { "from": "ka", "to": "mas" },
-    { "from": "dashboard", "to": "db-one" },
-    { "from": "mas", "to": "db-one" },
-    { "from": "db-one", "to": "user" }
-  ],
-  "bars": [
-    { "label": "Databricks Workflows — Orchestration", "tier": "orchestration", "startColumn": 1, "endColumn": 4 },
-    { "label": "Unity Catalog — Governance & Security", "tier": "governance", "startColumn": 0, "endColumn": 6 }
   ]
 }
 ```
-
----
-
-## Best Practices
-
-1. **Flow left-to-right**: Sources -> SDP -> Compute -> Analytics -> AI -> Consumer
-2. **One tier per column**: Don't mix compute, analytics, and AI in the same column
-3. **SDP Pipeline group**: Always wrap Bronze/Silver/Gold in a group with `"tier": "sdp"`
-4. **Animated edges**: Use `"animated": true` for data ingestion flows
-5. **Edge labels**: Use sparingly (e.g., "Lakeflow Connect", "Auto Loader")
-6. **Foundation bars**: Include Unity Catalog and Databricks Workflows at bottom
-7. **Databricks One**: Use vertical bar between AI and consumer
-8. **Node descriptions**: Keep short (1-2 words)
-9. **Consumer nodes**: Always use "Users" -- never use specific people's names
-10. **Row positioning**: Use decimals (e.g., `0.5`) to center single nodes vertically

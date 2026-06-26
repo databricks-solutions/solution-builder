@@ -15,8 +15,8 @@ import type { ProjectFile, ProjectFileContent, DeployedResourceLink } from "../.
 import { AppPreviewTab } from "../../preview";
 import { cn } from "../../lib/utils";
 
-// Lazy load the architecture diagram (heavy — ReactFlow)
-const ArchitectureDiagram = lazy(() => import("./architecture-diagram"));
+// Lazy load the capability-layer platform diagram.
+const PlatformDiagram = lazy(() => import("./platform-diagram"));
 
 // Lazy load Monaco editor for code files
 const CodeViewer = lazy(() => import("./code-viewer").then(m => ({ default: m.CodeViewer })));
@@ -91,7 +91,6 @@ interface FileViewerProps {
   onLoadArchitecture?: () => void;
   isCreatingArchitecture?: boolean;
   onCreateArchitecture?: () => void;
-  onArchitectureConnectionCreated?: (from: string, to: string) => void;
   isStreaming?: boolean; // Whether the agent is currently working
   resources?: ResourcesInfo;
   onResourcesClick?: () => void;
@@ -188,7 +187,9 @@ interface ArchitectureViewProps {
   hasArchitecture: boolean;
   isCreatingArchitecture: boolean;
   isStreaming: boolean;
-  onArchitectureConnectionCreated?: (from: string, to: string) => void;
+  capabilities?: { buildable: string[]; talking_track: string[] } | null;
+  deployedResources?: DeployedResourceLink[];
+  projectId: string;
 }
 
 const ArchitectureView = memo(function ArchitectureView({
@@ -196,7 +197,9 @@ const ArchitectureView = memo(function ArchitectureView({
   hasArchitecture,
   isCreatingArchitecture,
   isStreaming,
-  onArchitectureConnectionCreated,
+  capabilities,
+  deployedResources,
+  projectId,
 }: ArchitectureViewProps) {
   if (isCreatingArchitecture) {
     return (
@@ -209,7 +212,11 @@ const ArchitectureView = memo(function ArchitectureView({
       </div>
     );
   }
-  if (hasArchitecture && architectureContent) {
+  // The capability-layer diagram renders from the catalog + resources.json
+  // even before architecture.md exists — so show it whenever we have either
+  // an architecture file OR a capability set to seed component states.
+  const hasContent = (hasArchitecture && architectureContent) || !!capabilities;
+  if (hasContent) {
     return (
       <Suspense
         fallback={
@@ -218,9 +225,11 @@ const ArchitectureView = memo(function ArchitectureView({
           </div>
         }
       >
-        <ArchitectureDiagram
-          content={architectureContent}
-          onConnectionCreated={onArchitectureConnectionCreated}
+        <PlatformDiagram
+          content={hasArchitecture ? architectureContent : null}
+          capabilities={capabilities ?? null}
+          deployedResources={deployedResources}
+          projectId={projectId}
         />
       </Suspense>
     );
@@ -757,7 +766,6 @@ export const FileViewer = memo(function FileViewer({
   onLoadArchitecture,
   isCreatingArchitecture = false,
   onCreateArchitecture,
-  onArchitectureConnectionCreated,
   isStreaming = false,
   resources,
   onResourcesClick,
@@ -913,7 +921,9 @@ export const FileViewer = memo(function FileViewer({
               hasArchitecture={hasArchitecture}
               isCreatingArchitecture={isCreatingArchitecture}
               isStreaming={isStreaming}
-              onArchitectureConnectionCreated={onArchitectureConnectionCreated}
+              capabilities={capabilities}
+              deployedResources={deployedResources}
+              projectId={projectId}
             />
           ) : activeTab === "app" ? (
             <AppPreviewTab

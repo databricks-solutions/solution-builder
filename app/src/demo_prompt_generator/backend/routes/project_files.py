@@ -34,6 +34,7 @@ from ..models import (
     ProjectFile,
     ProjectFileContent,
     ProjectFileOut,
+    ProjectFileWrite,
 )
 from ..services.file_sync import FileSyncService, decompress_content
 from .projects import _get_authorized_project
@@ -781,6 +782,64 @@ def get_project_file(
         last_modified=file_mtime,
     )
 
+
+
+@router.put(
+    "/projects/{project_id}/files/{file_path:path}",
+    response_model=ProjectFileContent,
+    operation_id="saveProjectFile",
+)
+def save_project_file(
+    project_id: str,
+    file_path: str,
+    body: ProjectFileWrite,
+    session: Dependencies.Session,
+    headers: Dependencies.Headers,
+    config: Dependencies.Config,
+):
+    """Write text content to a project file (disk is source of truth; the
+    file-watcher syncs it to the DB).
+
+    Used by the interactive architecture canvas to persist node positions +
+    edges back into `architecture.md` on drag/drop. Locked down: owner/admin
+    auth, path-escape guard, and an allowlist of writable files so this can't
+    be used to clobber auth files or arbitrary code.
+    """
+    user_email = _get_user_email(headers)
+    _get_authorized_project(
+        session, project_id, user_email, config.template_admin_emails
+    )
+
+    project_dir = _PROJECTS_BASE_RESOLVED / project_id
+    disk_path = (project_dir / file_path).resolve()
+    try:
+        disk_path.relative_to(project_dir)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid file path")
+
+    # Allowlist: only files the UI is meant to edit. Keeps this endpoint from
+    # becoming a general-purpose write primitive (no .databrickscfg, no code).
+    WRITABLE = {"architecture.md"}
+    basename = Path(file_path).name
+    if basename not in WRITABLE:
+        raise HTTPException(
+            status_code=403,
+            detail=f"File '{basename}' is not writable via this endpoint",
+        )
+
+    try:
+        disk_path.parent.mkdir(parents=True, exist_ok=True)
+        disk_path.write_text(body.content, encoding="utf-8")
+        stat = disk_path.stat()
+    except OSError as e:
+        raise HTTPException(status_code=500, detail=f"Write failed: {e}")
+
+    return ProjectFileContent(
+        path=file_path,
+        content=body.content,
+        size=stat.st_size,
+        last_modified=datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc),
+    )
 
 
 @router.get(

@@ -81,11 +81,10 @@ const SOURCE_TO_DISPLAY: Record<CapabilityGroup, DisplayGroup> = {
 };
 
 /**
- * Per-capability tier override — picks the SAME tier the architecture
- * diagram assigns to that node, so a Knowledge Assistant tile reads as
- * the same indigo on the Overview as it does in the diagram. This map
- * is derived from how the demo-generator skill writes architecture.md
- * (cross-referenced with `MERIDIAN_BANK_SCHEMA` in architecture-schema.ts).
+ * Per-capability tier override — colors each capability tile by tier so a
+ * Knowledge Assistant tile reads as indigo, a dashboard as pink, etc.,
+ * consistent with the rest of the app. Tier colors come from `TIER_CONFIG`
+ * in architecture-schema.ts.
  *
  * Falls back to `CAPABILITY_GROUP_TIER` (group default) for slugs that
  * don't appear here — keeps new capabilities working without an edit.
@@ -411,8 +410,8 @@ export const HeaderStatusPill = memo(function HeaderStatusPill({
           ? "Planning"
           : "Drafting";
 
-  // Color palette — matches the architecture-diagram tier vocabulary so
-  // status reads as the same accent everywhere.
+  // Color palette — uses the shared TIER vocabulary so status reads as the
+  // same accent everywhere.
   const palette = isReady
     ? {
         bg: "bg-emerald-500/[0.10]",

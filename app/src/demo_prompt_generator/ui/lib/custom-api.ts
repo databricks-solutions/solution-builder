@@ -486,6 +486,22 @@ export async function getProjectFile(
   return resp.json();
 }
 
+/** Write text content to a project file (architecture.md only, per backend
+ *  allowlist). Used by the architecture canvas to persist layout. */
+export async function saveProjectFile(
+  projectId: string,
+  filePath: string,
+  content: string
+): Promise<ProjectFileContent> {
+  const resp = await fetch(apiUrl(`/api/projects/${projectId}/files/${filePath}`), {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ content }),
+  });
+  if (!resp.ok) throw new Error(`Failed to save file: ${resp.status}`);
+  return resp.json();
+}
+
 export async function getDeployedResources(projectId: string): Promise<DeployedResources> {
   const resp = await fetch(apiUrl(`/api/projects/${projectId}/deployed-resources`));
   if (!resp.ok) {

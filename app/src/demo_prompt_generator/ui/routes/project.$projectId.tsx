@@ -1291,19 +1291,6 @@ function ProjectPage() {
     handleSendMessage("Create an /architecture.md file at the project root level with the architecture diagram - read the solution generator skill architecture reference");
   }, [isCreatingArchitecture, isStreaming, handleSendMessage]);
 
-  // Handle manual connection in architecture diagram — ask LLM to update the schema
-  const handleArchitectureConnection = useCallback(
-    (from: string, to: string) => {
-      if (isStreaming) return;
-      handleSendMessage(
-        `The user just connected node "${from}" to node "${to}" in the architecture diagram. ` +
-        `Update the architecture.md file to add this new edge: { "from": "${from}", "to": "${to}" }. ` +
-        `Keep all existing nodes and edges. Only add the new edge to the edges array.`
-      );
-    },
-    [isStreaming, handleSendMessage]
-  );
-
   // Handle Package as DAB button click - sends message to agent
   const handlePackageAsDAB = useCallback(() => {
     if (isPackagingDAB || isStreaming) return;
@@ -1932,7 +1919,6 @@ function ProjectPage() {
             onLoadArchitecture={handleLoadArchitecture}
             isCreatingArchitecture={isCreatingArchitecture}
             onCreateArchitecture={handleCreateArchitecture}
-            onArchitectureConnectionCreated={handleArchitectureConnection}
             isStreaming={isStreaming}
             resources={{
               warehouseName: resources.warehouseName,

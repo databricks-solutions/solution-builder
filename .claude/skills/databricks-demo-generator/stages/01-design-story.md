@@ -57,7 +57,7 @@ Capability IDs come from `DEMO_SKILL_DIR/references/platform_architecture.md`.
 
 ### `./architecture.md`
 
-JSON diagram following the schema in `DEMO_SKILL_DIR/references/architecture.md`. Nodes and edges must match the products in README and `resources.json`.
+Capability-layer platform diagram following the schema in `DEMO_SKILL_DIR/references/architecture.md`. The full platform renders from a built-in catalog and component states auto-seed from `resources.json` (buildable → active, talking_track → mentioned) — so this file is **small**: mostly the demo's `sources` plus story-tied `desc` overrides on the headline components. The set of active/mentioned components must match the products in README and `resources.json`.
 
 ### `./README.md`
 
@@ -75,7 +75,7 @@ Same structure as the matching example README (see "Style reference" above — t
 
 You're writing all files:
 
-- **Products Showcased** in README ↔ **architecture nodes** ↔ **`resources.json` capabilities** must name the same set of products. Every product in the story earns a narrative beat AND an architecture node AND a capability entry.
+- **Products Showcased** in README ↔ **architecture components** ↔ **`resources.json` capabilities** must name the same set of products. Every product in the story earns a narrative beat AND an active/mentioned architecture component AND a capability entry.
 - **The story** must be coherent with all the capabilities, for example: the data must serve the story, the dashboard / genie and the data must all work together, the app must use the same component / the data must be 
 
 ### If the demo includes an app AND (Genie or MAS)

@@ -670,6 +670,12 @@ class ProjectFileContent(BaseModel):
     last_modified: Optional[datetime] = None
 
 
+class ProjectFileWrite(BaseModel):
+    """Request body for saving a project file (e.g. the architecture canvas
+    persisting node positions + edges back into architecture.md)."""
+    content: str
+
+
 class DeployedResourceLink(BaseModel):
     """A single deployed Databricks resource with its live URL."""
     resource_type: str
