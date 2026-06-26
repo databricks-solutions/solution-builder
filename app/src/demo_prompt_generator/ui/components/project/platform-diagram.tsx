@@ -91,7 +91,6 @@ import {
   Undo2,
   Redo2,
   Scaling,
-  ChevronRight,
 } from "lucide-react";
 
 // ---------------------------------------------------------------------------
@@ -125,7 +124,7 @@ interface NodeData {
  *  shell can swap W/H for 90°/270° and ReactFlow's handles land on the real
  *  rotated edges (not the original box). */
 function baseSize(c: PlatformComponent): { w: number; h: number } {
-  if (c.kind === "lakeflow") return { w: 380, h: 170 }; // composite super-block
+  if (c.kind === "lakeflow") return { w: 360, h: 176 }; // composite super-block
   if (c.id === "sdp") return { w: 230, h: 112 };
   return { w: 200, h: 56 };
 }
@@ -325,8 +324,6 @@ const ComponentNode = memo(function ComponentNode({ data, selected }: NodeProps)
       }`}
       style={{
         borderColor: muted ? undefined : `${bandColor}66`,
-        borderLeftWidth: 3,
-        borderLeftColor: bandColor,
         opacity: muted ? 0.6 : 1,
       }}
     >
@@ -390,29 +387,29 @@ const ComponentNode = memo(function ComponentNode({ data, selected }: NodeProps)
 
 // The 3 left input ports. Lakeflow Connect + Zerobus are shown as vertical
 // boxes; "direct" is an unlabelled anchor in the empty space below them.
+// Anchor fractions aligned to the stacked left rails: Connect (top rail),
+// Zerobus (middle rail), direct (the empty zone at the bottom). Keep in sync
+// with PORT_FRAC used by the edge anchor logic.
 const LF_PORTS = [
-  { port: "lakeflow-connect", frac: 0.18 },
-  { port: "zerobus", frac: 0.46 },
-  { port: "direct", frac: 0.74 },
+  { port: "lakeflow-connect", frac: 0.17 },
+  { port: "zerobus", frac: 0.5 },
+  { port: "direct", frac: 0.83 },
 ] as const;
 
 /** A small vertical ingest box for the block's left column. */
-/** A slim vertical ingest "rail" for the block's left column: icon on top, a
- *  single line of VERTICAL text below. Distinct pill shape (not the rounded
- *  component-tile look) so the composite reads differently. */
-function IngestBox({ icon, label, bandColor }: { icon: DatabricksIconName; label: string; bandColor: string }) {
+/** An ingest "zone" flush against the block's left edge — icon on top + a
+ *  single line of VERTICAL text reading downward. Tinted band fill, no rounded
+ *  pill, so it reads as part of the block's left side (zones), not a tile. */
+function IngestBox({ icon, label, bandColor, first }: { icon: DatabricksIconName; label: string; bandColor: string; first?: boolean }) {
   const Icon = DATABRICKS_ICONS[icon] || DATABRICKS_ICONS.data;
   return (
     <div
-      className="flex h-full w-9 flex-col items-center gap-1.5 rounded-full border px-1 py-2"
-      style={{
-        borderColor: `${bandColor}55`,
-        background: `linear-gradient(180deg, ${bandColor}14, transparent)`,
-      }}
+      className={`flex flex-1 flex-col items-center justify-center gap-1 ${first ? "" : "border-t"}`}
+      style={{ borderColor: `${bandColor}33`, background: `${bandColor}12` }}
     >
-      <Icon className="h-5 w-5 shrink-0" />
+      <Icon className="h-4 w-4 shrink-0" />
       <span
-        className="text-[9px] font-bold uppercase tracking-wider text-foreground"
+        className="text-[8px] font-bold uppercase tracking-[0.1em] text-foreground/80"
         style={{ writingMode: "vertical-rl", textOrientation: "mixed" }}
       >
         {label}
@@ -473,22 +470,23 @@ const LakeflowBlock = memo(function LakeflowBlock({ data, selected }: NodeProps)
         className={`flex h-full w-full flex-col overflow-hidden rounded-2xl border bg-card shadow-sm transition-shadow ${
           selected ? "ring-2 ring-primary/60 shadow-md" : "hover:shadow-md"
         }`}
-        style={{ borderColor: `${d.bandColor}66`, borderLeftWidth: 3, borderLeftColor: d.bandColor }}
+        style={{ borderColor: `${d.bandColor}66` }}
       >
-        <div className="flex h-full w-full flex-col" style={{ transform: "scale(var(--cs, 1))", transformOrigin: "top left" }}>
-          {/* title */}
-          <div className="px-3 pt-2 text-[12px] font-bold text-foreground">{d.component.label}</div>
+        <div className="flex h-full w-full" style={{ transform: "scale(var(--cs, 1))", transformOrigin: "top left" }}>
+          {/* LEFT: ingest zones flush against the block edge — Connect (top),
+              Zerobus (middle), empty (bottom = direct port). */}
+          <div className="flex w-10 shrink-0 flex-col border-r" style={{ borderColor: `${d.bandColor}33` }}>
+            <IngestBox icon="lakeflowConnectBrand" label="Connect" bandColor={d.bandColor} first />
+            <IngestBox icon="zerobus" label="Zerobus" bandColor={d.bandColor} />
+            {/* bottom zone = "direct" port — file landing (not blank). */}
+            <IngestBox icon="pdfLogo" label="Files" bandColor={d.bandColor} />
+          </div>
 
-          {/* main row: left ingest rails  →  Spark Declarative Pipelines */}
-          <div className="flex flex-1 items-stretch gap-2 px-3 py-2">
-            {/* left: two vertical ingest rails side-by-side (Connect + Zerobus);
-                the empty space below maps to the unlabelled "direct" port. */}
-            <div className="flex gap-1.5">
-              <IngestBox icon="lakeflowConnectBrand" label="Connect" bandColor={d.bandColor} />
-              <IngestBox icon="zerobus" label="Zerobus" bandColor={d.bandColor} />
+          {/* RIGHT: title + SDP tables + Open Format underneath them. */}
+          <div className="flex flex-1 flex-col p-2.5">
+            <div className="mb-1.5 flex items-center gap-1.5">
+              <span className="text-[12px] font-bold text-foreground">{d.component.label}</span>
             </div>
-            <ChevronRight className="h-3.5 w-3.5 shrink-0 self-center text-muted-foreground/40" />
-            {/* right: SDP with bronze/silver/gold drawn as little DB tables */}
             <div className="flex flex-1 flex-col rounded-lg border border-border/60 bg-background/60 p-2">
               <div className="mb-1.5 flex items-center gap-1.5">
                 {(() => { const I = DATABRICKS_ICONS.sdpBrand; return <I className="h-4 w-4 shrink-0" />; })()}
@@ -499,16 +497,15 @@ const LakeflowBlock = memo(function LakeflowBlock({ data, selected }: NodeProps)
                   <DbTable key={m.label} label={m.label} color={m.color} />
                 ))}
               </div>
+              {/* Open Format — under the tables to save height. */}
+              <div className="mt-1.5 flex items-center gap-1.5 border-t border-border/60 pt-1.5">
+                <span className="text-[8px] font-semibold uppercase tracking-wider text-muted-foreground">Open Format</span>
+                {(() => { const I = DATABRICKS_ICONS.deltaLakeLogo; return <I className="h-3.5 w-3.5" />; })()}
+                <span className="text-[9px] font-medium text-muted-foreground">Delta</span>
+                {(() => { const I = DATABRICKS_ICONS.icebergLogo; return <I className="h-3.5 w-3.5" />; })()}
+                <span className="text-[9px] font-medium text-muted-foreground">Iceberg</span>
+              </div>
             </div>
-          </div>
-
-          {/* open-format footer: Delta + Iceberg */}
-          <div className="flex items-center gap-2 border-t border-border/60 px-3 py-1">
-            <span className="text-[8.5px] font-semibold uppercase tracking-wider text-muted-foreground">Open Format</span>
-            {(() => { const I = DATABRICKS_ICONS.deltaLakeLogo; return <I className="h-3.5 w-3.5" />; })()}
-            <span className="text-[9px] font-medium text-muted-foreground">Delta</span>
-            {(() => { const I = DATABRICKS_ICONS.icebergLogo; return <I className="h-3.5 w-3.5" />; })()}
-            <span className="text-[9px] font-medium text-muted-foreground">Iceberg</span>
           </div>
         </div>
       </div>
@@ -585,9 +582,9 @@ const POS_OF: Record<Side, Position> = {
  *  fractions (handle id `in-<port>`). An edge connected to such a handle
  *  anchors there directly (no fan spread). Returns null for normal handles. */
 const PORT_FRAC: Record<string, number> = {
-  "in-lakeflow-connect": 0.22,
-  "in-zerobus": 0.5,
-  "in-direct": 0.78,
+  "in-lakeflow-connect": 0.32,
+  "in-zerobus": 0.6,
+  "in-direct": 0.86,
 };
 function portAnchor(handleId: string | null | undefined): { side: Side; frac: number } | null {
   if (handleId && handleId in PORT_FRAC) return { side: "l", frac: PORT_FRAC[handleId] };
