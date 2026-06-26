@@ -55,9 +55,16 @@ export function isFileIconKey(key: string | undefined | null): key is string {
 // --- Logo metadata catalog (trademark / oss / data-source) ------------------
 import LOGO_CATALOG from "../icons/logo-catalog.json";
 
-export interface LogoMeta { trademark: boolean; oss: boolean; source: boolean }
+export interface LogoMeta { trademark: boolean; oss: boolean; source: boolean; label?: string; ingest?: string }
 const CAT = LOGO_CATALOG as unknown as Record<string, Partial<LogoMeta>> & { defaults: LogoMeta };
 const LOGO_DEFAULTS: LogoMeta = CAT.defaults ?? { trademark: true, oss: false, source: true };
+
+/** A human label for a logo key (catalog `label`, else Title-Cased name). */
+export function logoLabel(name: string): string {
+  const e = CAT[name];
+  if (e && typeof e === "object" && e.label) return e.label;
+  return name.replace(/[-_]/g, " ").replace(/\b\w/g, (m) => m.toUpperCase());
+}
 
 /** Metadata for a logo by its canonical NAME (e.g. "kafka", "shopify", "s3"). */
 export function logoMetaByName(name: string): LogoMeta {

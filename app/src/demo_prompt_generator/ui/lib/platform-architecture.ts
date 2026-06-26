@@ -149,6 +149,10 @@ export interface NodePosition {
   borderColor?: string;    // hex
   /** Stacking order (bring to front / send to back). Default 0. */
   z?: number;
+  /** A canvas-added data source (from "+ more data sources"). Stores just the
+   *  logo-catalog key + icon; label/ingest defaults come from the unified
+   *  logo-catalog.json. Present only for such nodes. */
+  source?: { key: string; icon: IconKey };
 }
 
 /** A free-form canvas annotation — not a Databricks catalog component. One node
@@ -523,6 +527,13 @@ export function buildLayout(
   for (const [nid, pos] of Object.entries(savedNodes)) {
     if (nid in nodes) continue;
     if (nid.startsWith("anno-") && pos.annotation) nodes[nid] = pos;
+  }
+
+  // Carry over canvas-added SOURCE nodes (from "+ more data sources"). Not in
+  // the catalog — their label/icon/ingest live in pos.source.
+  for (const [nid, pos] of Object.entries(savedNodes)) {
+    if (nid in nodes) continue;
+    if (pos.source) nodes[nid] = pos;
   }
 
   // Edges: saved if present, else auto-seed the real demo flow.

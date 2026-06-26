@@ -49,6 +49,9 @@ export interface NodeData {
   /** Whether real third-party trademarked logos may be shown (schema-level
    *  opt-in). When false, gated vendor logos render as a text badge. */
   allowTrademark?: boolean;
+  /** For canvas-added sources ("+ more data sources"): the logo-catalog key,
+   *  persisted so the source round-trips without a catalog entry. */
+  sourceKey?: string;
   [key: string]: unknown;
 }
 

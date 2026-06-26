@@ -105,7 +105,7 @@ import {
   imageFileToDownscaledDataUrl,
   type AnnotationNodeData,
 } from "./platform-diagram/annotations";
-import { FILE_ICONS, type FileIcon } from "../file-icons";
+import { FILE_ICONS, logoLabel, logoMetaByName, type FileIcon } from "../file-icons";
 import {
   type AnnotationData,
   type AnnotationVariant,
@@ -849,6 +849,32 @@ function schemaToFlow(
       });
       continue;
     }
+    // Canvas-added data source ("+ more data sources") — not in the catalog.
+    // Build a source component from pos.source + the unified logo catalog.
+    if (pos.source) {
+      const meta = logoMetaByName(pos.source.key);
+      const component: PlatformComponent = {
+        id, label: pos.label ?? logoLabel(pos.source.key), icon: pos.icon ?? pos.source.icon,
+        desc: "", state: "active",
+        ingest: (meta.ingest as PlatformComponent["ingest"]) ?? "lakeflow-connect",
+      };
+      const fp = nodeFootprint(component, pos);
+      nodes.push({
+        id, type: "component", position: { x: pos.x, y: pos.y }, draggable: editMode,
+        width: fp.w, height: fp.h, zIndex: pos.z ?? 0, style: { width: fp.w, height: fp.h },
+        data: {
+          nodeId: id, component, bandId: "sources" as BandId, bandColor: BAND_COLOR.sources,
+          deepLink: null, onSelect, onContext, onResize, onRename,
+          allowTrademark: schema.enableTrademarkLogos ?? false,
+          sourceKey: pos.source.key,
+          selected: id === selectedId, editMode, rot: pos.rot ?? 0,
+          w: pos.w, h: pos.h, scale: pos.scale,
+          opacity: pos.opacity, fillColor: pos.fillColor, fontColor: pos.fontColor,
+          borderWidth: pos.borderWidth, borderStyle: pos.borderStyle, borderColor: pos.borderColor,
+        } satisfies NodeData,
+      });
+      continue;
+    }
     // Node id may be an instance id (`genie#2`); resolve the catalog component
     // by its base id, but keep the instance id as the ReactFlow node id.
     const found = lookup.get(baseId(id));
@@ -937,7 +963,6 @@ interface CanvasProps {
   deepLinks: Record<string, string | null>;
   onPersist: (layout: PlatformSchema["layout"]) => void;
   onSetTrademark: (on: boolean) => void;
-  onAddSource: (c: PlatformComponent) => void;
 }
 
 type CtxMenu =
@@ -1249,7 +1274,7 @@ const ContextMenu = memo(function ContextMenu({
   );
 });
 
-function Canvas({ schema, deepLinks, onPersist, onSetTrademark, onAddSource }: CanvasProps) {
+function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasProps) {
   const [confirmTrademark, setConfirmTrademark] = useState(false);
   const [sourcePicker, setSourcePicker] = useState(false);
   // Turning logos ON requires a permission ack; turning OFF is immediate.
@@ -1449,6 +1474,7 @@ function Canvas({ schema, deepLinks, onPersist, onSetTrademark, onAddSource }: C
           ...(labelOv !== undefined ? { label: labelOv } : {}),
           ...(iconOv !== undefined ? { icon: iconOv } : {}),
           ...(anno ? { annotation: anno } : {}),
+          ...(dd.sourceKey ? { source: { key: dd.sourceKey, icon: dd.component.icon } } : {}),
           ...(dd.opacity !== undefined ? { opacity: dd.opacity } : {}),
           ...(dd.fillColor !== undefined ? { fillColor: dd.fillColor } : {}),
           ...(dd.fontColor !== undefined ? { fontColor: dd.fontColor } : {}),
@@ -1806,17 +1832,19 @@ function Canvas({ schema, deepLinks, onPersist, onSetTrademark, onAddSource }: C
   );
   addAnnotationRef.current = addAnnotation;
 
-  // Add a NEW data source from the "+ more data sources" picker. Synthesizes a
-  // source component (id `src-<name>`), registers it with the parent so it
-  // round-trips, and drops a node for it at a sensible spot.
+  // Add a NEW data source from the "+ more data sources" picker. The source is
+  // NOT a catalog component — its key/icon persist in layout.nodes[id].source
+  // (label/ingest come from the unified logo catalog), and it round-trips via
+  // buildLayout + schemaToFlow's source branch (no schema mutation, so the
+  // re-seed effect won't clobber it).
   const addSourceFromIcon = useCallback((iconKey: string) => {
-    const raw = iconKey.replace(/^file:.*\//, "").replace(/^file:/, "");
-    const name = raw.replace(/[-_]/g, " ").replace(/\b\w/g, (m) => m.toUpperCase());
-    const id = `src-${raw.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
-    const component: PlatformComponent = { id, label: name, icon: iconKey as PlatformComponent["icon"], desc: "", state: "active", ingest: "lakeflow-connect" };
-    onAddSource(component);
+    const key = iconKey.replace(/^file:.*\//, "").replace(/^file:/, "").toLowerCase();
+    const id = `src-${key.replace(/[^a-z0-9]+/g, "-")}`;
+    const component: PlatformComponent = {
+      id, label: logoLabel(key), icon: iconKey, desc: "", state: "active",
+      ingest: (logoMetaByName(key).ingest as PlatformComponent["ingest"]) ?? "lakeflow-connect",
+    };
     setSourcePicker(false);
-    // Drop a node now (don't wait for the schema round-trip). Stack sources at x=0.
     setNodes((nds) => {
       if (nds.some((n) => n.id === id)) return nds;
       const fp = nodeFootprint(component, {});
@@ -1830,6 +1858,7 @@ function Canvas({ schema, deepLinks, onPersist, onSetTrademark, onAddSource }: C
             nodeId: id, component, bandId: "sources" as BandId, bandColor: BAND_COLOR.sources,
             deepLink: null, onSelect, onContext, onResize, onRename,
             allowTrademark: !!schema.enableTrademarkLogos,
+            sourceKey: key,
             selected: false, editMode: true, rot: 0,
           } satisfies NodeData,
         } as Node,
@@ -1837,7 +1866,7 @@ function Canvas({ schema, deepLinks, onPersist, onSetTrademark, onAddSource }: C
       scheduleSave(next, edges);
       return next;
     });
-  }, [onAddSource, onSelect, onContext, onResize, onRename, schema.enableTrademarkLogos, setNodes, scheduleSave, edges]);
+  }, [onSelect, onContext, onResize, onRename, schema.enableTrademarkLogos, setNodes, scheduleSave, edges]);
 
   const onDrop = useCallback(
     (e: React.DragEvent) => {
@@ -2302,21 +2331,11 @@ function PlatformDiagram({ content, capabilities, deployedResources, projectId }
   // seeded from the file, and fold it back onto the schema so both render and
   // save see it. (null until the user toggles → use the file's value.)
   const [trademark, setTrademark] = useState<boolean | null>(null);
-  // Extra data sources added on the canvas ("+ more data sources"). Folded into
-  // the sources band so they render AND round-trip through serialize.
-  const [extraSources, setExtraSources] = useState<PlatformComponent[]>([]);
-  useEffect(() => { setTrademark(null); setExtraSources([]); }, [built]); // re-seed on file reload
-  const schema = useMemo<PlatformSchema>(() => {
-    let s = trademark === null ? built : { ...built, enableTrademarkLogos: trademark };
-    if (extraSources.length) {
-      const have = new Set(built.bands.find((b) => b.id === "sources")?.components.map((c) => c.id) ?? []);
-      const add = extraSources.filter((c) => !have.has(c.id));
-      if (add.length) {
-        s = { ...s, bands: s.bands.map((b) => (b.id === "sources" ? { ...b, components: [...b.components, ...add] } : b)) };
-      }
-    }
-    return s;
-  }, [built, trademark, extraSources]);
+  useEffect(() => { setTrademark(null); }, [built]); // re-seed on file reload
+  const schema = useMemo<PlatformSchema>(
+    () => (trademark === null ? built : { ...built, enableTrademarkLogos: trademark }),
+    [built, trademark],
+  );
 
   const deepLinks = useMemo(() => {
     const map: Record<string, string | null> = {};
@@ -2343,12 +2362,6 @@ function PlatformDiagram({ content, capabilities, deployedResources, projectId }
     [projectId],
   );
 
-  // Register a new data source on the canvas (from the "+ more sources" picker).
-  // Returns the source component id so Canvas can drop a node for it.
-  const onAddSource = useCallback((c: PlatformComponent): void => {
-    setExtraSources((prev) => (prev.some((p) => p.id === c.id) ? prev : [...prev, c]));
-  }, []);
-
   // Toggle the trademark-logo opt-in and persist (re-serializes with the flag).
   const onSetTrademark = useCallback((on: boolean) => {
     setTrademark(on);
@@ -2374,7 +2387,7 @@ function PlatformDiagram({ content, capabilities, deployedResources, projectId }
         <SaveChip status={status} />
       </div>
       <ReactFlowProvider>
-        <Canvas schema={schema} deepLinks={deepLinks} onPersist={onPersist} onSetTrademark={onSetTrademark} onAddSource={onAddSource} />
+        <Canvas schema={schema} deepLinks={deepLinks} onPersist={onPersist} onSetTrademark={onSetTrademark} />
       </ReactFlowProvider>
     </div>
   );

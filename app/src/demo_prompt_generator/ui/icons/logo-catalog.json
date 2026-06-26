@@ -57,8 +57,6 @@
   "gitlab": { "trademark": true, "source": true },
   "google-ads": { "trademark": true, "source": true },
   "google-analytics": { "trademark": true, "source": true },
-  "google-bigquery": { "trademark": true, "source": true },
-  "google-bigtable": { "trademark": true, "source": true },
   "google-docs": { "trademark": true, "source": true },
   "google-drive": { "trademark": true, "source": true },
   "google-sheets": { "trademark": true, "source": true },

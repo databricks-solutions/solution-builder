@@ -165,9 +165,14 @@ const INDUSTRY_BY_NAME: Record<string, string[]> = (() => {
 
 /** Build the tabbed icon index once: Databricks (built-in) + cloud + vendor
  *  logos, the latter also tagged with their industry buckets (from the map). */
+// Built-in vendor icons that are superseded by a canonical file icon
+// (file:vendor/<name>) — skip them in the picker so we don't list a brand twice.
+const SUPERSEDED_BUILTINS = new Set<string>(["shopifyLogo", "zendeskLogo", "sapLogo"]);
+
 function buildPickIndex(): { items: PickItem[]; tabs: string[] } {
   const items: PickItem[] = [];
   for (const k of Object.keys(DATABRICKS_ICONS) as DatabricksIconName[]) {
+    if (SUPERSEDED_BUILTINS.has(k)) continue; // dup of file:vendor/<name>
     // Databricks built-ins: treat product/source-ish ones as sources; the rest
     // (agents, governance glyphs) aren't data sources. Keep it permissive.
     items.push({ key: k, label: k, search: k.toLowerCase(), tabs: ["Databricks"], source: true });
@@ -215,12 +220,15 @@ export function IconPicker({
         className="flex max-h-[78vh] w-[min(680px,94vw)] flex-col rounded-xl border border-border bg-card shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
+        <div className="border-b border-border px-3 pt-3 text-[12px] font-semibold text-foreground">
+          {sourcesOnly ? "Add a data source" : "Pick a logo"}
+        </div>
         <div className="flex items-center gap-2 border-b border-border p-3">
           <input
             autoFocus
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="Search logos (snowflake, s3, bigquery, kafka, genie, …)"
+            placeholder={sourcesOnly ? "Search data sources (kafka, postgres, salesforce, …)" : "Search logos (snowflake, s3, bigquery, kafka, genie, …)"}
             className="flex-1 rounded-md border border-border bg-background px-2 py-1.5 text-[13px] outline-none focus:border-primary"
           />
           <span className="text-[11px] text-muted-foreground">{matches.length}</span>

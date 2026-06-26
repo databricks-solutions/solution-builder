@@ -23,7 +23,7 @@
     "duckdb",
     "elasticsearch",
     "glean",
-    "google-bigquery",
+    "bigquery",
     "ibm",
     "influxdb",
     "informatica",
