@@ -256,7 +256,7 @@ If the user confirms, **read `DEMO_SKILL_DIR/stages/03-build.md` now** and follo
 
 ## Stage 4 — Package as a DAB (optional)
 
-When the user asks you to create a DAB, read `DEMO_SKILL_DIR/references/dab/dab.md` and create the DAB specification.
+When the user asks you to create a DAB, read `DEMO_SKILL_DIR/references/dab/dab.md` and create the DAB specification. **Author + verify only — don't deploy.** Write the bundle, scripts, and `dab_instructions.md` and validate them; do NOT run `bundle deploy` / `bundle run` or the deploy scripts unless the user explicitly asks to deploy (they mutate a workspace).
 
 ---
 

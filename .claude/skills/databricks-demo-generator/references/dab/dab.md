@@ -2,6 +2,8 @@
 
 When asked to package a demo as a DAB, produce a single `databricks.yml` at the project root. [example_databricks.yml](example_databricks.yml) is a **complete, working, generic bundle distilled from a proven end-to-end deploy** — **read it first**, copy its shape, rename `demo` → your demo's short name, and drop optional blocks (App, Lakebase, KA/MAS, ML) the demo doesn't ship.
 
+> **Scope: author + verify, do NOT deploy by default.** Your job here is to produce a *correct* bundle — write `databricks.yml`, the scripts, and `dab_instructions.md`, and validate it (`databricks bundle validate` is fine; it's read-only). **Do NOT run `databricks bundle deploy` / `bundle run` / the lakebase + finalize scripts unless the user explicitly asks you to deploy.** Those mutate a workspace (create catalogs, run jobs, deploy an app, provision Lakebase) and may incur cost. The 5-command flow below is the runbook you hand to the user (and write into `dab_instructions.md`) — it is *documentation of how to deploy*, not a checklist for you to execute. When the demo was already built in a workspace during Stage 3, the DAB exists so the demo can be *re-created elsewhere from scratch* — leave the actual re-deploy to the user.
+
 ## The deploy is 5 commands (not just `bundle deploy`)
 
 A full demo with an App can't be deployed in one shot, because the Genie / KA / MAS endpoint IDs only exist **after** the setup job's SDK tasks run — the bundle can't know them at `deploy` time. So the flow is:
