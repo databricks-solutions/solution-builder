@@ -259,12 +259,61 @@ echo "[start.sh] open: http://localhost:$APP_PORT  (use localhost, NOT 0.0.0.0 �
 # agent unauthenticated" debugging instant.
 #
 # Standalone fallback: if neither var is set (running ./start.sh directly
-# for debugging, outside the Demo Prompt Generator launcher), default to
-# the DEFAULT profile in ~/.databrickscfg. This avoids the SDK's
-# host-collision error when multiple profiles share a host.
+# for debugging, outside the Demo Prompt Generator launcher), pick the
+# ~/.databrickscfg profile whose host matches .env's DATABRICKS_HOST — so
+# the app authenticates against the SAME workspace the demo is wired to.
+# Blindly defaulting to DEFAULT was a footgun: DEFAULT often points at a
+# different workspace, and a valid token sent to the wrong host comes back
+# as "Bad Request: Invalid Token". Fall back to DEFAULT only if no profile
+# matches (also avoids the SDK's host-collision error).
+#
+# .env is loaded at runtime by tsx (--env-file-if-exists), not in this
+# shell yet, so we parse DATABRICKS_HOST out of .env directly here.
+#
+# Two profiles can share a host (e.g. a valid one + a stale one), so host
+# alone is ambiguous — among the matches we prefer one that actually
+# authenticates (`databricks auth token`), and warn (rather than guess)
+# if several valid ones tie. The whole helper is best-effort: any miss
+# falls through to DEFAULT.
+_match_profile_by_host() {
+  local want_host cfg host_norm line cur_profile matches=() p valid=()
+  want_host=$(grep -E '^[[:space:]]*DATABRICKS_HOST=' .env 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '"'"'"' \t\r')
+  [ -z "$want_host" ] && return 1
+  want_host=${want_host%/}                          # strip trailing slash
+  cfg="${HOME}/.databrickscfg"
+  [ -r "$cfg" ] || return 1
+  # Walk the ini: collect EVERY profile whose host= matches.
+  while IFS= read -r line; do
+    case "$line" in
+      \[*\])  cur_profile=${line#[}; cur_profile=${cur_profile%]} ;;
+      *host*=*)
+        host_norm=$(printf '%s' "$line" | sed -E 's/^[[:space:]]*host[[:space:]]*=[[:space:]]*//; s#/$##')
+        [ "$host_norm" = "$want_host" ] && matches+=("$cur_profile")
+        ;;
+    esac
+  done < "$cfg"
+  [ ${#matches[@]} -eq 0 ] && return 1
+  if [ ${#matches[@]} -eq 1 ]; then printf '%s' "${matches[0]}"; return 0; fi
+  # Ambiguous host → keep only profiles that currently authenticate.
+  if command -v databricks >/dev/null 2>&1; then
+    for p in "${matches[@]}"; do
+      databricks auth token -p "$p" >/dev/null 2>&1 && valid+=("$p")
+    done
+  fi
+  if [ ${#valid[@]} -eq 1 ]; then printf '%s' "${valid[0]}"; return 0; fi
+  # 0 valid or a tie among several valid → too ambiguous to pick safely.
+  echo "[start.sh] auth: .env's DATABRICKS_HOST ($want_host) matches multiple ~/.databrickscfg profiles (${matches[*]}) and can't be disambiguated — set DATABRICKS_CONFIG_PROFILE explicitly." >&2
+  return 1
+}
+
 if [ -z "${DATABRICKS_CONFIG_FILE:-}" ] && [ -z "${DATABRICKS_CONFIG_PROFILE:-}" ]; then
-  export DATABRICKS_CONFIG_PROFILE=DEFAULT
-  echo "[start.sh] auth: no DATABRICKS_CONFIG_FILE / _PROFILE injected — defaulting to DATABRICKS_CONFIG_PROFILE=DEFAULT (set one in your env to override)."
+  if _matched=$(_match_profile_by_host); then
+    export DATABRICKS_CONFIG_PROFILE="$_matched"
+    echo "[start.sh] auth: no profile injected — matched DATABRICKS_CONFIG_PROFILE=$_matched to .env's DATABRICKS_HOST (set one in your env to override)."
+  else
+    export DATABRICKS_CONFIG_PROFILE=DEFAULT
+    echo "[start.sh] auth: no profile injected, no unambiguous ~/.databrickscfg match for .env's DATABRICKS_HOST — defaulting to DATABRICKS_CONFIG_PROFILE=DEFAULT. If the app 401s/Invalid-Tokens, run: DATABRICKS_CONFIG_PROFILE=<your-profile> ./start.sh"
+  fi
 elif [ -n "${DATABRICKS_CONFIG_FILE:-}" ]; then
   echo "[start.sh] auth: DATABRICKS_CONFIG_FILE=$DATABRICKS_CONFIG_FILE profile=${DATABRICKS_CONFIG_PROFILE:-DEFAULT}"
   if [ ! -r "$DATABRICKS_CONFIG_FILE" ]; then
