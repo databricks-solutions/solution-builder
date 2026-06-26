@@ -97,11 +97,13 @@ import {
 } from "./platform-diagram/composite-lakeflow";
 import {
   AnnotationNode,
+  AnyIcon,
   IconPicker,
   ANNOTATION_DEFAULT_SIZE,
   imageFileToDownscaledDataUrl,
   type AnnotationNodeData,
 } from "./platform-diagram/annotations";
+import { FILE_ICONS, type FileIcon } from "../file-icons";
 import {
   type AnnotationData,
   type AnnotationVariant,
@@ -134,6 +136,7 @@ import {
   AlignLeft,
   AlignCenter,
   AlignRight,
+  Search,
 } from "lucide-react";
 
 /** The standard product/source node — brand icon tile + label. */
@@ -567,17 +570,23 @@ const LibraryPalette = memo(function LibraryPalette({
   onPick,
   onCancelPick,
   onAddAnnotation,
+  onAddLogo,
 }: {
   schema: PlatformSchema;
   placedIds: Set<string>;
   onAdd: (componentId: string) => void;
   onAddAnnotation: (variant: AnnotationVariant) => void;
+  /** Add a logo annotation pre-set to a file-icon key (cloud / vendor mark). */
+  onAddLogo: (iconKey: string) => void;
   /** When set, the palette is in "select a replacement type" mode: clicking a
    *  component calls onPick instead of dragging/adding. */
   picking?: boolean;
   onPick?: (componentId: string) => void;
   onCancelPick?: () => void;
 }) {
+  const [q, setQ] = useState("");
+  const ql = q.trim().toLowerCase();
+  const matchText = (s: string) => !ql || s.toLowerCase().includes(ql);
   return (
     <div className={`relative flex w-52 shrink-0 flex-col border-r border-border bg-muted/20 ${picking ? "z-50 ring-2 ring-primary" : ""}`}>
       {picking ? (
@@ -592,9 +601,24 @@ const LibraryPalette = memo(function LibraryPalette({
           Components
         </div>
       )}
+      {!picking && (
+        <div className="border-b border-border p-2">
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+            <input
+              name="component-search"
+              aria-label="Search components"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Search components…"
+              className="w-full rounded-md border border-border bg-background py-1.5 pl-7 pr-2 text-[12px] outline-none focus:border-primary"
+            />
+          </div>
+        </div>
+      )}
       <div className="flex-1 overflow-y-auto p-2">
         {/* Free-form annotations (not Databricks catalog components). */}
-        {!picking && (
+        {!picking && !ql && (
           <div className="mb-3">
             <div className="px-1 py-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Annotations</div>
             {([
@@ -622,7 +646,8 @@ const LibraryPalette = memo(function LibraryPalette({
         {schema.bands.map((band) => {
           // Always list the FULL catalog (don't hide placed ones — it's
           // confusing). Placed components are just dimmed + marked "on canvas".
-          const items = band.components;
+          // The search box filters by label.
+          const items = band.components.filter((c) => matchText(c.label));
           if (items.length === 0) return null;
           return (
             <div key={band.id} className="mb-3">
@@ -657,6 +682,45 @@ const LibraryPalette = memo(function LibraryPalette({
             </div>
           );
         })}
+
+        {/* Cloud — AWS / GCP / Azure logos (file icons). Each adds a logo
+            annotation pre-set to that mark. Grouped by provider. */}
+        {!picking && (() => {
+          const cloud = FILE_ICONS.filter((f) => f.group === "cloud" && matchText(`${f.category} ${f.name}`));
+          if (cloud.length === 0) return null;
+          const byProvider = new Map<string, FileIcon[]>();
+          for (const f of cloud) {
+            const provider = f.category.split("/")[0] || "other";
+            const arr = byProvider.get(provider) ?? [];
+            arr.push(f);
+            byProvider.set(provider, arr);
+          }
+          return (
+            <div className="mb-3">
+              <div className="px-1 py-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Cloud</div>
+              {[...byProvider.entries()].map(([provider, icons]) => (
+                <div key={provider} className="mb-1">
+                  <div className="px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/70">{provider}</div>
+                  {icons.map((f) => (
+                    <button
+                      key={f.key}
+                      type="button"
+                      draggable
+                      onDragStart={(e) => { e.dataTransfer.setData("application/x-logo", f.key); e.dataTransfer.effectAllowed = "copy"; }}
+                      onDoubleClick={() => onAddLogo(f.key)}
+                      title={`Add logo: ${f.name}`}
+                      className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12px] text-foreground hover:bg-muted"
+                    >
+                      <GripVertical className="h-3 w-3 shrink-0 text-muted-foreground/40" />
+                      <AnyIcon iconKey={f.key} className="h-4 w-4 [&_svg]:h-4 [&_svg]:w-4" />
+                      <span className="truncate">{f.name}</span>
+                    </button>
+                  ))}
+                </div>
+              ))}
+            </div>
+          );
+        })()}
       </div>
     </div>
   );
@@ -1510,6 +1574,8 @@ function Canvas({ schema, deepLinks, onPersist }: CanvasProps) {
     (e: React.DragEvent) => {
       e.preventDefault();
       const pos = screenToFlowPosition({ x: e.clientX, y: e.clientY });
+      const logoKey = e.dataTransfer.getData("application/x-logo");
+      if (logoKey) { addAnnotation("logo", pos, { icon: logoKey }); return; }
       const anno = e.dataTransfer.getData("application/x-annotation");
       if (anno) {
         const id = addAnnotation(anno as AnnotationVariant, pos);
@@ -1698,6 +1764,7 @@ function Canvas({ schema, deepLinks, onPersist }: CanvasProps) {
           placedIds={placedIds}
           onAdd={(id) => addComponent(id)}
           onAddAnnotation={(v) => { const id = addAnnotation(v); if (v === "logo") setLogoPickerFor(id); }}
+          onAddLogo={(iconKey) => addAnnotation("logo", undefined, { icon: iconKey })}
           picking={pickingFor !== null}
           onPick={(id) => { if (pickingFor) changeNodeType(pickingFor, id); setPickingFor(null); }}
           onCancelPick={() => setPickingFor(null)}

@@ -141,8 +141,9 @@ export interface AnnotationData {
   /** box: vertical × horizontal text placement (default "middle"/"center"). */
   vAlign?: "top" | "middle" | "bottom";
   hAlign?: "left" | "center" | "right";
-  /** logo: the chosen icon key (any DatabricksIconName). */
-  icon?: DatabricksIconName;
+  /** logo: the chosen icon key — a DatabricksIconName OR a file-icon key
+   *  ("file:vendor/snowflake", "file:cloud/aws/storage/s3"). */
+  icon?: string;
   /** image: a URL, or a `data:` base64 string for pasted images. */
   src?: string;
 }
@@ -312,7 +313,7 @@ const CATALOG: Record<BandId, CatalogComponent[]> = {
     { id: "src-shopify", label: "Shopify", icon: "shopifyLogo", ingest: "lakeflow-connect", desc: "Orders & returns — 400K rows over 24 months, via Lakeflow Connect." },
     { id: "src-zendesk", label: "Zendesk", icon: "zendeskLogo", ingest: "lakeflow-connect", desc: "Customer-service tickets & return reasons, via Lakeflow Connect." },
     { id: "src-erp", label: "ERP", icon: "sapLogo", ingest: "lakeflow-connect", desc: "Production lots & QC records, via Lakeflow Connect." },
-    { id: "src-sensors", label: "Line Sensors", icon: "sensorSource", ingest: "zerobus", desc: "Real-time manufacturing line telemetry, streamed via Zerobus." },
+    { id: "src-sensors", label: "Sensor data", icon: "sensorSource", ingest: "zerobus", desc: "Real-time manufacturing line telemetry, streamed via Zerobus." },
     { id: "src-pdf", label: "Mfg Reports", icon: "pdfLogo", ingest: "direct", desc: "Manufacturing incident-report PDFs — landed as files on a UC Volume." },
   ],
 };

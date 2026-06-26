@@ -5,11 +5,21 @@
  * are one ReactFlow node kind ("annotation") with a `variant`; their props live
  * in the node's layout entry (NodePosition.annotation) so they persist.
  */
-import { memo, useContext, useState } from "react";
+import { memo, useContext, useState, useMemo } from "react";
 import { type NodeProps } from "@xyflow/react";
 import { DATABRICKS_ICONS, BRAND_ICONS, type DatabricksIconName } from "../../databricks-icons";
+import { FILE_ICONS, FileSvgIcon, isFileIconKey } from "../../file-icons";
 import { type AnnotationData, type AnnotationVariant } from "@/lib/platform-architecture";
 import { RotatableCard, DropTargetContext, type NodeData } from "./shared";
+
+/** Render any icon key — a built-in DatabricksIconName or a file-icon key
+ *  ("file:…") — at a given size. Used by the Logo annotation + the picker. */
+export function AnyIcon({ iconKey, className, style }: { iconKey: string; className?: string; style?: React.CSSProperties }) {
+  if (isFileIconKey(iconKey)) return <FileSvgIcon iconKey={iconKey} className={className} style={style} />;
+  const Icon = DATABRICKS_ICONS[iconKey as DatabricksIconName] || DATABRICKS_ICONS.data;
+  const isBrand = BRAND_ICONS.has(iconKey as DatabricksIconName);
+  return <Icon className={className} style={isBrand ? style : { color: "var(--foreground)", ...style }} />;
+}
 
 /** Annotation node data lives under NodeData.component is a stub; the real
  *  props are on NodeData.annotation. We extend NodeData via the index sig. */
@@ -94,19 +104,15 @@ export const AnnotationNode = memo(function AnnotationNode({ data, selected }: N
         </div>
       )}
 
-      {a.variant === "logo" && (() => {
-        const Icon = a.icon ? DATABRICKS_ICONS[a.icon] || DATABRICKS_ICONS.data : DATABRICKS_ICONS.data;
-        const isBrand = a.icon ? BRAND_ICONS.has(a.icon) : false;
-        return (
-          <div
-            onClick={() => d.onSelect(d.nodeId)}
-            className={`grid h-full w-full place-items-center rounded-md ${selected ? "ring-2 ring-primary/60" : ""}`}
-            title="Right-click → Pick logo"
-          >
-            <Icon className="h-full w-full p-1" style={isBrand ? undefined : { color: "var(--foreground)" }} />
-          </div>
-        );
-      })()}
+      {a.variant === "logo" && (
+        <div
+          onClick={() => d.onSelect(d.nodeId)}
+          className={`grid h-full w-full place-items-center rounded-md ${selected ? "ring-2 ring-primary/60" : ""}`}
+          title="Right-click → Pick logo"
+        >
+          <AnyIcon iconKey={a.icon ?? "data"} className="h-full w-full p-1 [&_svg]:h-full [&_svg]:w-full" />
+        </div>
+      )}
 
       {a.variant === "image" && (
         <div
@@ -124,17 +130,49 @@ export const AnnotationNode = memo(function AnnotationNode({ data, selected }: N
   );
 });
 
-/** A searchable picker over EVERY icon we ship (catalog products, brand logos,
- *  vendor source marks). Used by the "Logo" annotation + change-type flows. */
-export function IconPicker({ onPick, onClose }: { onPick: (key: DatabricksIconName) => void; onClose: () => void }) {
+/** A searchable picker over EVERY icon we ship — built-in catalog/brand/vendor
+ *  React icons AND the file-based icon library (vendor logos, cloud marks).
+ *  Used by the "Logo" annotation + the source/cloud library flows. */
+interface PickItem { key: string; label: string; search: string; tab: string }
+
+/** Build the tabbed icon index once: Databricks (built-in) + file-icon groups.
+ *  industry/<bucket> becomes its own tab; vendor/cloud are their own tabs. */
+function buildPickIndex(): { items: PickItem[]; tabs: string[] } {
+  const items: PickItem[] = [];
+  for (const k of Object.keys(DATABRICKS_ICONS) as DatabricksIconName[]) {
+    items.push({ key: k, label: k, search: k.toLowerCase(), tab: "Databricks" });
+  }
+  for (const f of FILE_ICONS) {
+    // Tab = a friendly name from the group/category. industry/<bucket> → bucket.
+    const tab = f.group === "industry"
+      ? (f.category.split("/")[0] || "Industry")
+      : f.group === "cloud"
+        ? "Cloud"
+        : f.group === "vendor"
+          ? "Vendors"
+          : f.group;
+    items.push({ key: f.key, label: f.name, search: `${f.group} ${f.category} ${f.name}`.toLowerCase(), tab });
+  }
+  // Tab order: Databricks first, Cloud + Vendors next, industry buckets after.
+  const order = ["Databricks", "Cloud", "Vendors"];
+  const tabs = ["All", ...Array.from(new Set(items.map((i) => i.tab))).sort((a, b) => {
+    const ai = order.indexOf(a), bi = order.indexOf(b);
+    if (ai !== -1 || bi !== -1) return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
+    return a.localeCompare(b);
+  })];
+  return { items, tabs };
+}
+
+export function IconPicker({ onPick, onClose }: { onPick: (key: string) => void; onClose: () => void }) {
   const [q, setQ] = useState("");
-  const keys = Object.keys(DATABRICKS_ICONS) as DatabricksIconName[];
+  const [tab, setTab] = useState("All");
+  const { items, tabs } = useMemo(buildPickIndex, []);
   const ql = q.trim().toLowerCase();
-  const matches = ql ? keys.filter((k) => k.toLowerCase().includes(ql)) : keys;
+  const matches = items.filter((i) => (tab === "All" || i.tab === tab) && (!ql || i.search.includes(ql)));
   return (
     <div className="fixed inset-0 z-[60] grid place-items-center bg-background/60" onClick={onClose}>
       <div
-        className="flex max-h-[70vh] w-[min(560px,90vw)] flex-col rounded-xl border border-border bg-card shadow-2xl"
+        className="flex max-h-[78vh] w-[min(680px,94vw)] flex-col rounded-xl border border-border bg-card shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center gap-2 border-b border-border p-3">
@@ -142,28 +180,41 @@ export function IconPicker({ onPick, onClose }: { onPick: (key: DatabricksIconNa
             autoFocus
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="Search logos (shopify, genie, delta, …)"
+            placeholder="Search logos (snowflake, s3, bigquery, kafka, genie, …)"
             className="flex-1 rounded-md border border-border bg-background px-2 py-1.5 text-[13px] outline-none focus:border-primary"
           />
           <span className="text-[11px] text-muted-foreground">{matches.length}</span>
         </div>
-        <div className="grid grid-cols-6 gap-2 overflow-y-auto p-3">
-          {matches.map((k) => {
-            const Icon = DATABRICKS_ICONS[k];
-            const isBrand = BRAND_ICONS.has(k);
-            return (
-              <button
-                key={k}
-                type="button"
-                onClick={() => { onPick(k); onClose(); }}
-                title={k}
-                className="flex flex-col items-center gap-1 rounded-lg border border-transparent p-2 hover:border-border hover:bg-muted"
-              >
-                <Icon className="h-7 w-7" style={isBrand ? undefined : { color: "var(--foreground)" }} />
-                <span className="w-full truncate text-center text-[8px] text-muted-foreground">{k}</span>
-              </button>
-            );
-          })}
+        {/* Group tabs */}
+        <div className="flex flex-wrap gap-1 border-b border-border px-2 py-1.5">
+          {tabs.map((t) => (
+            <button
+              key={t}
+              type="button"
+              onClick={() => setTab(t)}
+              className={`rounded-md px-2 py-0.5 text-[11px] font-medium capitalize ${tab === t ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"}`}
+            >
+              {t.replace(/-/g, " ")}
+            </button>
+          ))}
+        </div>
+        <div className="grid grid-cols-7 gap-2 overflow-y-auto p-3">
+          {matches.slice(0, 400).map((i) => (
+            <button
+              key={i.key}
+              type="button"
+              onClick={() => { onPick(i.key); onClose(); }}
+              title={i.key}
+              className="flex flex-col items-center gap-1 rounded-lg border border-transparent p-2 hover:border-border hover:bg-muted"
+            >
+              <AnyIcon iconKey={i.key} className="h-7 w-7 [&_svg]:h-7 [&_svg]:w-7" />
+              <span className="w-full truncate text-center text-[8px] text-muted-foreground">{i.label}</span>
+            </button>
+          ))}
+          {matches.length === 0 && <div className="col-span-7 py-6 text-center text-[12px] text-muted-foreground">No icons match.</div>}
+          {matches.length > 400 && (
+            <div className="col-span-7 py-2 text-center text-[11px] text-muted-foreground">+{matches.length - 400} more — refine your search</div>
+          )}
         </div>
       </div>
     </div>
