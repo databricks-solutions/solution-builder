@@ -635,3 +635,12 @@ export const BRAND_ICONS = new Set<DatabricksIconName>([
   "deltaLakeLogo",
   "icebergLogo",
 ]);
+
+/** Built-in icon keys that are THIRD-PARTY trademarked brand marks — gated
+ *  behind `enableTrademarkLogos` (otherwise rendered as a neutral text badge).
+ *  Databricks/Delta/Iceberg/cloud marks are NOT here (always allowed). */
+export const TRADEMARK_ICONS = new Set<DatabricksIconName>([
+  "shopifyLogo",
+  "zendeskLogo",
+  "sapLogo",
+]);

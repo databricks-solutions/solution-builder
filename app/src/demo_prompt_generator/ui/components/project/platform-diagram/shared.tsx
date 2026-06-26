@@ -46,6 +46,9 @@ export interface NodeData {
   borderWidth?: number;
   borderStyle?: "solid" | "dashed";
   borderColor?: string;
+  /** Whether real third-party trademarked logos may be shown (schema-level
+   *  opt-in). When false, gated vendor logos render as a text badge. */
+  allowTrademark?: boolean;
   [key: string]: unknown;
 }
 

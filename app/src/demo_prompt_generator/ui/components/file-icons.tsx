@@ -67,3 +67,43 @@ export function FileSvgIcon({ iconKey, className, style }: { iconKey: string; cl
     />
   );
 }
+
+// --- Brand color extraction (for the trademark-safe text badge) -------------
+// We don't inline the SVGs, so derive a file icon's dominant brand color
+// lazily: fetch the (local) asset once, grab its first fill/stroke hex, cache.
+const colorCache = new Map<string, string | null>();
+const colorWaiters = new Map<string, Set<(c: string | null) => void>>();
+
+function firstHex(svg: string): string | null {
+  // Prefer a fill on a <path>/<rect>; ignore #fff/#ffffff/none/currentColor.
+  const re = /(?:fill|stop-color)\s*[:=]\s*["']?(#[0-9a-fA-F]{3,8})/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(svg))) {
+    const hex = m[1].toLowerCase();
+    if (hex === "#fff" || hex === "#ffffff" || hex === "#000" || hex === "#000000") continue;
+    return m[1];
+  }
+  return null;
+}
+
+/** Dominant brand color of a file icon, or null. Resolves async (cached). */
+export function getFileIconColor(iconKey: string): Promise<string | null> {
+  if (colorCache.has(iconKey)) return Promise.resolve(colorCache.get(iconKey)!);
+  const icon = getFileIcon(iconKey);
+  if (!icon) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    const set = colorWaiters.get(iconKey) ?? new Set();
+    set.add(resolve);
+    if (colorWaiters.has(iconKey)) { colorWaiters.set(iconKey, set); return; } // fetch already in flight
+    colorWaiters.set(iconKey, set);
+    fetch(icon.url)
+      .then((r) => r.text())
+      .then((svg) => firstHex(svg))
+      .catch(() => null)
+      .then((c) => {
+        colorCache.set(iconKey, c ?? null);
+        colorWaiters.get(iconKey)?.forEach((fn) => fn(c ?? null));
+        colorWaiters.delete(iconKey);
+      });
+  });
+}

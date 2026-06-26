@@ -78,6 +78,7 @@ import {
   nodeTypeFor,
 } from "./platform-diagram/shared";
 import { GenieCodeBlock } from "./platform-diagram/composite-genie-code";
+import { BrandMark, isTrademarkMark } from "./platform-diagram/brand-mark";
 import {
   type Side,
   type Rect,
@@ -157,8 +158,6 @@ type StylePatch = {
 const ComponentNode = memo(function ComponentNode({ data, selected }: NodeProps) {
   const d = data as NodeData;
   const { component: c, bandColor } = d;
-  const Icon = DATABRICKS_ICONS[c.icon] || DATABRICKS_ICONS.data;
-  const isBrand = BRAND_ICONS.has(c.icon);
   const live = !!d.deepLink;
   const muted = c.state === "mentioned";
   // Lit up when a dragged edge endpoint is hovering this tile (magnet).
@@ -212,12 +211,18 @@ const ComponentNode = memo(function ComponentNode({ data, selected }: NodeProps)
         className="flex flex-1 items-center gap-2.5 px-3 py-2.5"
         style={{ transform: "scale(var(--cs, 1))", transformOrigin: "left center" }}
       >
-        <span
-          className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-background"
-          style={{ boxShadow: `inset 0 0 0 1px ${bandColor}22` }}
-        >
-          <Icon className="h-5 w-5" style={isBrand ? undefined : { color: bandColor }} />
-        </span>
+        {/* Icon slot. Real logo (or a full-name brand badge when the logo is
+            trademark-gated and not enabled). The text label still stays. */}
+        {isTrademarkMark(c.icon) && !d.allowTrademark ? (
+          <BrandMark iconKey={c.icon} label={c.label} bandColor={bandColor} allowTrademark={false} />
+        ) : (
+          <span
+            className="grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-lg bg-background"
+            style={{ boxShadow: `inset 0 0 0 1px ${bandColor}22` }}
+          >
+            <BrandMark iconKey={c.icon} label={c.label} bandColor={bandColor} allowTrademark={!!d.allowTrademark} className="h-5 w-5" />
+          </span>
+        )}
         <span className="min-w-0">
           <span className={`flex items-center gap-1.5 text-[13px] font-semibold leading-tight ${d.fontColor ? "" : "text-foreground"}`} style={d.fontColor ? { color: d.fontColor } : undefined}>
             {editing !== null ? (
@@ -605,6 +610,7 @@ const LibraryPalette = memo(function LibraryPalette({
   onCancelPick,
   onAddAnnotation,
   onAddLogo,
+  onToggleTrademark,
 }: {
   schema: PlatformSchema;
   placedIds: Set<string>;
@@ -612,6 +618,8 @@ const LibraryPalette = memo(function LibraryPalette({
   onAddAnnotation: (variant: AnnotationVariant) => void;
   /** Add a logo annotation pre-set to a file-icon key (cloud / vendor mark). */
   onAddLogo: (iconKey: string) => void;
+  /** Toggle the trademark-logo opt-in (Canvas handles the confirm flow). */
+  onToggleTrademark?: () => void;
   /** When set, the palette is in "select a replacement type" mode: clicking a
    *  component calls onPick instead of dragging/adding. */
   picking?: boolean;
@@ -685,12 +693,22 @@ const LibraryPalette = memo(function LibraryPalette({
           if (items.length === 0) return null;
           return (
             <div key={band.id} className="mb-3">
-              <div className="px-1 py-1 text-[10px] font-bold uppercase tracking-wider" style={{ color: BAND_COLOR[band.id] }}>
-                {band.label}
+              <div className="flex items-center px-1 py-1 text-[10px] font-bold uppercase tracking-wider" style={{ color: BAND_COLOR[band.id] }}>
+                <span>{band.label}</span>
+                {/* Trademark-logo toggle lives on the Sources header (sources
+                    are the third-party brands this gates). */}
+                {band.id === "sources" && !picking && (
+                  <button
+                    type="button"
+                    onClick={() => onToggleTrademark?.()}
+                    title="Show real third-party brand logos (requires permission)"
+                    className={`ml-auto rounded px-1.5 py-0.5 text-[8px] font-bold normal-case tracking-normal ${schema.enableTrademarkLogos ? "bg-primary/15 text-primary" : "border border-border text-muted-foreground hover:bg-muted"}`}
+                  >
+                    Logos {schema.enableTrademarkLogos ? "on" : "off"}
+                  </button>
+                )}
               </div>
               {items.map((c) => {
-                const Icon = DATABRICKS_ICONS[c.icon] || DATABRICKS_ICONS.data;
-                const isBrand = BRAND_ICONS.has(c.icon);
                 const onCanvas = placedIds.has(c.id);
                 return (
                   <button
@@ -707,7 +725,9 @@ const LibraryPalette = memo(function LibraryPalette({
                     className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12.5px] hover:bg-muted ${!picking && onCanvas ? "opacity-60" : ""}`}
                   >
                     {!picking && <GripVertical className="h-3 w-3 shrink-0 text-muted-foreground/40" />}
-                    <Icon className="h-4 w-4 shrink-0" style={isBrand ? undefined : { color: BAND_COLOR[band.id] }} />
+                    <span className="grid h-4 w-4 shrink-0 place-items-center">
+                      <BrandMark iconKey={c.icon} label={c.label} bandColor={BAND_COLOR[band.id]} allowTrademark={!!schema.enableTrademarkLogos} className="h-4 w-4" mono />
+                    </span>
                     <span className="truncate text-foreground">{c.label}</span>
                     {!picking && onCanvas && <Check className="ml-auto h-3 w-3 shrink-0 text-primary/60" />}
                   </button>
@@ -863,6 +883,7 @@ function schemaToFlow(
         borderWidth: pos.borderWidth,
         borderStyle: pos.borderStyle,
         borderColor: pos.borderColor,
+        allowTrademark: schema.enableTrademarkLogos ?? false,
       } satisfies NodeData,
     });
   }
@@ -904,6 +925,7 @@ interface CanvasProps {
   schema: PlatformSchema;
   deepLinks: Record<string, string | null>;
   onPersist: (layout: PlatformSchema["layout"]) => void;
+  onSetTrademark: (on: boolean) => void;
 }
 
 type CtxMenu =
@@ -1215,7 +1237,13 @@ const ContextMenu = memo(function ContextMenu({
   );
 });
 
-function Canvas({ schema, deepLinks, onPersist }: CanvasProps) {
+function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasProps) {
+  const [confirmTrademark, setConfirmTrademark] = useState(false);
+  // Turning logos ON requires a permission ack; turning OFF is immediate.
+  const toggleTrademark = useCallback(() => {
+    if (schema.enableTrademarkLogos) onSetTrademark(false);
+    else setConfirmTrademark(true);
+  }, [schema.enableTrademarkLogos, onSetTrademark]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [editMode, setEditMode] = useState(true);
   const [menu, setMenu] = useState<CtxMenu>(null);
@@ -1996,6 +2024,7 @@ function Canvas({ schema, deepLinks, onPersist }: CanvasProps) {
           onAdd={(id) => addComponent(id)}
           onAddAnnotation={(v) => { const id = addAnnotation(v); if (v === "logo") setLogoPickerFor(id); }}
           onAddLogo={(iconKey) => addAnnotation("logo", undefined, { icon: iconKey })}
+          onToggleTrademark={toggleTrademark}
           picking={pickingFor !== null}
           onPick={(id) => { if (pickingFor) changeNodeType(pickingFor, id); setPickingFor(null); }}
           onCancelPick={() => setPickingFor(null)}
@@ -2068,10 +2097,38 @@ function Canvas({ schema, deepLinks, onPersist }: CanvasProps) {
                 <Redo2 className="h-3.5 w-3.5" /> Redo
               </Button>
               <div className="mx-0.5 h-5 w-px bg-border" />
+              {/* Trademark-logo toggle: on requires a permission ack. */}
+              <button
+                type="button"
+                onClick={toggleTrademark}
+                title="Show real third-party brand logos (requires permission)"
+                className={`flex items-center gap-1 rounded px-2 py-1 text-[11px] font-medium ${
+                  schema.enableTrademarkLogos ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted"
+                }`}
+              >
+                <ImageIcon className="h-3.5 w-3.5" /> Logos {schema.enableTrademarkLogos ? "on" : "off"}
+              </button>
+              <div className="mx-0.5 h-5 w-px bg-border" />
               <span className="px-1.5 text-[10.5px] text-muted-foreground">Right-click a block or line</span>
             </>
           )}
         </div>
+
+        {/* Permission confirmation before enabling real brand logos. */}
+        {confirmTrademark && (
+          <div className="fixed inset-0 z-[60] grid place-items-center bg-background/60" onClick={() => setConfirmTrademark(false)}>
+            <div className="w-[min(420px,92vw)] rounded-xl border border-border bg-card p-4 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+              <div className="mb-1 text-[14px] font-semibold text-foreground">Use third-party brand logos?</div>
+              <p className="mb-3 text-[12px] leading-snug text-muted-foreground">
+                Logos like Shopify, Snowflake, or SAP are trademarks of their owners. Only enable this if you have permission to use them in this material. Cloud and Databricks marks are always shown. You can turn this off anytime.
+              </p>
+              <div className="flex justify-end gap-2">
+                <button type="button" onClick={() => setConfirmTrademark(false)} className="rounded-md border border-border px-3 py-1.5 text-[12px] hover:bg-muted">Cancel</button>
+                <button type="button" onClick={() => { onSetTrademark(true); setConfirmTrademark(false); }} className="rounded-md bg-primary px-3 py-1.5 text-[12px] font-medium text-primary-foreground hover:opacity-90">I have permission — show logos</button>
+              </div>
+            </div>
+          </div>
+        )}
 
         <ReactFlow
           nodes={nodes}
@@ -2177,9 +2234,18 @@ type SaveStatus = "idle" | "saving" | "saved" | "error";
 
 function PlatformDiagram({ content, capabilities, deployedResources, projectId }: PlatformDiagramProps) {
   const override = useMemo(() => (content ? parseOverride(content) : null), [content]);
-  const schema = useMemo(
+  const built = useMemo(
     () => buildSchema({ override, capabilities }),
     [override, capabilities],
+  );
+  // Trademark-logo opt-in is editable on the canvas; keep it as local state
+  // seeded from the file, and fold it back onto the schema so both render and
+  // save see it. (null until the user toggles → use the file's value.)
+  const [trademark, setTrademark] = useState<boolean | null>(null);
+  useEffect(() => { setTrademark(null); }, [built]); // re-seed when the file reloads
+  const schema = useMemo<PlatformSchema>(
+    () => (trademark === null ? built : { ...built, enableTrademarkLogos: trademark }),
+    [built, trademark],
   );
 
   const deepLinks = useMemo(() => {
@@ -2207,6 +2273,17 @@ function PlatformDiagram({ content, capabilities, deployedResources, projectId }
     [projectId],
   );
 
+  // Toggle the trademark-logo opt-in and persist (re-serializes with the flag).
+  const onSetTrademark = useCallback((on: boolean) => {
+    setTrademark(on);
+    setStatus("saving");
+    const next: PlatformSchema = { ...schemaRef.current, enableTrademarkLogos: on };
+    const md = serializeArchitecture(next, next.layout);
+    saveProjectFile(projectId, "architecture.md", md)
+      .then(() => setStatus("saved"))
+      .catch(() => setStatus("error"));
+  }, [projectId]);
+
   // Reset "saved" → "idle" after a moment so the chip doesn't linger.
   useEffect(() => {
     if (status !== "saved") return;
@@ -2221,7 +2298,7 @@ function PlatformDiagram({ content, capabilities, deployedResources, projectId }
         <SaveChip status={status} />
       </div>
       <ReactFlowProvider>
-        <Canvas schema={schema} deepLinks={deepLinks} onPersist={onPersist} />
+        <Canvas schema={schema} deepLinks={deepLinks} onPersist={onPersist} onSetTrademark={onSetTrademark} />
       </ReactFlowProvider>
     </div>
   );

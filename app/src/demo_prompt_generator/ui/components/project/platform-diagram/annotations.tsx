@@ -9,6 +9,7 @@ import { memo, useContext, useState, useMemo } from "react";
 import { type NodeProps } from "@xyflow/react";
 import { DATABRICKS_ICONS, BRAND_ICONS, type DatabricksIconName } from "../../databricks-icons";
 import { FILE_ICONS, FileSvgIcon, isFileIconKey } from "../../file-icons";
+import INDUSTRY_MAP from "../../../icons/industry-map.json";
 import { type AnnotationData, type AnnotationVariant } from "@/lib/platform-architecture";
 import { RotatableCard, DropTargetContext, type NodeData } from "./shared";
 
@@ -149,29 +150,35 @@ export const AnnotationNode = memo(function AnnotationNode({ data, selected }: N
 /** A searchable picker over EVERY icon we ship — built-in catalog/brand/vendor
  *  React icons AND the file-based icon library (vendor logos, cloud marks).
  *  Used by the "Logo" annotation + the source/cloud library flows. */
-interface PickItem { key: string; label: string; search: string; tab: string }
+interface PickItem { key: string; label: string; search: string; tabs: string[] }
 
-/** Build the tabbed icon index once: Databricks (built-in) + file-icon groups.
- *  industry/<bucket> becomes its own tab; vendor/cloud are their own tabs. */
+// Which industry buckets each canonical vendor logo belongs to (built from the
+// dedup mapping). Lets one canonical file appear under several industry tabs.
+const INDUSTRY_BY_NAME: Record<string, string[]> = (() => {
+  const out: Record<string, string[]> = {};
+  for (const [bucket, names] of Object.entries(INDUSTRY_MAP as Record<string, string[]>)) {
+    for (const n of names) (out[n] ??= []).push(bucket);
+  }
+  return out;
+})();
+
+/** Build the tabbed icon index once: Databricks (built-in) + cloud + vendor
+ *  logos, the latter also tagged with their industry buckets (from the map). */
 function buildPickIndex(): { items: PickItem[]; tabs: string[] } {
   const items: PickItem[] = [];
   for (const k of Object.keys(DATABRICKS_ICONS) as DatabricksIconName[]) {
-    items.push({ key: k, label: k, search: k.toLowerCase(), tab: "Databricks" });
+    items.push({ key: k, label: k, search: k.toLowerCase(), tabs: ["Databricks"] });
   }
   for (const f of FILE_ICONS) {
-    // Tab = a friendly name from the group/category. industry/<bucket> → bucket.
-    const tab = f.group === "industry"
-      ? (f.category.split("/")[0] || "Industry")
-      : f.group === "cloud"
-        ? "Cloud"
-        : f.group === "vendor"
-          ? "Vendors"
-          : f.group;
-    items.push({ key: f.key, label: f.name, search: `${f.group} ${f.category} ${f.name}`.toLowerCase(), tab });
+    const tabs = f.group === "cloud"
+      ? ["Cloud"]
+      : ["Vendors", ...(INDUSTRY_BY_NAME[f.name] ?? [])]; // vendor → Vendors + its industries
+    items.push({ key: f.key, label: f.name, search: `${f.group} ${f.category} ${f.name}`.toLowerCase(), tabs });
   }
-  // Tab order: Databricks first, Cloud + Vendors next, industry buckets after.
   const order = ["Databricks", "Cloud", "Vendors"];
-  const tabs = ["All", ...Array.from(new Set(items.map((i) => i.tab))).sort((a, b) => {
+  const allTabs = new Set<string>();
+  items.forEach((i) => i.tabs.forEach((t) => allTabs.add(t)));
+  const tabs = ["All", ...Array.from(allTabs).sort((a, b) => {
     const ai = order.indexOf(a), bi = order.indexOf(b);
     if (ai !== -1 || bi !== -1) return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
     return a.localeCompare(b);
@@ -184,7 +191,7 @@ export function IconPicker({ onPick, onClose }: { onPick: (key: string) => void;
   const [tab, setTab] = useState("All");
   const { items, tabs } = useMemo(buildPickIndex, []);
   const ql = q.trim().toLowerCase();
-  const matches = items.filter((i) => (tab === "All" || i.tab === tab) && (!ql || i.search.includes(ql)));
+  const matches = items.filter((i) => (tab === "All" || i.tabs.includes(tab)) && (!ql || i.search.includes(ql)));
   return (
     <div className="fixed inset-0 z-[60] grid place-items-center bg-background/60" onClick={onClose}>
       <div

@@ -102,6 +102,11 @@ export interface PlatformSchema {
   name: string;
   /** One-line framing shown under the title (optional, agent-authored). */
   story?: string;
+  /** When true, third-party SaaS/vendor source logos render as their real
+   *  (trademarked) brand marks. Default false → they render as a neutral
+   *  text badge instead. Cloud (AWS/GCP/Azure) + Databricks marks are always
+   *  shown regardless (they don't need this opt-in). */
+  enableTrademarkLogos?: boolean;
   bands: PlatformBand[];
   /** Canvas layout — node positions + edges. Persisted by the interactive
    *  editor; auto-seeded by band when absent. */
@@ -216,6 +221,8 @@ export interface BandOverride {
 export interface ArchitectureOverride {
   name?: string;
   story?: string;
+  /** Opt-in to render real third-party brand logos (trademark ack). */
+  enableTrademarkLogos?: boolean;
   bands?: BandOverride[];
   /** Saved canvas layout. Written back by the editor on drag/drop. */
   layout?: Partial<PlatformLayout>;
@@ -433,6 +440,7 @@ export function buildSchema({ override, capabilities }: BuildInputs): PlatformSc
   return {
     name: override?.name ?? "Solution architecture",
     story: override?.story,
+    enableTrademarkLogos: override?.enableTrademarkLogos ?? false,
     bands,
     layout,
   };
@@ -598,7 +606,12 @@ function schemaToOverride(schema: PlatformSchema, placed: Set<string>): Architec
     }
     return { id: band.id, ...(add.length ? { add } : {}), ...(set.length ? { set } : {}) };
   });
-  return { name: schema.name, story: schema.story, bands };
+  return {
+    name: schema.name,
+    story: schema.story,
+    ...(schema.enableTrademarkLogos ? { enableTrademarkLogos: true } : {}),
+    bands,
+  };
 }
 
 /** Build the JSON string to persist as architecture.md: the full semantic
