@@ -342,15 +342,14 @@ const CATALOG: Record<BandId, CatalogComponent[]> = {
   // the diagram reads as a complete architecture out of the box; the agent
   // REPLACES these (via the `sources` band `add` + hiding these) with the
   // demo's real systems. Each declares its `ingest` path.
-  // Default sources are OSS + generic only (license-safe to show as real
-  // logos out of the box). Commercial SaaS sources (Salesforce, SAP, Shopify…)
-  // are NOT defaults — add them via "+ more data sources" (they badge until
-  // the trademark toggle is on). The agent replaces these per demo.
+  // Sources are demo-authored. The catalog ships the LuxeBeauty example set so
+  // the diagram reads as a complete architecture out of the box; the agent
+  // REPLACES these per demo. Third-party logos render as a name badge until the
+  // trademark toggle is enabled.
   sources: [
-    { id: "src-kafka", label: "Kafka", icon: "file:vendor/kafka", ingest: "zerobus", desc: "Streaming events ingested in real time via Zerobus." },
-    { id: "src-postgres", label: "PostgreSQL", icon: "file:vendor/postgresql", ingest: "lakeflow-connect", desc: "Operational Postgres database, ingested via Lakeflow Connect." },
-    { id: "src-mysql", label: "MySQL", icon: "file:vendor/mysql", ingest: "lakeflow-connect", desc: "Operational MySQL database, ingested via Lakeflow Connect." },
-    { id: "src-sqlserver", label: "SQL Server", icon: "file:vendor/microsoft-sql-server", ingest: "lakeflow-connect", desc: "Microsoft SQL Server, ingested via Lakeflow Connect." },
+    { id: "src-shopify", label: "Shopify", icon: "file:vendor/shopify", ingest: "lakeflow-connect", desc: "Orders & returns — 400K rows over 24 months, via Lakeflow Connect." },
+    { id: "src-zendesk", label: "Zendesk", icon: "file:vendor/zendesk", ingest: "lakeflow-connect", desc: "Customer-service tickets & return reasons, via Lakeflow Connect." },
+    { id: "src-erp", label: "ERP", icon: "file:vendor/sap", ingest: "lakeflow-connect", desc: "Production lots & QC records, via Lakeflow Connect." },
     { id: "src-sensors", label: "Sensor data", icon: "sensorSource", ingest: "zerobus", desc: "Real-time sensor / IoT telemetry, streamed via Zerobus." },
     { id: "src-pdf", label: "PDF documents", icon: "pdfLogo", ingest: "direct", desc: "Documents (PDFs) — landed as files on a UC Volume." },
   ],
@@ -549,11 +548,11 @@ export function buildLayout(
 function seedEdges(bands: PlatformBand[], hidden: Set<string>): PlatformEdge[] {
   const edges: PlatformEdge[] = [];
   const seen = new Set<string>();
-  const push = (source: string, target: string) => {
+  const push = (source: string, target: string, targetHandle?: string, sourceHandle?: string) => {
     const id = `e-${source}-${target}`;
     if (seen.has(id)) return;
     seen.add(id);
-    edges.push({ id, source, target, animated: true });
+    edges.push({ id, source, target, animated: true, ...(targetHandle ? { targetHandle } : {}), ...(sourceHandle ? { sourceHandle } : {}) });
   };
 
   const band = (id: BandId) => bands.find((b) => b.id === id);
@@ -564,26 +563,35 @@ function seedEdges(bands: PlatformBand[], hidden: Set<string>): PlatformEdge[] {
   const has = (id: string) =>
     bands.some((b) => b.components.some((c) => c.id === id && c.state !== "hidden" && !hidden.has(c.id)));
 
-  // Ingest target: Lakeflow Connect rail if present, else SDP, else first data node.
+  // Prefer the composite Lakeflow block (it has named input ports per ingest
+  // path); fall back to the separate lakeflow-connect / sdp components.
+  const block = has("lakeflow-block") ? "lakeflow-block" : undefined;
   const sdp = has("sdp") ? "sdp" : undefined;
   const lfc = has("lakeflow-connect") ? "lakeflow-connect" : undefined;
   const dataFirst = firstId("agentic-data");
 
-  // Every source → its ingest path.
+  // Each source → the right INPUT PORT of the Lakeflow block by its ingest path:
+  //   lakeflow-connect → in-lakeflow-connect, zerobus → in-zerobus, direct → in-direct.
   for (const src of visible(band("sources"))) {
     const path = src.ingest ?? "lakeflow-connect";
-    if (path === "lakeflow-connect" && lfc) push(src.id, lfc);
-    else if (sdp) push(src.id, sdp); // zerobus / direct (or no LFC) → straight to SDP
-    else if (dataFirst) push(src.id, dataFirst);
+    if (block) {
+      push(src.id, block, `in-${path}`);
+    } else if (path === "lakeflow-connect" && lfc) {
+      push(src.id, lfc);
+    } else if (sdp) {
+      push(src.id, sdp);
+    } else if (dataFirst) {
+      push(src.id, dataFirst);
+    }
   }
-  // Lakeflow Connect → SDP.
-  if (lfc && sdp) push(lfc, sdp);
+  if (lfc && sdp) push(lfc, sdp); // legacy path when no composite block
 
-  // SDP (or data column) → Agentic Work → Agentic Apps.
+  // Data exit → Agentic Work → Agentic Apps. The block emits from its right
+  // output handle ("r").
   const workFirst = firstId("agentic-work");
   const appsFirst = firstId("agentic-apps");
-  const dataExit = sdp ?? dataFirst;
-  if (dataExit && workFirst) push(dataExit, workFirst);
+  const dataExit = block ?? sdp ?? dataFirst;
+  if (dataExit && workFirst) push(dataExit, workFirst, undefined, block ? "r" : undefined);
   if (workFirst && appsFirst) push(workFirst, appsFirst);
 
   return edges;
