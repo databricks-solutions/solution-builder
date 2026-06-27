@@ -70,6 +70,8 @@ import {
 } from "@/lib/platform-architecture";
 import {
   type NodeData,
+  type FlowStyle,
+  type EdgeData,
   RotatableCard,
   DropTargetContext,
   baseSize,
@@ -142,6 +144,7 @@ import {
   BringToFront,
   SendToBack,
   Wand2,
+  Tag,
 } from "lucide-react";
 
 /** A per-node style patch from the right-click menu (applied to 1 or many). */
@@ -292,11 +295,11 @@ const nodeTypes = { component: ComponentNode, composite: LakeflowBlock, genieCod
 // ---------------------------------------------------------------------------
 
 const FlowEdge = memo(function FlowEdge(props: EdgeProps) {
-  const { id, source, target, sourceHandleId, targetHandleId, markerEnd, style, data, selected } = props;
+  const { id, source, target, sourceHandleId, targetHandleId, markerEnd, style, data, selected, label } = props;
   const sNode = useInternalNode(source);
   const tNode = useInternalNode(target);
   const ops = useContext(EdgeOpsContext);
-  const d = data as { animated?: boolean; shape?: "smooth" | "straight" | "step"; flowStyle?: "dot" | "particles" | "docs" | "laser"; centerX?: number } | undefined;
+  const d = data as EdgeData | undefined;
 
   // For fan-out: among all edges sharing this edge's (node, side) anchor, find
   // this edge's index + the group size, so we can spread them along the side.
@@ -549,11 +552,12 @@ const FlowEdge = memo(function FlowEdge(props: EdgeProps) {
   // (dots + red squares), or moving documents.
   // Flow style: an explicit user choice wins; otherwise derived from the SOURCE
   // node's ingest — but ONLY when the source is an actual data source (it has
-  // an `ingest`). Edges OUT of Lakeflow / between internal components aren't
-  // data sources → plain dot. zerobus → particles, direct → docs, else laser.
+  // an `ingest`). zerobus (realtime) → particles; direct (file landing) → docs;
+  // lakeflow-connect (managed connectors) and everything else → plain dot. This
+  // mirrors `seedEdges` exactly (laser is an explicit-choice-only style).
   const srcIngest = (sNode?.data as { component?: { ingest?: string } } | undefined)?.component?.ingest;
-  const autoStyle: "dot" | "particles" | "docs" | "laser" =
-    srcIngest === "zerobus" ? "particles" : srcIngest === "direct" ? "docs" : srcIngest ? "laser" : "dot";
+  const autoStyle: FlowStyle =
+    srcIngest === "zerobus" ? "particles" : srcIngest === "direct" ? "docs" : "dot";
   const flowStyle = d?.flowStyle ?? autoStyle;
   const flowing = d?.animated && !drag && centerDrag === null;
 
@@ -575,6 +579,17 @@ const FlowEdge = memo(function FlowEdge(props: EdgeProps) {
     <>
       <BaseEdge path={path} markerEnd={showArrow ? markerEnd : undefined} style={baseStyle} interactionWidth={24} />
       {flowing && <EdgeFlow key={path} style={flowStyle} path={path} />}
+
+      {/* Optional mid-line label (right-click → Add label). Pill sits on the
+          vertical elbow centre; a backing rect keeps it readable over the line. */}
+      {typeof label === "string" && label && (
+        <g transform={`translate(${elbowX} ${elbowY})`} style={{ pointerEvents: "none" }}>
+          <rect x={-label.length * 3.2 - 5} y={-8} width={label.length * 6.4 + 10} height={16} rx={4}
+            fill="var(--background)" stroke="var(--border)" strokeWidth={1} opacity={0.95} />
+          <text textAnchor="middle" dominantBaseline="central" fontSize={9.5}
+            fill="var(--foreground)" style={{ fontWeight: 500 }}>{label}</text>
+        </g>
+      )}
 
       {/* ↔ handle to drag the vertical elbow left/right (hover or select). */}
       {hasElbow && (selected || centerDrag !== null) && ops?.editMode && (
@@ -605,7 +620,7 @@ const FlowEdge = memo(function FlowEdge(props: EdgeProps) {
  *   docs       — small document glyphs moving along (file ingest).
  *   laser      — a futuristic pulsing red beam with a bright streak racing along
  *                (DB / SaaS connector data). */
-function EdgeFlow({ style, path }: { style: "dot" | "particles" | "docs" | "laser"; path: string }) {
+function EdgeFlow({ style, path }: { style: FlowStyle; path: string }) {
   if (style === "dot") {
     return (
       <circle r="3.5" fill="var(--primary)" style={{ filter: "drop-shadow(0 0 4px var(--primary))" }}>
@@ -701,7 +716,7 @@ const edgeTypes = { flow: FlowEdge };
 
 /** A small live preview of a flow style on a short straight line — used as the
  *  menu choices (a real sample reads better than an icon + name). */
-function FlowStylePreview({ style }: { style: "dot" | "particles" | "docs" | "laser" }) {
+function FlowStylePreview({ style }: { style: FlowStyle }) {
   // Full-width sample line: the svg fills the menu row width (h-auto keeps the
   // glyphs proportional — the menu width ≈ the viewBox width so no distortion).
   const PATH = "M8 11 L156 11";
@@ -1328,6 +1343,7 @@ const ContextMenu = memo(function ContextMenu({
   onToggleDashed,
   onSetShape,
   onSetFlowStyle,
+  onSetEdgeLabel,
   onRemoveEdge,
   onAnno,
   onPickLogo,
@@ -1350,7 +1366,9 @@ const ContextMenu = memo(function ContextMenu({
   onToggleFlow: () => void;
   onToggleDashed: () => void;
   onSetShape: (s: "smooth" | "straight" | "step") => void;
-  onSetFlowStyle: (s: "dot" | "particles" | "docs" | "laser" | undefined) => void;
+  onSetFlowStyle: (s: FlowStyle | undefined) => void;
+  /** Set (or clear, with "") the edge's mid-line label. */
+  onSetEdgeLabel: (label: string) => void;
   onRemoveEdge: () => void;
   onAnno: (patch: Partial<AnnotationData>) => void;
   onPickLogo: () => void;
@@ -1362,7 +1380,7 @@ const ContextMenu = memo(function ContextMenu({
   onStyle: (patch: { opacity?: number; fillColor?: string; fontColor?: string }) => void;
   onZ: (dir: "front" | "back") => void;
 }) {
-  const ed = edge?.data as { animated?: boolean; dashed?: boolean; shape?: string; flowStyle?: "dot" | "particles" | "docs" | "laser" } | undefined;
+  const ed = edge?.data as EdgeData | undefined;
   const Item = ({ icon, label, onClick, active }: { icon: React.ReactNode; label: string; onClick: () => void; active?: boolean }) => (
     <button
       type="button"
@@ -1460,6 +1478,16 @@ const ContextMenu = memo(function ContextMenu({
             <Item icon={<Spline className="h-3.5 w-3.5" />} label="Smooth" onClick={() => onSetShape("smooth")} active={(ed?.shape ?? "smooth") === "smooth"} />
             <Item icon={<MoveRight className="h-3.5 w-3.5" />} label="Straight" onClick={() => onSetShape("straight")} active={ed?.shape === "straight"} />
             <Item icon={<CornerDownRight className="h-3.5 w-3.5" />} label="Step" onClick={() => onSetShape("step")} active={ed?.shape === "step"} />
+            <div className="my-1 border-t border-border/60" />
+            <Item
+              icon={<Tag className="h-3.5 w-3.5" />}
+              label={typeof edge?.label === "string" && edge.label ? "Edit label…" : "Add label…"}
+              onClick={() => {
+                const next = window.prompt("Line label (leave empty to remove):", typeof edge?.label === "string" ? edge.label : "");
+                if (next !== null) onSetEdgeLabel(next.trim());
+              }}
+              active={typeof edge?.label === "string" && !!edge.label}
+            />
             <div className="my-1 border-t border-border/60" />
             <Item icon={<Trash2 className="h-3.5 w-3.5" />} label="Delete line" onClick={onRemoveEdge} />
           </>
@@ -1652,10 +1680,13 @@ function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasProps) {
       nds.forEach((n) => {
         const dd = n.data as NodeData;
         const rot = dd.rot ?? 0;
-        // Persist label/icon only when they DIFFER from the catalog base — i.e.
-        // the user renamed the node or changed its type on the canvas.
+        // Persist label/icon only when they DIFFER from the default — i.e. the
+        // user renamed the node or changed its type on the canvas. For catalog
+        // nodes the default is the catalog component; for canvas-added sources
+        // (`dd.sourceKey`, not in the catalog) it's the logo's catalog label.
         const base = catalog.get(baseId(n.id))?.component;
-        const labelOv = base && dd.component.label !== base.label ? dd.component.label : undefined;
+        const defLabel = base ? base.label : dd.sourceKey ? logoLabel(dd.sourceKey) : undefined;
+        const labelOv = defLabel !== undefined && dd.component.label !== defLabel ? dd.component.label : undefined;
         const iconOv = base && dd.component.icon !== base.icon ? dd.component.icon : undefined;
         // Annotation nodes carry their full props (text/icon/src/alignment).
         const anno = (dd as Partial<AnnotationNodeData>).annotation;
@@ -1684,7 +1715,7 @@ function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasProps) {
       const placed = new Set(nds.map((n) => baseId(n.id)));
       const hidden = [...componentLookup(schema).keys()].filter((id) => !placed.has(id));
       const layoutEdges: PlatformEdge[] = eds.map((e) => {
-        const ed = e.data as { animated?: boolean; dashed?: boolean; shape?: "smooth" | "straight" | "step"; flowStyle?: "dot" | "particles" | "docs" | "laser"; centerX?: number } | undefined;
+        const ed = e.data as EdgeData | undefined;
         return {
           id: e.id,
           source: e.source,
@@ -1920,7 +1951,13 @@ function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasProps) {
       if (!n || kind !== "lakeflow") return [];
       const r = nodeRect(nid);
       if (!r) return [];
-      return LF_PORTS.map((p) => ({ handle: `in-${p.port}`, x: r.x, y: r.y + r.h * p.frac }));
+      return [
+        // Left-edge input ports …
+        ...LF_PORTS.map((p) => ({ handle: `in-${p.port}`, x: r.x, y: r.y + r.h * p.frac })),
+        // … plus the bottom-left anchor (under the files), so a reconnect drag
+        // can snap to it (matches `portAnchor`'s {side:"b", frac:0.08}).
+        { handle: "bl", x: r.x + r.w * 0.08, y: r.y + r.h },
+      ];
     },
     [nodes, nodeRect],
   );
@@ -2258,8 +2295,16 @@ function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasProps) {
   // Set an explicit flow style (overrides the source-derived default), or pass
   // undefined to clear back to "Auto". FlowEdge handles the visible styling.
   const setEdgeFlowStyle = useCallback(
-    (id: string, flowStyle: "dot" | "particles" | "docs" | "laser" | undefined) =>
+    (id: string, flowStyle: FlowStyle | undefined) =>
       mutateEdge(id, (e) => ({ ...e, data: { ...e.data, flowStyle, animated: true } })),
+    [mutateEdge],
+  );
+
+  // Set (or clear, with "") the edge's mid-line label. Stored on `e.label`
+  // (ReactFlow's native field); scheduleSave persists it.
+  const setEdgeLabel = useCallback(
+    (id: string, label: string) =>
+      mutateEdge(id, (e) => ({ ...e, label: label || undefined })),
     [mutateEdge],
   );
 
@@ -2473,6 +2518,7 @@ function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasProps) {
             onToggleDashed={() => toggleEdgeDashed(menu.id)}
             onSetShape={(s) => setEdgeShape(menu.id, s)}
             onSetFlowStyle={(s) => setEdgeFlowStyle(menu.id, s)}
+            onSetEdgeLabel={(label) => { setEdgeLabel(menu.id, label); setMenu(null); }}
             onRemoveEdge={() => { removeEdge(menu.id); setMenu(null); }}
             onAnno={(patch) => onAnnotate(menu.id, patch)}
             onPickLogo={() => { setLogoPickerFor(menu.id); setMenu(null); }}

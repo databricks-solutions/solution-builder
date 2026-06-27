@@ -83,6 +83,13 @@ export interface PlatformComponent {
 
 export type IngestPath = "lakeflow-connect" | "zerobus" | "direct";
 
+/** The animated-flow rendering style of an edge. `dot` = a single travelling
+ *  dot; `particles` = a dense river of cubes/circles/triangles (realtime);
+ *  `docs` = travelling document glyphs (file landing); `laser` = a comet with a
+ *  fading tail (explicit-choice only — never auto-derived). Canonical home for
+ *  the union; the UI layer re-uses it so schema + renderer + menu never drift. */
+export type FlowStyle = "dot" | "particles" | "docs" | "laser";
+
 /** Composite block kinds (super-set components that draw an inner mini-diagram
  *  and expose multiple named ports). Extend this as we add more blocks. */
 export type CompositeKind = "lakeflow" | "genie-code";
@@ -191,9 +198,9 @@ export interface PlatformEdge {
   /** Routing shape. */
   shape?: "smooth" | "straight" | "step";
   /** Flowing-data animation style. Unset → auto-derived from the source's
-   *  ingest (zerobus → particles, direct → docs, else laser). An explicit
-   *  value overrides that default. */
-  flowStyle?: "dot" | "particles" | "docs" | "laser";
+   *  ingest (zerobus → particles, direct → docs, else dot). An explicit value
+   *  overrides that default (this is the only way to get `laser`). */
+  flowStyle?: FlowStyle;
   /** Manual X of the vertical elbow segment (smooth/step edges). Unset → the
    *  auto-staggered position. Set by dragging the ↔ handle on the segment. */
   centerX?: number;
@@ -636,6 +643,8 @@ function schemaToOverride(schema: PlatformSchema, placed: Set<string>): Architec
         icon: c.icon,
         desc: c.desc,
         state,
+        ...(c.sublabel ? { sublabel: c.sublabel } : {}),
+        ...(c.badge ? { badge: c.badge } : {}),
         ...(c.capability ? { capability: c.capability } : {}),
         ...(c.ingest ? { ingest: c.ingest } : {}),
         ...(c.kind ? { kind: c.kind } : {}),

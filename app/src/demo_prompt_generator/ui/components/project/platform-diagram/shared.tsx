@@ -6,7 +6,9 @@
  */
 import { createContext } from "react";
 import { Handle, Position, NodeResizer, NodeResizeControl } from "@xyflow/react";
-import { type PlatformComponent, type BandId } from "@/lib/platform-architecture";
+import { type PlatformComponent, type BandId, type FlowStyle } from "@/lib/platform-architecture";
+
+export type { FlowStyle };
 
 // ---------------------------------------------------------------------------
 // Node data + props
@@ -53,6 +55,18 @@ export interface NodeData {
    *  persisted so the source round-trips without a catalog entry. */
   sourceKey?: string;
   [key: string]: unknown;
+}
+
+/** The runtime ReactFlow `edge.data` shape (mirrors the persisted
+ *  `PlatformEdge` style fields). Declared once so the edge renderer, the
+ *  context menu, and the save serializer all agree on the field types. */
+export interface EdgeData {
+  animated?: boolean;
+  dashed?: boolean;
+  shape?: "smooth" | "straight" | "step";
+  flowStyle?: FlowStyle;
+  /** Manual X of the vertical elbow segment (px, flow coords); undefined → auto. */
+  centerX?: number;
 }
 
 /** Node id currently under a dragged endpoint (magnet highlight). */
