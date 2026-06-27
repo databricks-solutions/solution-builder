@@ -141,9 +141,6 @@ import {
   Search,
   BringToFront,
   SendToBack,
-  Circle,
-  Sparkles,
-  FileText,
   Wand2,
 } from "lucide-react";
 
@@ -549,12 +546,13 @@ const FlowEdge = memo(function FlowEdge(props: EdgeProps) {
 
   // The flowing-data animation: a single dot (default), streaming particles
   // (dots + red squares), or moving documents.
-  // Flow style: an explicit user choice wins; otherwise it's derived from the
-  // SOURCE node's ingest dynamically — zerobus → particles, direct → docs,
-  // everything else (DB/SaaS connectors) → laser.
+  // Flow style: an explicit user choice wins; otherwise derived from the SOURCE
+  // node's ingest — but ONLY when the source is an actual data source (it has
+  // an `ingest`). Edges OUT of Lakeflow / between internal components aren't
+  // data sources → plain dot. zerobus → particles, direct → docs, else laser.
   const srcIngest = (sNode?.data as { component?: { ingest?: string } } | undefined)?.component?.ingest;
-  const autoStyle: "particles" | "docs" | "laser" =
-    srcIngest === "zerobus" ? "particles" : srcIngest === "direct" ? "docs" : "laser";
+  const autoStyle: "dot" | "particles" | "docs" | "laser" =
+    srcIngest === "zerobus" ? "particles" : srcIngest === "direct" ? "docs" : srcIngest ? "laser" : "dot";
   const flowStyle = d?.flowStyle ?? autoStyle;
   const flowing = d?.animated && !drag && centerDrag === null;
 
@@ -615,22 +613,28 @@ function EdgeFlow({ style, path }: { style: "dot" | "particles" | "docs" | "lase
     );
   }
   if (style === "laser") {
-    // A clean energy beam: a steady soft red glow wire (no pulsing), with
-    // bright tapered "current" streaks gliding smoothly along it at a constant
-    // rate — like light travelling a fibre. No discrete dots, no breathing.
+    // A comet of data: a faint steady wire with a bright head + fading tail
+    // gliding along it. The tail is built from stacked dashes of decreasing
+    // width/opacity that lag the head slightly, so it reads as a glowing pulse
+    // with a trail — no discrete dots, no pulsing of the whole beam.
     const RED = "#EF5B3F";
+    const DUR = "2.6s";
+    const PERIOD = 240;          // dash period (head + long empty gap)
+    // Trail segments: [length, width, opacity, extra lag]. Front = bright head.
+    const TRAIL: [number, number, number, number][] = [
+      [10, 2.6, 1.0, 0],     // head — short, bright, thick
+      [16, 2.0, 0.55, 8],    // mid tail
+      [26, 1.4, 0.28, 18],   // far tail — long, dim, thin
+    ];
     return (
       <>
-        {/* steady soft glow underlay */}
-        <path d={path} fill="none" stroke={RED} strokeWidth={3.5} strokeLinecap="round" opacity={0.22} style={{ filter: `blur(1.5px)` }} />
-        {/* steady thin core */}
-        <path d={path} fill="none" stroke={RED} strokeWidth={1.4} strokeLinecap="round" opacity={0.5} />
-        {/* two bright streaks sweeping along (offset so the current feels
-            continuous). A long gap keeps one visible streak per pass. */}
-        {[0, 1].map((k) => (
-          <path key={k} d={path} fill="none" stroke="#FFD9CE" strokeWidth={2} strokeLinecap="round"
-            strokeDasharray="22 200" opacity={0.95} style={{ filter: `drop-shadow(0 0 3px ${RED})` }}>
-            <animate attributeName="stroke-dashoffset" values="222;0" dur="1.8s" begin={`${-k * 0.9}s`} repeatCount="indefinite" />
+        {/* steady faint wire the comet rides on */}
+        <path d={path} fill="none" stroke={RED} strokeWidth={1.2} strokeLinecap="round" opacity={0.22} />
+        {TRAIL.map(([len, w, op, lag], i) => (
+          <path key={i} d={path} fill="none" stroke={i === 0 ? "#FFE3DA" : RED} strokeWidth={w} strokeLinecap="round"
+            strokeDasharray={`${len} ${PERIOD - len}`} opacity={op}
+            style={i === 0 ? { filter: `drop-shadow(0 0 3px ${RED})` } : undefined}>
+            <animate attributeName="stroke-dashoffset" values={`${PERIOD + lag};${lag}`} dur={DUR} repeatCount="indefinite" />
           </path>
         ))}
       </>
@@ -674,8 +678,9 @@ function EdgeFlow({ style, path }: { style: "dot" | "particles" | "docs" | "lase
       </>
     );
   }
-  // docs — small document glyphs moving along the path.
-  const N = 3;
+  // docs — a couple of document glyphs moving along the path (sparse).
+  const N = 2;
+  const DUR = 3.6;
   return (
     <>
       {Array.from({ length: N }).map((_, i) => (
@@ -684,7 +689,7 @@ function EdgeFlow({ style, path }: { style: "dot" | "particles" | "docs" | "lase
             <rect x={0} y={0} width={6} height={8} rx={1} fill="var(--background)" stroke="#EF5B3F" strokeWidth={1} />
             <path d="M1.5 2.5h3M1.5 4h3M1.5 5.5h2" stroke="#EF5B3F" strokeWidth={0.6} strokeLinecap="round" />
           </g>
-          <animateMotion dur="3s" begin={`${(i * 3) / N}s`} repeatCount="indefinite" path={path} />
+          <animateMotion dur={`${DUR}s`} begin={`${-(i * DUR) / N}s`} repeatCount="indefinite" path={path} />
         </g>
       ))}
     </>
@@ -692,6 +697,21 @@ function EdgeFlow({ style, path }: { style: "dot" | "particles" | "docs" | "lase
 }
 
 const edgeTypes = { flow: FlowEdge };
+
+/** A small live preview of a flow style on a short straight line — used as the
+ *  menu choices (a real sample reads better than an icon + name). */
+function FlowStylePreview({ style }: { style: "dot" | "particles" | "docs" | "laser" }) {
+  // Full-width sample line: the svg fills the menu row width (h-auto keeps the
+  // glyphs proportional — the menu width ≈ the viewBox width so no distortion).
+  const PATH = "M8 11 L156 11";
+  return (
+    <svg viewBox="0 0 164 22" width="100%" height={22} className="block overflow-visible">
+      {/* faint base line (laser/particles draw their own; this is just a guide) */}
+      <path d={PATH} fill="none" stroke="var(--muted-foreground)" strokeWidth={1} opacity={style === "dot" ? 0.5 : 0.18} />
+      <EdgeFlow style={style} path={PATH} />
+    </svg>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Detail panel
@@ -1364,7 +1384,7 @@ const ContextMenu = memo(function ContextMenu({
       {/* click-away catcher */}
       <div className="fixed inset-0 z-40" onClick={onClose} onContextMenu={(e) => { e.preventDefault(); onClose(); }} />
       <div
-        className="fixed z-50 w-44 rounded-lg border border-border bg-card p-1 shadow-lg"
+        className="fixed z-50 w-52 rounded-lg border border-border bg-card p-1 shadow-lg"
         style={{ left: menu.x, top: menu.y }}
       >
         {menu.kind === "node" && selectionCount > 1 ? (
@@ -1423,10 +1443,18 @@ const ContextMenu = memo(function ContextMenu({
             <div className="my-1 border-t border-border/60" />
             <div className="px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Flow style</div>
             <Item icon={<Wand2 className="h-3.5 w-3.5" />} label="Auto (by source)" onClick={() => onSetFlowStyle(undefined)} active={ed?.flowStyle == null} />
-            <Item icon={<Circle className="h-3 w-3" />} label="Dot" onClick={() => onSetFlowStyle("dot")} active={ed?.flowStyle === "dot"} />
-            <Item icon={<Zap className="h-3.5 w-3.5" />} label="Plasma laser" onClick={() => onSetFlowStyle("laser")} active={ed?.flowStyle === "laser"} />
-            <Item icon={<Sparkles className="h-3.5 w-3.5" />} label="Particles (data)" onClick={() => onSetFlowStyle("particles")} active={ed?.flowStyle === "particles"} />
-            <Item icon={<FileText className="h-3.5 w-3.5" />} label="Documents" onClick={() => onSetFlowStyle("docs")} active={ed?.flowStyle === "docs"} />
+            {(["laser", "particles", "docs", "dot"] as const).map((fs) => (
+              <button
+                key={fs}
+                type="button"
+                onClick={() => onSetFlowStyle(fs)}
+                title={fs}
+                className={`flex w-full items-center gap-1 rounded px-2 py-1 hover:bg-muted ${ed?.flowStyle === fs ? "bg-muted" : ""}`}
+              >
+                <span className="min-w-0 flex-1"><FlowStylePreview style={fs} /></span>
+                {ed?.flowStyle === fs && <Check className="h-3.5 w-3.5 shrink-0 text-primary" />}
+              </button>
+            ))}
             <div className="my-1 border-t border-border/60" />
             <Item icon={<Spline className="h-3.5 w-3.5" />} label="Smooth" onClick={() => onSetShape("smooth")} active={(ed?.shape ?? "smooth") === "smooth"} />
             <Item icon={<MoveRight className="h-3.5 w-3.5" />} label="Straight" onClick={() => onSetShape("straight")} active={ed?.shape === "straight"} />

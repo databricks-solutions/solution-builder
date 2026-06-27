@@ -5,7 +5,7 @@
  * and the drop-target context.
  */
 import { createContext } from "react";
-import { Handle, Position, NodeResizer } from "@xyflow/react";
+import { Handle, Position, NodeResizer, NodeResizeControl } from "@xyflow/react";
 import { type PlatformComponent, type BandId } from "@/lib/platform-architecture";
 
 // ---------------------------------------------------------------------------
@@ -91,6 +91,44 @@ export function nodeFootprint(
   return q === 90 || q === 270 ? { w: h, h: w } : { w, h };
 }
 
+/** A directional resize grip on one side of a node — a ↔ (left/right) or ↕
+ *  (top/bottom) pill, matching the edge elbow handle. Wraps NodeResizeControl
+ *  so the drag mechanics + min sizes come from ReactFlow. */
+function SideResizeGrip({
+  position,
+  minW,
+  minH,
+  onResize,
+}: {
+  position: "top" | "right" | "bottom" | "left";
+  minW: number;
+  minH: number;
+  onResize: (w: number, h: number) => void;
+}) {
+  const horizontal = position === "left" || position === "right";
+  return (
+    <NodeResizeControl
+      position={position}
+      minWidth={minW}
+      minHeight={minH}
+      onResize={(_, p) => onResize(p.width, p.height)}
+      onResizeEnd={(_, p) => { const snap = (v: number) => Math.round(v / 16) * 16; onResize(snap(p.width), snap(p.height)); }}
+      // Hide the library's default square; our grip below is the visual.
+      style={{ background: "transparent", border: "none" }}
+    >
+      <span
+        className="grid place-items-center rounded-[3px] border border-primary bg-background shadow-sm"
+        style={{ width: horizontal ? 18 : 12, height: horizontal ? 12 : 18, cursor: horizontal ? "ew-resize" : "ns-resize" }}
+      >
+        {/* square viewBox + square box so the 90° rotation stays centered */}
+        <svg viewBox="-8 -8 16 16" className={`h-3.5 w-3.5 ${horizontal ? "" : "rotate-90"}`}>
+          <path d="M-4 0 L-1.5 -2.2 M-4 0 L-1.5 2.2 M4 0 L1.5 -2.2 M4 0 L1.5 2.2 M-4 0 H4" stroke="var(--primary)" strokeWidth={1.4} fill="none" strokeLinecap="round" />
+        </svg>
+      </span>
+    </NodeResizeControl>
+  );
+}
+
 /** Shell that gives a node TRUE rotation + resize:
  *   - outer box = the on-canvas footprint (W/H swapped for 90/270) so handles,
  *     snap, and the resizer use the real rotated bounds;
@@ -167,6 +205,16 @@ export function RotatableCard({
         lineClassName="!border-primary/50"
         handleClassName="!bg-primary !border-2 !border-background !w-3.5 !h-3.5 !rounded-sm !shadow-md"
       />
+      {/* Directional ↔ / ↕ resize grips on each side — easier to grab than the
+          corner squares for one-axis resizing. */}
+      {editMode && selected && (
+        <>
+          <SideResizeGrip position="left" minW={minW} minH={minH} onResize={onResize} />
+          <SideResizeGrip position="right" minW={minW} minH={minH} onResize={onResize} />
+          <SideResizeGrip position="top" minW={minW} minH={minH} onResize={onResize} />
+          <SideResizeGrip position="bottom" minW={minW} minH={minH} onResize={onResize} />
+        </>
+      )}
       {!hideHandles && <NodeHandles show={editMode && !selected} forceDots={forceDots} />}
       {/* Card sized to EXACTLY the (un-rotated) card box and rotated about the
           shell center — fills the footprint so its border == the box edges.
