@@ -209,36 +209,42 @@ export function InputDataIcon(props: IconProps) {
 }
 
 // Knowledge Assistant icon
-// Knowledge Assistant — the Databricks "agent" glyph (person + spark) with a
-// small PDF/document badge (what it reads / grounds answers on).
+// Knowledge Assistant — the Databricks "agent" glyph. The base fills the frame,
+// so the agent is scaled into the LEFT ~70% and a document sits in the cleared
+// right column (KA reads documents to ground its answers).
 export function KnowledgeAssistantIcon(props: IconProps) {
   return (
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" {...props}>
-      {/* agent base (exact) */}
-      <path fill="currentColor" d="M8 1c.664 0 1.282.2 1.797.542l-.014.072-.062.357-.357.062c-.402.07-.765.245-1.06.493a1.75 1.75 0 1 0 0 3.447c.295.25.658.424 1.06.494l.357.062.062.357.014.072A3.25 3.25 0 1 1 8 1" />
-      <path fill="currentColor" d="M9.59 4.983A.75.75 0 0 1 9.62 3.51l.877-.152a.75.75 0 0 0 .61-.61l.153-.878a.75.75 0 0 1 1.478 0l.152.877a.75.75 0 0 0 .61.61l.878.153a.75.75 0 0 1 0 1.478l-.877.152a.75.75 0 0 0-.61.61l-.153.878a.75.75 0 0 1-1.478 0l-.152-.877a.75.75 0 0 0-.61-.61l-.878-.153z" />
-      <path fill="currentColor" fillRule="evenodd" d="M1.164 12.287A8.74 8.74 0 0 1 8 9a8.74 8.74 0 0 1 6.836 3.287.75.75 0 0 1 .164.469v1.494a.75.75 0 0 1-.75.75H1.75a.75.75 0 0 1-.75-.75v-1.494a.75.75 0 0 1 .164-.469m1.336.74v.473h11v-.474A7.23 7.23 0 0 0 8 10.5c-2.2 0-4.17.978-5.5 2.526" clipRule="evenodd" />
-      {/* small PDF/document badge, bottom-right */}
-      <rect x="10.4" y="9.2" width="4.6" height="5.6" rx="0.7" fill="currentColor" />
-      <path d="M11.5 11h2.4M11.5 12.4h2.4M11.5 13.8h1.4" stroke="var(--background, #fff)" strokeWidth="0.7" strokeLinecap="round" />
+      {/* agent base (exact paths), scaled+shifted left to free the right column */}
+      <g transform="translate(-0.75 1.5) scale(0.65)">
+        <path fill="currentColor" d="M8 1c.664 0 1.282.2 1.797.542l-.014.072-.062.357-.357.062c-.402.07-.765.245-1.06.493a1.75 1.75 0 1 0 0 3.447c.295.25.658.424 1.06.494l.357.062.062.357.014.072A3.25 3.25 0 1 1 8 1" />
+        <path fill="currentColor" d="M9.59 4.983A.75.75 0 0 1 9.62 3.51l.877-.152a.75.75 0 0 0 .61-.61l.153-.878a.75.75 0 0 1 1.478 0l.152.877a.75.75 0 0 0 .61.61l.878.153a.75.75 0 0 1 0 1.478l-.877.152a.75.75 0 0 0-.61.61l-.153.878a.75.75 0 0 1-1.478 0l-.152-.877a.75.75 0 0 0-.61-.61l-.878-.153z" />
+        <path fill="currentColor" fillRule="evenodd" d="M1.164 12.287A8.74 8.74 0 0 1 8 9a8.74 8.74 0 0 1 6.836 3.287.75.75 0 0 1 .164.469v1.494a.75.75 0 0 1-.75.75H1.75a.75.75 0 0 1-.75-.75v-1.494a.75.75 0 0 1 .164-.469m1.336.74v.473h11v-.474A7.23 7.23 0 0 0 8 10.5c-2.2 0-4.17.978-5.5 2.526" clipRule="evenodd" />
+      </g>
+      {/* document at the right — outlined page with a folded corner + text lines */}
+      <path d="M10.4 6.2h2.9l1.7 1.7v5.4a.7.7 0 0 1-.7.7h-3.9a.7.7 0 0 1-.7-.7V6.9a.7.7 0 0 1 .7-.7Z" stroke="currentColor" strokeWidth="1.1" fill="none" strokeLinejoin="round" />
+      <path d="M13.2 6.3v1.7h1.7" stroke="currentColor" strokeWidth="1.1" fill="none" strokeLinejoin="round" />
+      <path d="M10.9 10h3M10.9 11.5h3M10.9 13h1.9" stroke="currentColor" strokeWidth="0.9" strokeLinecap="round" />
     </svg>
   );
 }
 
-// Multi-Agent Supervisor — the "agent" glyph (person + spark) with small
-// connection dots around the head (it orchestrates multiple agents).
+// Multi-Agent Supervisor — the "agent" glyph (kept full-size) with small
+// connection dots in the empty corners BESIDE the head, linked to it: the
+// supervisor orchestrating satellite agents.
 export function MultiAgentSupervisorIcon(props: IconProps) {
   return (
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" {...props}>
+      {/* links from the head to the satellite dots (drawn first, behind dots) */}
+      <path d="M5 3 2.7 2.2M11 3l2.3-.8M4.6 5.4 2.2 6" stroke="currentColor" strokeWidth="0.9" strokeLinecap="round" opacity="0.55" />
+      {/* satellite agent dots, in the clear corners beside the head */}
+      <circle cx="2.3" cy="2" r="1.05" fill="currentColor" />
+      <circle cx="13.7" cy="2" r="1.05" fill="currentColor" />
+      <circle cx="1.9" cy="6.1" r="1.05" fill="currentColor" />
       {/* agent base (exact) */}
       <path fill="currentColor" d="M8 1c.664 0 1.282.2 1.797.542l-.014.072-.062.357-.357.062c-.402.07-.765.245-1.06.493a1.75 1.75 0 1 0 0 3.447c.295.25.658.424 1.06.494l.357.062.062.357.014.072A3.25 3.25 0 1 1 8 1" />
       <path fill="currentColor" d="M9.59 4.983A.75.75 0 0 1 9.62 3.51l.877-.152a.75.75 0 0 0 .61-.61l.153-.878a.75.75 0 0 1 1.478 0l.152.877a.75.75 0 0 0 .61.61l.878.153a.75.75 0 0 1 0 1.478l-.877.152a.75.75 0 0 0-.61.61l-.153.878a.75.75 0 0 1-1.478 0l-.152-.877a.75.75 0 0 0-.61-.61l-.878-.153z" />
       <path fill="currentColor" fillRule="evenodd" d="M1.164 12.287A8.74 8.74 0 0 1 8 9a8.74 8.74 0 0 1 6.836 3.287.75.75 0 0 1 .164.469v1.494a.75.75 0 0 1-.75.75H1.75a.75.75 0 0 1-.75-.75v-1.494a.75.75 0 0 1 .164-.469m1.336.74v.473h11v-.474A7.23 7.23 0 0 0 8 10.5c-2.2 0-4.17.978-5.5 2.526" clipRule="evenodd" />
-      {/* small connection dots around the head (orchestrated agents) */}
-      <circle cx="2.4" cy="3" r="1" fill="currentColor" />
-      <circle cx="13.6" cy="6.4" r="1" fill="currentColor" />
-      <circle cx="3.2" cy="7.2" r="1" fill="currentColor" />
-      <path d="M3.3 3.5 5.4 5M12.7 6.2 10 5.4M4.1 6.9 5.4 6" stroke="currentColor" strokeWidth="0.7" strokeLinecap="round" opacity="0.7" />
     </svg>
   );
 }
