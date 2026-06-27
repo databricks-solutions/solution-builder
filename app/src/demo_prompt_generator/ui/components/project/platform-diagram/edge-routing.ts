@@ -77,6 +77,8 @@ export interface EdgeOps {
   /** Named input ports of a composite node, as absolute flow-coord anchors +
    *  their handle id. Empty for plain tiles. */
   portsOf: (nodeId: string) => { handle: string; x: number; y: number }[];
+  /** Set (or clear, with undefined) the manual X of an edge's vertical elbow. */
+  setEdgeCenterX: (edgeId: string, centerX: number | undefined) => void;
 }
 export const EdgeOpsContext = createContext<EdgeOps | null>(null);
 

@@ -141,6 +141,9 @@ import {
   Search,
   BringToFront,
   SendToBack,
+  Circle,
+  Sparkles,
+  FileText,
 } from "lucide-react";
 
 /** A per-node style patch from the right-click menu (applied to 1 or many). */
@@ -294,7 +297,7 @@ const FlowEdge = memo(function FlowEdge(props: EdgeProps) {
   const sNode = useInternalNode(source);
   const tNode = useInternalNode(target);
   const ops = useContext(EdgeOpsContext);
-  const d = data as { animated?: boolean; shape?: "smooth" | "straight" | "step" } | undefined;
+  const d = data as { animated?: boolean; shape?: "smooth" | "straight" | "step"; flowStyle?: "dot" | "particles" | "docs"; centerX?: number } | undefined;
 
   // For fan-out: among all edges sharing this edge's (node, side) anchor, find
   // this edge's index + the group size, so we can spread them along the side.
@@ -416,6 +419,8 @@ const FlowEdge = memo(function FlowEdge(props: EdgeProps) {
 
   // Live endpoint drag (reconnect). Hook runs unconditionally before guards.
   const [drag, setDrag] = useState<{ end: "source" | "target"; x: number; y: number; side?: Side; handle?: string } | null>(null);
+  // Live drag of the vertical-elbow handle (manual centerX). Hooks before guard.
+  const [centerDrag, setCenterDrag] = useState<number | null>(null);
 
   if (!sNode || !tNode || !fan) return null;
 
@@ -444,10 +449,12 @@ const FlowEdge = memo(function FlowEdge(props: EdgeProps) {
   const tPos = drag?.end === "target" ? POS_OF[drag.side ?? "l"] : targetPos;
 
   const shape = d?.shape ?? "smooth";
-  // Staggered vertical mid-segment so edges converging on one anchor don't
-  // overlap (see fan.centerX). Skip it while dragging an endpoint (the path
-  // should track the cursor with the default midpoint).
-  const centerX = drag ? undefined : fan.centerX;
+  // Vertical-elbow X: while dragging the center handle use that; else a manual
+  // saved centerX (d.centerX) wins; else the auto-stagger (fan.centerX). Skip
+  // entirely while dragging an endpoint (path tracks the cursor).
+  const centerX = drag
+    ? undefined
+    : centerDrag ?? d?.centerX ?? fan.centerX;
   const args = {
     sourceX: sPt.x, sourceY: sPt.y, targetX: tPt.x, targetY: tPt.y,
     sourcePosition: sPos, targetPosition: tPos,
@@ -515,14 +522,50 @@ const FlowEdge = memo(function FlowEdge(props: EdgeProps) {
     style: { cursor: "grab", pointerEvents: "all" as const },
     onPointerMove: move, onPointerUp: end,
   };
+
+  // The vertical elbow handle (↔): sits at the segment's X, vertically between
+  // the two endpoints. Only meaningful for smooth/step edges with a real
+  // vertical run (source/target on left/right sides).
+  const hasElbow = shape !== "straight" && (fan.sSide === "l" || fan.sSide === "r") && (fan.tSide === "l" || fan.tSide === "r");
+  const elbowX = centerDrag ?? d?.centerX ?? fan.centerX ?? (sp.x + tp.x) / 2;
+  const elbowY = (sp.y + tp.y) / 2;
+  const startCenterDrag = (e: React.PointerEvent) => {
+    e.stopPropagation();
+    (e.target as Element).setPointerCapture(e.pointerId);
+    setCenterDrag(ops!.toFlow(e.clientX, e.clientY).x);
+  };
+  const moveCenter = (e: React.PointerEvent) => {
+    if (centerDrag === null || !(e.buttons & 1)) return;
+    e.stopPropagation();
+    setCenterDrag(ops!.toFlow(e.clientX, e.clientY).x);
+  };
+  const endCenter = (e: React.PointerEvent) => {
+    if (centerDrag === null) return;
+    e.stopPropagation();
+    ops!.setEdgeCenterX(id, Math.round(centerDrag));
+    setCenterDrag(null);
+  };
+
+  // The flowing-data animation: a single dot (default), streaming particles
+  // (dots + red squares), or moving documents.
+  const flowStyle = d?.flowStyle ?? "dot";
+  const flowing = d?.animated && !drag && centerDrag === null;
+
   return (
     <>
       <BaseEdge path={path} markerEnd={markerEnd} style={style} interactionWidth={24} />
-      {d?.animated && !drag && (
-        <circle r="3.5" fill="var(--primary)" style={{ filter: "drop-shadow(0 0 4px var(--primary))" }}>
-          <animateMotion dur="2s" repeatCount="indefinite" path={path} />
-        </circle>
+      {flowing && <EdgeFlow key={path} style={flowStyle} path={path} />}
+
+      {/* ↔ handle to drag the vertical elbow left/right (hover or select). */}
+      {hasElbow && (selected || centerDrag !== null) && ops?.editMode && (
+        <g transform={`translate(${centerDrag ?? elbowX} ${elbowY})`} style={{ cursor: "ew-resize", pointerEvents: "all" }}
+           onPointerDown={startCenterDrag} onPointerMove={moveCenter} onPointerUp={endCenter}
+           onDoubleClick={(e) => { e.stopPropagation(); ops!.setEdgeCenterX(id, undefined); }}>
+          <rect x={-8} y={-6} width={16} height={12} rx={3} fill="var(--background)" stroke="var(--primary)" strokeWidth={1.5} />
+          <path d="M-4 0 L-1.5 -2.2 M-4 0 L-1.5 2.2 M4 0 L1.5 -2.2 M4 0 L1.5 2.2 M-4 0 H4" stroke="var(--primary)" strokeWidth={1.2} fill="none" strokeLinecap="round" />
+        </g>
       )}
+
       {/* Click the line to select → these endpoint dots appear (just outside
           each tile). Drag one onto another tile (it highlights + snaps) to
           reconnect; drop on empty space keeps the original edge. */}
@@ -535,6 +578,57 @@ const FlowEdge = memo(function FlowEdge(props: EdgeProps) {
     </>
   );
 });
+
+/** Flowing-data animation along an edge path. Three styles:
+ *   dot       — a single glowing dot (the original).
+ *   particles — several small dots + red squares streaming (sensor/stream data).
+ *   docs       — small document glyphs moving along (file ingest). */
+function EdgeFlow({ style, path }: { style: "dot" | "particles" | "docs"; path: string }) {
+  if (style === "dot") {
+    return (
+      <circle r="3.5" fill="var(--primary)" style={{ filter: "drop-shadow(0 0 4px var(--primary))" }}>
+        <animateMotion dur="2s" repeatCount="indefinite" path={path} />
+      </circle>
+    );
+  }
+  if (style === "particles") {
+    // A few markers evenly phase-shifted along the path: alternating small dots
+    // and small red squares, simulating a stream of records.
+    const N = 5;
+    return (
+      <>
+        {Array.from({ length: N }).map((_, i) => {
+          const begin = `${(i * 2) / N}s`;
+          const square = i % 2 === 1;
+          return square ? (
+            <rect key={i} x={-2} y={-2} width={4} height={4} rx={0.5} fill="#EF5B3F">
+              <animateMotion dur="2s" begin={begin} repeatCount="indefinite" path={path} />
+            </rect>
+          ) : (
+            <circle key={i} r={2} fill="var(--primary)">
+              <animateMotion dur="2s" begin={begin} repeatCount="indefinite" path={path} />
+            </circle>
+          );
+        })}
+      </>
+    );
+  }
+  // docs — small document glyphs moving along the path.
+  const N = 3;
+  return (
+    <>
+      {Array.from({ length: N }).map((_, i) => (
+        <g key={i}>
+          <g transform="translate(-3 -4)">
+            <rect x={0} y={0} width={6} height={8} rx={1} fill="var(--background)" stroke="#EF5B3F" strokeWidth={1} />
+            <path d="M1.5 2.5h3M1.5 4h3M1.5 5.5h2" stroke="#EF5B3F" strokeWidth={0.6} strokeLinecap="round" />
+          </g>
+          <animateMotion dur="3s" begin={`${(i * 3) / N}s`} repeatCount="indefinite" path={path} />
+        </g>
+      ))}
+    </>
+  );
+}
 
 const edgeTypes = { flow: FlowEdge };
 
@@ -942,12 +1036,14 @@ function flowToEdge(e: PlatformEdge): Edge {
     sourceHandle: e.sourceHandle ?? "r",
     targetHandle: e.targetHandle ?? "l",
     type: "flow",
-    data: { animated: e.animated ?? false, dashed: e.dashed ?? false, shape: e.shape ?? "smooth" },
+    data: { animated: e.animated ?? false, dashed: e.dashed ?? false, shape: e.shape ?? "smooth", flowStyle: e.flowStyle ?? "dot", centerX: e.centerX },
     label: e.label,
     style: {
       stroke: "var(--muted-foreground)",
-      strokeWidth: 1.5,
-      opacity: 0.55,
+      // Particle / document flows ride on a very light line so the moving
+      // glyphs are the focus.
+      strokeWidth: e.flowStyle === "particles" || e.flowStyle === "docs" ? 1 : 1.5,
+      opacity: e.flowStyle === "particles" || e.flowStyle === "docs" ? 0.3 : 0.55,
       ...(e.dashed ? { strokeDasharray: "5 4" } : {}),
     },
     markerEnd: "url(#arrow)",
@@ -1149,6 +1245,7 @@ const ContextMenu = memo(function ContextMenu({
   onToggleFlow,
   onToggleDashed,
   onSetShape,
+  onSetFlowStyle,
   onRemoveEdge,
   onAnno,
   onPickLogo,
@@ -1171,6 +1268,7 @@ const ContextMenu = memo(function ContextMenu({
   onToggleFlow: () => void;
   onToggleDashed: () => void;
   onSetShape: (s: "smooth" | "straight" | "step") => void;
+  onSetFlowStyle: (s: "dot" | "particles" | "docs") => void;
   onRemoveEdge: () => void;
   onAnno: (patch: Partial<AnnotationData>) => void;
   onPickLogo: () => void;
@@ -1182,7 +1280,7 @@ const ContextMenu = memo(function ContextMenu({
   onStyle: (patch: { opacity?: number; fillColor?: string; fontColor?: string }) => void;
   onZ: (dir: "front" | "back") => void;
 }) {
-  const ed = edge?.data as { animated?: boolean; dashed?: boolean; shape?: string } | undefined;
+  const ed = edge?.data as { animated?: boolean; dashed?: boolean; shape?: string; flowStyle?: "dot" | "particles" | "docs" } | undefined;
   const Item = ({ icon, label, onClick, active }: { icon: React.ReactNode; label: string; onClick: () => void; active?: boolean }) => (
     <button
       type="button"
@@ -1261,6 +1359,11 @@ const ContextMenu = memo(function ContextMenu({
           <>
             <Item icon={<Zap className="h-3.5 w-3.5" />} label="Data flow" onClick={onToggleFlow} active={!!ed?.animated} />
             <Item icon={<Minus className="h-3.5 w-3.5" />} label="Dashed line" onClick={onToggleDashed} active={!!ed?.dashed} />
+            <div className="my-1 border-t border-border/60" />
+            <div className="px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Flow style</div>
+            <Item icon={<Circle className="h-3 w-3" />} label="Dot" onClick={() => onSetFlowStyle("dot")} active={(ed?.flowStyle ?? "dot") === "dot"} />
+            <Item icon={<Sparkles className="h-3.5 w-3.5" />} label="Particles (data)" onClick={() => onSetFlowStyle("particles")} active={ed?.flowStyle === "particles"} />
+            <Item icon={<FileText className="h-3.5 w-3.5" />} label="Documents" onClick={() => onSetFlowStyle("docs")} active={ed?.flowStyle === "docs"} />
             <div className="my-1 border-t border-border/60" />
             <Item icon={<Spline className="h-3.5 w-3.5" />} label="Smooth" onClick={() => onSetShape("smooth")} active={(ed?.shape ?? "smooth") === "smooth"} />
             <Item icon={<MoveRight className="h-3.5 w-3.5" />} label="Straight" onClick={() => onSetShape("straight")} active={ed?.shape === "straight"} />
@@ -1489,7 +1592,7 @@ function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasProps) {
       const placed = new Set(nds.map((n) => baseId(n.id)));
       const hidden = [...componentLookup(schema).keys()].filter((id) => !placed.has(id));
       const layoutEdges: PlatformEdge[] = eds.map((e) => {
-        const ed = e.data as { animated?: boolean; dashed?: boolean; shape?: "smooth" | "straight" | "step" } | undefined;
+        const ed = e.data as { animated?: boolean; dashed?: boolean; shape?: "smooth" | "straight" | "step"; flowStyle?: "dot" | "particles" | "docs"; centerX?: number } | undefined;
         return {
           id: e.id,
           source: e.source,
@@ -1499,6 +1602,8 @@ function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasProps) {
           animated: ed?.animated ?? false,
           dashed: ed?.dashed ?? false,
           shape: ed?.shape ?? "smooth",
+          ...(ed?.flowStyle && ed.flowStyle !== "dot" ? { flowStyle: ed.flowStyle } : {}),
+          ...(typeof ed?.centerX === "number" ? { centerX: ed.centerX } : {}),
           label: typeof e.label === "string" ? e.label : undefined,
         };
       });
@@ -1727,10 +1832,14 @@ function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasProps) {
     },
     [nodes, nodeRect],
   );
+  // setEdgeCenterX is declared further below; call it via a ref so edgeOps
+  // (and the FlowEdge consuming it) doesn't hit a use-before-define.
+  const setEdgeCenterXRef = useRef<(id: string, centerX: number | undefined) => void>(() => {});
   const edgeOps = useMemo<EdgeOps>(
     () => ({
       editMode, retarget: retargetEdge, nodeAt, rectOf: nodeRect, setDropTarget, portsOf,
       toFlow: (cx: number, cy: number) => screenToFlowPosition({ x: cx, y: cy }),
+      setEdgeCenterX: (id, centerX) => setEdgeCenterXRef.current(id, centerX),
     }),
     [editMode, retargetEdge, nodeAt, nodeRect, setDropTarget, portsOf, screenToFlowPosition],
   );
@@ -2054,6 +2163,28 @@ function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasProps) {
     [mutateEdge],
   );
 
+  const setEdgeFlowStyle = useCallback(
+    (id: string, flowStyle: "dot" | "particles" | "docs") =>
+      mutateEdge(id, (e) => {
+        const light = flowStyle === "particles" || flowStyle === "docs";
+        return {
+          ...e,
+          // particles/docs ride a fainter line; turning on a style implies flow.
+          data: { ...e.data, flowStyle, animated: true },
+          style: { ...(e.style ?? {}), strokeWidth: light ? 1 : 1.5, opacity: light ? 0.3 : 0.55 },
+        };
+      }),
+    [mutateEdge],
+  );
+
+  // Set/clear the manual centerX of an edge's vertical elbow (from the ↔ drag).
+  const setEdgeCenterX = useCallback(
+    (id: string, centerX: number | undefined) =>
+      mutateEdge(id, (e) => ({ ...e, data: { ...e.data, centerX } })),
+    [mutateEdge],
+  );
+  setEdgeCenterXRef.current = setEdgeCenterX;
+
   const removeEdge = useCallback(
     (id: string) =>
       setEdges((eds) => {
@@ -2255,6 +2386,7 @@ function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasProps) {
             onToggleFlow={() => toggleEdgeFlow(menu.id)}
             onToggleDashed={() => toggleEdgeDashed(menu.id)}
             onSetShape={(s) => setEdgeShape(menu.id, s)}
+            onSetFlowStyle={(s) => setEdgeFlowStyle(menu.id, s)}
             onRemoveEdge={() => { removeEdge(menu.id); setMenu(null); }}
             onAnno={(patch) => onAnnotate(menu.id, patch)}
             onPickLogo={() => { setLogoPickerFor(menu.id); setMenu(null); }}

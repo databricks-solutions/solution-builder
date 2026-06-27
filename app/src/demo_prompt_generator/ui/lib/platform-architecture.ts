@@ -190,6 +190,12 @@ export interface PlatformEdge {
   dashed?: boolean;
   /** Routing shape. */
   shape?: "smooth" | "straight" | "step";
+  /** Flowing-data animation style: a single dot (default), streaming particles
+   *  (dots + red squares), or moving documents. */
+  flowStyle?: "dot" | "particles" | "docs";
+  /** Manual X of the vertical elbow segment (smooth/step edges). Unset → the
+   *  auto-staggered position. Set by dragging the ↔ handle on the segment. */
+  centerX?: number;
   /** Optional edge label. */
   label?: string;
 }
@@ -548,11 +554,11 @@ export function buildLayout(
 function seedEdges(bands: PlatformBand[], hidden: Set<string>): PlatformEdge[] {
   const edges: PlatformEdge[] = [];
   const seen = new Set<string>();
-  const push = (source: string, target: string, targetHandle?: string, sourceHandle?: string) => {
+  const push = (source: string, target: string, targetHandle?: string, sourceHandle?: string, flowStyle?: PlatformEdge["flowStyle"]) => {
     const id = `e-${source}-${target}`;
     if (seen.has(id)) return;
     seen.add(id);
-    edges.push({ id, source, target, animated: true, ...(targetHandle ? { targetHandle } : {}), ...(sourceHandle ? { sourceHandle } : {}) });
+    edges.push({ id, source, target, animated: true, ...(targetHandle ? { targetHandle } : {}), ...(sourceHandle ? { sourceHandle } : {}), ...(flowStyle && flowStyle !== "dot" ? { flowStyle } : {}) });
   };
 
   const band = (id: BandId) => bands.find((b) => b.id === id);
@@ -574,8 +580,11 @@ function seedEdges(bands: PlatformBand[], hidden: Set<string>): PlatformEdge[] {
   //   lakeflow-connect → in-lakeflow-connect, zerobus → in-zerobus, direct → in-direct.
   for (const src of visible(band("sources"))) {
     const path = src.ingest ?? "lakeflow-connect";
+    // Flow style by ingest: realtime/streaming (zerobus) → particles; direct
+    // file landing → documents; managed connectors → plain dot.
+    const flow: PlatformEdge["flowStyle"] = path === "zerobus" ? "particles" : path === "direct" ? "docs" : "dot";
     if (block) {
-      push(src.id, block, `in-${path}`);
+      push(src.id, block, `in-${path}`, undefined, flow);
     } else if (path === "lakeflow-connect" && lfc) {
       push(src.id, lfc);
     } else if (sdp) {
