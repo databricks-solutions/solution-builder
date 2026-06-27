@@ -14,7 +14,7 @@ import { memo, useContext, useEffect, useRef, useState } from "react";
 import { type NodeProps } from "@xyflow/react";
 import { DATABRICKS_ICONS } from "../../databricks-icons";
 import { FileSvgIcon } from "../../file-icons";
-import { RotatableCard, baseSize, DropTargetContext, type NodeData } from "./shared";
+import { RotatableCard, baseSize, DropTargetContext, EditModeContext, type NodeData } from "./shared";
 import { MEDALLION } from "./composite-lakeflow";
 
 const PROMPT_TEXT = "Ingest my data and create a dashboard...";
@@ -63,6 +63,7 @@ function useGenieSequence() {
 export const GenieCodeBlock = memo(function GenieCodeBlock({ data, selected }: NodeProps) {
   const d = data as NodeData;
   const isDropTarget = useContext(DropTargetContext) === d.nodeId;
+  const editMode = useContext(EditModeContext);
   const nat = baseSize(d.component);
   const GenieCode = DATABRICKS_ICONS.genieCodeBrand;
   const { typed, phase, built, showDash } = useGenieSequence();
@@ -74,7 +75,7 @@ export const GenieCodeBlock = memo(function GenieCodeBlock({ data, selected }: N
       w={d.w ?? nat.w}
       h={d.h ?? nat.h}
       scale={d.scale ?? 1}
-      editMode={d.editMode}
+      editMode={editMode}
       selected={!!selected}
       forceDots={isDropTarget}
       onResize={(w, h) => d.onResize(d.nodeId, w, h)}

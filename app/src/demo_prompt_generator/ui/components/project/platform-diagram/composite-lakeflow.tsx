@@ -7,7 +7,7 @@
 import { memo, useContext, Fragment } from "react";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 import { DATABRICKS_ICONS, type DatabricksIconName } from "../../databricks-icons";
-import { RotatableCard, baseSize, DropTargetContext, type NodeData } from "./shared";
+import { RotatableCard, baseSize, DropTargetContext, EditModeContext, type NodeData } from "./shared";
 import { type Side } from "./edge-routing";
 
 export const MEDALLION = [
@@ -122,6 +122,7 @@ export function MedallionRow() {
 export const LakeflowBlock = memo(function LakeflowBlock({ data, selected }: NodeProps) {
   const d = data as NodeData;
   const isDropTarget = useContext(DropTargetContext) === d.nodeId;
+  const editMode = useContext(EditModeContext);
   const nat = baseSize(d.component);
   return (
     <RotatableCard
@@ -129,7 +130,7 @@ export const LakeflowBlock = memo(function LakeflowBlock({ data, selected }: Nod
       w={d.w ?? nat.w}
       h={d.h ?? nat.h}
       scale={d.scale ?? 1}
-      editMode={d.editMode}
+      editMode={editMode}
       selected={!!selected}
       forceDots={isDropTarget}
       hideHandles
@@ -141,7 +142,7 @@ export const LakeflowBlock = memo(function LakeflowBlock({ data, selected }: Nod
           mode), and FORCED visible when this block is a reconnect drop target —
           so they replace the generic 4-side dots, not coexist with them. */}
       {(() => {
-        const show = d.editMode && !selected;
+        const show = editMode && !selected;
         const vis = isDropTarget
           ? "opacity-100"
           : show

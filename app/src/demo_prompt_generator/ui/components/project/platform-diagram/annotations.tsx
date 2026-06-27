@@ -12,7 +12,7 @@ import { FILE_ICONS, FileSvgIcon, isFileIconKey, logoMetaByName } from "../../fi
 import INDUSTRY_MAP from "../../../icons/industry-map.json";
 import { BrandMark } from "./brand-mark";
 import { type AnnotationData, type AnnotationVariant } from "@/lib/platform-architecture";
-import { RotatableCard, DropTargetContext, type NodeData } from "./shared";
+import { RotatableCard, DropTargetContext, EditModeContext, type NodeData } from "./shared";
 
 /** Render any icon key — a built-in DatabricksIconName or a file-icon key
  *  ("file:…") — at a given size. Used by the Logo annotation + the picker. */
@@ -46,6 +46,7 @@ export const AnnotationNode = memo(function AnnotationNode({ data, selected }: N
   const d = data as AnnotationNodeData;
   const a = d.annotation;
   const isDropTarget = useContext(DropTargetContext) === d.nodeId;
+  const editMode = useContext(EditModeContext);
   const [editing, setEditing] = useState<string | null>(null);
 
   const commit = () => {
@@ -70,7 +71,7 @@ export const AnnotationNode = memo(function AnnotationNode({ data, selected }: N
       w={d.w ?? ANNOTATION_DEFAULT_SIZE[a.variant].w}
       h={d.h ?? ANNOTATION_DEFAULT_SIZE[a.variant].h}
       scale={d.scale ?? 1}
-      editMode={d.editMode}
+      editMode={editMode}
       selected={!!selected}
       forceDots={isDropTarget}
       onResize={(w, h) => d.onResize(d.nodeId, w, h)}

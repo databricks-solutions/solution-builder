@@ -29,9 +29,7 @@ export function componentLookup(schema: PlatformSchema) {
 export function schemaToFlow(
   schema: PlatformSchema,
   deepLinks: Record<string, string | null>,
-  selectedId: string | null,
   onSelect: (id: string) => void,
-  editMode: boolean,
   onContext: (id: string, x: number, y: number) => void,
   onResize: (id: string, w: number, h: number) => void,
   onRename: (id: string, label: string) => void,
@@ -51,7 +49,6 @@ export function schemaToFlow(
         id,
         type: "annotation",
         position: { x: pos.x, y: pos.y },
-        draggable: editMode,
         width: fp.w,
         height: fp.h,
         zIndex: pos.z ?? 0,
@@ -64,8 +61,6 @@ export function schemaToFlow(
           bandColor: "#64748b",
           deepLink: null,
           onSelect, onContext, onResize, onRename, onAnnotate,
-          selected: id === selectedId,
-          editMode,
           rot: pos.rot ?? 0,
           w: pos.w, h: pos.h, scale: pos.scale,
           opacity: pos.opacity, fillColor: pos.fillColor, fontColor: pos.fontColor,
@@ -85,14 +80,14 @@ export function schemaToFlow(
       };
       const fp = nodeFootprint(component, pos);
       nodes.push({
-        id, type: "component", position: { x: pos.x, y: pos.y }, draggable: editMode,
+        id, type: "component", position: { x: pos.x, y: pos.y },
         width: fp.w, height: fp.h, zIndex: pos.z ?? 0, style: { width: fp.w, height: fp.h },
         data: {
           nodeId: id, component, bandId: "sources" as BandId, bandColor: BAND_COLOR.sources,
           deepLink: null, onSelect, onContext, onResize, onRename,
           allowTrademark: schema.enableTrademarkLogos ?? false,
           sourceKey: pos.source.key,
-          selected: id === selectedId, editMode, rot: pos.rot ?? 0,
+          rot: pos.rot ?? 0,
           w: pos.w, h: pos.h, scale: pos.scale,
           opacity: pos.opacity, fillColor: pos.fillColor, fontColor: pos.fontColor,
           borderWidth: pos.borderWidth, borderStyle: pos.borderStyle, borderColor: pos.borderColor,
@@ -116,7 +111,6 @@ export function schemaToFlow(
       id,
       type: nodeTypeFor(component),
       position: { x: pos.x, y: pos.y },
-      draggable: editMode,
       // ReactFlow OWNS the node size — NodeResizer drives these, and the shell
       // fills 100%, so the selection frame + resizer + visual never drift.
       width: fp.w,
@@ -133,8 +127,6 @@ export function schemaToFlow(
         onContext,
         onResize,
         onRename,
-        selected: id === selectedId,
-        editMode,
         rot: pos.rot ?? 0,
         w: pos.w,
         h: pos.h,

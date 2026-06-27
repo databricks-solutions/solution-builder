@@ -37,9 +37,9 @@ import {
 } from "@/lib/platform-architecture";
 import {
   type NodeData,
-  type FlowStyle,
   type StylePatch,
   DropTargetContext,
+  EditModeContext,
   nodeFootprint,
   nodeTypeFor,
 } from "./shared";
@@ -52,7 +52,6 @@ import { LF_PORTS } from "./composite-lakeflow";
 import {
   IconPicker,
   ANNOTATION_DEFAULT_SIZE,
-  imageFileToDownscaledDataUrl,
   type AnnotationNodeData,
 } from "./annotations";
 import { logoLabel, logoMetaByName } from "../../file-icons";
@@ -69,6 +68,10 @@ import { DetailPanel } from "./panels/detail-panel";
 import { LibraryPalette } from "./panels/library-palette";
 import { componentLookup, schemaToFlow, flowToLayout } from "./flow-mapping";
 import { ContextMenu, type CtxMenu } from "./menus/context-menu";
+import { useDiagramHistory } from "./hooks/use-diagram-history";
+import { useNodeMutations } from "./hooks/use-node-mutations";
+import { useEdgeMutations } from "./hooks/use-edge-mutations";
+import { usePasteImage } from "./hooks/use-paste-image";
 
 interface CanvasProps {
   schema: PlatformSchema;
@@ -110,77 +113,31 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasP
     setMenu({ kind: "node", id, x, y });
   }, []);
 
-  // Stable resize handler — writes w/h into node data + schedules a save.
-  // Uses refs so it can be passed into schemaToFlow before scheduleSave is
-  // declared below (avoids a use-before-define ordering hazard).
-  const setNodesRef = useRef<ReturnType<typeof useNodesState>[1] | null>(null);
-  const scheduleSaveRef = useRef<((nds: Node[], eds: Edge[]) => void) | null>(null);
-  const edgesRef = useRef<Edge[]>([]);
-  // w/h here are the FOOTPRINT (on-canvas) dims from NodeResizer. Store them
-  // back as CARD dims (un-swap for rotation) and keep node.width/height in sync
-  // so the box, selection frame, and visual all stay the same size.
-  const onResize = useCallback((id: string, w: number, h: number) => {
-    setNodesRef.current?.((nds) => {
-      const next = nds.map((n) => {
-        if (n.id !== id) return n;
-        const dd = n.data as NodeData;
-        const q = (((dd.rot ?? 0) % 360) + 360) % 360;
-        const swapped = q === 90 || q === 270;
-        const cardW = swapped ? h : w;
-        const cardH = swapped ? w : h;
-        return {
-          ...n,
-          width: w,
-          height: h,
-          style: { ...n.style, width: w, height: h },
-          data: { ...dd, w: Math.round(cardW), h: Math.round(cardH) },
-        };
-      });
-      scheduleSaveRef.current?.(next, edgesRef.current);
-      return next;
-    });
-  }, []);
-
-  // Rename a node (double-click on its label). Overrides the component label for
-  // this node; persisted in the layout (scheduleSave diffs it vs the catalog).
-  // Stable + ref-based so it can be passed into schemaToFlow before scheduleSave
-  // is declared below (same ordering trick as onResize).
-  const onRename = useCallback((id: string, label: string) => {
-    setNodesRef.current?.((nds) => {
-      const next = nds.map((n) => {
-        if (n.id !== id) return n;
-        const dd = n.data as NodeData;
-        return { ...n, data: { ...dd, component: { ...dd.component, label } } };
-      });
-      scheduleSaveRef.current?.(next, edgesRef.current);
-      return next;
-    });
-  }, []);
-
-  // Patch an annotation node's props (text/icon/src/alignment/fontSize/border).
-  // Ref-based for the same use-before-define reason as onRename/onResize.
-  const onAnnotate = useCallback((id: string, patch: Partial<AnnotationData>) => {
-    setNodesRef.current?.((nds) => {
-      const next = nds.map((n) => {
-        if (n.id !== id) return n;
-        const dd = n.data as AnnotationNodeData;
-        return { ...n, data: { ...dd, annotation: { ...dd.annotation, ...patch } } };
-      });
-      scheduleSaveRef.current?.(next, edgesRef.current);
-      return next;
-    });
-  }, []);
+  // The three "patch a node's data + schedule a save" reducers (onResize,
+  // onRename, onAnnotate). They're baked into each node by schemaToFlow (inside
+  // the `initial` memo below), which runs BEFORE useNodesState/scheduleSave
+  // exist — so they must be stable + defined here. The hook owns the
+  // setNodes/scheduleSave/edges refs internally (kept live via `bind` once those
+  // values exist), which is what used to be Canvas's setNodesRef/scheduleSaveRef/
+  // edgesRef trio.
+  const { onResize, onRename, onAnnotate, bind: bindNodeMutations } = useNodeMutations();
 
   const initial = useMemo(
-    () => schemaToFlow(schema, deepLinks, null, onSelect, true, onContext, onResize, onRename, onAnnotate),
+    () => schemaToFlow(schema, deepLinks, onSelect, onContext, onResize, onRename, onAnnotate),
     // Rebuild only when schema identity changes (not on every selection).
     [schema, deepLinks, onSelect, onContext, onResize, onRename, onAnnotate],
   );
 
   const [nodes, setNodes, onNodesChange] = useNodesState(initial.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initial.edges);
-  setNodesRef.current = setNodes;
-  edgesRef.current = edges;
+
+  // Undo/redo + burst machinery lives in this hook. It returns beginBurst/
+  // endBurst (consumed by scheduleSave below) and resetHistory (consumed by the
+  // re-seed effect) — eliminating the old beginBurstRef/endBurstRef/
+  // resetHistoryRef use-before-define hacks. scheduleSave is registered back
+  // into the hook (setScheduleSave) once it's defined, since restore needs it.
+  const { beginBurst, endBurst, resetHistory, undo, redo, canUndo, canRedo, setScheduleSave } =
+    useDiagramHistory({ nodes, edges, setNodes, setEdges });
 
   // Re-seed the graph when the underlying schema changes. useNodesState/
   // useEdgesState only take `initial` ONCE, so without this the canvas keeps
@@ -188,181 +145,51 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasP
   // once it finishes loading (the file's saved nodes/edges were being ignored).
   // Guarded so it only fires on a real schema-identity change, not on drags.
   const seededFrom = useRef<{ nodes: Node[]; edges: Edge[] } | null>(null);
-  const resetHistoryRef = useRef<(() => void) | null>(null);
   useEffect(() => {
     if (seededFrom.current === initial) return;
     seededFrom.current = initial;
     setNodes(initial.nodes);
     setEdges(initial.edges);
     // Reset undo history to the freshly-loaded state as the new baseline.
-    resetHistoryRef.current?.();
-  }, [initial, setNodes, setEdges]);
+    resetHistory();
+  }, [initial, setNodes, setEdges, resetHistory]);
 
-  // Keep node.data.selected + editMode + draggability in sync without
-  // rebuilding the graph (preserves live positions).
-  useEffect(() => {
-    setNodes((nds) =>
-      nds.map((n) => ({
-        ...n,
-        draggable: editMode,
-        data: { ...n.data, selected: n.id === selectedId, editMode },
-      })),
-    );
-  }, [selectedId, editMode, setNodes]);
-
-  // Paste an image (Ctrl/Cmd+V) anywhere on the canvas → downscaled base64
-  // image annotation at the canvas center. Ref-indirect because addAnnotation
-  // is declared below. Ignored when typing in an input/textarea.
-  const addAnnotationRef = useRef<((v: AnnotationVariant, at?: { x: number; y: number }, extra?: Partial<AnnotationData>) => void) | null>(null);
-  useEffect(() => {
-    if (!editMode) return;
-    const onPaste = async (e: ClipboardEvent) => {
-      const tag = (e.target as HTMLElement | null)?.tagName;
-      if (tag === "INPUT" || tag === "TEXTAREA") return;
-      const item = Array.from(e.clipboardData?.items ?? []).find((i) => i.type.startsWith("image/"));
-      if (!item) return;
-      const file = item.getAsFile();
-      if (!file) return;
-      e.preventDefault();
-      const src = await imageFileToDownscaledDataUrl(file);
-      // Warn (but still allow) if the encoded image is large.
-      if (src.length > 1.5 * 1024 * 1024) {
-        // eslint-disable-next-line no-console
-        console.warn(`[platform-diagram] pasted image is large (${Math.round(src.length / 1024)}KB base64) — architecture.md will grow.`);
-      }
-      const rect = wrapRef.current?.getBoundingClientRect();
-      const at = rect
-        ? screenToFlowPosition({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 })
-        : { x: 200, y: 200 };
-      addAnnotationRef.current?.("image", at, { src });
-    };
-    document.addEventListener("paste", onPaste);
-    return () => document.removeEventListener("paste", onPaste);
-  }, [editMode, screenToFlowPosition]);
+  // NOTE: selection + edit mode are NOT written into node.data — selection
+  // comes from ReactFlow's `selected` NodeProp, edit mode from EditModeContext,
+  // and draggability from the <ReactFlow nodesDraggable> prop. That keeps node
+  // data identities stable across selection/mode changes so React.memo holds.
 
   // --- Persistence: debounce-save the layout whenever nodes/edges settle ----
   const persistRef = useRef(onPersist);
   persistRef.current = onPersist;
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const beginBurstRef = useRef<(() => void) | null>(null);
-  const endBurstRef = useRef<((nds: Node[], eds: Edge[]) => void) | null>(null);
   const scheduleSave = useCallback((nds: Node[], eds: Edge[]) => {
     // History = ONE entry per logical action (burst). A drag/resize fires
     // scheduleSave on every pixel; we push the pre-burst baseline onto the undo
     // stack only at the START of a burst (timer not pending), and snapshot the
     // FINAL state at burst end (in the timeout below).
-    if (!saveTimer.current) beginBurstRef.current?.();
+    if (!saveTimer.current) beginBurst();
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => {
-      endBurstRef.current?.(nds, eds);
+      endBurst(nds, eds);
       persistRef.current(flowToLayout(nds, eds, schema));
       saveTimer.current = null; // burst ended → next change starts a new burst
     }, 700);
-  }, [schema]);
-  scheduleSaveRef.current = scheduleSave;
+  }, [schema, beginBurst, endBurst]);
+  // Keep the node-mutation reducers (onResize/onRename/onAnnotate) pointed at the
+  // live setNodes/scheduleSave/edges now that those exist.
+  bindNodeMutations({ setNodes, scheduleSave, edges });
+  // Register the live scheduleSave back into the history hook so restore/undo/
+  // redo reach the current closure (the hook is declared before scheduleSave).
+  setScheduleSave(scheduleSave);
 
-  // --- Undo / redo history --------------------------------------------------
-  // A snapshot is the committed graph. We push the PREVIOUS state before each
-  // committed change, so undo restores it. `applying` guards against the
-  // undo/redo restore itself being recorded as a new change.
-  type Snap = { nodes: Node[]; edges: Edge[] };
-  const past = useRef<Snap[]>([]);
-  const future = useRef<Snap[]>([]);
-  const applying = useRef(false);
-  const lastCommitted = useRef<Snap | null>(null);
-  const [histTick, setHistTick] = useState(0); // re-render to refresh button enabled state
-
-  const cloneSnap = (nds: Node[], eds: Edge[]): Snap => ({
-    nodes: nds.map((n) => ({ ...n, position: { ...n.position }, data: { ...n.data } })),
-    edges: eds.map((e) => ({ ...e, data: { ...e.data } })),
-  });
-
-  // BURST START: push the pre-burst baseline onto the undo stack (once per
-  // logical action). Does NOT change lastCommitted — that's set at burst end.
-  beginBurstRef.current = () => {
-    if (applying.current) return;
-    if (lastCommitted.current) {
-      past.current.push(lastCommitted.current);
-      if (past.current.length > 100) past.current.shift();
-      future.current = []; // a fresh edit invalidates the redo stack
-      setHistTick((t) => t + 1);
-    }
-  };
-  // BURST END: the final state becomes the new baseline (what a subsequent
-  // edit will push, and what redo restores to).
-  endBurstRef.current = (nds: Node[], eds: Edge[]) => {
-    if (applying.current) return;
-    lastCommitted.current = cloneSnap(nds, eds);
-  };
-  resetHistoryRef.current = () => {
-    past.current = [];
-    future.current = [];
-    lastCommitted.current = null; // re-seeded by the baseline effect
-    setHistTick((t) => t + 1);
-  };
-
-  // Seed the baseline snapshot once the graph is first populated.
-  useEffect(() => {
-    if (!lastCommitted.current && (nodes.length || edges.length)) {
-      lastCommitted.current = cloneSnap(nodes, edges);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [nodes, edges]);
-
-  const restore = useCallback(
-    (snap: Snap) => {
-      applying.current = true;
-      // Re-apply editMode/selected so restored nodes match current UI mode.
-      setNodes(snap.nodes.map((n) => ({ ...n, draggable: editMode, data: { ...n.data, editMode } })));
-      setEdges(snap.edges);
-      lastCommitted.current = cloneSnap(snap.nodes, snap.edges);
-      scheduleSave(snap.nodes, snap.edges);
-      setHistTick((t) => t + 1);
-      // release the guard after the state settles
-      setTimeout(() => { applying.current = false; }, 0);
-    },
-    [setNodes, setEdges, scheduleSave, editMode],
-  );
-
-  const undo = useCallback(() => {
-    const prev = past.current.pop();
-    if (!prev) return;
-    if (lastCommitted.current) future.current.push(lastCommitted.current);
-    restore(prev);
-  }, [restore]);
-
-  const redo = useCallback(() => {
-    const nxt = future.current.pop();
-    if (!nxt) return;
-    if (lastCommitted.current) past.current.push(lastCommitted.current);
-    restore(nxt);
-  }, [restore]);
-
-  const canUndo = past.current.length > 0;
-  const canRedo = future.current.length > 0;
-  void histTick; // referenced so the lint + render-on-change is intentional
-
-  // Keyboard: Ctrl/Cmd+Z = undo, Shift+Ctrl/Cmd+Z (or Ctrl+Y) = redo.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (!(e.metaKey || e.ctrlKey)) return;
-      // Don't hijack undo while typing in an input/textarea/contenteditable
-      // (e.g. the chat panel) — only act when the canvas/page has focus.
-      const t = e.target as HTMLElement | null;
-      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
-      const k = e.key.toLowerCase();
-      if (k === "z") {
-        e.preventDefault();
-        if (e.shiftKey) redo();
-        else undo();
-      } else if (k === "y") {
-        e.preventDefault();
-        redo();
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [undo, redo]);
+  // All edge reducers (retarget / toggle flow+dashed / shape / flow-style /
+  // label / centerX / remove). Declared here — before edgeOps — so setEdgeCenterX
+  // exists in time for the EdgeOps context (no more setEdgeCenterXRef).
+  const {
+    toggleEdgeFlow, toggleEdgeDashed, setEdgeShape, setEdgeFlowStyle,
+    setEdgeLabel, setEdgeCenterX, removeEdge, retargetEdge,
+  } = useEdgeMutations({ setEdges, scheduleSave, nodes });
 
   // Wrap change handlers so a drag/add/remove triggers a save + history entry.
   // CRITICAL: a drag emits a `position` change on EVERY pixel (dragging:true)
@@ -406,28 +233,6 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasP
             markerEnd: "url(#arrow)",
           },
           eds,
-        );
-        scheduleSave(nodes, next);
-        return next;
-      });
-    },
-    [setEdges, scheduleSave, nodes],
-  );
-
-  // --- Re-target an edge endpoint to another node (from the custom drag).
-  const retargetEdge = useCallback(
-    (edgeId: string, end: "source" | "target", nodeId: string, handle?: string) => {
-      setEdges((eds) => {
-        const next = eds.map((e) =>
-          e.id === edgeId
-            ? {
-                ...e,
-                [end]: nodeId,
-                // Pin to the aimed handle (a composite port id like "in-zerobus"
-                // or a side "l/r/t/b"); null lets the edge auto-derive the side.
-                [end === "source" ? "sourceHandle" : "targetHandle"]: handle ?? null,
-              }
-            : e,
         );
         scheduleSave(nodes, next);
         return next;
@@ -486,16 +291,13 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasP
     },
     [nodes, nodeRect],
   );
-  // setEdgeCenterX is declared further below; call it via a ref so edgeOps
-  // (and the FlowEdge consuming it) doesn't hit a use-before-define.
-  const setEdgeCenterXRef = useRef<(id: string, centerX: number | undefined) => void>(() => {});
   const edgeOps = useMemo<EdgeOps>(
     () => ({
       editMode, retarget: retargetEdge, nodeAt, rectOf: nodeRect, setDropTarget, portsOf,
       toFlow: (cx: number, cy: number) => screenToFlowPosition({ x: cx, y: cy }),
-      setEdgeCenterX: (id, centerX) => setEdgeCenterXRef.current(id, centerX),
+      setEdgeCenterX,
     }),
-    [editMode, retargetEdge, nodeAt, nodeRect, setDropTarget, portsOf, screenToFlowPosition],
+    [editMode, retargetEdge, nodeAt, nodeRect, setDropTarget, portsOf, screenToFlowPosition, setEdgeCenterX],
   );
 
   // --- Add from library (drop or double-click) ------------------------------
@@ -534,8 +336,6 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasP
               onContext,
               onResize,
               onRename,
-              selected: false,
-              editMode: true,
               rot: 0,
             } satisfies NodeData,
           } as Node,
@@ -580,8 +380,6 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasP
               bandColor: "#64748b",
               deepLink: null,
               onSelect, onContext, onResize, onRename, onAnnotate,
-              selected: false,
-              editMode: true,
               rot: 0,
             } satisfies AnnotationNodeData,
           } as Node,
@@ -593,7 +391,10 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasP
     },
     [onSelect, onContext, onResize, onRename, onAnnotate, setNodes, scheduleSave, edges],
   );
-  addAnnotationRef.current = addAnnotation;
+
+  // Ctrl/Cmd+V pastes an image as a centered image annotation. The hook takes
+  // addAnnotation directly (no addAnnotationRef now that it's defined above).
+  usePasteImage({ editMode, addAnnotation, screenToFlowPosition, wrapRef });
 
   // Add a NEW data source from the "+ more data sources" picker. The source is
   // NOT a catalog component — its key/icon persist in layout.nodes[id].source
@@ -622,7 +423,7 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasP
             deepLink: null, onSelect, onContext, onResize, onRename,
             allowTrademark: !!schema.enableTrademarkLogos,
             sourceKey: key,
-            selected: false, editMode: true, rot: 0,
+            rot: 0,
           } satisfies NodeData,
         } as Node,
       ];
@@ -777,80 +578,6 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasP
     setSelectedId((cur) => (cur === id ? null : cur));
   }, [setNodes, setEdges, scheduleSave]);
 
-  // --- Edge mutations (from the edge right-click menu) ----------------------
-  const mutateEdge = useCallback(
-    (id: string, fn: (e: Edge) => Edge) => {
-      setEdges((eds) => {
-        const next = eds.map((e) => (e.id === id ? fn(e) : e));
-        scheduleSave(nodes, next);
-        return next;
-      });
-    },
-    [setEdges, scheduleSave, nodes],
-  );
-
-  const toggleEdgeFlow = useCallback(
-    (id: string) =>
-      mutateEdge(id, (e) => ({
-        ...e,
-        data: { ...e.data, animated: !(e.data as { animated?: boolean } | undefined)?.animated },
-      })),
-    [mutateEdge],
-  );
-
-  const toggleEdgeDashed = useCallback(
-    (id: string) =>
-      mutateEdge(id, (e) => {
-        const dashed = !(e.style as { strokeDasharray?: string } | undefined)?.strokeDasharray;
-        return {
-          ...e,
-          data: { ...e.data, dashed },
-          style: { ...(e.style ?? {}), strokeDasharray: dashed ? "5 4" : undefined },
-        };
-      }),
-    [mutateEdge],
-  );
-
-  const setEdgeShape = useCallback(
-    (id: string, shape: "smooth" | "straight" | "step") =>
-      mutateEdge(id, (e) => ({ ...e, data: { ...e.data, shape } })),
-    [mutateEdge],
-  );
-
-  // Set an explicit flow style (overrides the source-derived default), or pass
-  // undefined to clear back to "Auto". FlowEdge handles the visible styling.
-  const setEdgeFlowStyle = useCallback(
-    (id: string, flowStyle: FlowStyle | undefined) =>
-      mutateEdge(id, (e) => ({ ...e, data: { ...e.data, flowStyle, animated: true } })),
-    [mutateEdge],
-  );
-
-  // Set (or clear, with "") the edge's mid-line label. Stored on `e.label`
-  // (ReactFlow's native field); scheduleSave persists it.
-  const setEdgeLabel = useCallback(
-    (id: string, label: string) =>
-      mutateEdge(id, (e) => ({ ...e, label: label || undefined })),
-    [mutateEdge],
-  );
-
-  // Set/clear the manual centerX of an edge's vertical elbow (from the ↔ drag).
-  const setEdgeCenterX = useCallback(
-    (id: string, centerX: number | undefined) =>
-      mutateEdge(id, (e) => ({ ...e, data: { ...e.data, centerX } })),
-    [mutateEdge],
-  );
-  setEdgeCenterXRef.current = setEdgeCenterX;
-
-  const removeEdge = useCallback(
-    (id: string) =>
-      setEdges((eds) => {
-        const next = eds.filter((e) => e.id !== id);
-        scheduleSave(nodes, next);
-        return next;
-      }),
-    [setEdges, scheduleSave, nodes],
-  );
-
   const onEdgeContextMenu = useCallback((e: React.MouseEvent, edge: Edge) => {
     e.preventDefault();
     setMenu({ kind: "edge", id: edge.id, x: e.clientX, y: e.clientY });
@@ -876,6 +603,7 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasP
   const menuNodeData = menu?.kind === "node" ? (nodes.find((n) => n.id === menu.id)?.data as NodeData | undefined) : undefined;
 
   return (
+    <EditModeContext.Provider value={editMode}>
     <EdgeOpsContext.Provider value={edgeOps}>
     <DropTargetContext.Provider value={dropTargetId}>
     <div className="flex min-h-0 flex-1" ref={wrapRef}>
@@ -1094,5 +822,6 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasP
     </div>
     </DropTargetContext.Provider>
     </EdgeOpsContext.Provider>
+    </EditModeContext.Provider>
   );
 }

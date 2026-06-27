@@ -30,9 +30,6 @@ export interface NodeData {
   onRename: (id: string, label: string) => void;
   /** Resize callback (from NodeResizer) — w/h are the un-rotated card size. */
   onResize: (id: string, w: number, h: number) => void;
-  selected: boolean;
-  /** Edit mode shows connection handles; view mode hides them for a cleaner look. */
-  editMode: boolean;
   /** Rotation in degrees (0/90/180/270). */
   rot: number;
   /** User-resized footprint (px); undefined → natural size. */
@@ -81,6 +78,11 @@ export type StylePatch = {
 
 /** Node id currently under a dragged endpoint (magnet highlight). */
 export const DropTargetContext = createContext<string | null>(null);
+
+/** Canvas edit mode (handles/resizers visible). Delivered via context rather
+ *  than per-node data so toggling edit mode doesn't rewrite every node's data
+ *  object (which would defeat React.memo on all N nodes). */
+export const EditModeContext = createContext<boolean>(true);
 
 /** ReactFlow node `type` for a component, by its composite kind. */
 export function nodeTypeFor(c: PlatformComponent): string {

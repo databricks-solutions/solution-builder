@@ -9,6 +9,7 @@ import {
   type NodeData,
   RotatableCard,
   DropTargetContext,
+  EditModeContext,
   baseSize,
 } from "../shared";
 import { BrandMark, isTrademarkMark } from "../brand-mark";
@@ -23,6 +24,7 @@ export const ComponentNode = memo(function ComponentNode({ data, selected }: Nod
   const muted = c.state === "mentioned";
   // Lit up when a dragged edge endpoint is hovering this tile (magnet).
   const isDropTarget = useContext(DropTargetContext) === d.nodeId;
+  const editMode = useContext(EditModeContext);
 
   // SDP renders bronze/silver/gold as little tables inside the node.
   const isSdp = c.id === "sdp";
@@ -44,7 +46,7 @@ export const ComponentNode = memo(function ComponentNode({ data, selected }: Nod
       w={d.w ?? nat.w}
       h={d.h ?? nat.h}
       scale={d.scale ?? 1}
-      editMode={d.editMode}
+      editMode={editMode}
       selected={!!selected}
       forceDots={isDropTarget}
       onResize={(w, h) => d.onResize(d.nodeId, w, h)}
