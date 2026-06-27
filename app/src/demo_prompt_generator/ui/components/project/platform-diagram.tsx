@@ -592,22 +592,34 @@ function EdgeFlow({ style, path }: { style: "dot" | "particles" | "docs"; path: 
     );
   }
   if (style === "particles") {
-    // A few markers evenly phase-shifted along the path: alternating small dots
-    // and small red squares, simulating a stream of records.
-    const N = 5;
+    // A dense, slow "river" of records: many small cubes + circles packed close
+    // together so they read as a flowing stream that forms the line. Each one
+    // rides the path (animateMotion) AND sways gently perpendicular to it (an
+    // inner translate oscillation, phase-varied) so it ripples like water.
+    const N = 18;
+    const DUR = 5; // seconds for a full traverse — slow
     return (
       <>
         {Array.from({ length: N }).map((_, i) => {
-          const begin = `${(i * 2) / N}s`;
-          const square = i % 2 === 1;
-          return square ? (
-            <rect key={i} x={-2} y={-2} width={4} height={4} rx={0.5} fill="#EF5B3F">
-              <animateMotion dur="2s" begin={begin} repeatCount="indefinite" path={path} />
-            </rect>
-          ) : (
-            <circle key={i} r={2} fill="var(--primary)">
-              <animateMotion dur="2s" begin={begin} repeatCount="indefinite" path={path} />
-            </circle>
+          const begin = `${-(i * DUR) / N}s`;       // negative begins = already spread along the path
+          const cube = i % 2 === 0;
+          const sz = 1.6 + (i % 3) * 0.5;            // slight size variation
+          const sway = 1.6 + (i % 4) * 0.4;          // perpendicular amplitude
+          const swayDur = 1 + (i % 5) * 0.18;        // varied wobble speed
+          const phase = `${-(i % 7) * 0.13}s`;
+          return (
+            <g key={i}>
+              {/* inner sway (perpendicular ripple) */}
+              <g>
+                {cube ? (
+                  <rect x={-sz} y={-sz} width={sz * 2} height={sz * 2} rx={0.5} fill="#EF5B3F" opacity={0.85} />
+                ) : (
+                  <circle r={sz} fill="var(--primary)" opacity={0.85} />
+                )}
+                <animateTransform attributeName="transform" type="translate" values={`0 ${-sway};0 ${sway};0 ${-sway}`} dur={`${swayDur}s`} begin={phase} repeatCount="indefinite" additive="sum" />
+              </g>
+              <animateMotion dur={`${DUR}s`} begin={begin} repeatCount="indefinite" path={path} />
+            </g>
           );
         })}
       </>
