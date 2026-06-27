@@ -7,10 +7,10 @@
     "start": "NODE_ENV=production node --env-file-if-exists=./.env ./dist/server.js",
     "dev": "NODE_ENV=development tsx watch --tsconfig ./tsconfig.server.json --env-file-if-exists=./.env ./server/server.ts",
     "build:client": "tsc -b tsconfig.client.json && vite build --config client/vite.config.ts",
-    "build:server": "tsdown -c tsdown.server.config.ts",
+    "build:server": "tsc -b tsconfig.server.json && tsdown -c tsdown.server.config.ts",
     "build:source": "npm run build:server && npm run build:client",
     "build": "echo '[build] no-op — dist/ + client/dist/ are pre-built locally by scripts/build-app.sh and shipped via DAB sync.include. Use `npm run build:source` to rebuild from source.'",
-    "typecheck": "tsc -p ./tsconfig.server.json --noEmit && tsc -p ./tsconfig.client.json --noEmit",
+    "typecheck": "tsc -b tsconfig.server.json && tsc -b tsconfig.client.json",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "lint:ast-grep": "appkit lint",
@@ -34,7 +34,7 @@
   "license": "Unlicensed",
   "description": "Chatbot + dashboard + user menu",
   "dependencies": {
-    "@databricks/appkit": "0.20.3",
+    "@databricks/appkit": "0.41.6",
     "@databricks/sdk-experimental": "^0.14.2",
     "@openai/agents": "^0.8.3",
     "drizzle-orm": "^0.45.2",
@@ -48,7 +48,7 @@
   },
   "devDependencies": {
     "@ast-grep/napi": "^0.37.0",
-    "@databricks/appkit-ui": "0.20.3",
+    "@databricks/appkit-ui": "0.41.6",
     "@eslint/compat": "^2.0.0",
     "@eslint/js": "^9.39.1",
     "@playwright/test": "^1.57.0",
@@ -93,7 +93,7 @@
     "typescript-eslint": "^8.48.0",
     "vite": "npm:rolldown-vite@7.1.14",
     "vitest": "^4.0.14",
-    "zod": "^4.1.13"
+    "zod": "4.4.3"
   },
   "overrides": {
     "vite": "npm:rolldown-vite@7.1.14"
