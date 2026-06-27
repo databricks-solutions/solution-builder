@@ -63,6 +63,8 @@ interface FileViewerProps {
    *  history records the navigation. */
   onTabChange?: (tab: ViewTab) => void;
   files: ProjectFile[];
+  /** True once the initial file list has loaded (guards auto-generate). */
+  filesLoaded?: boolean;
   selectedFile: string | null;
   fileContent: ProjectFileContent | null;
   /** README.md content for the overview's "About this demo" expander.
@@ -88,6 +90,7 @@ interface FileViewerProps {
   onRefresh?: () => void;
   isLoading?: boolean;
   architectureContent?: string | null;
+  architectureReloading?: boolean;
   onLoadArchitecture?: () => void;
   isCreatingArchitecture?: boolean;
   onCreateArchitecture?: () => void;
@@ -184,6 +187,7 @@ const StoryView = memo(function StoryView({ readmeContent, isStreaming }: StoryV
 
 interface ArchitectureViewProps {
   architectureContent: string | null;
+  architectureReloading?: boolean;
   hasArchitecture: boolean;
   isCreatingArchitecture: boolean;
   isStreaming: boolean;
@@ -194,6 +198,7 @@ interface ArchitectureViewProps {
 
 const ArchitectureView = memo(function ArchitectureView({
   architectureContent,
+  architectureReloading,
   hasArchitecture,
   isCreatingArchitecture,
   isStreaming,
@@ -218,20 +223,32 @@ const ArchitectureView = memo(function ArchitectureView({
   const hasContent = (hasArchitecture && architectureContent) || !!capabilities;
   if (hasContent) {
     return (
-      <Suspense
-        fallback={
-          <div className="flex-1 flex items-center justify-center">
-            <Loader2 className="h-6 w-6 animate-spin text-primary" />
+      <div className="relative flex flex-1 min-h-0">
+        <Suspense
+          fallback={
+            <div className="flex-1 flex items-center justify-center">
+              <Loader2 className="h-6 w-6 animate-spin text-primary" />
+            </div>
+          }
+        >
+          <PlatformDiagram
+            content={hasArchitecture ? architectureContent : null}
+            capabilities={capabilities ?? null}
+            deployedResources={deployedResources}
+            projectId={projectId}
+          />
+        </Suspense>
+        {/* Reload spinner: the agent rewrote architecture.md and we're
+            re-fetching it from disk. */}
+        {architectureReloading && (
+          <div className="pointer-events-none absolute inset-0 z-20 flex items-start justify-center bg-background/40 pt-6">
+            <div className="pointer-events-auto flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5 text-[12px] font-medium text-foreground shadow-md">
+              <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+              Updating diagram…
+            </div>
           </div>
-        }
-      >
-        <PlatformDiagram
-          content={hasArchitecture ? architectureContent : null}
-          capabilities={capabilities ?? null}
-          deployedResources={deployedResources}
-          projectId={projectId}
-        />
-      </Suspense>
+        )}
+      </div>
     );
   }
   if (isStreaming) {
@@ -751,6 +768,7 @@ export const FileViewer = memo(function FileViewer({
   activeTab: activeTabProp,
   onTabChange,
   files,
+  filesLoaded = false,
   selectedFile,
   fileContent,
   readmeContent,
@@ -763,6 +781,7 @@ export const FileViewer = memo(function FileViewer({
   onRefresh,
   isLoading = false,
   architectureContent,
+  architectureReloading,
   onLoadArchitecture,
   isCreatingArchitecture = false,
   onCreateArchitecture,
@@ -827,8 +846,12 @@ export const FileViewer = memo(function FileViewer({
 
   // Auto-trigger generation if the user opens the Architecture tab and
   // no diagram exists yet (and the agent is idle so we don't stomp work).
+  // IMPORTANT: gate on filesLoaded — before the file list loads, `files` is
+  // empty so hasArchitecture is a false negative, which would ask the agent to
+  // create architecture.md even when it already exists.
   useEffect(() => {
     if (
+      filesLoaded &&
       activeTab === "architecture" &&
       !hasArchitecture &&
       !isCreatingArchitecture &&
@@ -837,7 +860,7 @@ export const FileViewer = memo(function FileViewer({
     ) {
       onCreateArchitecture();
     }
-  }, [activeTab, hasArchitecture, isCreatingArchitecture, isStreaming, onCreateArchitecture]);
+  }, [filesLoaded, activeTab, hasArchitecture, isCreatingArchitecture, isStreaming, onCreateArchitecture]);
 
   // Check if file is renderable (markdown, HTML, or PDF)
   const isMarkdown = selectedFile?.endsWith(".md");
@@ -918,6 +941,7 @@ export const FileViewer = memo(function FileViewer({
           ) : activeTab === "architecture" ? (
             <ArchitectureView
               architectureContent={architectureContent ?? null}
+              architectureReloading={architectureReloading}
               hasArchitecture={hasArchitecture}
               isCreatingArchitecture={isCreatingArchitecture}
               isStreaming={isStreaming}

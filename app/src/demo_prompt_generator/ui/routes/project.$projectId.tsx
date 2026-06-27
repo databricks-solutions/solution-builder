@@ -208,11 +208,18 @@ function ProjectPage() {
   const [project, setProject] = useState<Project | null>(null);
   const [projectNotFound, setProjectNotFound] = useState(false);
   const [files, setFiles] = useState<ProjectFile[]>([]);
+  // True once the initial file list has loaded — guards the architecture
+  // auto-generate from firing on the empty pre-load list (which made it ask the
+  // agent to create architecture.md even when the file already exists).
+  const [filesLoaded, setFilesLoaded] = useState(false);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [fileContent, setFileContent] = useState<ProjectFileContent | null>(null);
   const [isLoadingFile, setIsLoadingFile] = useState(false);
   const [fileContentKey, setFileContentKey] = useState(0);
   const [architectureContent, setArchitectureContent] = useState<string | null>(null);
+  // True while re-fetching architecture.md after a watcher file_changed (agent
+  // rewrote it) — drives a reload spinner over the diagram.
+  const [architectureReloading, setArchitectureReloading] = useState(false);
   const [isCreatingArchitecture, setIsCreatingArchitecture] = useState(false);
   const [isPackagingDAB, setIsPackagingDAB] = useState(false);
   const [deployedResources, setDeployedResources] = useState<DeployedResources | null>(null);
@@ -498,6 +505,7 @@ function ProjectPage() {
 
         setProject(proj);
         setFiles(fileList);
+        setFilesLoaded(true);
         setMessages(msgs);
         applyDeployedResources(deployed);
 
@@ -739,6 +747,11 @@ function ProjectPage() {
             // landed). Debounced so a burst of writes coalesces.
             if (event.path === "resources.json") {
               debouncedRefreshDeployed();
+            }
+            // Agent rewrote the architecture — reload the diagram from disk
+            // (with a spinner). Only acts if the tab was already loaded.
+            if (event.path === "architecture.md") {
+              reloadArchitectureRef.current();
             }
             if (selectedFileRef.current === event.path) {
               setFileContentKey((k) => k + 1);
@@ -1047,6 +1060,9 @@ function ProjectPage() {
           if (event.path === "resources.json") {
             debouncedRefreshDeployed();
           }
+          if (event.path === "architecture.md") {
+            reloadArchitectureRef.current();
+          }
           if (selectedFileRef.current === event.path) {
             setFileContentKey((k) => k + 1);
           }
@@ -1283,6 +1299,28 @@ function ProjectPage() {
       console.error("Failed to load architecture:", error);
     }
   }, [projectId, architectureContent]);
+
+  // Re-fetch architecture.md from disk after the watcher reports it changed
+  // (the agent rewrote it). Only when it's already loaded — no point fetching a
+  // tab the user never opened. Shows a spinner over the diagram during reload.
+  const architectureLoadedRef = useRef(false);
+  useEffect(() => { architectureLoadedRef.current = architectureContent !== null; }, [architectureContent]);
+  const reloadArchitecture = useCallback(async () => {
+    if (!architectureLoadedRef.current) return;
+    setArchitectureReloading(true);
+    try {
+      const content = await getProjectFile(projectId, "architecture.md");
+      setArchitectureContent(content.content);
+    } catch (error) {
+      console.error("Failed to reload architecture:", error);
+    } finally {
+      setArchitectureReloading(false);
+    }
+  }, [projectId]);
+  // Ref so the SSE file_changed handlers (declared earlier) can call the latest
+  // reload without a dependency-ordering hazard.
+  const reloadArchitectureRef = useRef(reloadArchitecture);
+  reloadArchitectureRef.current = reloadArchitecture;
 
   // Handle creating architecture - send message to agent
   const handleCreateArchitecture = useCallback(() => {
@@ -1902,6 +1940,7 @@ function ProjectPage() {
             activeTab={activeTab}
             onTabChange={setActiveTab}
             files={files}
+            filesLoaded={filesLoaded}
             selectedFile={selectedFile}
             fileContent={fileContent}
             readmeContent={readmeContent}
@@ -1916,6 +1955,7 @@ function ProjectPage() {
             onRefresh={handleRefresh}
             isLoading={isLoadingFile}
             architectureContent={architectureContent}
+            architectureReloading={architectureReloading}
             onLoadArchitecture={handleLoadArchitecture}
             isCreatingArchitecture={isCreatingArchitecture}
             onCreateArchitecture={handleCreateArchitecture}

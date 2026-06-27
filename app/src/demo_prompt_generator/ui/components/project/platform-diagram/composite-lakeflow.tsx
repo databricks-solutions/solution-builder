@@ -39,6 +39,8 @@ export const PORT_FRAC: Record<string, number> = Object.fromEntries(
  *  anchors there directly (no fan spread). Returns null for normal handles. */
 export function portAnchor(handleId: string | null | undefined): { side: Side; frac: number } | null {
   if (handleId && handleId in PORT_FRAC) return { side: "l", frac: PORT_FRAC[handleId] };
+  // Bottom-left anchor (under the files zone): bottom side, near the left edge.
+  if (handleId === "bl") return { side: "b", frac: 0.08 };
   return null;
 }
 
@@ -61,7 +63,7 @@ function IngestBox({ icon, iconEl, label, bandColor, first }: { icon?: Databrick
   const Icon = icon ? DATABRICKS_ICONS[icon] || DATABRICKS_ICONS.data : null;
   return (
     <div
-      className={`flex flex-1 flex-row items-center justify-center gap-1 ${first ? "" : "border-t"}`}
+      className={`flex flex-1 flex-row items-center justify-center gap-1 px-1 py-2 ${first ? "" : "border-t"}`}
       style={{ borderColor: `${bandColor}33`, background: `${bandColor}12` }}
     >
       {label && (
@@ -82,8 +84,11 @@ function IngestBox({ icon, iconEl, label, bandColor, first }: { icon?: Databrick
  *  layer color, with the layer name underneath. */
 export function DbTable({ label, color }: { label: string; color: string }) {
   return (
-    <div className="flex flex-col items-center justify-end gap-[1px]">
-      <svg viewBox="0 0 24 28" className="w-auto" preserveAspectRatio="xMidYMax meet" style={{ height: 26, overflow: "visible" }}>
+    <div className="flex h-full min-h-0 flex-col items-center justify-center gap-[2px]">
+      {/* Grows with the block, but capped so the cylinders don't get so tall
+          they widen past each other (aspect-locked SVG). Past the cap they
+          just sit centered in the extra space. */}
+      <svg viewBox="0 0 24 28" className="min-h-0 w-auto flex-1" preserveAspectRatio="xMidYMid meet" style={{ maxHeight: 48, overflow: "visible" }}>
         {/* body */}
         <path d="M2 5 V21 a10 4 0 0 0 20 0 V5" fill={`${color}26`} stroke={color} strokeWidth="1.4" strokeLinejoin="round" />
         {/* inner data bands */}
@@ -103,10 +108,10 @@ export function DbTable({ label, color }: { label: string; color: string }) {
  *  light connector bar between each (the medallion flow). */
 export function MedallionRow() {
   return (
-    <div className="flex items-center justify-center gap-[2px]">
+    <div className="flex min-h-0 flex-1 items-stretch justify-center gap-[2px]">
       {MEDALLION.map((m, i) => (
         <Fragment key={m.label}>
-          {i > 0 && <span className="h-[2px] w-3 shrink-0 rounded-full bg-muted-foreground/25" />}
+          {i > 0 && <span className="my-auto h-[2px] w-3 shrink-0 rounded-full bg-muted-foreground/25" />}
           <DbTable label={m.label} color={m.color} />
         </Fragment>
       ))}
@@ -150,6 +155,11 @@ export const LakeflowBlock = memo(function LakeflowBlock({ data, selected }: Nod
                 isConnectable={show} className={cls} style={{ top: `${p.frac * 100}%` }} />
             ))}
             <Handle type="source" position={Position.Right} id="r" isConnectable={show} className={cls} />
+            {/* Extra anchors: top-center, bottom-center, and bottom-left (under
+                the files zone, ~center of the 36px left rail). */}
+            <Handle type="source" position={Position.Top} id="t" isConnectable={show} className={cls} />
+            <Handle type="source" position={Position.Bottom} id="b" isConnectable={show} className={cls} />
+            <Handle type="source" position={Position.Bottom} id="bl" isConnectable={show} className={cls} style={{ left: 18 }} />
           </>
         );
       })()}
@@ -174,19 +184,20 @@ export const LakeflowBlock = memo(function LakeflowBlock({ data, selected }: Nod
           </div>
 
           {/* RIGHT: title + SDP tables + Open Format underneath them. */}
-          <div className="flex flex-1 flex-col p-2.5">
-            <div className="mb-1.5 flex items-center gap-1.5">
+          <div className="flex min-h-0 flex-1 flex-col p-2.5">
+            <div className="mb-1.5 flex shrink-0 items-center gap-1.5">
               <span className="text-[12px] font-bold text-foreground">{d.component.label}</span>
             </div>
-            <div className="flex flex-1 flex-col rounded-lg border border-border/60 bg-background/60 p-2">
-              <div className="mb-1.5 flex items-center gap-1.5">
+            <div className="flex min-h-0 flex-1 flex-col rounded-lg border border-border/60 bg-background/60 p-2">
+              <div className="mb-1.5 flex shrink-0 items-center gap-1.5">
                 {(() => { const I = DATABRICKS_ICONS.sdpBrand; return <I className="h-4 w-4 shrink-0" />; })()}
                 <span className="truncate text-[9.5px] font-bold leading-tight text-foreground">Spark Declarative Pipelines</span>
               </div>
+              {/* Medallion grows to absorb extra height on resize. */}
               <MedallionRow />
 
-              {/* Open Format — under the tables to save height. Logos only. */}
-              <div className="mt-1.5 flex items-center gap-2 border-t border-border/60 pt-1.5">
+              {/* Open Format — fixed small height, stays put as the block grows. */}
+              <div className="mt-1.5 flex shrink-0 items-center gap-2 border-t border-border/60 pt-1.5">
                 <span className="text-[8px] font-semibold uppercase tracking-wider text-muted-foreground">Open Format</span>
                 {(() => { const I = DATABRICKS_ICONS.deltaLakeLogo; return <I className="h-3.5 w-3.5" />; })()}
                 {(() => { const I = DATABRICKS_ICONS.icebergLogo; return <I className="h-3.5 w-3.5" />; })()}
