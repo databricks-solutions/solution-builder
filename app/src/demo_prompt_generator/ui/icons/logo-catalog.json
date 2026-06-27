@@ -46,6 +46,7 @@
   "dropbox": { "trademark": true, "source": true },
   "github": { "trademark": true, "source": true },
   "glean": { "trademark": true, "source": true },
+  "zeroops": { "trademark": false, "oss": true, "source": false },
   "microsoft-sql-server": { "trademark": true, "oss": true, "source": true },
   "airbyte": { "oss": true, "trademark": false, "source": true },
   "trino": { "oss": true, "trademark": false, "source": true },

@@ -209,32 +209,36 @@ export function InputDataIcon(props: IconProps) {
 }
 
 // Knowledge Assistant icon
+// Knowledge Assistant — the Databricks "agent" glyph (person + spark) with a
+// small PDF/document badge (what it reads / grounds answers on).
 export function KnowledgeAssistantIcon(props: IconProps) {
   return (
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" {...props}>
-      {/* Book shape */}
-      <path d="M2 2.5A1.5 1.5 0 0 1 3.5 1h9A1.5 1.5 0 0 1 14 2.5v11a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 13.5v-11z" stroke="currentColor" strokeWidth="1.5" fill="none" />
-      {/* Spine */}
-      <path d="M5.5 1v14" stroke="currentColor" strokeWidth="1.5" />
-      {/* Sparkle */}
-      <path d="M10 5l.5 1 1 .5-1 .5-.5 1-.5-1-1-.5 1-.5.5-1z" fill="currentColor" />
+      {/* agent base (exact) */}
+      <path fill="currentColor" d="M8 1c.664 0 1.282.2 1.797.542l-.014.072-.062.357-.357.062c-.402.07-.765.245-1.06.493a1.75 1.75 0 1 0 0 3.447c.295.25.658.424 1.06.494l.357.062.062.357.014.072A3.25 3.25 0 1 1 8 1" />
+      <path fill="currentColor" d="M9.59 4.983A.75.75 0 0 1 9.62 3.51l.877-.152a.75.75 0 0 0 .61-.61l.153-.878a.75.75 0 0 1 1.478 0l.152.877a.75.75 0 0 0 .61.61l.878.153a.75.75 0 0 1 0 1.478l-.877.152a.75.75 0 0 0-.61.61l-.153.878a.75.75 0 0 1-1.478 0l-.152-.877a.75.75 0 0 0-.61-.61l-.878-.153z" />
+      <path fill="currentColor" fillRule="evenodd" d="M1.164 12.287A8.74 8.74 0 0 1 8 9a8.74 8.74 0 0 1 6.836 3.287.75.75 0 0 1 .164.469v1.494a.75.75 0 0 1-.75.75H1.75a.75.75 0 0 1-.75-.75v-1.494a.75.75 0 0 1 .164-.469m1.336.74v.473h11v-.474A7.23 7.23 0 0 0 8 10.5c-2.2 0-4.17.978-5.5 2.526" clipRule="evenodd" />
+      {/* small PDF/document badge, bottom-right */}
+      <rect x="10.4" y="9.2" width="4.6" height="5.6" rx="0.7" fill="currentColor" />
+      <path d="M11.5 11h2.4M11.5 12.4h2.4M11.5 13.8h1.4" stroke="var(--background, #fff)" strokeWidth="0.7" strokeLinecap="round" />
     </svg>
   );
 }
 
-// Multi-Agent Supervisor icon
+// Multi-Agent Supervisor — the "agent" glyph (person + spark) with small
+// connection dots around the head (it orchestrates multiple agents).
 export function MultiAgentSupervisorIcon(props: IconProps) {
   return (
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" {...props}>
-      {/* Central hub */}
-      <circle cx="8" cy="8" r="2" stroke="currentColor" strokeWidth="1.5" fill="none" />
-      {/* Agent nodes */}
-      <circle cx="8" cy="2.5" r="1.5" fill="currentColor" />
-      <circle cx="2.5" cy="8" r="1.5" fill="currentColor" />
-      <circle cx="13.5" cy="8" r="1.5" fill="currentColor" />
-      <circle cx="8" cy="13.5" r="1.5" fill="currentColor" />
-      {/* Connecting lines */}
-      <path d="M8 4v2M8 10v2M6 8H4M10 8h2" stroke="currentColor" strokeWidth="1" />
+      {/* agent base (exact) */}
+      <path fill="currentColor" d="M8 1c.664 0 1.282.2 1.797.542l-.014.072-.062.357-.357.062c-.402.07-.765.245-1.06.493a1.75 1.75 0 1 0 0 3.447c.295.25.658.424 1.06.494l.357.062.062.357.014.072A3.25 3.25 0 1 1 8 1" />
+      <path fill="currentColor" d="M9.59 4.983A.75.75 0 0 1 9.62 3.51l.877-.152a.75.75 0 0 0 .61-.61l.153-.878a.75.75 0 0 1 1.478 0l.152.877a.75.75 0 0 0 .61.61l.878.153a.75.75 0 0 1 0 1.478l-.877.152a.75.75 0 0 0-.61.61l-.153.878a.75.75 0 0 1-1.478 0l-.152-.877a.75.75 0 0 0-.61-.61l-.878-.153z" />
+      <path fill="currentColor" fillRule="evenodd" d="M1.164 12.287A8.74 8.74 0 0 1 8 9a8.74 8.74 0 0 1 6.836 3.287.75.75 0 0 1 .164.469v1.494a.75.75 0 0 1-.75.75H1.75a.75.75 0 0 1-.75-.75v-1.494a.75.75 0 0 1 .164-.469m1.336.74v.473h11v-.474A7.23 7.23 0 0 0 8 10.5c-2.2 0-4.17.978-5.5 2.526" clipRule="evenodd" />
+      {/* small connection dots around the head (orchestrated agents) */}
+      <circle cx="2.4" cy="3" r="1" fill="currentColor" />
+      <circle cx="13.6" cy="6.4" r="1" fill="currentColor" />
+      <circle cx="3.2" cy="7.2" r="1" fill="currentColor" />
+      <path d="M3.3 3.5 5.4 5M12.7 6.2 10 5.4M4.1 6.9 5.4 6" stroke="currentColor" strokeWidth="0.7" strokeLinecap="round" opacity="0.7" />
     </svg>
   );
 }
