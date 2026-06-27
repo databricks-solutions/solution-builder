@@ -158,7 +158,8 @@ type StylePatch = {
 const ComponentNode = memo(function ComponentNode({ data, selected }: NodeProps) {
   const d = data as NodeData;
   const { component: c, bandColor } = d;
-  const live = !!d.deepLink;
+  // Lakebase is app state, not a user-facing live surface — no "live" dot.
+  const live = !!d.deepLink && c.id !== "lakebase";
   const muted = c.state === "mentioned";
   // Lit up when a dragged edge endpoint is hovering this tile (magnet).
   const isDropTarget = useContext(DropTargetContext) === d.nodeId;

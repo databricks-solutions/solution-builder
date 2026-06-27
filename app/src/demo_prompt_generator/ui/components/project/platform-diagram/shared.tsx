@@ -70,7 +70,7 @@ export function nodeTypeFor(c: PlatformComponent): string {
  *  rotated edges (not the original box). */
 export function baseSize(c: PlatformComponent): { w: number; h: number } {
   if (c.kind === "lakeflow") return { w: 224, h: 148 }; // composite super-block
-  if (c.kind === "genie-code") return { w: 360, h: 128 }; // wide "built with Genie Code" strip
+  if (c.kind === "genie-code") return { w: 360, h: 112 }; // wide "built with Genie Code" strip
   if (c.id === "sdp") return { w: 230, h: 112 };
   // A sub-line + (optional) badge needs a slightly wider, taller tile.
   if (c.sublabel) return { w: 230, h: 70 };
@@ -106,6 +106,8 @@ function SideResizeGrip({
   onResize: (w: number, h: number) => void;
 }) {
   const horizontal = position === "left" || position === "right";
+  const w = horizontal ? 18 : 12;
+  const h = horizontal ? 12 : 18;
   return (
     <NodeResizeControl
       position={position}
@@ -113,16 +115,21 @@ function SideResizeGrip({
       minHeight={minH}
       onResize={(_, p) => onResize(p.width, p.height)}
       onResizeEnd={(_, p) => { const snap = (v: number) => Math.round(v / 16) * 16; onResize(snap(p.width), snap(p.height)); }}
-      // Hide the library's default square; our grip below is the visual.
-      style={{ background: "transparent", border: "none" }}
+      // The `.handle.<side>` CSS already anchors the control at the edge midpoint
+      // and applies `translate:-50% -50%`, so the control box (sized to our pill)
+      // is centred on the edge. We only neutralise the default 5px square's
+      // background/border and let the pill itself BE the box — no extra transform.
+      style={{ background: "transparent", border: "none", width: w, height: h }}
     >
       <span
-        className="grid place-items-center rounded-[3px] border border-primary bg-background shadow-sm"
-        style={{ width: horizontal ? 18 : 12, height: horizontal ? 12 : 18, cursor: horizontal ? "ew-resize" : "ns-resize" }}
+        className="grid h-full w-full place-items-center rounded-[3px] border border-primary bg-background shadow-sm"
+        style={{ cursor: horizontal ? "ew-resize" : "ns-resize" }}
       >
-        {/* square viewBox + square box so the 90° rotation stays centered */}
-        <svg viewBox="-8 -8 16 16" className={`h-3.5 w-3.5 ${horizontal ? "" : "rotate-90"}`}>
-          <path d="M-4 0 L-1.5 -2.2 M-4 0 L-1.5 2.2 M4 0 L1.5 -2.2 M4 0 L1.5 2.2 M-4 0 H4" stroke="var(--primary)" strokeWidth={1.4} fill="none" strokeLinecap="round" />
+        {/* `block` kills the inline-SVG baseline descender gap (was pushing the
+            arrow a couple px off-centre); square viewBox keeps the 90° rotation
+            centred about (0,0). */}
+        <svg viewBox="-8 -8 16 16" className={`block h-2.5 w-2.5 ${horizontal ? "" : "rotate-90"}`}>
+          <path d="M-4 0 L-1.5 -2.2 M-4 0 L-1.5 2.2 M4 0 L1.5 -2.2 M4 0 L1.5 2.2 M-4 0 H4" stroke="var(--primary)" strokeWidth={1.6} fill="none" strokeLinecap="round" />
         </svg>
       </span>
     </NodeResizeControl>

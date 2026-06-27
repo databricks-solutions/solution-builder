@@ -98,7 +98,7 @@ export const GenieCodeBlock = memo(function GenieCodeBlock({ data, selected }: N
             <GenieCode className="h-5 w-5 shrink-0" />
             <span className="flex min-w-0 flex-col leading-tight">
               <span className="text-[12px] font-bold text-foreground">{d.component.label || "Built with Genie Code"}</span>
-              <span className="truncate text-[8.5px] text-muted-foreground">Tell genie what to do, it'll build it for you</span>
+              <span className="truncate text-[8.5px] text-muted-foreground">Tell genie what to do, it'll build it for you and maintain it</span>
             </span>
             {/* ZeroOps wordmark, top-right */}
             <FileSvgIcon iconKey="file:vendor/zeroops" className="ml-auto h-3.5 w-auto shrink-0" />
