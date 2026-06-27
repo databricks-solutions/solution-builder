@@ -69,6 +69,16 @@ export interface EdgeData {
   centerX?: number;
 }
 
+/** A per-node style patch from the right-click menu (applied to 1 or many). */
+export type StylePatch = {
+  opacity?: number;
+  fillColor?: string;
+  fontColor?: string;
+  borderWidth?: number;
+  borderStyle?: "solid" | "dashed";
+  borderColor?: string;
+};
+
 /** Node id currently under a dragged endpoint (magnet highlight). */
 export const DropTargetContext = createContext<string | null>(null);
 
