@@ -190,9 +190,10 @@ export interface PlatformEdge {
   dashed?: boolean;
   /** Routing shape. */
   shape?: "smooth" | "straight" | "step";
-  /** Flowing-data animation style: a single dot (default), streaming particles
-   *  (dots + red squares), or moving documents. */
-  flowStyle?: "dot" | "particles" | "docs";
+  /** Flowing-data animation style. Unset → auto-derived from the source's
+   *  ingest (zerobus → particles, direct → docs, else laser). An explicit
+   *  value overrides that default. */
+  flowStyle?: "dot" | "particles" | "docs" | "laser";
   /** Manual X of the vertical elbow segment (smooth/step edges). Unset → the
    *  auto-staggered position. Set by dragging the ↔ handle on the segment. */
   centerX?: number;

@@ -144,6 +144,7 @@ import {
   Circle,
   Sparkles,
   FileText,
+  Wand2,
 } from "lucide-react";
 
 /** A per-node style patch from the right-click menu (applied to 1 or many). */
@@ -297,7 +298,7 @@ const FlowEdge = memo(function FlowEdge(props: EdgeProps) {
   const sNode = useInternalNode(source);
   const tNode = useInternalNode(target);
   const ops = useContext(EdgeOpsContext);
-  const d = data as { animated?: boolean; shape?: "smooth" | "straight" | "step"; flowStyle?: "dot" | "particles" | "docs"; centerX?: number } | undefined;
+  const d = data as { animated?: boolean; shape?: "smooth" | "straight" | "step"; flowStyle?: "dot" | "particles" | "docs" | "laser"; centerX?: number } | undefined;
 
   // For fan-out: among all edges sharing this edge's (node, side) anchor, find
   // this edge's index + the group size, so we can spread them along the side.
@@ -548,12 +549,32 @@ const FlowEdge = memo(function FlowEdge(props: EdgeProps) {
 
   // The flowing-data animation: a single dot (default), streaming particles
   // (dots + red squares), or moving documents.
-  const flowStyle = d?.flowStyle ?? "dot";
+  // Flow style: an explicit user choice wins; otherwise it's derived from the
+  // SOURCE node's ingest dynamically — zerobus → particles, direct → docs,
+  // everything else (DB/SaaS connectors) → laser.
+  const srcIngest = (sNode?.data as { component?: { ingest?: string } } | undefined)?.component?.ingest;
+  const autoStyle: "particles" | "docs" | "laser" =
+    srcIngest === "zerobus" ? "particles" : srcIngest === "direct" ? "docs" : "laser";
+  const flowStyle = d?.flowStyle ?? autoStyle;
   const flowing = d?.animated && !drag && centerDrag === null;
+
+  // The base line + arrow are styled by the RESOLVED flowStyle (which may be
+  // auto-derived). When the animation is ON: particles/laser ARE the line
+  // (transparent base, no arrow); docs ride a faint line; dot keeps the grey
+  // line. When flow is OFF, always show the normal grey line so the edge reads.
+  const beamish = flowing && (flowStyle === "particles" || flowStyle === "laser");
+  const baseStyle = !flowing
+    ? { ...style, stroke: "var(--muted-foreground)", opacity: 0.55 }
+    : beamish
+      ? { ...style, stroke: "transparent" as const, opacity: 1 }
+      : flowStyle === "docs"
+        ? { ...style, stroke: "var(--muted-foreground)", strokeWidth: 1, opacity: 0.3 }
+        : { ...style, stroke: "var(--muted-foreground)", opacity: 0.55 };
+  const showArrow = !beamish;
 
   return (
     <>
-      <BaseEdge path={path} markerEnd={markerEnd} style={style} interactionWidth={24} />
+      <BaseEdge path={path} markerEnd={showArrow ? markerEnd : undefined} style={baseStyle} interactionWidth={24} />
       {flowing && <EdgeFlow key={path} style={flowStyle} path={path} />}
 
       {/* ↔ handle to drag the vertical elbow left/right (hover or select). */}
@@ -579,11 +600,13 @@ const FlowEdge = memo(function FlowEdge(props: EdgeProps) {
   );
 });
 
-/** Flowing-data animation along an edge path. Three styles:
+/** Flowing-data animation along an edge path. Styles:
  *   dot       — a single glowing dot (the original).
- *   particles — several small dots + red squares streaming (sensor/stream data).
- *   docs       — small document glyphs moving along (file ingest). */
-function EdgeFlow({ style, path }: { style: "dot" | "particles" | "docs"; path: string }) {
+ *   particles — a dense red "river" of cubes/circles/triangles (streaming data).
+ *   docs       — small document glyphs moving along (file ingest).
+ *   laser      — a futuristic pulsing red beam with a bright streak racing along
+ *                (DB / SaaS connector data). */
+function EdgeFlow({ style, path }: { style: "dot" | "particles" | "docs" | "laser"; path: string }) {
   if (style === "dot") {
     return (
       <circle r="3.5" fill="var(--primary)" style={{ filter: "drop-shadow(0 0 4px var(--primary))" }}>
@@ -591,30 +614,56 @@ function EdgeFlow({ style, path }: { style: "dot" | "particles" | "docs"; path: 
       </circle>
     );
   }
+  if (style === "laser") {
+    // A clean energy beam: a steady soft red glow wire (no pulsing), with
+    // bright tapered "current" streaks gliding smoothly along it at a constant
+    // rate — like light travelling a fibre. No discrete dots, no breathing.
+    const RED = "#EF5B3F";
+    return (
+      <>
+        {/* steady soft glow underlay */}
+        <path d={path} fill="none" stroke={RED} strokeWidth={3.5} strokeLinecap="round" opacity={0.22} style={{ filter: `blur(1.5px)` }} />
+        {/* steady thin core */}
+        <path d={path} fill="none" stroke={RED} strokeWidth={1.4} strokeLinecap="round" opacity={0.5} />
+        {/* two bright streaks sweeping along (offset so the current feels
+            continuous). A long gap keeps one visible streak per pass. */}
+        {[0, 1].map((k) => (
+          <path key={k} d={path} fill="none" stroke="#FFD9CE" strokeWidth={2} strokeLinecap="round"
+            strokeDasharray="22 200" opacity={0.95} style={{ filter: `drop-shadow(0 0 3px ${RED})` }}>
+            <animate attributeName="stroke-dashoffset" values="222;0" dur="1.8s" begin={`${-k * 0.9}s`} repeatCount="indefinite" />
+          </path>
+        ))}
+      </>
+    );
+  }
   if (style === "particles") {
-    // A dense, slow "river" of records: many small cubes + circles packed close
-    // together so they read as a flowing stream that forms the line. Each one
-    // rides the path (animateMotion) AND sways gently perpendicular to it (an
-    // inner translate oscillation, phase-varied) so it ripples like water.
-    const N = 18;
+    // A dense, slow "river" of records: many small Databricks-red cubes,
+    // circles and triangles packed along the path (they ARE the line — no
+    // underlying stroke). Each rides the path and sways perpendicular so the
+    // stream ripples. Variety (shape / size / amplitude) is index-driven with
+    // mixed strides so it reads as irregular rather than periodic.
+    const N = 22;
     const DUR = 5; // seconds for a full traverse — slow
+    const RED = "#EF5B3F";
     return (
       <>
         {Array.from({ length: N }).map((_, i) => {
-          const begin = `${-(i * DUR) / N}s`;       // negative begins = already spread along the path
-          const cube = i % 2 === 0;
-          const sz = 1.6 + (i % 3) * 0.5;            // slight size variation
-          const sway = 1.6 + (i % 4) * 0.4;          // perpendicular amplitude
-          const swayDur = 1 + (i % 5) * 0.18;        // varied wobble speed
-          const phase = `${-(i % 7) * 0.13}s`;
+          const begin = `${-(i * DUR) / N}s`;          // pre-spread along the path
+          const shape = (i * 3) % 7 < 3 ? "cube" : (i * 3) % 7 < 5 ? "circle" : "tri"; // ~irregular mix
+          const sz = 1.3 + ((i * 7) % 5) * 0.55;        // 1.3–3.5, varied
+          const sway = 1.4 + ((i * 5) % 6) * 0.55;      // perpendicular amplitude
+          const swayDur = 0.9 + ((i * 11) % 7) * 0.16;  // varied wobble speed
+          const phase = `${-((i * 13) % 9) * 0.12}s`;
+          const op = 0.7 + ((i * 3) % 4) * 0.1;
           return (
             <g key={i}>
-              {/* inner sway (perpendicular ripple) */}
               <g>
-                {cube ? (
-                  <rect x={-sz} y={-sz} width={sz * 2} height={sz * 2} rx={0.5} fill="#EF5B3F" opacity={0.85} />
+                {shape === "cube" ? (
+                  <rect x={-sz} y={-sz} width={sz * 2} height={sz * 2} rx={0.5} fill={RED} opacity={op} />
+                ) : shape === "circle" ? (
+                  <circle r={sz} fill={RED} opacity={op} />
                 ) : (
-                  <circle r={sz} fill="var(--primary)" opacity={0.85} />
+                  <path d={`M0 ${-sz * 1.2} L${sz * 1.1} ${sz} L${-sz * 1.1} ${sz} Z`} fill={RED} opacity={op} />
                 )}
                 <animateTransform attributeName="transform" type="translate" values={`0 ${-sway};0 ${sway};0 ${-sway}`} dur={`${swayDur}s`} begin={phase} repeatCount="indefinite" additive="sum" />
               </g>
@@ -1048,14 +1097,14 @@ function flowToEdge(e: PlatformEdge): Edge {
     sourceHandle: e.sourceHandle ?? "r",
     targetHandle: e.targetHandle ?? "l",
     type: "flow",
-    data: { animated: e.animated ?? false, dashed: e.dashed ?? false, shape: e.shape ?? "smooth", flowStyle: e.flowStyle ?? "dot", centerX: e.centerX },
+    data: { animated: e.animated ?? false, dashed: e.dashed ?? false, shape: e.shape ?? "smooth", flowStyle: e.flowStyle, centerX: e.centerX },
     label: e.label,
+    // FlowEdge derives the visible stroke + arrow from the (possibly
+    // auto-resolved) flowStyle; this is just the base.
     style: {
       stroke: "var(--muted-foreground)",
-      // Particle / document flows ride on a very light line so the moving
-      // glyphs are the focus.
-      strokeWidth: e.flowStyle === "particles" || e.flowStyle === "docs" ? 1 : 1.5,
-      opacity: e.flowStyle === "particles" || e.flowStyle === "docs" ? 0.3 : 0.55,
+      strokeWidth: 1.5,
+      opacity: 0.55,
       ...(e.dashed ? { strokeDasharray: "5 4" } : {}),
     },
     markerEnd: "url(#arrow)",
@@ -1280,7 +1329,7 @@ const ContextMenu = memo(function ContextMenu({
   onToggleFlow: () => void;
   onToggleDashed: () => void;
   onSetShape: (s: "smooth" | "straight" | "step") => void;
-  onSetFlowStyle: (s: "dot" | "particles" | "docs") => void;
+  onSetFlowStyle: (s: "dot" | "particles" | "docs" | "laser" | undefined) => void;
   onRemoveEdge: () => void;
   onAnno: (patch: Partial<AnnotationData>) => void;
   onPickLogo: () => void;
@@ -1292,7 +1341,7 @@ const ContextMenu = memo(function ContextMenu({
   onStyle: (patch: { opacity?: number; fillColor?: string; fontColor?: string }) => void;
   onZ: (dir: "front" | "back") => void;
 }) {
-  const ed = edge?.data as { animated?: boolean; dashed?: boolean; shape?: string; flowStyle?: "dot" | "particles" | "docs" } | undefined;
+  const ed = edge?.data as { animated?: boolean; dashed?: boolean; shape?: string; flowStyle?: "dot" | "particles" | "docs" | "laser" } | undefined;
   const Item = ({ icon, label, onClick, active }: { icon: React.ReactNode; label: string; onClick: () => void; active?: boolean }) => (
     <button
       type="button"
@@ -1373,7 +1422,9 @@ const ContextMenu = memo(function ContextMenu({
             <Item icon={<Minus className="h-3.5 w-3.5" />} label="Dashed line" onClick={onToggleDashed} active={!!ed?.dashed} />
             <div className="my-1 border-t border-border/60" />
             <div className="px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Flow style</div>
-            <Item icon={<Circle className="h-3 w-3" />} label="Dot" onClick={() => onSetFlowStyle("dot")} active={(ed?.flowStyle ?? "dot") === "dot"} />
+            <Item icon={<Wand2 className="h-3.5 w-3.5" />} label="Auto (by source)" onClick={() => onSetFlowStyle(undefined)} active={ed?.flowStyle == null} />
+            <Item icon={<Circle className="h-3 w-3" />} label="Dot" onClick={() => onSetFlowStyle("dot")} active={ed?.flowStyle === "dot"} />
+            <Item icon={<Zap className="h-3.5 w-3.5" />} label="Plasma laser" onClick={() => onSetFlowStyle("laser")} active={ed?.flowStyle === "laser"} />
             <Item icon={<Sparkles className="h-3.5 w-3.5" />} label="Particles (data)" onClick={() => onSetFlowStyle("particles")} active={ed?.flowStyle === "particles"} />
             <Item icon={<FileText className="h-3.5 w-3.5" />} label="Documents" onClick={() => onSetFlowStyle("docs")} active={ed?.flowStyle === "docs"} />
             <div className="my-1 border-t border-border/60" />
@@ -1604,7 +1655,7 @@ function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasProps) {
       const placed = new Set(nds.map((n) => baseId(n.id)));
       const hidden = [...componentLookup(schema).keys()].filter((id) => !placed.has(id));
       const layoutEdges: PlatformEdge[] = eds.map((e) => {
-        const ed = e.data as { animated?: boolean; dashed?: boolean; shape?: "smooth" | "straight" | "step"; flowStyle?: "dot" | "particles" | "docs"; centerX?: number } | undefined;
+        const ed = e.data as { animated?: boolean; dashed?: boolean; shape?: "smooth" | "straight" | "step"; flowStyle?: "dot" | "particles" | "docs" | "laser"; centerX?: number } | undefined;
         return {
           id: e.id,
           source: e.source,
@@ -1614,7 +1665,7 @@ function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasProps) {
           animated: ed?.animated ?? false,
           dashed: ed?.dashed ?? false,
           shape: ed?.shape ?? "smooth",
-          ...(ed?.flowStyle && ed.flowStyle !== "dot" ? { flowStyle: ed.flowStyle } : {}),
+          ...(ed?.flowStyle ? { flowStyle: ed.flowStyle } : {}),
           ...(typeof ed?.centerX === "number" ? { centerX: ed.centerX } : {}),
           label: typeof e.label === "string" ? e.label : undefined,
         };
@@ -2175,17 +2226,11 @@ function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasProps) {
     [mutateEdge],
   );
 
+  // Set an explicit flow style (overrides the source-derived default), or pass
+  // undefined to clear back to "Auto". FlowEdge handles the visible styling.
   const setEdgeFlowStyle = useCallback(
-    (id: string, flowStyle: "dot" | "particles" | "docs") =>
-      mutateEdge(id, (e) => {
-        const light = flowStyle === "particles" || flowStyle === "docs";
-        return {
-          ...e,
-          // particles/docs ride a fainter line; turning on a style implies flow.
-          data: { ...e.data, flowStyle, animated: true },
-          style: { ...(e.style ?? {}), strokeWidth: light ? 1 : 1.5, opacity: light ? 0.3 : 0.55 },
-        };
-      }),
+    (id: string, flowStyle: "dot" | "particles" | "docs" | "laser" | undefined) =>
+      mutateEdge(id, (e) => ({ ...e, data: { ...e.data, flowStyle, animated: true } })),
     [mutateEdge],
   );
 
