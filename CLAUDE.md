@@ -50,7 +50,9 @@ industry-demo-prompts/
 │   │   │   └── preview/                  # Subprocess runner that spawns generated app's start.sh
 │   │   └── ui/                           # React 19 + TanStack Router + Tailwind v4
 │   │       ├── routes/                   # project.$projectId.tsx is the workspace
-│   │       └── preview/                  # Preview iframe + log streaming UI
+│   │       ├── preview/                  # Preview iframe + log streaming UI
+│   │       ├── lib/platform-architecture.ts  # Arch-diagram schema + file (de)serialize
+│   │       └── components/project/platform-diagram{.tsx,/}  # ★ ReactFlow arch-diagram editor (see below)
 │   ├── test/app_template_test/
 │   │   ├── app/                          # ★ Test fork of template (parallel-edit with template)
 │   │   └── src/                          # ★ Source-of-truth for THIS demo's Databricks assets
@@ -142,6 +144,29 @@ AppKit's server plugin defaults to `host=0.0.0.0`. In the prod Databricks Apps c
 Forcing the child to `127.0.0.1` turns that race into a hard `EADDRINUSE` at child start (`127.0.0.1:N` conflicts with `0.0.0.0:N` on bind). The child fails loudly, registry picks a new port, no silent shadowing. See the commit / comment in `registry.py:_do_start` for the full story.
 
 Same env in local dev — no behavior change there.
+
+## The architecture-diagram editor (`platform-diagram/`)
+
+The "Architecture" tab is a Lucidchart-style ReactFlow (`@xyflow/react`) editor for the demo's Databricks architecture. It reads/writes a `layout` block in the project's `architecture.md` and auto-saves (debounced) on every change. It used to be one 2600-line file; it's now a module DAG under `ui/components/project/platform-diagram/`:
+
+```
+platform-diagram.tsx                 # thin shell: PlatformDiagram (default export) + SaveChip + parse/deeplink/persist
+platform-diagram/
+├── canvas.tsx                       # ★ the stateful orchestrator (ReactFlow, panels, menu, drag-to-add)
+├── shared.tsx                       # NodeData/EdgeData/StylePatch/FlowStyle types, RotatableCard, SideResizeGrip, EditModeContext, footprint math
+├── edge-routing.ts                  # pure edge geometry (sides, fan-out, EdgeOps context)
+├── flow-mapping.ts                  # schema↔ReactFlow: schemaToFlow / flowToEdge / flowToLayout (the save round-trip)
+├── node-types.ts                    # nodeTypes + edgeTypes registries
+├── nodes/component-node.tsx         # the standard product/source tile
+├── edges/{flow-edge,edge-flow}.tsx  # custom edge + the animated flow overlay (dot/particles/docs/laser)
+├── panels/{detail-panel,library-palette}.tsx
+├── menus/context-menu.tsx           # right-click menus (node / edge / annotation) + style controls
+├── composite-{lakeflow,genie-code}.tsx  # the two rich composite node kinds
+├── annotations.tsx                  # free-form text/box/logo/image annotations + IconPicker
+└── hooks/{use-diagram-history,use-node-mutations,use-edge-mutations,use-paste-image}.ts
+```
+
+Dependency direction is a strict leaf→root DAG (shared/edge-routing → edge-flow/composites → component-node/flow-edge → node-types/flow-mapping/panels/menus → canvas → platform-diagram). `lib/platform-architecture.ts` is the **file-format** layer (string↔schema: `buildSchema`/`serializeArchitecture`/`seedEdges`); `flow-mapping.ts` is the **ReactFlow-binding** layer (schema↔`Node[]`/`Edge[]`). Keep them separate. The custom Canvas hooks own the undo/redo burst machinery, the node/edge mutators, and paste — Canvas itself holds no use-before-define refs. Selection comes from ReactFlow's `selected` NodeProp, edit mode from `EditModeContext`, draggability from `<ReactFlow nodesDraggable>` — node `data` identity stays stable so `React.memo` holds.
 
 ## Template ↔ Test app parallel-edit workflow
 
