@@ -15,10 +15,11 @@ import { memo, useContext } from "react";
 import { type NodeProps } from "@xyflow/react";
 import { DATABRICKS_ICONS } from "../../databricks-icons";
 import { FileSvgIcon } from "../../file-icons";
-import { BrandMark } from "./brand-mark";
 import { RotatableCard, baseSize, DropTargetContext, EditModeContext, type NodeData } from "./shared";
 
-/** The foundation models surfaced through the AI Gateway (trademark-gated). */
+/** The foundation models surfaced through the AI Gateway. ALWAYS shown (these
+ *  marks are integral to the "access any model" story), regardless of the
+ *  trademark-logo toggle. */
 const FM_LOGOS: { key: string; label: string }[] = [
   { key: "file:vendor/openai", label: "OpenAI" },
   { key: "file:vendor/anthropic", label: "Anthropic" },
@@ -32,7 +33,6 @@ export const GovernanceBlock = memo(function GovernanceBlock({ data, selected }:
   const nat = baseSize(d.component);
   const UnityCatalog = DATABRICKS_ICONS.unityCatalogBrand;
   const AIGateway = DATABRICKS_ICONS.aiGatewayBrand;
-  const allow = d.allowTrademark ?? false;
 
   return (
     <RotatableCard
@@ -54,46 +54,31 @@ export const GovernanceBlock = memo(function GovernanceBlock({ data, selected }:
         style={{ borderColor: `${d.bandColor}66` }}
       >
         <div className="flex h-full w-full flex-col gap-1.5 p-2.5" style={{ transform: "scale(var(--cs, 1))", transformOrigin: "top left" }}>
-          {/* header */}
+          {/* header = Unity Catalog (the top-level governance surface) */}
           <div className="flex items-center gap-1.5">
             <UnityCatalog className="h-4 w-4 shrink-0" />
-            <span className="text-[12px] font-bold text-foreground">{d.component.label || "Unified Governance"}</span>
-            <span className="ml-auto truncate text-[8.5px] font-medium uppercase tracking-wide text-muted-foreground">
-              lineage · audit · quality · access control
-            </span>
+            <span className="text-[12px] font-bold text-foreground">Unity Catalog</span>
+            <span className="truncate text-[8.5px] text-muted-foreground">: Unified governance for Data + AI</span>
           </div>
 
-          {/* three governed surfaces, side by side */}
+          {/* governed surfaces below the header: AI Gateway + Genie Ontology */}
           <div className="flex flex-1 items-stretch gap-2">
-            {/* Unity Catalog */}
-            <div className="flex flex-1 items-center gap-1.5 rounded-md border border-border/60 bg-background/70 px-2">
-              <UnityCatalog className="h-4 w-4 shrink-0" />
-              <span className="flex min-w-0 flex-col leading-tight">
-                <span className="truncate text-[10px] font-semibold text-foreground">Unity Catalog</span>
-                <span className="truncate text-[8px] text-muted-foreground">Govern data + AI in one place</span>
-              </span>
-            </div>
-
-            {/* Unity AI Gateway — with the foundation-model logos */}
-            <div className="flex flex-[1.2] items-center gap-1.5 rounded-md border border-border/60 bg-background/70 px-2">
+            {/* Unity AI Gateway — foundation-model logos (always shown) + chips */}
+            <div className="flex flex-[1.4] items-center gap-1.5 rounded-md border border-border/60 bg-background/70 px-2">
               <AIGateway className="h-4 w-4 shrink-0" />
-              <span className="flex min-w-0 flex-col leading-tight">
-                <span className="truncate text-[10px] font-semibold text-foreground">Unity AI Gateway</span>
-                <span className="flex items-center gap-1 text-[8px] text-muted-foreground">
-                  <span className="shrink-0">Every model:</span>
+              <span className="flex min-w-0 flex-1 flex-col gap-0.5 leading-tight">
+                <span className="flex items-center gap-1.5">
+                  <span className="truncate text-[10px] font-semibold text-foreground">Unity AI Gateway</span>
                   <span className="flex items-center gap-1">
                     {FM_LOGOS.map((m) => (
-                      <BrandMark
-                        key={m.key}
-                        iconKey={m.key}
-                        label={m.label}
-                        bandColor={d.bandColor}
-                        allowTrademark={allow}
-                        mono
-                        className="h-3 w-3 shrink-0"
-                      />
+                      <FileSvgIcon key={m.key} iconKey={m.key} className="h-3 w-3 shrink-0" />
                     ))}
                   </span>
+                </span>
+                <span className="flex flex-wrap items-center gap-1">
+                  {["Cost control", "MCP", "Audit"].map((c) => (
+                    <span key={c} className="rounded bg-muted px-1 py-px text-[7.5px] font-medium text-muted-foreground">{c}</span>
+                  ))}
                 </span>
               </span>
             </div>

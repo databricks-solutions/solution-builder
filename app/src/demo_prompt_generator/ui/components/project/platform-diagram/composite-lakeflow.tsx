@@ -186,7 +186,8 @@ export const LakeflowBlock = memo(function LakeflowBlock({ data, selected }: Nod
 
           {/* RIGHT: title + SDP tables + Open Format underneath them. */}
           <div className="flex min-h-0 flex-1 flex-col p-2.5">
-            <div className="mb-1.5 flex shrink-0 items-center gap-1.5">
+            <div className="mb-1.5 flex shrink-0 flex-col leading-tight">
+              <span className="truncate text-[8px] font-medium uppercase tracking-wide text-muted-foreground">Data ingestion and processing</span>
               <span className="text-[12px] font-bold text-foreground">{d.component.label}</span>
             </div>
             <div className="flex min-h-0 flex-1 flex-col rounded-lg border border-border/60 bg-background/60 p-2">
