@@ -40,14 +40,13 @@ export const LakeflowGenieBlock = memo(function LakeflowGenieBlock({ data, selec
         style={{ borderColor: `${d.bandColor}66` }}
       >
         <div className="flex h-full w-full flex-col" style={{ transform: "scale(var(--cs, 1))", transformOrigin: "top left" }}>
-          {/* TOP: Lakeflow (ingest + SDP). */}
-          <div className="flex min-h-0 flex-[1.1]">
+          {/* TOP: Lakeflow (ingest + SDP) — the dominant section. */}
+          <div className="flex min-h-0 flex-[3]">
             <LakeflowBody d={d} />
           </div>
-          {/* divider */}
-          <div className="h-px shrink-0" style={{ background: `${d.bandColor}33` }} />
-          {/* BOTTOM: Genie Code (build animation). */}
-          <div className="flex min-h-0 flex-1 flex-col p-2.5">
+          {/* BOTTOM: Genie Code — a slim DARK strip (terminal-style) under the
+              pipeline, visually set apart from the light Lakeflow section. */}
+          <div className="dark flex min-h-0 flex-1 flex-col bg-[#0B1220] p-2.5 text-foreground">
             <GenieCodeBody d={d} />
           </div>
         </div>
