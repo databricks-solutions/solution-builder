@@ -41,22 +41,23 @@ export const LakeflowGenieBlock = memo(function LakeflowGenieBlock({ data, selec
         }`}
         style={{ borderColor: `${d.bandColor}66` }}
       >
-        <div className="flex h-full w-full flex-col" style={{ transform: "scale(var(--cs, 1))", transformOrigin: "top left" }}>
-          {/* TOP: Lakeflow (ingest + SDP) — the dominant section. */}
-          <div className="flex min-h-0 flex-1">
-            <LakeflowBody d={d} />
-          </div>
-          {/* BOTTOM: a slim "Built with Genie Code" footer — label + tagline
-              only (no terminal/build animation). Light but a touch darker than
-              the Lakeflow section above, with a hairline divider. */}
-          <div className="flex shrink-0 items-center gap-1.5 border-t border-border/60 bg-muted/50 px-2.5 py-1.5">
-            <GenieCode className="h-4 w-4 shrink-0" />
-            <span className="flex min-w-0 flex-col leading-tight">
-              <span className="truncate text-[10px] font-bold text-foreground">Built with Genie Code</span>
-              <span className="truncate text-[8px] text-muted-foreground">Tell genie what to do, it'll build it for you and maintain it</span>
-            </span>
-            <FileSvgIcon iconKey="file:vendor/zeroops" className="ml-auto h-3.5 w-auto shrink-0" />
-          </div>
+        <div className="flex h-full w-full" style={{ transform: "scale(var(--cs, 1))", transformOrigin: "top left" }}>
+          {/* The Lakeflow body fills the box; the Genie footer is passed in so it
+              renders UNDER the SDP/Open-Format panel (right column) only — the
+              full-height ingest rail stays to its left, not spanned by it. */}
+          <LakeflowBody
+            d={d}
+            footer={
+              <div className="mt-2 flex shrink-0 items-center gap-1.5 rounded-md border border-border/60 bg-muted/50 px-2 py-1.5">
+                <GenieCode className="h-4 w-4 shrink-0" />
+                <span className="flex min-w-0 flex-col leading-tight">
+                  <span className="truncate text-[10px] font-bold text-foreground">Built with Genie Code</span>
+                  <span className="truncate text-[8px] text-muted-foreground">Tell genie what to do, it'll build it for you and maintain it</span>
+                </span>
+                <FileSvgIcon iconKey="file:vendor/zeroops" className="ml-auto h-3.5 w-auto shrink-0" />
+              </div>
+            }
+          />
         </div>
       </div>
     </RotatableCard>

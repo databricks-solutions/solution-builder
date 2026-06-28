@@ -4,7 +4,7 @@
  * Spark Declarative Pipeline) plus its medallion-cylinder pieces and the named
  * left-side input ports. First of several composite blocks.
  */
-import { memo, useContext, Fragment } from "react";
+import { memo, useContext, Fragment, type ReactNode } from "react";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 import { DATABRICKS_ICONS, type DatabricksIconName } from "../../databricks-icons";
 import { RotatableCard, baseSize, DropTargetContext, EditModeContext, type NodeData } from "./shared";
@@ -184,8 +184,10 @@ export function LakeflowPorts({ editMode, selected, isDropTarget }: { editMode: 
 
 /** The Lakeflow inner content (ingest rail + SDP/medallion panel), WITHOUT the
  *  card chrome — so it can be embedded standalone or stacked above Genie Code
- *  in the combined block. */
-export function LakeflowBody({ d }: { d: NodeData }) {
+ *  in the combined block. An optional `footer` renders inside the RIGHT column,
+ *  below the SDP/Open-Format panel — so it aligns under that panel and the
+ *  full-height ingest rail stays on its left (not spanned by the footer). */
+export function LakeflowBody({ d, footer }: { d: NodeData; footer?: ReactNode }) {
   return (
     <>
       {/* LEFT: ingest zones stacked vertically, flush against the block edge
@@ -220,6 +222,9 @@ export function LakeflowBody({ d }: { d: NodeData }) {
             {(() => { const I = DATABRICKS_ICONS.icebergLogo; return <I className="h-3.5 w-3.5" />; })()}
           </div>
         </div>
+        {/* Optional footer (e.g. the Genie strip) — under the SDP panel, within
+            the right column, so it doesn't span under the ingest rail. */}
+        {footer}
       </div>
     </>
   );
