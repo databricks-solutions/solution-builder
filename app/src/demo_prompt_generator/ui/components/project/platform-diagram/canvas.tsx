@@ -63,6 +63,7 @@ import {
   Undo2,
   Redo2,
   Image as ImageIcon,
+  Copy,
 } from "lucide-react";
 import { nodeTypes, edgeTypes } from "./node-types";
 import { DetailPanel } from "./panels/detail-panel";
@@ -106,7 +107,21 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasP
   const { screenToFlowPosition } = useReactFlow();
   const wrapRef = useRef<HTMLDivElement>(null);
 
+  // "Copy style → paste onto others" mode. While `copiedStyle` is set, a banner
+  // shows and clicking any node applies the style instead of selecting it
+  // (until Esc). Refs let the stable onSelect read these without re-creating it.
+  const [copiedStyle, setCopiedStyle] = useState<StylePatch | null>(null);
+  const copiedStyleRef = useRef<StylePatch | null>(null);
+  copiedStyleRef.current = copiedStyle;
+  const styleNodesRef = useRef<((ids: string[], patch: StylePatch) => void) | null>(null);
+
   const onSelect = useCallback((id: string) => {
+    // In paste mode, a click pastes the copied style onto the node (and stays
+    // in paste mode for more pastes) instead of selecting it.
+    if (copiedStyleRef.current) {
+      styleNodesRef.current?.([id], copiedStyleRef.current);
+      return;
+    }
     setSelectedId((cur) => (cur === id ? null : id));
   }, []);
 
@@ -169,6 +184,14 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasP
   // comes from ReactFlow's `selected` NodeProp, edit mode from EditModeContext,
   // and draggability from the <ReactFlow nodesDraggable> prop. That keeps node
   // data identities stable across selection/mode changes so React.memo holds.
+
+  // Esc exits "paste style" mode.
+  useEffect(() => {
+    if (!copiedStyle) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setCopiedStyle(null); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [copiedStyle]);
 
   // --- Persistence: debounce-save the layout whenever nodes/edges settle ----
   const persistRef = useRef(onPersist);
@@ -495,6 +518,7 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasP
       return next;
     });
   }, [setNodes, scheduleSave, edges]);
+  styleNodesRef.current = styleNodes; // for paste-style mode (stable onSelect)
 
   // Bring a node to front / send to back by setting its zIndex just past the
   // current extreme. Works for a single node or a whole selection.
@@ -619,6 +643,17 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasP
         ? [menu.id]
         : [];
   const menuNodeData = menu?.kind === "node" ? (nodes.find((n) => n.id === menu.id)?.data as NodeData | undefined) : undefined;
+  // The right-clicked node's style fields — drives the controls' current values
+  // and is what "Copy style" captures.
+  const menuNodeStyle: StylePatch = {
+    opacity: menuNodeData?.opacity,
+    fillColor: menuNodeData?.fillColor,
+    fontColor: menuNodeData?.fontColor,
+    borderWidth: menuNodeData?.borderWidth,
+    borderStyle: menuNodeData?.borderStyle,
+    borderColor: menuNodeData?.borderColor,
+    borderRadius: menuNodeData?.borderRadius,
+  };
 
   return (
     <EditModeContext.Provider value={editMode}>
@@ -649,6 +684,20 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasP
             onClick={() => setPickingFor(null)}
             title="Click a component in the library, or click here to cancel"
           />
+        )}
+        {/* Paste-style mode banner — shows until the user presses Esc. */}
+        {copiedStyle && (
+          <div className="absolute left-1/2 top-3 z-40 flex -translate-x-1/2 items-center gap-2 rounded-full border border-primary/40 bg-primary/10 px-3 py-1.5 text-[12px] text-foreground shadow-sm">
+            <Copy className="h-3.5 w-3.5 text-primary" />
+            <span>Click a component to paste the style</span>
+            <button
+              type="button"
+              onClick={() => setCopiedStyle(null)}
+              className="ml-1 cursor-pointer rounded bg-background/70 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground hover:bg-background"
+            >
+              Esc to stop
+            </button>
+          </div>
         )}
         {/* arrow marker def */}
         <svg className="pointer-events-none absolute h-0 w-0">
@@ -799,17 +848,10 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasP
               if (url !== null) onAnnotate(menu.id, { src: url.trim() });
               setMenu(null);
             }}
-            style={{
-              opacity: menuNodeData?.opacity,
-              fillColor: menuNodeData?.fillColor,
-              fontColor: menuNodeData?.fontColor,
-              borderWidth: menuNodeData?.borderWidth,
-              borderStyle: menuNodeData?.borderStyle,
-              borderColor: menuNodeData?.borderColor,
-              borderRadius: menuNodeData?.borderRadius,
-            }}
+            style={menuNodeStyle}
             selectionCount={styleTargets.length}
             onStyle={(patch) => styleNodes(styleTargets, patch)}
+            onCopyStyle={() => { setCopiedStyle(menuNodeStyle); setMenu(null); }}
             onZ={(dir) => { setNodeZ(styleTargets.length ? styleTargets : [menu.id], dir); setMenu(null); }}
           />
         )}

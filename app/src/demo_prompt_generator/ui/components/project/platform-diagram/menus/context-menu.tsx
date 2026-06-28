@@ -30,6 +30,7 @@ import {
   SendToBack,
   Wand2,
   Tag,
+  Copy,
 } from "lucide-react";
 
 export type CtxMenu =
@@ -238,6 +239,7 @@ export const ContextMenu = memo(function ContextMenu({
   style,
   selectionCount = 1,
   onStyle,
+  onCopyStyle,
   onZ,
 }: {
   menu: NonNullable<CtxMenu>;
@@ -265,6 +267,8 @@ export const ContextMenu = memo(function ContextMenu({
   /** How many nodes the style controls will affect (>1 → multi-select). */
   selectionCount?: number;
   onStyle: (patch: StylePatch) => void;
+  /** Copy this node's style, then paste it onto others by clicking them. */
+  onCopyStyle: () => void;
   onZ: (dir: "front" | "back") => void;
 }) {
   const ed = edge?.data as EdgeData | undefined;
@@ -322,6 +326,7 @@ export const ContextMenu = memo(function ContextMenu({
             <AnnotationMenu a={annotation} Item={Item} onAnno={onAnno} onPickLogo={onPickLogo} onSetImageUrl={onSetImageUrl} onRotate={onRotate} onRemove={onRemoveNode} />
             <div className="my-1 border-t border-border/60" />
             <StyleControls style={style} onStyle={onStyle} />
+            <Item icon={<Copy className="h-3.5 w-3.5" />} label="Copy style" onClick={onCopyStyle} />
             <div className="my-1 border-t border-border/60" />
             {ZItems}
           </>
@@ -349,6 +354,7 @@ export const ContextMenu = memo(function ContextMenu({
             </div>
             <div className="my-1 border-t border-border/60" />
             <StyleControls style={style} onStyle={onStyle} />
+            <Item icon={<Copy className="h-3.5 w-3.5" />} label="Copy style" onClick={onCopyStyle} />
             <div className="my-1 border-t border-border/60" />
             {ZItems}
             <div className="my-1 border-t border-border/60" />
