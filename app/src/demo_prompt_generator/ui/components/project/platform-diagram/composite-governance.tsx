@@ -103,8 +103,11 @@ export const GovernanceBlock = memo(function GovernanceBlock({ data, selected }:
                   ))}
                 </span>
               </span>
-              {/* right: the live graph */}
-              <OntologyGraph />
+              {/* right: the live graph — centered, capped to a small fixed size
+                  so it never scales up to fill a wider/taller box. */}
+              <div className="flex min-w-0 flex-1 items-center justify-center">
+                <OntologyGraph />
+              </div>
             </div>
           </div>
         </div>
@@ -149,7 +152,14 @@ function OntologyGraph() {
   const DUR = EDGES.length * STEP;
   const lit = 100 / EDGES.length / 2; // % of cycle an edge stays "lit"
   return (
-    <svg viewBox="0 0 106 54" preserveAspectRatio="xMidYMid meet" className="h-full flex-1">
+    <svg
+      viewBox="0 0 106 54"
+      preserveAspectRatio="xMidYMid meet"
+      // Cap to a small fixed size + keep the viewBox aspect, so the graph stays
+      // minimal and DOESN'T grow when the governance box is widened/heightened.
+      className="h-auto max-h-full w-full"
+      style={{ maxWidth: 132, aspectRatio: "106 / 54" }}
+    >
       <style>{`
         @keyframes og-edge { 0%,100% { stroke-opacity: .18 } ${lit}% { stroke-opacity: .95 } }
         @keyframes og-pop  { 0%,100% { opacity: .6 } ${lit}% { opacity: 1 } }
