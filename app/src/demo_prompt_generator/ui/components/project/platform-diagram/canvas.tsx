@@ -47,6 +47,7 @@ import {
   type Rect,
   type EdgeOps,
   EdgeOpsContext,
+  remapHandleForType,
 } from "./edge-routing";
 import { LF_PORTS } from "./composite-lakeflow";
 import {
@@ -553,16 +554,19 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasP
               data: { ...dd, nodeId: newId, component, bandId: found.bandId, bandColor: BAND_COLOR[found.bandId], deepLink: deepLinks[baseId(newComponentId)] ?? null },
             },
       );
-      // Rewire edges from the old id → new id (handles preserved), then drop
-      // any that now duplicate an existing source→target pair (the rewire can
-      // collide with a pre-existing edge to/from the new id).
+      // Rewire edges from the old id → new id. The new type may have a
+      // different anchor set (e.g. a Lakeflow composite has named ports
+      // `in-*`/`bl`, a plain tile only t/r/b/l). Keep the handle when it's still
+      // valid; otherwise collapse it to the equivalent SIDE so the edge stays
+      // attached on the same side rather than dangling on a missing handle.
+      const newHasPorts = component.kind === "lakeflow" || component.kind === "lakeflow-genie";
       setEdges((eds) => {
         const seen = new Set<string>();
         const e2 = eds
           .map((e) => ({
             ...e,
-            ...(e.source === id ? { source: newId } : {}),
-            ...(e.target === id ? { target: newId } : {}),
+            ...(e.source === id ? { source: newId, sourceHandle: remapHandleForType(e.sourceHandle, newHasPorts) } : {}),
+            ...(e.target === id ? { target: newId, targetHandle: remapHandleForType(e.targetHandle, newHasPorts) } : {}),
           }))
           .filter((e) => {
             if (e.source === e.target) return false; // self-loop from the swap

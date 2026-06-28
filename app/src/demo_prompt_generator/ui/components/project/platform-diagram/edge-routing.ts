@@ -100,3 +100,22 @@ export function endSide(
   if (handleId && ["t", "r", "b", "l"].includes(handleId)) return handleId as Side;
   return facingSide(rect, otherCenter.x, otherCenter.y);
 }
+
+/** Remap an edge handle when a node's TYPE changes so it stays valid on the new
+ *  node — used by "Change type". A node either has the composite NAMED PORTS
+ *  (lakeflow / lakeflow-genie: `in-*` on the left, `bl` bottom-left, + r/t/b) or
+ *  the plain 4 sides (t/r/b/l). When moving to a type WITHOUT ports, collapse a
+ *  port handle to its equivalent SIDE so the edge still attaches there:
+ *    in-<port> → "l"  (ports live on the left)
+ *    bl        → "b"  (bottom-left anchor → bottom side)
+ *  Side handles (t/r/b/l) are valid on both, so they pass through. Returns
+ *  null/undefined unchanged (auto-derive). */
+export function remapHandleForType(
+  handleId: string | null | undefined,
+  newHasPorts: boolean,
+): string | null | undefined {
+  if (!handleId || newHasPorts) return handleId; // valid as-is on a ported type
+  if (handleId.startsWith("in-")) return "l";
+  if (handleId === "bl") return "b";
+  return handleId; // already a plain side (t/r/b/l) or "r"
+}
