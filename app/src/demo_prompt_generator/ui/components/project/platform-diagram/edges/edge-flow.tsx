@@ -53,7 +53,9 @@ export function EdgeFlow({ style, path }: { style: FlowStyle; path: string }) {
     // underlying stroke). Each rides the path and sways perpendicular so the
     // stream ripples. Variety (shape / size / amplitude) is index-driven with
     // mixed strides so it reads as irregular rather than periodic.
-    const N = 22;
+    // 8 glyphs read as a dense "river" at canvas zoom while keeping the animated
+    // SMIL node count per edge low (each glyph = a motion + a sway transform).
+    const N = 8;
     const DUR = 5; // seconds for a full traverse — slow
     const RED = "#EF5B3F";
     return (

@@ -8,7 +8,7 @@
  * EdgeOps context value FlowEdge consumes), so `setEdgeCenterX` exists in time
  * and Canvas no longer needs the old `setEdgeCenterXRef` use-before-define hack.
  */
-import { useCallback } from "react";
+import { useCallback, type RefObject } from "react";
 import { type Node, type Edge } from "@xyflow/react";
 import { type FlowStyle } from "../shared";
 
@@ -27,11 +27,13 @@ export interface EdgeMutations {
 export function useEdgeMutations({
   setEdges,
   scheduleSave,
-  nodes,
+  nodesRef,
 }: {
   setEdges: (updater: (eds: Edge[]) => Edge[]) => void;
   scheduleSave: (nds: Node[], eds: Edge[]) => void;
-  nodes: Node[];
+  // A ref (not the live array) so the mutators stay STABLE — `edgeOps` is built
+  // from these, and a new identity per drag frame would re-render every edge.
+  nodesRef: RefObject<Node[]>;
 }): EdgeMutations {
   // --- Re-target an edge endpoint to another node (from the custom drag).
   const retargetEdge = useCallback(
@@ -48,22 +50,22 @@ export function useEdgeMutations({
               }
             : e,
         );
-        scheduleSave(nodes, next);
+        scheduleSave(nodesRef.current, next);
         return next;
       });
     },
-    [setEdges, scheduleSave, nodes],
+    [setEdges, scheduleSave, nodesRef],
   );
 
   const mutateEdge = useCallback(
     (id: string, fn: (e: Edge) => Edge) => {
       setEdges((eds) => {
         const next = eds.map((e) => (e.id === id ? fn(e) : e));
-        scheduleSave(nodes, next);
+        scheduleSave(nodesRef.current, next);
         return next;
       });
     },
-    [setEdges, scheduleSave, nodes],
+    [setEdges, scheduleSave, nodesRef],
   );
 
   const toggleEdgeFlow = useCallback(
@@ -121,10 +123,10 @@ export function useEdgeMutations({
     (id: string) =>
       setEdges((eds) => {
         const next = eds.filter((e) => e.id !== id);
-        scheduleSave(nodes, next);
+        scheduleSave(nodesRef.current, next);
         return next;
       }),
-    [setEdges, scheduleSave, nodes],
+    [setEdges, scheduleSave, nodesRef],
   );
 
   return {

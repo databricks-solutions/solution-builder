@@ -130,6 +130,16 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasP
 
   const [nodes, setNodes, onNodesChange] = useNodesState(initial.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initial.edges);
+  // Live mirror of `nodes` so geometry helpers (nodeRect/nodeAt/portsOf) can be
+  // STABLE callbacks instead of re-created every drag frame. A new identity for
+  // those would churn `edgeOps` (the EdgeOpsContext value) on every frame and
+  // re-render every FlowEdge consuming it. Reading via the ref keeps them at [].
+  const nodesRef = useRef<Node[]>(nodes);
+  nodesRef.current = nodes;
+  // Catalog id→component map, rebuilt only when the schema changes (not on every
+  // render/drag frame). componentLookup allocates a fresh Map each call, so the
+  // render-path lookups below would otherwise re-scan the whole catalog per frame.
+  const catalog = useMemo(() => componentLookup(schema), [schema]);
 
   // Undo/redo + burst machinery lives in this hook. It returns beginBurst/
   // endBurst (consumed by scheduleSave below) and resetHistory (consumed by the
@@ -189,7 +199,7 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasP
   const {
     toggleEdgeFlow, toggleEdgeDashed, setEdgeShape, setEdgeFlowStyle,
     setEdgeLabel, setEdgeCenterX, removeEdge, retargetEdge,
-  } = useEdgeMutations({ setEdges, scheduleSave, nodes });
+  } = useEdgeMutations({ setEdges, scheduleSave, nodesRef });
 
   // Wrap change handlers so a drag/add/remove triggers a save + history entry.
   // CRITICAL: a drag emits a `position` change on EVERY pixel (dragging:true)
@@ -248,27 +258,31 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasP
   // — the "left half doesn't show the anchor" bug.)
   const nodeRect = useCallback(
     (nid: string): Rect | null => {
-      const n = nodes.find((x) => x.id === nid);
+      const n = nodesRef.current.find((x) => x.id === nid);
       if (!n) return null;
       const w = (n.width ?? (n.data as NodeData).w ?? 200) as number;
       const h = (n.height ?? (n.data as NodeData).h ?? 56) as number;
       return { x: n.position.x - w / 2, y: n.position.y - h / 2, w, h };
     },
-    [nodes],
+    [],
   );
   const nodeAt = useCallback(
     (fx: number, fy: number): string | null => {
       let hit: string | null = null;
-      for (const n of nodes) {
+      let hitZ = -Infinity;
+      for (const n of nodesRef.current) {
         const w = (n.width ?? (n.data as NodeData).w ?? 200) as number;
         const h = (n.height ?? (n.data as NodeData).h ?? 56) as number;
         const x = n.position.x - w / 2;
         const y = n.position.y - h / 2;
-        if (fx >= x && fx <= x + w && fy >= y && fy <= y + h) hit = n.id;
+        // Pick the TOPMOST node under the point (highest zIndex), so a
+        // BringToFront node wins over one merely later in array order.
+        const z = n.zIndex ?? 0;
+        if (fx >= x && fx <= x + w && fy >= y && fy <= y + h && z >= hitZ) { hit = n.id; hitZ = z; }
       }
       return hit;
     },
-    [nodes],
+    [],
   );
   const [dropTargetId, setDropTargetId] = useState<string | null>(null);
   const setDropTarget = useCallback((nid: string | null) => setDropTargetId(nid), []);
@@ -276,7 +290,7 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasP
   // reconnect drag can snap to (and target) the RIGHT one, not just "left".
   const portsOf = useCallback(
     (nid: string): { handle: string; x: number; y: number }[] => {
-      const n = nodes.find((x) => x.id === nid);
+      const n = nodesRef.current.find((x) => x.id === nid);
       const kind = (n?.data as NodeData | undefined)?.component.kind;
       if (!n || kind !== "lakeflow") return [];
       const r = nodeRect(nid);
@@ -289,7 +303,7 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasP
         { handle: "bl", x: r.x + r.w * 0.08, y: r.y + r.h },
       ];
     },
-    [nodes, nodeRect],
+    [nodeRect],
   );
   const edgeOps = useMemo<EdgeOps>(
     () => ({
@@ -303,7 +317,7 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasP
   // --- Add from library (drop or double-click) ------------------------------
   const addComponent = useCallback(
     (componentId: string, at?: { x: number; y: number }) => {
-      const found = componentLookup(schema).get(baseId(componentId));
+      const found = catalog.get(baseId(componentId));
       if (!found) return;
       const pos = at ?? { x: 120, y: 120 };
       setNodes((nds) => {
@@ -344,7 +358,7 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasP
         return next;
       });
     },
-    [schema, deepLinks, onSelect, onContext, onResize, onRename, setNodes, scheduleSave, edges],
+    [catalog, deepLinks, onSelect, onContext, onResize, onRename, setNodes, scheduleSave, edges],
   );
 
   // Add a free-form annotation node (text / box / logo / image). Returns the
@@ -509,12 +523,12 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasP
   // a stale id would desync the active/hidden bookkeeping on reload.) A custom
   // label (from a rename) is carried over; otherwise the new component's label.
   const changeNodeType = useCallback((id: string, newComponentId: string) => {
-    const found = componentLookup(schema).get(baseId(newComponentId));
+    const found = catalog.get(baseId(newComponentId));
     if (!found) return;
     setNodes((nds) => {
       if (!nds.some((n) => n.id === id)) return nds;
       const dd = nds.find((n) => n.id === id)!.data as NodeData;
-      const oldBase = componentLookup(schema).get(baseId(id))?.component;
+      const oldBase = catalog.get(baseId(id))?.component;
       const renamed = oldBase && dd.component.label !== oldBase.label;
       // Mint a unique node id for the new type (dedupe like addComponent).
       const wanted = found.component.id;
@@ -563,7 +577,7 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasP
       return next;
     });
     setSelectedId((cur) => (cur === id ? null : cur));
-  }, [schema, deepLinks, setNodes, setEdges, scheduleSave]);
+  }, [catalog, deepLinks, setNodes, setEdges, scheduleSave]);
 
   const removeNode = useCallback((id: string) => {
     setNodes((nds) => {
@@ -583,7 +597,7 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasP
     setMenu({ kind: "edge", id: edge.id, x: e.clientX, y: e.clientY });
   }, []);
 
-  const selected = selectedId ? componentLookup(schema).get(baseId(selectedId)) : null;
+  const selected = selectedId ? catalog.get(baseId(selectedId)) : null;
   // Base ids of every placed instance — the library dims a catalog item when at
   // least one instance is on the canvas (but it stays draggable for duplicates).
   const placedIds = useMemo(() => new Set(nodes.map((n) => baseId(n.id))), [nodes]);

@@ -292,12 +292,19 @@ const FlowEdge = memo(function FlowEdge(props: EdgeProps) {
     srcIngest === "zerobus" ? "particles" : srcIngest === "direct" ? "docs" : "dot";
   const flowStyle = d?.flowStyle ?? autoStyle;
   const flowing = d?.animated && !drag && centerDrag === null;
+  // Below ~35% zoom the per-particle glyphs are sub-pixel; skip the (expensive)
+  // animation entirely and let the base line carry the edge. Primitive return →
+  // no comparator, re-renders only when crossing the threshold.
+  const showFlow = useStore((s) => s.transform[2] >= 0.35);
 
   // The base line + arrow are styled by the RESOLVED flowStyle (which may be
   // auto-derived). When the animation is ON: particles/laser ARE the line
   // (transparent base, no arrow); docs ride a faint line; dot keeps the grey
   // line. When flow is OFF, always show the normal grey line so the edge reads.
-  const beamish = flowing && (flowStyle === "particles" || flowStyle === "laser");
+  // "beamish" styles (particles/laser) ARE the line, so the base goes
+  // transparent — but only while the animation is actually rendered. When it's
+  // suppressed (zoomed out), fall back to a visible base line.
+  const beamish = flowing && showFlow && (flowStyle === "particles" || flowStyle === "laser");
   const baseStyle = !flowing
     ? { ...style, stroke: "var(--muted-foreground)", opacity: 0.55 }
     : beamish
@@ -310,7 +317,11 @@ const FlowEdge = memo(function FlowEdge(props: EdgeProps) {
   return (
     <>
       <BaseEdge path={path} markerEnd={showArrow ? markerEnd : undefined} style={baseStyle} interactionWidth={24} />
-      {flowing && <EdgeFlow key={path} style={flowStyle} path={path} />}
+      {/* Key by edge id (NOT path): a drag/resize changes `path`, but keying by
+          it would unmount + remount the whole SMIL subtree every frame. Keyed
+          by id, the animated elements stay mounted and just re-read the updated
+          `path` attribute. Hidden below a zoom threshold (sub-pixel anyway). */}
+      {flowing && showFlow && <EdgeFlow key={id} style={flowStyle} path={path} />}
 
       {/* Optional mid-line label (right-click → Add label). Pill sits on the
           vertical elbow centre; a backing rect keeps it readable over the line. */}
