@@ -48,7 +48,10 @@ export const LakeflowGenieBlock = memo(function LakeflowGenieBlock({ data, selec
           <LakeflowBody
             d={d}
             footer={
-              <div className="mt-2 flex shrink-0 items-center gap-1.5 rounded-md border border-border/60 bg-muted/50 px-2 py-1.5">
+              // Negative margins cancel the right column's p-2.5 so the strip
+              // is FLUSH to the bottom + right edges of the box (a bottom band,
+              // not an inset chip) — only a hairline divider on top.
+              <div className="-mx-2.5 -mb-2.5 mt-2 flex shrink-0 items-center gap-1.5 border-t border-border/60 bg-muted/50 px-2.5 py-1.5">
                 <GenieCode className="h-4 w-4 shrink-0" />
                 <span className="flex min-w-0 flex-col leading-tight">
                   <span className="truncate text-[10px] font-bold text-foreground">Built with Genie Code</span>
