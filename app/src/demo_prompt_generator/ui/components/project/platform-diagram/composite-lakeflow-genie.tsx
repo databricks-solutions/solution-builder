@@ -10,7 +10,7 @@ import { memo, useContext } from "react";
 import { type NodeProps } from "@xyflow/react";
 import { DATABRICKS_ICONS } from "../../databricks-icons";
 import { FileSvgIcon } from "../../file-icons";
-import { RotatableCard, baseSize, DropTargetContext, EditModeContext, type NodeData } from "./shared";
+import { RotatableCard, baseSize, DropTargetContext, EditModeContext, cardStyle, type NodeData } from "./shared";
 import { LakeflowBody, LakeflowPorts } from "./composite-lakeflow";
 
 export const LakeflowGenieBlock = memo(function LakeflowGenieBlock({ data, selected }: NodeProps) {
@@ -19,6 +19,7 @@ export const LakeflowGenieBlock = memo(function LakeflowGenieBlock({ data, selec
   const editMode = useContext(EditModeContext);
   const nat = baseSize(d.component);
   const GenieCode = DATABRICKS_ICONS.genieCodeBrand;
+  const card = cardStyle(d, { borderColor: `${d.bandColor}66`, radius: 16 });
   return (
     <RotatableCard
       rot={d.rot}
@@ -36,10 +37,10 @@ export const LakeflowGenieBlock = memo(function LakeflowGenieBlock({ data, selec
 
       <div
         onClick={() => d.onSelect(d.nodeId)}
-        className={`flex h-full w-full flex-col overflow-hidden rounded-2xl border bg-card shadow-sm transition-shadow ${
+        className={`flex h-full w-full flex-col overflow-hidden ${card.hasFill ? "" : "bg-card"} shadow-sm transition-shadow ${
           selected ? "ring-2 ring-primary/60 shadow-md" : "hover:shadow-md"
         }`}
-        style={{ borderColor: `${d.bandColor}66` }}
+        style={card.style}
       >
         <div className="flex h-full w-full" style={{ transform: "scale(var(--cs, 1))", transformOrigin: "top left" }}>
           {/* The Lakeflow body fills the box; the Genie footer is passed in so it

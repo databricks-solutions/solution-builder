@@ -11,6 +11,7 @@ import {
   DropTargetContext,
   EditModeContext,
   baseSize,
+  cardStyle,
 } from "../shared";
 import { BrandMark, isTrademarkMark } from "../brand-mark";
 import { MedallionRow } from "../composite-lakeflow";
@@ -29,6 +30,14 @@ export const ComponentNode = memo(function ComponentNode({ data, selected }: Nod
   // SDP renders bronze/silver/gold as little tables inside the node.
   const isSdp = c.id === "sdp";
   const nat = baseSize(c);
+
+  // Per-node style (border w/style/color/radius, fill, opacity) — shared with
+  // the composites so the right-click controls behave the same everywhere.
+  const card = cardStyle(d, {
+    borderColor: muted ? "transparent" : `${bandColor}66`,
+    radius: 12, // matches the old rounded-xl
+    opacity: muted ? 0.6 : 1,
+  });
 
   // Inline label editing (double-click). `editing` holds the draft text.
   const [editing, setEditing] = useState<string | null>(null);
@@ -57,18 +66,10 @@ export const ComponentNode = memo(function ComponentNode({ data, selected }: Nod
     >
     <div
       onClick={() => d.onSelect(d.nodeId)}
-      className={`group relative flex h-full w-full flex-col overflow-hidden rounded-xl transition-shadow ${
-        d.fillColor ? "" : "bg-card"
+      className={`group relative flex h-full w-full flex-col overflow-hidden transition-shadow ${
+        card.hasFill ? "" : "bg-card"
       } ${selected ? "ring-2 ring-primary/60 shadow-md" : "shadow-sm hover:shadow-md"}`}
-      style={{
-        // Border defaults to a 1px band-tinted line; overridable per node.
-        borderStyle: (d.borderWidth ?? 1) > 0 ? (d.borderStyle ?? "solid") : "none",
-        borderWidth: d.borderWidth ?? 1,
-        borderColor: d.borderColor ?? (muted ? "transparent" : `${bandColor}66`),
-        opacity: d.opacity ?? (muted ? 0.6 : 1),
-        ...(d.fillColor ? { background: d.fillColor } : {}),
-        ...(d.fontColor ? { color: d.fontColor } : {}),
-      }}
+      style={card.style}
     >
       <div
         className="flex flex-1 items-center gap-2.5 px-3 py-2.5"

@@ -14,7 +14,7 @@ import { memo, useContext, useEffect, useRef, useState } from "react";
 import { type NodeProps } from "@xyflow/react";
 import { DATABRICKS_ICONS } from "../../databricks-icons";
 import { FileSvgIcon } from "../../file-icons";
-import { RotatableCard, baseSize, DropTargetContext, EditModeContext, type NodeData } from "./shared";
+import { RotatableCard, baseSize, DropTargetContext, EditModeContext, cardStyle, type NodeData } from "./shared";
 import { MEDALLION } from "./composite-lakeflow";
 
 const PROMPT_TEXT = "Ingest my data and create a dashboard...";
@@ -65,6 +65,7 @@ export const GenieCodeBlock = memo(function GenieCodeBlock({ data, selected }: N
   const isDropTarget = useContext(DropTargetContext) === d.nodeId;
   const editMode = useContext(EditModeContext);
   const nat = baseSize(d.component);
+  const card = cardStyle(d, { borderColor: `${d.bandColor}66`, radius: 16 });
 
   return (
     <RotatableCard
@@ -80,10 +81,10 @@ export const GenieCodeBlock = memo(function GenieCodeBlock({ data, selected }: N
     >
       <div
         onClick={() => d.onSelect(d.nodeId)}
-        className={`flex h-full w-full flex-col overflow-hidden rounded-2xl border bg-card shadow-sm transition-shadow ${
+        className={`flex h-full w-full flex-col overflow-hidden ${card.hasFill ? "" : "bg-card"} shadow-sm transition-shadow ${
           selected ? "ring-2 ring-primary/60 shadow-md" : "hover:shadow-md"
         }`}
-        style={{ borderColor: `${d.bandColor}66` }}
+        style={card.style}
       >
         <div className="flex h-full w-full flex-col p-2.5" style={{ transform: "scale(var(--cs, 1))", transformOrigin: "top left" }}>
           <GenieCodeBody d={d} />

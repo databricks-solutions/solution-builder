@@ -806,6 +806,7 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasP
               borderWidth: menuNodeData?.borderWidth,
               borderStyle: menuNodeData?.borderStyle,
               borderColor: menuNodeData?.borderColor,
+              borderRadius: menuNodeData?.borderRadius,
             }}
             selectionCount={styleTargets.length}
             onStyle={(patch) => styleNodes(styleTargets, patch)}

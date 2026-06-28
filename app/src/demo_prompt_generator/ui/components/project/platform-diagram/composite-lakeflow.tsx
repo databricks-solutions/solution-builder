@@ -7,7 +7,7 @@
 import { memo, useContext, Fragment, type ReactNode } from "react";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 import { DATABRICKS_ICONS, type DatabricksIconName } from "../../databricks-icons";
-import { RotatableCard, baseSize, DropTargetContext, EditModeContext, type NodeData } from "./shared";
+import { RotatableCard, baseSize, DropTargetContext, EditModeContext, cardStyle, type NodeData } from "./shared";
 import { type Side } from "./edge-routing";
 
 export const MEDALLION = [
@@ -124,6 +124,7 @@ export const LakeflowBlock = memo(function LakeflowBlock({ data, selected }: Nod
   const isDropTarget = useContext(DropTargetContext) === d.nodeId;
   const editMode = useContext(EditModeContext);
   const nat = baseSize(d.component);
+  const card = cardStyle(d, { borderColor: `${d.bandColor}66`, radius: 16 });
   return (
     <RotatableCard
       rot={d.rot}
@@ -141,10 +142,10 @@ export const LakeflowBlock = memo(function LakeflowBlock({ data, selected }: Nod
 
       <div
         onClick={() => d.onSelect(d.nodeId)}
-        className={`flex h-full w-full flex-col overflow-hidden rounded-2xl border bg-card shadow-sm transition-shadow ${
+        className={`flex h-full w-full flex-col overflow-hidden ${card.hasFill ? "" : "bg-card"} shadow-sm transition-shadow ${
           selected ? "ring-2 ring-primary/60 shadow-md" : "hover:shadow-md"
         }`}
-        style={{ borderColor: `${d.bandColor}66` }}
+        style={card.style}
       >
         <div className="flex h-full w-full" style={{ transform: "scale(var(--cs, 1))", transformOrigin: "top left" }}>
           <LakeflowBody d={d} />

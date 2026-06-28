@@ -15,7 +15,7 @@ import { memo, useContext } from "react";
 import { type NodeProps } from "@xyflow/react";
 import { DATABRICKS_ICONS } from "../../databricks-icons";
 import { FileSvgIcon } from "../../file-icons";
-import { RotatableCard, baseSize, DropTargetContext, EditModeContext, type NodeData } from "./shared";
+import { RotatableCard, baseSize, DropTargetContext, EditModeContext, cardStyle, type NodeData } from "./shared";
 
 /** The foundation models surfaced through the AI Gateway. ALWAYS shown (these
  *  marks are integral to the "access any model" story), regardless of the
@@ -33,6 +33,7 @@ export const GovernanceBlock = memo(function GovernanceBlock({ data, selected }:
   const nat = baseSize(d.component);
   const UnityCatalog = DATABRICKS_ICONS.unityCatalogBrand;
   const AIGateway = DATABRICKS_ICONS.aiGatewayBrand;
+  const card = cardStyle(d, { borderColor: `${d.bandColor}66`, radius: 16 });
 
   return (
     <RotatableCard
@@ -48,10 +49,10 @@ export const GovernanceBlock = memo(function GovernanceBlock({ data, selected }:
     >
       <div
         onClick={() => d.onSelect(d.nodeId)}
-        className={`flex h-full w-full flex-col overflow-hidden rounded-2xl border bg-card shadow-sm transition-shadow ${
+        className={`flex h-full w-full flex-col overflow-hidden ${card.hasFill ? "" : "bg-card"} shadow-sm transition-shadow ${
           selected ? "ring-2 ring-primary/60 shadow-md" : "hover:shadow-md"
         }`}
-        style={{ borderColor: `${d.bandColor}66` }}
+        style={card.style}
       >
         <div className="flex h-full w-full flex-col gap-1.5 p-2.5" style={{ transform: "scale(var(--cs, 1))", transformOrigin: "top left" }}>
           {/* header = Unity Catalog (the top-level governance surface) */}

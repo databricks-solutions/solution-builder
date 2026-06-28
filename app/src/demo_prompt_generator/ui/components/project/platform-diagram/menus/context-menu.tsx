@@ -116,6 +116,7 @@ function StyleControls({
   const DEFAULT_FONT = "#1e293b";
   const borderW = style?.borderWidth ?? 1;
   const borderStyle = style?.borderStyle ?? "solid";
+  const radius = style?.borderRadius ?? 12;
   return (
     <>
       <div className="px-2 py-1.5">
@@ -196,6 +197,18 @@ function StyleControls({
             title="Border color"
           />
         </div>
+      </div>
+      {/* Corner radius. */}
+      <div className="px-2 py-1.5">
+        <div className="mb-1 flex items-center justify-between text-[11px] text-muted-foreground">
+          <span>Corners</span><span>{radius}px</span>
+        </div>
+        <input
+          type="range" min={0} max={28} step={2} value={radius}
+          onChange={(e) => onStyle({ borderRadius: Number(e.target.value) })}
+          onClick={(e) => e.stopPropagation()}
+          className="h-1.5 w-full cursor-pointer accent-primary"
+        />
       </div>
     </>
   );

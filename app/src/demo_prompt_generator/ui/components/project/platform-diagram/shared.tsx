@@ -4,7 +4,7 @@
  * footprint math, the rotatable/resizable card shell, the connection handles,
  * and the drop-target context.
  */
-import { createContext } from "react";
+import { createContext, type CSSProperties } from "react";
 import { Handle, Position, NodeResizer, NodeResizeControl } from "@xyflow/react";
 import { type PlatformComponent, type BandId, type FlowStyle } from "@/lib/platform-architecture";
 
@@ -45,6 +45,8 @@ export interface NodeData {
   borderWidth?: number;
   borderStyle?: "solid" | "dashed";
   borderColor?: string;
+  /** Corner radius (px) override; undefined → the card's default rounding. */
+  borderRadius?: number;
   /** Whether real third-party trademarked logos may be shown (schema-level
    *  opt-in). When false, gated vendor logos render as a text badge. */
   allowTrademark?: boolean;
@@ -74,7 +76,33 @@ export type StylePatch = {
   borderWidth?: number;
   borderStyle?: "solid" | "dashed";
   borderColor?: string;
+  borderRadius?: number;
 };
+
+/** Build the inline card style from a node's per-node overrides — used by the
+ *  plain ComponentNode AND every composite (lakeflow/genie/governance) so the
+ *  right-click style controls (border width/style/color/radius, fill, opacity)
+ *  behave identically across all node kinds. `defaults` supply each value when
+ *  the node hasn't overridden it. Returns the style + a flag for whether a
+ *  custom fill is set (so the caller can drop its `bg-card` class). */
+export function cardStyle(
+  d: NodeData,
+  defaults: { borderColor: string; radius: number; opacity?: number },
+): { style: CSSProperties; hasFill: boolean } {
+  const w = d.borderWidth ?? 1;
+  return {
+    hasFill: !!d.fillColor,
+    style: {
+      borderStyle: w > 0 ? (d.borderStyle ?? "solid") : "none",
+      borderWidth: w,
+      borderColor: d.borderColor ?? defaults.borderColor,
+      borderRadius: d.borderRadius ?? defaults.radius,
+      opacity: d.opacity ?? defaults.opacity ?? 1,
+      ...(d.fillColor ? { background: d.fillColor } : {}),
+      ...(d.fontColor ? { color: d.fontColor } : {}),
+    },
+  };
+}
 
 /** Node id currently under a dragged endpoint (magnet highlight). */
 export const DropTargetContext = createContext<string | null>(null);

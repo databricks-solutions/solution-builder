@@ -154,6 +154,7 @@ export interface NodePosition {
   borderWidth?: number;    // px
   borderStyle?: "solid" | "dashed";
   borderColor?: string;    // hex
+  borderRadius?: number;   // px corner radius
   /** Stacking order (bring to front / send to back). Default 0. */
   z?: number;
   /** A canvas-added data source (from "+ more data sources"). Stores just the

@@ -64,7 +64,7 @@ export function schemaToFlow(
           rot: pos.rot ?? 0,
           w: pos.w, h: pos.h, scale: pos.scale,
           opacity: pos.opacity, fillColor: pos.fillColor, fontColor: pos.fontColor,
-          borderWidth: pos.borderWidth, borderStyle: pos.borderStyle, borderColor: pos.borderColor,
+          borderWidth: pos.borderWidth, borderStyle: pos.borderStyle, borderColor: pos.borderColor, borderRadius: pos.borderRadius,
         } satisfies AnnotationNodeData,
       });
       continue;
@@ -90,7 +90,7 @@ export function schemaToFlow(
           rot: pos.rot ?? 0,
           w: pos.w, h: pos.h, scale: pos.scale,
           opacity: pos.opacity, fillColor: pos.fillColor, fontColor: pos.fontColor,
-          borderWidth: pos.borderWidth, borderStyle: pos.borderStyle, borderColor: pos.borderColor,
+          borderWidth: pos.borderWidth, borderStyle: pos.borderStyle, borderColor: pos.borderColor, borderRadius: pos.borderRadius,
         } satisfies NodeData,
       });
       continue;
@@ -137,6 +137,7 @@ export function schemaToFlow(
         borderWidth: pos.borderWidth,
         borderStyle: pos.borderStyle,
         borderColor: pos.borderColor,
+        borderRadius: pos.borderRadius,
         allowTrademark: schema.enableTrademarkLogos ?? false,
       } satisfies NodeData,
     });
@@ -209,6 +210,7 @@ export function flowToLayout(nds: Node[], eds: Edge[], schema: PlatformSchema): 
       ...(dd.borderWidth !== undefined ? { borderWidth: dd.borderWidth } : {}),
       ...(dd.borderStyle !== undefined ? { borderStyle: dd.borderStyle } : {}),
       ...(dd.borderColor !== undefined ? { borderColor: dd.borderColor } : {}),
+      ...(dd.borderRadius !== undefined ? { borderRadius: dd.borderRadius } : {}),
       ...(typeof n.zIndex === "number" && n.zIndex !== 0 ? { z: n.zIndex } : {}),
     };
   });
