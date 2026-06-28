@@ -55,10 +55,10 @@ export const GovernanceBlock = memo(function GovernanceBlock({ data, selected }:
       >
         <div className="flex h-full w-full flex-col gap-1.5 p-2.5" style={{ transform: "scale(var(--cs, 1))", transformOrigin: "top left" }}>
           {/* header = Unity Catalog (the top-level governance surface) */}
-          <div className="flex items-center gap-1.5">
-            <UnityCatalog className="h-4 w-4 shrink-0" />
+          <div className="flex items-baseline gap-1.5">
+            <UnityCatalog className="h-4 w-4 shrink-0 self-center" />
             <span className="text-[12px] font-bold text-foreground">Unity Catalog</span>
-            <span className="truncate text-[8.5px] text-muted-foreground">: Unified governance for Data + AI</span>
+            <span className="truncate text-[8.5px] text-muted-foreground">Unified governance for Data + AI</span>
           </div>
 
           {/* governed surfaces below the header: AI Gateway + Genie Ontology
@@ -95,7 +95,7 @@ export const GovernanceBlock = memo(function GovernanceBlock({ data, selected }:
                   <span className="truncate text-[10px] font-semibold text-foreground">Genie Ontology</span>
                 </span>
                 <span className="text-[7.5px] leading-snug text-muted-foreground">
-                  Genie's context layer — a living map of your terms, metrics, rules &amp; relationships, so it knows what the business <em>means</em>.
+                  Genie's context layer — what the business <em>means</em>.
                 </span>
                 <span className="flex flex-wrap items-center gap-1">
                   {["Metric views", "Glossary", "Domains"].map((c) => (
