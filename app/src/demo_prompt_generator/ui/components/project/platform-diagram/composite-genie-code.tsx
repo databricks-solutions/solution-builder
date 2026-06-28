@@ -65,9 +65,6 @@ export const GenieCodeBlock = memo(function GenieCodeBlock({ data, selected }: N
   const isDropTarget = useContext(DropTargetContext) === d.nodeId;
   const editMode = useContext(EditModeContext);
   const nat = baseSize(d.component);
-  const GenieCode = DATABRICKS_ICONS.genieCodeBrand;
-  const { typed, phase, built, showDash } = useGenieSequence();
-  const typing = phase === "typing";
 
   return (
     <RotatableCard
@@ -81,11 +78,6 @@ export const GenieCodeBlock = memo(function GenieCodeBlock({ data, selected }: N
       onResize={(w, h) => d.onResize(d.nodeId, w, h)}
       onContext={(e) => { e.preventDefault(); d.onContext(d.nodeId, e.clientX, e.clientY); }}
     >
-      <style>{`
-        @keyframes gc-caret { 0%,100% { opacity: 1 } 50% { opacity: 0 } }
-        @keyframes gc-dot { 0%,100% { opacity: .25 } 50% { opacity: 1 } }
-        @keyframes gc-in { from { opacity: 0; transform: translateY(3px) scale(.97) } to { opacity: 1; transform: none } }
-      `}</style>
       <div
         onClick={() => d.onSelect(d.nodeId)}
         className={`flex h-full w-full flex-col overflow-hidden rounded-2xl border bg-card shadow-sm transition-shadow ${
@@ -93,62 +85,82 @@ export const GenieCodeBlock = memo(function GenieCodeBlock({ data, selected }: N
         }`}
         style={{ borderColor: `${d.bandColor}66` }}
       >
-        <div className="flex h-full w-full flex-col gap-1.5 p-2.5" style={{ transform: "scale(var(--cs, 1))", transformOrigin: "top left" }}>
-          {/* header */}
-          <div className="flex items-center gap-1.5">
-            <GenieCode className="h-5 w-5 shrink-0" />
-            <span className="flex min-w-0 flex-col leading-tight">
-              <span className="text-[12px] font-bold text-foreground">{d.component.label || "Built with Genie Code"}</span>
-              <span className="truncate text-[8.5px] text-muted-foreground">Tell genie what to do, it'll build it for you and maintain it</span>
-            </span>
-            {/* ZeroOps wordmark, top-right */}
-            <FileSvgIcon iconKey="file:vendor/zeroops" className="ml-auto h-3.5 w-auto shrink-0" />
-          </div>
-
-          {/* stage: prompt (+ think) → built artifacts */}
-          <div className="flex flex-1 items-stretch gap-2">
-            {/* LEFT: terminal — types per character, then "generating…" */}
-            <div className="flex w-[46%] shrink-0 flex-col gap-1 rounded-md border border-border/60 bg-background/70 px-2 py-1.5 font-mono text-[9px]">
-              <div className="flex flex-1 items-start gap-1">
-                <span className="shrink-0 text-[#EF5B3F]">$</span>
-                <span className="whitespace-pre-wrap break-words text-foreground">
-                  {PROMPT_TEXT.slice(0, typed)}
-                  {typing && <span className="ml-[1px] inline-block h-[9px] w-[5px] translate-y-[1px] bg-[#EF5B3F]" style={{ animation: "gc-caret 1s steps(1) infinite" }} />}
-                </span>
-              </div>
-              {phase === "think" && (
-                <div className="flex items-center gap-1 text-[8px] text-[#EF5B3F]">
-                  <GenieCode className="h-2.5 w-2.5" />
-                  <span>generating</span>
-                  {[0, 1, 2].map((i) => (
-                    <span key={i} className="h-1 w-1 rounded-full bg-[#EF5B3F]" style={{ animation: "gc-dot 1s ease-in-out infinite", animationDelay: `${i * 0.15}s` }} />
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* connector */}
-            <div className="relative flex w-5 shrink-0 items-center">
-              <span className="absolute left-0 right-0 top-1/2 h-[2px] -translate-y-1/2 rounded-full bg-muted-foreground/25" />
-              {(phase === "pipeline" || phase === "think") && (
-                <span className="absolute top-1/2 h-1.5 w-1.5 -translate-y-1/2 rounded-full bg-[#EF5B3F]" style={{ animation: "gc-dot 1.2s ease-in-out infinite" }} />
-              )}
-            </div>
-
-            {/* RIGHT: built artifacts — pipeline first, then dashboard */}
-            <div className="flex min-w-0 flex-1 items-stretch">
-              {!built && (
-                <div className="grid w-full place-items-center rounded-md border border-dashed border-border/50 text-[8px] text-muted-foreground/60">…</div>
-              )}
-              {built && !showDash && <MiniPipeline />}
-              {showDash && <MiniDashboard />}
-            </div>
-          </div>
+        <div className="flex h-full w-full flex-col p-2.5" style={{ transform: "scale(var(--cs, 1))", transformOrigin: "top left" }}>
+          <GenieCodeBody d={d} />
         </div>
       </div>
     </RotatableCard>
   );
 });
+
+/** The Genie Code inner content (header + typing terminal + the pipeline →
+ *  dashboard build animation), WITHOUT the card chrome — so it can render
+ *  standalone or stacked below Lakeflow in the combined block. Owns its own
+ *  looping sequence + keyframes. */
+export function GenieCodeBody({ d }: { d: NodeData }) {
+  const GenieCode = DATABRICKS_ICONS.genieCodeBrand;
+  const { typed, phase, built, showDash } = useGenieSequence();
+  const typing = phase === "typing";
+  return (
+    <div className="flex h-full w-full flex-col gap-1.5">
+      <style>{`
+        @keyframes gc-caret { 0%,100% { opacity: 1 } 50% { opacity: 0 } }
+        @keyframes gc-dot { 0%,100% { opacity: .25 } 50% { opacity: 1 } }
+        @keyframes gc-in { from { opacity: 0; transform: translateY(3px) scale(.97) } to { opacity: 1; transform: none } }
+      `}</style>
+      {/* header */}
+      <div className="flex items-center gap-1.5">
+        <GenieCode className="h-5 w-5 shrink-0" />
+        <span className="flex min-w-0 flex-col leading-tight">
+          <span className="text-[12px] font-bold text-foreground">{d.component.label || "Built with Genie Code"}</span>
+          <span className="truncate text-[8.5px] text-muted-foreground">Tell genie what to do, it'll build it for you and maintain it</span>
+        </span>
+        {/* ZeroOps wordmark, top-right */}
+        <FileSvgIcon iconKey="file:vendor/zeroops" className="ml-auto h-3.5 w-auto shrink-0" />
+      </div>
+
+      {/* stage: prompt (+ think) → built artifacts */}
+      <div className="flex flex-1 items-stretch gap-2">
+        {/* LEFT: terminal — types per character, then "generating…" */}
+        <div className="flex w-[46%] shrink-0 flex-col gap-1 rounded-md border border-border/60 bg-background/70 px-2 py-1.5 font-mono text-[9px]">
+          <div className="flex flex-1 items-start gap-1">
+            <span className="shrink-0 text-[#EF5B3F]">$</span>
+            <span className="whitespace-pre-wrap break-words text-foreground">
+              {PROMPT_TEXT.slice(0, typed)}
+              {typing && <span className="ml-[1px] inline-block h-[9px] w-[5px] translate-y-[1px] bg-[#EF5B3F]" style={{ animation: "gc-caret 1s steps(1) infinite" }} />}
+            </span>
+          </div>
+          {phase === "think" && (
+            <div className="flex items-center gap-1 text-[8px] text-[#EF5B3F]">
+              <GenieCode className="h-2.5 w-2.5" />
+              <span>generating</span>
+              {[0, 1, 2].map((i) => (
+                <span key={i} className="h-1 w-1 rounded-full bg-[#EF5B3F]" style={{ animation: "gc-dot 1s ease-in-out infinite", animationDelay: `${i * 0.15}s` }} />
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* connector */}
+        <div className="relative flex w-5 shrink-0 items-center">
+          <span className="absolute left-0 right-0 top-1/2 h-[2px] -translate-y-1/2 rounded-full bg-muted-foreground/25" />
+          {(phase === "pipeline" || phase === "think") && (
+            <span className="absolute top-1/2 h-1.5 w-1.5 -translate-y-1/2 rounded-full bg-[#EF5B3F]" style={{ animation: "gc-dot 1.2s ease-in-out infinite" }} />
+          )}
+        </div>
+
+        {/* RIGHT: built artifacts — pipeline first, then dashboard */}
+        <div className="flex min-w-0 flex-1 items-stretch">
+          {!built && (
+            <div className="grid w-full place-items-center rounded-md border border-dashed border-border/50 text-[8px] text-muted-foreground/60">…</div>
+          )}
+          {built && !showDash && <MiniPipeline />}
+          {showDash && <MiniDashboard />}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 /** The pipeline.sql artifact (Bronze → Silver → Gold), shown mid-build. */
 function MiniPipeline() {

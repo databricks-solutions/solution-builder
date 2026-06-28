@@ -92,7 +92,7 @@ export type FlowStyle = "dot" | "particles" | "docs" | "laser";
 
 /** Composite block kinds (super-set components that draw an inner mini-diagram
  *  and expose multiple named ports). Extend this as we add more blocks. */
-export type CompositeKind = "lakeflow" | "genie-code" | "governance";
+export type CompositeKind = "lakeflow" | "genie-code" | "governance" | "lakeflow-genie";
 
 /** The 3 left input ports a "lakeflow" composite exposes. Edge handle ids on
  *  the block are `in-${port}` (+ a single `r` output on the right). */
@@ -344,6 +344,8 @@ const CATALOG: Record<BandId, CatalogComponent[]> = {
     // Composite "Lakeflow" super-block: Lakeflow Connect + Zerobus + direct
     // ingest feeding a bronze→silver→gold pipeline, with 3 left input ports.
     { id: "lakeflow-block", label: "Lakeflow", icon: "lakeflowConnectBrand", kind: "lakeflow", desc: "One block: managed ingest (Lakeflow Connect), real-time streams (Zerobus) and direct file landing, all flowing into a declarative bronze → silver → gold pipeline." },
+    // Combined box: the Lakeflow super-block stacked over the Genie Code block.
+    { id: "lakeflow-genie-block", label: "Lakeflow + Genie", icon: "lakeflowConnectBrand", kind: "lakeflow-genie", desc: "Lakeflow ingest + declarative pipeline, with Genie Code building and maintaining it — one box, end to end." },
     { id: "lakeflow-connect", label: "Lakeflow Connect", icon: "lakeflowConnectBrand", desc: "Managed connectors ingest from databases and SaaS apps under governance." },
     { id: "zerobus-ingest", label: "Lakeflow Zerobus", icon: "zerobus", desc: "Real-time, direct ingest of streaming events into the lakehouse." },
     { id: "sdp", label: "Lakeflow SDP", icon: "sdpBrand", desc: "Spark Declarative Pipelines — declarative bronze → silver → gold that self-heal and scale." },

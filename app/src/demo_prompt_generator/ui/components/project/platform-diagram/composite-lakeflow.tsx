@@ -137,33 +137,7 @@ export const LakeflowBlock = memo(function LakeflowBlock({ data, selected }: Nod
       onResize={(w, h) => d.onResize(d.nodeId, w, h)}
       onContext={(e) => { e.preventDefault(); d.onContext(d.nodeId, e.clientX, e.clientY); }}
     >
-      {/* Named input ports (lakeflow-connect / zerobus / direct) + right output.
-          Like the standard handles: hidden at rest, fade in on hover (in edit
-          mode), and FORCED visible when this block is a reconnect drop target —
-          so they replace the generic 4-side dots, not coexist with them. */}
-      {(() => {
-        const show = editMode && !selected;
-        const vis = isDropTarget
-          ? "opacity-100"
-          : show
-            ? "opacity-0 transition-opacity duration-150 group-hover:opacity-100"
-            : "opacity-0 pointer-events-none";
-        const cls = `!h-2.5 !w-2.5 !border-2 !border-primary !bg-background ${vis}`;
-        return (
-          <>
-            {LF_PORTS.map((p) => (
-              <Handle key={p.port} type="source" position={Position.Left} id={`in-${p.port}`}
-                isConnectable={show} className={cls} style={{ top: `${p.frac * 100}%` }} />
-            ))}
-            <Handle type="source" position={Position.Right} id="r" isConnectable={show} className={cls} />
-            {/* Extra anchors: top-center, bottom-center, and bottom-left (under
-                the files zone, ~center of the 36px left rail). */}
-            <Handle type="source" position={Position.Top} id="t" isConnectable={show} className={cls} />
-            <Handle type="source" position={Position.Bottom} id="b" isConnectable={show} className={cls} />
-            <Handle type="source" position={Position.Bottom} id="bl" isConnectable={show} className={cls} style={{ left: 18 }} />
-          </>
-        );
-      })()}
+      <LakeflowPorts editMode={editMode} selected={!!selected} isDropTarget={isDropTarget} />
 
       <div
         onClick={() => d.onSelect(d.nodeId)}
@@ -173,41 +147,80 @@ export const LakeflowBlock = memo(function LakeflowBlock({ data, selected }: Nod
         style={{ borderColor: `${d.bandColor}66` }}
       >
         <div className="flex h-full w-full" style={{ transform: "scale(var(--cs, 1))", transformOrigin: "top left" }}>
-          {/* LEFT: ingest zones stacked vertically, flush against the block edge
-              — Connect (top), Zerobus (middle), files (bottom = direct port).
-              Each zone aligns with its left-edge input port. */}
-          <div className="flex w-9 shrink-0 flex-col border-r" style={{ borderColor: `${d.bandColor}33` }}>
-            <IngestBox icon="lakeflowConnectBrand" label="Connect" bandColor={d.bandColor} first />
-            <IngestBox icon="zerobus" label="Zerobus" bandColor={d.bandColor} />
-            {/* bottom zone = "direct" port — agnostic data files (CSV/Parquet),
-                icon only, no label. */}
-            <IngestBox iconEl={<StackedFiles />} label="" bandColor={d.bandColor} />
-          </div>
-
-          {/* RIGHT: title + SDP tables + Open Format underneath them. */}
-          <div className="flex min-h-0 flex-1 flex-col p-2.5">
-            <div className="mb-1.5 flex shrink-0 flex-col leading-tight">
-              <span className="truncate text-[8px] font-medium uppercase tracking-wide text-muted-foreground">Data ingestion and processing</span>
-              <span className="text-[12px] font-bold text-foreground">{d.component.label}</span>
-            </div>
-            <div className="flex min-h-0 flex-1 flex-col rounded-lg border border-border/60 bg-background/60 p-2">
-              <div className="mb-1.5 flex shrink-0 items-center gap-1.5">
-                {(() => { const I = DATABRICKS_ICONS.sdpBrand; return <I className="h-4 w-4 shrink-0" />; })()}
-                <span className="truncate text-[9.5px] font-bold leading-tight text-foreground">Spark Declarative Pipelines</span>
-              </div>
-              {/* Medallion grows to absorb extra height on resize. */}
-              <MedallionRow />
-
-              {/* Open Format — fixed small height, stays put as the block grows. */}
-              <div className="mt-1.5 flex shrink-0 items-center gap-2 border-t border-border/60 pt-1.5">
-                <span className="text-[8px] font-semibold uppercase tracking-wider text-muted-foreground">Open Format</span>
-                {(() => { const I = DATABRICKS_ICONS.deltaLakeLogo; return <I className="h-3.5 w-3.5" />; })()}
-                {(() => { const I = DATABRICKS_ICONS.icebergLogo; return <I className="h-3.5 w-3.5" />; })()}
-              </div>
-            </div>
-          </div>
+          <LakeflowBody d={d} />
         </div>
       </div>
     </RotatableCard>
   );
 });
+
+/** The Lakeflow input/output handles. Hidden at rest, fade in on hover (edit
+ *  mode), forced visible when this block is a reconnect drop target — so they
+ *  replace the generic 4-side dots, not coexist with them. Shared by the
+ *  standalone Lakeflow block and the combined Lakeflow + Genie block. */
+export function LakeflowPorts({ editMode, selected, isDropTarget }: { editMode: boolean; selected: boolean; isDropTarget: boolean }) {
+  const show = editMode && !selected;
+  const vis = isDropTarget
+    ? "opacity-100"
+    : show
+      ? "opacity-0 transition-opacity duration-150 group-hover:opacity-100"
+      : "opacity-0 pointer-events-none";
+  const cls = `!h-2.5 !w-2.5 !border-2 !border-primary !bg-background ${vis}`;
+  return (
+    <>
+      {LF_PORTS.map((p) => (
+        <Handle key={p.port} type="source" position={Position.Left} id={`in-${p.port}`}
+          isConnectable={show} className={cls} style={{ top: `${p.frac * 100}%` }} />
+      ))}
+      <Handle type="source" position={Position.Right} id="r" isConnectable={show} className={cls} />
+      {/* Extra anchors: top-center, bottom-center, and bottom-left (under
+          the files zone, ~center of the 36px left rail). */}
+      <Handle type="source" position={Position.Top} id="t" isConnectable={show} className={cls} />
+      <Handle type="source" position={Position.Bottom} id="b" isConnectable={show} className={cls} />
+      <Handle type="source" position={Position.Bottom} id="bl" isConnectable={show} className={cls} style={{ left: 18 }} />
+    </>
+  );
+}
+
+/** The Lakeflow inner content (ingest rail + SDP/medallion panel), WITHOUT the
+ *  card chrome — so it can be embedded standalone or stacked above Genie Code
+ *  in the combined block. */
+export function LakeflowBody({ d }: { d: NodeData }) {
+  return (
+    <>
+      {/* LEFT: ingest zones stacked vertically, flush against the block edge
+          — Connect (top), Zerobus (middle), files (bottom = direct port).
+          Each zone aligns with its left-edge input port. */}
+      <div className="flex w-9 shrink-0 flex-col border-r" style={{ borderColor: `${d.bandColor}33` }}>
+        <IngestBox icon="lakeflowConnectBrand" label="Connect" bandColor={d.bandColor} first />
+        <IngestBox icon="zerobus" label="Zerobus" bandColor={d.bandColor} />
+        {/* bottom zone = "direct" port — agnostic data files (CSV/Parquet),
+            icon only, no label. */}
+        <IngestBox iconEl={<StackedFiles />} label="" bandColor={d.bandColor} />
+      </div>
+
+      {/* RIGHT: title + SDP tables + Open Format underneath them. */}
+      <div className="flex min-h-0 flex-1 flex-col p-2.5">
+        <div className="mb-1.5 flex shrink-0 flex-col leading-tight">
+          <span className="truncate text-[8px] font-medium uppercase tracking-wide text-muted-foreground">Data ingestion and processing</span>
+          <span className="text-[12px] font-bold text-foreground">{d.component.label}</span>
+        </div>
+        <div className="flex min-h-0 flex-1 flex-col rounded-lg border border-border/60 bg-background/60 p-2">
+          <div className="mb-1.5 flex shrink-0 items-center gap-1.5">
+            {(() => { const I = DATABRICKS_ICONS.sdpBrand; return <I className="h-4 w-4 shrink-0" />; })()}
+            <span className="truncate text-[9.5px] font-bold leading-tight text-foreground">Spark Declarative Pipelines</span>
+          </div>
+          {/* Medallion grows to absorb extra height on resize. */}
+          <MedallionRow />
+
+          {/* Open Format — fixed small height, stays put as the block grows. */}
+          <div className="mt-1.5 flex shrink-0 items-center gap-2 border-t border-border/60 pt-1.5">
+            <span className="text-[8px] font-semibold uppercase tracking-wider text-muted-foreground">Open Format</span>
+            {(() => { const I = DATABRICKS_ICONS.deltaLakeLogo; return <I className="h-3.5 w-3.5" />; })()}
+            {(() => { const I = DATABRICKS_ICONS.icebergLogo; return <I className="h-3.5 w-3.5" />; })()}
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
