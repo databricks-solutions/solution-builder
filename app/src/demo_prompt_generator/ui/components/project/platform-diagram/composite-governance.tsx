@@ -84,13 +84,18 @@ export const GovernanceBlock = memo(function GovernanceBlock({ data, selected }:
               </span>
             </div>
 
-            {/* Genie Ontology — ~half the bar, with a live "context graph" that
-                pulses concept/source nodes as Genie explores + scores them. */}
+            {/* Genie Ontology — ~half the bar. Top: the building blocks
+                (metric views / glossary / domains). Below: a live graph that
+                links them to the tables + dashboards they describe. */}
             <div className="flex flex-1 flex-col gap-0.5 overflow-hidden rounded-md border border-border/60 bg-background/70 px-2 py-1">
               <span className="flex items-center gap-1.5 leading-tight">
                 <FileSvgIcon iconKey="file:vendor/genie-ontology" className="h-3.5 w-3.5 shrink-0" />
                 <span className="truncate text-[10px] font-semibold text-foreground">Genie Ontology</span>
-                <span className="truncate text-[7.5px] text-muted-foreground">— Genie's context layer</span>
+                <span className="ml-auto flex items-center gap-1">
+                  {["Metric views", "Glossary", "Domains"].map((c) => (
+                    <span key={c} className="rounded bg-muted px-1 py-px text-[7px] font-medium text-muted-foreground">{c}</span>
+                  ))}
+                </span>
               </span>
               <OntologyGraph />
             </div>
@@ -101,55 +106,62 @@ export const GovernanceBlock = memo(function GovernanceBlock({ data, selected }:
   );
 });
 
-/** A compact, looping "context graph": a central Genie hub linked to the
- *  concepts + sources it maps (revenue, active user, a table, a dashboard, a
- *  doc). A highlight traverses node→node so it reads as Genie exploring and
- *  scoring context, one snippet at a time. Pure CSS keyframes (cheap; one node
- *  is the "current" focus at any moment), staggered per node. */
+/** A real (hub-less) ontology graph: heterogeneous nodes — a metric view, the
+ *  table it's computed from, the domain it belongs to, a glossary term, and the
+ *  dashboard that surfaces it — wired together the way the ontology links them
+ *  (metric→table, metric→glossary, table→domain, dashboard→metric). Each node
+ *  is a small product icon. A focus pulse walks the EDGES in sequence so it
+ *  reads as the graph being traversed. Pure CSS keyframes. */
 function OntologyGraph() {
-  const CX = 34;
-  const CY = 27;
-  // Satellites: [x, y, label]. Spread to the right of the hub.
-  const NODES: [number, number, string][] = [
-    [108, 7, "revenue"],
-    [150, 20, "active user"],
-    [156, 42, "qualified lead"],
-    [104, 47, "certified source"],
-    [82, 27, "table · doc · app"],
+  // Heterogeneous nodes: [x, y, iconKey, label].
+  const NODES: { x: number; y: number; icon: keyof typeof DATABRICKS_ICONS; label: string }[] = [
+    { x: 92, y: 8, icon: "metricViews", label: "metric" },
+    { x: 30, y: 24, icon: "deltaTable", label: "table" },
+    { x: 96, y: 40, icon: "businessUser", label: "domain" },
+    { x: 158, y: 14, icon: "aibiBrand", label: "dashboard" },
+    { x: 162, y: 40, icon: "unstructuredData", label: "glossary" },
   ];
-  const N = NODES.length;
-  const STEP = 1.1; // seconds each node holds the focus
-  const DUR = N * STEP; // full sweep
+  // Edges as index pairs — the real relationships, NOT a star.
+  const EDGES: [number, number][] = [
+    [1, 0], // table → metric
+    [0, 2], // metric → domain
+    [3, 0], // dashboard → metric
+    [0, 4], // metric → glossary
+    [2, 1], // domain → table
+  ];
+  const STEP = 0.85; // seconds each edge holds the focus
+  const DUR = EDGES.length * STEP;
+  const lit = 100 / EDGES.length / 2; // % of cycle an edge stays "lit"
   return (
-    <svg viewBox="0 0 200 54" preserveAspectRatio="xMidYMid meet" className="h-full w-full">
+    <svg viewBox="0 0 192 52" preserveAspectRatio="xMidYMid meet" className="h-full w-full">
       <style>{`
-        @keyframes og-edge { 0%,100% { stroke-opacity: .18 } ${100 / N / 2}% { stroke-opacity: .9 } }
-        @keyframes og-node { 0%,100% { opacity: .5 } ${100 / N / 2}% { opacity: 1 } }
-        @keyframes og-ring { 0% { r: 4; opacity: .8 } 60%,100% { r: 11; opacity: 0 } }
-        @keyframes og-hub { 0%,100% { filter: drop-shadow(0 0 1px #FF5F46) } 50% { filter: drop-shadow(0 0 4px #FF5F46) } }
+        @keyframes og-edge { 0%,100% { stroke-opacity: .16 } ${lit}% { stroke-opacity: .95 } }
+        @keyframes og-pop  { 0%,100% { opacity: .55 } ${lit}% { opacity: 1 } }
       `}</style>
-      {/* edges hub → each satellite */}
-      {NODES.map(([x, y], i) => (
+      {/* edges (drawn first, under the nodes); each lights up in turn */}
+      {EDGES.map(([a, b], i) => (
         <line
           key={`e${i}`}
-          x1={CX} y1={CY} x2={x} y2={y}
-          stroke="#FF5F46" strokeWidth={1} strokeOpacity={0.18}
+          x1={NODES[a].x} y1={NODES[a].y} x2={NODES[b].x} y2={NODES[b].y}
+          stroke="#FF5F46" strokeWidth={1.1} strokeOpacity={0.16}
           style={{ animation: `og-edge ${DUR}s ease-in-out infinite`, animationDelay: `${i * STEP}s` }}
         />
       ))}
-      {/* satellite nodes + labels */}
-      {NODES.map(([x, y, label], i) => (
-        <g key={`n${i}`} style={{ animation: `og-node ${DUR}s ease-in-out infinite`, animationDelay: `${i * STEP}s` }}>
-          {/* exploration pulse ring */}
-          <circle cx={x} cy={y} r={4} fill="none" stroke="#FF5F46" strokeWidth={1}
-            style={{ animation: `og-ring ${DUR}s ease-out infinite`, animationDelay: `${i * STEP}s` }} />
-          <circle cx={x} cy={y} r={3} fill="#FABFBA" stroke="#FF5F46" strokeWidth={1} />
-          <text x={x} y={y - 5.5} textAnchor="middle" fontSize={6.5} fill="currentColor" className="text-muted-foreground">{label}</text>
-        </g>
-      ))}
-      {/* central Genie hub */}
-      <circle cx={CX} cy={CY} r={6} fill="#FF5F46" style={{ animation: "og-hub 2.2s ease-in-out infinite" }} />
-      <text x={CX} y={CY + 16} textAnchor="middle" fontSize={6.5} fontWeight={700} fill="currentColor" className="text-foreground">Genie</text>
+      {/* nodes: a product icon in a chip + a tiny label */}
+      {NODES.map((n, i) => {
+        const Icon = DATABRICKS_ICONS[n.icon];
+        // This node's focus delay = the first edge that touches it.
+        const ei = EDGES.findIndex(([a, b]) => a === i || b === i);
+        return (
+          <g key={`n${i}`} style={{ animation: `og-pop ${DUR}s ease-in-out infinite`, animationDelay: `${Math.max(0, ei) * STEP}s` }}>
+            <circle cx={n.x} cy={n.y} r={7.5} fill="var(--background)" stroke="#FF5F46" strokeWidth={1} strokeOpacity={0.5} />
+            <g transform={`translate(${n.x - 5} ${n.y - 5})`}>
+              <Icon width={10} height={10} />
+            </g>
+            <text x={n.x} y={n.y + 13} textAnchor="middle" fontSize={6} fill="currentColor" className="text-muted-foreground">{n.label}</text>
+          </g>
+        );
+      })}
     </svg>
   );
 }
