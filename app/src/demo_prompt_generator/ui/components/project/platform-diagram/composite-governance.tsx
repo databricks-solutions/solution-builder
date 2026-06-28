@@ -87,16 +87,23 @@ export const GovernanceBlock = memo(function GovernanceBlock({ data, selected }:
             {/* Genie Ontology — ~half the bar. Top: the building blocks
                 (metric views / glossary / domains). Below: a live graph that
                 links them to the tables + dashboards they describe. */}
-            <div className="flex flex-1 flex-col gap-0.5 overflow-hidden rounded-md border border-border/60 bg-background/70 px-2 py-1">
-              <span className="flex items-center gap-1.5 leading-tight">
-                <FileSvgIcon iconKey="file:vendor/genie-ontology" className="h-3.5 w-3.5 shrink-0" />
-                <span className="truncate text-[10px] font-semibold text-foreground">Genie Ontology</span>
-                <span className="ml-auto flex items-center gap-1">
+            <div className="flex flex-1 items-stretch gap-2 overflow-hidden rounded-md border border-border/60 bg-background/70 px-2 py-1">
+              {/* left: title + description + building-block chips */}
+              <span className="flex w-[52%] shrink-0 flex-col gap-0.5 leading-tight">
+                <span className="flex items-center gap-1.5">
+                  <FileSvgIcon iconKey="file:vendor/genie-ontology" className="h-3.5 w-3.5 shrink-0" />
+                  <span className="truncate text-[10px] font-semibold text-foreground">Genie Ontology</span>
+                </span>
+                <span className="text-[7.5px] leading-snug text-muted-foreground">
+                  Genie's context layer — a living map of your terms, metrics, rules &amp; relationships, so it knows what the business <em>means</em>.
+                </span>
+                <span className="flex flex-wrap items-center gap-1">
                   {["Metric views", "Glossary", "Domains"].map((c) => (
                     <span key={c} className="rounded bg-muted px-1 py-px text-[7px] font-medium text-muted-foreground">{c}</span>
                   ))}
                 </span>
               </span>
+              {/* right: the live graph */}
               <OntologyGraph />
             </div>
           </div>
@@ -113,13 +120,13 @@ export const GovernanceBlock = memo(function GovernanceBlock({ data, selected }:
  *  is a small product icon. A focus pulse walks the EDGES in sequence so it
  *  reads as the graph being traversed. Pure CSS keyframes. */
 function OntologyGraph() {
-  // Heterogeneous nodes: [x, y, iconKey, label].
-  const NODES: { x: number; y: number; icon: keyof typeof DATABRICKS_ICONS; label: string }[] = [
-    { x: 92, y: 8, icon: "metricViews", label: "metric" },
-    { x: 30, y: 24, icon: "deltaTable", label: "table" },
-    { x: 96, y: 40, icon: "businessUser", label: "domain" },
-    { x: 158, y: 14, icon: "aibiBrand", label: "dashboard" },
-    { x: 162, y: 40, icon: "unstructuredData", label: "glossary" },
+  const R = 8; // node radius
+  const NODES: { x: number; y: number; icon: keyof typeof DATABRICKS_ICONS }[] = [
+    { x: 50, y: 12, icon: "metricViews" },   // metric view
+    { x: 12, y: 38, icon: "deltaTable" },    // table
+    { x: 54, y: 44, icon: "businessUser" },  // domain
+    { x: 92, y: 12, icon: "aibiBrand" },     // dashboard
+    { x: 94, y: 40, icon: "unstructuredData" }, // glossary
   ];
   // Edges as index pairs — the real relationships, NOT a star.
   const EDGES: [number, number][] = [
@@ -129,36 +136,46 @@ function OntologyGraph() {
     [0, 4], // metric → glossary
     [2, 1], // domain → table
   ];
+  // Trim an edge so it starts/ends at the node's rim (R), not its centre — so
+  // the line never shows through the circle.
+  const seg = (a: number, b: number) => {
+    const p = NODES[a], q = NODES[b];
+    const dx = q.x - p.x, dy = q.y - p.y;
+    const len = Math.hypot(dx, dy) || 1;
+    const ux = dx / len, uy = dy / len;
+    return { x1: p.x + ux * R, y1: p.y + uy * R, x2: q.x - ux * R, y2: q.y - uy * R };
+  };
   const STEP = 0.85; // seconds each edge holds the focus
   const DUR = EDGES.length * STEP;
   const lit = 100 / EDGES.length / 2; // % of cycle an edge stays "lit"
   return (
-    <svg viewBox="0 0 192 52" preserveAspectRatio="xMidYMid meet" className="h-full w-full">
+    <svg viewBox="0 0 106 54" preserveAspectRatio="xMidYMid meet" className="h-full flex-1">
       <style>{`
-        @keyframes og-edge { 0%,100% { stroke-opacity: .16 } ${lit}% { stroke-opacity: .95 } }
-        @keyframes og-pop  { 0%,100% { opacity: .55 } ${lit}% { opacity: 1 } }
+        @keyframes og-edge { 0%,100% { stroke-opacity: .18 } ${lit}% { stroke-opacity: .95 } }
+        @keyframes og-pop  { 0%,100% { opacity: .6 } ${lit}% { opacity: 1 } }
       `}</style>
-      {/* edges (drawn first, under the nodes); each lights up in turn */}
-      {EDGES.map(([a, b], i) => (
-        <line
-          key={`e${i}`}
-          x1={NODES[a].x} y1={NODES[a].y} x2={NODES[b].x} y2={NODES[b].y}
-          stroke="#FF5F46" strokeWidth={1.1} strokeOpacity={0.16}
-          style={{ animation: `og-edge ${DUR}s ease-in-out infinite`, animationDelay: `${i * STEP}s` }}
-        />
-      ))}
-      {/* nodes: a product icon in a chip + a tiny label */}
+      {/* edges (drawn first, under the nodes); trimmed to the rims + lit in turn */}
+      {EDGES.map(([a, b], i) => {
+        const s = seg(a, b);
+        return (
+          <line
+            key={`e${i}`}
+            x1={s.x1} y1={s.y1} x2={s.x2} y2={s.y2}
+            stroke="#FF5F46" strokeWidth={1.1} strokeLinecap="round" strokeOpacity={0.18}
+            style={{ animation: `og-edge ${DUR}s ease-in-out infinite`, animationDelay: `${i * STEP}s` }}
+          />
+        );
+      })}
+      {/* nodes: an opaque chip with a product icon (no labels) */}
       {NODES.map((n, i) => {
         const Icon = DATABRICKS_ICONS[n.icon];
-        // This node's focus delay = the first edge that touches it.
         const ei = EDGES.findIndex(([a, b]) => a === i || b === i);
         return (
           <g key={`n${i}`} style={{ animation: `og-pop ${DUR}s ease-in-out infinite`, animationDelay: `${Math.max(0, ei) * STEP}s` }}>
-            <circle cx={n.x} cy={n.y} r={7.5} fill="var(--background)" stroke="#FF5F46" strokeWidth={1} strokeOpacity={0.5} />
+            <circle cx={n.x} cy={n.y} r={R} fill="var(--card)" stroke="#FF5F46" strokeWidth={1} />
             <g transform={`translate(${n.x - 5} ${n.y - 5})`}>
               <Icon width={10} height={10} />
             </g>
-            <text x={n.x} y={n.y + 13} textAnchor="middle" fontSize={6} fill="currentColor" className="text-muted-foreground">{n.label}</text>
           </g>
         );
       })}
