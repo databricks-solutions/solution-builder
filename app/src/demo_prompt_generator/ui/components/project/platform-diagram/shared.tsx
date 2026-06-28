@@ -98,7 +98,7 @@ export function nodeTypeFor(c: PlatformComponent): string {
  *  rotated edges (not the original box). */
 export function baseSize(c: PlatformComponent): { w: number; h: number } {
   if (c.kind === "lakeflow") return { w: 224, h: 148 }; // composite super-block
-  if (c.kind === "lakeflow-genie") return { w: 360, h: 224 }; // Lakeflow over a slim Genie strip
+  if (c.kind === "lakeflow-genie") return { w: 360, h: 188 }; // Lakeflow over a slim Genie footer
   if (c.kind === "genie-code") return { w: 360, h: 112 }; // wide "built with Genie Code" strip
   if (c.kind === "governance") return { w: 580, h: 108 }; // wide horizontal governance bar
   if (c.id === "sdp") return { w: 230, h: 112 };
