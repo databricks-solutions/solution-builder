@@ -799,7 +799,14 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasP
               if (url !== null) onAnnotate(menu.id, { src: url.trim() });
               setMenu(null);
             }}
-            style={{ opacity: menuNodeData?.opacity, fillColor: menuNodeData?.fillColor, fontColor: menuNodeData?.fontColor }}
+            style={{
+              opacity: menuNodeData?.opacity,
+              fillColor: menuNodeData?.fillColor,
+              fontColor: menuNodeData?.fontColor,
+              borderWidth: menuNodeData?.borderWidth,
+              borderStyle: menuNodeData?.borderStyle,
+              borderColor: menuNodeData?.borderColor,
+            }}
             selectionCount={styleTargets.length}
             onStyle={(patch) => styleNodes(styleTargets, patch)}
             onZ={(dir) => { setNodeZ(styleTargets.length ? styleTargets : [menu.id], dir); setMenu(null); }}

@@ -76,7 +76,7 @@ function AnnotationMenu({
             <span className="mr-auto text-[11px] text-muted-foreground">Align</span>
             {([["left", AlignLeft], ["center", AlignCenter], ["right", AlignRight]] as const).map(([al, Ico]) => (
               <button key={al} type="button" onClick={() => onAnno({ hAlign: al })}
-                className={`grid h-6 w-6 place-items-center rounded ${hAlign === al ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}>
+                className={`grid h-6 w-6 cursor-pointer place-items-center rounded ${hAlign === al ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}>
                 <Ico className="h-3.5 w-3.5" />
               </button>
             ))}
@@ -86,7 +86,7 @@ function AnnotationMenu({
               <span className="mr-auto text-[11px] text-muted-foreground">Position</span>
               {(["top", "middle", "bottom"] as const).map((v) => (
                 <button key={v} type="button" onClick={() => onAnno({ vAlign: v })}
-                  className={`rounded px-1.5 py-0.5 text-[10px] capitalize ${(a.vAlign ?? "middle") === v ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}>
+                  className={`cursor-pointer rounded px-1.5 py-0.5 text-[10px] capitalize ${(a.vAlign ?? "middle") === v ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}>
                   {v[0]}
                 </button>
               ))}
@@ -135,7 +135,7 @@ function StyleControls({
         <button
           type="button"
           onClick={(e) => { e.stopPropagation(); onStyle({ fillColor: "transparent" }); }}
-          className={`rounded px-1.5 py-0.5 text-[10px] ${isTransparent ? "bg-primary text-primary-foreground" : "border border-border hover:bg-muted"}`}
+          className={`cursor-pointer rounded px-1.5 py-0.5 text-[10px] ${isTransparent ? "bg-primary text-primary-foreground" : "border border-border hover:bg-muted"}`}
           title="Transparent fill"
         >
           None
@@ -176,14 +176,14 @@ function StyleControls({
           <button
             type="button"
             onClick={(e) => { e.stopPropagation(); onStyle({ borderStyle: "solid" }); }}
-            className={`flex-1 rounded px-1.5 py-0.5 text-[10px] ${borderStyle === "solid" ? "bg-primary text-primary-foreground" : "border border-border hover:bg-muted"}`}
+            className={`flex-1 cursor-pointer rounded px-1.5 py-0.5 text-[10px] ${borderStyle === "solid" ? "bg-primary text-primary-foreground" : "border border-border hover:bg-muted"}`}
           >
             Solid
           </button>
           <button
             type="button"
             onClick={(e) => { e.stopPropagation(); onStyle({ borderStyle: "dashed" }); }}
-            className={`flex-1 rounded px-1.5 py-0.5 text-[10px] ${borderStyle === "dashed" ? "bg-primary text-primary-foreground" : "border border-border hover:bg-muted"}`}
+            className={`flex-1 cursor-pointer rounded px-1.5 py-0.5 text-[10px] ${borderStyle === "dashed" ? "bg-primary text-primary-foreground" : "border border-border hover:bg-muted"}`}
           >
             Dashed
           </button>
@@ -248,10 +248,10 @@ export const ContextMenu = memo(function ContextMenu({
   onPickLogo: () => void;
   onSetImageUrl: () => void;
   /** Current style of the right-clicked node (for the controls' values). */
-  style?: { opacity?: number; fillColor?: string; fontColor?: string };
+  style?: StylePatch;
   /** How many nodes the style controls will affect (>1 → multi-select). */
   selectionCount?: number;
-  onStyle: (patch: { opacity?: number; fillColor?: string; fontColor?: string }) => void;
+  onStyle: (patch: StylePatch) => void;
   onZ: (dir: "front" | "back") => void;
 }) {
   const ed = edge?.data as EdgeData | undefined;
@@ -259,7 +259,7 @@ export const ContextMenu = memo(function ContextMenu({
     <button
       type="button"
       onClick={onClick}
-      className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12.5px] hover:bg-muted ${active ? "text-primary" : "text-foreground"}`}
+      className={`flex w-full cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-left text-[12.5px] hover:bg-muted ${active ? "text-primary" : "text-foreground"}`}
     >
       <span className="grid h-4 w-4 place-items-center">{icon}</span>
       {label}
@@ -272,13 +272,25 @@ export const ContextMenu = memo(function ContextMenu({
       <Item icon={<SendToBack className="h-3.5 w-3.5" />} label="Send to back" onClick={() => onZ("back")} />
     </>
   );
+  // Flip the menu so it's always fully visible: open LEFT when the click is in
+  // the right portion of the viewport, and open UP when it's in the bottom
+  // portion. Anchoring with right/bottom (instead of left/top) keeps the menu
+  // pinned to the click point as it grows the other way.
+  const vw = typeof window !== "undefined" ? window.innerWidth : 1920;
+  const vh = typeof window !== "undefined" ? window.innerHeight : 1080;
+  const flipX = menu.x > vw * 0.65; // right portion → open leftward
+  const flipY = menu.y > vh * 0.55; // bottom portion → open upward
+  const pos: React.CSSProperties = {
+    ...(flipX ? { right: vw - menu.x } : { left: menu.x }),
+    ...(flipY ? { bottom: vh - menu.y } : { top: menu.y }),
+  };
   return (
     <>
       {/* click-away catcher */}
       <div className="fixed inset-0 z-40" onClick={onClose} onContextMenu={(e) => { e.preventDefault(); onClose(); }} />
       <div
-        className="fixed z-50 w-52 rounded-lg border border-border bg-card p-1 shadow-lg"
-        style={{ left: menu.x, top: menu.y }}
+        className="fixed z-50 max-h-[85vh] w-52 overflow-y-auto rounded-lg border border-border bg-card p-1 shadow-lg"
+        style={pos}
       >
         {menu.kind === "node" && selectionCount > 1 ? (
           /* MULTI-SELECT: only the options common to ALL selected nodes — the
@@ -342,7 +354,7 @@ export const ContextMenu = memo(function ContextMenu({
                 type="button"
                 onClick={() => onSetFlowStyle(fs)}
                 title={fs}
-                className={`flex w-full items-center gap-1 rounded px-2 py-1 hover:bg-muted ${ed?.flowStyle === fs ? "bg-muted" : ""}`}
+                className={`flex w-full cursor-pointer items-center gap-1 rounded px-2 py-1 hover:bg-muted ${ed?.flowStyle === fs ? "bg-muted" : ""}`}
               >
                 <span className="min-w-0 flex-1"><FlowStylePreview style={fs} /></span>
                 {ed?.flowStyle === fs && <Check className="h-3.5 w-3.5 shrink-0 text-primary" />}
