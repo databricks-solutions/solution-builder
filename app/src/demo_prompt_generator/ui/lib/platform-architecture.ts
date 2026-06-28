@@ -92,7 +92,7 @@ export type FlowStyle = "dot" | "particles" | "docs" | "laser";
 
 /** Composite block kinds (super-set components that draw an inner mini-diagram
  *  and expose multiple named ports). Extend this as we add more blocks. */
-export type CompositeKind = "lakeflow" | "genie-code";
+export type CompositeKind = "lakeflow" | "genie-code" | "governance";
 
 /** The 3 left input ports a "lakeflow" composite exposes. Edge handle ids on
  *  the block are `in-${port}` (+ a single `r` output on the right). */
@@ -331,6 +331,9 @@ const CATALOG: Record<BandId, CatalogComponent[]> = {
     { id: "genie-code", label: "Built with Genie Code", icon: "genieCodeBrand", kind: "genie-code", desc: "Describe it — Genie Code ingests the data and builds the dashboard, end to end." },
   ],
   "unified-governance": [
+    // Composite "Unified Governance" bar: Unity Catalog + Unity AI Gateway (all
+    // foundation models) + Genie Ontology, rendered as one horizontal strip.
+    { id: "governance-block", label: "Unified Governance", icon: "unityCatalogBrand", kind: "governance", desc: "One control plane for data + AI: Unity Catalog governs access, lineage and quality; the Unity AI Gateway governs every foundation-model call (OpenAI, Anthropic, Gemini, …); Genie Ontology is the shared semantic layer." },
     { id: "unity-catalog", label: "Unity Catalog", icon: "unityCatalogBrand", desc: "One governed catalog — access, lineage, and semantics across data + AI." },
     { id: "ai-gateway", label: "Unity AI Gateway", icon: "aiGatewayBrand", desc: "Every model and agent call governed — security, cost, and rate limits." },
     { id: "data-quality", label: "Data Quality", icon: "unityCatalog", desc: "Expectations and monitors keep bad data out of the gold layer." },
@@ -403,7 +406,7 @@ const CORE_DEFAULT = new Set<string>([
   "databricks-apps",
   "aibi-dashboards",
   "genie",
-  "unity-catalog",
+  "governance-block",
   "sdp",
   "lakeflow-connect",
 ]);
@@ -492,8 +495,11 @@ export const CANVAS = {
 };
 
 /** Compute the default position for a component, by band + index in column. */
-function autoPos(bandId: BandId, index: number): NodePosition {
+function autoPos(bandId: BandId, index: number, id?: string): NodePosition {
   if (bandId === FOUNDATION_BAND) {
+    // The wide governance composite centers under the flow columns; any other
+    // (individual) governance tiles fall back to the old left-anchored row.
+    if (id === "governance-block") return { x: 450, y: CANVAS.governanceY };
     return { x: CANVAS.colX.sources + index * CANVAS.colGap, y: CANVAS.governanceY };
   }
   const x = CANVAS.colX[bandId] ?? 0;
@@ -523,7 +529,7 @@ export function buildLayout(
       (c) => c.state !== "hidden" && !hidden.has(c.id),
     );
     visible.forEach((c, i) => {
-      nodes[c.id] = savedNodes[c.id] ?? autoPos(band.id, i);
+      nodes[c.id] = savedNodes[c.id] ?? autoPos(band.id, i, c.id);
     });
   });
 
