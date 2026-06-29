@@ -252,14 +252,31 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasP
     (params: Connection) => {
       // No self-loops; no duplicate of an existing source→target pair.
       if (!params.source || !params.target || params.source === params.target) return;
+      // A ported composite (Lakeflow / Lakeflow+Genie) only has the named input
+      // ports (in-*) + r/t/b/bl — NOT the plain side handles t/r/b/l. If the
+      // connection landed with such a phantom handle (e.g. "l"), ReactFlow can't
+      // position the edge ("Couldn't create edge for handle id"). Snap it to a
+      // real handle: a left/unknown target → the "direct" input port.
+      const portedKinds = new Set(["lakeflow", "lakeflow-genie"]);
+      const validHandle = (nid: string, handle: string | null | undefined, end: "source" | "target") => {
+        const kind = (nodesRef.current.find((n) => n.id === nid)?.data as NodeData | undefined)?.component.kind;
+        if (!kind || !portedKinds.has(kind)) return handle ?? undefined;
+        if (handle && (handle.startsWith("in-") || ["r", "t", "b", "bl"].includes(handle))) return handle;
+        // phantom / plain-side handle on a ported composite → snap to a port.
+        return end === "target" ? "in-direct" : "r";
+      };
+      const sourceHandle = validHandle(params.source, params.sourceHandle, "source");
+      const targetHandle = validHandle(params.target, params.targetHandle, "target");
       setEdges((eds) => {
         if (eds.some((e) => e.source === params.source && e.target === params.target)) return eds;
         // Stable, collision-free id from the (now-guaranteed-unique) endpoint
         // pair + handles — NOT eds.length, which repeats after a delete.
-        const id = `e-${params.source}-${params.sourceHandle ?? ""}-${params.target}-${params.targetHandle ?? ""}`;
+        const id = `e-${params.source}-${sourceHandle ?? ""}-${params.target}-${targetHandle ?? ""}`;
         const next = addEdge(
           {
             ...params,
+            sourceHandle,
+            targetHandle,
             id,
             type: "flow",
             data: { animated: true },
@@ -384,6 +401,61 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasP
     },
     [catalog, deepLinks, onSelect, onContext, onResize, onRename, setNodes, scheduleSave, edges],
   );
+
+  // Agent Bricks "Ungroup" — a DEDICATED path (not generic groups): replace the
+  // single agent-bricks composite with its real building-block tiles + a logo
+  // annotation, laid out around where the block was, all sharing a fresh
+  // groupId so they can be re-grouped. The user can then delete any of them.
+  const explodeAgentBricks = useCallback((id: string) => {
+    setNodes((nds) => {
+      const ab = nds.find((n) => n.id === id);
+      if (!ab || (ab.data as NodeData).component.kind !== "agent-bricks") return nds;
+      const cx = ab.position.x, cy = ab.position.y; // center (nodeOrigin 0.5)
+      const gid = `group-${Date.now().toString(36)}`;
+      const mkId = (base: string) => {
+        let nid = base, k = 2;
+        while (nds.some((n) => n.id === nid)) nid = `${base}#${k++}`;
+        return nid;
+      };
+      // logo (top) + 4 building blocks in a row beneath it, centred on (cx,cy).
+      const SUBS = ["supervisor-agent", "information-extraction", "document-parsing", "classification"];
+      const colGap = 150, rowGap = 80;
+      const startX = cx - ((SUBS.length - 1) * colGap) / 2;
+      const placed: Node[] = [];
+      // logo annotation on top (same shape as addAnnotation's logo variant)
+      const logoId = mkId("anno-agent-bricks");
+      const logoSz = ANNOTATION_DEFAULT_SIZE.logo;
+      placed.push({
+        id: logoId, type: "annotation", position: { x: cx, y: cy - rowGap },
+        width: logoSz.w, height: logoSz.h, style: { width: logoSz.w, height: logoSz.h },
+        data: {
+          nodeId: logoId,
+          annotation: { variant: "logo", icon: "file:vendor/agent-bricks" },
+          component: { id: logoId, label: "", icon: "data", desc: "", state: "active" } as PlatformComponent,
+          bandId: "agentic-work" as BandId, bandColor: BAND_COLOR["agentic-work"],
+          deepLink: null, onSelect, onContext, onResize, onRename, onAnnotate, rot: 0, groupId: gid,
+        } satisfies AnnotationNodeData,
+      } as Node);
+      // the 4 building-block tiles
+      SUBS.forEach((slug, i) => {
+        const found = catalog.get(slug);
+        if (!found) return;
+        const nid = mkId(slug);
+        const fp = nodeFootprint(found.component, {});
+        placed.push({
+          id: nid, type: nodeTypeFor(found.component), position: { x: startX + i * colGap, y: cy + rowGap / 2 },
+          width: fp.w, height: fp.h, style: { width: fp.w, height: fp.h },
+          data: {
+            nodeId: nid, component: found.component, bandId: found.bandId, bandColor: BAND_COLOR[found.bandId],
+            deepLink: deepLinks[slug] ?? null, onSelect, onContext, onResize, onRename, rot: 0, groupId: gid,
+          } satisfies NodeData,
+        } as Node);
+      });
+      const next = [...nds.filter((n) => n.id !== id), ...placed];
+      scheduleSave(next, edges);
+      return next;
+    });
+  }, [catalog, deepLinks, onSelect, onContext, onResize, onRename, onAnnotate, setNodes, scheduleSave, edges]);
 
   // Add a free-form annotation node (text / box / logo / image). Returns the
   // new node id so callers can act on it (e.g. open the logo picker).
@@ -684,7 +756,10 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasP
   // Grouping menu state. `isGroup`: the right-clicked node already belongs to a
   // group → offer Ungroup. `canGroup`: 2+ nodes selected that aren't all already
   // one group → offer Group. groupTargets = the ids Group will stamp.
-  const isGroup = !!menuNodeData?.groupId;
+  // Agent Bricks offers Ungroup too (its own explode path), even though it's a
+  // single node with no groupId.
+  const menuIsAgentBricks = menuNodeData?.component.kind === "agent-bricks";
+  const isGroup = !!menuNodeData?.groupId || menuIsAgentBricks;
   const groupTargets = styleTargets.length > 1 ? styleTargets : [];
   const groupIdsInSel = new Set(groupTargets.map((id) => (nodes.find((n) => n.id === id)?.data as NodeData | undefined)?.groupId));
   // Offer Group unless the selection is already exactly one existing group.
@@ -921,7 +996,7 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasP
             isGroup={isGroup}
             canGroup={canGroup}
             onGroup={() => { groupNodes(groupTargets); setMenu(null); }}
-            onUngroup={() => { ungroupNode(menu.id); setMenu(null); }}
+            onUngroup={() => { if (menuIsAgentBricks) explodeAgentBricks(menu.id); else ungroupNode(menu.id); setMenu(null); }}
             onZ={(dir) => { setNodeZ(styleTargets.length ? styleTargets : [menu.id], dir); setMenu(null); }}
           />
         )}

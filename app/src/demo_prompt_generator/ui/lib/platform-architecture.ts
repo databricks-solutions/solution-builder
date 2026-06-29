@@ -337,6 +337,9 @@ const CATALOG: Record<BandId, CatalogComponent[]> = {
     { id: "ml-training-serving", label: "ML Models", icon: "mlModel", desc: "Train, register, and serve models on governed data." },
     { id: "vector-search", label: "Vector Search", icon: "vectorSearch", desc: "Semantic search and retrieval that grounds agents in your data." },
     { id: "information-extraction", label: "Information Extraction", icon: "unstructuredData", desc: "Turn PDFs and documents into structured, queryable data." },
+    // The Agent Bricks building blocks (also surfaced inside the composite).
+    { id: "document-parsing", label: "Document Parsing", icon: "inputData", desc: "Parse PDFs and documents into clean, structured text + layout." },
+    { id: "classification", label: "Classification", icon: "aiFunctions", desc: "Classify documents and records into governed categories." },
     { id: "genie-code", label: "Built with Genie Code", icon: "genieCodeBrand", kind: "genie-code", desc: "Describe it — Genie Code ingests the data and builds the dashboard, end to end." },
   ],
   "unified-governance": [
