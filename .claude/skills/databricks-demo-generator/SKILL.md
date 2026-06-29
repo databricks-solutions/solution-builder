@@ -18,7 +18,7 @@ The main loop lives in this file (SKILL.md) — it describes **the flow**: stage
 | Stage | What | User gate at end | Execution guide |
 |-------|------|------------------|-----------------|
 | **0. Capture Intent** | Understand request, browse domain/pattern blocks, propose story ideas if vague | — (flows into stage 1) | Inline in SKILL.md |
-| **1. Design Story** | Write `resources.json` + `README.md` + `architecture.md` (batched in one message) | ✅ *"Approve the story?"* | `stages/01-design-story.md` |
+| **1. Design Story** | Write `resources.json` + `README.md` (batched in one message) | ✅ *"Approve the story?"* | `stages/01-design-story.md` |
 | **2. Write Specs** | Write `01-lakeflow.md`, then the other top-level specs, then the app spec (if app needed), coherence review | ✅ *"Ready to build?"* | `stages/02-write-specs.md` |
 | **3. Build** (opt) | Create Databricks resources via ai-dev-kit skills | — (build completes) | `stages/03-build.md` |
 | **4. Package as a DAB** (opt) | On user request only, post-build | — | `references/dab/dab.md` |
@@ -212,12 +212,12 @@ First, assess the user's input — how much is already decided?
 
 ## Stage 1 — Design Story
 
-**Read `DEMO_SKILL_DIR/stages/01-design-story.md` now** and follow it. Outputs: `resources.json`, `README.md`, `architecture.md` at the project root.
+**Read `DEMO_SKILL_DIR/stages/01-design-story.md` now** and follow it. Outputs: `resources.json`, `README.md` at the project root (don't create the architecture file unless asked for it).
 
 **Gate — ask the user before continuing, unless instructed otherwise:**
 
 ```
-I've created the demo story in README.md and the architecture.
+I've created the demo story in README.md.
 Narrative: [VERY VERY brief summary the narrative, easy to read]
 
 **Should I go ahead and generate the detailed specification files?**
