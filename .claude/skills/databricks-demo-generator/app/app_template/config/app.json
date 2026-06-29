@@ -1,72 +1,82 @@
 {
   // App config (JSONC). Loaded by server/server.ts loadAppConfig.
-  // Exposed: /api/config (branding/script/dashboard) + /api/resources (deep-links).
-  // Fields are ordered by deploy sequence — fill top→bottom as resources land.
-  // Restart the dev server after edits (config is read once at boot).
+  //
+  // ${VAR} / ${VAR:default} placeholders are substituted against process.env
+  // BEFORE JSON parsing. So catalog/schema/resource-IDs live in env (one
+  // source of truth), NOT as literals here — set them in `.env` (local dev +
+  // preview) or via the DAB (deployed; finalize_app.sh writes app.yaml's env).
+  //   - `${VAR}`           → empty string if unset
+  //   - `${VAR:default}`   → `default` if unset
+  // Empty values degrade gracefully (inert deep-link tile / skipped feature);
+  // the app still boots. See server.ts loadAppConfig for the substitution +
+  // the boot warnings.
+  //
+  // CUSTOMIZE per demo: branding, assistantScript, and data.tables names
+  // below. Everything else is env-driven and shouldn't need editing.
 
-  // ─ Agent backend: set ONE. masEndpointName → ask_mas tool registered.
-  //   genieSpaceId → swap to askGenieTool in server/agent/refundops.ts makeTools.
-  //   Empty both → no data tool → agent can't answer "why" questions.
-  //   Note: the /platform Agent Bricks tile defaults to the workspace-wide
-  //   landing page (R.agentBricks.url) so it works without a MAS deployed.
-  //   If your demo deploys a MAS, edit PlatformDiagram.tsx to swap that
-  //   tile's href to R.mas.url for a direct deep-link.
-  "masEndpointName": "",
-  "genieSpaceId": "",
+  // ─ Agent backend: set ONE (via env). masEndpointName → ask_mas tool.
+  //   genieSpaceId → swap to askGenieTool in server/agent/<name>.ts makeTools.
+  //   Both empty → no data tool → agent can't answer "why" questions.
+  //   Template ships with MAS; for a Genie-only demo set GENIE_SPACE_ID, leave
+  //   MAS_ENDPOINT_NAME empty, and swap ask_mas → askGenieTool in refundops.ts
+  //   makeTools. For both: register both with distinct names + tell the model
+  //   in instructions when to prefer each.
+  "masEndpointName": "${MAS_ENDPOINT_NAME:}",
+  "genieSpaceId":    "${GENIE_SPACE_ID:}",
 
   // Agent LLM. MUST be databricks-gpt-5-4 (only Databricks model with
   // openai/v1/responses enabled — others 400 BAD_REQUEST). Don't change.
   "agentModel": "databricks-gpt-5-4",
 
-  // MLflow trace path. Empty → chat shows "Trace pending…" forever.
-  // Auto-created at boot via lib/mlflow.ts. Format: /Users/<email>/<app>-traces.
+  // MLflow trace path. Empty → chat shows "Trace pending…". Auto-created
+  // at boot via lib/mlflow.ts.
   "mlflowExperimentId": "",
-  "agentMlflowExperimentPath": "/Users/<your-email>/<app-name>-agent-traces",
+  "agentMlflowExperimentPath": "${AGENT_MLFLOW_EXPERIMENT_PATH:}",
 
   // Embedded AI/BI dashboard (UUID). Empty → drop the /dashboard route +
-  // sidebar entry (App.tsx + shell/AppHeader.tsx). Also tile on /platform.
-  "dashboardId": "",
+  // sidebar entry. Also a tile on /platform.
+  "dashboardId": "${DASHBOARD_ID:}",
 
-  // Workspace resource IDs → composed into deep-link URLs by /api/resources
-  // (PlatformDiagram on /platform). Empty id → tile renders inert.
-  // Fill in after each resource is deployed.
-  "pipelineId": "",                  // Lakeflow SDP pipeline UUID
-  "warehouseId": "",                 // SQL warehouse id (hex)
-  "kaEndpointName": "",              // Knowledge Assistant endpoint (ka-<id>-endpoint)
-  "lakebaseProjectId": "",           // Lakebase project UUID
-  "appUrl": "",                      // This app's deployed URL (different host)
-  "mlModelName": "",                 // 3-part UC name: catalog.schema.model
-  "pdfVolumePath": "",               // /Volumes/<catalog>/<schema>/<volume>
+  // Workspace resource IDs → deep-link URLs via /api/resources (PlatformDiagram
+  // on /platform). Empty id → tile renders inert.
+  "pipelineId":        "${PIPELINE_ID:}",
+  "warehouseId":       "${WAREHOUSE_ID:}",
+  "kaEndpointName":    "${KA_ENDPOINT_NAME:}",
+  "lakebaseProjectId": "${LAKEBASE_PROJECT_ID:}",
+  "appUrl":            "${APP_URL:}",
+  "mlModelName":       "${DEMO_CATALOG}.${DEMO_SCHEMA}.customer_premium_classifier",
+  "pdfVolumePath":     "/Volumes/${DEMO_CATALOG}/${DEMO_SCHEMA}/manufacturing_reports",
 
-  // Delta source for boot-time Lakebase mirror (server/db/sync.ts).
-  // Table names map to TS types in client/src/shared/types.ts + Drizzle
-  // schema in server/db/schema.ts — change all three together.
-  // customerPremium: empty → skip ML predictions sync.
+  // Delta source for boot-time Lakebase mirror (server/db/sync.ts). catalog +
+  // schema come from env; the table NAMES are domain-specific — rename to your
+  // demo's gold/silver tables (keep client/src/shared/types.ts + Drizzle
+  // schema in server/db/schema.ts in sync). customerPremium empty → skip the
+  // ML-predictions sync.
   "data": {
-    "catalog": "ai_demo_gen",
-    "schema": "demo_demo_project",
+    "catalog": "${DEMO_CATALOG}",
+    "schema":  "${DEMO_SCHEMA}",
     "tables": {
-      "returns": "silver_returns",
-      "orders": "bronze_orders",
-      "customers": "bronze_customers",
+      "returns":         "silver_returns",
+      "orders":          "silver_orders",
+      "customers":       "raw_customers",
       "customerPremium": "gold_customer_premium_predictions"
     }
   },
 
-  // Surfaces in dock header + page titles.
+  // Surfaces in dock header + page titles. CUSTOMIZE per demo.
   "branding": {
     "appName": "My Demo App"
   },
 
   // Dock's "Suggested next" chip walks this list. Step N unlocks once the
   // previous assistant message contains any triggerAfter[] substring.
-  // Picker: client/src/chat/script.ts.
+  // Picker: client/src/chat/script.ts. CUSTOMIZE per demo.
   "assistantScript": [
     {
       "prompt": "Why do I have so many returns?"
     },
     {
-      "prompt": "Handle these affected customers. Use the premium classifier to pick who gets the bigger save — draft a 20% personal apology for premium customers (CS-tagged plus the ones the model finds) and a 5% goodwill for the rest. Show me both before sending.",
+      "prompt": "Handle these affected customers. Draft a tiered offer — a bigger save for the premium ones, a standard goodwill for the rest. Show me both before sending.",
       "triggerAfter": ["lot", "batch", "customers"]
     },
     {

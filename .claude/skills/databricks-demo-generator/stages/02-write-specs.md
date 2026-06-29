@@ -90,6 +90,8 @@ Functional specs — **what** to build, not **how**. Each file must be unambiguo
 
 The Databricks App for this demo starts from a generic template at `DEMO_SKILL_DIR/app/app_template/`. During Stage 3 (build), the template is copied into `PROJECT/app/` and customized per spec. You are **not writing a spec from scratch** — you are writing a spec that describes how to adapt this template to this demo's story.
 
+**But the template is a starting point, not a cage.** The spec describes the app *this demo* needs — which may have fewer components than the template (e.g. the **Simple demo**: Genie as the data tool instead of MAS, no KA, no ML tiering), more/different ones (a second entity, an extra page, a tool the template lacks), or an **entirely different shape** (different pages, navigation, and primary interaction, no operations-queue at all). If the demo calls for that, **spec a wholesale rewrite of the pages and layout** — the build agent will redraw `HomeView`, the operations page, the routes and sidebar, keeping only the reusable plumbing (chat dock + streaming, MLflow tracing, OBO auth, Delta→Lakebase sync, config substitution). Spec the app the *story* needs; don't shrink the story to fit the template's screens.
+
 You don't need to scan the template's source code. `TEMPLATE_MAP.md` describes what ships (surfaces, agent tools, Lakebase schema, streaming infra) — that's all you need.
 You are free to change the app especialy the operational part, and change/add menus so that it's easy to understand, eyes catching (visual components are the best), aligned with the story.
 

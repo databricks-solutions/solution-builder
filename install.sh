@@ -2,7 +2,7 @@
 # Databricks Solution Builder — CLI installer
 #
 # One-liner:
-#   bash <(curl -sL https://raw.githubusercontent.com/databricks-solutions/databricks-solution-builder/main/install.sh)
+#   bash <(curl -sL https://raw.githubusercontent.com/databricks-solutions/solution-builder/main/install.sh)
 #
 # Installs the `databricks-demo-generator` skill into ~/.claude/skills/ (or
 # ./.claude/skills/ with --project) and chains into the AI Dev Kit installer
@@ -13,7 +13,7 @@ set -euo pipefail
 # ─── Config ───────────────────────────────────────────────────────────────────
 # Public location overridable for forks / private mirrors via env vars.
 REPO_OWNER="${DSB_REPO_OWNER:-databricks-solutions}"
-REPO_NAME="${DSB_REPO_NAME:-databricks-solution-builder}"
+REPO_NAME="${DSB_REPO_NAME:-solution-builder}"
 SKILL_NAME="databricks-demo-generator"
 SKILL_SUBPATH=".claude/skills/${SKILL_NAME}"
 AI_DEV_KIT_INSTALLER="https://raw.githubusercontent.com/databricks-solutions/ai-dev-kit/main/install.sh"

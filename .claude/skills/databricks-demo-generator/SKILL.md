@@ -18,10 +18,11 @@ The main loop lives in this file (SKILL.md) — it describes **the flow**: stage
 | Stage | What | User gate at end | Execution guide |
 |-------|------|------------------|-----------------|
 | **0. Capture Intent** | Understand request, browse domain/pattern blocks, propose story ideas if vague | — (flows into stage 1) | Inline in SKILL.md |
-| **1. Design Story** | Write `resources.json` + `README.md` + `architecture.md` (batched in one message) | ✅ *"Approve the story?"* | `stages/01-design-story.md` |
+| **1. Design Story** | Write `resources.json` + `README.md` (batched in one message) | ✅ *"Approve the story?"* | `stages/01-design-story.md` |
 | **2. Write Specs** | Write `01-lakeflow.md`, then the other top-level specs, then the app spec (if app needed), coherence review | ✅ *"Ready to build?"* | `stages/02-write-specs.md` |
 | **3. Build** (opt) | Create Databricks resources via ai-dev-kit skills | — (build completes) | `stages/03-build.md` |
 | **4. Package as a DAB** (opt) | On user request only, post-build | — | `references/dab/dab.md` |
+| **5. Client Handoff** (opt, prompted) | Strip SA-environment fingerprint, wire synth/real toggle, bundle Genie Code skill | ✅ *"Ready to publish for the client?"* | `references/client-handoff/client-handoff.md` |
 
 **Cross-cutting (not a stage):**
 - **App creation** — folded into stages 2 + 3: `DEMO_SKILL_DIR/app/app.md`
@@ -81,6 +82,8 @@ Real thinking (surprising results, tradeoffs, ambiguity, errors) is welcome. Fil
 Source of truth for what capabilities the demo includes. Created during spec phase with capabilities, updated during build with resource IDs. Structure mirrors `DEMO_SKILL_DIR/references/example-luxebeauty/resources.json`.
 You must keep this exact naming convention.
 
+**`created_resources` starts empty `{}` and grows one key at a time.** Add a resource's ID key **only after that resource is actually created and validated** (Stage 3, build loop step 5). **Never pre-seed a key** — not with a placeholder like `<your-dashboard-uuid>`, not with `""`, not by copying the example file's keys wholesale. The reference example below shows the *final* shape of a fully-built demo; it is a naming reference, **not a scaffold to paste in up front**. The UI's resource-link builder renders a clickable link for any present, non-empty ID, so a pre-seeded `dashboard_id`/`genie_space_id` becomes a dead link to a resource that doesn't exist yet.
+
 **After build** (populated with created resource IDs — do not add links here). **Use these exact key names**; the UI's resource-link builder is wired to them. Skip a section entirely when the demo doesn't include that capability, but do NOT rename keys. Authoritative reference: `DEMO_SKILL_DIR/references/example-luxebeauty/resources.json`. Lakebase sub-keys are defined in `DEMO_SKILL_DIR/app/app.md`.
 
 ```json
@@ -90,8 +93,8 @@ You must keep this exact naming convention.
     "workspace_folder": "/Workspace/Users/<your-email>/luxebeauty_demo",
     "catalog": "luxebeauty",
     "schema": "demo_c360",
-    "warehouse_id": "862f1d757f0424f7",
-    "pipeline_id": "17bed323-f405-4645-a559-7605171f5b41",
+    "warehouse_id": "abc123def456...",
+    "pipeline_id": "12ab34cd-5678-...",
     "metric_view_name": "luxebeauty.demo_c360.mv_returns",
     "dashboard_id": "01efab12cd34...",
     "genie_space_id": "abc123...",
@@ -212,12 +215,12 @@ First, assess the user's input — how much is already decided?
 
 ## Stage 1 — Design Story
 
-**Read `DEMO_SKILL_DIR/stages/01-design-story.md` now** and follow it. Outputs: `resources.json`, `README.md`, `architecture.md` at the project root.
+**Read `DEMO_SKILL_DIR/stages/01-design-story.md` now** and follow it. Outputs: `resources.json`, `README.md` at the project root (don't create the architecture file unless asked for it).
 
 **Gate — ask the user before continuing, unless instructed otherwise:**
 
 ```
-I've created the demo story in README.md and the architecture.
+I've created the demo story in README.md.
 Narrative: [VERY VERY brief summary the narrative, easy to read]
 
 **Should I go ahead and generate the detailed specification files?**
@@ -256,7 +259,12 @@ If the user confirms, **read `DEMO_SKILL_DIR/stages/03-build.md` now** and follo
 
 ## Stage 4 — Package as a DAB (optional)
 
-When the user asks you to create a DAB, read `DEMO_SKILL_DIR/references/dab/dab.md` and create the DAB specification.
+When the user asks you to create a DAB, read `DEMO_SKILL_DIR/references/dab/dab.md` and create the DAB specification. **Author + verify only — don't deploy.** Write the bundle, scripts, and `dab_instructions.md` and validate them; do NOT run `bundle deploy` / `bundle run` or the deploy scripts unless the user explicitly asks to deploy (they mutate a workspace).
+
+After the DAB is packaged, prompt the user:
+> "DAB packaged. Want to make this client-handoff-ready? (Stage 5 strips SA-env, adds a synth-data toggle, and bundles a Genie Code skill for the client.) Reply 'yes' to continue or 'no' to stop."
+
+On `yes`, invoke `references/client-handoff/client-handoff.md`.
 
 ---
 
@@ -265,8 +273,8 @@ When the user asks you to create a DAB, read `DEMO_SKILL_DIR/references/dab/dab.
 Browse `DEMO_SKILL_DIR/references/` for worked examples showing file format, detail level, and how files connect. Two examples ship — pick the one that matches the build's capability set:
 
 - **`example-luxebeauty/`** — full-stack reference (SDP bronze→silver→gold, metric view, ML premium classifier, Knowledge Assistant, Multi-Agent Supervisor, app with tiered offers). Use this when the build includes any of `sdp` / `metric-views` / `ml-training-serving` / `knowledge-assistant` / `supervisor-agent`.
-- **`example-luxebeauty-simple/`** — fast reference for the Simple-tab capability set (synth → gold tables directly, AI/BI Dashboard + Genie, optional Databricks App + Lakebase, no SDP / KA / MAS / ML). Use this when the build sticks to that subset. **Ships two canonical artifacts** alongside the spec markdown — both are syntax references, not fill-in-the-blanks templates:
-  - `data_generation/generate_data.py` — one self-contained Python file (pandas → Parquet on UC Volume → inline `spark.sql` CTAS for raw + gold + constraints).
+- **`example-luxebeauty-simple/`** — fast reference for the Simple-tab capability set (synth → raw→silver→gold built in-script since there's no SDP, AI/BI Dashboard + Genie, optional Databricks App + Lakebase, no SDP / KA / MAS / ML). Use this when the build sticks to that subset. **Ships two canonical artifacts** alongside the spec markdown — both are syntax references, not fill-in-the-blanks templates:
+  - `data_generation/generate_data.py` — one self-contained Spark (databricks-connect) file: Spark-native generation (spark.range + F.when + broadcast joins, no driver loops) → raw Delta tables → inline `spark.sql` CTAS for silver + gold + constraints. A worked example of the technique, not a domain template — rewrite the whole thing for the demo's own schema.
   - `dashboard/dashboard.json` — a populated Lakeview JSON with the 5-stop palette, frame descriptions, sankey top-N bucketing, and category/source color pins already wired.
 
 Adapt the structure, don't copy the narrative. Every story, schema, widget, position, color, and description must be rewritten for the current demo — the artifacts only show what a working file *looks like*, not what to put in one.

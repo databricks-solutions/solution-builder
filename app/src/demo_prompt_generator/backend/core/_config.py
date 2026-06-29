@@ -90,8 +90,10 @@ class AppConfig(BaseSettings):
     # comma-list). Read via `template_admin_emails` (the property below)
     # which returns the parsed list — every caller uses `email in config.template_admin_emails`
     # which works against the parsed list unchanged.
+    # Defaults to empty (no admins). Set DEMO_PROMPT_GENERATOR_TEMPLATE_ADMIN_EMAILS
+    # in .env (local) or databricks.<target>.yml's app_env (deployed).
     template_admin_emails_raw: str = Field(
-        default="cal.reynolds@databricks.com",
+        default="",
         validation_alias="DEMO_PROMPT_GENERATOR_TEMPLATE_ADMIN_EMAILS",
     )
 

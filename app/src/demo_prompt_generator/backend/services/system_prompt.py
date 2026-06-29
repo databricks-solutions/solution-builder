@@ -48,6 +48,8 @@ def get_system_prompt(
         f"- **SKILLS**: `{p}/.claude/skills`\n"
         f"- **DEMO_SKILL_DIR**: `{p}/.claude/skills/databricks-demo-generator`\n"
         f"- **DEMO_SKILL**: `{p}/.claude/skills/databricks-demo-generator/SKILL.md`\n"
+        f"- **HANDOFF_GUIDE**: `{p}/.claude/skills/databricks-demo-generator/references/client-handoff/client-handoff.md` (Stage 5 algorithm — read when user asks for client-handoff / customer-ready output)\n"
+        f"- **HANDOFF_TEMPLATES**: `{p}/.claude/skills/databricks-demo-generator/references/client-handoff/templates/` (databricks.yml.patch.md, ADAPTATION_GUIDE.md.template, genie-code-skill/SKILL.md — used by HANDOFF_GUIDE Steps 3, 6, 7)\n"
         f"\nAll paths below use these references.",
         _PROMPT_TEMPLATE,
     ]
@@ -175,6 +177,7 @@ You MUST read and write all the files inside the project folder - never escape i
 2. **Check existing state**: read `PROJECT/specifications/` and `PROJECT/resources.json` if they exist
 3. **Browse context blocks** in `BLOCKS` — capabilities, domains, patterns
 4. **Follow the skill's guidance** for creating or modifying the demo
+5. **Stage 5 — Client Handoff** is an optional, prompted stage that runs **after Stage 4 (Package as DAB) completes**. When the user asks for client-handoff / customer-ready output (or accepts the post-Stage-4 prompt), read `HANDOFF_GUIDE` and execute its 11-step algorithm. The handoff has a **hard validation gate at Step 5** — if `databricks bundle validate` fails, abort before Steps 6–11 (don't ship a broken bundle). Outputs a single ZIP archive plus an in-repo Genie Code skill the client's workspace auto-loads.
 
 ## Guidelines
 

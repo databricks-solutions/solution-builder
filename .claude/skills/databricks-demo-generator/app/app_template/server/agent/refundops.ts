@@ -47,6 +47,7 @@ import {
   setDefaultOpenAIClient,
   setTracingDisabled,
 } from '@openai/agents';
+import type { Tool } from '@openai/agents';
 import { loggedTool as tool } from './tools/logged-tool.js';
 import * as mlflow from 'mlflow-tracing';
 import { z } from 'zod';
@@ -284,7 +285,10 @@ function makeTools(ctx: AgentContext) {
   // the tool fires `POST /serving-endpoints//invocations` (note the
   // double slash) and returns a confusing 404 to the model. Boot-time
   // warning in server.ts already tells the operator to fix the config.
-  const tools = [findReturnsForLot, findLotPremiumBreakdown, createCouponTool, processBatch];
+  // Typed as Tool[] so the heterogeneous tools (different param schemas) and
+  // the optional data-backend tool can coexist — otherwise TS infers a narrow
+  // union from the literal array and rejects the push below.
+  const tools: Tool[] = [findReturnsForLot, findLotPremiumBreakdown, createCouponTool, processBatch];
   if (ctx.masEndpointName) {
     tools.push(askMasTool(ctx, ctx.masEndpointName));
   }

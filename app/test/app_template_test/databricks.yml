@@ -1,0 +1,388 @@
+# LuxeBeauty Returns demo — complete DAB.
+#
+# Deploys the full standard-demo stack to ANY workspace + catalog + schema.
+# Everything is parametrized via bundle vars — no hardcoded IDs.
+#
+# What it provisions:
+#   schema + volumes + SDP pipeline + AI/BI dashboard + the Databricks App
+#   (resource shells, created by `bundle deploy`)
+#   + a setup job that, on `bundle run`, fills them in:
+#     generate_data → run_pipeline → deploy_metric_view + train_score_ml
+#     + upload_pdfs → deploy_genie/deploy_ka/deploy_mas → grant_app_uc
+#     → export_resources (exits a JSON manifest of every resolved ID).
+#
+# ── 3-command deploy ──────────────────────────────────────────────────
+#   1. ./app/scripts/lakebase_setup_db.sh --db-name dbgen_luxebeauty   # Lakebase DB (pre-deploy)
+#   2. databricks bundle deploy   --var catalog=… --var schema=… --var warehouse_id=…
+#   3. databricks bundle run luxebeauty_setup   --var …
+#   4. ./app/scripts/lakebase_grant_app_credential.sh --app-name … --project-id … --db-name …
+#   5. ./app/scripts/finalize_app.sh            # harvest export_resources JSON → app env → deploy app
+#
+# Why the app env is finalized OUTSIDE the bundle (steps 3+5): the Genie /
+# KA / MAS endpoint IDs only exist AFTER the setup job's SDK tasks run, so
+# the bundle can't know them at `deploy` time. The setup job's last task
+# (export_resources) exits a JSON with all IDs; finalize_app.sh reads it
+# back and writes the app's env. This keeps a bare `bundle deploy` from
+# ever shipping a half-configured app — env is assembled in exactly one
+# place (finalize_app.sh / app.yaml), the single source of truth.
+#
+# NOTE — this `databricks.yml` is the dogfood/test copy targeting a specific
+# workspace via --var. The shipped template (app.md) walks the user through
+# the same 5 steps for their own workspace.
+
+bundle:
+  name: luxebeauty_demo
+
+variables:
+  catalog:
+    description: "Unity Catalog for demo resources"
+  schema:
+    description: "Schema within the catalog (created by this bundle)"
+  warehouse_id:
+    description: "SQL Warehouse ID — powers the dashboard"
+
+  # ── App + Lakebase ────────────────────────────────────────────────────
+  app_name:
+    description: "Workspace app name (must be unique per workspace)"
+    default: "luxebeauty-demo"
+  lakebase_project_id:
+    description: "Lakebase project — reused if it already exists"
+    default: "dbdemos-asset-generator"
+  lakebase_branch_id:
+    description: "Lakebase branch within the project"
+    default: "production"
+  lakebase_database_name:
+    description: "Postgres database name"
+    default: "dbgen_luxebeauty"
+  lakebase_database_id:
+    description: |
+      Lakebase database resource ID. Convention: `db-` + database_name with
+      underscores → hyphens. Created by scripts/lakebase_setup_db.sh.
+    default: "db-dbgen-luxebeauty"
+
+  # Note: the app's runtime env vars are NOT defined here. They're assembled
+  # by app/scripts/finalize_app.sh after the setup job runs (it harvests the
+  # export_resources task's exit JSON — Genie/KA/MAS IDs the bundle can't know
+  # at deploy time — and writes app.yaml). One source of truth for app env.
+
+# Run the app build before sync — produces app/dist/server.js + app/client/dist/
+# (both gitignored). `sync.include` whitelists those past .gitignore so the
+# Apps container has them.
+artifacts:
+  default:
+    build: ./app/scripts/build-app.sh
+
+# Whitelist past .gitignore: SQL + dashboard + scripts all need to land in the
+# workspace so notebook/SDP/sql tasks can find them.
+sync:
+  include:
+    - "src/**"
+    - "app/dist/**"          # tsdown output (server bundle)
+    - "app/client/dist/**"   # vite output (client bundle)
+  # The bundle has no root .gitignore, so explicit excludes are required.
+  # node_modules in particular: 885 MB at the test app's app/ — without this
+  # rule it gets synced + dragged into the Apps deployment zip, which "Preparing
+  # source code" stalls on for minutes. The Apps container runs its own
+  # `npm install` against the shipped lockfile, so we don't need to ship deps.
+  # Other entries are defensive — pattern-match warnings are fine; the moment
+  # the matching dir/file appears (e.g. a developer ran playwright locally)
+  # it gets excluded automatically.
+  exclude:
+    - "app/node_modules/**"
+    - "app/.venv/**"
+    - "app/.env"
+    - "app/.env.*"
+    - "app/.preview.pgid"
+    - "app/.DS_Store"
+    - "app/playwright-report/**"
+    - "app/test-results/**"
+    - "app/tests/**"
+
+targets:
+  dev:
+    default: true
+    mode: development
+    # Host comes from the CLI profile (--profile SOLUTION_BUILDER)
+
+  prod:
+    mode: production
+
+resources:
+  # ──────────────────────────────────────────────────────────────────────────
+  # Schema + volumes
+  # ──────────────────────────────────────────────────────────────────────────
+  schemas:
+    demo_schema:
+      name: ${var.schema}
+      catalog_name: ${var.catalog}
+      comment: "LuxeBeauty Returns demo data"
+
+  volumes:
+    raw_data:
+      catalog_name: ${var.catalog}
+      schema_name: ${var.schema}
+      name: "raw_data"
+      volume_type: "MANAGED"
+      comment: "Optional raw parquet drop (gen also writes Delta direct)"
+
+    manufacturing_reports:
+      catalog_name: ${var.catalog}
+      schema_name: ${var.schema}
+      name: "manufacturing_reports"
+      volume_type: "MANAGED"
+      comment: "Lyon incident PDFs for the Knowledge Assistant (round 2)"
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # SDP pipeline — bronze placeholder + silver + gold
+  # ──────────────────────────────────────────────────────────────────────────
+  pipelines:
+    luxebeauty_pipeline:
+      name: "[${bundle.target}] LuxeBeauty Returns Pipeline"
+      catalog: ${resources.schemas.demo_schema.catalog_name}
+      target: ${resources.schemas.demo_schema.name}
+      serverless: true
+      photon: true
+      development: true
+      channel: current
+      libraries:
+        - file:
+            path: ./src/pipeline/01_bronze.sql
+        - file:
+            path: ./src/pipeline/02_silver.sql
+        - file:
+            path: ./src/pipeline/03_gold.sql
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Dashboard — dataset_catalog / dataset_schema rebind queries per target
+  # ──────────────────────────────────────────────────────────────────────────
+  dashboards:
+    luxebeauty_dashboard:
+      display_name: "[${bundle.target}] LuxeBeauty Returns"
+      file_path: ./src/dashboard/dashboard.json
+      warehouse_id: ${var.warehouse_id}
+      # The dashboard JSON ships with no catalog/schema on its datasets;
+      # the CLI rewrites both at deploy time via these two fields so the same
+      # JSON works against any catalog/schema. Requires CLI v0.283.0+.
+      dataset_catalog: ${resources.schemas.demo_schema.catalog_name}
+      dataset_schema: ${resources.schemas.demo_schema.name}
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Databricks App — Returns Console UI
+  # ──────────────────────────────────────────────────────────────────────────
+  # PRE-DEPLOY: scripts/lakebase_setup_db.sh creates the project + branch +
+  # endpoint + database. POST-DEPLOY: scripts/lakebase_grant_app_credential.sh
+  # grants the App SP CREATE+USAGE on schema public (the `postgres` binding
+  # only grants CONNECT; Drizzle migrations need CREATE).
+  apps:
+    luxebeauty_demo:
+      name: ${var.app_name}
+      description: "LuxeBeauty Returns Console — agent-driven returns triage"
+      source_code_path: ./app
+      lifecycle:
+        prevent_destroy: true
+      # OBO scopes — strings the platform recognizes (different from the
+      # human-readable names in app.yaml's user_authorization.scopes). The
+      # rendered terraform's user_api_scopes are what actually take effect
+      # at runtime; app.yaml's scopes appear unused. Without these the
+      # agent loop's call to /serving-endpoints/responses returns HTTP 403
+      # "Invalid scope, required scopes: model-serving".
+      user_api_scopes:
+        - serving.serving-endpoints   # /serving-endpoints/* (agent LLM)
+        - ai-gateway                  # the Responses API routes through AI
+                                      # Gateway; without this the OBO token is
+                                      # rejected with "403 Invalid Token" even
+                                      # though serving.serving-endpoints passes
+                                      # the scope check.
+        - dashboards.genie            # ask_data → Genie
+        - sql                         # SQL warehouse
+        - sql.statement-execution     # synchronous SQL exec
+        - postgres                    # Lakebase mirror
+        - catalog.catalogs:read
+        - catalog.schemas:read
+        - catalog.tables:read
+      resources:
+        - name: sql-warehouse
+          sql_warehouse:
+            id: ${var.warehouse_id}
+            permission: CAN_USE
+        - name: postgres
+          postgres:
+            branch: projects/${var.lakebase_project_id}/branches/${var.lakebase_branch_id}
+            database: projects/${var.lakebase_project_id}/branches/${var.lakebase_branch_id}/databases/${var.lakebase_database_id}
+            permission: CAN_CONNECT_AND_CREATE
+      # The app's plain-value env vars (catalog, schema, genie/ka/mas IDs,
+      # etc.) are NOT set here. The bundle's apps `config.env` is dropped
+      # during terraform rendering (carries names, loses values), so it can't
+      # be the channel. Instead app/scripts/finalize_app.sh writes app.yaml's
+      # env block after the setup job. The binding-derived vars
+      # (DATABRICKS_WAREHOUSE_ID, LAKEBASE_ENDPOINT) come from the `resources`
+      # bindings above via app.yaml `valueFrom:` entries.
+      #
+      # ⚠️ Do NOT set app fields via `databricks apps update --json` out of
+      # band — that replaces the whole app spec and silently drops these
+      # `resources` bindings (→ Lakebase SP role deprovisioned → pg auth
+      # fails). Change app config ONLY here + redeploy via the bundle.
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Setup job — chains everything that needs to run after deploy
+  # ──────────────────────────────────────────────────────────────────────────
+  jobs:
+    luxebeauty_setup:
+      name: "[${bundle.target}] LuxeBeauty Setup"
+      description: "Generate data → run pipeline → deploy metric view → train + score ML"
+
+      tasks:
+        # Generate the 6 raw_* tables.
+        - task_key: generate_data
+          description: "Generate synthetic raw_* tables"
+          notebook_task:
+            notebook_path: ./src/data_generation/generate_data.py
+            base_parameters:
+              catalog: ${resources.schemas.demo_schema.catalog_name}
+              schema:  ${resources.schemas.demo_schema.name}
+          environment_key: sdk_default
+
+        # Run the SDP pipeline once raw tables exist.
+        - task_key: run_pipeline
+          depends_on:
+            - task_key: generate_data
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.luxebeauty_pipeline.id}
+
+        # Create the mv_returns metric view over the gold layer.
+        - task_key: deploy_metric_view
+          depends_on:
+            - task_key: run_pipeline
+          notebook_task:
+            notebook_path: ./src/metric_view/mv_returns.py
+            base_parameters:
+              catalog: ${resources.schemas.demo_schema.catalog_name}
+              schema:  ${resources.schemas.demo_schema.name}
+          environment_key: sdk_default
+
+        # Train + batch-score the premium classifier.
+        - task_key: train_score_ml
+          depends_on:
+            - task_key: run_pipeline
+          notebook_task:
+            notebook_path: ./src/ml/premium_train_score.py
+            base_parameters:
+              catalog: ${resources.schemas.demo_schema.catalog_name}
+              schema:  ${resources.schemas.demo_schema.name}
+          environment_key: ml
+
+        # ─── Agent Bricks ──────────────────────────────────────────────────
+        # Render the LuxeBeauty incident HTMLs → PDFs → manufacturing_reports
+        # volume so the Knowledge Assistant can index them.
+        - task_key: upload_pdfs
+          notebook_task:
+            notebook_path: ./src/deploy/upload_pdfs.py
+            base_parameters:
+              catalog: ${resources.schemas.demo_schema.catalog_name}
+              schema:  ${resources.schemas.demo_schema.name}
+          environment_key: sdk_default
+
+        # Create or update the Genie space using the curated questions + SQLs.
+        - task_key: deploy_genie
+          depends_on:
+            - task_key: run_pipeline
+          notebook_task:
+            notebook_path: ./src/deploy/deploy_genie.py
+            base_parameters:
+              catalog:      ${resources.schemas.demo_schema.catalog_name}
+              schema:       ${resources.schemas.demo_schema.name}
+              warehouse_id: ${var.warehouse_id}
+          environment_key: sdk_latest
+
+        # Create or update the Knowledge Assistant. Waits for indexing.
+        - task_key: deploy_ka
+          depends_on:
+            - task_key: upload_pdfs
+          notebook_task:
+            notebook_path: ./src/deploy/deploy_ka.py
+            base_parameters:
+              catalog: ${resources.schemas.demo_schema.catalog_name}
+              schema:  ${resources.schemas.demo_schema.name}
+          environment_key: sdk_latest
+
+        # Wire the Multi-Agent Supervisor with the Genie + KA created above.
+        - task_key: deploy_mas
+          depends_on:
+            - task_key: deploy_genie
+            - task_key: deploy_ka
+          notebook_task:
+            notebook_path: ./src/deploy/deploy_mas.py
+            base_parameters:
+              catalog:          ${resources.schemas.demo_schema.catalog_name}
+              schema:           ${resources.schemas.demo_schema.name}
+              genie_space_id:   "{{tasks.deploy_genie.values.genie_space_id}}"
+              ka_endpoint_name: "{{tasks.deploy_ka.values.ka_endpoint_name}}"
+          environment_key: sdk_latest
+
+        # Grant the App SP Unity Catalog privileges (USE_CATALOG, USE_SCHEMA +
+        # SELECT, READ_VOLUME, EXECUTE on model) so the app can read the demo
+        # data via the SQL warehouse. Without these the app's first /api/config
+        # hits INSUFFICIENT_PERMISSIONS. Runs after ML (so the model exists to
+        # grant EXECUTE on). Distinct from lakebase_grant_app_credential.sh,
+        # which grants the SP on the *Postgres* (Lakebase) schemas — different
+        # data plane.
+        - task_key: grant_app_uc
+          depends_on:
+            - task_key: train_score_ml
+          notebook_task:
+            notebook_path: ./src/deploy/grant_app_uc.py
+            base_parameters:
+              catalog:  ${resources.schemas.demo_schema.catalog_name}
+              schema:   ${resources.schemas.demo_schema.name}
+              app_name: ${var.app_name}
+          environment_key: sdk_latest
+
+        # Export all resolved resource IDs as the job's exit JSON. The local
+        # app/scripts/finalize_app.sh reads this back (via get-run-output) and
+        # wires the app's env + deploys it. Keeping app deployment OUT of the
+        # job means a bare `bundle deploy` never ships a half-configured app —
+        # finalize_app.sh is the single place the env is assembled.
+        - task_key: export_resources
+          depends_on:
+            - task_key: deploy_mas
+            - task_key: grant_app_uc
+          notebook_task:
+            notebook_path: ./src/deploy/export_resources.py
+            base_parameters:
+              app_name:          ${var.app_name}
+              catalog:           ${resources.schemas.demo_schema.catalog_name}
+              schema:            ${resources.schemas.demo_schema.name}
+              dashboard_id:      ${resources.dashboards.luxebeauty_dashboard.id}
+              pipeline_id:       ${resources.pipelines.luxebeauty_pipeline.id}
+              warehouse_id:      ${var.warehouse_id}
+              genie_space_id:    "{{tasks.deploy_genie.values.genie_space_id}}"
+              ka_endpoint_name:  "{{tasks.deploy_ka.values.ka_endpoint_name}}"
+              mas_endpoint_name: "{{tasks.deploy_mas.values.mas_endpoint_name}}"
+          environment_key: sdk_latest
+
+      environments:
+        # Standard serverless client. Faker for the gen; no PDF render lib
+        # needed in-job because PDFs are pre-rendered locally and synced as
+        # static files (see src/documents/html_to_pdf.py + the upload_pdfs
+        # task below).
+        - environment_key: sdk_default
+          spec:
+            client: "4"
+            dependencies:
+              - "faker"
+
+        # ML training: xgboost + sklearn + mlflow on top of the default env.
+        - environment_key: ml
+          spec:
+            client: "4"
+            dependencies:
+              - "xgboost"
+              - "scikit-learn"
+              - "mlflow>=2.13.0"
+
+        # Genie / KA / MAS — SDK > 0.114.0 required for the agent-bricks APIs.
+        - environment_key: sdk_latest
+          spec:
+            client: "4"
+            dependencies:
+              - "databricks-sdk>=0.114.0"

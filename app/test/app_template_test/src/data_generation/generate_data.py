@@ -1,3 +1,4 @@
+# Databricks notebook source
 """
 LuxeBeauty Returns Intelligence — Synthetic Data Generator (Spark + UDFs)
 
@@ -48,8 +49,16 @@ from pyspark.sql import functions as F
 from pyspark.sql.window import Window
 
 # ── Config ─────────────────────────────────────────────────────────────────
-CATALOG = "retail_consumer_goods"
-SCHEMA  = "luxebeauty_demo"
+# Catalog + schema are widget-overridable (job/notebook) and env-overridable
+# (local run via `python …`).
+try:
+    dbutils.widgets.text("catalog", "", "Catalog")  # noqa: F821
+    dbutils.widgets.text("schema",  "", "Schema")   # noqa: F821
+    CATALOG = dbutils.widgets.get("catalog") or os.environ.get("DEMO_CATALOG") or "retail_consumer_goods"  # noqa: F821
+    SCHEMA  = dbutils.widgets.get("schema")  or os.environ.get("DEMO_SCHEMA")  or "luxebeauty_demo"        # noqa: F821
+except NameError:
+    CATALOG = os.environ.get("DEMO_CATALOG") or "retail_consumer_goods"
+    SCHEMA  = os.environ.get("DEMO_SCHEMA")  or "luxebeauty_demo"
 
 # Volume holding raw parquet (kept around for downstream pipelines that want
 # Auto Loader; the canonical assets are the Delta tables).
@@ -110,7 +119,15 @@ print(f"BAD_LOT_ID:   {BAD_LOT_ID}")
 print(f"BAD_LOT_DATE: {BAD_LOT_PROD_DT.date()}")
 print(f"SPIKE_PEAK:   {SPIKE_PEAK.date()}")
 
-spark = DatabricksSession.builder.serverless(True).getOrCreate()
+# When running inside a Databricks job/notebook, a `spark` SparkSession is
+# already provided by the runtime — re-creating one via DatabricksSession
+# breaks. Detect and reuse if present; otherwise spin up databricks-connect
+# (for local runs from the laptop against a remote workspace).
+try:
+    spark  # noqa: F821
+except NameError:
+    spark = DatabricksSession.builder.serverless(True).getOrCreate()
+
 spark.sql(f"CREATE SCHEMA IF NOT EXISTS {CATALOG}.{SCHEMA}")
 
 

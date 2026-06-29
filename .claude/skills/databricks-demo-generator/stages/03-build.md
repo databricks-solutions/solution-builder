@@ -26,7 +26,7 @@ For each spec file:
 2. Read the matching ai-dev-kit skill at `SKILLS/<skill-dir>/SKILL.md` (the HOW — CLI, auth, validation). Pick from the *Available Skills* index in your system prompt; `ls SKILLS/` if unsure.
 3. Create the resource using the CLI the skill documents. **Do NOT use MCP tools.**
 4. Validate (verify rows, endpoint responses, etc).
-5. Update `resources.json.created_resources` with the resource ID.
+5. Update `resources.json.created_resources` with the resource ID — **only now, after the resource exists and validated**. Add the key for the resource you just built; never write a key ahead of time with a placeholder or empty value (the UI renders a link for any present ID, so a pre-seeded one becomes a dead link).
 
 That's the loop. The rest of this file is **the order in which to apply it** — what runs sequentially, what runs in parallel as subagents.
 

@@ -1,6 +1,6 @@
 # Lakeflow — Data Generation + Small Transformation Chain
 
-> **Simple-demo contract.** Python writes 5 pandas DataFrames as Parquet files into a UC Volume; `spark.sql` then runs 5 CTAS statements (parquet → `raw_*` Delta tables) + 2 transforms (`raw_*` → `gold_*` Delta tables) + a constraint block. **No SDP, no metric view, no ai_classify** — interactive SQL is enough for the simple story. Visible lineage in Catalog Explorer. Talking track: *"in production this is where Lakeflow Connect drops files; we'd shape them with SDP."*
+> **Simple-demo contract.** One self-contained data-generation script produces the full **bronze→silver→gold** layering: the 5 `raw_*` source tables, the `silver_*` cleaned/enriched facts, and the 2 `gold_*` tables the dashboard + Genie read. There is **no SDP** in the simple build, so the script does that layering itself. **No metric view, no ai_classify** — the silver `anger_score` is a heuristic (the full demo's `ai_classify` is out of scope here). Lineage is visible in Catalog Explorer. Talking track: *"in production this is where Lakeflow Connect drops files and SDP shapes them — here the data-gen does the equivalent layering inline so the demo lands in minutes."*
 
 ---
 
@@ -28,15 +28,15 @@
 
 **Skill**: `databricks-synthetic-data-gen` — read `SKILLS/databricks-synthetic-data-gen/SKILL.md` first.
 
-**Runtime**: pre-provisioned databricks-connect venv (path in system prompt) — has Python 3.12, databricks-connect, faker, numpy, pandas, pyarrow. Do NOT create a new venv.
+**Runtime**: pre-provisioned databricks-connect venv (path in system prompt). Do NOT create a new venv.
 
-One `.py` file, ~2 min end-to-end. Five phases inside it, sequential, all idempotent (every write is `mode("overwrite")` / `CREATE OR REPLACE`). All schema work runs via `spark.sql(f"…")` calls inline in Python — no separate SQL file, no `;`-splitting:
+One self-contained, idempotent script produces all three layers (there's no SDP in the simple build):
 
-1. **Synth in memory** — Python builds 5 pandas DataFrames (customers → products → production_lots → orders → returns). FK integrity is enforced row-by-row at this stage.
-2. **Drop to Volume** — each DataFrame is written as a Parquet file to `/Volumes/{catalog}/{schema}/{volume}/raw/<name>.parquet`. The Volume is the "raw drop" surface — in a production demo this is where Lakeflow Connect would land files; the simple demo just writes them directly.
-3. **Raw Delta** — for each of the 5 datasets: `spark.sql("CREATE OR REPLACE TABLE raw_<name> COMMENT '…' AS SELECT * FROM parquet.\`<path>\`")`. One `spark.sql` per table — easy to read, easy to edit.
-4. **Gold Delta** — one `spark.sql("CREATE OR REPLACE TABLE gold_<name> COMMENT '…' AS SELECT col COMMENT '…', … FROM raw_… JOIN …")` **per gold table**, sequential (`gold_returns` first because `gold_daily_summary` reads from it). Not batched — keeping one CTAS per cell makes Catalog Explorer's lineage view legible and lets the user re-run a single gold without rebuilding the other. **Every table AND every column needs a `COMMENT '…'`** — Catalog Explorer + Genie read them as semantics; without them Genie has to guess.
-5. **Constraints** — small Python loops over `(table, pk)` and `(table, col, ref)` tuples: `ALTER TABLE … ALTER COLUMN <pk> SET NOT NULL` + `ADD CONSTRAINT <name>_pk PRIMARY KEY(<pk>)` + `ADD CONSTRAINT <name>_<col>_fk FOREIGN KEY(<col>) REFERENCES raw_… NOT ENFORCED RELY`. Renders the FK arrows in Catalog Explorer's lineage view.
+1. **Raw** — the 5 source tables (customers, products, production_lots, orders, returns) with the story's data: the EU-skewed bad-lot cohort, the 3x return spike, the incident text on the affected lot.
+2. **Silver** — cleaned + enriched facts the gold layer reads: `silver_returns` (returns with customer geo, product/category, facility denormalized in-row + the heuristic `anger_score` + `is_bad_lot`) and `silver_orders` (order-level fact with product/category).
+3. **Gold** — the two tables the dashboard + Genie read, derived from **silver**: `gold_returns` and `gold_daily_summary`.
+
+Every table and column carries a description so Genie can read them as semantics. The affected lot's `incident_summary` stays on `raw_production_lots` (the drill-down destination), never copied into gold.
 
 ### Raw tables (normalized; the dashboard never reads them directly except `raw_production_lots` via Genie for `incident_summary`)
 
@@ -46,12 +46,19 @@ One `.py` file, ~2 min end-to-end. Five phases inside it, sequential, all idempo
 - **`raw_orders`** ~200K — `order_id` (PK, `ORD-YYYYMMDD-NNNNNN`), `customer_id` (FK), `product_id` (FK — one row per order/product line), `lot_id` (FK), `order_date`, `region` (order destination — same value as the customer's region), `quantity` (small int, usually 1), `total_usd` (= quantity × product price).
 - **`raw_returns`** ~25K — `return_id` (PK, `RET-NNNNNNNN`), `order_id` (FK), `customer_id` (FK), `product_id` (FK), `lot_id` (FK), `return_date`, `refund_amount_usd`, `return_reason` (`quality`/`didnt_fit`/`wrong_item`/`changed_mind`), `return_reason_text` (free text; texture complaints on affected-lot rows), **`anger_score`** (DOUBLE, 0..1; pre-computed heuristic — see "Anger score" below).
 
-### Curated tables (what the dashboard + Genie + app read)
+### Silver tables (cleaned + enriched facts — gold reads these, not raw)
 
-Two tables — that's it. Lot rollups (worst-lots, lot-level rates) are computed at query time from `gold_returns` with `GROUP BY lot_id`; the incident text is fetched directly from `raw_production_lots` via a one-hop join. No intermediate `gold_product_lot_quality` — pre-aggregating a few hundred lots adds a table for no measurable win.
+Built inline (no SDP). The simple demo's silver mirrors what the full demo's SDP silver produces, minus `ai_classify` (heuristic anger here) and minus the order-items split (the simple demo is order-level only).
 
-- **`gold_returns`** ~25K — **the one denormalized fact** (`raw_returns × raw_customers × raw_products × raw_production_lots × raw_orders`). Pulls `country / city / customer_lat / customer_lng / loyalty_tier` from `raw_customers`, `region` from `raw_orders` (NOT raw_customers — keeps `gold_returns.region` consistent with `gold_daily_summary.region` so dashboard filters agree), `product_name / category` from raw_products, `facility` from raw_production_lots, `order_date` from raw_orders, plus return fact columns + `anger_score`. Carries **both** `return_reason_text` and `customer_comment` as columns (same string content — `customer_comment AS return_reason_text` is the alias the dashboard's `ds_returns` reads; `customer_comment` is what Genie's example SQLs reference, since that's the natural column name when answering "what are customers saying?"). Computes **`is_bad_lot`** = (`lot_id = <AFFECTED>`). Deliberately omits `incident_summary` — symptom on this table, explanation on `raw_production_lots` so the drill-down has a destination. COMMENT every column.
-- **`gold_daily_summary`** ~3,500 rows — `(date, region, category)` composite PK. Columns: `order_count`, `revenue_usd`, `return_count`, `returns_usd`. Orders leg = `raw_orders JOIN raw_products GROUP BY 1,2,3`. Returns leg = `raw_returns JOIN raw_orders (for region) JOIN raw_products GROUP BY 1,2,3`, LEFT JOIN on the same triple. Pulling region from `raw_orders` on both legs is the contract — values must join cleanly.
+- **`silver_returns`** ~25K — cleaned returns fact, every dimension denormalized in-row: `product_name / category` from `raw_products`, `facility` from `raw_production_lots`, `country / city / customer_lat / customer_lng / loyalty_tier` from `raw_customers`, `region` + `order_date` from `raw_orders`, plus the return fact columns, the heuristic `anger_score`, both `return_reason_text` and `customer_comment`, and **`is_bad_lot`** = (`lot_id = <AFFECTED>`).
+- **`silver_orders`** ~200K — order-level fact (one row per order/SKU line) with `product_name / category` denormalized from `raw_products`. The daily rollup reads this.
+
+### Curated (gold) tables (what the dashboard + Genie + app read)
+
+Two gold tables. Lot rollups (worst-lots, lot-level rates) are computed at query time from `gold_returns` with `GROUP BY lot_id`; the incident text is fetched directly from `raw_production_lots` via a one-hop join. No intermediate `gold_product_lot_quality` — pre-aggregating a few hundred lots adds a table for no measurable win.
+
+- **`gold_returns`** ~25K — **the one denormalized fact**, projected straight from `silver_returns` (all the joins already happened in silver). `region` traces to `raw_orders` (keeps `gold_returns.region` consistent with `gold_daily_summary.region` so dashboard filters agree). Carries **both** `return_reason_text` and `customer_comment` as columns (same string content — `customer_comment` is what the dashboard's `ds_returns` and Genie's example SQLs read). Carries **`is_bad_lot`**. Deliberately omits `incident_summary` — symptom on this table, explanation on `raw_production_lots` so the drill-down has a destination. COMMENT every column.
+- **`gold_daily_summary`** ~3,500 rows — one row per `(date, region, category)`. Columns: `order_count`, `items_sold`, `revenue_usd`, `return_count`, `returns_usd`. An orders rollup (from `silver_orders`) and a returns rollup (from `silver_returns`) aggregated to that grain and combined, returns defaulting to zero where there were none. Both legs carry `region` from the same upstream so the grains align.
 
 ### Anger score
 
@@ -72,10 +79,10 @@ Result: affected-lot returns cluster at 0.9 (the dashboard's "very angry" bucket
 
 Follow these and the dataset is dashboard-ready on first pass. Skip any and the story stops popping (spike vanishes into noise, peak lands at chart edge, map doesn't light EU).
 
-- **Baselines**: ~3,800 orders/week → ~$60K/week returns at ~8% return rate. ~$380K/month revenue, ~15K orders/month. Light ±5% noise on prices via `(0.95 + random*0.10)`.
-- **Time window + seasonality** (purely cosmetic, so the trend line doesn't look uniform-random): orders span **1 year by default** with per-day seasonal multipliers. **Two clearly separated peaks** is the load-bearing shape: a Black Friday tent (Nov 24–30, ramping 2.0 → 3.2 → 2.0 with peak Nov 28) → a deliberate **valley** Dec 1–10 (1.3×) so BF visually decouples → a Christmas ramp (Dec 11–22, 1.5 → 3.2 with peak Dec 21) → post-cutoff lull Dec 23–26 (0.6×) → small rebound Dec 27–31 (1.3×). Off-season bumps: Mother's Day week (May 7–14, 2.0×), Valentine's week (Feb 7–14, 1.8×), summer dip (Jul–Aug, 0.75×). Apply ±15% gaussian noise. January 1–15 carries a 1.3× return-rate bump for the post-Christmas gift-return surge. Bad-lot timing is shifted back from the default 8w-ago if it would land in a peak (Black Friday week or Dec 1–26) — `_is_peak_day()` test slides it week-by-week off — so the spike isn't swallowed by seasonal volume.
+- **Baselines**: ~3,800 orders/week → ~$60K/week returns at ~8% return rate. ~$380K/month revenue, ~15K orders/month. ±5% noise on prices.
+- **Time window + seasonality** (purely cosmetic, so the trend line doesn't look uniform-random): orders span **1 year by default** with per-day seasonal multipliers. **Two clearly separated peaks** is the load-bearing shape: a Black Friday tent (Nov 24–30, ramping 2.0 → 3.2 → 2.0 with peak Nov 28) → a deliberate **valley** Dec 1–10 (1.3×) so BF visually decouples → a Christmas ramp (Dec 11–22, 1.5 → 3.2 with peak Dec 21) → post-cutoff lull Dec 23–26 (0.6×) → small rebound Dec 27–31 (1.3×). Off-season bumps: Mother's Day week (May 7–14, 2.0×), Valentine's week (Feb 7–14, 1.8×), summer dip (Jul–Aug, 0.75×). Apply ±15% gaussian noise. January 1–15 carries a 1.3× return-rate bump for the post-Christmas gift-return surge. Bad-lot timing defaults to ~8 weeks ago, but shifts earlier if that would land in a seasonal peak (Black Friday week or Dec 1–26), so the spike isn't swallowed by seasonal volume.
 - **Regions**: sales US 70 / EU 20 / APAC 10. Country mix — US: US 95 / CA 5; EU: FR 30 / GB 25 / DE 20 / IT 15 / ES 10; APAC: JP 40 / AU 30 / KR 20 / SG 10. Region = order destination = customer registration region (no cross-border purchases in the synth).
-- **City anchors + GPS** (drives the bubble map): each customer gets `customer_lat`/`customer_lng` = city anchor + ±0.05° jitter (~5km) so points spread inside the city instead of stacking. The gen carries a `CITY_ANCHORS` dict mapping every country to 3–5 cities with `(lat, lng, weight)` tuples — `numpy.random.choice(cities, p=weights)` per customer. **Required for the story**: FR includes Paris (largest weight, ~0.45); GB/IT/DE/ES include London, Milan, Madrid, Berlin; US covers NYC + LA + Chicago + Houston; APAC covers Tokyo + Sydney + Seoul + Singapore. Affected lot inherits parents' coords → with the EU skew below, **Paris ends up the single largest bubble** on the map, followed by London / Milan.
+- **City anchors + GPS** (drives the bubble map): each customer gets `customer_lat`/`customer_lng` = a weighted city anchor + ±0.05° jitter (~5km) so points spread inside the city instead of stacking. Each country maps to 3–5 weighted cities. **Required for the story**: FR includes Paris (heaviest weight); GB/IT/DE/ES include London, Milan, Madrid, Berlin; US covers NYC + LA + Chicago + Houston; APAC covers Tokyo + Sydney + Seoul + Singapore. Affected lot inherits parents' coords → with the EU skew below, **Paris ends up the single largest bubble** on the map, followed by London / Milan.
 - **Loyalty**: gold 10%, silver 30%, standard 60%. (The simple demo doesn't differentiate frequency or return rate by tier — kept for filtering only.)
 - **Product popularity**: top 20% of SKUs = 60% of sales. Affected SKUs are **mid-tier sellers, not heroes** — otherwise the spike looks like a volume artifact, not a return-rate anomaly.
 - **The catalyst** (the load-bearing block):
@@ -83,7 +90,7 @@ Follow these and the dataset is dashboard-ready on first pass. Skip any and the 
   - ~1,500 returns off the lot → ~30% rate (≥ 3× baseline).
   - Arrival curve: slow build weeks 6–4 ago → sharp peak at `SPIKE_PEAK` (~500 returns / ~$180K that week) → decay over the last 2 weeks (~$90K → $70K). **Peak in the past, never at the right edge.**
   - Reason on affected-lot rows: predominantly `quality`; `return_reason_text` drawn from the texture-complaint pool.
-- **Affected-lot region skew** (drives the map): the ~250 affected customers are **60% EU / 25% US / 15% APAC** (vs global 20/70/10). Inside EU keep the country mix above so **FR leads**, then IT or GB, then DE. Coherence: Skincare-heavy SKUs + EU buyers + Lyon manufacturing — one geographic story end-to-end.
+- **Affected-lot region skew** (drives the map): the ~1,500 affected customers are **60% EU / 25% US / 15% APAC** (vs global 20/70/10). Inside EU keep the country mix above so **FR leads**, then IT or GB, then DE. Coherence: Skincare-heavy SKUs + EU buyers + Lyon manufacturing — one geographic story end-to-end.
 
 ### Drill-down loop (must work end-to-end)
 

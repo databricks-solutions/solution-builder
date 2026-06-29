@@ -33,6 +33,25 @@ every artefact (lot id, dates, KA docs) needs to match a recorded baseline.
 PDFs for the Knowledge Assistant are produced by the separate
 `src/documents/html_to_pdf.py` — run it after this script.
 
+This is a **worked example of the technique**, NOT a fill-in-the-blanks
+template. A real demo is almost always a different DOMAIN, schema, story, and
+table set — so you REWRITE this file for that demo rather than find-and-replace
+the LuxeBeauty bits. What carries over is the *shape*, not the content:
+  - The Spark-native idioms — spark.range + F.when + broadcast joins + Window +
+    F.element_at, no driver loops / no .collect() / no .cache(). Reuse these
+    regardless of domain.
+  - The "one load-bearing anomaly" structure — a baseline plus a concentrated,
+    explainable spike the demo investigates (here a bad production lot; yours
+    might be a fraud ring, a failing sensor, a churned segment).
+  - In the FULL build this script writes the RAW tables only; silver + gold are
+    the SDP pipeline's job (`src/pipeline/02_silver.sql` / `03_gold.sql`) — so
+    rewrite those alongside it. (Contrast the simple example, which has no SDP
+    and builds silver+gold in the data-gen script itself.)
+Everything domain-specific below — products, city anchors, incident text,
+seasonal curve, reasons/comments, row counts, the bad-lot mechanics — is the
+LuxeBeauty story and gets thrown out for another demo. Match the new tables to
+that demo's `specifications/01-lakeflow.md`.
+
 Aligned with `references/example-luxebeauty/specifications/01-lakeflow.md`.
 """
 
@@ -48,8 +67,18 @@ from pyspark.sql import functions as F
 from pyspark.sql.window import Window
 
 # ── Config ─────────────────────────────────────────────────────────────────
-CATALOG = "<your-catalog>"
-SCHEMA  = "<your-schema>"
+# Catalog/schema are parametrized (widgets in-job, env locally) so a DAB can
+# deploy this to any workspace — same pattern as metric_view/mv_returns.py.
+IN_NOTEBOOK = "dbutils" in dir()
+if IN_NOTEBOOK:
+    dbutils.widgets.text("catalog", "", "Catalog")
+    dbutils.widgets.text("schema",  "", "Schema")
+    CATALOG = dbutils.widgets.get("catalog")
+    SCHEMA  = dbutils.widgets.get("schema")
+else:
+    CATALOG = os.environ.get("DEMO_CATALOG")  # e.g. <your-catalog>
+    SCHEMA  = os.environ.get("DEMO_SCHEMA")   # e.g. <your-schema>
+assert CATALOG and SCHEMA, "catalog + schema are required (widgets in-job, DEMO_CATALOG/DEMO_SCHEMA env locally)"
 # Volume holding raw parquet (kept around for downstream pipelines that want
 # Auto Loader; the canonical assets are the Delta tables).
 RAW_VOL = "raw_data"
@@ -109,7 +138,12 @@ print(f"BAD_LOT_ID:   {BAD_LOT_ID}")
 print(f"BAD_LOT_DATE: {BAD_LOT_PROD_DT.date()}")
 print(f"SPIKE_PEAK:   {SPIKE_PEAK.date()}")
 
-spark = DatabricksSession.builder.serverless(True).getOrCreate()
+# Reuse the runtime's spark when run as a job/notebook; else build a
+# databricks-connect serverless session for local runs.
+try:
+    spark  # noqa: F821
+except NameError:
+    spark = DatabricksSession.builder.serverless(True).getOrCreate()
 spark.sql(f"CREATE SCHEMA IF NOT EXISTS {CATALOG}.{SCHEMA}")
 
 

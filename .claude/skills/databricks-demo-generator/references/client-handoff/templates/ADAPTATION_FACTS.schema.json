@@ -1,0 +1,163 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ADAPTATION_FACTS.schema.json",
+  "title": "ADAPTATION_FACTS",
+  "description": "[GENERIC] Per-demo facts the Stage-5 handoff computes ONCE by introspecting the generated bundle, so the adaptation (Genie Code) skill READS trustworthy context instead of reconstructing it at runtime. The generator fills every [PER-DEMO] value by reading the project's own src/ — it must NEVER assume a medallion/RFM/table-family shape. FAIL CLOSED: any field that cannot be derived with confidence is set to null AND recorded in `unresolved[]`; the adaptation skill halts when it needs an unresolved fact. A wrong fact is worse than a missing one.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["skill_version", "demo_slug", "name_vars", "deploy_target", "source_inputs", "table_contract", "dependency_map", "unresolved"],
+  "properties": {
+    "skill_version": {
+      "type": "string",
+      "description": "[GENERIC] Handoff-skill version that produced this file. Stamped identically into the adaptation SKILL.md so a stale skill is detectable. Derivation: copy the version constant from the handoff skill."
+    },
+    "generated_at": {
+      "type": ["string", "null"],
+      "description": "[PER-DEMO] ISO-8601 timestamp the generator stamps at handoff time (shell `date -u`). Null if not stamped."
+    },
+    "demo_slug": {
+      "type": "string",
+      "description": "[PER-DEMO] Derivation: bundle.name in databricks.yml (fallback: project folder name). Same value used for the skill folder name."
+    },
+    "name_vars": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "[PER-DEMO] The DAB variable NAMES (not values) the client edits, post Step-3 migration. Derivation: read the variables: block of the restructured databricks.yml.",
+      "required": ["catalog_var", "schema_var", "warehouse_var"],
+      "properties": {
+        "catalog_var": { "type": "string", "description": "e.g. 'client_catalog'" },
+        "schema_var": { "type": "string", "description": "e.g. 'client_schema'" },
+        "warehouse_var": { "type": ["string", "null"], "description": "e.g. 'warehouse_id'; null if the demo has no warehouse" }
+      }
+    },
+    "deploy_target": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "[PER-DEMO] The single resource the client runs to materialize data. GENERALIZED beyond 'job' — a demo's run target may be a pipeline (SDP) OR a job. Derivation: scan resources/*.yml (and databricks.yml inline) for the primary `resources.pipelines.<key>` or `resources.jobs.<key>`. If both exist, the one that produces the demo's tables is primary. Fail closed if ambiguous.",
+      "required": ["kind", "resource_key", "run_command"],
+      "properties": {
+        "kind": { "type": "string", "enum": ["pipeline", "job", "unknown"], "description": "pipeline = SDP/declarative; job = multi-task job." },
+        "resource_key": { "type": ["string", "null"], "description": "The DAB resource key, e.g. 'quality_analytics_pipeline'. Null + unresolved if not derivable." },
+        "run_command": { "type": ["string", "null"], "description": "The exact CLI the client runs, e.g. 'databricks bundle run quality_analytics_pipeline --target client'." }
+      }
+    },
+    "source_inputs": {
+      "type": "array",
+      "description": "[PER-DEMO] One entry per raw ingestion edge. Derivation per bronze table: `read_files(`/`cloud_files(` => volume_files; `CREATE ... STREAMING TABLE` reading another table or `readStream.table` => uc_streaming_table; `FROM <catalog>.<schema>.<table>` or `spark.read.table` => uc_static_table. The locator carries catalog/schema tokens that MUST be de-hardcoded (see D-CATLIT).",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "source_type"],
+        "properties": {
+          "name": { "type": "string", "description": "Bronze table / source edge name, e.g. 'bronze_patients'." },
+          "source_type": { "type": "string", "enum": ["volume_files", "uc_static_table", "uc_streaming_table", "unknown"] },
+          "locator": { "type": ["string", "null"], "description": "Volume path or fully-qualified table, with catalog/schema shown as the variable token (e.g. '/Volumes/${catalog}/${schema}/raw_data/patients/'), NOT the SA's literal." },
+          "format": { "type": ["string", "null"], "description": "e.g. 'parquet', 'csv', 'json' for volume_files; null otherwise." },
+          "defined_in": { "type": ["string", "null"], "description": "Relative path of the file where this source is defined." }
+        }
+      }
+    },
+    "table_contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "[PER-DEMO] Tables by layer with the column contract. produced_columns is null for `SELECT *` ingestion (not statically knowable) -> fail closed + unresolved. consumed_columns_downstream is ALWAYS computable from the SQL/py that reads the table and is the column set a rename/transform must preserve.",
+      "properties": {
+        "bronze": { "$ref": "#/$defs/layerTables" },
+        "silver": { "$ref": "#/$defs/layerTables" },
+        "gold": { "$ref": "#/$defs/layerTables" }
+      }
+    },
+    "dependency_map": {
+      "type": "array",
+      "description": "[PER-DEMO] The transform DAG + external consumers. Derivation: parse FROM/JOIN of each ST/MV for upstream; invert for downstream; scan dashboard JSON datasets and genie_space.json data_sources/instructions for table references. This is what makes T2 (dependency scan) deterministic.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["table", "layer", "upstream", "downstream"],
+        "properties": {
+          "table": { "type": "string" },
+          "layer": { "type": "string", "enum": ["bronze", "silver", "gold", "other"] },
+          "upstream": { "type": "array", "items": { "type": "string" }, "description": "Tables this one reads from." },
+          "downstream": { "type": "array", "items": { "type": "string" }, "description": "Tables that read from this one." },
+          "dashboard_refs": { "type": "array", "items": { "type": "string" }, "description": "Dashboard dataset/query ids or names referencing this table." },
+          "genie_refs": { "type": "array", "items": { "type": "string" }, "description": "genie_space.json data_source / instruction references to this table." },
+          "defined_in": { "type": ["string", "null"] }
+        }
+      }
+    },
+    "grain_constraints": {
+      "type": "array",
+      "description": "[PER-DEMO] Per gold/aggregate table, the grain that downstream logic assumes. Derivation: candidate_columns from GROUP BY (and CLUSTER BY / PARTITIONED BY). min_partition_size is DATA-DEPENDENT (needs a live row-count query) -> null + unresolved unless a warehouse query was run at handoff. Powers T0.5 partition-key audit + singleton-partition guard.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["table", "candidate_columns"],
+        "properties": {
+          "table": { "type": "string" },
+          "candidate_columns": { "type": "array", "items": { "type": "string" } },
+          "partition_clause": { "type": ["string", "null"], "description": "Raw CLUSTER BY / PARTITIONED BY clause if present." },
+          "min_partition_size": { "type": ["integer", "null"], "description": "Smallest group row count; null if not measured (fail closed)." }
+        }
+      }
+    },
+    "verify_queries": {
+      "type": "array",
+      "description": "[PER-DEMO] Precomputed verification SQL the adaptation skill runs after a transform (T3/T3.5). Templated with ${catalog}/${schema} tokens, never SA literals. Derivation: generate from table_contract + grain_constraints per transform_type.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "transform_type", "sql"],
+        "properties": {
+          "id": { "type": "string" },
+          "transform_type": { "type": "string", "description": "e.g. 'grain_change', 'metric_formula', 'rename', 'distribution'." },
+          "table": { "type": ["string", "null"] },
+          "sql": { "type": "string", "description": "Parameterized verify SQL using ${catalog}.${schema} tokens." },
+          "note": { "type": ["string", "null"] }
+        }
+      }
+    },
+    "lock_targets": {
+      "type": "array",
+      "description": "[PER-DEMO] Files that must NOT be edited for a given task class (feeds the adaptation skill's literal-lock syntax). Derivation: from dependency_map + source_inputs (e.g. for a rename, lock the ingestion-contract files). Each path must exist on disk.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["task_class", "paths", "reason"],
+        "properties": {
+          "task_class": { "type": "string", "description": "Granular, operation-specific key: 'rename_table' and 'rename_column' are DISTINCT operations; transform ops ('add_metric','change_grain','add_segment'); 'setup' for deploy-time. The adaptation skill matches each lock to the SPECIFIC operation (a table rename matches only 'rename_table' locks, NOT 'rename_column'); it must NOT substring-match the 'rename' stem." },
+          "paths": { "type": "array", "items": { "type": "string" }, "description": "Exact relative file paths to lock." },
+          "reason": { "type": "string" }
+        }
+      }
+    },
+    "unresolved": {
+      "type": "array",
+      "description": "[GENERIC structure / PER-DEMO contents] The fail-closed registry. EVERY field the generator could not compute with confidence gets an entry here. The adaptation skill consults this and HALTS (asks the author/client) before acting on any listed fact.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["field", "reason"],
+        "properties": {
+          "field": { "type": "string", "description": "JSON path of the unresolved fact, e.g. 'table_contract.bronze.bronze_patients.produced_columns'." },
+          "table": { "type": ["string", "null"] },
+          "reason": { "type": "string" },
+          "needs_author_input": { "type": "boolean", "default": true }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "layerTables": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "produced_columns": { "type": ["array", "null"], "items": { "type": "string" }, "description": "Columns this table emits; null for SELECT * ingestion (fail closed)." },
+          "consumed_columns_downstream": { "type": "array", "items": { "type": "string" }, "description": "Columns downstream tables / dashboard / genie actually read; the rename/transform-preserve set." },
+          "defined_in": { "type": ["string", "null"] }
+        }
+      }
+    }
+  }
+}

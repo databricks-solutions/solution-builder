@@ -20,3 +20,4 @@ test-results/
 # at runtime (deployed mode). Contains a user PAT — never commit or
 # ship with a template snapshot. See backend/AUTH.md in the generator.
 .databrickscfg
+shared/appkit-types/

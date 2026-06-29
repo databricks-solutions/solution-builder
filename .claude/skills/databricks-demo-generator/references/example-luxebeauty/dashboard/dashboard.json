@@ -74,6 +74,10 @@
                     {
                       "name": "sum(returns_usd)",
                       "expression": "SUM(`returns_usd`)"
+                    },
+                    {
+                      "name": "weekly(date)",
+                      "expression": "DATE_TRUNC(\"WEEK\", `date`)"
                     }
                   ],
                   "disaggregated": false
@@ -99,6 +103,9 @@
                   "color": {
                     "hex": "#094074"
                   }
+                },
+                "period": {
+                  "fieldName": "weekly(date)"
                 }
               },
               "frame": {
@@ -126,6 +133,10 @@
                     {
                       "name": "sum(return_count)",
                       "expression": "SUM(`return_count`)"
+                    },
+                    {
+                      "name": "weekly(date)",
+                      "expression": "DATE_TRUNC(\"WEEK\", `date`)"
                     }
                   ],
                   "disaggregated": false
@@ -142,6 +153,9 @@
                   "color": {
                     "hex": "#094074"
                   }
+                },
+                "period": {
+                  "fieldName": "weekly(date)"
                 }
               },
               "frame": {
@@ -169,6 +183,10 @@
                     {
                       "name": "sum(order_count)",
                       "expression": "SUM(`order_count`)"
+                    },
+                    {
+                      "name": "weekly(date)",
+                      "expression": "DATE_TRUNC(\"WEEK\", `date`)"
                     }
                   ],
                   "disaggregated": false
@@ -185,6 +203,9 @@
                   "color": {
                     "hex": "#094074"
                   }
+                },
+                "period": {
+                  "fieldName": "weekly(date)"
                 }
               },
               "frame": {
@@ -212,6 +233,10 @@
                     {
                       "name": "sum(revenue_usd)",
                       "expression": "SUM(`revenue_usd`)"
+                    },
+                    {
+                      "name": "weekly(date)",
+                      "expression": "DATE_TRUNC(\"WEEK\", `date`)"
                     }
                   ],
                   "disaggregated": false
@@ -237,6 +262,9 @@
                   "color": {
                     "hex": "#094074"
                   }
+                },
+                "period": {
+                  "fieldName": "weekly(date)"
                 }
               },
               "frame": {

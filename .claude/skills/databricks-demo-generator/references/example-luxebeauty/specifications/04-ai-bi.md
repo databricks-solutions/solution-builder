@@ -198,23 +198,7 @@ Refund rate as a number isn't shown on the dashboard, but `mv_returns` defines `
 
 ### Validation
 
-- Operations page renders without horizontal scroll on a 1440px screen; widgets float on a white canvas with no visible borders.
-- All 4 KPI tiles display a sensible dataset-level total over whatever the global Date filter has selected: Refunds + Revenue in compact USD, Returns + Orders as compact integers.
-- Changing the global Date Range / Region / Category filters updates all KPI values live, without modifying the dataset SQL.
-- **Genie's answer to "what's our return rate this month?" matches `MEASURE(return_rate)` on `mv_returns`** — same metric definition; the dashboard just doesn't render it as a tile.
-- Forecast-line: actuals through ~last full week, dashed prediction band continuing 4 weeks forward, **vertical annotation line on `AFFECTED_LOT_DATE`** labeled with the lot ID. Peak **not** at the rightmost edge.
-- Bubble map: Paris is the single largest bubble (≥ ~30 affected customers), followed by visible London / Milan / Madrid / Berlin clusters; US East/West mid-sized; Tokyo / Seoul / Sydney small.
-- Refunds-by-country bar: France first, then IT/GB/DE/US; bars stacked by `category` with Skincare dominating the EU stack.
-- Category donut: Skincare is the largest slice.
-- Investigation Worst-lots bar: one bar ~10× the next.
-- Affected-vs-everyday country bars: every EU country shows a yellow `Affected lot` bar taller than its steel-blue `Everyday returns` bar.
-- Reasons bar: `quality` is ~all yellow; `changed_mind` / `wrong_item` / `didnt_fit` are ~all steel blue.
-- Sentiment bar: `2 - Angry` + `3 - Very angry` dominate the affected-lot subset; `0 - Satisfied` dominates everyday returns.
-- Comments table: visible *"grainy"*, *"separated"*, *"watery"* in `return_reason_text` rows, with `anger_score` ≥ 0.7.
-- Region filter (select "EU") → every widget updates; the map zooms to the EU bounding box (Paris cluster fills the frame).
-- Category filter (select "Skincare") → returns spike pronounced; product bar narrows to skincare SKUs.
-
-Add `dashboard_id` to `resources.json`.
+Open the published dashboard and confirm the story reads at a glance: the refund spike stands out, the affected lot/SKUs dominate the investigation widgets, the map lights up EU (Paris largest), and the global filters update every widget. Sanity-check that Genie's "what's our return rate this month?" matches `MEASURE(return_rate)` on `mv_returns` (same metric definition). Add `dashboard_id` to `resources.json`.
 
 ---
 

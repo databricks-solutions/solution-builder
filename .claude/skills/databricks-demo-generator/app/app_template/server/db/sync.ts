@@ -29,9 +29,9 @@ type DataConfig = {
     /** silver_returns — already carries customer_id + product + lot per
      *  spec 01-lakeflow.md, so no joins are needed in sync. */
     returns: string;
-    /** bronze_orders — provides order-level customer_id + totalUsd. */
+    /** silver_orders — order-level customer_id + totalUsd (aggregated from raw line items). */
     orders: string;
-    /** bronze_customers — primary customer dimension with geo + premium tag. */
+    /** raw_customers — primary customer dimension with geo + premium tag. */
     customers: string;
     /** Predictions written by the ML notebook (spec 03-ml-premium.md).
      *  Optional: omit for demos without an ML model — sync just skips. */
@@ -192,10 +192,14 @@ export async function syncFromDelta(
           customerLat: r.customer_lat === null ? null : Number(r.customer_lat),
           customerLng: r.customer_lng === null ? null : Number(r.customer_lng),
           loyaltyTier: r.loyalty_tier,
-          premiumStatus:
-            r.premium_status === 'premium' || r.premium_status === 'not_premium'
-              ? r.premium_status
-              : null,
+          // Cast required by drizzle 0.45's insert overload (tsc errors without
+          // it); eslint's checker disagrees and flags it unnecessary — tsc is
+          // the build's source of truth, so keep the cast.
+          // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
+          premiumStatus: (r.premium_status === 'premium' ||
+          r.premium_status === 'not_premium'
+            ? r.premium_status
+            : null) as 'premium' | 'not_premium' | null,
           registrationDate: r.registration_date,
         })),
       ).onConflictDoNothing(),
@@ -254,14 +258,16 @@ export async function syncFromDelta(
         chunk.map((r) => ({
           customerId: r.customer_id,
           premiumProb: Number(r.premium_prob),
+          // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
           finalTier: (r.final_tier === 'premium' ? 'premium' : 'standard') as
             | 'premium'
             | 'standard',
-          premiumStatusLabeled:
-            r.premium_status_labeled === 'premium' ||
-            r.premium_status_labeled === 'not_premium'
-              ? r.premium_status_labeled
-              : null,
+          // Cast required by drizzle 0.45's insert overload (see customers insert).
+          // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
+          premiumStatusLabeled: (r.premium_status_labeled === 'premium' ||
+          r.premium_status_labeled === 'not_premium'
+            ? r.premium_status_labeled
+            : null) as 'premium' | 'not_premium' | null,
           predictedAt: r.predicted_at ? new Date(r.predicted_at) : null,
         })),
       ).onConflictDoNothing(),

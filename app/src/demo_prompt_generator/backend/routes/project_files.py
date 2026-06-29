@@ -916,7 +916,7 @@ _RESOURCE_URL_PATTERNS: dict[str, tuple[str, str]] = {
     # `/ml/experiments/<id>/runs?o=<workspace_id>`.
     # Lakebase project URL — the project UUID powers the entire DB page
     # (DBs, branches, settings). Example URL:
-    #   {host}/lakebase/projects/002f3c65-5c96-4773-874c-1c39faae0974
+    #   {host}/lakebase/projects/<project-uuid>
     "lakebase_project_id": ("{host}/lakebase/projects/{id}", "Lakebase"),
 }
 
@@ -957,6 +957,37 @@ def _resolve_mlflow_experiment_id(
     return None
 
 
+def _is_placeholder_id(value: str) -> bool:
+    """True when a resources.json value is a not-yet-created placeholder
+    rather than a real, resolvable ID/path.
+
+    The build agent mirrors the reference example resources.json, which
+    carries angle-bracket stand-ins like `<your-dashboard-uuid>` and
+    `/Workspace/Users/<your-user>/...`; the app-template late-fill flow
+    leaves `__LATE_FILL_GENIE__`-style markers until the parent backfills
+    them. None of these point at a live resource — but they're truthy
+    strings, so without this guard the link builder would emit a dead link
+    (e.g. `/sql/dashboardsv3/<your-dashboard-uuid>`). Treat them as absent.
+    """
+    v = value.strip()
+    if not v:
+        return True
+    # Angle-bracket placeholder, whole-value (`<your-dashboard-uuid>`) or
+    # embedded mid-path (`/Workspace/Users/<your-user>/demo`). Real IDs and
+    # workspace paths never contain angle brackets.
+    if "<" in v and ">" in v:
+        return True
+    if v.startswith("__LATE_FILL"):
+        return True
+    # Truncated-example convention (`abc123def456...`, `01efab12cd34...`).
+    # A real ID or path never ends in an ellipsis.
+    if v.endswith("..."):
+        return True
+    if v.lower() in {"tbd", "todo", "pending", "placeholder", "none", "null", "n/a"}:
+        return True
+    return False
+
+
 def _build_deployed_links(
     resources: dict[str, str],
     host: str | None,
@@ -974,6 +1005,15 @@ def _build_deployed_links(
     into its numeric experiment_id for the `/ml/experiments/<id>/runs` URL.
     Optional — if unavailable, the MLflow link is just skipped.
     """
+    # Drop not-yet-created placeholder values up front so every `if x:`
+    # guard below naturally skips them — a resource only earns a link once
+    # its real ID lands in resources.json. See _is_placeholder_id.
+    resources = {
+        k: v
+        for k, v in resources.items()
+        if isinstance(v, str) and not _is_placeholder_id(v)
+    }
+
     links: list[DeployedResourceLink] = []
     host = (host or "").rstrip("/")
 

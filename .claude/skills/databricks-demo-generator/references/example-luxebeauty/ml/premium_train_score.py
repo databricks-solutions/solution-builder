@@ -14,6 +14,7 @@
 
 # COMMAND ----------
 
+import os
 import json
 import mlflow
 import numpy as np
@@ -25,12 +26,25 @@ from sklearn.metrics import roc_auc_score
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import OneHotEncoder
 
-CATALOG = "<your-catalog>"
-SCHEMA  = "<your-schema>"
-MODEL_NAME = f"{CATALOG}.{SCHEMA}.customer_premium_classifier"
-EXPERIMENT_PATH = "/Workspace/Users/<your-user>/luxebeauty_demo/experiments/premium_classifier"
+# Catalog/schema are parametrized (widgets in-job, env locally) so a DAB can
+# deploy this to any workspace — same pattern as metric_view/mv_returns.py.
+IN_NOTEBOOK = "dbutils" in dir()
+if IN_NOTEBOOK:
+    dbutils.widgets.text("catalog", "", "Catalog")
+    dbutils.widgets.text("schema",  "", "Schema")
+    CATALOG = dbutils.widgets.get("catalog")
+    SCHEMA  = dbutils.widgets.get("schema")
+else:
+    CATALOG = os.environ.get("DEMO_CATALOG")  # e.g. <your-catalog>
+    SCHEMA  = os.environ.get("DEMO_SCHEMA")   # e.g. <your-schema>
+assert CATALOG and SCHEMA, "catalog + schema are required (widgets in-job, DEMO_CATALOG/DEMO_SCHEMA env locally)"
 
-# UC registry + experiment (parent folder pre-created externally — see SKILL.md)
+MODEL_NAME = f"{CATALOG}.{SCHEMA}.customer_premium_classifier"
+# Derived from catalog/schema so each deploy gets its own isolated experiment —
+# no hardcoded user path.
+EXPERIMENT_PATH = f"/Shared/{CATALOG}_{SCHEMA}_premium_classifier"
+
+# UC registry + experiment
 mlflow.set_registry_uri("databricks-uc")
 mlflow.set_experiment(EXPERIMENT_PATH)
 
