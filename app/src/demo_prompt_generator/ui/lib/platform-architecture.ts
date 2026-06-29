@@ -2,30 +2,26 @@
  * Platform Architecture Schema + Catalog
  * =======================================
  *
- * The *higher-level* successor to the old `architecture-schema.ts` wiring
- * diagram. Instead of nodes/edges/tiers, this models the demo the way the
- * Databricks "Data + AI Platform" slide does: a handful of CAPABILITY BANDS
- * stacked top→bottom, each holding a few product COMPONENTS.
+ * The file format is a FLAT graph: `architecture.md` holds a ```json block with
+ * just `nodes` (the components shown on the canvas) + `edges` (the lines between
+ * them). A node is on the canvas iff it's listed in `nodes` — there is no
+ * state / hidden / bands in the file.
  *
- *   Agentic Apps        ← apps, dashboards, Databricks One
- *   Agentic Work        ← Genie, agents, KA, ML
- *   Unified Governance  ← Unity Catalog, AI Gateway
- *   Agentic Data        ← Lakeflow, Lakehouse, Lakebase, AI Functions, …
- *   ── Open Storage ──   ← Delta / Iceberg footer strip
- *   Sources             ← the demo's source systems
+ *   { name, story, options?, nodes: [...], edges: [...] }
+ *   node:  { id, type, at:[x,y], size?, rot?, scale?, z?, group?,
+ *            label?, desc?, icon?, ingest?, style?:{border,shadow,radius,fill,…} }
+ *   edge:  { id?, from:"<id>[@handle]", to:"<id>[@handle]", flow?, arrow?, … }
  *
- * Why a fixed catalog + per-demo overrides:
- *   The bands and the full set of platform components are ALWAYS the same —
- *   that's the "default architecture base" the user asked for. A given demo
- *   only ever (a) marks which components are `active` vs `mentioned` vs
- *   `hidden`, and (b) tweaks per-demo copy (the story-tied description on a
- *   tile). Defaults for (a) are seeded from the project's resources.json
- *   (buildable → active, talking_track → mentioned, everything else hidden),
- *   so a freshly-generated demo already looks right with zero authoring.
+ * `type` is a CATALOG component id (which folds in the composite "kind"), or one
+ * of the special kinds source / box / text / logo / image. The CATALOG below is
+ * a pure LOOKUP: given a `type` it supplies the default icon / label / desc /
+ * size / ports and the band (used only for the tile's color). The library
+ * palette renders the full catalog to drag from; the file lists only what's
+ * placed.
  *
- * The agent writes a small JSON override into `architecture.md`; `buildSchema`
- * merges it onto the catalog. Everything the renderer needs is resolved here
- * so the component stays presentational.
+ * `parseArchitecture` reads the flat file → the internal resolved `PlatformSchema`
+ * ({ bands, layout }) that flow-mapping + the canvas consume; `serializeArchitecture`
+ * writes the live canvas back out to the flat format.
  */
 
 import type { DatabricksIconName } from "@/components/databricks-icons";
@@ -92,7 +88,7 @@ export type FlowStyle = "dot" | "particles" | "docs" | "laser";
 
 /** Composite block kinds (super-set components that draw an inner mini-diagram
  *  and expose multiple named ports). Extend this as we add more blocks. */
-export type CompositeKind = "lakeflow" | "genie-code" | "governance" | "lakeflow-genie" | "agent-bricks";
+export type CompositeKind = "lakeflow" | "genie-code" | "governance" | "lakeflow-genie" | "agent-bricks" | "db-platform";
 
 /** The 3 left input ports a "lakeflow" composite exposes. Edge handle ids on
  *  the block are `in-${port}` (+ a single `r` output on the right). */
@@ -161,7 +157,7 @@ export interface NodePosition {
   /** A canvas-added data source (from "+ more data sources"). Stores just the
    *  logo-catalog key + icon; label/ingest defaults come from the unified
    *  logo-catalog.json. Present only for such nodes. */
-  source?: { key: string; icon: IconKey };
+  source?: { key: string; icon: IconKey; ingest?: IngestPath };
   /** Group membership — a shared id stamped on every member of a group
    *  (right-click → Group). Selecting one member selects the whole group so
    *  they move together. Cleared on Ungroup. No container node — just a tag. */
@@ -209,6 +205,10 @@ export interface PlatformEdge {
    *  ingest (zerobus → particles, direct → docs, else dot). An explicit value
    *  overrides that default (this is the only way to get `laser`). */
   flowStyle?: FlowStyle;
+  /** Static arrowheads. Unset/"auto" → auto (arrow for user/Genie-One
+   *  relationship edges, else flow). "none" | "end" | "start" | "both" force it.
+   *  An arrow edge is a plain relationship line (no data-flow animation). */
+  arrow?: "auto" | "none" | "end" | "start" | "both";
   /** Manual X of the vertical elbow segment (smooth/step edges). Unset → the
    *  auto-staggered position. Set by dragging the ↔ handle on the segment. */
   centerX?: number;
@@ -225,39 +225,76 @@ export interface PlatformLayout {
   hidden: string[];
 }
 
-// -- The override shape the AGENT writes into architecture.md ----------------
-// Everything is optional/partial: a demo only says what differs from defaults.
+// -- The FLAT file shape the agent + canvas read/write into architecture.md ---
+// A node is in `nodes` iff it's on the canvas (no state / hidden / mentioned).
+// Position is required; everything else is an override of the catalog default.
 
-export interface ComponentOverride {
+/** One placed node in the flat file. `type` is a catalog component id (which
+ *  folds in the old `kind`) OR a special kind: "source" | "box" | "text" |
+ *  "logo" | "image". */
+export interface FileNode {
   id: string;
+  type: string;
+  /** Required canvas position [x, y]. */
+  at: [number, number];
+  /** Resized box [w, h]. */
+  size?: [number, number];
+  rot?: number;
+  scale?: number;
+  z?: number;
+  group?: string;
+  /** Copy overrides (only when they differ from the catalog default). */
   label?: string;
-  icon?: IconKey;
   desc?: string;
-  state?: ComponentState;
-  capability?: string;
+  icon?: IconKey;
+  /** source nodes: ingest path. */
   ingest?: IngestPath;
-  kind?: CompositeKind;
-  sublabel?: string;
-  badge?: string;
+  /** box/text/logo/image annotation props. */
+  text?: string;
+  fontSize?: number;
+  bold?: boolean;
+  border?: boolean;
+  vAlign?: "top" | "middle" | "bottom";
+  hAlign?: "left" | "center" | "right";
+  src?: string;
+  /** Optional visual overrides. */
+  style?: {
+    border?: number;        // borderWidth
+    borderStyle?: "solid" | "dashed";
+    borderColor?: string;
+    radius?: number;        // borderRadius
+    shadow?: number | boolean;
+    fill?: string;          // fillColor
+    font?: string;          // fontColor
+    opacity?: number;
+  };
 }
 
-export interface BandOverride {
-  id: BandId;
-  /** Extra components not in the catalog — primarily the demo's `sources`. */
-  add?: ComponentOverride[];
-  /** Patches keyed by component id (catalog OR added). */
-  set?: ComponentOverride[];
+/** One edge in the flat file. `from`/`to` may carry an inline `@handle`
+ *  (a composite port like `in-zerobus` or a side `l`/`r`/`t`/`b`). */
+export interface FileEdge {
+  id?: string;
+  from: string;
+  to: string;
+  flow?: boolean;          // ↔ animated
+  arrow?: "auto" | "none" | "end" | "start" | "both";
+  dashed?: boolean;
+  shape?: "smooth" | "straight" | "step";
+  flowStyle?: FlowStyle;
+  centerX?: number;
+  label?: string;
 }
 
-export interface ArchitectureOverride {
+/** The whole flat file. */
+export interface ArchitectureFile {
   name?: string;
   story?: string;
-  /** Opt-in to render real third-party brand logos (trademark ack). */
-  enableTrademarkLogos?: boolean;
-  bands?: BandOverride[];
-  /** Saved canvas layout. Written back by the editor on drag/drop. */
-  layout?: Partial<PlatformLayout>;
+  options?: { trademarkLogos?: boolean };
+  nodes?: FileNode[];
+  edges?: FileEdge[];
 }
+
+const ANNOTATION_TYPES = new Set<AnnotationVariant>(["text", "box", "logo", "image"]);
 
 // =============================================================================
 // Band metadata — the fixed marketing framing (top → bottom)
@@ -326,8 +363,7 @@ type CatalogComponent = Omit<PlatformComponent, "state">;
 const CATALOG: Record<BandId, CatalogComponent[]> = {
   "agentic-apps": [
     { id: "databricks-apps", label: "Databricks Apps", icon: "databricksApps", desc: "Custom web app where the team does the work — queue, actions, all in one place." },
-    { id: "aibi-dashboards", label: "AI/BI Dashboard", icon: "aibiBrand", desc: "Governed dashboards on the same data — one set of numbers, one page." },
-    { id: "databricks-one", label: "Databricks One", icon: "businessUser", desc: "One branded home for business users to ask, get answers, and take action." },
+    { id: "aibi-dashboards", label: "AI/BI Dashboard", icon: "aibiBrand", sublabel: "Analyst consult & build insight", desc: "Governed dashboards on the same data — one set of numbers, one page." },
   ],
   "agentic-work": [
     { id: "databricks-apps-work", label: "Databricks Apps", icon: "databricksAppsBrand", sublabel: "Deploy business apps", desc: "Deploy business apps" },
@@ -350,6 +386,7 @@ const CATALOG: Record<BandId, CatalogComponent[]> = {
     // Composite "Unified Governance" bar: Unity Catalog + Unity AI Gateway (all
     // foundation models) + Genie Ontology, rendered as one horizontal strip.
     { id: "governance-block", label: "Unified Governance", icon: "unityCatalogBrand", kind: "governance", desc: "One control plane for data + AI: Unity Catalog governs access, lineage and quality; the Unity AI Gateway governs every foundation-model call (OpenAI, Anthropic, Gemini, …); Genie Ontology is the shared semantic layer." },
+    { id: "db-platform", label: "Databricks Platform", icon: "file:vendor/databricks-wordmark", kind: "db-platform", desc: "The Databricks Data Intelligence Platform — one governed foundation for all data + AI." },
     { id: "unity-catalog", label: "Unity Catalog", icon: "unityCatalogBrand", desc: "One governed catalog — access, lineage, and semantics across data + AI." },
     { id: "ai-gateway", label: "Unity AI Gateway", icon: "aiGatewayBrand", desc: "Every model and agent call governed — security, cost, and rate limits." },
     { id: "data-quality", label: "Data Quality", icon: "unityCatalog", desc: "Expectations and monitors keep bad data out of the gold layer." },
@@ -393,107 +430,125 @@ const CATALOG: Record<BandId, CatalogComponent[]> = {
   ],
 };
 
+/** Flat id → (catalog component + its band), built once from CATALOG. The new
+ *  flat file format keys nodes by `type` = catalog id; this resolves the
+ *  defaults (icon/label/desc/sublabel/badge/kind/ingest) + the band (tile
+ *  color). */
+const CATALOG_BY_ID: Map<string, { c: CatalogComponent; band: BandId }> = (() => {
+  const m = new Map<string, { c: CatalogComponent; band: BandId }>();
+  for (const band of BAND_ORDER) for (const c of CATALOG[band]) m.set(c.id, { c, band });
+  return m;
+})();
+
 // =============================================================================
 // Build: catalog + resources.json defaults + agent override → final schema
 // =============================================================================
 
-export interface BuildInputs {
-  /** The agent's override JSON parsed from architecture.md (may be null). */
-  override: ArchitectureOverride | null;
-  /** From resources.json — seeds default component states. */
-  capabilities: { buildable: string[]; talking_track: string[] } | null;
+/** The catalog as resolved bands (every component, state "active"). The render
+ *  path uses `layout.nodes` for WHAT is shown; `bands` is only consulted via
+ *  componentLookup (resolve a type → defaults) and for band color, so shipping
+ *  the full catalog here is correct and keeps those lookups total. */
+function catalogSchemaBands(): PlatformBand[] {
+  return BAND_ORDER.map((bandId) => ({
+    id: bandId,
+    label: BAND_META[bandId].label,
+    sublabel: BAND_META[bandId].sublabel,
+    components: CATALOG[bandId].map((c) => ({ ...c, state: "active" as ComponentState })),
+  }));
 }
 
-/** Seed a component's default state from resources.json capability lists.
- *  Sources default to `active` (they're always part of the story). */
-function defaultState(
-  bandId: BandId,
-  componentId: string,
-  capabilities: BuildInputs["capabilities"],
-): ComponentState {
-  if (bandId === "sources") return "active";
-  if (!capabilities) {
-    // No resources.json yet → show the canonical core, hide the long tail so
-    // a brand-new project still reads as a clean platform rather than a wall.
-    return CORE_DEFAULT.has(componentId) ? "active" : "hidden";
-  }
-  if (capabilities.buildable.includes(componentId)) return "active";
-  if (capabilities.talking_track.includes(componentId)) return "mentioned";
-  return "hidden";
+/** Split `"id@handle"` → `{ id, handle }`. */
+function splitHandle(ref: string): { id: string; handle?: string } {
+  const at = ref.indexOf("@");
+  return at === -1 ? { id: ref } : { id: ref.slice(0, at), handle: ref.slice(at + 1) };
 }
 
-/** Components shown by default before any resources.json exists. */
-const CORE_DEFAULT = new Set<string>([
-  "databricks-apps",
-  "aibi-dashboards",
-  "genie",
-  "governance-block",
-  "sdp",
-  "lakeflow-connect",
-]);
+/** Parse the flat ArchitectureFile into the internal PlatformSchema the canvas
+ *  consumes. `bands` = the full catalog (for lookup/color); `layout.nodes` =
+ *  exactly the placed nodes from the file; `layout.edges` = the file edges. */
+export function parseArchitecture(content: string): PlatformSchema {
+  const file = parseArchitectureFile(content);
+  const nodes: Record<string, NodePosition> = {};
 
-export function buildSchema({ override, capabilities }: BuildInputs): PlatformSchema {
-  const overrideBands = new Map<BandId, BandOverride>();
-  override?.bands?.forEach((b) => overrideBands.set(b.id, b));
+  for (const n of file?.nodes ?? []) {
+    if (!n?.id || !n.type) continue;
+    const [x, y] = Array.isArray(n.at) ? n.at : [0, 0];
+    const st = n.style ?? {};
+    const pos: NodePosition = {
+      x: x ?? 0,
+      y: y ?? 0,
+      ...(n.rot !== undefined ? { rot: n.rot } : {}),
+      ...(n.size ? { w: n.size[0], h: n.size[1] } : {}),
+      ...(n.scale !== undefined ? { scale: n.scale } : {}),
+      ...(n.z !== undefined ? { z: n.z } : {}),
+      ...(n.group !== undefined ? { groupId: n.group } : {}),
+      ...(n.label !== undefined ? { label: n.label } : {}),
+      ...(n.icon !== undefined ? { icon: n.icon } : {}),
+      ...(st.opacity !== undefined ? { opacity: st.opacity } : {}),
+      ...(st.fill !== undefined ? { fillColor: st.fill } : {}),
+      ...(st.font !== undefined ? { fontColor: st.font } : {}),
+      ...(st.border !== undefined ? { borderWidth: st.border } : {}),
+      ...(st.borderStyle !== undefined ? { borderStyle: st.borderStyle } : {}),
+      ...(st.borderColor !== undefined ? { borderColor: st.borderColor } : {}),
+      ...(st.radius !== undefined ? { borderRadius: st.radius } : {}),
+      ...(st.shadow !== undefined ? { shadow: st.shadow } : {}),
+    };
 
-  const bands: PlatformBand[] = BAND_ORDER.map((bandId) => {
-    const meta = BAND_META[bandId];
-    const ob = overrideBands.get(bandId);
-
-    // Patches keyed by component id (applies to catalog + added components).
-    const patches = new Map<string, ComponentOverride>();
-    ob?.set?.forEach((p) => patches.set(p.id, p));
-
-    // Start from the catalog, then merge demo-added components (sources) by id.
-    // An `add` whose id already exists in the catalog OVERRIDES it (rather than
-    // creating a duplicate node) — e.g. the example demo re-declares the
-    // catalog's src-shopify with its own logo/desc/ingest.
-    const base: CatalogComponent[] = [...CATALOG[bandId]];
-    const baseIndex = new Map(base.map((c, i) => [c.id, i]));
-    for (const a of ob?.add ?? []) {
-      const merged: CatalogComponent = {
-        id: a.id,
-        label: a.label ?? a.id,
-        icon: a.icon ?? ("inputData" as DatabricksIconName),
-        desc: a.desc ?? "",
-        capability: a.capability,
-        ingest: a.ingest,
-        kind: a.kind,
-        sublabel: a.sublabel,
-        badge: a.badge,
+    if (ANNOTATION_TYPES.has(n.type as AnnotationVariant)) {
+      // Free-form annotation node (box/text/logo/image).
+      pos.annotation = {
+        variant: n.type as AnnotationVariant,
+        ...(n.text !== undefined ? { text: n.text } : {}),
+        ...(n.fontSize !== undefined ? { fontSize: n.fontSize } : {}),
+        ...(n.bold !== undefined ? { bold: n.bold } : {}),
+        ...(n.border !== undefined ? { border: n.border } : {}),
+        ...(n.vAlign !== undefined ? { vAlign: n.vAlign } : {}),
+        ...(n.hAlign !== undefined ? { hAlign: n.hAlign } : {}),
+        ...(n.icon !== undefined ? { icon: n.icon } : {}),
+        ...(n.src !== undefined ? { src: n.src } : {}),
       };
-      const existing = baseIndex.get(a.id);
-      if (existing !== undefined) base[existing] = merged;
-      else { baseIndex.set(a.id, base.length); base.push(merged); }
+    } else if (n.type === "source") {
+      // A data source: carry its logo key + icon + (optional) ingest so
+      // flow-mapping renders it via the canvas-added-source path.
+      const key = (n.icon ?? "").replace(/^file:.*\//, "").replace(/^file:/, "").toLowerCase() || baseId(n.id).replace(/^src-/, "");
+      pos.source = { key, icon: (n.icon ?? "inputData") as IconKey, ...(n.ingest ? { ingest: n.ingest } : {}) };
+      if (n.label !== undefined) pos.label = n.label;
     }
+    // else: a catalog component. flow-mapping resolves it by baseId(node id), so
+    // the node id MUST baseId-resolve to `type`. The file id usually IS the type
+    // (or `type#2` for a duplicate); fall back to `type` if it doesn't resolve.
+    let nodeId = n.id;
+    if (!ANNOTATION_TYPES.has(n.type as AnnotationVariant) && n.type !== "source" && baseId(n.id) !== n.type) {
+      nodeId = n.type;
+    }
+    nodes[nodeId] = pos;
+  }
 
-    const components: PlatformComponent[] = base.map((c) => {
-      const patch = patches.get(c.id);
-      return {
-        id: c.id,
-        label: patch?.label ?? c.label,
-        icon: patch?.icon ?? c.icon,
-        desc: patch?.desc ?? c.desc,
-        capability: patch?.capability ?? c.capability,
-        ingest: patch?.ingest ?? c.ingest,
-        kind: patch?.kind ?? c.kind,
-        sublabel: patch?.sublabel ?? c.sublabel,
-        badge: patch?.badge ?? c.badge,
-        state: patch?.state ?? defaultState(bandId, c.id, capabilities),
-      };
-    });
-
-    return { id: bandId, label: meta.label, sublabel: meta.sublabel, components };
+  const edges: PlatformEdge[] = (file?.edges ?? []).map((e, i) => {
+    const s = splitHandle(e.from);
+    const t = splitHandle(e.to);
+    return {
+      id: e.id ?? `e-${s.id}-${t.id}-${i}`,
+      source: s.id,
+      target: t.id,
+      ...(s.handle ? { sourceHandle: s.handle } : {}),
+      ...(t.handle ? { targetHandle: t.handle } : {}),
+      animated: !!e.flow,
+      ...(e.dashed ? { dashed: true } : {}),
+      ...(e.shape ? { shape: e.shape } : {}),
+      ...(e.flowStyle ? { flowStyle: e.flowStyle } : {}),
+      ...(e.arrow && e.arrow !== "auto" ? { arrow: e.arrow } : {}),
+      ...(typeof e.centerX === "number" ? { centerX: e.centerX } : {}),
+      ...(e.label ? { label: e.label } : {}),
+    };
   });
 
-  const layout = buildLayout(bands, override?.layout);
-
   return {
-    name: override?.name ?? "Solution architecture",
-    story: override?.story,
-    enableTrademarkLogos: override?.enableTrademarkLogos ?? false,
-    bands,
-    layout,
+    name: file?.name ?? "Solution architecture",
+    story: file?.story,
+    enableTrademarkLogos: file?.options?.trademarkLogos ?? false,
+    bands: catalogSchemaBands(),
+    layout: { nodes, edges, hidden: [] },
   };
 }
 
@@ -513,34 +568,8 @@ export function catalogBands(): { id: BandId; label: string; sublabel?: string; 
 }
 
 // =============================================================================
-// Layout — auto-place nodes by band (L→R), seed flow edges, merge saved layout
+// Node id helper
 // =============================================================================
-
-/** Canvas geometry for the auto-layout seed. */
-export const CANVAS = {
-  colGap: 300,     // x spacing between band columns
-  rowGap: 96,      // y spacing between stacked nodes in a column
-  colX: {          // x of each flow column
-    sources: 0,
-    "agentic-data": 300,
-    "agentic-work": 600,
-    "agentic-apps": 900,
-  } as Record<string, number>,
-  governanceY: 560, // y of the governance row (foundation, spans the bottom)
-  topY: 40,
-};
-
-/** Compute the default position for a component, by band + index in column. */
-function autoPos(bandId: BandId, index: number, id?: string): NodePosition {
-  if (bandId === FOUNDATION_BAND) {
-    // The wide governance composite centers under the flow columns; any other
-    // (individual) governance tiles fall back to the old left-anchored row.
-    if (id === "governance-block") return { x: 450, y: CANVAS.governanceY };
-    return { x: CANVAS.colX.sources + index * CANVAS.colGap, y: CANVAS.governanceY };
-  }
-  const x = CANVAS.colX[bandId] ?? 0;
-  return { x, y: CANVAS.topY + index * CANVAS.rowGap };
-}
 
 /** A canvas node id is `<componentId>` or, for an extra placement of the same
  *  component, `<componentId>#2`, `#3`, … `baseId` recovers the catalog
@@ -550,191 +579,125 @@ export function baseId(nodeId: string): string {
   return h === -1 ? nodeId : nodeId.slice(0, h);
 }
 
-/** Build the full layout: start from auto-positions + auto flow edges, then
- *  overlay anything the saved layout (architecture.md) pinned. */
-export function buildLayout(
-  bands: PlatformBand[],
-  saved?: Partial<PlatformLayout>,
-): PlatformLayout {
-  const savedNodes = saved?.nodes ?? {};
-  const hidden = new Set(saved?.hidden ?? []);
-
-  const nodes: Record<string, NodePosition> = {};
-  bands.forEach((band) => {
-    const visible = band.components.filter(
-      (c) => c.state !== "hidden" && !hidden.has(c.id),
-    );
-    visible.forEach((c, i) => {
-      nodes[c.id] = savedNodes[c.id] ?? autoPos(band.id, i, c.id);
-    });
-  });
-
-  // Carry over EXTRA placements (instance ids like `genie#2`) — duplicates the
-  // user dropped that have no schema component of their own. Their base must be
-  // a real, visible component; pin them at their saved position (or near base).
-  for (const [nid, pos] of Object.entries(savedNodes)) {
-    if (nid in nodes || nid.indexOf("#") === -1) continue;
-    if (nodes[baseId(nid)]) nodes[nid] = pos;
-  }
-
-  // Carry over free-form ANNOTATION nodes (ids start with "anno-"). They have
-  // no catalog component — their full props live in pos.annotation.
-  for (const [nid, pos] of Object.entries(savedNodes)) {
-    if (nid in nodes) continue;
-    if (nid.startsWith("anno-") && pos.annotation) nodes[nid] = pos;
-  }
-
-  // Carry over canvas-added SOURCE nodes (from "+ more data sources"). Not in
-  // the catalog — their label/icon/ingest live in pos.source.
-  for (const [nid, pos] of Object.entries(savedNodes)) {
-    if (nid in nodes) continue;
-    if (pos.source) nodes[nid] = pos;
-  }
-
-  // Edges: saved if present, else auto-seed the real demo flow.
-  const edges: PlatformEdge[] = saved?.edges?.length ? saved.edges : seedEdges(bands, hidden);
-
-  return { nodes, edges, hidden: [...hidden] };
-}
-
-/** Auto-seed a sensible flow the user then reshapes:
- *   every source → its ingest target (Lakeflow Connect, or SDP directly for
- *   `zerobus`/`direct`) → SDP → first Agentic Work → first Agentic Apps.
- *  Connects ALL sources, not just the first. */
-function seedEdges(bands: PlatformBand[], hidden: Set<string>): PlatformEdge[] {
-  const edges: PlatformEdge[] = [];
-  const seen = new Set<string>();
-  const push = (source: string, target: string, targetHandle?: string, sourceHandle?: string, flowStyle?: PlatformEdge["flowStyle"]) => {
-    const id = `e-${source}-${target}`;
-    if (seen.has(id)) return;
-    seen.add(id);
-    edges.push({ id, source, target, animated: true, ...(targetHandle ? { targetHandle } : {}), ...(sourceHandle ? { sourceHandle } : {}), ...(flowStyle && flowStyle !== "dot" ? { flowStyle } : {}) });
-  };
-
-  const band = (id: BandId) => bands.find((b) => b.id === id);
-  const visible = (b?: PlatformBand) =>
-    (b?.components ?? []).filter((c) => c.state !== "hidden" && !hidden.has(c.id));
-  const firstId = (id: BandId) => visible(band(id))[0]?.id;
-
-  const has = (id: string) =>
-    bands.some((b) => b.components.some((c) => c.id === id && c.state !== "hidden" && !hidden.has(c.id)));
-
-  // Prefer the composite Lakeflow block (it has named input ports per ingest
-  // path); fall back to the separate lakeflow-connect / sdp components.
-  const block = has("lakeflow-block") ? "lakeflow-block" : undefined;
-  const sdp = has("sdp") ? "sdp" : undefined;
-  const lfc = has("lakeflow-connect") ? "lakeflow-connect" : undefined;
-  const dataFirst = firstId("agentic-data");
-
-  // Each source → the right INPUT PORT of the Lakeflow block by its ingest path:
-  //   lakeflow-connect → in-lakeflow-connect, zerobus → in-zerobus, direct → in-direct.
-  for (const src of visible(band("sources"))) {
-    const path = src.ingest ?? "lakeflow-connect";
-    // Flow style by ingest: realtime/streaming (zerobus) → particles; direct
-    // file landing → documents; managed connectors → plain dot.
-    const flow: PlatformEdge["flowStyle"] = path === "zerobus" ? "particles" : path === "direct" ? "docs" : "dot";
-    if (block) {
-      push(src.id, block, `in-${path}`, undefined, flow);
-    } else if (path === "lakeflow-connect" && lfc) {
-      push(src.id, lfc);
-    } else if (sdp) {
-      push(src.id, sdp);
-    } else if (dataFirst) {
-      push(src.id, dataFirst);
-    }
-  }
-  if (lfc && sdp) push(lfc, sdp); // legacy path when no composite block
-
-  // Data exit → Agentic Work → Agentic Apps. The block emits from its right
-  // output handle ("r").
-  const workFirst = firstId("agentic-work");
-  const appsFirst = firstId("agentic-apps");
-  const dataExit = block ?? sdp ?? dataFirst;
-  if (dataExit && workFirst) push(dataExit, workFirst, undefined, block ? "r" : undefined);
-  if (workFirst && appsFirst) push(workFirst, appsFirst);
-
-  return edges;
-}
-
 // =============================================================================
-// Serialize — write the editor's layout back into an ArchitectureOverride
+// Parse — pull the flat ArchitectureFile JSON out of architecture.md
 // =============================================================================
 
-/** Reconstruct a COMPLETE override from the resolved schema. Emits every
- *  band with its components as `set` entries (label/icon/desc/state/…), and any
- *  component the catalog doesn't define (the demo's sources) as `add`. This is
- *  the bulletproof part: the canvas always writes the full semantic content
- *  rebuilt from the live schema, so a save can NEVER strip bands/descriptions
- *  — even if the file it loaded from was a partial/corrupt override. */
-function schemaToOverride(schema: PlatformSchema, placed: Set<string>): ArchitectureOverride {
-  const bands: BandOverride[] = schema.bands.map((band) => {
-    const catalogIds = new Set(CATALOG[band.id].map((c) => c.id));
-    const add: ComponentOverride[] = [];
-    const set: ComponentOverride[] = [];
-    for (const c of band.components) {
-      // The CANVAS is the source of truth for visibility: a component placed
-      // on it is active; one that isn't is hidden. This keeps state in sync
-      // with the layout — fixes a library-added (default-hidden) component
-      // vanishing on reload because its computed state stayed "hidden".
-      const state: ComponentState = placed.has(c.id)
-        ? c.state === "mentioned" ? "mentioned" : "active"
-        : "hidden";
-      const entry: ComponentOverride = {
-        id: c.id,
-        label: c.label,
-        icon: c.icon,
-        desc: c.desc,
-        state,
-        ...(c.sublabel ? { sublabel: c.sublabel } : {}),
-        ...(c.badge ? { badge: c.badge } : {}),
-        ...(c.capability ? { capability: c.capability } : {}),
-        ...(c.ingest ? { ingest: c.ingest } : {}),
-        ...(c.kind ? { kind: c.kind } : {}),
-      };
-      if (catalogIds.has(c.id)) set.push(entry);
-      else add.push(entry);
-    }
-    return { id: band.id, ...(add.length ? { add } : {}), ...(set.length ? { set } : {}) };
-  });
-  return {
-    name: schema.name,
-    story: schema.story,
-    ...(schema.enableTrademarkLogos ? { enableTrademarkLogos: true } : {}),
-    bands,
-  };
-}
-
-/** Build the JSON string to persist as architecture.md: the full semantic
- *  override rebuilt from the live schema + the edited canvas layout. The
- *  layout's node keys are the placed (visible) components. */
-export function serializeArchitecture(
-  schema: PlatformSchema,
-  layout: PlatformLayout,
-): string {
-  // Visibility is keyed by catalog (base) id — duplicates (`genie#2`) collapse
-  // to their base so the component stays "active". The layout keeps the
-  // instance ids verbatim so each duplicate keeps its own position/edges.
-  const placed = new Set(Object.keys(layout.nodes).map(baseId));
-  const out: ArchitectureOverride = { ...schemaToOverride(schema, placed), layout };
-  return "```json\n" + JSON.stringify(out, null, 2) + "\n```\n";
-}
-
-// =============================================================================
-// Parsing — pull the override JSON out of architecture.md
-// =============================================================================
-
-/** Extract the JSON override from architecture.md (fenced ```json block or a
+/** Extract the flat file JSON from architecture.md (fenced ```json block or a
  *  bare top-level object). Returns null if absent/unparseable — the caller
- *  then renders the catalog defaults, which is the correct fallback. */
-export function parseOverride(content: string): ArchitectureOverride | null {
+ *  then renders an empty canvas. (`parseArchitecture` wraps this into a
+ *  PlatformSchema.) */
+export function parseArchitectureFile(content: string): ArchitectureFile | null {
   try {
     const block = content.match(/```(?:json)?\s*\n([\s\S]*?)\n```/);
     const raw = block ? block[1].trim() : content.trim();
     if (!raw.startsWith("{")) return null;
-    return JSON.parse(raw) as ArchitectureOverride;
+    return JSON.parse(raw) as ArchitectureFile;
   } catch {
     return null;
   }
+}
+
+// =============================================================================
+// Serialize — write the editor's live layout back into the flat file format
+// =============================================================================
+
+/** Map a NodePosition's optional visual overrides into the flat `style` object
+ *  (only the keys that are actually set). */
+function styleOf(pos: NodePosition): FileNode["style"] | undefined {
+  const s: NonNullable<FileNode["style"]> = {};
+  if (pos.borderWidth !== undefined) s.border = pos.borderWidth;
+  if (pos.borderStyle !== undefined) s.borderStyle = pos.borderStyle;
+  if (pos.borderColor !== undefined) s.borderColor = pos.borderColor;
+  if (pos.borderRadius !== undefined) s.radius = pos.borderRadius;
+  if (pos.shadow !== undefined) s.shadow = pos.shadow;
+  if (pos.fillColor !== undefined) s.fill = pos.fillColor;
+  if (pos.fontColor !== undefined) s.font = pos.fontColor;
+  if (pos.opacity !== undefined) s.opacity = pos.opacity;
+  return Object.keys(s).length ? s : undefined;
+}
+
+/** Build the architecture.md string from the live layout. Walks layout.nodes
+ *  (the source of truth for what's placed) → flat `nodes`, and layout.edges →
+ *  compact `from`/`to@handle` edges. Only emits overrides that differ from the
+ *  catalog default. The `schema` carries name/story/trademark + the catalog. */
+export function serializeArchitecture(
+  schema: PlatformSchema,
+  layout: PlatformLayout,
+): string {
+  const nodes: FileNode[] = [];
+  for (const [id, pos] of Object.entries(layout.nodes)) {
+    const at: [number, number] = [Math.round(pos.x), Math.round(pos.y)];
+    const common: Partial<FileNode> = {
+      ...(pos.w !== undefined && pos.h !== undefined ? { size: [pos.w, pos.h] as [number, number] } : {}),
+      ...(pos.rot ? { rot: pos.rot } : {}),
+      ...(pos.scale !== undefined && pos.scale !== 1 ? { scale: pos.scale } : {}),
+      ...(pos.z ? { z: pos.z } : {}),
+      ...(pos.groupId ? { group: pos.groupId } : {}),
+    };
+    const style = styleOf(pos);
+
+    if (pos.annotation) {
+      const a = pos.annotation;
+      nodes.push({
+        id, type: a.variant, at, ...common,
+        ...(a.text !== undefined ? { text: a.text } : {}),
+        ...(a.fontSize !== undefined ? { fontSize: a.fontSize } : {}),
+        ...(a.bold !== undefined ? { bold: a.bold } : {}),
+        ...(a.border !== undefined ? { border: a.border } : {}),
+        ...(a.vAlign !== undefined ? { vAlign: a.vAlign } : {}),
+        ...(a.hAlign !== undefined ? { hAlign: a.hAlign } : {}),
+        ...(a.icon !== undefined ? { icon: a.icon } : {}),
+        ...(a.src !== undefined ? { src: a.src } : {}),
+        ...(style ? { style } : {}),
+      });
+      continue;
+    }
+    if (pos.source) {
+      nodes.push({
+        id, type: "source", at, ...common,
+        ...(pos.label !== undefined ? { label: pos.label } : {}),
+        icon: (pos.icon ?? pos.source.icon) as IconKey,
+        ...(pos.source.ingest ? { ingest: pos.source.ingest } : {}),
+        ...(style ? { style } : {}),
+      });
+      continue;
+    }
+    // Catalog component: type = its base id. Emit label/desc/icon only when
+    // they differ from the catalog default.
+    const type = baseId(id);
+    const def = CATALOG_BY_ID.get(type)?.c;
+    nodes.push({
+      id, type, at, ...common,
+      ...(pos.label !== undefined && pos.label !== def?.label ? { label: pos.label } : {}),
+      ...(pos.icon !== undefined && pos.icon !== def?.icon ? { icon: pos.icon } : {}),
+      ...(style ? { style } : {}),
+    });
+  }
+
+  const edges: FileEdge[] = layout.edges.map((e) => {
+    const from = e.sourceHandle ? `${e.source}@${e.sourceHandle}` : e.source;
+    const to = e.targetHandle ? `${e.target}@${e.targetHandle}` : e.target;
+    return {
+      id: e.id, from, to,
+      ...(e.animated ? { flow: true } : {}),
+      ...(e.arrow && e.arrow !== "auto" ? { arrow: e.arrow } : {}),
+      ...(e.dashed ? { dashed: true } : {}),
+      ...(e.shape && e.shape !== "smooth" ? { shape: e.shape } : {}),
+      ...(e.flowStyle ? { flowStyle: e.flowStyle } : {}),
+      ...(typeof e.centerX === "number" ? { centerX: e.centerX } : {}),
+      ...(e.label ? { label: e.label } : {}),
+    };
+  });
+
+  const out: ArchitectureFile = {
+    name: schema.name,
+    ...(schema.story ? { story: schema.story } : {}),
+    ...(schema.enableTrademarkLogos ? { options: { trademarkLogos: true } } : {}),
+    nodes,
+    edges,
+  };
+  return "```json\n" + JSON.stringify(out, null, 2) + "\n```\n";
 }
 
 // =============================================================================

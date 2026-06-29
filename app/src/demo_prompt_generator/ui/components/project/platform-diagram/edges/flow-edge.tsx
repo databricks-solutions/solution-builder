@@ -27,7 +27,7 @@ import { PORT_FRAC, portAnchor } from "../composite-lakeflow";
 import { EdgeFlow } from "./edge-flow";
 
 const FlowEdge = memo(function FlowEdge(props: EdgeProps) {
-  const { id, source, target, sourceHandleId, targetHandleId, markerEnd, style, data, selected, label } = props;
+  const { id, source, target, sourceHandleId, targetHandleId, style, data, selected, label } = props;
   const sNode = useInternalNode(source);
   const tNode = useInternalNode(target);
   const ops = useContext(EdgeOpsContext);
@@ -309,7 +309,36 @@ const FlowEdge = memo(function FlowEdge(props: EdgeProps) {
   const autoStyle: FlowStyle =
     srcIngest === "zerobus" ? "particles" : srcIngest === "direct" ? "docs" : "dot";
   const flowStyle = d?.flowStyle ?? autoStyle;
-  const flowing = d?.animated && !drag && centerDrag === null;
+  // Arrowheads. "auto" (the default / empty) → a static arrow for RELATIONSHIP
+  // edges: any edge touching the user persona or Genie One. Explicit
+  // none/end/start/both override. The auto DIRECTION is meaningful and ignores
+  // which end is source/target:
+  //   • user      → the arrow points INTO Genie One   (the user enters there).
+  //   • Genie One → the arrow points AWAY from Genie One, to the resource
+  //                 (dashboard / Genie Room / app).
+  // We pick "end" (arrow at target) vs "start" (arrow at source) accordingly.
+  const isGenieOne = (nid: string) => nid.replace(/#\d+$/, "") === "genie-one";
+  const isUser = (node: typeof sNode) => {
+    const icon = (node?.data as { annotation?: { icon?: string } } | undefined)?.annotation?.icon;
+    return typeof icon === "string" && icon.includes("persona/user");
+  };
+  const srcUser = isUser(sNode), tgtUser = isUser(tNode);
+  const srcGO = isGenieOne(source), tgtGO = isGenieOne(target);
+  const arrowSetting = (d?.arrow ?? "auto") as "auto" | "none" | "end" | "start" | "both";
+  let arrow: "none" | "end" | "start" | "both";
+  if (arrowSetting !== "auto") {
+    arrow = arrowSetting;
+  } else if (srcUser || tgtUser) {
+    // arrow points at Genie One (the non-user end)
+    arrow = srcUser ? "end" : "start";
+  } else if (srcGO || tgtGO) {
+    // arrow points away from Genie One, toward the resource
+    arrow = srcGO ? "end" : "start";
+  } else {
+    arrow = "none";
+  }
+  const isArrow = arrow !== "none";
+  const flowing = d?.animated && !isArrow && !drag && centerDrag === null;
   // Below ~35% zoom the per-particle glyphs are sub-pixel; skip the (expensive)
   // animation entirely and let the base line carry the edge. Primitive return →
   // no comparator, re-renders only when crossing the threshold.
@@ -330,11 +359,26 @@ const FlowEdge = memo(function FlowEdge(props: EdgeProps) {
       : flowStyle === "docs"
         ? { ...style, stroke: "var(--muted-foreground)", strokeWidth: 1, opacity: 0.3 }
         : { ...style, stroke: "var(--muted-foreground)", opacity: 0.55 };
-  const showArrow = !beamish;
+  // Static arrowheads come from the resolved `arrow` (end/start/both). We define
+  // the marker INLINE in this edge's own SVG output (unique id per edge) so it's
+  // always in the same SVG document as the path — a shared <defs> in a sibling
+  // SVG isn't reliably resolvable by ReactFlow's edge paths.
+  const arrowEnd = arrow === "end" || arrow === "both";
+  const arrowStart = arrow === "start" || arrow === "both";
+  const mid = `arrowhead-${id}`;
+  const markerEndUrl = arrowEnd ? `url(#${mid})` : undefined;
+  const markerStartUrl = arrowStart ? `url(#${mid})` : undefined;
 
   return (
     <>
-      <BaseEdge path={path} markerEnd={showArrow ? markerEnd : undefined} style={baseStyle} interactionWidth={24} />
+      {isArrow && (
+        <defs>
+          <marker id={mid} viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="var(--muted-foreground)" opacity="0.7" />
+          </marker>
+        </defs>
+      )}
+      <BaseEdge path={path} markerEnd={markerEndUrl} markerStart={markerStartUrl} style={baseStyle} interactionWidth={24} />
       {/* Key by edge id (NOT path): a drag/resize changes `path`, but keying by
           it would unmount + remount the whole SMIL subtree every frame. Keyed
           by id, the animated elements stay mounted and just re-read the updated

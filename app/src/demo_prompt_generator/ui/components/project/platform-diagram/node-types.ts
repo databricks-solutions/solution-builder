@@ -8,9 +8,10 @@ import { GenieCodeBlock } from "./composite-genie-code";
 import { GovernanceBlock } from "./composite-governance";
 import { LakeflowGenieBlock } from "./composite-lakeflow-genie";
 import { AgentBricksBlock } from "./composite-agent-bricks";
+import { DbPlatformBlock } from "./composite-db-platform";
 import { AnnotationNode } from "./annotations";
 import { FlowEdge } from "./edges/flow-edge";
 
-export const nodeTypes = { component: ComponentNode, composite: LakeflowBlock, genieCode: GenieCodeBlock, governance: GovernanceBlock, lakeflowGenie: LakeflowGenieBlock, agentBricks: AgentBricksBlock, annotation: AnnotationNode };
+export const nodeTypes = { component: ComponentNode, composite: LakeflowBlock, genieCode: GenieCodeBlock, governance: GovernanceBlock, lakeflowGenie: LakeflowGenieBlock, agentBricks: AgentBricksBlock, dbPlatform: DbPlatformBlock, annotation: AnnotationNode };
 
 export const edgeTypes = { flow: FlowEdge };

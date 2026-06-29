@@ -25,8 +25,7 @@ import { memo, useMemo, useState, useEffect, useRef, useCallback } from "react";
 import { ReactFlowProvider } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import {
-  buildSchema,
-  parseOverride,
+  parseArchitecture,
   resolveDeepLink,
   serializeArchitecture,
   type PlatformSchema,
@@ -48,11 +47,12 @@ interface PlatformDiagramProps {
 
 type SaveStatus = "idle" | "saving" | "saved" | "error";
 
-function PlatformDiagram({ content, capabilities, deployedResources, projectId }: PlatformDiagramProps) {
-  const override = useMemo(() => (content ? parseOverride(content) : null), [content]);
+function PlatformDiagram({ content, deployedResources, projectId }: PlatformDiagramProps) {
+  // Parse the flat architecture.md into the internal schema. The file is the
+  // sole source of truth for what's shown (no capability-state seeding).
   const built = useMemo(
-    () => buildSchema({ override, capabilities }),
-    [override, capabilities],
+    () => parseArchitecture(content ?? ""),
+    [content],
   );
   // Trademark-logo opt-in is editable on the canvas; keep it as local state
   // seeded from the file, and fold it back onto the schema so both render and

@@ -76,7 +76,7 @@ export function schemaToFlow(
       const component: PlatformComponent = {
         id, label: pos.label ?? logoLabel(pos.source.key), icon: pos.icon ?? pos.source.icon,
         desc: "", state: "active",
-        ingest: (meta.ingest as PlatformComponent["ingest"]) ?? "lakeflow-connect",
+        ingest: pos.source.ingest ?? (meta.ingest as PlatformComponent["ingest"]) ?? "lakeflow-connect",
       };
       const fp = nodeFootprint(component, pos);
       nodes.push({
@@ -175,7 +175,7 @@ export function flowToEdge(e: PlatformEdge): Edge {
     sourceHandle: e.sourceHandle ?? "r",
     targetHandle: e.targetHandle ?? "l",
     type: "flow",
-    data: { animated: e.animated ?? false, dashed: e.dashed ?? false, shape: e.shape ?? "smooth", flowStyle: e.flowStyle, centerX: e.centerX },
+    data: { animated: e.animated ?? false, dashed: e.dashed ?? false, shape: e.shape ?? "smooth", flowStyle: e.flowStyle, arrow: e.arrow ?? "auto", centerX: e.centerX },
     label: e.label,
     // FlowEdge derives the visible stroke + arrow from the (possibly
     // auto-resolved) flowStyle; this is just the base.
@@ -247,6 +247,7 @@ export function flowToLayout(nds: Node[], eds: Edge[], schema: PlatformSchema): 
       dashed: ed?.dashed ?? false,
       shape: ed?.shape ?? "smooth",
       ...(ed?.flowStyle ? { flowStyle: ed.flowStyle } : {}),
+      ...(ed?.arrow && ed.arrow !== "auto" ? { arrow: ed.arrow } : {}),
       ...(typeof ed?.centerX === "number" ? { centerX: ed.centerX } : {}),
       label: typeof e.label === "string" ? e.label : undefined,
     };

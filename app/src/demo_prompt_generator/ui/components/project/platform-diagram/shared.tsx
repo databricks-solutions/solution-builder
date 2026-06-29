@@ -71,6 +71,11 @@ export interface EdgeData {
   dashed?: boolean;
   shape?: "smooth" | "straight" | "step";
   flowStyle?: FlowStyle;
+  /** Static arrowheads on the line. Undefined/"auto" → auto-decide: an arrow
+   *  for relationship edges (touching the user persona or Genie One), else a
+   *  normal flow line. "none" forces no arrow; "end"/"start"/"both" force one.
+   *  An arrow edge is a static relationship line (no data-flow animation). */
+  arrow?: "auto" | "none" | "end" | "start" | "both";
   /** Manual X of the vertical elbow segment (px, flow coords); undefined → auto. */
   centerX?: number;
 }
@@ -157,6 +162,7 @@ export function nodeTypeFor(c: PlatformComponent): string {
   if (c.kind === "governance") return "governance";
   if (c.kind === "lakeflow-genie") return "lakeflowGenie";
   if (c.kind === "agent-bricks") return "agentBricks";
+  if (c.kind === "db-platform") return "dbPlatform";
   return "component";
 }
 
@@ -169,6 +175,7 @@ export function baseSize(c: PlatformComponent): { w: number; h: number } {
   if (c.kind === "agent-bricks") return { w: 230, h: 170 }; // logo header + supervisor tree + task-type chips
   if (c.kind === "genie-code") return { w: 360, h: 112 }; // wide "built with Genie Code" strip
   if (c.kind === "governance") return { w: 580, h: 108 }; // wide horizontal governance bar
+  if (c.kind === "db-platform") return { w: 380, h: 60 }; // Databricks wordmark + "The Data Intelligence Platform" banner
   if (c.id === "sdp") return { w: 230, h: 112 };
   // A sub-line + (optional) badge needs a slightly wider, taller tile.
   if (c.sublabel) return { w: 230, h: 70 };

@@ -4,6 +4,8 @@
 
   "user": { "trademark": false, "oss": true, "source": false, "label": "User", "aliases": ["persona", "avatar", "people", "person", "customer", "human", "profile", "actor"] },
 
+  "custom-source": { "trademark": false, "oss": true, "source": true, "label": "Custom datasource", "aliases": ["custom", "generic", "any", "other", "shapes"] },
+
   "apache-airflow": { "oss": true, "trademark": false, "source": true },
   "apache-couchdb": { "oss": true, "trademark": false, "source": true },
   "apache-flink": { "oss": true, "trademark": false, "source": true },
@@ -45,6 +47,7 @@
   "brevo": { "trademark": true, "source": true },
   "confluence": { "trademark": true, "source": true },
   "databricks": { "trademark": false, "oss": false, "source": true },
+  "databricks-wordmark": { "trademark": false, "oss": false, "source": false, "label": "Databricks" },
   "dropbox": { "trademark": true, "source": true },
   "github": { "trademark": true, "source": true },
   "glean": { "trademark": true, "source": true },

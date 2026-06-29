@@ -284,7 +284,7 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasP
   // label / centerX / remove). Declared here — before edgeOps — so setEdgeCenterX
   // exists in time for the EdgeOps context (no more setEdgeCenterXRef).
   const {
-    toggleEdgeFlow, toggleEdgeDashed, setEdgeShape, setEdgeFlowStyle,
+    toggleEdgeFlow, toggleEdgeDashed, setEdgeShape, setEdgeFlowStyle, setEdgeArrow,
     setEdgeLabel, setEdgeCenterX, removeEdge, retargetEdge,
   } = useEdgeMutations({ setEdges, scheduleSave, nodesRef });
 
@@ -834,6 +834,16 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasP
     setMenu({ kind: "edge", id: edge.id, x: e.clientX, y: e.clientY });
   }, []);
 
+  // Clicking a line opens its DOCKED edit panel (in edit mode). Clear any node
+  // selection first so the edge panel (which shows only when no node is
+  // selected) takes the docked slot.
+  const onEdgeClick = useCallback((e: React.MouseEvent, edge: Edge) => {
+    if (!editMode) return;
+    e.stopPropagation();
+    clearSelectionRef.current();
+    setMenu({ kind: "edge", id: edge.id, x: e.clientX, y: e.clientY });
+  }, [editMode]);
+
   // Prefer the LIVE node's own component data (it carries the correct
   // label/desc — including for freshly-added nodes resolved from the raw
   // catalog) over a re-lookup by base id, which would miss per-instance copy.
@@ -894,6 +904,10 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasP
   const clearSelection = useCallback(() => {
     setNodes((nds) => nds.some((n) => n.selected) ? nds.map((n) => (n.selected ? { ...n, selected: false } : n)) : nds);
   }, [setNodes]);
+  // Ref so the earlier-defined onEdgeClick can clear node selection without a
+  // use-before-define dependency.
+  const clearSelectionRef = useRef(clearSelection);
+  clearSelectionRef.current = clearSelection;
   // Arrow-key nudge. `snap` true (plain arrow) → step a full grid cell and snap
   // the new position to the 16px grid (the magnet); `snap` false (Shift+arrow) →
   // an exact 1px move for fine positioning. Direct position write either way.
@@ -1061,6 +1075,7 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasP
           onConnect={onConnect}
           onPaneClick={() => { setSelectedId(null); setMenu(null); }}
           onEdgeContextMenu={onEdgeContextMenu}
+          onEdgeClick={onEdgeClick}
           // Clicking a grouped node selects the whole group → they drag together.
           // A SHIFT click (multi-select add/remove) must NOT group-select, so the
           // user can shift-add/remove individual members; only a plain click does.
@@ -1110,21 +1125,6 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasP
           <Controls className="!bg-background !border-border !shadow-sm [&>button]:!bg-background [&>button]:!border-border [&>button]:!text-foreground" showInteractive={false} />
         </ReactFlow>
 
-        {/* Floating context menu — EDGES ONLY now (nodes use the docked panel). */}
-        {menu && menu.kind === "edge" && editMode && (
-          <ContextMenu
-            menu={menu}
-            edge={menuEdge}
-            onClose={() => setMenu(null)}
-            onToggleFlow={() => toggleEdgeFlow(menu.id)}
-            onToggleDashed={() => toggleEdgeDashed(menu.id)}
-            onSetShape={(s) => setEdgeShape(menu.id, s)}
-            onSetFlowStyle={(s) => setEdgeFlowStyle(menu.id, s)}
-            onSetEdgeLabel={(label) => { setEdgeLabel(menu.id, label); setMenu(null); }}
-            onRemoveEdge={() => { removeEdge(menu.id); setMenu(null); }}
-          />
-        )}
-
         {/* Searchable logo picker for a "Logo" annotation. Honors the
             trademark gate so gated logos show as a monogram here too. */}
         {logoPickerFor && (
@@ -1146,6 +1146,22 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasP
           />
         )}
       </div>
+
+      {/* DOCKED edge panel — clicking a line opens this on the right (like the
+          node edit panel). Shown only when no node is selected. */}
+      {menu && menu.kind === "edge" && editMode && selectedIds.length === 0 && (
+        <ContextMenu
+          edge={menuEdge}
+          onClose={() => setMenu(null)}
+          onToggleFlow={() => toggleEdgeFlow(menu.id)}
+          onToggleDashed={() => toggleEdgeDashed(menu.id)}
+          onSetShape={(s) => setEdgeShape(menu.id, s)}
+          onSetFlowStyle={(s) => setEdgeFlowStyle(menu.id, s)}
+          onSetArrow={(a) => setEdgeArrow(menu.id, a)}
+          onSetEdgeLabel={(label) => { setEdgeLabel(menu.id, label); setMenu(null); }}
+          onRemoveEdge={() => { removeEdge(menu.id); setMenu(null); }}
+        />
+      )}
 
       {/* EDIT MODE: the docked right-side panel — driven purely by the node
           selection (single, multi, annotation, or group). Replaces the old

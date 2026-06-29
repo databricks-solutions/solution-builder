@@ -1,0 +1,93 @@
+// =============================================================================
+// COMPLETE reference architecture — the canonical "end-to-end platform" shape.
+//
+// This is JSONC (JSON + // comments) for YOU, the agent, to read and understand
+// the layout. When you write the project's `architecture.md`, emit PLAIN JSON
+// (no comments) inside a ```json fence — strip these comments.
+//
+// FLAT FORMAT: just `nodes` (the components you SEE on the canvas) + `edges`
+// (the lines between them). A node is shown iff it's in `nodes`. There is NO
+// state / hidden / bands — band (tile color) is derived from `type`.
+//
+// LEFT → RIGHT story:
+//   sources (≈3 rows) → Lakeflow + Genie (one block) → lakehouse + lakebase
+//        → dashboard + Genie Room + app → Genie One → the end user
+//   Top-left: db-platform wordmark. Top-right: governance-block (UC). Everything
+//   sits inside one big white `box` annotation (z:-1) = "the Databricks Platform".
+//
+// THE lakeflow-genie-block HAS THREE LEFT ANCHORS (ports) — wire each source to
+// the one matching HOW it's ingested:
+//   in-lakeflow-connect ← databases / SaaS apps (Postgres, ERP/SAP, Salesforce…)
+//   in-zerobus          ← realtime streams / sensors / IoT / events (Kafka…)
+//   in-direct           ← files not supported by Connect (PDF, CSV/Parquet dumps)
+//   `@r` (right port)   → the compute layer.
+//   Inside the block = Genie Code + SDP (all bronze→silver→gold processing) — do
+//   NOT add separate sdp / genie-code nodes.
+//
+// Each field on a node: `type` = catalog id (folds in composite "kind") OR
+// source/box/text/logo/image. `at` = [x,y] (required). Optional: size [w,h],
+// rot, scale, z, group, label/desc/icon overrides, style{border,shadow,radius,
+// fill,font,opacity}. Edges: from/to with inline @handle; flow:true = animated
+// data-flow; arrow:"auto" (default, omit) auto-draws an arrow for user/Genie-One
+// relationship edges.
+// =============================================================================
+{
+  "name": "Data Intelligence Platform — End-to-End Architecture",
+  "story": "Sources → one governed Lakeflow + Genie pipeline → lakehouse & lakebase → dashboards, Genie and an app → the business user via Genie One.",
+  "nodes": [
+    // ≈3 source rows on the left — pick the demo's REAL systems; `ingest` decides
+    // which Lakeflow port each lands on.
+    { "id": "src-erp",      "type": "source", "at": [-124, -84], "label": "ERP System",  "icon": "file:vendor/sap",        "ingest": "lakeflow-connect" },
+    { "id": "src-postgres", "type": "source", "at": [-124, -4],  "label": "Postgres",    "icon": "file:vendor/postgresql", "ingest": "lakeflow-connect" },
+    { "id": "src-sensors",  "type": "source", "at": [-124, 92],  "label": "Sensor data", "icon": "sensorSource",           "ingest": "zerobus" },
+
+    // The ONE processing block (ingest + bronze→silver→gold, built by Genie Code).
+    { "id": "lakeflow-genie-block", "type": "lakeflow-genie-block", "at": [300, 40] },
+
+    // Compute layer — both fed by the block's @r port.
+    { "id": "lakehouse", "type": "lakehouse", "at": [675, 3] },
+    { "id": "lakebase",  "type": "lakebase",  "at": [678, 86] },
+
+    // Consumption.
+    { "id": "aibi-dashboards",     "type": "aibi-dashboards",     "at": [979, -29] },
+    { "id": "genie",               "type": "genie",               "at": [979, 51] },
+    { "id": "databricks-apps-work","type": "databricks-apps-work","at": [979, 163] },
+
+    // Business-user entry point (rotated to sit vertically on the right edge).
+    { "id": "genie-one", "type": "genie-one", "at": [1200, 64], "rot": 90, "size": [320, 64] },
+
+    // Top-left wordmark + top-right governance (no border/shadow — they sit on
+    // the platform box).
+    { "id": "db-platform",      "type": "db-platform", "at": [190, -178],  "style": { "border": 0, "shadow": 0 } },
+    { "id": "governance-block", "type": "governance-block", "at": [1058, -170], "style": { "border": 0, "shadow": 0, "radius": 10 } },
+
+    // The end user, to the right of Genie One.
+    { "id": "user", "type": "logo", "at": [1312, 64], "icon": "file:persona/user" },
+
+    // The big white "platform" box behind everything (z:-1).
+    { "id": "platform-box", "type": "box", "at": [648, 8], "size": [1424, 496], "z": -1, "text": "", "border": true }
+  ],
+  "edges": [
+    // sources → the matching Lakeflow port
+    { "id": "e1", "from": "src-erp@r",      "to": "lakeflow-genie-block@in-lakeflow-connect", "flow": true },
+    { "id": "e2", "from": "src-postgres@r", "to": "lakeflow-genie-block@in-lakeflow-connect", "flow": true },
+    { "id": "e3", "from": "src-sensors@r",  "to": "lakeflow-genie-block@in-zerobus",          "flow": true },
+    // block → compute
+    { "id": "e4", "from": "lakeflow-genie-block@r", "to": "lakehouse@l", "flow": true },
+    { "id": "e5", "from": "lakeflow-genie-block@r", "to": "lakebase@l",  "flow": true },
+    // lakehouse → analytics consumers
+    { "id": "e6", "from": "lakehouse@r", "to": "aibi-dashboards@l", "flow": true },
+    { "id": "e7", "from": "lakehouse@r", "to": "genie@l",           "flow": true },
+    // lakebase → the app; the app also consumes the Genie Room + dashboard
+    { "id": "e8",  "from": "lakebase@r",        "to": "databricks-apps-work@l", "flow": true },
+    { "id": "e9",  "from": "genie@b",           "to": "databricks-apps-work@t" },
+    { "id": "e10", "from": "aibi-dashboards@b", "to": "databricks-apps-work@t" },
+    // user ==> Genie One; Genie One --> dashboard / Genie Room / app. These are
+    // RELATIONSHIP lines — leave `arrow` out (= "auto"): the renderer auto-draws
+    // the arrowhead (user→GenieOne points IN; GenieOne→resource points OUT).
+    { "id": "e11", "from": "user@l",                 "to": "genie-one@r" },
+    { "id": "e12", "from": "genie-one@l",            "to": "genie@r" },
+    { "id": "e13", "from": "genie-one@l",            "to": "aibi-dashboards@r" },
+    { "id": "e14", "from": "genie-one@l",            "to": "databricks-apps-work@r" }
+  ]
+}

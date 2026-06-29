@@ -11,7 +11,6 @@ import { TemplateDetailPopup } from "@/components/template/template-detail-popup
 import { CapabilitiesPanel } from "@/components/capabilities-panel";
 import { DatabricksAnimatedLogo } from "@/components/databricks-animated-logo";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Tooltip,
   TooltipContent,
@@ -626,6 +625,7 @@ function Index() {
   const handleCreateProject = async (
     e?: React.FormEvent,
     idea?: UseCaseIdea,
+    architectureFirst = false,
   ) => {
     e?.preventDefault();
     // In Pro mode the suggestion stream never ran, so there's no `idea` to
@@ -680,7 +680,17 @@ function Index() {
         : "";
 
       let initialPrompt: string;
-      if (effectiveIdea) {
+      if (architectureFirst) {
+        // Architecture-first entry: the user wants to START by laying out an
+        // architecture diagram — NOT a story. Their text can be anything
+        // (a tidy prompt, pasted meeting notes, a transcript). The agent
+        // should extract the platform components it implies and write ONLY
+        // `architecture.md`, then stop. SKILL.md has the matching path.
+        initialPrompt =
+          `The user wants to START by creating an architecture diagram (architecture-first flow) — not a story yet.\n\n` +
+          `What they wrote (may be a tidy brief OR pasted notes / a transcript — extract intent from it):\n${topic.trim() || description}\n\n` +
+          `Follow the architecture-first path in SKILL.md: read DEMO_SKILL_DIR/references/architecture/architecture.md, extract the main components their text implies, and write ONLY \`architecture.md\` at the project root. Do not design a story, write specs, or build resources yet — produce the diagram and stop so the user can review/edit it on the Architecture tab.`;
+      } else if (effectiveIdea) {
         initialPrompt = `Help me build a databricks solution.\n\nUser request:\n${topic.trim()}\n\n**${effectiveIdea.title}**\n\n${effectiveIdea.hook}${authoritativeCapsLine}`;
       } else {
         // Pro mode (or auto mode with no idea picked yet): just the user's
@@ -709,7 +719,9 @@ function Index() {
       // gives the agent its build subject — AUTO_BUILD_KICKOFF alone would
       // tell it to inspect existing project files, but on a fresh project
       // nothing exists yet.
-      if (autoMode) {
+      // Architecture-first stops after the diagram, so never append the
+      // full build kickoff there.
+      if (autoMode && !architectureFirst) {
         initialPrompt += `\n\n---\n\n${AUTO_BUILD_KICKOFF}`;
       }
 
@@ -733,6 +745,10 @@ function Index() {
       navigate({
         to: "/project/$projectId",
         params: { projectId: project.id },
+        // Architecture-first: land straight on the Architecture tab so the
+        // user watches the diagram build there — not the "writing the pitch"
+        // overview waiting view.
+        search: architectureFirst ? { tab: "architecture" } : undefined,
       });
     } catch (error) {
       console.error("Failed to create project:", error);
@@ -822,20 +838,36 @@ function Index() {
             </p>
           </div>
 
-          {/* Entry-mode tabs — "story" (current flow) vs "architecture"
-              (lead-with-architecture: just the prompt + one button). */}
-          <Tabs
-            value={mode}
-            onValueChange={(v) => setMode(v as "story" | "architecture")}
-            className="w-full max-w-md mx-auto"
-          >
-            <TabsList className="grid w-full grid-cols-2">
-              <TabsTrigger value="story">Describe your story</TabsTrigger>
-              <TabsTrigger value="architecture">
-                Describe your architecture
-              </TabsTrigger>
-            </TabsList>
-          </Tabs>
+          {/* Tabs + input card as ONE unit (own wrapper) so the parent's
+              space-y-6 doesn't open a gap between the folder tabs and the card.
+              Real folder tabs on the top-left: the active tab shares the card's
+              surface + border with no bottom edge, so it reads as one connected
+              panel. "story" (current flow) vs "architecture" (lead-with-
+              architecture: prompt + button). */}
+          <div className="w-full">
+          <div className="flex w-full items-end pl-3">
+            {([
+              { v: "story" as const, label: "Describe your story" },
+              { v: "architecture" as const, label: "Describe your architecture" },
+            ]).map((t) => {
+              const active = mode === t.v;
+              return (
+                <button
+                  key={t.v}
+                  type="button"
+                  onClick={() => setMode(t.v)}
+                  className={cn(
+                    "relative -mb-px cursor-pointer rounded-t-lg border border-b-0 px-4 py-2 text-sm font-medium transition-colors",
+                    active
+                      ? "z-10 border-primary/10 bg-card/80 text-foreground backdrop-blur-md"
+                      : "border-border/60 bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground",
+                  )}
+                >
+                  {t.label}
+                </button>
+              );
+            })}
+          </div>
 
           {/* Input card. Drag-drop wraps the whole card so the user can
               drop files anywhere over the textarea / chip area. The
@@ -876,7 +908,11 @@ function Index() {
                 <div className="flex items-end gap-2">
                   <Textarea
                     ref={textareaRef}
-                    placeholder='Describe your project... e.g. "predictive maintenance for wind turbines"'
+                    placeholder={
+                      mode === "architecture"
+                        ? 'Describe your architecture... e.g. "ingest ERP data to a final business application"'
+                        : 'Describe your project... e.g. "predictive maintenance for wind turbines"'
+                    }
                     value={topic}
                     onChange={(e) => {
                       setTopic(e.target.value);
@@ -916,6 +952,16 @@ function Index() {
                     )}
                   </button>
                 </div>
+
+                {/* Architecture-tab tip — the input accepts anything, not
+                    just a tidy brief. */}
+                {mode === "architecture" && (
+                  <p className="text-xs text-muted-foreground">
+                    💡 Paste anything — a rough idea, meeting notes, or a
+                    transcript. We'll pull out the components and lay out a
+                    starting architecture you can edit.
+                  </p>
+                )}
 
                 {/* Chips row — only renders when files are attached or an
                     upload error occurred, so the layout stays compact
@@ -1308,9 +1354,7 @@ function Index() {
                   <div className="flex flex-col items-center gap-2 pt-2">
                     <button
                       type="button"
-                      onClick={() => {
-                        // TODO: wire up the architecture-create action.
-                      }}
+                      onClick={() => handleCreateProject(undefined, undefined, true)}
                       disabled={
                         isCreating ||
                         (!topic.trim() && uploadedFiles.length === 0)
@@ -1397,6 +1441,7 @@ function Index() {
               </form>
             </CardContent>
           </Card>
+          </div>
 
           {/* Research agent callout - hidden when collapsed */}
         </div>

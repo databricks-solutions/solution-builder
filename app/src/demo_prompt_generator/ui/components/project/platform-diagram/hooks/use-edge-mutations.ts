@@ -18,6 +18,7 @@ export interface EdgeMutations {
   toggleEdgeDashed: (id: string) => void;
   setEdgeShape: (id: string, shape: "smooth" | "straight" | "step") => void;
   setEdgeFlowStyle: (id: string, flowStyle: FlowStyle | undefined) => void;
+  setEdgeArrow: (id: string, arrow: "auto" | "none" | "end" | "start" | "both") => void;
   setEdgeLabel: (id: string, label: string) => void;
   setEdgeCenterX: (id: string, centerX: number | undefined) => void;
   removeEdge: (id: string) => void;
@@ -104,6 +105,19 @@ export function useEdgeMutations({
     [mutateEdge],
   );
 
+  // Set the arrowhead mode. An explicit arrow (end/start/both) is a relationship
+  // line, so it also turns OFF the data-flow animation (mutually exclusive).
+  // "auto" / "none" leave animation as-is (auto may still render an arrow for
+  // user/Genie-One edges, but that's a render-time decision, not stored state).
+  const setEdgeArrow = useCallback(
+    (id: string, arrow: "auto" | "none" | "end" | "start" | "both") =>
+      mutateEdge(id, (e) => ({
+        ...e,
+        data: { ...e.data, arrow, ...(arrow === "end" || arrow === "start" || arrow === "both" ? { animated: false } : {}) },
+      })),
+    [mutateEdge],
+  );
+
   // Set (or clear, with "") the edge's mid-line label. Stored on `e.label`
   // (ReactFlow's native field); scheduleSave persists it.
   const setEdgeLabel = useCallback(
@@ -135,6 +149,7 @@ export function useEdgeMutations({
     toggleEdgeDashed,
     setEdgeShape,
     setEdgeFlowStyle,
+    setEdgeArrow,
     setEdgeLabel,
     setEdgeCenterX,
     removeEdge,

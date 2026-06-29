@@ -1,0 +1,20 @@
+{
+  "name": "Simple Solution Architecture",
+  "story": "One source → governed Lakeflow + Genie pipeline → lakehouse → a dashboard and an app, with Genie for plain-language Q&A.",
+  "nodes": [
+    { "id": "src-postgres", "type": "source", "at": [-124, 40], "label": "Postgres", "icon": "file:vendor/postgresql", "ingest": "lakeflow-connect" },
+    { "id": "lakeflow-genie-block", "type": "lakeflow-genie-block", "at": [220, 24] },
+    { "id": "lakehouse", "type": "lakehouse", "at": [620, 40] },
+    { "id": "aibi-dashboards", "type": "aibi-dashboards", "at": [900, -20] },
+    { "id": "genie", "type": "genie", "at": [900, 60] },
+    { "id": "databricks-apps-work", "type": "databricks-apps-work", "at": [900, 140] },
+    { "id": "governance-block", "type": "governance-block", "at": [300, -150] }
+  ],
+  "edges": [
+    { "id": "e1", "from": "src-postgres", "to": "lakeflow-genie-block@in-lakeflow-connect", "flow": true },
+    { "id": "e2", "from": "lakeflow-genie-block@r", "to": "lakehouse", "flow": true },
+    { "id": "e3", "from": "lakehouse", "to": "aibi-dashboards", "flow": true },
+    { "id": "e4", "from": "lakehouse", "to": "genie", "flow": true },
+    { "id": "e5", "from": "lakehouse", "to": "databricks-apps-work", "flow": true }
+  ]
+}
