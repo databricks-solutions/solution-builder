@@ -61,16 +61,18 @@ from pyspark.sql import DataFrame
 from pyspark.sql import functions as F
 from pyspark.sql.window import Window
 
-# ── Config (override via env / widgets when re-skinning) ───────────────────
+# ── Config — parametrized (widgets in-job, env locally) so a DAB can deploy
+# this to any workspace. Same pattern as the complete example's scripts. ─────
 IN_NOTEBOOK = "dbutils" in dir()
 if IN_NOTEBOOK:
     dbutils.widgets.text("catalog", "", "Catalog")
     dbutils.widgets.text("schema",  "", "Schema")
-    CATALOG = dbutils.widgets.get("catalog") or os.environ.get("DEMO_CATALOG") or "luxebeauty"
-    SCHEMA  = dbutils.widgets.get("schema")  or os.environ.get("DEMO_SCHEMA")  or "demo_simple"
+    CATALOG = dbutils.widgets.get("catalog")
+    SCHEMA  = dbutils.widgets.get("schema")
 else:
-    CATALOG = os.environ.get("DEMO_CATALOG") or "luxebeauty"
-    SCHEMA  = os.environ.get("DEMO_SCHEMA")  or "demo_simple"
+    CATALOG = os.environ.get("DEMO_CATALOG")  # e.g. <your-catalog>
+    SCHEMA  = os.environ.get("DEMO_SCHEMA")   # e.g. <your-schema>
+assert CATALOG and SCHEMA, "catalog + schema are required (widgets in-job, DEMO_CATALOG/DEMO_SCHEMA env locally)"
 
 # Time anchors — every date downstream derives from NOW. Rolling by default so
 # the dashboard's last point lands on yesterday-real each run; set
@@ -114,7 +116,12 @@ print(f"Target:      {CATALOG}.{SCHEMA}")
 print(f"BAD_LOT_ID:  {BAD_LOT_ID}")
 print(f"SPIKE_PEAK:  {SPIKE_PEAK.date()}")
 
-spark = DatabricksSession.builder.serverless(True).getOrCreate()
+# Reuse the runtime's spark when run as a job/notebook; else build a
+# databricks-connect serverless session for local runs.
+try:
+    spark  # noqa: F821
+except NameError:
+    spark = DatabricksSession.builder.serverless(True).getOrCreate()
 spark.sql(f"CREATE SCHEMA IF NOT EXISTS {CATALOG}.{SCHEMA}")
 
 
