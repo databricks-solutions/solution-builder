@@ -1119,7 +1119,7 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasP
         <EditPanel
           selectionCount={selectedIds.length}
           annotation={panelAnno}
-          nodeScale={panelPrimaryData ? (panelPrimaryData.w ?? baseSize(panelPrimaryData.component).w) / baseSize(panelPrimaryData.component).w : 1}
+          nodeScale={panelPrimaryData?.scale ?? 1}
           style={panelNodeStyle}
           isGroup={isGroup}
           canGroup={canGroup}
