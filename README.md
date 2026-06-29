@@ -77,8 +77,8 @@ Every solution becomes context for the next. Reskin one industry for another; sw
 
 ```bash
 # 1. Clone
-git clone https://github.com/databricks-solutions/databricks-solution-builder.git
-cd databricks-solution-builder/app
+git clone https://github.com/databricks-solutions/solution-builder.git
+cd solution-builder/app
 
 # 2. Authenticate the Databricks CLI (one-time)
 databricks auth login --host https://<workspace-url> --profile MY_WORKSPACE
@@ -247,7 +247,7 @@ To cut a versioned release:
 Install the Solution Generator skill (and, optionally, the [AI Dev Kit](https://github.com/databricks-solutions/ai-dev-kit)) into your `~/.claude/` once, then drive everything from any terminal:
 
 ```bash
-bash <(curl -sL https://raw.githubusercontent.com/databricks-solutions/databricks-solution-builder/main/install.sh)
+bash <(curl -sL https://raw.githubusercontent.com/databricks-solutions/solution-builder/main/install.sh)
 ```
 
 `cd` into any project, run `claude`, and the skill loads automatically — the agent can design, write, and build Databricks assets end-to-end from the terminal.
@@ -392,7 +392,7 @@ Tables are auto-created on startup via SQLModel + DDL migrations in `lakebase.py
 <br>
 
 ```
-databricks-solution-builder/
+solution-builder/
 ├── app/                          # Full-stack application (see app/CLAUDE.md)
 │   ├── src/demo_prompt_generator/
 │   │   ├── backend/
@@ -455,11 +455,11 @@ Blocks on disk are automatically available to the agent's system prompt for all 
 
 ## ⭐ Star history
 
-<a href="https://star-history.com/#databricks-solutions/databricks-solution-builder&Date">
+<a href="https://star-history.com/#databricks-solutions/solution-builder&Date">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=databricks-solutions/databricks-solution-builder&type=Date&theme=dark" />
-    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=databricks-solutions/databricks-solution-builder&type=Date" />
-    <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=databricks-solutions/databricks-solution-builder&type=Date" />
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=databricks-solutions/solution-builder&type=Date&theme=dark" />
+    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=databricks-solutions/solution-builder&type=Date" />
+    <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=databricks-solutions/solution-builder&type=Date" />
   </picture>
 </a>
 
@@ -474,54 +474,54 @@ Licensed under the [Databricks License](LICENSE). Built on top of and powered by
 
 ### Core runtimes & SDKs
 
-| Package | License | Project |
-|---------|---------|---------|
-| [claude-agent-sdk](https://github.com/anthropics/claude-agent-sdk) | MIT | https://github.com/anthropics/claude-agent-sdk |
-| [databricks-sdk](https://github.com/databricks/databricks-sdk-py) | Apache-2.0 | https://github.com/databricks/databricks-sdk-py |
-| [databricks-connect](https://docs.databricks.com/dev-tools/databricks-connect.html) | Databricks | https://docs.databricks.com/dev-tools/databricks-connect.html |
-| [ai-dev-kit](https://github.com/databricks-solutions/ai-dev-kit) | Databricks | https://github.com/databricks-solutions/ai-dev-kit |
+| Package | Version | License | Project URL |
+|---------|---------|---------|-------------|
+| [claude-agent-sdk](https://github.com/anthropics/claude-agent-sdk) | ≥0.2.83 | MIT | https://github.com/anthropics/claude-agent-sdk |
+| [databricks-sdk](https://github.com/databricks/databricks-sdk-py) | ≥0.114.0 | Apache-2.0 | https://github.com/databricks/databricks-sdk-py |
+| [databricks-connect](https://docs.databricks.com/dev-tools/databricks-connect.html) | ≥16.1,&lt;16.2 | Databricks | https://docs.databricks.com/dev-tools/databricks-connect.html |
+| [ai-dev-kit](https://github.com/databricks-solutions/ai-dev-kit) | — | Databricks | https://github.com/databricks-solutions/ai-dev-kit |
 
 ### Backend (Python)
 
-| Package | License | Project |
-|---------|---------|---------|
-| [fastapi](https://github.com/fastapi/fastapi) | MIT | https://github.com/fastapi/fastapi |
-| [uvicorn](https://github.com/encode/uvicorn) | BSD-3-Clause | https://github.com/encode/uvicorn |
-| [pydantic-settings](https://github.com/pydantic/pydantic-settings) | MIT | https://github.com/pydantic/pydantic-settings |
-| [sqlmodel](https://github.com/tiangolo/sqlmodel) | MIT | https://github.com/tiangolo/sqlmodel |
-| [sqlalchemy](https://github.com/sqlalchemy/sqlalchemy) | MIT | https://github.com/sqlalchemy/sqlalchemy |
-| [alembic](https://github.com/sqlalchemy/alembic) | MIT | https://github.com/sqlalchemy/alembic |
-| [psycopg](https://github.com/psycopg/psycopg) | LGPL-3.0 | https://github.com/psycopg/psycopg |
-| [pglite](https://github.com/electric-sql/pglite) | Apache-2.0 | https://github.com/electric-sql/pglite |
-| [httpx](https://github.com/encode/httpx) | BSD-3-Clause | https://github.com/encode/httpx |
-| [watchdog](https://github.com/gorakhargosh/watchdog) | Apache-2.0 | https://github.com/gorakhargosh/watchdog |
-| [pyyaml](https://github.com/yaml/pyyaml) | MIT | https://github.com/yaml/pyyaml |
-| [python-docx](https://github.com/python-openxml/python-docx) | MIT | https://github.com/python-openxml/python-docx |
-| [mcp](https://github.com/modelcontextprotocol/python-sdk) | MIT | https://github.com/modelcontextprotocol/python-sdk |
-| [fastmcp](https://github.com/jlowin/fastmcp) | Apache-2.0 | https://github.com/jlowin/fastmcp |
-| [sqlglot](https://github.com/tobymao/sqlglot) | MIT | https://github.com/tobymao/sqlglot |
-| [sqlfluff](https://github.com/sqlfluff/sqlfluff) | MIT | https://github.com/sqlfluff/sqlfluff |
-| [plutoprint](https://github.com/plutoprint/plutoprint) | MIT | https://github.com/plutoprint/plutoprint |
-| [faker](https://github.com/joke2k/faker) | MIT | https://github.com/joke2k/faker |
+| Package | Version | License | Project URL |
+|---------|---------|---------|-------------|
+| [fastapi](https://github.com/fastapi/fastapi) | ≥0.119.0 | MIT | https://github.com/fastapi/fastapi |
+| [uvicorn](https://github.com/encode/uvicorn) | ≥0.37.0 | BSD-3-Clause | https://github.com/encode/uvicorn |
+| [pydantic-settings](https://github.com/pydantic/pydantic-settings) | ≥2.11.0 | MIT | https://github.com/pydantic/pydantic-settings |
+| [sqlmodel](https://github.com/tiangolo/sqlmodel) | ≥0.0.27 | MIT | https://github.com/tiangolo/sqlmodel |
+| [sqlalchemy](https://github.com/sqlalchemy/sqlalchemy) | ≥2.0 | MIT | https://github.com/sqlalchemy/sqlalchemy |
+| [alembic](https://github.com/sqlalchemy/alembic) | ≥1.16 | MIT | https://github.com/sqlalchemy/alembic |
+| [psycopg](https://github.com/psycopg/psycopg) | ≥3.2.11 | LGPL-3.0 | https://github.com/psycopg/psycopg |
+| [pglite](https://github.com/electric-sql/pglite) | ≥0.2.0 | Apache-2.0 | https://github.com/electric-sql/pglite |
+| [httpx](https://github.com/encode/httpx) | ≥0.28.0 | BSD-3-Clause | https://github.com/encode/httpx |
+| [watchdog](https://github.com/gorakhargosh/watchdog) | ≥4.0.0 | Apache-2.0 | https://github.com/gorakhargosh/watchdog |
+| [pyyaml](https://github.com/yaml/pyyaml) | ≥6.0 | MIT | https://github.com/yaml/pyyaml |
+| [python-docx](https://github.com/python-openxml/python-docx) | ≥1.1.0 | MIT | https://github.com/python-openxml/python-docx |
+| [mcp](https://github.com/modelcontextprotocol/python-sdk) | ≥1.0.0 | MIT | https://github.com/modelcontextprotocol/python-sdk |
+| [fastmcp](https://github.com/jlowin/fastmcp) | ==3.1.1 | Apache-2.0 | https://github.com/jlowin/fastmcp |
+| [sqlglot](https://github.com/tobymao/sqlglot) | ≥20.0.0 | MIT | https://github.com/tobymao/sqlglot |
+| [sqlfluff](https://github.com/sqlfluff/sqlfluff) | ≥3.0.0 | MIT | https://github.com/sqlfluff/sqlfluff |
+| [plutoprint](https://github.com/plutoprint/plutoprint) | ==0.19.0 | MIT | https://github.com/plutoprint/plutoprint |
+| [faker](https://github.com/joke2k/faker) | ≥30.0 | MIT | https://github.com/joke2k/faker |
 
 ### Frontend (TypeScript)
 
-| Package | License | Project |
-|---------|---------|---------|
-| [react](https://github.com/facebook/react) | MIT | https://github.com/facebook/react |
-| [vite](https://github.com/vitejs/vite) | MIT | https://github.com/vitejs/vite |
-| [@tanstack/react-router](https://github.com/TanStack/router) | MIT | https://github.com/TanStack/router |
-| [@tanstack/react-query](https://github.com/TanStack/query) | MIT | https://github.com/TanStack/query |
-| [tailwindcss](https://github.com/tailwindlabs/tailwindcss) | MIT | https://github.com/tailwindlabs/tailwindcss |
-| [@radix-ui/*](https://github.com/radix-ui/primitives) | MIT | https://github.com/radix-ui/primitives |
-| [shadcn/ui](https://github.com/shadcn-ui/ui) | MIT | https://github.com/shadcn-ui/ui |
-| [motion](https://github.com/motiondivision/motion) | MIT | https://github.com/motiondivision/motion |
-| [lucide-react](https://github.com/lucide-icons/lucide) | ISC | https://github.com/lucide-icons/lucide |
-| [@xyflow/react](https://github.com/xyflow/xyflow) | MIT | https://github.com/xyflow/xyflow |
-| [@monaco-editor/react](https://github.com/suren-atoyan/monaco-react) | MIT | https://github.com/suren-atoyan/monaco-react |
-| [embla-carousel-react](https://github.com/davidjerleke/embla-carousel) | MIT | https://github.com/davidjerleke/embla-carousel |
-| [electron](https://github.com/electron/electron) | MIT | https://github.com/electron/electron |
-| [playwright](https://github.com/microsoft/playwright) | Apache-2.0 | https://github.com/microsoft/playwright |
+| Package | Version | License | Project URL |
+|---------|---------|---------|-------------|
+| [react](https://github.com/facebook/react) | 19.2.3 | MIT | https://github.com/facebook/react |
+| [vite](https://github.com/vitejs/vite) | ^8.0.10 | MIT | https://github.com/vitejs/vite |
+| [@tanstack/react-router](https://github.com/TanStack/router) | 1.145.7 | MIT | https://github.com/TanStack/router |
+| [@tanstack/react-query](https://github.com/TanStack/query) | 5.90.16 | MIT | https://github.com/TanStack/query |
+| [tailwindcss](https://github.com/tailwindlabs/tailwindcss) | ^4.2.4 | MIT | https://github.com/tailwindlabs/tailwindcss |
+| [@radix-ui/*](https://github.com/radix-ui/primitives) | ^1.x | MIT | https://github.com/radix-ui/primitives |
+| [shadcn/ui](https://github.com/shadcn-ui/ui) | — | MIT | https://github.com/shadcn-ui/ui |
+| [motion](https://github.com/motiondivision/motion) | 12.24.10 | MIT | https://github.com/motiondivision/motion |
+| [lucide-react](https://github.com/lucide-icons/lucide) | ^0.575.0 | ISC | https://github.com/lucide-icons/lucide |
+| [@xyflow/react](https://github.com/xyflow/xyflow) | ^12.10.2 | MIT | https://github.com/xyflow/xyflow |
+| [@monaco-editor/react](https://github.com/suren-atoyan/monaco-react) | ^4.7.0 | MIT | https://github.com/suren-atoyan/monaco-react |
+| [embla-carousel-react](https://github.com/davidjerleke/embla-carousel) | ^8.6.0 | MIT | https://github.com/davidjerleke/embla-carousel |
+| [electron](https://github.com/electron/electron) | ^33.4.11 | MIT | https://github.com/electron/electron |
+| [playwright](https://github.com/microsoft/playwright) | — (npx) | Apache-2.0 | https://github.com/microsoft/playwright |
 
 </details>
 

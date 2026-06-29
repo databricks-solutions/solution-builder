@@ -1,7 +1,7 @@
 [project]
 name = "demo-prompt-generator"
 dynamic = ["version"]
-description = "Add your description here"
+description = "AI agent that generates end-to-end Databricks demos — pipelines, dashboards, Genie spaces, and apps — from a chat prompt."
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 dependencies = [

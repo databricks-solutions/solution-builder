@@ -183,7 +183,7 @@ Fetch the UUID via the `uid` field of `get-project`:
 
 ```bash
 databricks postgres get-project "projects/<slug>" -o json | jq -r '.uid'
-# e.g. projects/dbdemos-asset-generator → 1bcf612a-c719-42a4-981e-44f70a041da8
+# e.g. projects/my-app → <project-uuid>
 ```
 
 Then write both:

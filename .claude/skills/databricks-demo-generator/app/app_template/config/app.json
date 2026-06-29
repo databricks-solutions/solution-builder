@@ -17,6 +17,10 @@
   // ─ Agent backend: set ONE (via env). masEndpointName → ask_mas tool.
   //   genieSpaceId → swap to askGenieTool in server/agent/<name>.ts makeTools.
   //   Both empty → no data tool → agent can't answer "why" questions.
+  //   Template ships with MAS; for a Genie-only demo set GENIE_SPACE_ID, leave
+  //   MAS_ENDPOINT_NAME empty, and swap ask_mas → askGenieTool in refundops.ts
+  //   makeTools. For both: register both with distinct names + tell the model
+  //   in instructions when to prefer each.
   "masEndpointName": "${MAS_ENDPOINT_NAME:}",
   "genieSpaceId":    "${GENIE_SPACE_ID:}",
 
