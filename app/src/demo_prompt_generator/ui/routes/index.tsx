@@ -11,6 +11,7 @@ import { TemplateDetailPopup } from "@/components/template/template-detail-popup
 import { CapabilitiesPanel } from "@/components/capabilities-panel";
 import { DatabricksAnimatedLogo } from "@/components/databricks-animated-logo";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Tooltip,
   TooltipContent,
@@ -95,6 +96,11 @@ function Index() {
   // Always resets on successful project creation (per-session preference,
   // not sticky).
   const [proMode, setProMode] = useState(false);
+  // Top-level entry mode. "story" = the current story-suggestion flow.
+  // "architecture" = lead-with-architecture flow: just the prompt + a single
+  // "Create my architecture" button (no story ideas, no capability picker,
+  // no templates). Defaults to "story" to preserve today's landing.
+  const [mode, setMode] = useState<"story" | "architecture">("story");
   const [selectedProducts, setSelectedProducts] = useState<Set<string>>(
     new Set(DEFAULT_SELECTED_PRODUCTS)
   );
@@ -269,9 +275,10 @@ function Index() {
       .catch(() => {});
   }, []);
 
-  // Debounced template search (500ms)
+  // Debounced template search (500ms). Story-tab only — the architecture
+  // tab doesn't surface templates, so skip the search there.
   useEffect(() => {
-    if (topic.trim().length < 3) {
+    if (mode !== "story" || topic.trim().length < 3) {
       setMatchingTemplates([]);
       setIsSearchingTemplates(false);
       return;
@@ -290,7 +297,7 @@ function Index() {
     }, 500);
 
     return () => clearTimeout(timer);
-  }, [topic]);
+  }, [topic, mode]);
 
   // Streaming suggestion helper.
   //
@@ -501,9 +508,9 @@ function Index() {
     // Need EITHER 3+ chars of topic OR at least one file. A file with no
     // typed text gets a generic prompt — the backend sees the file
     // content via context_text and picks ideas from it.
-    // Pro mode skips suggestion entirely — the user picks capabilities by
-    // hand and types their own prompt; no auto-generated story ideas.
-    if ((trimmedTopic.length < 3 && !hasFiles) || !capabilitiesReady || proMode) {
+    // Pro mode + the architecture tab skip suggestion entirely — no
+    // auto-generated story ideas in either.
+    if ((trimmedTopic.length < 3 && !hasFiles) || !capabilitiesReady || proMode || mode !== "story") {
       setIsSuggestingCapabilities(false);
       return;
     }
@@ -526,7 +533,7 @@ function Index() {
       // mid-stream cancel to the user.
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [topic, capabilitiesReady, uploadedFilesKey, proMode]);
+  }, [topic, capabilitiesReady, uploadedFilesKey, proMode, mode]);
 
   // Re-suggest when the user explicitly toggles a capability — so the
   // story/ideas regenerate to reflect what they want included. Skipped on
@@ -815,6 +822,21 @@ function Index() {
             </p>
           </div>
 
+          {/* Entry-mode tabs — "story" (current flow) vs "architecture"
+              (lead-with-architecture: just the prompt + one button). */}
+          <Tabs
+            value={mode}
+            onValueChange={(v) => setMode(v as "story" | "architecture")}
+            className="w-full max-w-md mx-auto"
+          >
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="story">Describe your story</TabsTrigger>
+              <TabsTrigger value="architecture">
+                Describe your architecture
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
+
           {/* Input card. Drag-drop wraps the whole card so the user can
               drop files anywhere over the textarea / chip area. The
               isDragOver state pulses the border so the drop target is
@@ -923,8 +945,10 @@ function Index() {
                 {/* Ideas section header — toggles row renders whenever the
                     hero is collapsed (user has typed or attached files).
                     In Pro mode the ideas grid below is skipped entirely
-                    and the header label switches to a "manual mode" hint. */}
-                {isHeroCollapsed && (
+                    and the header label switches to a "manual mode" hint.
+                    Story-tab only — the architecture tab shows just the
+                    prompt + a single "Create my architecture" button. */}
+                {isHeroCollapsed && mode === "story" && (
                   <div className="pt-2 pb-1">
                     <div className="flex items-center justify-between gap-3 mb-3">
                       <div className="flex items-center gap-2">
@@ -1264,24 +1288,48 @@ function Index() {
                     Databricks demo" baseline and the full "Custom solution"
                     selector. Both tabs write to the same selectedProducts
                     set so the downstream build CTA / confirm dialog are
-                    unchanged. */}
-                <CapabilitiesPanel
-                  capabilities={capabilities}
-                  selectedProducts={selectedProducts}
-                  onToggleProduct={handleToggleProduct}
-                  onReplaceSelection={handleReplaceSelection}
-                  expanded={isHeroCollapsed}
-                  isLoading={isSuggestingCapabilities}
-                  explicitSelections={explicitSelections}
-                />
+                    unchanged. Story-tab only. */}
+                {mode === "story" && (
+                  <CapabilitiesPanel
+                    capabilities={capabilities}
+                    selectedProducts={selectedProducts}
+                    onToggleProduct={handleToggleProduct}
+                    onReplaceSelection={handleReplaceSelection}
+                    expanded={isHeroCollapsed}
+                    isLoading={isSuggestingCapabilities}
+                    explicitSelections={explicitSelections}
+                  />
+                )}
+
+                {/* Architecture tab — once the user has typed (or attached
+                    files), show a single "Create my architecture" button.
+                    No story ideas, no capability picker, no templates. */}
+                {mode === "architecture" && isHeroCollapsed && (
+                  <div className="flex flex-col items-center gap-2 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        // TODO: wire up the architecture-create action.
+                      }}
+                      disabled={
+                        isCreating ||
+                        (!topic.trim() && uploadedFiles.length === 0)
+                      }
+                      className="inline-flex items-center justify-center gap-2 px-6 py-2.5 rounded-md text-sm font-semibold transition-all bg-destructive text-destructive-foreground hover:bg-destructive/90 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer shadow-sm"
+                    >
+                      <Sparkles className="h-4 w-4" />
+                      Create my architecture
+                    </button>
+                  </div>
+                )}
 
                 {/* Primary CTA — direct create. Capability set is fully
                     user-visible (locked baseline in Simple, granular tile
                     in Custom), so no confirm dialog is needed.
                     Shows in Auto mode once at least one idea has streamed
                     in, OR in Pro mode as soon as the user has typed (no
-                    ideas exist in Pro). */}
-                {isHeroCollapsed && (proMode || ideas.length > 0) && (
+                    ideas exist in Pro). Story-tab only. */}
+                {mode === "story" && isHeroCollapsed && (proMode || ideas.length > 0) && (
                   <div className="flex flex-col items-center gap-2 pt-2">
                     <button
                       type="button"
@@ -1353,8 +1401,9 @@ function Index() {
           {/* Research agent callout - hidden when collapsed */}
         </div>
 
-        {/* Matching templates section */}
-        {topic.trim().length >= 3 && (
+        {/* Matching templates section — story-tab only (the architecture
+            tab leads with a single create button, no templates). */}
+        {mode === "story" && topic.trim().length >= 3 && (
           <div className="relative z-10 mx-auto mt-12 w-full max-w-5xl">
             <div className="mb-4 flex items-start justify-between">
               <div>
