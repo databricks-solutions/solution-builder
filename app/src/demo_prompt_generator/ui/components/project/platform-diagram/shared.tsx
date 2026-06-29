@@ -217,15 +217,14 @@ export function RotatableCard({
   // selection box rotated, not the card).
   const cardW = w;
   const cardH = h;
-  // Fit mode (component/composite, baseW given): the BOX size (w×h) is the only
-  // size source. Content is laid out at its natural size and stretched to fill
-  // the box (width → fitFactor; height → vertical stretch), so resizing the box
-  // by ANY handle (corner = proportional, side = one axis) makes the tile that
-  // exact size — content scales with it, no empty space, border at the edges.
-  // Legacy mode (annotations): content fills the box with its own --cs = scale.
+  // Fit mode (component/composite, baseW given): content renders at natural size
+  // × `scale` (the uniform content scale set by CORNER drag / Scale slider). The
+  // BOX (cardW×cardH) is independent — a SIDE drag grows/shrinks it WITHOUT
+  // rescaling the content (the content just sits inside the larger/smaller box).
+  // So: corner = scale element; side = resize container only. Legacy mode
+  // (annotations): content fills the box with its own --cs = scale.
   const fitMode = typeof baseW === "number" && baseW > 0;
-  const fitX = fitMode && baseW ? cardW / baseW : 1;
-  const fitY = fitMode && baseH ? cardH / baseH : 1;
+  const fitFactor = scale || 1;
   // The shell FILLS the ReactFlow node box (ReactFlow + NodeResizer own the
   // node's width/height — see schemaToFlow). Filling 100% keeps the selection
   // frame, the resizer, and the visual all the same size (no drift on resize).
@@ -312,13 +311,14 @@ export function RotatableCard({
         }
       >
         {fitMode ? (
-          // Content at NATURAL size, scaled to fill the box (fitX × fitY). Any
-          // box resize → the tile is exactly that size (no empty space).
+          // Content at natural size × `scale`, anchored top-left. Corner/slider
+          // changes `scale` (and the box hugs it); a side drag changes the box
+          // only, leaving the content at this size.
           <div
             style={{
               width: baseW,
               height: baseH,
-              transform: `scale(${fitX}, ${fitY})`,
+              transform: `scale(${fitFactor})`,
               transformOrigin: "top left",
             }}
           >
