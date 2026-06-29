@@ -67,6 +67,7 @@ import {
 } from "lucide-react";
 import { nodeTypes, edgeTypes } from "./node-types";
 import { DetailPanel } from "./panels/detail-panel";
+import { EditPanel } from "./panels/edit-panel";
 import { LibraryPalette } from "./panels/library-palette";
 import { componentLookup, schemaToFlow, flowToLayout } from "./flow-mapping";
 import { ContextMenu, type CtxMenu } from "./menus/context-menu";
@@ -114,6 +115,12 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasP
   const copiedStyleRef = useRef<StylePatch | null>(null);
   copiedStyleRef.current = copiedStyle;
   const styleNodesRef = useRef<((ids: string[], patch: StylePatch) => void) | null>(null);
+
+  // In-memory clipboard for Ctrl/Cmd+C copy of one or more nodes. Stores a deep
+  // snapshot of each copied node (type/data/size + position) so paste can clone
+  // them as fresh nodes. A ref (not state) — pasting reads it imperatively from
+  // the keydown handler and nothing renders off it.
+  const clipboardRef = useRef<Node[] | null>(null);
 
   const onSelect = useCallback((id: string) => {
     // In paste mode, a click pastes the copied style onto the node (and stays
@@ -192,6 +199,32 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasP
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [copiedStyle]);
+
+  // Edit-mode keyboard: Ctrl/Cmd+C copies the selected node(s), Ctrl/Cmd+V
+  // pastes them, Escape clears the selection (closing the edit panel). Skipped
+  // while typing into an input/textarea/contenteditable so we never hijack the
+  // browser's own copy/paste in a text field. copySelection/pasteClipboard/
+  // clearSelection are read via refs so this effect doesn't re-bind on every
+  // render (and isn't subject to use-before-define on those callbacks).
+  const editKeyHandlersRef = useRef({ copySelection: () => {}, pasteClipboard: () => {}, clearSelection: () => {} });
+  useEffect(() => {
+    if (!editMode) return;
+    const isTyping = () => {
+      const el = document.activeElement as HTMLElement | null;
+      if (!el) return false;
+      const tag = el.tagName;
+      return tag === "INPUT" || tag === "TEXTAREA" || el.isContentEditable;
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") { editKeyHandlersRef.current.clearSelection(); return; }
+      if (!(e.metaKey || e.ctrlKey) || isTyping()) return;
+      const k = e.key.toLowerCase();
+      if (k === "c") { editKeyHandlersRef.current.copySelection(); }
+      else if (k === "v") { e.preventDefault(); editKeyHandlersRef.current.pasteClipboard(); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [editMode]);
 
   // --- Persistence: debounce-save the layout whenever nodes/edges settle ----
   const persistRef = useRef(onPersist);
@@ -742,6 +775,79 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasP
     setSelectedId((cur) => (cur === id ? null : cur));
   }, [setNodes, setEdges, scheduleSave]);
 
+  // --- Copy / paste (Ctrl/Cmd+C / V) ---------------------------------------
+  // Copy: snapshot the currently-selected nodes into the in-memory clipboard.
+  const copySelection = useCallback(() => {
+    const sel = nodesRef.current.filter((n) => n.selected);
+    clipboardRef.current = sel.length
+      ? sel.map((n) => ({ ...n, data: { ...(n.data as NodeData) } }))
+      : null;
+  }, []);
+
+  // Paste: clone the clipboard nodes as NEW nodes with fresh unique ids, offset
+  // ~24px, preserving type/data/style/size. A multi-paste gets a fresh shared
+  // groupId; a single paste drops groupId. Edges *between* copied nodes are
+  // recreated against the new ids. The pasted nodes become the new selection.
+  const pasteClipboard = useCallback(() => {
+    const clip = clipboardRef.current;
+    if (!clip || clip.length === 0) return;
+    const OFF = 24;
+    const multi = clip.length > 1;
+    const gid = multi ? `group-${Date.now().toString(36)}-${groupCounter.current++}` : undefined;
+    setNodes((nds) => {
+      const taken = new Set(nds.map((n) => n.id));
+      const idMap = new Map<string, string>(); // old id → new id
+      const mkId = (oldId: string): string => {
+        // Annotations get a fresh anno-* id; others use the <base>#<n> dedupe.
+        const base = oldId.startsWith("anno-")
+          ? `anno-${Date.now().toString(36)}-${annoCounter.current++}`
+          : baseId(oldId);
+        let nid = base;
+        if (taken.has(nid)) {
+          let k = 2;
+          while (taken.has(`${base}#${k}`)) k++;
+          nid = `${base}#${k}`;
+        }
+        taken.add(nid);
+        return nid;
+      };
+      const clones: Node[] = clip.map((src) => {
+        const newId = mkId(src.id);
+        idMap.set(src.id, newId);
+        const d = { ...(src.data as NodeData), nodeId: newId, groupId: gid };
+        return {
+          ...src,
+          id: newId,
+          position: { x: src.position.x + OFF, y: src.position.y + OFF },
+          // Fresh nodes are the new selection; clear any dragging artifacts.
+          selected: true,
+          dragging: false,
+          data: d,
+        } as Node;
+      });
+      const next = nds.map((n) => (n.selected ? { ...n, selected: false } : n)).concat(clones);
+      // Recreate edges that ran BETWEEN copied nodes (both endpoints cloned).
+      setEdges((eds) => {
+        const within = eds.filter((e) => idMap.has(e.source) && idMap.has(e.target));
+        if (within.length === 0) { scheduleSave(next, eds); return eds; }
+        const add: Edge[] = within.map((e) => {
+          const s = idMap.get(e.source)!, t = idMap.get(e.target)!;
+          return {
+            ...e,
+            id: `e-${s}-${e.sourceHandle ?? ""}-${t}-${e.targetHandle ?? ""}-${Date.now().toString(36)}`,
+            source: s,
+            target: t,
+            selected: false,
+          } as Edge;
+        });
+        const e2 = [...eds, ...add];
+        scheduleSave(next, e2);
+        return e2;
+      });
+      return next;
+    });
+  }, [setNodes, setEdges, scheduleSave]);
+
   const onEdgeContextMenu = useCallback((e: React.MouseEvent, edge: Edge) => {
     e.preventDefault();
     setMenu({ kind: "edge", id: edge.id, x: e.clientX, y: e.clientY });
@@ -752,42 +858,59 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasP
   // least one instance is on the canvas (but it stays draggable for duplicates).
   const placedIds = useMemo(() => new Set(nodes.map((n) => baseId(n.id))), [nodes]);
   const menuEdge = menu?.kind === "edge" ? edges.find((e) => e.id === menu.id) : undefined;
-  // The right-clicked node's annotation props, if it's a free-form annotation.
-  const menuAnno = menu?.kind === "node"
-    ? (nodes.find((n) => n.id === menu.id)?.data as Partial<AnnotationNodeData> | undefined)?.annotation
+
+  // --- Right-side EDIT PANEL state (driven by the SELECTION, not a menu) -----
+  // The node options that used to live in the floating context menu now live in
+  // a docked panel. Everything below is derived from `selectedIds` (the live
+  // ReactFlow selection). Edges keep their own floating menu.
+  // `panelPrimaryId` = the single node the panel's per-node controls (annotation,
+  // scale, change-type, rotate) act on — the first selected node.
+  const panelPrimaryId = selectedIds[0] as string | undefined;
+  const panelPrimaryData = panelPrimaryId
+    ? (nodes.find((n) => n.id === panelPrimaryId)?.data as NodeData | undefined)
     : undefined;
-  // Style controls operate on the whole selection IF the right-clicked node is
-  // part of a 2+ selection; otherwise just that node.
-  const styleTargets =
-    menu?.kind === "node" && selectedIds.length > 1 && selectedIds.includes(menu.id)
-      ? selectedIds
-      : menu?.kind === "node"
-        ? [menu.id]
-        : [];
-  const menuNodeData = menu?.kind === "node" ? (nodes.find((n) => n.id === menu.id)?.data as NodeData | undefined) : undefined;
-  // Grouping menu state. `isGroup`: the right-clicked node already belongs to a
-  // group → offer Ungroup. `canGroup`: 2+ nodes selected that aren't all already
-  // one group → offer Group. groupTargets = the ids Group will stamp.
-  // Agent Bricks offers Ungroup too (its own explode path), even though it's a
-  // single node with no groupId.
-  const menuIsAgentBricks = menuNodeData?.component.kind === "agent-bricks";
-  const isGroup = !!menuNodeData?.groupId || menuIsAgentBricks;
-  const groupTargets = styleTargets.length > 1 ? styleTargets : [];
+  // The selected node's annotation props, if it's a free-form annotation (single).
+  const panelAnno = selectedIds.length === 1
+    ? (panelPrimaryData as Partial<AnnotationNodeData> | undefined)?.annotation
+    : undefined;
+  // Style controls operate on every selected node at once.
+  const styleTargets = selectedIds;
+  // Grouping state. `isGroup`: the selected node already belongs to a group →
+  // offer Ungroup. `canGroup`: 2+ nodes selected that aren't all already one
+  // group → offer Group. groupTargets = the ids Group will stamp. Agent Bricks
+  // offers Ungroup too (its own explode path), even though it's a single node.
+  const panelIsAgentBricks = selectedIds.length === 1 && panelPrimaryData?.component.kind === "agent-bricks";
+  const groupTargets = selectedIds.length > 1 ? selectedIds : [];
   const groupIdsInSel = new Set(groupTargets.map((id) => (nodes.find((n) => n.id === id)?.data as NodeData | undefined)?.groupId));
+  // The whole multi-selection is exactly one existing group (every member shares
+  // one defined groupId) → offer Ungroup, not Group.
+  const selIsOneGroup = groupTargets.length > 1 && groupIdsInSel.size === 1 && !groupIdsInSel.has(undefined);
+  // `isGroup` (offer Ungroup): a single grouped node, the whole selection being
+  // one group, or an Agent Bricks composite (its own explode path).
+  const isGroup =
+    (selectedIds.length === 1 && !!panelPrimaryData?.groupId) || selIsOneGroup || !!panelIsAgentBricks;
   // Offer Group unless the selection is already exactly one existing group.
-  const canGroup = groupTargets.length > 1 && !(groupIdsInSel.size === 1 && !groupIdsInSel.has(undefined));
-  // The right-clicked node's style fields — drives the controls' current values
-  // and is what "Copy style" captures.
-  const menuNodeStyle: StylePatch = {
-    opacity: menuNodeData?.opacity,
-    fillColor: menuNodeData?.fillColor,
-    fontColor: menuNodeData?.fontColor,
-    borderWidth: menuNodeData?.borderWidth,
-    borderStyle: menuNodeData?.borderStyle,
-    borderColor: menuNodeData?.borderColor,
-    borderRadius: menuNodeData?.borderRadius,
-    shadow: menuNodeData?.shadow,
+  const canGroup = groupTargets.length > 1 && !selIsOneGroup;
+  // The (primary) selected node's style fields — drives the controls' current
+  // values and is what "Copy style" captures.
+  const panelNodeStyle: StylePatch = {
+    opacity: panelPrimaryData?.opacity,
+    fillColor: panelPrimaryData?.fillColor,
+    fontColor: panelPrimaryData?.fontColor,
+    borderWidth: panelPrimaryData?.borderWidth,
+    borderStyle: panelPrimaryData?.borderStyle,
+    borderColor: panelPrimaryData?.borderColor,
+    borderRadius: panelPrimaryData?.borderRadius,
+    shadow: panelPrimaryData?.shadow,
   };
+  // Clear the live ReactFlow selection (closes the panel). Used by the panel's
+  // X, the Escape key, and the pane click.
+  const clearSelection = useCallback(() => {
+    setNodes((nds) => nds.some((n) => n.selected) ? nds.map((n) => (n.selected ? { ...n, selected: false } : n)) : nds);
+  }, [setNodes]);
+  // Keep the window keydown effect's handlers pointed at the live callbacks
+  // (the effect binds once per editMode; refs let it reach the current closures).
+  editKeyHandlersRef.current = { copySelection, pasteClipboard, clearSelection };
 
   return (
     <EditModeContext.Provider value={editMode}>
@@ -902,7 +1025,7 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasP
                 <ImageIcon className="h-3.5 w-3.5" /> Logos {schema.enableTrademarkLogos ? "on" : "off"}
               </button>
               <div className="mx-0.5 h-5 w-px bg-border" />
-              <span className="px-1.5 text-[10.5px] text-muted-foreground">Right-click a block or line</span>
+              <span className="px-1.5 text-[10.5px] text-muted-foreground">Select a block · right-click a line</span>
             </>
           )}
         </div>
@@ -934,20 +1057,18 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasP
           onPaneClick={() => { setSelectedId(null); setMenu(null); }}
           onEdgeContextMenu={onEdgeContextMenu}
           // Clicking a grouped node selects the whole group → they drag together.
-          onNodeClick={(_, node) => {
+          // A SHIFT click (multi-select add/remove) must NOT group-select, so the
+          // user can shift-add/remove individual members; only a plain click does.
+          onNodeClick={(e, node) => {
+            if (e.shiftKey) return;
             const gid = (node.data as NodeData | undefined)?.groupId;
             if (gid) selectGroupRef.current(gid);
           }}
-          // Right-click on a multi-selection: ReactFlow's selection overlay
-          // swallows the per-node contextmenu, so open the menu here.
-          onSelectionContextMenu={(e, sel) => {
-            e.preventDefault();
-            setMenu({ kind: "node", id: sel[0]?.id ?? "", x: e.clientX, y: e.clientY });
-          }}
-          onNodeContextMenu={(e, node) => {
-            e.preventDefault();
-            setMenu({ kind: "node", id: node.id, x: e.clientX, y: e.clientY });
-          }}
+          // Nodes no longer open a floating menu — selection drives the docked
+          // edit panel. We still suppress the browser context menu on a node /
+          // selection so a right-click there doesn't pop the native menu.
+          onSelectionContextMenu={(e) => e.preventDefault()}
+          onNodeContextMenu={(e) => e.preventDefault()}
           onSelectionChange={onSelectionChange}
           onMoveStart={() => setMenu(null)}
           nodeOrigin={[0.5, 0.5]}
@@ -957,6 +1078,11 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasP
           selectionOnDrag
           panOnDrag={[1, 2]}
           selectNodesOnDrag={false}
+          // Shift = additive multi-select: shift-click toggles a node in/out of
+          // the selection, shift-drag lassos ADD to the current selection. (No
+          // selectionKeyCode override — keeping default so a plain drag still
+          // lassos thanks to selectionOnDrag.)
+          multiSelectionKeyCode={["Shift"]}
           fitView
           fitViewOptions={{ padding: 0.2 }}
           minZoom={0.3}
@@ -975,41 +1101,18 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasP
           <Controls className="!bg-background !border-border !shadow-sm [&>button]:!bg-background [&>button]:!border-border [&>button]:!text-foreground" showInteractive={false} />
         </ReactFlow>
 
-        {/* Right-click context menus (node / edge) */}
-        {menu && editMode && (
+        {/* Floating context menu — EDGES ONLY now (nodes use the docked panel). */}
+        {menu && menu.kind === "edge" && editMode && (
           <ContextMenu
             menu={menu}
             edge={menuEdge}
-            annotation={menuAnno}
-            nodeScale={(nodes.find((n) => n.id === menu.id)?.data as NodeData | undefined)?.scale ?? 1}
             onClose={() => setMenu(null)}
-            onRotate={() => { rotateNode(menu.id); setMenu(null); }}
-            onRemoveNode={() => { (styleTargets.length > 1 ? styleTargets : [menu.id]).forEach(removeNode); setMenu(null); }}
-            onChangeType={() => { setPickingFor(menu.id); setSelectedId(null); setMenu(null); }}
-            onSetScale={(s) => setNodeScale(menu.id, s)}
             onToggleFlow={() => toggleEdgeFlow(menu.id)}
             onToggleDashed={() => toggleEdgeDashed(menu.id)}
             onSetShape={(s) => setEdgeShape(menu.id, s)}
             onSetFlowStyle={(s) => setEdgeFlowStyle(menu.id, s)}
             onSetEdgeLabel={(label) => { setEdgeLabel(menu.id, label); setMenu(null); }}
             onRemoveEdge={() => { removeEdge(menu.id); setMenu(null); }}
-            onAnno={(patch) => onAnnotate(menu.id, patch)}
-            onPickLogo={() => { setLogoPickerFor(menu.id); setMenu(null); }}
-            onSetImageUrl={() => {
-              const cur = menuAnno?.src ?? "";
-              const url = window.prompt("Image URL:", cur);
-              if (url !== null) onAnnotate(menu.id, { src: url.trim() });
-              setMenu(null);
-            }}
-            style={menuNodeStyle}
-            selectionCount={styleTargets.length}
-            onStyle={(patch) => styleNodes(styleTargets, patch)}
-            onCopyStyle={() => { setCopiedStyle(menuNodeStyle); setMenu(null); }}
-            isGroup={isGroup}
-            canGroup={canGroup}
-            onGroup={() => { groupNodes(groupTargets); setMenu(null); }}
-            onUngroup={() => { if (menuIsAgentBricks) explodeAgentBricks(menu.id); else ungroupNode(menu.id); setMenu(null); }}
-            onZ={(dir) => { setNodeZ(styleTargets.length ? styleTargets : [menu.id], dir); setMenu(null); }}
           />
         )}
 
@@ -1035,7 +1138,39 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasP
         )}
       </div>
 
-      {selected && (
+      {/* EDIT MODE: the docked right-side panel — driven purely by the node
+          selection (single, multi, annotation, or group). Replaces the old
+          floating node context menu. */}
+      {editMode && selectedIds.length > 0 && panelPrimaryId && (
+        <EditPanel
+          selectionCount={selectedIds.length}
+          annotation={panelAnno}
+          nodeScale={panelPrimaryData?.scale ?? 1}
+          style={panelNodeStyle}
+          isGroup={isGroup}
+          canGroup={canGroup}
+          isAgentBricks={!!panelIsAgentBricks}
+          onClose={clearSelection}
+          onRotate={() => rotateNode(panelPrimaryId)}
+          onRemove={() => { const ids = [...selectedIds]; clearSelection(); ids.forEach(removeNode); }}
+          onChangeType={() => { setPickingFor(panelPrimaryId); clearSelection(); }}
+          onSetScale={(s) => setNodeScale(panelPrimaryId, s)}
+          onAnno={(patch) => onAnnotate(panelPrimaryId, patch)}
+          onPickLogo={() => setLogoPickerFor(panelPrimaryId)}
+          onSetImageUrl={() => {
+            const url = window.prompt("Image URL:", panelAnno?.src ?? "");
+            if (url !== null) onAnnotate(panelPrimaryId, { src: url.trim() });
+          }}
+          onStyle={(patch) => styleNodes(styleTargets, patch)}
+          onCopyStyle={() => setCopiedStyle(panelNodeStyle)}
+          onGroup={() => groupNodes(groupTargets)}
+          onUngroup={() => { if (panelIsAgentBricks) explodeAgentBricks(panelPrimaryId); else ungroupNode(panelPrimaryId); }}
+          onZ={(dir) => setNodeZ(styleTargets, dir)}
+        />
+      )}
+
+      {/* VIEW MODE: the read-only detail panel (description + deep link). */}
+      {!editMode && selected && (
         <DetailPanel
           component={selected.component}
           bandLabel={BAND_META[selected.bandId].label}
