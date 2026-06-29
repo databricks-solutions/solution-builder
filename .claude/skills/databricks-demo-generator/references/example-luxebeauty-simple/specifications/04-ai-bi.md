@@ -135,14 +135,12 @@ widgetHeaderAlignment: LEFT
 
 | Name | Source | Powers |
 |---|---|---|
-| `ds_daily` | `SELECT date, region, category, order_count, return_count, revenue_usd, returns_usd FROM gold_daily_summary` | 4 KPI counters + category donut + weekly-orders area chart |
-| `ds_returns` | `SELECT return_id, return_date, country, city, customer_lat, customer_lng, region, product_name, category, lot_id, facility, is_bad_lot, CASE WHEN is_bad_lot THEN 'Affected lot' ELSE 'Everyday returns' END AS source, return_reason, customer_comment, anger_score, CASE WHEN anger_score >= 0.9 THEN '3 - Very angry' WHEN anger_score >= 0.5 THEN '2 - Angry' WHEN anger_score >= 0.2 THEN '1 - Neutral' ELSE '0 - Satisfied' END AS sentiment, refund_amount_usd FROM gold_returns` | Bubble map, refunds-by-country bar, affected-vs-everyday split bars (country + reasons), sentiment bar, city table, comments table |
-| `ds_forecast` | `WITH original AS (SELECT DATE_TRUNC('WEEK', date) AS week, SUM(returns_usd) AS refunds FROM gold_daily_summary WHERE DATE_TRUNC('WEEK', date) < DATE_TRUNC('WEEK', current_date()) AND date >= DATEADD(day, -180, current_date()) GROUP BY 1), …, forecast AS (SELECT … FROM AI_FORECAST(TABLE(original), horizon => …, time_col => 'week', value_col => 'refunds', parameters => '{"global_floor": 0}')) SELECT actuals UNION ALL forecast UNION ALL <bridging row that repeats the last actual as the forecast seam>` | Forecast-line widget (full pattern in dashboard skill's `4-examples.md` — copy verbatim, swap names). The `parameters => '{"global_floor": 0}'` keeps the lower confidence band from dipping into negative refunds. The 180-day window is a forecast-input choice (AI_FORECAST needs a stable trailing history) — NOT a display filter — so the global Date filter doesn't touch this dataset. |
-| `ds_sankey_flow` | `WITH product_totals AS (SELECT product_name, COUNT(*) n FROM gold_returns GROUP BY 1), top_products AS (SELECT product_name FROM product_totals ORDER BY n DESC LIMIT 10), lot_totals AS (...) , top_lots AS (... LIMIT 15) SELECT category, CASE WHEN product_name IN top_products THEN product_name ELSE 'Other products' END AS product_name, CASE WHEN lot_id IN top_lots THEN lot_id ELSE 'Other lots' END AS lot_id, COUNT(*) returns FROM gold_returns r GROUP BY 1,2,3` | Sankey widget on the Investigation page — top-10 products + top-15 lots, long tails bucketed as "Other …" |
+| `ds_daily` | daily grain from `gold_daily_summary`: date, region, category, order/return counts, revenue + returns $ | 4 KPI counters + category donut + weekly-orders area chart |
+| `ds_returns` | row-level from `gold_returns`, plus a derived `source` ("Affected lot" / "Everyday returns" from `is_bad_lot`) and a 4-level `sentiment` bucket from `anger_score` (≥0.9 Very angry, ≥0.5 Angry, ≥0.2 Neutral, else Satisfied) | Bubble map, refunds-by-country bar, affected-vs-everyday split bars (country + reasons), sentiment bar, city table, comments table |
+| `ds_forecast` | weekly refund actuals + an `AI_FORECAST` band, over a 180-day trailing window, floored at 0 (no negative refunds) | Forecast-line widget. The 180-day window is forecast **input** shape, not display windowing — so the global Date filter must not touch this dataset. |
+| `ds_sankey_flow` | category → product → lot return counts from `gold_returns`, top-10 products + top-15 lots, long tails bucketed as "Other …" | Sankey widget on the Investigation page |
 
-**No hardcoded date clamps on `ds_daily` / `ds_returns` / `ds_sankey_flow`** — global Date Range filter is the single source of windowing. Adding a `WHERE date >= DATEADD(...)` inside the dataset SQL narrows what the filter can possibly select. `ds_forecast` is the one exception: its 180-day window is AI_FORECAST input shape, not display filtering.
-
-`ds_forecast` and `ds_sankey_flow` aren't shared with anything; the global filters skip them by design.
+**No date clamps inside `ds_daily` / `ds_returns` / `ds_sankey_flow`** — the global Date Range filter is the single source of windowing; a clamp in the dataset would narrow what the filter can select. `ds_forecast` is the exception: its 180-day window is forecast input, not display filtering.
 
 ### Global filters (left panel — `PAGE_TYPE_GLOBAL_FILTERS`)
 
@@ -153,9 +151,7 @@ widgetHeaderAlignment: LEFT
 | Category | `category` | ds_daily, ds_returns, ds_sankey_flow | All |
 | Source | `source` ("Affected lot" / "Everyday returns" — derived column on ds_returns) | ds_returns | All |
 
-`ds_forecast` is **unfiltered** by all four — `AI_FORECAST` needs a stable trailing window. Without a Date Range default, the dashboard renders the full data span on first load; the user narrows it interactively.
-
-**Important JSON wiring**: each filter widget on the `PAGE_TYPE_GLOBAL_FILTERS` page has an explicit `filterTargets[]` array listing the datasets it binds to. **Do NOT bind any filter to `ds_forecast`** — Lakeview's default is to bind to every dataset that contains a column with the matching name, which would silently drop `AI_FORECAST`'s history window every time the user selects a Date Range. Explicit `filterTargets: ["ds_daily", "ds_returns", "ds_sankey_flow"]` (and `["ds_returns"]` for the Source filter) is the safer pattern.
+`ds_forecast` must stay **unfiltered** by all four filters — `AI_FORECAST` needs its stable trailing window. (Binding the Date filter to it would silently truncate that window whenever the user picks a range — bind the filters only to the datasets listed above.)
 
 ### Page 1 — Operations (the glance)
 

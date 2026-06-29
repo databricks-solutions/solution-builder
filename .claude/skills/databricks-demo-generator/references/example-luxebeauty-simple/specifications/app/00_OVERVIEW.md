@@ -6,7 +6,7 @@
 
 ## Pitch
 
-A clean Returns Console where Claire's team triages refunds. KPI cards tick live as the queue moves, the dock assistant answers *"why so many returns?"* by streaming a Genie investigation into the conversation, and one featured-action click bulk-approves the ~250 affected-lot returns with a flat 10% goodwill coupon. Every action is traced in MLflow; every write lands in Lakebase under the same Unity Catalog governance as the lakehouse.
+A clean Returns Console where Claire's team triages refunds. KPI cards tick live as the queue moves, the dock assistant answers *"why so many returns?"* by streaming a Genie investigation into the conversation, and one featured-action click bulk-approves the ~1,500 affected-lot returns with a flat 10% goodwill coupon. Every action is traced in MLflow; every write lands in Lakebase under the same Unity Catalog governance as the lakehouse.
 
 ## Databricks capabilities mapped
 
@@ -87,17 +87,17 @@ Narrative landing — tells the story in 10s, plays it in 90s.
 
 **Featured action card:** *"Handle the bad-lot returns"* — one click triggers the full investigate → draft 10% goodwill → approve flow.
 
-**Activity feed:** Live tail of agent actions (*"Sent 10% goodwill apology to 250 customers"*, *"Approved 250 refunds for LOT-2026-0222"*). Auto-refreshes.
+**Activity feed:** Live tail of agent actions (*"Sent 10% goodwill apology to 1,500 customers"*, *"Approved 1,500 refunds for LOT-2026-0222"*). Auto-refreshes.
 
 ## Scripted demo flow (~2–3 min)
 
 Assistant supports a scripted chain via `config.assistantScript`. After each response, a "Suggested next" chip appears if trigger keywords are detected in the previous answer. Chips are convenience — Claire can always type freely.
 
 **Step 1 — "Why do I have so many returns?"**
-Always available. Agent calls `ask_data` → Genie streams the investigation: 3x spike → 3 SKUs → one lot → texture complaints → **quotes `gold_production_lots.incident_summary`** (homogenizer pressure, Lyon, released anyway). Suggests handling the affected customers.
+Always available. Agent calls `ask_data` → Genie streams the investigation: 3x spike → 3 SKUs → one lot → texture complaints → **quotes `raw_production_lots.incident_summary`** (homogenizer pressure, Lyon, released anyway). Suggests handling the affected customers.
 
-**Step 2 — "Handle these 250 customers."**
-Unlocks when *"lot"* / *"batch"* / *"customers"* appears in the previous answer. Agent calls `find_returns_for_lot` → reports the count (~250) and total refund (~$45K). Calls `create_coupon` once (10%). Drafts ONE goodwill email template. Shows the customer count, sample customers, total refund, and the draft → **stops and waits**.
+**Step 2 — "Handle these affected customers."**
+Unlocks when *"lot"* / *"batch"* / *"customers"* appears in the previous answer. Agent calls `find_returns_for_lot` → reports the count (~1,500) and total refund (~$90K). Calls `create_coupon` once (10%). Drafts ONE goodwill email template. Shows the customer count, sample customers, total refund, and the draft → **stops and waits**.
 
 **Step 3 — "Yes — send them and approve the refunds."**
 Unlocks when *"coupon"* / *"approve"* / *"send"* appears. `process_return_batch` runs one atomic UPDATE on Lakebase: personalized email per row, status → `approved`, `coupon_pct_applied = 10`, audit entry appended. Then emits `dataMutated`. On screen: the Pending KPI card visibly drops (250 → 0), the Approved card jumps (… → +250), affected-lot rows in the queue flip status and gain the `10%` Offer badge, and the country panel re-renders for the new Approved scope — all without Claire touching anything. **That live cascade is the story beat — confirm it works before demoing.**

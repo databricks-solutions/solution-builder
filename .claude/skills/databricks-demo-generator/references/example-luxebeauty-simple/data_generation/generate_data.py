@@ -659,7 +659,7 @@ for col, txt in {
 print("Building gold_daily_summary …")
 spark.sql(f"""
     CREATE OR REPLACE TABLE {CATALOG}.{SCHEMA}.gold_daily_summary
-    COMMENT 'Daily rollup per (date, region, category). Drives the dashboard trend line + KPI cards + the mv_returns metric view. Orders leg from silver_orders, returns leg from silver_returns, joined on the same (date, region, category) triple.'
+    COMMENT 'Daily rollup per (date, region, category). Drives the dashboard trend line + KPI cards (read directly — the simple demo has no metric view). Orders leg from silver_orders, returns leg from silver_returns, joined on the same (date, region, category) triple.'
     AS WITH orders_agg AS (
       SELECT CAST(order_date AS DATE) AS d, region, category,
              COUNT(DISTINCT order_id) AS order_count,

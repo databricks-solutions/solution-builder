@@ -39,7 +39,7 @@ If the app is included, Claire's team works the queue in the Returns Console: KP
 | Affected lot | (dynamic — `LOT-{YYYY}-{MMDD}` at runtime) |
 | Affected SKUs | SKU-1001, SKU-1002, SKU-1003 |
 | Return rate for affected products | ~30% vs 8% normal |
-| Affected customers | ~250 across the lot |
+| Affected customers | ~1,500 across the lot |
 
 ---
 
@@ -79,9 +79,9 @@ Genie walks the data: weekly returns trend → spots the 3x spike → finds the 
 
 **Open the LuxeBeauty Returns Console.**
 
-The operational app Claire's team uses every day. KPI cards show pending refunds at 3x normal, ~250 customers waiting on a decision. The returns queue is sortable + filterable; clicking a row opens a drawer with the customer, the lot, the refund amount, and approve/reject/escalate buttons.
+The operational app Claire's team uses every day. KPI cards show pending refunds at 3x normal, ~1,500 customers waiting on a decision. The returns queue is sortable + filterable; clicking a row opens a drawer with the customer, the lot, the refund amount, and approve/reject/escalate buttons.
 
-In the assistant dock at the bottom right, **Claire types:** `Why do I have so many returns?` — same question, this time a Genie-backed agent streams the answer into the conversation. Then **Claire clicks the featured action** `Handle the bad-lot refunds`. The agent identifies the ~250 affected customers, drafts an apology email template + a 10% goodwill coupon, and stops for approval. Claire approves. KPI cards tick live, the queue rows flip to "approved", the audit timeline records every action.
+In the assistant dock at the bottom right, **Claire types:** `Why do I have so many returns?` — same question, this time a Genie-backed agent streams the answer into the conversation. Then **Claire clicks the featured action** `Handle the bad-lot refunds`. The agent identifies the ~1,500 affected customers, drafts an apology email template + a 10% goodwill coupon, and stops for approval. Claire approves. KPI cards tick live, the queue rows flip to "approved", the audit timeline records every action.
 
 > *"This is **Databricks Apps + Lakebase** — a full-stack React + Node app, hosted on Databricks, with OAuth and resource bindings built in. The operational state — the queue, approvals, the audit trail — lives in **Lakebase**, a serverless Postgres under the same Unity Catalog governance as the lakehouse. The dashboard tables get synced into Lakebase so the queue reflects fresh data instantly."*
 >
