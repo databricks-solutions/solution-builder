@@ -33,6 +33,25 @@ every artefact (lot id, dates, KA docs) needs to match a recorded baseline.
 PDFs for the Knowledge Assistant are produced by the separate
 `src/documents/html_to_pdf.py` — run it after this script.
 
+This is a **worked example of the technique**, NOT a fill-in-the-blanks
+template. A real demo is almost always a different DOMAIN, schema, story, and
+table set — so you REWRITE this file for that demo rather than find-and-replace
+the LuxeBeauty bits. What carries over is the *shape*, not the content:
+  - The Spark-native idioms — spark.range + F.when + broadcast joins + Window +
+    F.element_at, no driver loops / no .collect() / no .cache(). Reuse these
+    regardless of domain.
+  - The "one load-bearing anomaly" structure — a baseline plus a concentrated,
+    explainable spike the demo investigates (here a bad production lot; yours
+    might be a fraud ring, a failing sensor, a churned segment).
+  - In the FULL build this script writes the RAW tables only; silver + gold are
+    the SDP pipeline's job (`src/pipeline/02_silver.sql` / `03_gold.sql`) — so
+    rewrite those alongside it. (Contrast the simple example, which has no SDP
+    and builds silver+gold in the data-gen script itself.)
+Everything domain-specific below — products, city anchors, incident text,
+seasonal curve, reasons/comments, row counts, the bad-lot mechanics — is the
+LuxeBeauty story and gets thrown out for another demo. Match the new tables to
+that demo's `specifications/01-lakeflow.md`.
+
 Aligned with `references/example-luxebeauty/specifications/01-lakeflow.md`.
 """
 
