@@ -172,8 +172,6 @@ export function RotatableCard({
   w,
   h,
   scale,
-  baseW,
-  baseH,
   editMode,
   selected,
   forceDots = false,
@@ -187,11 +185,9 @@ export function RotatableCard({
   w: number;
   h: number;
   scale: number;
-  /** Natural (un-resized) content size. When given, the content is laid out at
-   *  this size then uniformly scaled to fill the w×h box — so content always
-   *  fills the box proportionally (corner-resize OR Scale slider). Omit for
-   *  free-form nodes (annotations/text) that manage their own sizing; those
-   *  keep the legacy `--cs`=scale content transform. */
+  /** Natural (un-resized) content size. Accepted for callers' convenience but
+   *  no longer used for sizing — the box (w×h) drives the visible size and
+   *  `scale` (--cs) scales the inner content. */
   baseW?: number;
   baseH?: number;
   editMode: boolean;
@@ -217,14 +213,11 @@ export function RotatableCard({
   // selection box rotated, not the card).
   const cardW = w;
   const cardH = h;
-  // Fit mode (component/composite, baseW given): content renders at natural size
-  // × `scale` (the uniform content scale set by CORNER drag / Scale slider). The
-  // BOX (cardW×cardH) is independent — a SIDE drag grows/shrinks it WITHOUT
-  // rescaling the content (the content just sits inside the larger/smaller box).
-  // So: corner = scale element; side = resize container only. Legacy mode
-  // (annotations): content fills the box with its own --cs = scale.
-  const fitMode = typeof baseW === "number" && baseW > 0;
-  const fitFactor = scale || 1;
+  // The card box is w×h; the children fill it (border == box edges) so EVERY
+  // resize handle moves the visible box. `--cs` = scale scales the inner content
+  // (set by CORNER drag / Scale slider); a SIDE drag changes w/h only, so the
+  // box grows/shrinks while the content keeps its scale.
+  const contentScale = scale || 1;
   // The shell FILLS the ReactFlow node box (ReactFlow + NodeResizer own the
   // node's width/height — see schemaToFlow). Filling 100% keeps the selection
   // frame, the resizer, and the visual all the same size (no drift on resize).
@@ -241,7 +234,7 @@ export function RotatableCard({
   const minH = swapped90 ? 32 : 24;
   return (
     <div className="group relative h-full w-full" onContextMenu={onContext}>
-      {fitMode && onScale ? (
+      {onScale ? (
         <>
           {/* CORNER handles (locked aspect) → uniform scale of the element. */}
           <NodeResizer
@@ -291,9 +284,11 @@ export function RotatableCard({
         />
       )}
       {!hideHandles && <NodeHandles show={editMode && !selected} forceDots={forceDots} />}
-      {/* Card box (un-rotated card dims), rotated about the shell centre so its
-          border == the box edges. Inside, the content is rendered at NATURAL
-          size and scaled by fitFactor to fill the box (single scale source). */}
+      {/* Card box at the node's w×h (un-rotated), rotated about the shell centre
+          so its border == the box edges. The children (the bordered card +
+          content) FILL this box, so any resize handle moves the visible box.
+          `--cs` = scale lets the inner content scale (corner/slider) inside it;
+          a side drag changes w/h only → box grows, content keeps its scale. */}
       <div
         style={
           {
@@ -304,29 +299,11 @@ export function RotatableCard({
             height: cardH,
             transform: `translate(-50%, -50%) rotate(${quarter}deg)`,
             transformOrigin: "center center",
-            // Fit mode scales here; legacy mode lets children use --cs = scale.
-            ["--cs" as string]: fitMode ? 1 : scale,
-            overflow: "hidden",
+            ["--cs" as string]: contentScale,
           } as React.CSSProperties
         }
       >
-        {fitMode ? (
-          // Content at natural size × `scale`, anchored top-left. Corner/slider
-          // changes `scale` (and the box hugs it); a side drag changes the box
-          // only, leaving the content at this size.
-          <div
-            style={{
-              width: baseW,
-              height: baseH,
-              transform: `scale(${fitFactor})`,
-              transformOrigin: "top left",
-            }}
-          >
-            {children}
-          </div>
-        ) : (
-          children
-        )}
+        {children}
       </div>
     </div>
   );
