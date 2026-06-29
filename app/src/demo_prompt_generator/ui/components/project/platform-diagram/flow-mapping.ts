@@ -145,9 +145,22 @@ export function schemaToFlow(
     });
   }
 
+  // Heal handles on saved edges: a ported composite (lakeflow / lakeflow-genie)
+  // only has in-* ports + r/t/b/bl — NOT the plain sides t/r/b/l. Older edges
+  // saved with e.g. targetHandle "l" make ReactFlow fail to position them
+  // ("Couldn't create edge for handle id"), so the edge silently vanishes.
+  // Map any such invalid handle to a real one.
+  const kindOf = new Map(nodes.map((n) => [n.id, (n.data as NodeData | undefined)?.component?.kind]));
+  const ported = (id: string) => { const k = kindOf.get(id); return k === "lakeflow" || k === "lakeflow-genie"; };
+  const fixHandle = (id: string, h: string | null | undefined, end: "source" | "target") => {
+    if (!ported(id)) return h ?? undefined;
+    if (h && (h.startsWith("in-") || ["r", "t", "b", "bl"].includes(h))) return h;
+    return end === "target" ? "in-direct" : "r";
+  };
   const edges: Edge[] = schema.layout.edges
     .filter((e) => schema.layout.nodes[e.source] && schema.layout.nodes[e.target])
-    .map((e) => flowToEdge(e));
+    .map((e) => flowToEdge(e))
+    .map((e) => ({ ...e, sourceHandle: fixHandle(e.source, e.sourceHandle, "source"), targetHandle: fixHandle(e.target, e.targetHandle, "target") }));
 
   return { nodes, edges };
 }
