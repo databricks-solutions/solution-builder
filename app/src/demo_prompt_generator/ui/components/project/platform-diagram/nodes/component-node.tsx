@@ -87,8 +87,8 @@ export const ComponentNode = memo(function ComponentNode({ data, selected }: Nod
             <BrandMark iconKey={c.icon} label={c.label} bandColor={bandColor} allowTrademark={!!d.allowTrademark} className="h-5 w-5" />
           </span>
         )}
-        <span className="min-w-0 flex-1">
-          <span className={`flex items-center gap-1.5 text-[13px] font-semibold leading-tight ${d.fontColor ? "" : "text-foreground"}`} style={d.fontColor ? { color: d.fontColor } : undefined}>
+        <span className="block min-w-0 flex-1">
+          <span className={`flex min-w-0 items-center gap-1.5 text-[13px] font-semibold leading-tight ${d.fontColor ? "" : "text-foreground"}`} style={d.fontColor ? { color: d.fontColor } : undefined}>
             {editing !== null ? (
               <input
                 autoFocus

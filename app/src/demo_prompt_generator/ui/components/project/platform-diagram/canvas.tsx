@@ -206,7 +206,12 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasP
   // browser's own copy/paste in a text field. copySelection/pasteClipboard/
   // clearSelection are read via refs so this effect doesn't re-bind on every
   // render (and isn't subject to use-before-define on those callbacks).
-  const editKeyHandlersRef = useRef({ copySelection: () => {}, pasteClipboard: () => {}, clearSelection: () => {} });
+  const editKeyHandlersRef = useRef({
+    copySelection: () => {},
+    pasteClipboard: () => {},
+    clearSelection: () => {},
+    nudge: (_dx: number, _dy: number) => {},
+  });
   useEffect(() => {
     if (!editMode) return;
     const isTyping = () => {
@@ -215,9 +220,22 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasP
       const tag = el.tagName;
       return tag === "INPUT" || tag === "TEXTAREA" || el.isContentEditable;
     };
+    const ARROWS: Record<string, [number, number]> = {
+      ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0],
+    };
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") { editKeyHandlersRef.current.clearSelection(); return; }
-      if (!(e.metaKey || e.ctrlKey) || isTyping()) return;
+      if (isTyping()) return;
+      // Arrow keys nudge the selection by EXACTLY 1px (no grid snap), for fine
+      // positioning. Shift = a coarser 10px step.
+      if (ARROWS[e.key]) {
+        e.preventDefault();
+        const [ux, uy] = ARROWS[e.key];
+        const step = e.shiftKey ? 10 : 1;
+        editKeyHandlersRef.current.nudge(ux * step, uy * step);
+        return;
+      }
+      if (!(e.metaKey || e.ctrlKey)) return;
       const k = e.key.toLowerCase();
       if (k === "c") { editKeyHandlersRef.current.copySelection(); }
       else if (k === "v") { e.preventDefault(); editKeyHandlersRef.current.pasteClipboard(); }
@@ -908,9 +926,19 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasP
   const clearSelection = useCallback(() => {
     setNodes((nds) => nds.some((n) => n.selected) ? nds.map((n) => (n.selected ? { ...n, selected: false } : n)) : nds);
   }, [setNodes]);
+  // Arrow-key nudge: move the selected node(s) by an exact px delta (no grid
+  // snap — direct position write bypasses snapGrid, which only applies to drag).
+  const nudge = useCallback((dx: number, dy: number) => {
+    setNodes((nds) => {
+      if (!nds.some((n) => n.selected)) return nds;
+      const next = nds.map((n) => (n.selected ? { ...n, position: { x: n.position.x + dx, y: n.position.y + dy } } : n));
+      scheduleSave(next, edges);
+      return next;
+    });
+  }, [setNodes, scheduleSave, edges]);
   // Keep the window keydown effect's handlers pointed at the live callbacks
   // (the effect binds once per editMode; refs let it reach the current closures).
-  editKeyHandlersRef.current = { copySelection, pasteClipboard, clearSelection };
+  editKeyHandlersRef.current = { copySelection, pasteClipboard, clearSelection, nudge };
 
   return (
     <EditModeContext.Provider value={editMode}>
