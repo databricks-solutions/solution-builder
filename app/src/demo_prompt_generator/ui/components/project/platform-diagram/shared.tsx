@@ -5,7 +5,7 @@
  * and the drop-target context.
  */
 import { createContext, type CSSProperties } from "react";
-import { Handle, Position, NodeResizer, NodeResizeControl } from "@xyflow/react";
+import { Handle, Position, NodeResizer } from "@xyflow/react";
 import { type PlatformComponent, type BandId, type FlowStyle } from "@/lib/platform-architecture";
 
 export type { FlowStyle };
@@ -159,51 +159,6 @@ export function nodeFootprint(
   return q === 90 || q === 270 ? { w: h, h: w } : { w, h };
 }
 
-/** A directional resize grip on one side of a node — a ↔ (left/right) or ↕
- *  (top/bottom) pill, matching the edge elbow handle. Wraps NodeResizeControl
- *  so the drag mechanics + min sizes come from ReactFlow. */
-function SideResizeGrip({
-  position,
-  minW,
-  minH,
-  onResize,
-}: {
-  position: "top" | "right" | "bottom" | "left";
-  minW: number;
-  minH: number;
-  onResize: (w: number, h: number) => void;
-}) {
-  const horizontal = position === "left" || position === "right";
-  const w = horizontal ? 18 : 12;
-  const h = horizontal ? 12 : 18;
-  return (
-    <NodeResizeControl
-      position={position}
-      minWidth={minW}
-      minHeight={minH}
-      onResize={(_, p) => onResize(p.width, p.height)}
-      onResizeEnd={(_, p) => { const snap = (v: number) => Math.round(v / 16) * 16; onResize(snap(p.width), snap(p.height)); }}
-      // The `.handle.<side>` CSS already anchors the control at the edge midpoint
-      // and applies `translate:-50% -50%`, so the control box (sized to our pill)
-      // is centred on the edge. We only neutralise the default 5px square's
-      // background/border and let the pill itself BE the box — no extra transform.
-      style={{ background: "transparent", border: "none", width: w, height: h }}
-    >
-      <span
-        className="grid h-full w-full place-items-center rounded-[3px] border border-primary bg-background shadow-sm"
-        style={{ cursor: horizontal ? "ew-resize" : "ns-resize" }}
-      >
-        {/* `block` kills the inline-SVG baseline descender gap (was pushing the
-            arrow a couple px off-centre); square viewBox keeps the 90° rotation
-            centred about (0,0). */}
-        <svg viewBox="-8 -8 16 16" className={`block h-2.5 w-2.5 ${horizontal ? "" : "rotate-90"}`}>
-          <path d="M-4 0 L-1.5 -2.2 M-4 0 L-1.5 2.2 M4 0 L1.5 -2.2 M4 0 L1.5 2.2 M-4 0 H4" stroke="var(--primary)" strokeWidth={1.6} fill="none" strokeLinecap="round" />
-        </svg>
-      </span>
-    </NodeResizeControl>
-  );
-}
-
 /** Shell that gives a node TRUE rotation + resize:
  *   - outer box = the on-canvas footprint (W/H swapped for 90/270) so handles,
  *     snap, and the resizer use the real rotated bounds;
@@ -258,9 +213,12 @@ export function RotatableCard({
   // rotated node whose footprint-width (= card height ≈56) is below minWidth=96
   // would get force-bumped on the first drag → the "vertical drag shrinks the
   // horizontal for no reason" bug. So swap the mins to match the footprint.
+  // Small mins so any tile/logo can be shrunk right down (the old 96px floor
+  // blocked scaling logos/boxes smaller). Swapped for 90/270 so a rotated
+  // node's footprint axes get the right floor.
   const swapped90 = quarter === 90 || quarter === 270;
-  const minW = swapped90 ? 40 : 96;
-  const minH = swapped90 ? 96 : 40;
+  const minW = swapped90 ? 24 : 32;
+  const minH = swapped90 ? 32 : 24;
   return (
     <div className="group relative h-full w-full" onContextMenu={onContext}>
       <NodeResizer
@@ -280,16 +238,6 @@ export function RotatableCard({
         lineClassName="!border-primary/50"
         handleClassName="!bg-primary !border-2 !border-background !w-3.5 !h-3.5 !rounded-sm !shadow-md"
       />
-      {/* Directional ↔ / ↕ resize grips on each side — easier to grab than the
-          corner squares for one-axis resizing. */}
-      {editMode && selected && (
-        <>
-          <SideResizeGrip position="left" minW={minW} minH={minH} onResize={onResize} />
-          <SideResizeGrip position="right" minW={minW} minH={minH} onResize={onResize} />
-          <SideResizeGrip position="top" minW={minW} minH={minH} onResize={onResize} />
-          <SideResizeGrip position="bottom" minW={minW} minH={minH} onResize={onResize} />
-        </>
-      )}
       {!hideHandles && <NodeHandles show={editMode && !selected} forceDots={forceDots} />}
       {/* Card sized to EXACTLY the (un-rotated) card box and rotated about the
           shell center — fills the footprint so its border == the box edges.
