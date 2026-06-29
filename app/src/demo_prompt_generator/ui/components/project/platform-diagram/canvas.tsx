@@ -522,6 +522,42 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasP
   }, [setNodes, scheduleSave, edges]);
   styleNodesRef.current = styleNodes; // for paste-style mode (stable onSelect)
 
+  // --- Grouping: just a shared groupId tag on the members (no container) ----
+  // Group: stamp a fresh groupId on the selected nodes. Selecting any member
+  // then selects the whole group (see selectGroup) so they move together.
+  const groupCounter = useRef(0);
+  const groupNodes = useCallback((ids: string[]) => {
+    if (ids.length < 2) return;
+    const gid = `group-${Date.now().toString(36)}-${groupCounter.current++}`;
+    const idset = new Set(ids);
+    setNodes((nds) => {
+      const next = nds.map((n) => (idset.has(n.id) ? { ...n, data: { ...n.data, groupId: gid } } : n));
+      scheduleSave(next, edges);
+      return next;
+    });
+  }, [setNodes, scheduleSave, edges]);
+
+  // Ungroup: clear groupId from every member of the clicked node's group.
+  const ungroupNode = useCallback((id: string) => {
+    setNodes((nds) => {
+      const gid = (nds.find((n) => n.id === id)?.data as NodeData | undefined)?.groupId;
+      if (!gid) return nds;
+      const next = nds.map((n) =>
+        (n.data as NodeData).groupId === gid ? { ...n, data: { ...n.data, groupId: undefined } } : n,
+      );
+      scheduleSave(next, edges);
+      return next;
+    });
+  }, [setNodes, scheduleSave, edges]);
+
+  // Selecting one group member selects the whole group (so a drag moves them
+  // together). Called from onNodeClick. Refs so the stable handler can reach it.
+  const selectGroup = useCallback((gid: string) => {
+    setNodes((nds) => nds.map((n) => ({ ...n, selected: (n.data as NodeData).groupId === gid })));
+  }, [setNodes]);
+  const selectGroupRef = useRef(selectGroup);
+  selectGroupRef.current = selectGroup;
+
   // Bring a node to front / send to back by setting its zIndex just past the
   // current extreme. Works for a single node or a whole selection.
   const setNodeZ = useCallback((ids: string[], dir: "front" | "back") => {
@@ -645,6 +681,14 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasP
         ? [menu.id]
         : [];
   const menuNodeData = menu?.kind === "node" ? (nodes.find((n) => n.id === menu.id)?.data as NodeData | undefined) : undefined;
+  // Grouping menu state. `isGroup`: the right-clicked node already belongs to a
+  // group → offer Ungroup. `canGroup`: 2+ nodes selected that aren't all already
+  // one group → offer Group. groupTargets = the ids Group will stamp.
+  const isGroup = !!menuNodeData?.groupId;
+  const groupTargets = styleTargets.length > 1 ? styleTargets : [];
+  const groupIdsInSel = new Set(groupTargets.map((id) => (nodes.find((n) => n.id === id)?.data as NodeData | undefined)?.groupId));
+  // Offer Group unless the selection is already exactly one existing group.
+  const canGroup = groupTargets.length > 1 && !(groupIdsInSel.size === 1 && !groupIdsInSel.has(undefined));
   // The right-clicked node's style fields — drives the controls' current values
   // and is what "Copy style" captures.
   const menuNodeStyle: StylePatch = {
@@ -802,6 +846,21 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasP
           onConnect={onConnect}
           onPaneClick={() => { setSelectedId(null); setMenu(null); }}
           onEdgeContextMenu={onEdgeContextMenu}
+          // Clicking a grouped node selects the whole group → they drag together.
+          onNodeClick={(_, node) => {
+            const gid = (node.data as NodeData | undefined)?.groupId;
+            if (gid) selectGroupRef.current(gid);
+          }}
+          // Right-click on a multi-selection: ReactFlow's selection overlay
+          // swallows the per-node contextmenu, so open the menu here.
+          onSelectionContextMenu={(e, sel) => {
+            e.preventDefault();
+            setMenu({ kind: "node", id: sel[0]?.id ?? "", x: e.clientX, y: e.clientY });
+          }}
+          onNodeContextMenu={(e, node) => {
+            e.preventDefault();
+            setMenu({ kind: "node", id: node.id, x: e.clientX, y: e.clientY });
+          }}
           onSelectionChange={onSelectionChange}
           onMoveStart={() => setMenu(null)}
           nodeOrigin={[0.5, 0.5]}
@@ -859,6 +918,10 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasP
             selectionCount={styleTargets.length}
             onStyle={(patch) => styleNodes(styleTargets, patch)}
             onCopyStyle={() => { setCopiedStyle(menuNodeStyle); setMenu(null); }}
+            isGroup={isGroup}
+            canGroup={canGroup}
+            onGroup={() => { groupNodes(groupTargets); setMenu(null); }}
+            onUngroup={() => { ungroupNode(menu.id); setMenu(null); }}
             onZ={(dir) => { setNodeZ(styleTargets.length ? styleTargets : [menu.id], dir); setMenu(null); }}
           />
         )}

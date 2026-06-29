@@ -52,6 +52,9 @@ export interface NodeData {
   /** Whether real third-party trademarked logos may be shown (schema-level
    *  opt-in). When false, gated vendor logos render as a text badge. */
   allowTrademark?: boolean;
+  /** Group membership — a shared id on every member of a group. Selecting one
+   *  member selects the whole group so they move together. */
+  groupId?: string;
   /** For canvas-added sources ("+ more data sources"): the logo-catalog key,
    *  persisted so the source round-trips without a catalog entry. */
   sourceKey?: string;

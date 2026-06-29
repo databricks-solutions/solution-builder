@@ -162,9 +162,10 @@ export interface NodePosition {
    *  logo-catalog key + icon; label/ingest defaults come from the unified
    *  logo-catalog.json. Present only for such nodes. */
   source?: { key: string; icon: IconKey };
-  /** Id of the group this node belongs to (see PlatformLayout.groups). When
-   *  set, x/y are RELATIVE to the group container's top-left. */
-  parentId?: string;
+  /** Group membership — a shared id stamped on every member of a group
+   *  (right-click → Group). Selecting one member selects the whole group so
+   *  they move together. Cleared on Ungroup. No container node — just a tag. */
+  groupId?: string;
 }
 
 /** A free-form canvas annotation — not a Databricks catalog component. One node
@@ -213,18 +214,6 @@ export interface PlatformEdge {
   label?: string;
 }
 
-/** A user-created group: a labelled container that encloses member nodes and
- *  moves them as a unit. Members carry `parentId` = this group's id. */
-export interface NodeGroup {
-  id: string;          // "group-<n>"
-  label?: string;
-  x: number;           // top-left (flow coords) of the container
-  y: number;
-  w: number;
-  h: number;
-  z?: number;
-}
-
 export interface PlatformLayout {
   /** Saved node positions, keyed by component id. Missing → auto-laid out. */
   nodes: Record<string, NodePosition>;
@@ -232,8 +221,6 @@ export interface PlatformLayout {
   edges: PlatformEdge[];
   /** Component ids removed from the canvas (vs the catalog defaults). */
   hidden: string[];
-  /** User-created grouping containers. */
-  groups?: NodeGroup[];
 }
 
 // -- The override shape the AGENT writes into architecture.md ----------------

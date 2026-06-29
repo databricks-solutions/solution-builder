@@ -31,6 +31,8 @@ import {
   Wand2,
   Tag,
   Copy,
+  Group,
+  Ungroup,
 } from "lucide-react";
 
 export type CtxMenu =
@@ -253,6 +255,10 @@ export const ContextMenu = memo(function ContextMenu({
   selectionCount = 1,
   onStyle,
   onCopyStyle,
+  isGroup = false,
+  canGroup = false,
+  onGroup,
+  onUngroup,
   onZ,
 }: {
   menu: NonNullable<CtxMenu>;
@@ -282,6 +288,12 @@ export const ContextMenu = memo(function ContextMenu({
   onStyle: (patch: StylePatch) => void;
   /** Copy this node's style, then paste it onto others by clicking them. */
   onCopyStyle: () => void;
+  /** The right-clicked node is part of a group → offer Ungroup. */
+  isGroup?: boolean;
+  /** The current selection (2+) can be grouped → offer Group. */
+  canGroup?: boolean;
+  onGroup?: () => void;
+  onUngroup?: () => void;
   onZ: (dir: "front" | "back") => void;
 }) {
   const ed = edge?.data as EdgeData | undefined;
@@ -328,6 +340,13 @@ export const ContextMenu = memo(function ContextMenu({
              given option doesn't fit just ignore it. */
           <>
             <div className="px-2 py-1 text-[11px] font-semibold text-muted-foreground">{selectionCount} selected</div>
+            {(canGroup || isGroup) && (
+              <>
+                {canGroup && <Item icon={<Group className="h-3.5 w-3.5" />} label="Group" onClick={() => onGroup?.()} />}
+                {isGroup && <Item icon={<Ungroup className="h-3.5 w-3.5" />} label="Ungroup" onClick={() => onUngroup?.()} />}
+                <div className="my-1 border-t border-border/60" />
+              </>
+            )}
             <StyleControls style={style} onStyle={onStyle} />
             <div className="my-1 border-t border-border/60" />
             {ZItems}
@@ -346,6 +365,7 @@ export const ContextMenu = memo(function ContextMenu({
         ) : menu.kind === "node" ? (
           <>
             <Item icon={<Replace className="h-3.5 w-3.5" />} label="Change type…" onClick={onChangeType} />
+            {isGroup && <Item icon={<Ungroup className="h-3.5 w-3.5" />} label="Ungroup" onClick={() => onUngroup?.()} />}
             <Item icon={<RotateCw className="h-3.5 w-3.5" />} label="Rotate 90°" onClick={onRotate} />
             {/* Content scale slider — shrink/grow the icon+label inside the box
                 (the box itself is unchanged; content is cropped if too big). */}
