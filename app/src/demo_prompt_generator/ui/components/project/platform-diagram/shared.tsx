@@ -217,15 +217,15 @@ export function RotatableCard({
   // selection box rotated, not the card).
   const cardW = w;
   const cardH = h;
-  // Two resize behaviours for a fit-mode node (baseW given):
-  //   • CORNER drag (locked aspect) sets `scale` → content + box grow together.
-  //   • SIDE drag stretches w/h independently → the BOX grows, content stays at
-  //     its scaled size (natural × scale), centred, leaving empty space.
-  // So content is laid out at natural size, scaled UNIFORMLY by `scale`, and
-  // centred in the cardW×cardH box. Legacy mode (annotations, no baseW): content
-  // fills the box and uses its own --cs = scale transform.
+  // Fit mode (component/composite, baseW given): the BOX size (w×h) is the only
+  // size source. Content is laid out at its natural size and stretched to fill
+  // the box (width → fitFactor; height → vertical stretch), so resizing the box
+  // by ANY handle (corner = proportional, side = one axis) makes the tile that
+  // exact size — content scales with it, no empty space, border at the edges.
+  // Legacy mode (annotations): content fills the box with its own --cs = scale.
   const fitMode = typeof baseW === "number" && baseW > 0;
-  const fitFactor = scale || 1;
+  const fitX = fitMode && baseW ? cardW / baseW : 1;
+  const fitY = fitMode && baseH ? cardH / baseH : 1;
   // The shell FILLS the ReactFlow node box (ReactFlow + NodeResizer own the
   // node's width/height — see schemaToFlow). Filling 100% keeps the selection
   // frame, the resizer, and the visual all the same size (no drift on resize).
@@ -312,20 +312,17 @@ export function RotatableCard({
         }
       >
         {fitMode ? (
-          // Content at NATURAL size, uniformly scaled by `scale`, centred in the
-          // box. Corner-drag changes `scale` (box hugs content); side-drag grows
-          // the box (cardW/cardH) leaving content centred with empty space.
-          <div className="absolute inset-0 grid place-items-center">
-            <div
-              style={{
-                width: baseW,
-                height: baseH,
-                transform: `scale(${fitFactor})`,
-                transformOrigin: "center center",
-              }}
-            >
-              {children}
-            </div>
+          // Content at NATURAL size, scaled to fill the box (fitX × fitY). Any
+          // box resize → the tile is exactly that size (no empty space).
+          <div
+            style={{
+              width: baseW,
+              height: baseH,
+              transform: `scale(${fitX}, ${fitY})`,
+              transformOrigin: "top left",
+            }}
+          >
+            {children}
           </div>
         ) : (
           children
