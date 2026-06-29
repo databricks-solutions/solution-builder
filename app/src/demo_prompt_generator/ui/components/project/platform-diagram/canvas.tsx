@@ -411,21 +411,27 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasP
       const ab = nds.find((n) => n.id === id);
       if (!ab || (ab.data as NodeData).component.kind !== "agent-bricks") return nds;
       const cx = ab.position.x, cy = ab.position.y; // center (nodeOrigin 0.5)
+      const W = (ab.width ?? 300) as number, H = (ab.height ?? 168) as number;
+      const left = cx - W / 2, top = cy - H / 2; // box top-left (flow coords)
       const gid = `group-${Date.now().toString(36)}`;
       const mkId = (base: string) => {
         let nid = base, k = 2;
         while (nds.some((n) => n.id === nid)) nid = `${base}#${k++}`;
         return nid;
       };
-      // All exploded pieces land at the EXACT Agent Bricks position (stacked);
-      // the user then drags them apart. (groupId lets them move/re-group as one.)
+      // Reproduce the Agent Bricks INTERNAL layout as separate nodes occupying
+      // the same footprint: the logo header (top-left) + a 2×2 grid of the four
+      // building blocks below. Positions are centres (nodeOrigin 0.5).
       const SUBS = ["supervisor-agent", "information-extraction", "document-parsing", "classification"];
+      const pad = 12;
+      const headerH = 30; // top header band where the logo sits
       const placed: Node[] = [];
-      // logo annotation (same shape as addAnnotation's logo variant)
+      // logo annotation — top-left, in the header band
       const logoId = mkId("anno-agent-bricks");
       const logoSz = ANNOTATION_DEFAULT_SIZE.logo;
       placed.push({
-        id: logoId, type: "annotation", position: { x: cx, y: cy },
+        id: logoId, type: "annotation",
+        position: { x: left + pad + logoSz.w / 2, y: top + pad + logoSz.h / 2 },
         width: logoSz.w, height: logoSz.h, style: { width: logoSz.w, height: logoSz.h },
         data: {
           nodeId: logoId,
@@ -435,14 +441,21 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasP
           deepLink: null, onSelect, onContext, onResize, onRename, onAnnotate, rot: 0, groupId: gid,
         } satisfies AnnotationNodeData,
       } as Node);
-      // the 4 building-block tiles
-      SUBS.forEach((slug) => {
+      // the 4 building-block tiles, in a 2×2 grid filling the area below the header
+      const gridTop = top + headerH;
+      const gridH = H - headerH - pad;
+      const cellW = (W - pad * 3) / 2; // two cells + 3 gaps
+      const cellH = (gridH - pad) / 2; // two rows + 1 gap
+      SUBS.forEach((slug, i) => {
         const found = catalog.get(slug);
         if (!found) return;
         const nid = mkId(slug);
         const fp = nodeFootprint(found.component, {});
+        const col = i % 2, row = Math.floor(i / 2);
+        const x = left + pad + col * (cellW + pad) + cellW / 2;
+        const y = gridTop + row * (cellH + pad) + cellH / 2;
         placed.push({
-          id: nid, type: nodeTypeFor(found.component), position: { x: cx, y: cy },
+          id: nid, type: nodeTypeFor(found.component), position: { x, y },
           width: fp.w, height: fp.h, style: { width: fp.w, height: fp.h },
           data: {
             nodeId: nid, component: found.component, bandId: found.bandId, bandColor: BAND_COLOR[found.bandId],
