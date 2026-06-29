@@ -2,6 +2,8 @@
   "_comment": "Per-logo metadata. trademark: real mark is trademarked (gated behind enableTrademarkLogos unless oss). oss: open-source/permissively-usable mark, shown by default. source: is an actual DATA SOURCE (a system that holds/produces data) vs infra (vpc, route53…). Keyed by canonical icon name (matches icons/vendor/<name>.svg and the leaf of icons/cloud/.../<name>.svg). Hand-tuned; edit as the icon bank grows.",
   "defaults": { "trademark": true, "oss": false, "source": true },
 
+  "user": { "trademark": false, "oss": true, "source": false, "label": "User", "aliases": ["persona", "avatar", "people", "person", "customer", "human", "profile", "actor"] },
+
   "apache-airflow": { "oss": true, "trademark": false, "source": true },
   "apache-couchdb": { "oss": true, "trademark": false, "source": true },
   "apache-flink": { "oss": true, "trademark": false, "source": true },

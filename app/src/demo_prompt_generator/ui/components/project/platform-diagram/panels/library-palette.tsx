@@ -5,7 +5,7 @@
  * the "+ more data sources" entry, and the "pick a replacement type" mode.
  */
 import { memo, useState } from "react";
-import { BAND_COLOR, type PlatformSchema } from "@/lib/platform-architecture";
+import { BAND_COLOR, catalogBands, type PlatformSchema } from "@/lib/platform-architecture";
 import {
   X,
   GripVertical,
@@ -19,7 +19,7 @@ import {
 import { BrandMark } from "../brand-mark";
 import { AnyIcon } from "../annotations";
 import { type AnnotationVariant } from "@/lib/platform-architecture";
-import { FILE_ICONS, type FileIcon, logoMetaForKey, logoLabel } from "../../../file-icons";
+import { FILE_ICONS, type FileIcon, logoMetaForKey, logoLabel, logoAliases } from "../../../file-icons";
 
 export const LibraryPalette = memo(function LibraryPalette({
   schema,
@@ -69,27 +69,27 @@ export const LibraryPalette = memo(function LibraryPalette({
           Components
         </div>
       )}
-      {!picking && (
-        <div className="border-b border-border p-2">
-          <div className="relative">
-            <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-            <input
-              name="component-search"
-              aria-label="Search components"
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              placeholder="Search components…"
-              className="w-full rounded-md border border-border bg-background py-1.5 pl-7 pr-2 text-[12px] outline-none focus:border-primary"
-            />
-          </div>
+      {/* Search box shown in both modes — incl. "pick the new type" (change
+          type), so you can filter the replacement options too. */}
+      <div className="border-b border-border p-2">
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+          <input
+            name="component-search"
+            aria-label="Search components"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder={picking ? "Search types…" : "Search components…"}
+            className="w-full rounded-md border border-border bg-background py-1.5 pl-7 pr-2 text-[12px] outline-none focus:border-primary"
+          />
         </div>
-      )}
+      </div>
       <div className="flex-1 overflow-y-auto p-2">
         {/* When searching, surface matching LOGOS + SOURCES from the icon bank
             (e.g. "kafka" → the Kafka logo / source). Vendor marks only; cloud
             logos already have their own section below. Capped at 3 each. */}
         {!picking && ql && (() => {
-          const vendor = FILE_ICONS.filter((f) => f.group === "vendor" && matchText(`${f.name} ${f.category}`));
+          const vendor = FILE_ICONS.filter((f) => (f.group === "vendor" || f.group === "persona") && matchText(`${f.name} ${f.category} ${logoAliases(f.name).join(" ")}`));
           // Mutually exclusive: a data-source logo shows under Sources only;
           // everything else under Logos — so a match (e.g. Kafka) appears once.
           const sources = vendor.filter((f) => logoMetaForKey(f.key).source).slice(0, 3);
@@ -166,8 +166,11 @@ export const LibraryPalette = memo(function LibraryPalette({
             ))}
           </div>
         )}
-        {schema.bands.map((band) => {
-          // Always list the FULL catalog (don't hide placed ones — it's
+        {catalogBands().map((band) => {
+          // Render from the RAW global catalog, never the override-merged
+          // schema — the palette is a catalog browser, so a demo relabeling a
+          // component (e.g. "AI/BI Genie") must not change what it's called
+          // here. Always list the FULL catalog (don't hide placed ones — it's
           // confusing). Placed components are just dimmed + marked "on canvas".
           // The search box filters by label.
           const items = band.components.filter((c) => matchText(c.label));

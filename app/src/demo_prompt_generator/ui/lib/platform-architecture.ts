@@ -155,7 +155,7 @@ export interface NodePosition {
   borderStyle?: "solid" | "dashed";
   borderColor?: string;    // hex
   borderRadius?: number;   // px corner radius
-  shadow?: boolean;        // drop shadow (default true)
+  shadow?: number | boolean; // drop-shadow intensity 0–100 (legacy boolean ok)
   /** Stacking order (bring to front / send to back). Default 0. */
   z?: number;
   /** A canvas-added data source (from "+ more data sources"). Stores just the
@@ -330,7 +330,9 @@ const CATALOG: Record<BandId, CatalogComponent[]> = {
     { id: "databricks-one", label: "Databricks One", icon: "businessUser", desc: "One branded home for business users to ask, get answers, and take action." },
   ],
   "agentic-work": [
-    { id: "genie", label: "AI/BI Genie", icon: "genieBrand", desc: "Ask questions of your data in plain language and get governed answers." },
+    { id: "databricks-apps-work", label: "Databricks Apps", icon: "databricksAppsBrand", sublabel: "Deploy business apps", desc: "Deploy business apps" },
+    { id: "genie-one", label: "Genie One - Mobile app", icon: "genieOneBrand", sublabel: "Databricks access for business user", desc: "Databricks access for business user" },
+    { id: "genie", label: "Genie Room", icon: "genieBrand", sublabel: "Ask anything about your data", desc: "ask anything about your data" },
     { id: "knowledge-assistant", label: "Knowledge Assistant", icon: "knowledgeAssistant", desc: "Chat with your documents — grounded, cited answers from unstructured content." },
     { id: "supervisor-agent", label: "Multi-Agent Supervisor", icon: "multiAgentSupervisor", desc: "Routes a question to the right specialist agent and composes the answer." },
     // Composite "Agent Bricks" block: the bundled agent building blocks
@@ -364,7 +366,7 @@ const CATALOG: Record<BandId, CatalogComponent[]> = {
     { id: "zerobus-ingest", label: "Lakeflow Zerobus", icon: "zerobus", desc: "Real-time, direct ingest of streaming events into the lakehouse." },
     { id: "sdp", label: "Lakeflow SDP", icon: "sdpBrand", desc: "Spark Declarative Pipelines — declarative bronze → silver → gold that self-heal and scale." },
     { id: "uc-volume", label: "UC Volume", icon: "volume", desc: "Governed file storage in Unity Catalog — where raw documents (PDFs) land." },
-    { id: "lakeflow-jobs", label: "Lakeflow Jobs", icon: "lakeflowJobsBrand", desc: "Orchestrate the whole pipeline on a schedule or trigger." },
+    { id: "lakeflow-jobs", label: "Lakeflow Jobs", icon: "lakeflowJobsBrand", sublabel: "Orchestrate anything", desc: "Orchestrate the whole pipeline on a schedule or trigger." },
     { id: "notebooks-eda", label: "Notebooks", icon: "notebooks", desc: "Interactive exploration and analysis on governed data." },
     { id: "delta-sharing", label: "Delta Sharing", icon: "deltaSharing", desc: "Open, cross-org data sharing with no copies." },
     { id: "marketplace", label: "Marketplace", icon: "deltaSharing", desc: "Discover and consume third-party data and AI assets." },
@@ -493,6 +495,21 @@ export function buildSchema({ override, capabilities }: BuildInputs): PlatformSc
     bands,
     layout,
   };
+}
+
+/** The raw global catalog as bands — every component with its CATALOG label /
+ *  icon / desc, with NO per-project overrides merged in. The library palette
+ *  (left menu) renders from this so it always shows the canonical component
+ *  set, not a demo's story-tied relabels (e.g. a demo renaming Genie Room must
+ *  not change what the palette calls it). `state` is omitted — the palette only
+ *  needs id/label/icon/desc. */
+export function catalogBands(): { id: BandId; label: string; sublabel?: string; components: CatalogComponent[] }[] {
+  return BAND_ORDER.map((bandId) => ({
+    id: bandId,
+    label: BAND_META[bandId].label,
+    sublabel: BAND_META[bandId].sublabel,
+    components: [...CATALOG[bandId]],
+  }));
 }
 
 // =============================================================================

@@ -6,7 +6,7 @@
  * (menus/context-menu.tsx) and the docked right-side edit panel (edit-panel.tsx).
  */
 import { type AnnotationData } from "@/lib/platform-architecture";
-import { type StylePatch } from "../shared";
+import { shadowLevel, type StylePatch } from "../shared";
 import {
   Trash2,
   RotateCw,
@@ -122,7 +122,7 @@ export function StyleControls({
   const borderW = style?.borderWidth ?? 1;
   const borderStyle = style?.borderStyle ?? "solid";
   const radius = style?.borderRadius ?? 12;
-  const shadow = style?.shadow ?? true;
+  const shadowPct = shadowLevel(style?.shadow);
   return (
     <>
       <div className="px-2 py-1.5">
@@ -216,17 +216,18 @@ export function StyleControls({
           className="h-1.5 w-full cursor-pointer accent-primary"
         />
       </div>
-      {/* Drop shadow toggle. */}
-      <div className="flex items-center gap-2 px-2 py-1">
-        <span className="mr-auto text-[11px] text-muted-foreground">Shadow</span>
-        <button
-          type="button"
-          onClick={(e) => { e.stopPropagation(); onStyle({ shadow: !shadow }); }}
-          className={`cursor-pointer rounded px-1.5 py-0.5 text-[10px] ${shadow ? "bg-primary text-primary-foreground" : "border border-border hover:bg-muted"}`}
-          title="Toggle the box drop shadow"
-        >
-          {shadow ? "On" : "Off"}
-        </button>
+      {/* Drop shadow intensity (0 = none → strong). */}
+      <div className="px-2 py-1.5">
+        <div className="mb-1 flex items-center justify-between text-[11px] text-muted-foreground">
+          <span>Shadow</span><span>{shadowPct === 0 ? "Off" : `${shadowPct}%`}</span>
+        </div>
+        <input
+          type="range" min={0} max={100} step={5} value={shadowPct}
+          onChange={(e) => onStyle({ shadow: Number(e.target.value) })}
+          onClick={(e) => e.stopPropagation()}
+          className="h-1.5 w-full cursor-pointer accent-primary"
+          title="Drop shadow intensity (drag to 0 to remove)"
+        />
       </div>
     </>
   );

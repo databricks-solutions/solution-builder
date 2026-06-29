@@ -71,7 +71,7 @@ export const ComponentNode = memo(function ComponentNode({ data, selected }: Nod
       onClick={() => d.onSelect(d.nodeId)}
       className={`group relative flex h-full w-full flex-col overflow-hidden transition-shadow ${
         card.hasFill ? "" : "bg-card"
-      } ${selected ? "ring-2 ring-primary/60" : ""} ${card.shadow ? (selected ? "shadow-md" : "shadow-sm hover:shadow-md") : ""}`}
+      } ${selected ? "ring-2 ring-primary/60" : ""}`}
       style={card.style}
     >
       <div

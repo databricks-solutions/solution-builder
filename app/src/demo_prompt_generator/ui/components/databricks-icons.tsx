@@ -567,6 +567,44 @@ export function SensorIcon(props: IconProps) {
   );
 }
 
+// Genie One — official brand lockup: the Genie flame mark + a dark "One" pill.
+// Self-colored — do not recolor. Normalized so the lockup fills the viewBox.
+export function GenieOneBrandIcon(props: IconProps) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 230 84" fill="none" {...props}>
+      <rect x="0" y="0" width="230.131" height="84" rx="42" fill="#0B2026" />
+      <path d="M117.673 55.164C115.292 55.164 113.183 54.634 111.345 53.574C109.53 52.489 108.104 50.993 107.067 49.084C106.03 47.151 105.511 44.912 105.511 42.367C105.511 39.8447 106.03 37.6293 107.067 35.7202C108.104 33.7875 109.53 32.2791 111.345 31.195C113.183 30.1108 115.292 29.5687 117.673 29.5687C120.1 29.5687 122.233 30.1108 124.072 31.195C125.91 32.2791 127.336 33.7875 128.349 35.7202C129.363 37.6293 129.87 39.8447 129.87 42.367C129.87 44.912 129.363 47.151 128.349 49.084C127.336 50.993 125.91 52.489 124.072 53.574C122.233 54.634 120.1 55.164 117.673 55.164ZM117.708 51.346C119.287 51.346 120.666 50.993 121.844 50.286C123.023 49.555 123.93 48.518 124.567 47.175C125.203 45.831 125.521 44.229 125.521 42.367C125.521 40.5047 125.203 38.902 124.567 37.5585C123.93 36.2151 123.023 35.1899 121.844 34.4828C120.666 33.7522 119.287 33.3869 117.708 33.3869C116.129 33.3869 114.75 33.7522 113.572 34.4828C112.393 35.1899 111.474 36.2151 110.814 37.5585C110.178 38.902 109.86 40.5047 109.86 42.367C109.86 44.229 110.178 45.831 110.814 47.175C111.474 48.518 112.393 49.555 113.572 50.286C114.75 50.993 116.129 51.346 117.708 51.346ZM138.257 54.74V29.9929H142.5L154.414 47.882V29.9929H158.656V54.74H154.414L142.5 36.8868V54.74H138.257ZM167.875 54.74V29.9929H183.855V33.4222H172.118V40.5282H182.794V43.887H172.118V51.311H183.855V54.74H167.875Z" fill="white" />
+      <path d="M81.736 29.0215V54.958L64.745 64.691V28.0166H59.61L48.711 32.8662V39.8281L55.844 37.8877V66.126L36.347 54.958V29.0215L59.042 16.0215L81.736 29.0215Z" fill="#FF3621" />
+    </svg>
+  );
+}
+
+// Databricks Apps — official brand mark: four rounded squares (coral / light
+// coral checker). Self-colored — do not recolor.
+export function DatabricksAppsBrandIcon(props: IconProps) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 146.875 150" fill="none" {...props}>
+      <path d="M0 8C0 3.582 3.582 0 8 0h54.5c4.418 0 8 3.582 8 8v54.5c0 4.418-3.582 8-8 8H8c-4.418 0-8-3.582-8-8z" fill="#FABFBA" />
+      <path d="M84.375 8c0-4.418 3.582-8 8-8h54.5c4.418 0 8 3.582 8 8v54.5c0 4.418-3.582 8-8 8h-54.5c-4.418 0-8-3.582-8-8z" fill="#FF5F46" />
+      <path d="M0 95.5c0-4.418 3.582-8 8-8h54.5c4.418 0 8 3.582 8 8V150c0 4.418-3.582 8-8 8H8c-4.418 0-8-3.582-8-8z" fill="#FF5F46" />
+      <path d="M84.375 95.5c0-4.418 3.582-8 8-8h54.5c4.418 0 8 3.582 8 8V150c0 4.418-3.582 8-8 8h-54.5c-4.418 0-8-3.582-8-8z" fill="#FABFBA" />
+    </svg>
+  );
+}
+
+// MCP (Model Context Protocol) — the tool/connector layer. Rendered as a plug
+// connecting into a socket, a clear "tools the agent can call" glyph.
+export function McpIcon(props: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <path d="M12 22v-5" />
+      <rect x="8" y="9" width="8" height="8" rx="1.5" />
+      <path d="M10 9V5a2 2 0 1 1 4 0v4" />
+      <path d="M3 12h2M19 12h2M5 12a7 7 0 0 0 14 0" />
+    </svg>
+  );
+}
+
 // Export an icon map for easy lookup
 export const DATABRICKS_ICONS = {
   dashboard: DashboardIcon,
@@ -595,6 +633,7 @@ export const DATABRICKS_ICONS = {
   streaming: StreamingIcon,
   metricViews: MetricViewsIcon,
   aiFunctions: AIFunctionsIcon,
+  mcp: McpIcon,
   deltaSharing: DeltaSharingIcon,
   // Official brand product icons (multi-color, self-colored — do not recolor).
   genieBrand: GenieBrandIcon,
@@ -604,6 +643,8 @@ export const DATABRICKS_ICONS = {
   lakebaseBrand: LakebaseBrandIcon,
   aiGatewayBrand: AIGatewayBrandIcon,
   genieCodeBrand: GenieCodeBrandIcon,
+  databricksAppsBrand: DatabricksAppsBrandIcon,
+  genieOneBrand: GenieOneBrandIcon,
   lakeflowConnectBrand: LakeflowConnectBrandIcon,
   lakeflowJobsBrand: LakeflowJobsBrandIcon,
   sdpBrand: SDPBrandIcon,
@@ -635,6 +676,8 @@ export const BRAND_ICONS = new Set<DatabricksIconName>([
   "sdpBrand",
   "aiGatewayBrand",
   "genieCodeBrand",
+  "databricksAppsBrand",
+  "genieOneBrand",
   "shopifyLogo",
   "zendeskLogo",
   "sapLogo",

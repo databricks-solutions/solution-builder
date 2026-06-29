@@ -8,7 +8,7 @@
 import { memo, useContext, useState, useMemo } from "react";
 import { type NodeProps } from "@xyflow/react";
 import { DATABRICKS_ICONS, BRAND_ICONS, type DatabricksIconName } from "../../databricks-icons";
-import { FILE_ICONS, FileSvgIcon, isFileIconKey, logoMetaByName } from "../../file-icons";
+import { FILE_ICONS, FileSvgIcon, isFileIconKey, logoMetaByName, logoAliases } from "../../file-icons";
 import INDUSTRY_MAP from "../../../icons/industry-map.json";
 import { BrandMark } from "./brand-mark";
 import { type AnnotationData, type AnnotationVariant } from "@/lib/platform-architecture";
@@ -182,8 +182,10 @@ function buildPickIndex(): { items: PickItem[]; tabs: string[] } {
   for (const f of FILE_ICONS) {
     const tabs = f.group === "cloud"
       ? ["Cloud"]
+      : f.group === "persona"
+      ? ["Personas"]
       : ["Vendors", ...(INDUSTRY_BY_NAME[f.name] ?? [])]; // vendor → Vendors + its industries
-    items.push({ key: f.key, label: f.name, search: `${f.group} ${f.category} ${f.name}`.toLowerCase(), tabs, source: logoMetaByName(f.name).source });
+    items.push({ key: f.key, label: f.name, search: `${f.group} ${f.category} ${f.name} ${logoAliases(f.name).join(" ")}`.toLowerCase(), tabs, source: logoMetaByName(f.name).source });
   }
   const order = ["Databricks", "Cloud", "Vendors"];
   const allTabs = new Set<string>();

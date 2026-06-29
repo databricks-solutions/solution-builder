@@ -55,7 +55,7 @@ export function isFileIconKey(key: string | undefined | null): key is string {
 // --- Logo metadata catalog (trademark / oss / data-source) ------------------
 import LOGO_CATALOG from "../icons/logo-catalog.json";
 
-export interface LogoMeta { trademark: boolean; oss: boolean; source: boolean; label?: string; ingest?: string }
+export interface LogoMeta { trademark: boolean; oss: boolean; source: boolean; label?: string; ingest?: string; aliases?: string[] }
 const CAT = LOGO_CATALOG as unknown as Record<string, Partial<LogoMeta>> & { defaults: LogoMeta };
 const LOGO_DEFAULTS: LogoMeta = CAT.defaults ?? { trademark: true, oss: false, source: true };
 
@@ -70,6 +70,13 @@ export function logoLabel(name: string): string {
 export function logoMetaByName(name: string): LogoMeta {
   const e = CAT[name];
   return { ...LOGO_DEFAULTS, ...(e && typeof e === "object" ? e : {}) };
+}
+
+/** Search synonyms for a logo NAME — extra terms that should match it (e.g.
+ *  "user" → persona, avatar, people). Used to broaden icon/logo search. */
+export function logoAliases(name: string): string[] {
+  const e = CAT[name];
+  return e && typeof e === "object" && Array.isArray(e.aliases) ? e.aliases : [];
 }
 
 /** Metadata for a file-icon KEY ("file:vendor/kafka" / "file:cloud/aws/storage/s3"). */

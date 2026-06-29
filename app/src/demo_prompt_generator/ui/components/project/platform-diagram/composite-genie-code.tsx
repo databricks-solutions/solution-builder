@@ -84,7 +84,7 @@ export const GenieCodeBlock = memo(function GenieCodeBlock({ data, selected }: N
     >
       <div
         onClick={() => d.onSelect(d.nodeId)}
-        className={`flex h-full w-full flex-col overflow-hidden transition-shadow ${card.hasFill ? "" : "bg-card"} ${selected ? "ring-2 ring-primary/60" : ""} ${card.shadow ? (selected ? "shadow-md" : "shadow-sm hover:shadow-md") : ""}`}
+        className={`flex h-full w-full flex-col overflow-hidden transition-shadow ${card.hasFill ? "" : "bg-card"} ${selected ? "ring-2 ring-primary/60" : ""}`}
         style={card.style}
       >
         <div className="flex h-full w-full flex-col p-2.5" style={{ transform: "scale(var(--cs, 1))", transformOrigin: "top left" }}>

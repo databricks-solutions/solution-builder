@@ -133,7 +133,9 @@ const FlowEdge = memo(function FlowEdge(props: EdgeProps) {
       // by source Y; the row nearest the anchor offsets least in both halves.
       const mag = sameSide.length - pos;
       // Per the original spec: source ABOVE the anchor bends its vertical RIGHT
-      // (+, toward/closer to the anchor), source BELOW bends LEFT (−).
+      // (+, toward/closer to the anchor), source BELOW bends LEFT (−). The
+      // render step clamps this so it can never fold the path (see `centerX`
+      // guard below — it also covers a saved/dragged d.centerX).
       centerX = midX + (above ? 1 : -1) * mag * STEP;
     }
     return {
@@ -186,9 +188,25 @@ const FlowEdge = memo(function FlowEdge(props: EdgeProps) {
   // Vertical-elbow X: while dragging the center handle use that; else a manual
   // saved centerX (d.centerX) wins; else the auto-stagger (fan.centerX). Skip
   // entirely while dragging an endpoint (path tracks the cursor).
-  const centerX = drag
+  let centerX = drag
     ? undefined
     : centerDrag ?? d?.centerX ?? fan.centerX;
+  // Guard the vertical elbow X against folding the smooth-step path into a
+  // backward zigzag. getSmoothStepPath ALWAYS extends ~20px from each end in its
+  // exit direction before turning; if `centerX` lands inside that stub (closer
+  // to an endpoint than the offset), the path overshoots to the stub then curls
+  // back to the elbow — the zigzag in the screenshots. So keep `centerX` at
+  // least OFFSET beyond BOTH the source exit and the target entry, on the
+  // correct outbound side. Only meaningful when both ends are horizontal sides.
+  if (centerX !== undefined && (fan.sSide === "l" || fan.sSide === "r") && (fan.tSide === "l" || fan.tSide === "r")) {
+    const OFFSET = 20; // smooth-step's built-in exit stub
+    // Source side: elbow must be ≥ OFFSET past the source exit.
+    if (fan.sSide === "r") centerX = Math.max(centerX, sp.x + OFFSET);
+    else centerX = Math.min(centerX, sp.x - OFFSET);
+    // Target side: elbow must be ≥ OFFSET before the target entry.
+    if (fan.tSide === "l") centerX = Math.min(centerX, tp.x - OFFSET);
+    else centerX = Math.max(centerX, tp.x + OFFSET);
+  }
   const args = {
     sourceX: sPt.x, sourceY: sPt.y, targetX: tPt.x, targetY: tPt.y,
     sourcePosition: sPos, targetPosition: tPos,

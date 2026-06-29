@@ -48,8 +48,9 @@ export interface NodeData {
   borderColor?: string;
   /** Corner radius (px) override; undefined → the card's default rounding. */
   borderRadius?: number;
-  /** Drop shadow on the box; undefined → on. Set false to remove it. */
-  shadow?: boolean;
+  /** Drop-shadow intensity (0–100; 0 = none). Legacy boolean accepted:
+   *  true/undefined → default intensity, false → none. */
+  shadow?: number | boolean;
   /** Whether real third-party trademarked logos may be shown (schema-level
    *  opt-in). When false, gated vendor logos render as a text badge. */
   allowTrademark?: boolean;
@@ -83,7 +84,7 @@ export type StylePatch = {
   borderStyle?: "solid" | "dashed";
   borderColor?: string;
   borderRadius?: number;
-  shadow?: boolean;
+  shadow?: number | boolean;
 };
 
 /** Build the inline card style from a node's per-node overrides — used by the
@@ -93,20 +94,48 @@ export type StylePatch = {
  *  value when the node hasn't overridden it. Returns the style + flags for
  *  whether a custom fill is set (drop `bg-card`) and whether the drop shadow is
  *  on (default true; the caller adds `shadow-sm` when so). */
+/** Default drop-shadow intensity (0–100 slider scale) when a node hasn't set
+ *  one. Matches the old `shadow-sm` look. */
+export const SHADOW_DEFAULT = 35;
+
+/** Normalize the per-node `shadow` field (legacy boolean OR a 0–100 number) to
+ *  a 0–100 intensity. true/undefined → default; false → 0. */
+export function shadowLevel(shadow: number | boolean | undefined): number {
+  if (shadow === undefined || shadow === true) return SHADOW_DEFAULT;
+  if (shadow === false) return 0;
+  return Math.max(0, Math.min(100, shadow));
+}
+
+/** A CSS box-shadow string for a given 0–100 intensity (0 → none). The blur,
+ *  spread and alpha all scale with the level so the slider reads continuously
+ *  from "flat" to "lifted". */
+function shadowCss(level: number): string | undefined {
+  if (level <= 0) return undefined;
+  const t = level / 100;
+  const y = Math.round(1 + t * 9);          // 1 → 10 px offset
+  const blur = Math.round(2 + t * 22);      // 2 → 24 px blur
+  const alpha = (0.06 + t * 0.22).toFixed(3); // 0.06 → 0.28
+  return `0 ${y}px ${blur}px -${Math.round(y / 2)}px rgba(15, 23, 42, ${alpha})`;
+}
+
 export function cardStyle(
   d: NodeData,
   defaults: { borderColor: string; radius: number; opacity?: number },
 ): { style: CSSProperties; hasFill: boolean; shadow: boolean } {
   const w = d.borderWidth ?? 1;
+  const level = shadowLevel(d.shadow);
   return {
     hasFill: !!d.fillColor,
-    shadow: d.shadow ?? true,
+    // Kept for API compat (callers spread card.style for the shadow now); true
+    // when any shadow is present so a selected ring still reads.
+    shadow: level > 0,
     style: {
       borderStyle: w > 0 ? (d.borderStyle ?? "solid") : "none",
       borderWidth: w,
       borderColor: d.borderColor ?? defaults.borderColor,
       borderRadius: d.borderRadius ?? defaults.radius,
       opacity: d.opacity ?? defaults.opacity ?? 1,
+      ...(shadowCss(level) ? { boxShadow: shadowCss(level) } : {}),
       ...(d.fillColor ? { background: d.fillColor } : {}),
       ...(d.fontColor ? { color: d.fontColor } : {}),
     },
@@ -136,8 +165,8 @@ export function nodeTypeFor(c: PlatformComponent): string {
  *  rotated edges (not the original box). */
 export function baseSize(c: PlatformComponent): { w: number; h: number } {
   if (c.kind === "lakeflow") return { w: 224, h: 148 }; // composite super-block
-  if (c.kind === "lakeflow-genie") return { w: 360, h: 188 }; // Lakeflow over a slim Genie footer
-  if (c.kind === "agent-bricks") return { w: 300, h: 168 }; // logo header + 2×2 agent grid
+  if (c.kind === "lakeflow-genie") return { w: 360, h: 208 }; // Lakeflow over a slim Genie footer
+  if (c.kind === "agent-bricks") return { w: 230, h: 170 }; // logo header + supervisor tree + task-type chips
   if (c.kind === "genie-code") return { w: 360, h: 112 }; // wide "built with Genie Code" strip
   if (c.kind === "governance") return { w: 580, h: 108 }; // wide horizontal governance bar
   if (c.id === "sdp") return { w: 230, h: 112 };

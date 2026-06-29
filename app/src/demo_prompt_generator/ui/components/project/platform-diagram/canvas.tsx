@@ -29,6 +29,7 @@ import {
   baseId,
   BAND_COLOR,
   BAND_META,
+  catalogBands,
   type PlatformComponent,
   type PlatformSchema,
   type BandId,
@@ -164,6 +165,17 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasP
   // render/drag frame). componentLookup allocates a fresh Map each call, so the
   // render-path lookups below would otherwise re-scan the whole catalog per frame.
   const catalog = useMemo(() => componentLookup(schema), [schema]);
+  // RAW global-catalog lookup (no per-demo overrides) — used when ADDING a
+  // component from the palette so the dropped node carries the canonical
+  // label/desc the menu showed, not a demo's relabel (e.g. "AI/BI Genie").
+  // Existing on-canvas nodes still render from `catalog` (the demo's copy).
+  const rawCatalog = useMemo(() => {
+    const m = new Map<string, { component: PlatformComponent; bandId: BandId }>();
+    catalogBands().forEach((b) =>
+      b.components.forEach((c) => m.set(c.id, { component: { ...c, state: "active" }, bandId: b.id })),
+    );
+    return m;
+  }, []);
 
   // Undo/redo + burst machinery lives in this hook. It returns beginBurst/
   // endBurst (consumed by scheduleSave below) and resetHistory (consumed by the
@@ -211,7 +223,7 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasP
     copySelection: () => {},
     pasteClipboard: () => {},
     clearSelection: () => {},
-    nudge: (_dx: number, _dy: number) => {},
+    nudge: (_ux: number, _uy: number, _snap: boolean) => {},
   });
   useEffect(() => {
     if (!editMode) return;
@@ -227,13 +239,12 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasP
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") { editKeyHandlersRef.current.clearSelection(); return; }
       if (isTyping()) return;
-      // Arrow keys nudge the selection by EXACTLY 1px (no grid snap), for fine
-      // positioning. Shift = a coarser 10px step.
+      // Plain arrow = step a grid cell and snap to the 16px grid (magnet).
+      // Shift+arrow = exact 1px move for fine positioning.
       if (ARROWS[e.key]) {
         e.preventDefault();
         const [ux, uy] = ARROWS[e.key];
-        const step = e.shiftKey ? 10 : 1;
-        editKeyHandlersRef.current.nudge(ux * step, uy * step);
+        editKeyHandlersRef.current.nudge(ux, uy, !e.shiftKey);
         return;
       }
       if (!(e.metaKey || e.ctrlKey)) return;
@@ -410,7 +421,7 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasP
   // --- Add from library (drop or double-click) ------------------------------
   const addComponent = useCallback(
     (componentId: string, at?: { x: number; y: number }) => {
-      const found = catalog.get(baseId(componentId));
+      const found = rawCatalog.get(baseId(componentId));
       if (!found) return;
       const pos = at ?? { x: 120, y: 120 };
       setNodes((nds) => {
@@ -451,7 +462,7 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasP
         return next;
       });
     },
-    [catalog, deepLinks, onSelect, onContext, onResize, onRename, setNodes, scheduleSave, edges],
+    [rawCatalog, deepLinks, onSelect, onContext, onResize, onRename, setNodes, scheduleSave, edges],
   );
 
   // Add a free-form annotation node (text / box / logo / image). Returns the
@@ -670,7 +681,10 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasP
   // a stale id would desync the active/hidden bookkeeping on reload.) A custom
   // label (from a rename) is carried over; otherwise the new component's label.
   const changeNodeType = useCallback((id: string, newComponentId: string) => {
-    const found = catalog.get(baseId(newComponentId));
+    // The NEW type comes from the palette/picker → resolve from the raw catalog
+    // (canonical label/desc), same as addComponent. The OLD node's component is
+    // still read from `catalog` (the demo's copy) to detect a rename.
+    const found = rawCatalog.get(baseId(newComponentId));
     if (!found) return;
     setNodes((nds) => {
       if (!nds.some((n) => n.id === id)) return nds;
@@ -727,7 +741,7 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasP
       return next;
     });
     setSelectedId((cur) => (cur === id ? null : cur));
-  }, [catalog, deepLinks, setNodes, setEdges, scheduleSave]);
+  }, [catalog, rawCatalog, deepLinks, setNodes, setEdges, scheduleSave]);
 
   const removeNode = useCallback((id: string) => {
     setNodes((nds) => {
@@ -820,7 +834,15 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasP
     setMenu({ kind: "edge", id: edge.id, x: e.clientX, y: e.clientY });
   }, []);
 
-  const selected = selectedId ? catalog.get(baseId(selectedId)) : null;
+  // Prefer the LIVE node's own component data (it carries the correct
+  // label/desc — including for freshly-added nodes resolved from the raw
+  // catalog) over a re-lookup by base id, which would miss per-instance copy.
+  const selected = (() => {
+    if (!selectedId) return null;
+    const live = nodes.find((n) => n.id === selectedId)?.data as NodeData | undefined;
+    if (live?.component && live.bandId) return { component: live.component, bandId: live.bandId };
+    return catalog.get(baseId(selectedId)) ?? null;
+  })();
   // Base ids of every placed instance — the library dims a catalog item when at
   // least one instance is on the canvas (but it stays draggable for duplicates).
   const placedIds = useMemo(() => new Set(nodes.map((n) => baseId(n.id))), [nodes]);
@@ -872,12 +894,21 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasP
   const clearSelection = useCallback(() => {
     setNodes((nds) => nds.some((n) => n.selected) ? nds.map((n) => (n.selected ? { ...n, selected: false } : n)) : nds);
   }, [setNodes]);
-  // Arrow-key nudge: move the selected node(s) by an exact px delta (no grid
-  // snap — direct position write bypasses snapGrid, which only applies to drag).
-  const nudge = useCallback((dx: number, dy: number) => {
+  // Arrow-key nudge. `snap` true (plain arrow) → step a full grid cell and snap
+  // the new position to the 16px grid (the magnet); `snap` false (Shift+arrow) →
+  // an exact 1px move for fine positioning. Direct position write either way.
+  const GRID = 16;
+  const nudge = useCallback((ux: number, uy: number, snap: boolean) => {
     setNodes((nds) => {
       if (!nds.some((n) => n.selected)) return nds;
-      const next = nds.map((n) => (n.selected ? { ...n, position: { x: n.position.x + dx, y: n.position.y + dy } } : n));
+      const next = nds.map((n) => {
+        if (!n.selected) return n;
+        if (!snap) return { ...n, position: { x: n.position.x + ux, y: n.position.y + uy } };
+        // Snap each axis to the grid, then step one cell in the arrow direction.
+        const sx = Math.round(n.position.x / GRID) * GRID + ux * GRID;
+        const sy = Math.round(n.position.y / GRID) * GRID + uy * GRID;
+        return { ...n, position: { x: sx, y: sy } };
+      });
       scheduleSave(next, edges);
       return next;
     });
@@ -1057,6 +1088,10 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasP
           // selectionKeyCode override — keeping default so a plain drag still
           // lassos thanks to selectionOnDrag.)
           multiSelectionKeyCode={["Shift"]}
+          // Disable ReactFlow's built-in keyboard node movement — it snaps the
+          // focused node to the 16px grid on every arrow press (Shift jumps even
+          // further). Our own window keydown handler does the precise 1px nudge.
+          disableKeyboardA11y
           fitView
           fitViewOptions={{ padding: 0.2 }}
           minZoom={0.3}
