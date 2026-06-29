@@ -55,9 +55,9 @@ export const AgentBricksBlock = memo(function AgentBricksBlock({ data, selected 
             {ITEMS.map((it) => {
               const Icon = DATABRICKS_ICONS[it.icon];
               return (
-                <div key={it.label} className="flex items-center gap-1.5 overflow-hidden rounded-md border border-border/60 bg-background/70 px-1.5">
+                <div key={it.label} className="flex min-w-0 items-center gap-1 overflow-hidden rounded-md border border-border/60 bg-background/70 px-1">
                   <Icon className="h-4 w-4 shrink-0" />
-                  <span className="truncate text-[9px] font-medium leading-tight text-foreground">{it.label}</span>
+                  <span className="min-w-0 flex-1 truncate text-[9px] font-medium leading-tight text-foreground">{it.label}</span>
                 </div>
               );
             })}
