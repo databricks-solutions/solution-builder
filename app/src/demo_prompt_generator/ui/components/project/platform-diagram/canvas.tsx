@@ -801,6 +801,9 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasP
           onSelectionChange={onSelectionChange}
           onMoveStart={() => setMenu(null)}
           nodeOrigin={[0.5, 0.5]}
+          // Don't raise a node above the others just because it's selected —
+          // keep its stacking order (only Bring-to-front/Send-to-back change z).
+          elevateNodesOnSelect={false}
           selectionOnDrag
           panOnDrag={[1, 2]}
           selectNodesOnDrag={false}
