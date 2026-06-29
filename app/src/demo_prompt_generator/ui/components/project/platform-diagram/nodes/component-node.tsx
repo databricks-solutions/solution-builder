@@ -87,7 +87,7 @@ export const ComponentNode = memo(function ComponentNode({ data, selected }: Nod
             <BrandMark iconKey={c.icon} label={c.label} bandColor={bandColor} allowTrademark={!!d.allowTrademark} className="h-5 w-5" />
           </span>
         )}
-        <span className="block min-w-0 flex-1">
+        <span className="flex min-w-0 flex-1 flex-col">
           <span className={`flex min-w-0 items-center gap-1.5 text-[13px] font-semibold leading-tight ${d.fontColor ? "" : "text-foreground"}`} style={d.fontColor ? { color: d.fontColor } : undefined}>
             {editing !== null ? (
               <input
@@ -105,7 +105,7 @@ export const ComponentNode = memo(function ComponentNode({ data, selected }: Nod
               />
             ) : (
               <span
-                className="truncate"
+                className="min-w-0 truncate"
                 title="Double-click to rename"
                 onDoubleClick={(e) => { e.stopPropagation(); setEditing(c.label); }}
               >

@@ -492,19 +492,21 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasP
           deepLink: null, onSelect, onContext, onResize, onRename, onAnnotate, rot: 0, groupId: gid,
         } satisfies AnnotationNodeData,
       } as Node);
-      // the 4 building-block tiles, in a 2×2 grid filling the area below the header
-      const gridTop = top + headerH;
-      const gridH = H - headerH - pad;
-      const cellW = (W - pad * 3) / 2; // two cells + 3 gaps
-      const cellH = (gridH - pad) / 2; // two rows + 1 gap
+      // the 4 building-block tiles, in a 2×2 grid below the header. Space the
+      // grid by the tiles' OWN footprint (so each label fits) — the grid can
+      // extend past the old box bounds; they're independent tiles now.
+      const sampleFp = nodeFootprint(catalog.get(SUBS[0])!.component, {});
+      const gap = 16;
+      const cellW = sampleFp.w, cellH = sampleFp.h;
+      const gridTop = top + headerH + cellH / 2; // first row centre
       SUBS.forEach((slug, i) => {
         const found = catalog.get(slug);
         if (!found) return;
         const nid = mkId(slug);
         const fp = nodeFootprint(found.component, {});
         const col = i % 2, row = Math.floor(i / 2);
-        const x = left + pad + col * (cellW + pad) + cellW / 2;
-        const y = gridTop + row * (cellH + pad) + cellH / 2;
+        const x = left + cellW / 2 + col * (cellW + gap);
+        const y = gridTop + row * (cellH + gap);
         placed.push({
           id: nid, type: nodeTypeFor(found.component), position: { x, y },
           width: fp.w, height: fp.h, style: { width: fp.w, height: fp.h },
