@@ -26,10 +26,26 @@ Layers (no SDP → built here with spark.sql CTAS):
   Phase 4  — Constraints (PK / FK NOT ENFORCED RELY) for Catalog Explorer
              lineage arrows.
 
-Re-skinning for another demo:
-  - Change CATALOG / SCHEMA below (or override via DEMO_CATALOG / DEMO_SCHEMA).
-  - Swap the product list / city anchors / time anchors / incident text.
-  - Edit the Phase 2-3 spark.sql blocks for a different schema.
+This file is a **worked example of the technique**, NOT a fill-in-the-blanks
+template. A real demo is almost always a different DOMAIN, schema, story, and
+table set — so you REWRITE this file for that demo, you don't find-and-replace
+the LuxeBeauty bits. What carries over is the *shape*, not the content:
+
+  - The Spark-native idioms — spark.range + F.when + broadcast range-joins +
+    Window + F.element_at, no driver loops / no .collect() on big tables. Reuse
+    these patterns regardless of domain.
+  - The raw → silver → gold layering done in-script (because the Simple-tab
+    build has no SDP). Keep the layering; change every table, column, and
+    transform to the new domain's schema (see the demo's 01-lakeflow spec).
+  - The "one load-bearing anomaly" structure — a baseline plus a concentrated,
+    explainable spike the demo investigates. The anomaly here is a bad
+    production lot; yours might be a fraud ring, a failing sensor, a churned
+    segment — entirely different entities and mechanics.
+
+Everything domain-specific below (products, city anchors, incident text,
+seasonal curve, reasons/comments, row counts, the gold/silver SQL) is the
+LuxeBeauty story and gets thrown out for another demo. Match the new tables to
+that demo's `specifications/01-lakeflow.md`.
 
 Runtime: pre-provisioned databricks-connect venv (path in system prompt).
 Python 3.12, databricks-connect, faker, numpy. Do NOT create a new venv.
