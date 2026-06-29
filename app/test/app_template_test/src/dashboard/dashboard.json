@@ -4,37 +4,29 @@
       "name": "ds_daily",
       "displayName": "Daily summary",
       "queryLines": [
-        "SELECT date, region, category, order_count, return_count, revenue_usd, returns_usd FROM gold_daily_summary WHERE date >= DATEADD(day, -90, current_date())"
-      ],
-      "catalog": "ai_demo_gen",
-      "schema": "demo_luxebeauty_test"
+        "SELECT date, region, category, MEASURE(`order_count`) AS order_count, MEASURE(`return_count`) AS return_count, MEASURE(`total_revenue`) AS revenue_usd, MEASURE(`total_refunds`) AS returns_usd FROM mv_returns GROUP BY ALL"
+      ]
     },
     {
       "name": "ds_returns",
-      "displayName": "Returns (last 90 days, per-row)",
+      "displayName": "Returns (per-row)",
       "queryLines": [
-        "SELECT return_id, return_date, country, city, customer_lat, customer_lng, region, product_name, category, lot_id, facility, is_bad_lot, CASE WHEN is_bad_lot THEN 'Affected lot' ELSE 'Everyday returns' END AS source, return_reason, customer_comment, anger_score, CASE WHEN anger_score >= 0.9 THEN '3 - Very angry' WHEN anger_score >= 0.5 THEN '2 - Angry' WHEN anger_score >= 0.2 THEN '1 - Neutral' ELSE '0 - Satisfied' END AS sentiment, refund_amount_usd FROM silver_returns WHERE return_date >= DATEADD(day, -90, current_date())"
-      ],
-      "catalog": "ai_demo_gen",
-      "schema": "demo_luxebeauty_test"
+        "SELECT return_id, return_date, country, city, customer_lat, customer_lng, region, product_name, category, lot_id, facility, is_bad_lot, CASE WHEN is_bad_lot THEN 'Affected lot' ELSE 'Everyday returns' END AS source, return_reason, customer_comment, anger_score, CASE WHEN anger_score >= 0.9 THEN '3 - Very angry' WHEN anger_score >= 0.5 THEN '2 - Angry' WHEN anger_score >= 0.2 THEN '1 - Neutral' ELSE '0 - Satisfied' END AS sentiment, refund_amount_usd FROM silver_returns"
+      ]
     },
     {
       "name": "ds_forecast",
       "displayName": "Weekly refunds \u2014 actuals + forecast",
       "queryLines": [
-        "WITH original AS ( SELECT DATE_TRUNC('WEEK', date) AS week, SUM(returns_usd) AS refunds FROM gold_daily_summary WHERE DATE_TRUNC('WEEK', date) < DATE_TRUNC('WEEK', current_date()) AND date >= DATEADD(day, -180, current_date()) GROUP BY 1), dates AS ( SELECT MAX(week) AS max_w FROM original), forecast AS ( SELECT week, refunds_forecast, refunds_upper, refunds_lower FROM AI_FORECAST(   TABLE(original),   horizon => (SELECT max_w + INTERVAL 28 DAYS FROM dates),   time_col => 'week',   value_col => 'refunds' )), actuals AS ( SELECT week, CAST(NULL AS DOUBLE) AS refunds_forecast,        CAST(NULL AS DOUBLE) AS refunds_upper,        CAST(NULL AS DOUBLE) AS refunds_lower, refunds FROM original), forecast_aligned AS ( SELECT week, refunds_forecast, refunds_upper, refunds_lower,        CAST(NULL AS DOUBLE) AS refunds FROM forecast) SELECT week, refunds_forecast, refunds_upper, refunds_lower, refunds FROM actuals UNION ALL SELECT week, refunds_forecast, refunds_upper, refunds_lower, refunds FROM forecast_aligned UNION ALL SELECT (SELECT max_w FROM dates) AS week,        refunds AS refunds_forecast, refunds AS refunds_upper,        refunds AS refunds_lower, CAST(NULL AS DOUBLE) AS refunds FROM original WHERE week = (SELECT max_w FROM dates)"
-      ],
-      "catalog": "ai_demo_gen",
-      "schema": "demo_luxebeauty_test"
+        "WITH original AS ( SELECT DATE_TRUNC('WEEK', date) AS week, MEASURE(`total_refunds`) AS refunds  FROM mv_returns  WHERE DATE_TRUNC('WEEK', date) < DATE_TRUNC('WEEK', current_date())    AND date >= DATEADD(day, -180, current_date())  GROUP BY 1), dates AS ( SELECT MAX(week) AS max_w FROM original), forecast AS ( SELECT week, refunds_forecast, refunds_upper, refunds_lower FROM AI_FORECAST(   TABLE(original),   horizon => (SELECT max_w + INTERVAL 28 DAYS FROM dates),   time_col => 'week',   value_col => 'refunds', parameters => '{\"global_floor\": 0}' )), actuals AS ( SELECT week, CAST(NULL AS DOUBLE) AS refunds_forecast,         CAST(NULL AS DOUBLE) AS refunds_upper,         CAST(NULL AS DOUBLE) AS refunds_lower, refunds  FROM original), forecast_aligned AS ( SELECT week, refunds_forecast, refunds_upper, refunds_lower,         CAST(NULL AS DOUBLE) AS refunds  FROM forecast) SELECT week, refunds_forecast, refunds_upper, refunds_lower, refunds FROM actuals UNION ALL SELECT week, refunds_forecast, refunds_upper, refunds_lower, refunds FROM forecast_aligned UNION ALL SELECT (SELECT max_w FROM dates) AS week,        refunds AS refunds_forecast, refunds AS refunds_upper,        refunds AS refunds_lower, CAST(NULL AS DOUBLE) AS refunds FROM original WHERE week = (SELECT max_w FROM dates)"
+      ]
     },
     {
       "name": "ds_sankey_flow",
       "displayName": "Category \u2192 product \u2192 top lot flow (long tails bucketed)",
       "queryLines": [
-        "WITH product_totals AS ( SELECT product_name, COUNT(*) AS n FROM silver_returns WHERE return_date >= DATEADD(day, -90, current_date()) GROUP BY product_name), top_products AS ( SELECT product_name FROM product_totals ORDER BY n DESC LIMIT 10), lot_totals AS ( SELECT lot_id, COUNT(*) AS n FROM silver_returns WHERE return_date >= DATEADD(day, -90, current_date()) GROUP BY lot_id), top_lots AS ( SELECT lot_id FROM lot_totals ORDER BY n DESC LIMIT 15) SELECT category, CASE WHEN r.product_name IN (SELECT product_name FROM top_products) THEN r.product_name ELSE 'Other products' END AS product_name, CASE WHEN r.lot_id IN (SELECT lot_id FROM top_lots) THEN r.lot_id ELSE 'Other lots' END AS lot_id, COUNT(*) AS returns FROM silver_returns r WHERE return_date >= DATEADD(day, -90, current_date()) GROUP BY category, CASE WHEN r.product_name IN (SELECT product_name FROM top_products) THEN r.product_name ELSE 'Other products' END, CASE WHEN r.lot_id IN (SELECT lot_id FROM top_lots) THEN r.lot_id ELSE 'Other lots' END"
-      ],
-      "catalog": "ai_demo_gen",
-      "schema": "demo_luxebeauty_test"
+        "WITH product_totals AS ( SELECT product_name, COUNT(*) AS n FROM silver_returns GROUP BY product_name), top_products AS ( SELECT product_name FROM product_totals ORDER BY n DESC LIMIT 10), lot_totals AS ( SELECT lot_id, COUNT(*) AS n FROM silver_returns GROUP BY lot_id), top_lots AS ( SELECT lot_id FROM lot_totals ORDER BY n DESC LIMIT 15) SELECT category, CASE WHEN r.product_name IN (SELECT product_name FROM top_products) THEN r.product_name ELSE 'Other products' END AS product_name, CASE WHEN r.lot_id IN (SELECT lot_id FROM top_lots) THEN r.lot_id ELSE 'Other lots' END AS lot_id, COUNT(*) AS returns FROM silver_returns r GROUP BY category, CASE WHEN r.product_name IN (SELECT product_name FROM top_products) THEN r.product_name ELSE 'Other products' END, CASE WHEN r.lot_id IN (SELECT lot_id FROM top_lots) THEN r.lot_id ELSE 'Other lots' END"
+      ]
     }
   ],
   "pages": [
@@ -49,7 +41,7 @@
               "lines": [
                 "# LuxeBeauty Returns \u2014 Operations\n",
                 "\n",
-                "**The story** \u2014 weekly refunds spiked to ~$180K three weeks ago (3\u00d7 our $60K baseline). Cause: production lot **LOT-2026-0427** of three Skincare SKUs (SKU-1001/1002/1003) released from Lyon despite a QC note about texture variations. ~250 customers affected, concentrated EU (Paris > London > Milan).\n",
+                "**The story** \u2014 weekly refunds spiked to ~$180K three weeks ago (3\u00d7 our $60K baseline). Cause: production lot **LOT-2026-0430** of three Skincare SKUs (SKU-1001/1002/1003) released from Lyon despite a QC note about texture variations. ~250 customers affected, concentrated EU (Paris > London > Milan).\n",
                 "\n",
                 "**What to see** \u2014 KPI sparklines carry the spike-then-decay shape \u00b7 forecast-line marks the production-incident date as a vertical bar to the LEFT of the bump (cause \u2192 effect \u2192 4-week recovery forecast) \u00b7 donut shows Skincare dominates refunds \u00b7 bubble map lights up Europe with Paris deepest red."
               ]
@@ -72,12 +64,12 @@
                   "datasetName": "ds_daily",
                   "fields": [
                     {
-                      "name": "weekly(date)",
-                      "expression": "DATE_TRUNC(\"WEEK\", `date`)"
-                    },
-                    {
                       "name": "sum(returns_usd)",
                       "expression": "SUM(`returns_usd`)"
+                    },
+                    {
+                      "name": "weekly(date)",
+                      "expression": "DATE_TRUNC(\"WEEK\", `date`)"
                     }
                   ],
                   "disaggregated": false
@@ -90,7 +82,7 @@
               "encodings": {
                 "value": {
                   "fieldName": "sum(returns_usd)",
-                  "displayName": "Refunds (90d)",
+                  "displayName": "Refunds",
                   "format": {
                     "type": "number-currency",
                     "currencyCode": "USD",
@@ -105,19 +97,12 @@
                   }
                 },
                 "period": {
-                  "fieldName": "weekly(date)",
-                  "color": {
-                    "hex": "#094074"
-                  },
-                  "style": {
-                    "areaFill": true,
-                    "fillOpacity": 0.25
-                  }
+                  "fieldName": "weekly(date)"
                 }
               },
               "frame": {
                 "showTitle": true,
-                "title": "Refunds \u2014 last 90d"
+                "title": "Refunds"
               }
             }
           },
@@ -138,12 +123,12 @@
                   "datasetName": "ds_daily",
                   "fields": [
                     {
-                      "name": "weekly(date)",
-                      "expression": "DATE_TRUNC(\"WEEK\", `date`)"
-                    },
-                    {
                       "name": "sum(return_count)",
                       "expression": "SUM(`return_count`)"
+                    },
+                    {
+                      "name": "weekly(date)",
+                      "expression": "DATE_TRUNC(\"WEEK\", `date`)"
                     }
                   ],
                   "disaggregated": false
@@ -156,25 +141,18 @@
               "encodings": {
                 "value": {
                   "fieldName": "sum(return_count)",
-                  "displayName": "Returns (90d)",
+                  "displayName": "Returns",
                   "color": {
                     "hex": "#094074"
                   }
                 },
                 "period": {
-                  "fieldName": "weekly(date)",
-                  "color": {
-                    "hex": "#094074"
-                  },
-                  "style": {
-                    "areaFill": true,
-                    "fillOpacity": 0.25
-                  }
+                  "fieldName": "weekly(date)"
                 }
               },
               "frame": {
                 "showTitle": true,
-                "title": "Returns \u2014 last 90d"
+                "title": "Returns"
               }
             }
           },
@@ -195,12 +173,12 @@
                   "datasetName": "ds_daily",
                   "fields": [
                     {
-                      "name": "weekly(date)",
-                      "expression": "DATE_TRUNC(\"WEEK\", `date`)"
-                    },
-                    {
                       "name": "sum(order_count)",
                       "expression": "SUM(`order_count`)"
+                    },
+                    {
+                      "name": "weekly(date)",
+                      "expression": "DATE_TRUNC(\"WEEK\", `date`)"
                     }
                   ],
                   "disaggregated": false
@@ -213,25 +191,18 @@
               "encodings": {
                 "value": {
                   "fieldName": "sum(order_count)",
-                  "displayName": "Orders (90d)",
+                  "displayName": "Orders",
                   "color": {
                     "hex": "#094074"
                   }
                 },
                 "period": {
-                  "fieldName": "weekly(date)",
-                  "color": {
-                    "hex": "#094074"
-                  },
-                  "style": {
-                    "areaFill": true,
-                    "fillOpacity": 0.25
-                  }
+                  "fieldName": "weekly(date)"
                 }
               },
               "frame": {
                 "showTitle": true,
-                "title": "Orders \u2014 last 90d"
+                "title": "Orders"
               }
             }
           },
@@ -252,12 +223,12 @@
                   "datasetName": "ds_daily",
                   "fields": [
                     {
-                      "name": "weekly(date)",
-                      "expression": "DATE_TRUNC(\"WEEK\", `date`)"
+                      "name": "sum(revenue_usd)",
+                      "expression": "SUM(`revenue_usd`)"
                     },
                     {
-                      "name": "refund_rate",
-                      "expression": "SUM(`returns_usd`) * 100.0 / NULLIF(SUM(`revenue_usd`), 0)"
+                      "name": "weekly(date)",
+                      "expression": "DATE_TRUNC(\"WEEK\", `date`)"
                     }
                   ],
                   "disaggregated": false
@@ -269,26 +240,31 @@
               "widgetType": "counter",
               "encodings": {
                 "value": {
-                  "fieldName": "refund_rate",
-                  "displayName": "Refund Rate",
+                  "fieldName": "sum(revenue_usd)",
+                  "displayName": "Revenue",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 2
+                    }
+                  },
                   "color": {
                     "hex": "#094074"
                   }
                 },
                 "period": {
-                  "fieldName": "weekly(date)",
-                  "color": {
-                    "hex": "#094074"
-                  },
-                  "style": {
-                    "areaFill": true,
-                    "fillOpacity": 0.25
-                  }
+                  "fieldName": "weekly(date)"
                 }
               },
               "frame": {
                 "showTitle": true,
-                "title": "Refund Rate (%)"
+                "title": "Revenue"
+              },
+              "data": {
+                "queryName": "main_query"
               }
             }
           },
@@ -344,7 +320,7 @@
                       "dataType": "DATETIME"
                     },
                     "label": {
-                      "value": "Product issue: lot LOT-2026-0427 ships"
+                      "value": "Product issue: lot LOT-2026-0430 ships"
                     }
                   }
                 }
@@ -781,7 +757,7 @@
                 "\n",
                 "**Same data, split by the dimensions that matter** \u2014 which products, which lots, which countries, what customers are saying. \n",
                 "\n",
-                "The story emerges: 3 Skincare SKUs sit an order of magnitude above the rest \u00b7 all on ONE lot (`LOT-2026-0427`, \\~10\u00d7 any other) \u00b7 the affected-lot bars dwarf everyday returns in every EU country and `quality` is the dominant reason \u00b7 `ai_classify` puts most affected-lot comments into Angry / Very angry \u00b7 the comments cluster on \"grainy\", \"separated\", \"watery\".\n",
+                "The story emerges: 3 Skincare SKUs sit an order of magnitude above the rest \u00b7 all on ONE lot (`LOT-2026-0430`, \\~10\u00d7 any other) \u00b7 the affected-lot bars dwarf everyday returns in every EU country and `quality` is the dominant reason \u00b7 `ai_classify` puts most affected-lot comments into Angry / Very angry \u00b7 the comments cluster on \"grainy\", \"separated\", \"watery\".\n",
                 "\n",
                 "Click any **'Affected lot'** bar to filter every other widget on the page."
               ]
@@ -1287,6 +1263,315 @@
         }
       ],
       "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1"
+    },
+    {
+      "name": "6fa83fcf",
+      "displayName": "Global Filters",
+      "layout": [
+        {
+          "widget": {
+            "name": "gf_date",
+            "queries": [
+              {
+                "name": "dashboards/01f165c28bfd13a79fb66a71c49d56ca/datasets/01f16eeacfea1fee9dedb9081a37898a_date",
+                "query": {
+                  "datasetName": "ds_daily",
+                  "fields": [
+                    {
+                      "name": "date",
+                      "expression": "`date`"
+                    },
+                    {
+                      "name": "date_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "dashboards/01f165c28bfd13a79fb66a71c49d56ca/datasets/01f16eeacfeb1021b924d737dcbce488_return_date",
+                "query": {
+                  "datasetName": "ds_returns",
+                  "fields": [
+                    {
+                      "name": "return_date",
+                      "expression": "`return_date`"
+                    },
+                    {
+                      "name": "return_date_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "dashboards/01f165c28bfd13a79fb66a71c49d56ca/datasets/01f16eeacfeb1026b0283417a4b4e62d_week",
+                "query": {
+                  "datasetName": "ds_forecast",
+                  "fields": [
+                    {
+                      "name": "week",
+                      "expression": "`week`"
+                    },
+                    {
+                      "name": "week_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "showTitle": true
+              },
+              "selection": {
+                "defaultSelection": {
+                  "range": {
+                    "dataType": "DATETIME",
+                    "min": {
+                      "value": "now-365d/d"
+                    },
+                    "max": {
+                      "value": "now/d"
+                    }
+                  }
+                }
+              },
+              "widgetType": "filter-date-range-picker",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "date",
+                    "queryName": "dashboards/01f165c28bfd13a79fb66a71c49d56ca/datasets/01f16eeacfea1fee9dedb9081a37898a_date"
+                  },
+                  {
+                    "fieldName": "return_date",
+                    "queryName": "dashboards/01f165c28bfd13a79fb66a71c49d56ca/datasets/01f16eeacfeb1021b924d737dcbce488_return_date"
+                  },
+                  {
+                    "fieldName": "week",
+                    "queryName": "dashboards/01f165c28bfd13a79fb66a71c49d56ca/datasets/01f16eeacfeb1026b0283417a4b4e62d_week"
+                  }
+                ]
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 1,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "gf_region",
+            "queries": [
+              {
+                "name": "dashboards/<dashboard-id>/datasets/ad238580c37a361f441a6735d8_region",
+                "query": {
+                  "datasetName": "ds_daily",
+                  "fields": [
+                    {
+                      "name": "region",
+                      "expression": "`region`"
+                    },
+                    {
+                      "name": "region_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "dashboards/<dashboard-id>/datasets/7b83218c5b9f951bf894923062_region",
+                "query": {
+                  "datasetName": "ds_returns",
+                  "fields": [
+                    {
+                      "name": "region",
+                      "expression": "`region`"
+                    },
+                    {
+                      "name": "region_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "showTitle": true,
+                "title": "Region"
+              },
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "region",
+                    "queryName": "dashboards/<dashboard-id>/datasets/ad238580c37a361f441a6735d8_region"
+                  },
+                  {
+                    "fieldName": "region",
+                    "queryName": "dashboards/<dashboard-id>/datasets/7b83218c5b9f951bf894923062_region"
+                  }
+                ]
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 2,
+            "width": 1,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "gf_category",
+            "queries": [
+              {
+                "name": "dashboards/<dashboard-id>/datasets/c8f65da03afd7835569ff93a83_category",
+                "query": {
+                  "datasetName": "ds_daily",
+                  "fields": [
+                    {
+                      "name": "category",
+                      "expression": "`category`"
+                    },
+                    {
+                      "name": "category_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "dashboards/<dashboard-id>/datasets/925defad53d2f6f714733d8d7c_category",
+                "query": {
+                  "datasetName": "ds_returns",
+                  "fields": [
+                    {
+                      "name": "category",
+                      "expression": "`category`"
+                    },
+                    {
+                      "name": "category_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "dashboards/<dashboard-id>/datasets/500197d0d625ffb380c7b1771b_category",
+                "query": {
+                  "datasetName": "ds_sankey_flow",
+                  "fields": [
+                    {
+                      "name": "category",
+                      "expression": "`category`"
+                    },
+                    {
+                      "name": "category_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "showTitle": true,
+                "title": "Category"
+              },
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "category",
+                    "queryName": "dashboards/<dashboard-id>/datasets/c8f65da03afd7835569ff93a83_category"
+                  },
+                  {
+                    "fieldName": "category",
+                    "queryName": "dashboards/<dashboard-id>/datasets/925defad53d2f6f714733d8d7c_category"
+                  },
+                  {
+                    "fieldName": "category",
+                    "queryName": "dashboards/<dashboard-id>/datasets/500197d0d625ffb380c7b1771b_category"
+                  }
+                ]
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 4,
+            "width": 1,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "gf_source",
+            "queries": [
+              {
+                "name": "dashboards/<dashboard-id>/datasets/0573fc480f48d002a27ed8456d_source",
+                "query": {
+                  "datasetName": "ds_returns",
+                  "fields": [
+                    {
+                      "name": "source",
+                      "expression": "`source`"
+                    },
+                    {
+                      "name": "source_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "showTitle": true,
+                "title": "Source"
+              },
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "source",
+                    "queryName": "dashboards/<dashboard-id>/datasets/0573fc480f48d002a27ed8456d_source"
+                  }
+                ]
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 6,
+            "width": 1,
+            "height": 2
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_GLOBAL_FILTERS",
       "layoutVersion": "GRID_V1"
     }
   ],

@@ -36,7 +36,7 @@ export type Message = {
 // Frozen empty array — returned by useConversationMessages when a convo
 // isn't loaded yet. Stable reference so consumers' useMemo deps don't fire
 // every render. Mutating it would throw (frozen).
-const EMPTY_MESSAGES: Message[] = Object.freeze([]) as Message[];
+const EMPTY_MESSAGES: Message[] = Object.freeze([]) as unknown as Message[];
 
 type State = {
   list: ConversationRow[];

@@ -21,8 +21,11 @@
  *   string returned to the model.
  */
 import { tool } from '@openai/agents';
-
-type ToolArgs = Parameters<typeof tool>[0];
+import type {
+  ToolOptions,
+  ToolInputParameters,
+  UnknownContext,
+} from '@openai/agents';
 
 /**
  * Trim a tool-error string before handing it to the model. Drizzle/pg
@@ -41,9 +44,13 @@ function sanitizeForModel(err: unknown): string {
   return trimmed.length > 240 ? `${trimmed.slice(0, 240)}…` : trimmed;
 }
 
-export function loggedTool<T extends ToolArgs>(args: T): ReturnType<typeof tool> {
+export function loggedTool<
+  TParameters extends ToolInputParameters = undefined,
+  Context = UnknownContext,
+  Result = string,
+>(args: ToolOptions<TParameters, Context>) {
   const userErrorFunction = args.errorFunction;
-  return tool({
+  return tool<TParameters, Context, Result>({
     ...args,
     errorFunction: (context, err) => {
       // Log full error context: message, stack, cause (pg error_code +

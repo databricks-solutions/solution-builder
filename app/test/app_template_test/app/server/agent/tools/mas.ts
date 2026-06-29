@@ -116,7 +116,10 @@ export async function callMasEndpoint(
   try {
     // eslint-disable-next-line no-constant-condition
     while (true) {
-      let chunk: ReadableStreamReadResult<Uint8Array>;
+      // Derive the read-result type from the reader rather than naming
+      // ReadableStreamReadResult directly — that DOM lib type isn't in the
+      // server tsconfig's `lib` (ES2020, no DOM).
+      let chunk: Awaited<ReturnType<typeof reader.read>>;
       try {
         chunk = await reader.read();
       } catch (e) {

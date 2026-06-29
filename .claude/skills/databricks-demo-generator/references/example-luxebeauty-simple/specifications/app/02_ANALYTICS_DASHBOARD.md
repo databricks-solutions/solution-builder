@@ -18,11 +18,11 @@ Warehouse-backed charts at lakehouse scale, rendered natively in the app via `@d
 
 ### LuxeBeauty queries
 
-- `daily_refund_trend` — `SUM(refund_amount_usd)` by `return_date`, 30 days, from `gold_returns`.
-- `returns_by_product` — top 10 by `COUNT(return_id)` + `SUM(refund_amount_usd)`, GROUP BY `product_name`, from `gold_returns`.
-- `worst_lots` — `lot_id`, `product_name`, `facility`, `COUNT(*)` AS `return_count`, `SUM(refund_amount_usd)` AS `total_refund_usd` from `gold_returns`, GROUP BY 1,2,3, ORDER BY `return_count` DESC LIMIT 20. **Display the lot's incident text on row click** by fetching `incident_summary` from `raw_production_lots WHERE lot_id = <clicked>` — that's the drill-down moment. Clicking a row → Operations pre-filtered by that lot.
+- `daily_refund_trend` — daily refund total, last 30 days (from `gold_returns`).
+- `returns_by_product` — top 10 products by return count + refund $ (from `gold_returns`).
+- `worst_lots` — lots ranked by return count (top 20): lot, product, facility, return count, refund $ (from `gold_returns`). **On row click, display the lot's incident text** (fetched from `raw_production_lots`) — that's the drill-down moment. Clicking a row → Operations pre-filtered by that lot.
 
-> The Simple demo computes lot rollups at query time with `GROUP BY lot_id` against `gold_returns` (small + fast) instead of materializing a per-lot table. The lot's `incident_summary` is fetched on click from `raw_production_lots` — one extra round-trip, no extra table. The full demo's SDP pipeline can pre-materialize this if the data grows beyond what GROUP BY handles well.
+> Lot rollups are derived from `gold_returns`; the lot's `incident_summary` is fetched on click from `raw_production_lots`. No pre-aggregated per-lot table.
 
 The template ships a working version of this page — tune the SQL and labels to your demo's data, don't rebuild from scratch.
 

@@ -57,18 +57,24 @@ CUSTOMER FEEDBACK (from affected lot): "grainy texture" / "product separated" / 
 
 ### Sample Questions — story-arc walk
 
-Ship these as chips (`config.sample_questions`) AND as curated SQLs (`instructions.example_question_sqls`) — same order on both lists. The arc walks an unfamiliar user from "what's wrong?" to "what's next?" without prior context:
+Ship the **full 6-question arc as chips** (`config.sample_questions`) so the user can pick any beat, but curate **only 3 as `instructions.example_question_sqls`** — the load-bearing ones where the SQL Genie picks matters. The other 3 chip-only questions Genie composes from scratch each time, which is fine (single-table aggregations Genie handles well unaided). Less curated SQL means cleaner room instructions and less drift when the schema evolves.
 
-1. **Headline** — "What's our return rate this month, and how does it compare to baseline?" → weekly SUM(returns_usd) + return_rate from `gold_daily_summary`, last 8 weeks.
-2. **Drill to products** — "Why do I have so many returns? Trace it to the products and the lot." → top products by COUNT from `gold_returns`.
-3. **Drill to lot + QC story** — "Which production lot is driving the spike, and what does the QC note say?" → CTE finds the top lot for the 3 affected SKUs, JOINs `raw_production_lots` to quote `incident_summary` — the punchline.
-4. **Customer voice** — "What are customers saying? Show recent affected-lot comments." → `gold_returns WHERE is_bad_lot` recent — surfaces "grainy" / "separated" / "watery".
-5. **Blast radius** — "Where are the affected customers? Group by country." → COUNT DISTINCT + SUM refunds, `WHERE is_bad_lot`.
-6. **Recovery** — "Are refunds recovering? Show the trend and what's next." → last 6 weeks of SUM(returns_usd) showing the decay.
+Chips (all 6, in arc order):
+1. **Headline** — "What's our return rate this month, and how does it compare to baseline?"
+2. **Drill to products** — "Why do I have so many returns? Trace it to the products and the lot."
+3. **Drill to lot + QC story** — "Which production lot is driving the spike, and what does the QC note say?"
+4. **Customer voice** — "What are customers saying? Show recent affected-lot comments."
+5. **Blast radius** — "Where are the affected customers? Group by country."
+6. **Recovery** — "Are refunds recovering? Show the trend and what's next."
+
+Curated SQLs (3 — the ones where Genie shouldn't have to guess):
+- **Headline** — weekly SUM(returns_usd) + return_rate from `gold_daily_summary`, last 8 weeks.
+- **Drill to lot + QC story** — CTE finds the top lot for the 3 affected SKUs, JOINs `raw_production_lots` to quote `incident_summary` — the punchline. This SQL is load-bearing because it crosses 2 tables for a join Genie would otherwise miss.
+- **Recovery** — last 6 weeks of SUM(returns_usd) showing the decay.
 
 ### Validation
 
-- "What's our return rate this month?" → matches the dashboard's Refund Rate KPI tile exactly (both read `gold_daily_summary`).
+- "What's our return rate this month?" → answered from `gold_daily_summary`: `SUM(return_count) / SUM(order_count)` for the current month, with a baseline comparison.
 - "Why so many returns?" → walks to the 3x spike → SKU-1001/1002/1003 dominate by volume → common lot → texture feedback → **quotes the incident_summary text inline** (homogenizer / pressure / Lyon / released). All five beats present.
 - "What are customers saying?" → surfaces *"grainy"*, *"separated"*, *"watery"*.
 - "Which countries have the most affected customers?" → FR is the largest, then IT or GB, then US.
@@ -129,22 +135,23 @@ widgetHeaderAlignment: LEFT
 
 | Name | Source | Powers |
 |---|---|---|
-| `ds_daily` | `SELECT date, region, category, order_count, return_count, revenue_usd, returns_usd FROM gold_daily_summary WHERE date >= DATEADD(day, -90, current_date())` | 4 KPI counters + category donut + weekly-orders area chart |
-| `ds_returns` | `SELECT return_id, return_date, country, city, customer_lat, customer_lng, region, product_name, category, lot_id, facility, is_bad_lot, CASE WHEN is_bad_lot THEN 'Affected lot' ELSE 'Everyday returns' END AS source, return_reason, customer_comment, anger_score, CASE WHEN anger_score >= 0.9 THEN '3 - Very angry' WHEN anger_score >= 0.5 THEN '2 - Angry' WHEN anger_score >= 0.2 THEN '1 - Neutral' ELSE '0 - Satisfied' END AS sentiment, refund_amount_usd FROM gold_returns WHERE return_date >= DATEADD(day, -90, current_date())` | Bubble map, refunds-by-country bar, affected-vs-everyday split bars (country + reasons), sentiment bar, city table, comments table |
-| `ds_forecast` | `WITH original AS (SELECT DATE_TRUNC('WEEK', date) AS week, SUM(returns_usd) AS refunds FROM gold_daily_summary WHERE DATE_TRUNC('WEEK', date) < DATE_TRUNC('WEEK', current_date()) AND date >= DATEADD(day, -180, current_date()) GROUP BY 1), …, forecast AS (SELECT … FROM AI_FORECAST(TABLE(original), horizon => …, time_col => 'week', value_col => 'refunds')) SELECT actuals UNION ALL forecast UNION ALL <bridging row that repeats the last actual as the forecast seam>` | Forecast-line widget (full pattern in dashboard skill's `4-examples.md` — copy verbatim, swap names) |
-| `ds_sankey_flow` | `WITH product_totals AS (SELECT product_name, COUNT(*) n FROM gold_returns WHERE return_date >= DATEADD(day, -90, current_date()) GROUP BY 1), top_products AS (SELECT product_name FROM product_totals ORDER BY n DESC LIMIT 10), lot_totals AS (...) , top_lots AS (... LIMIT 15) SELECT category, CASE WHEN product_name IN top_products THEN product_name ELSE 'Other products' END AS product_name, CASE WHEN lot_id IN top_lots THEN lot_id ELSE 'Other lots' END AS lot_id, COUNT(*) returns FROM gold_returns r WHERE return_date >= … GROUP BY 1,2,3` | Sankey widget on the Investigation page — top-10 products + top-15 lots, long tails bucketed as "Other …" |
+| `ds_daily` | daily grain from `gold_daily_summary`: date, region, category, order/return counts, revenue + returns $ | 4 KPI counters + category donut + weekly-orders area chart |
+| `ds_returns` | row-level from `gold_returns`, plus a derived `source` ("Affected lot" / "Everyday returns" from `is_bad_lot`) and a 4-level `sentiment` bucket from `anger_score` (≥0.9 Very angry, ≥0.5 Angry, ≥0.2 Neutral, else Satisfied) | Bubble map, refunds-by-country bar, affected-vs-everyday split bars (country + reasons), sentiment bar, city table, comments table |
+| `ds_forecast` | weekly refund actuals + an `AI_FORECAST` band, over a 180-day trailing window, floored at 0 (no negative refunds) | Forecast-line widget. The 180-day window is forecast **input** shape, not display windowing — so the global Date filter must not touch this dataset. |
+| `ds_sankey_flow` | category → product → lot return counts from `gold_returns`, top-10 products + top-15 lots, long tails bucketed as "Other …" | Sankey widget on the Investigation page |
 
-`ds_forecast` and `ds_sankey_flow` aren't shared with anything; the global filters skip them by design.
+**No date clamps inside `ds_daily` / `ds_returns` / `ds_sankey_flow`** — the global Date Range filter is the single source of windowing; a clamp in the dataset would narrow what the filter can select. `ds_forecast` is the exception: its 180-day window is forecast input, not display filtering.
 
 ### Global filters (left panel — `PAGE_TYPE_GLOBAL_FILTERS`)
 
 | Filter | Column | Datasets | Default |
 |---|---|---|---|
-| Date Range | `date` (ds_daily) / `return_date` (ds_returns) | ds_daily, ds_returns | Last 6 months |
-| Region | `region` | ds_daily, ds_returns | All |
-| Category | `category` | ds_daily, ds_returns | All |
+| Date Range | `date` (ds_daily) / `return_date` (ds_returns) | ds_daily, ds_returns, ds_sankey_flow | All (no clamp) |
+| Region | `region` | ds_daily, ds_returns, ds_sankey_flow | All |
+| Category | `category` | ds_daily, ds_returns, ds_sankey_flow | All |
+| Source | `source` ("Affected lot" / "Everyday returns" — derived column on ds_returns) | ds_returns | All |
 
-`ds_forecast` is **unfiltered** by all three — `AI_FORECAST` needs a stable trailing window. `ds_sankey_flow` is also unfiltered — it already top-N bucketizes inside the SQL.
+`ds_forecast` must stay **unfiltered** by all four filters — `AI_FORECAST` needs its stable trailing window. (Binding the Date filter to it would silently truncate that window whenever the user picks a range — bind the filters only to the datasets listed above.)
 
 ### Page 1 — Operations (the glance)
 
@@ -156,7 +163,7 @@ Layout is a 12-column grid; widgets list their `(x, y, width, height)` so the da
 | 3  | 0 |  3 | 3 | `kpi_refunds` |
 | 3  | 3 |  3 | 3 | `kpi_returns` |
 | 3  | 6 |  3 | 3 | `kpi_orders` |
-| 3  | 9 |  3 | 3 | `kpi_refund_rate` |
+| 3  | 9 |  3 | 3 | `kpi_revenue` (name stays `kpi_refund_rate` in JSON for layout-position compat) |
 | 6  | 0 | 12 | 5 | `trend_chart` (forecast-line) |
 | 11 | 0 |  7 | 6 | `orders_by_region_area` |
 | 11 | 7 |  5 | 7 | `country_chart_refunds` |
@@ -165,12 +172,14 @@ Layout is a 12-column grid; widgets list their `(x, y, width, height)` so the da
 
 **`title` — markdown widget**. Self-sufficient page header so a cold reader knows what they're looking at. ~5 lines covering: what happened (refunds spiked 3× three weeks ago) · cause (the affected lot ID + Lyon factory + QC note) · blast radius (250 EU-skewed customers) · what to see on this page (KPI sparklines carry the spike-then-decay shape, forecast marks the incident date with a vertical bar, donut shows Skincare dominates, map lights Europe). Lift the substance from the README — don't repeat it verbatim.
 
-**4 × `counter` (sparklines via `period` encoding, weekly bucket)** — `kpi_refunds`, `kpi_returns`, `kpi_orders`, `kpi_refund_rate`. Source: `ds_daily`. Pin both `value.color` AND `period.color` to the primary literal-hex (`#094074`) — without the period pin, the sparkline renders in a desaturated default that's nearly invisible against white.
+**4 × `counter`** — `kpi_refunds`, `kpi_returns`, `kpi_orders`, `kpi_refund_rate` (this last name kept for layout-position stability; the tile renders Revenue). Source: `ds_daily`. **No `period` encoding** — the counter displays the dataset-level sum over whatever the global Date filter has selected. (We tried `period`-based sparklines earlier; the counter then shows only the last-period value, which doesn't match "totals over the filtered window" — the natural mental model with global filters.) Pin `value.color` to the primary literal-hex (`#094074`) for the spike-anchor tiles.
 
-- **Refunds — last 90d** · `SUM(returns_usd)` · `number-currency` USD compact, `decimalPlaces: max 1` · *sparkline shows spike-then-decay — the visual hook.*
-- **Returns — last 90d** · `SUM(return_count)` · number compact · *sparkline matches refunds.*
-- **Orders — last 90d** · `SUM(order_count)` · number compact · *sparkline flat — the business is fine.*
-- **Refund Rate (%)** · `SUM(return_count) / SUM(order_count)` · percent · *same definition Genie uses.*
+- **Refunds** · `SUM(returns_usd)` · `number-currency` USD compact, `decimalPlaces: max 1` · color `#094074` · *the spike's headline number.*
+- **Returns** · `SUM(return_count)` · number compact · color `#094074`.
+- **Orders** · `SUM(order_count)` · number compact · color `#094074`.
+- **Revenue** · `SUM(revenue_usd)` · `number-currency` USD compact, `decimalPlaces: max 2` · color `#094074` · *paired with Refunds — the "this is a refund-rate problem, not a demand problem" story without needing a separate Refund Rate tile.*
+
+Refund rate as a number isn't shown on the dashboard, but the gen produces refunds + revenue + counts, so Genie can answer "what's our refund rate?" naturally over the same `gold_daily_summary` rows.
 
 **`trend_chart` — `forecast-line` "Weekly refunds — actuals + forecast"** (12-wide). Source: `ds_forecast`. x = `week` (temporal); y `refunds` = actuals (solid); y `refunds_forecast` / `refunds_upper` / `refunds_lower` = forecast band (dashed); y format `number-currency` USD compact. Bridging row repeating last actual as `refunds_forecast` so the band doesn't disconnect at the seam.
 
@@ -230,19 +239,4 @@ Same 12-column grid as Page 1. The `sec_*` widgets are thin (`h=1`) markdown sec
 
 ### Validation
 
-- Operations page renders without horizontal scroll on a 1440px screen; widgets float on a white canvas with no visible borders.
-- Each KPI counter shows a weekly sparkline behind its value. Refunds and Refund Rate sparklines show the spike-then-decay shape clearly.
-- Forecast-line: actuals through ~last full week, dashed prediction band continuing 4 weeks forward, **vertical annotation line on `AFFECTED_LOT_DATE`** labeled with the lot ID. Peak **not** at the rightmost edge.
-- Bubble map: Paris is the single largest bubble (≥ ~30 affected customers), followed by visible London / Milan / Madrid / Berlin clusters; US East/West mid-sized; Tokyo / Seoul / Sydney small. Tooltip shows city + count + refund total.
-- Category donut: Skincare is the largest slice (deep navy).
-- Refunds-by-country bar: France first, then IT / GB / DE / US.
-- Weekly-orders area chart: lines stay flat across the whole window — visibly UNLIKE the refunds spike.
-- Investigation sankey: the Skincare → {SKU-1001, SKU-1002, SKU-1003} → LOT-{YYYY-MMDD} flow lines visibly dominate. "Other products" / "Other lots" buckets exist but stay thin.
-- Affected-vs-everyday country bars: every EU country shows a yellow `Affected lot` bar taller than its steel-blue `Everyday returns` bar.
-- Reasons bar: `quality` is ~all yellow; `changed_mind` / `wrong_item` / `didnt_fit` are ~all steel blue.
-- Sentiment bar: `3 - Very angry` + `2 - Angry` together carry ~all of the affected-lot returns; `0 - Satisfied` + `1 - Neutral` carry the baseline.
-- Comments table sorted by Anger DESC: top rows contain "grainy" / "separated" / "watery" texture complaints.
-- Region filter (select "EU") → every widget updates; the map zooms to the EU bounding box (Paris cluster fills the frame).
-- Category filter (select "Skincare") → returns spike pronounced; sankey collapses to a single category.
-
-Add `dashboard_id` to `resources.json`.
+Open the published dashboard and confirm the story reads at a glance: the refund spike stands out, the affected lot/SKUs dominate the investigation widgets, the map lights up EU (Paris largest), and the global filters update every widget. Add `dashboard_id` to `resources.json`.

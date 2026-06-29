@@ -69,7 +69,7 @@ TIERED OFFER (must be applied every time the retention action runs):
 - Premium customers (final_tier = 'premium', whether CS-tagged OR model-predicted) → personal apology email + 20% coupon
 - Standard customers (final_tier = 'standard')                                      → standard apology email + 5% goodwill coupon
 
-ALWAYS report the per-country breakdown (`gold_customer_premium_predictions` joined with `bronze_customers.country`) for the premium cohort — Claire wants to know which markets are most exposed. ALWAYS call out the hidden-premium count (`premium_status_labeled IS NULL AND is_premium_predicted = true`) so the story lands: "CS had tagged 18; the model found 49 more."
+ALWAYS report the per-country breakdown (`gold_customer_premium_predictions` joined with `raw_customers.country`) for the premium cohort — Claire wants to know which markets are most exposed. ALWAYS call out the hidden-premium count (`premium_status_labeled IS NULL AND is_premium_predicted = true`) so the story lands: "CS had tagged 18; the model found 49 more."
 
 SYNTHESIS: Data = WHAT (3x returns, 3 products, 1 lot, texture complaints). Docs = WHY (homogenizer pressure, released anyway). Model = WHO TO PRIORITIZE (~67 of 250 are premium — 18 already-tagged, 49 hidden premiums the model surfaced — mostly FR + IT). Action: tiered retention offer, contact customers, consider recall, fix equipment.
 

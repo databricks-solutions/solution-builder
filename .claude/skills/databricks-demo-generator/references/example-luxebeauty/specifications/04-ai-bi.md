@@ -18,7 +18,7 @@ Create `LuxeBeauty Operations Analytics` Genie Space.
 
 ### Tables
 
-`mv_returns` (canonical revenue / orders / return-rate / refund-rate metric view, over `gold_daily_summary` — defined in `02-uc-governance.md`), `gold_daily_summary` (raw daily — for AI_FORECAST queries that can't go through MV), `silver_returns` (per-return investigation: denormalized country/region/category/facility/lot/customer + `anger_score` + `is_bad_lot` — used for product/lot rollups via GROUP BY, customer feedback, sentiment), `bronze_products` (catalog), `bronze_production_lots` (lot details + production_date), `bronze_customers` (for the `premium_status` CS-tag + `country` joins), `gold_customer_premium_predictions` (per-customer `premium_prob` + `final_tier`, written by the ML notebook in `03-ml-premium.md`).
+`mv_returns` (canonical revenue / orders / return-rate / refund-rate metric view, over `gold_daily_summary` — defined in `02-uc-governance.md`), `silver_returns` (per-return investigation: denormalized country/region/category/facility/lot/customer + `anger_score` + `is_bad_lot` — used for product/lot rollups via GROUP BY, customer feedback, sentiment), `raw_products` (catalog), `raw_production_lots` (lot details + production_date + `incident_summary`), `raw_customers` (for the `premium_status` CS-tag + `country` joins), `gold_customer_premium_predictions` (per-customer `premium_prob` + `final_tier`, written by the ML notebook in `03-ml-premium.md`).
 
 ### Self-sufficient room
 
@@ -68,7 +68,7 @@ Ship 7 questions, in this order, each as both a chip (`config.sample_questions`)
 
 ### Validation
 
-"What's our return rate this month?" → answered from mv_returns, matches the dashboard's Monthly Return Rate KPI tile exactly. "Why so many returns?" → 3x spike, SKU-1001/1002/1003, common lot, texture feedback. "What are customers saying?" → surfaces "grainy", "separated", "watery". "How many of the affected customers are premium?" → ~67 of 250 (final_tier='premium'), answered from `gold_customer_premium_predictions`. "How many hidden premiums?" → ~49 (`premium_status_labeled IS NULL AND is_premium_predicted = true`).
+"What's our return rate this month?" → answered from `mv_returns` (`MEASURE(return_rate)`) — the dashboard doesn't have a Return Rate tile but the measure is defined in the metric view so Genie returns it cleanly. "Why so many returns?" → 3x spike, SKU-1001/1002/1003, common lot, texture feedback. "What are customers saying?" → surfaces "grainy", "separated", "watery". "How many of the affected customers are premium?" → ~67 of 250 (final_tier='premium'), answered from `gold_customer_premium_predictions`. "How many hidden premiums?" → ~49 (`premium_status_labeled IS NULL AND is_premium_predicted = true`).
 
 Add genie_space_id to `resources.json`.
 
@@ -124,30 +124,37 @@ widgetHeaderAlignment: LEFT
 
 | Name | Source | Powers |
 |---|---|---|
-| `ds_metrics` | `mv_returns` (MEASURE() syntax — `total_refunds`, `total_revenue`, `order_count`, `return_count`, `return_rate`, `refund_rate`) | 4 KPI counters + category donut |
-| `ds_returns` | `SELECT return_id, return_date, country, city, customer_lat, customer_lng, region, product_name, category, lot_id, facility, is_bad_lot, CASE WHEN is_bad_lot THEN 'Affected lot' ELSE 'Everyday returns' END AS source, return_reason, return_reason_text, anger_score, CASE WHEN anger_score >= 0.9 THEN '3 - Very angry' WHEN anger_score >= 0.5 THEN '2 - Angry' WHEN anger_score >= 0.2 THEN '1 - Neutral' ELSE '0 - Satisfied' END AS sentiment, refund_amount_usd FROM silver_returns WHERE return_date >= DATEADD(day, -90, current_date())` | Map, country split bars, sentiment bin, product/lot rollups (GROUP BY at widget level), reason splits, comments table |
-| `ds_forecast` | `WITH original AS (SELECT DATE_TRUNC('WEEK', date) AS week, SUM(returns_usd) AS refunds FROM gold_daily_summary WHERE DATE_TRUNC('WEEK', date) < DATE_TRUNC('WEEK', current_date()) AND date >= DATEADD(day, -180, current_date()) GROUP BY 1), …, forecast AS (SELECT … FROM AI_FORECAST(TABLE(original), horizon => …, time_col => 'week', value_col => 'refunds')) SELECT actuals UNION ALL forecast UNION ALL <bridging row that repeats the last actual as the forecast seam>` | Forecast-line widget (full pattern in dashboard skill's `4-examples.md` — copy verbatim, swap names) |
+| `ds_metrics` | `SELECT date, region, category, MEASURE(\`order_count\`) AS order_count, MEASURE(\`return_count\`) AS return_count, MEASURE(\`total_revenue\`) AS revenue_usd, MEASURE(\`total_refunds\`) AS returns_usd FROM mv_returns GROUP BY ALL` (all measures from `mv_returns` — also exposes `return_rate` + `refund_rate` to Genie at the MV level) | 4 KPI counters + category donut |
+| `ds_returns` | `SELECT return_id, return_date, country, city, customer_lat, customer_lng, region, product_name, category, lot_id, facility, is_bad_lot, CASE WHEN is_bad_lot THEN 'Affected lot' ELSE 'Everyday returns' END AS source, return_reason, return_reason_text, anger_score, CASE WHEN anger_score >= 0.9 THEN '3 - Very angry' WHEN anger_score >= 0.5 THEN '2 - Angry' WHEN anger_score >= 0.2 THEN '1 - Neutral' ELSE '0 - Satisfied' END AS sentiment, refund_amount_usd FROM silver_returns` | Map, country split bars, sentiment bin, product/lot rollups (GROUP BY at widget level), reason splits, comments table |
+| `ds_forecast` | `WITH original AS (SELECT DATE_TRUNC('WEEK', date) AS week, MEASURE(\`total_refunds\`) AS refunds FROM mv_returns WHERE DATE_TRUNC('WEEK', date) < DATE_TRUNC('WEEK', current_date()) AND date >= DATEADD(day, -180, current_date()) GROUP BY 1), …, forecast AS (SELECT … FROM AI_FORECAST(TABLE(original), horizon => …, time_col => 'week', value_col => 'refunds', parameters => '{"global_floor": 0}')) SELECT actuals UNION ALL forecast UNION ALL <bridging row that repeats the last actual as the forecast seam>` | Forecast-line widget (full pattern in dashboard skill's `4-examples.md` — copy verbatim, swap names). The `parameters => '{"global_floor": 0}'` keeps the lower confidence band from dipping into negative refunds. The 180-day window is forecast-input shape (AI_FORECAST needs a stable trailing history) — NOT a display filter — so global filters don't touch this dataset. |
+
+**No hardcoded date clamps on `ds_metrics` / `ds_returns`** — the global Date Range filter is the single source of windowing. Adding `WHERE date >= DATEADD(...)` inside dataset SQL would narrow what the filter can possibly select.
 
 ### Global filters (left panel — `PAGE_TYPE_GLOBAL_FILTERS`)
 
 | Filter | Column | Datasets | Default |
 |---|---|---|---|
-| Date Range | `date` (ds_metrics) / `return_date` (ds_returns) | ds_metrics, ds_returns | Last 6 months |
+| Date Range | `date` (ds_metrics) / `return_date` (ds_returns) | ds_metrics, ds_returns | All (no clamp) |
 | Region | `region` | ds_metrics, ds_returns | All |
 | Category | `category` | ds_metrics, ds_returns | All |
+| Source | `source` ("Affected lot" / "Everyday returns" — derived on ds_returns) | ds_returns | All |
 
-`ds_forecast` is **unfiltered** by all three — `AI_FORECAST` needs a stable trailing window.
+`ds_forecast` is **unfiltered** by all four — `AI_FORECAST` needs a stable trailing window. Without a Date Range default, the dashboard renders the full data span on first load; the user narrows it interactively.
+
+**Important JSON wiring**: each filter widget on the `PAGE_TYPE_GLOBAL_FILTERS` page has an explicit `filterTargets[]` array listing the datasets it binds to. **Do NOT bind any filter to `ds_forecast`** — Lakeview's default is to bind to every dataset that contains a column with the matching name, which would silently drop `AI_FORECAST`'s history window every time the user selects a Date Range. Explicit `filterTargets: ["ds_metrics", "ds_returns"]` (and `["ds_returns"]` for the Source filter) is the safer pattern.
 
 ### Page 1 — Operations (the glance)
 
 **Row 1** — title markdown. *"LuxeBeauty Returns — Operations. Claire Dubois, VP Ops. The bad lot LOT-{date} ships in late {month}, the surge follows weeks later. We've traced it; this dashboard tracks the recovery."*
 
-**Row 2 — 4 × `counter` (sparklines via `period` encoding, weekly bucket)**. Source: `ds_metrics`. Pin both `value.color` AND `period.color` to the primary literal-hex (`#094074`) — the value color drives the headline number, the period color drives the sparkline line. Without the period pin, the sparkline renders in a desaturated default that's nearly invisible against white.
+**Row 2 — 4 × `counter`**. Source: `ds_metrics`. Layout positions are `kpi_refunds` / `kpi_returns` / `kpi_orders` / `kpi_refund_rate` (the 4th widget keeps the `kpi_refund_rate` name for layout-position stability; the tile renders Revenue). **No `period` encoding** — the counter shows the dataset-level sum over whatever the global Date filter has selected. (We tried `period`-based sparklines earlier; the counter then showed only the last-period value, not the windowed total — that's the wrong mental model for a global-filter dashboard.) Pin `value.color` to `#094074` (the primary literal-hex anchor).
 
-- **Refunds — last 90d** · `MEASURE(total_refunds)` · `number-currency` USD compact, `decimalPlaces: max 1` · *sparkline shows spike-then-decay — the visual hook.*
-- **Returns — last 90d** · `MEASURE(return_count)` · number compact · *sparkline matches refunds.*
-- **Orders — last 90d** · `MEASURE(order_count)` · number compact · *sparkline flat — the business is fine.*
-- **Refund Rate (%)** · `MEASURE(return_rate)` · percent · *same metric Genie uses; numbers match exactly.*
+- **Refunds** · `SUM(\`returns_usd\`)` · `number-currency` USD compact, `decimalPlaces: max 1` · color `#094074` · *the spike's headline number, total over the filtered window.*
+- **Returns** · `SUM(\`return_count\`)` · number compact · color `#094074`.
+- **Orders** · `SUM(\`order_count\`)` · number compact · color `#094074`.
+- **Revenue** · `SUM(\`revenue_usd\`)` · `number-currency` USD compact, `decimalPlaces: max 2` · color `#094074` · *paired with Refunds — the "this is a refund-rate problem, not a demand problem" story without needing a separate Refund Rate tile.*
+
+Refund rate as a number isn't shown on the dashboard, but `mv_returns` defines `refund_rate` + `return_rate` measures (see `02-uc-governance.md`), so Genie answers "what's our refund rate?" naturally over the same metric view.
 
 **Row 3 — `forecast-line` · "Weekly refunds — actuals + forecast"**. Source: `ds_forecast`. x = `week` (temporal); y `refunds` = actuals (solid); y `refunds_forecast` / `refunds_upper` / `refunds_lower` = forecast band (dashed); y format `number-currency` USD compact. Bridging row repeating last actual as `refunds_forecast` so the band doesn't disconnect at the seam.
 
@@ -191,21 +198,7 @@ widgetHeaderAlignment: LEFT
 
 ### Validation
 
-- Operations page renders without horizontal scroll on a 1440px screen; widgets float on a white canvas with no visible borders.
-- KPI counters: each shows a weekly sparkline. Refunds and Refund Rate sparklines show the spike-then-decay shape clearly. **Refund Rate value matches Genie's answer to "what's our return rate this month?" exactly** (both read `mv_returns`).
-- Forecast-line: actuals through ~last full week, dashed prediction band continuing 4 weeks forward, **vertical annotation line on `AFFECTED_LOT_DATE`** labeled with the lot ID. Peak **not** at the rightmost edge.
-- Bubble map: Paris is the single largest bubble (≥ ~30 affected customers), followed by visible London / Milan / Madrid / Berlin clusters; US East/West mid-sized; Tokyo / Seoul / Sydney small.
-- Refunds-by-country bar: France first, then IT/GB/DE/US; bars stacked by `category` with Skincare dominating the EU stack.
-- Category donut: Skincare is the largest slice.
-- Investigation Worst-lots bar: one bar ~10× the next.
-- Affected-vs-everyday country bars: every EU country shows a yellow `Affected lot` bar taller than its steel-blue `Everyday returns` bar.
-- Reasons bar: `quality` is ~all yellow; `changed_mind` / `wrong_item` / `didnt_fit` are ~all steel blue.
-- Sentiment bar: `2 - Angry` + `3 - Very angry` dominate the affected-lot subset; `0 - Satisfied` dominates everyday returns.
-- Comments table: visible *"grainy"*, *"separated"*, *"watery"* in `return_reason_text` rows, with `anger_score` ≥ 0.7.
-- Region filter (select "EU") → every widget updates; the map zooms to the EU bounding box (Paris cluster fills the frame).
-- Category filter (select "Skincare") → returns spike pronounced; product bar narrows to skincare SKUs.
-
-Add `dashboard_id` to `resources.json`.
+Open the published dashboard and confirm the story reads at a glance: the refund spike stands out, the affected lot/SKUs dominate the investigation widgets, the map lights up EU (Paris largest), and the global filters update every widget. Sanity-check that Genie's "what's our return rate this month?" matches `MEASURE(return_rate)` on `mv_returns` (same metric definition). Add `dashboard_id` to `resources.json`.
 
 ---
 

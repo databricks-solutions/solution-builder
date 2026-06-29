@@ -30,15 +30,11 @@ The two append-only arrays on `returns` make each row a standalone timeline — 
 
 > **Talking-track vs. build:** in production this is **Lakebase Synced Tables** — managed, continuous Delta → Lakebase replication with the same UC governance. That's what we sell. For the demo build we keep it simple: a manual one-shot sync at boot, code we can show, no extra resource to provision. Same outcome on screen.
 
-1. If mirror tables empty → pull via Databricks SQL Statements API (customers with returns + their country; all returns denormalized including the joined country / product / lot / facility — exactly the shape the Operations queue + drawer need).
-2. Chunked inserts (~2000/batch), idempotent (skip on conflict).
-3. **"Reset demo" button** → clean slate: truncate + re-sync. **All agent writes are wiped** — status flips back to `pending`, `emails[]` + `aiAuditTrail[]` + `couponPctApplied` are cleared. Between presentations Claire wants the queue to look untouched.
+- On boot, if the mirror tables are empty, sync the needed Delta subset into Lakebase (customers who have returns + their country; all returns denormalized with country / product / lot / facility — the shape the Operations queue + drawer need). Idempotent — safe to re-run.
+- **"Reset demo" button** → clean slate: all agent writes are wiped, statuses flip back to `pending`, the email / audit-trail / coupon fields clear. Between presentations Claire wants the queue to look untouched.
 
 Source tables come from `config/app.json` `data.tables` (maps logical names → Delta table names, used by the sync + analytics queries).
 
 ## Lakebase provisioning
 
-1. Create a Lakebase Postgres project + database in the workspace.
-2. Wire into `app.yaml` → the Lakebase plugin resolves host + credentials at runtime.
-3. Auth: SDK chain (CLI profile dev, OBO prod). `databricks apps run-local` injects env vars from the bound resource.
-4. Schema: Drizzle ORM, migrations from `server/db/schema.ts`, auto-applied on boot.
+Provision a Lakebase Postgres database in the workspace. The template wires auth + schema migrations on boot — see `app.md` for the build steps.

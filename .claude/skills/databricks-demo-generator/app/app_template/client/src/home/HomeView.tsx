@@ -32,6 +32,7 @@ import { fetchActivity } from '@/lib/returns';
 import type { ActivityEvent } from '@/shared/types';
 import { dataMutated } from '@/lib/events';
 import { dockController } from '@/chat/dockController';
+import { AgentLoopFlow } from '@/architecture/AgentLoopFlow';
 
 // ---------------------------------------------------------------------------
 // Narrative — REPLACE for your demo.
@@ -108,7 +109,7 @@ export function HomeView() {
 
   return (
     <div className="h-full overflow-y-auto">
-      <div className="max-w-5xl mx-auto px-4 sm:px-8 py-6 sm:py-14 space-y-7 sm:space-y-14">
+      <div className="max-w-5xl mx-auto px-4 sm:px-8 py-6 sm:py-14 space-y-5 sm:space-y-7">
         {/* Hero */}
         <section className="space-y-5">
           <div className="inline-flex items-center gap-2 text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
@@ -138,14 +139,8 @@ export function HomeView() {
             A week of work · before noon
           </div>
           <JourneyDiagram heroName={heroFirstName} script={config.assistantScript} />
-          <p className="text-sm text-foreground/80 leading-relaxed max-w-3xl">
-            <span className="font-medium">One person. One conversation.</span>{' '}
-            <span className="hidden sm:inline">
-              What used to take a cross-functional team a week — analysts pulling
-              data, CSMs drafting emails, ops approving refunds — is done by noon.
-            </span>
-            <span className="sm:hidden">A week's work, done by noon.</span>
-          </p>
+
+          <AgentLoopFlow />
         </section>
 
         {/* Starter prompts — each opens the floating assistant dock */}
@@ -259,7 +254,6 @@ function JourneyDiagram({
       role: `${heroName} operates`,
       quote: '"Returns are everywhere — my dashboard lit up."',
       highlight: false,
-      cta: 'Open the queue →',
       onClick: () => navigate('/operations'),
     },
     {
@@ -267,7 +261,6 @@ function JourneyDiagram({
       role: 'She asks',
       quote: '"Why do I have so many returns?"',
       highlight: false,
-      cta: 'Ask the assistant →',
       onClick: () =>
         step0
           ? dockController.newAndSend(step0.prompt)
@@ -278,15 +271,13 @@ function JourneyDiagram({
       role: 'AI investigates',
       quote: '"A bad production batch at one facility. 3 SKUs. Quality issue on the line."',
       highlight: true,
-      cta: 'See the answer →',
       onClick: () => dockController.open(),
     },
     {
       icon: <Wrench className="size-5" />,
       role: 'AI takes action',
-      quote: '"Model found 49 hidden premiums on top of the 18 CS tagged — 20% to those 67, 5% to the rest. Reviewed. Sent. Refunds approved."',
+      quote: '"Found the hidden premiums. Drafted both emails. Sent."',
       highlight: true,
-      cta: 'Run the workflow →',
       onClick: () => {
         // Fire step-1 (accept + draft). If user is mid-chain the dock will
         // still open; they can then click "Yes — send it" from the chip.
@@ -356,7 +347,6 @@ type JourneyStep = {
   role: string;
   quote: string;
   highlight: boolean;
-  cta: string;
   onClick: () => void;
 };
 
@@ -406,9 +396,6 @@ function StepText({ step, compact = false }: { step: JourneyStep; compact?: bool
         className={`text-xs text-muted-foreground leading-snug italic ${compact ? 'mt-0.5' : ''}`}
       >
         {step.quote}
-      </div>
-      <div className="text-[11px] font-medium text-foreground/70 mt-1">
-        {step.cta}
       </div>
     </>
   );

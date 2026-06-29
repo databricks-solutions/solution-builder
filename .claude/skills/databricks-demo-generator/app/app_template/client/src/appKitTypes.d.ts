@@ -9,7 +9,7 @@ declare module "@databricks/appkit-ui/react" {
         name: "daily_refund_trend";
         parameters: Record<string, never>;
         result: Array<{
-          /** @sqlType DATE */
+          /** @sqlType TIMESTAMP */
           return_date: string;
           /** @sqlType DOUBLE */
           total_refund_usd: number;

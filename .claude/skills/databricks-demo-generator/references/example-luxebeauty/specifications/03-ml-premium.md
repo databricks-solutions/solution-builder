@@ -27,7 +27,7 @@ Same notebook trains AND scores. Immediately after training, batch-score every c
 | `customer_id` | PK |
 | `premium_prob` | model output, 0–1 |
 | `is_premium_predicted` | bool — `premium_prob > 0.5` |
-| `premium_status_labeled` | pass-through from `bronze_customers.premium_status` (NULL for untagged) — kept for transparency / lineage in the UI |
+| `premium_status_labeled` | pass-through from `raw_customers.premium_status` (NULL for untagged) — kept for transparency / lineage in the UI |
 | `final_tier` | `'premium'` if `premium_status_labeled = 'premium'` OR `is_premium_predicted = true`, else `'standard'`. Single column the agent's `process_return_batch` JOINs on. |
 | `predicted_at` | now() |
 
@@ -57,7 +57,7 @@ One Databricks notebook at `PROJECT/ml/premium_train_score.py` doing train → r
 
 1. **Returns Console app** — Delta `gold_customer_premium_predictions` is mirrored into Lakebase as `app.customer_premium` on app boot + on "Reset demo" (see `specifications/app/03_DATA_MODEL.md`). The agent's `find_lot_premium_breakdown` and the per-row JOIN inside `process_return_batch` read from Lakebase so hot-path lookups are sub-ms. Talking-track: production uses Lakebase Synced Tables for continuous replication; the demo does a one-shot manual sync to keep moving parts visible.
 2. **Genie** — reads from Delta directly. Answers *"How many of the affected customers are premium (tagged or predicted)?"*, *"Which countries have the most hidden premiums?"*, *"How many premiums did the model find that CS hadn't tagged?"*.
-3. **AI/BI dashboard map** (`04-ai-bi.md` Row 5) — reads from Delta, colored by `pct_premium` per country, joined with affected-customer list + `bronze_customers.country`.
+3. **AI/BI dashboard map** (`04-ai-bi.md` Row 5) — reads from Delta, colored by `pct_premium` per country, joined with affected-customer list + `raw_customers.country`.
 
 ## Functional validation
 

@@ -41,6 +41,17 @@
  * for the domain types and is the FIRST thing to update when swapping
  * the data model.
  */
+// Normalize DATABRICKS_HOST: in Databricks Apps, the runtime sometimes
+// injects a bare hostname (`e2-demo-west.cloud.databricks.com`) overriding
+// the .env value, which breaks every `new URL()` call downstream
+// (MLflow bootstrap, OpenAI agent endpoint, Genie/MAS routing). Force a
+// scheme + strip a trailing slash exactly once, at module load.
+if (process.env.DATABRICKS_HOST) {
+  let h = process.env.DATABRICKS_HOST.trim().replace(/\/+$/, '');
+  if (!/^https?:\/\//i.test(h)) h = 'https://' + h;
+  process.env.DATABRICKS_HOST = h;
+}
+
 import { installLogger } from './lib/logger.js';
 installLogger();
 
@@ -53,6 +64,7 @@ import {
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
+import { parse as parseJsonc, type ParseError, printParseErrorCode } from 'jsonc-parser';
 import { z } from 'zod';
 
 import * as mlflow from 'mlflow-tracing';
@@ -67,6 +79,7 @@ import { registerChatRoutes } from './routes/chat.js';
 import { registerReturnsRoutes } from './routes/returns.js';
 import { registerActivityRoutes } from './routes/activity.js';
 import { registerAdminRoutes } from './routes/admin.js';
+import { registerChartRoutes } from './routes/charts.js';
 import { registerDevLogRoutes } from './routes/dev-log.js';
 
 // ============================================================================
@@ -108,6 +121,20 @@ type AppConfig = {
   agentMlflowExperimentPath?: string;
   agentModel?: string;
   dashboardId: string;
+  /** Workspace resource ids/paths surfaced by /api/resources. Leave any
+   * field empty to mark the corresponding tile inert (no deep-link).
+   * The server composes URLs from these + DATABRICKS_HOST. */
+  pipelineId?: string;
+  warehouseId?: string;
+  kaEndpointName?: string;
+  lakebaseProjectId?: string;
+  /** Full URL of THIS app (different host than the workspace), as
+   * returned by `databricks apps get`. Stored verbatim, not composed. */
+  appUrl?: string;
+  /** Three-part UC model name `catalog.schema.model`. */
+  mlModelName?: string;
+  /** Volume path `/Volumes/<catalog>/<schema>/<volume>`. */
+  pdfVolumePath?: string;
   branding: { appName: string };
   assistantScript?: Array<{
     label: string;
@@ -121,6 +148,9 @@ type AppConfig = {
       returns: string;
       orders: string;
       customers: string;
+      // Optional ML predictions table — db/sync.ts skips when falsy.
+      // Mirrors tablesSchema below; keep the two in sync.
+      customerPremium?: string;
     };
   };
 };
@@ -152,6 +182,13 @@ const appConfigSchema = z
     agentMlflowExperimentPath: z.string().optional(),
     agentModel: z.string().optional(),
     dashboardId: z.string(),
+    pipelineId: z.string().optional(),
+    warehouseId: z.string().optional(),
+    kaEndpointName: z.string().optional(),
+    lakebaseProjectId: z.string().optional(),
+    appUrl: z.string().optional(),
+    mlModelName: z.string().optional(),
+    pdfVolumePath: z.string().optional(),
     branding: z.object({ appName: z.string().min(1) }),
     assistantScript: z
       .array(
@@ -164,13 +201,21 @@ const appConfigSchema = z
       .optional(),
     data: z
       .object({
-        catalog: z.string().min(1),
-        schema: z.string().min(1),
+        // NOT `.min(1)`: in local-dev / preview mode DEMO_CATALOG/DEMO_SCHEMA
+        // may be unset, so the `${DEMO_CATALOG}` placeholders resolve to "".
+        // We must BOOT (degraded) rather than crash — the Delta→Lakebase sync
+        // already no-ops when DATABRICKS_WAREHOUSE_ID is unset (db/sync.ts),
+        // which is the same condition, so empty catalog/schema never reaches
+        // a query. Deployed mode always has all three set together.
+        catalog: z.string(),
+        schema: z.string(),
         tables: tablesSchema,
       })
       .optional(),
-  })
-  .passthrough(); // _*_help keys + future fields are fine
+  });
+  // Strict by default — unknown keys are a config typo, not a feature. The
+  // file is JSONC (parsed via jsonc-parser) so help text lives in real
+  // `//` comments rather than `_*_help` JSON keys.
 
 const CONFIG_PATH = resolve(
   dirname(fileURLToPath(import.meta.url)),
@@ -187,12 +232,30 @@ function loadAppConfig(): AppConfig {
     );
   }
 
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch (e) {
+  // Pre-process `${VAR}` / `${VAR:default}` placeholders against process.env
+  // so the same config file works across DAB deployments. Unknown vars with
+  // no default resolve to "" (the zod schema accepts empty strings for the
+  // optional fields). This runs BEFORE the JSONC parse so substituted text
+  // is part of the parsed document.
+  raw = raw.replace(/\$\{([A-Z_][A-Z0-9_]*)(?::([^}]*))?\}/g, (_, name, dflt) => {
+    const v = process.env[name];
+    return v !== undefined && v !== '' ? v : (dflt ?? '');
+  });
+
+  // Parse with jsonc-parser so config/app.json supports `//` and `/* */`
+  // comments + trailing commas. We still write a `.json` file (no extension
+  // change, no DAB / IDE churn) — only the parser is more permissive.
+  const errors: ParseError[] = [];
+  const parsed: unknown = parseJsonc(raw, errors, { allowTrailingComma: true });
+  if (errors.length > 0) {
+    const list = errors
+      .map(
+        (e) =>
+          `  • offset ${e.offset}+${e.length}: ${printParseErrorCode(e.error)}`,
+      )
+      .join('\n');
     throw new Error(
-      `[config] ${CONFIG_PATH} is not valid JSON: ${(e as Error).message}`,
+      `[config] ${CONFIG_PATH} is not valid JSONC:\n${list}`,
     );
   }
 
@@ -310,30 +373,6 @@ process.on('uncaughtException', (err) => {
 const t0 = Date.now();
 const ms = () => `${Date.now() - t0}ms`;
 
-const appkit = await createApp({
-  plugins: [
-    server({ autoStart: false }),
-    // Pass full resource paths so AppKit's resource registry can resolve
-    // permissions + bundle bindings (suppresses the dev-mode "missing
-    // required resources" warning). The actual pg.Pool connection still
-    // uses PGHOST/PGDATABASE/PGPORT/PGSSLMODE from env.
-    lakebase({
-      branch: process.env.LAKEBASE_BRANCH,
-      database: process.env.LAKEBASE_DATABASE,
-    }),
-    analytics({}),
-  ],
-});
-console.log(`[boot +${ms()}] AppKit created`);
-
-const db = createDb(appkit.lakebase.pool);
-
-// Surface pg-pool error events so transient driver failures don't crash
-// the process with "Unhandled 'error' event". Real bug; must log.
-appkit.lakebase.pool.on('error', (err: Error) => {
-  logErrorCompact('[pg-pool]', err);
-});
-
 // ============================================================================
 // Migration gate — block DB-dependent routes until migrations finish.
 //
@@ -346,6 +385,10 @@ appkit.lakebase.pool.on('error', (err: Error) => {
 // If migrations actually FAIL, `migrationsReady` rejects and the gate
 // returns 503 with the real error message — which is a real bug worth
 // surfacing, the LLM customizing the template can see it and act on it.
+//
+// NOTE: these are declared BEFORE createApp because onPluginsReady (which
+// registers routes + kicks off background init) runs DURING createApp, so
+// the closures it creates must see these bindings already initialized.
 // ============================================================================
 
 // Routes that don't touch the DB and should NOT block on migrations.
@@ -367,11 +410,36 @@ let migrationsReady: Promise<void> = new Promise(() => {
   // No-op until the background-init block replaces this.
 });
 
-// ============================================================================
-// Routes — register immediately so server can start while DB catches up.
-// ============================================================================
+// Drizzle handle — assigned in onPluginsReady once the lakebase pool exists,
+// read by both the route registrations and the background-init block.
+let db: ReturnType<typeof createDb>;
 
-appkit.server.extend((app) => {
+// No `const appkit =` — everything we need from the app is used inside
+// onPluginsReady (via its typed `appkit` param); the server auto-starts and
+// we never reference the returned map at the top level.
+await createApp({
+  plugins: [
+    // Server auto-starts after onPluginsReady (AppKit 0.41+). The route
+    // registration MUST run in onPluginsReady so it lands before the server
+    // begins listening.
+    server(),
+    // The lakebase pool reads PGHOST/PGDATABASE/PGPORT/PGSSLMODE +
+    // LAKEBASE_* from env; no config needed here. (Pre-0.41 this passed
+    // branch/database to resolve resource bindings — those args were removed.)
+    lakebase(),
+    analytics({}),
+  ],
+  // Runs after plugins are set up but BEFORE the server listens — the place
+  // to register custom routes (was `extend()` + manual `start()` pre-0.41).
+  // The server auto-starts when this returns; background init is launched
+  // here as fire-and-forget (the /api gate awaits `migrationsReady`).
+  onPluginsReady(appkit) {
+    db = createDb(appkit.lakebase.pool);
+    // Routes registered here (before the server listens). Inlined rather than
+    // hoisted to a helper so `appkit` keeps its precise PluginMap<T> type —
+    // a standalone param typed as the generic createApp return collapses
+    // appkit.server/.analytics to `never`.
+    appkit.server.extend((app) => {
   // Gate DB-dependent routes until migrations are ready. Lives BEFORE
   // route registration so it applies to every /api/* handler.
   app.use('/api', async (req, res, next) => {
@@ -428,6 +496,21 @@ appkit.server.extend((app) => {
   registerActivityRoutes(app, { db });
   registerAdminRoutes(app, { db, data: appConfig.data });
 
+  // Analytics charts — custom route that substitutes catalog/schema into the
+  // SQL (the AppKit analytics plugin can't template identifiers). Served at
+  // /api/charts/<key>; AnalyticsView feeds the rows to charts via `data`.
+  if (appConfig.data) {
+    registerChartRoutes(app, {
+      query: (sql, params) => appkit.analytics.query(sql, params),
+      catalog: appConfig.data.catalog,
+      schema: appConfig.data.schema,
+      queriesDir: resolve(
+        dirname(fileURLToPath(import.meta.url)),
+        '../config/queries',
+      ),
+    });
+  }
+
   if (process.env.DEV_CLIENT_ERROR_LOG === '1') {
     registerDevLogRoutes(app, logErrorCompact);
     console.log('[boot] DEV_CLIENT_ERROR_LOG=1 → /api/log/client-error enabled');
@@ -450,17 +533,23 @@ appkit.server.extend((app) => {
       }
     },
   );
-});
+    }); // end appkit.server.extend
 
-await appkit.server.start();
+    // Kick off migrations/sync/MLflow (fire-and-forget). The server starts
+    // listening once this callback returns; DB-dependent /api routes block on
+    // `migrationsReady` via the gate above until init completes.
+    startBackgroundInit();
+  }, // end onPluginsReady
+});
 console.log(`[boot +${ms()}] Server listening — background init in progress…`);
 
 // ============================================================================
-// Background init — migrations, sync, MLflow run after server is up.
-// Requests that hit the DB before migrations finish will fail; that's fine
-// for dev — the UI will retry on next navigation.
+// Background init — migrations, sync, MLflow. Launched (fire-and-forget) from
+// onPluginsReady; the server is already listening by the time these run, and
+// DB-dependent /api routes block on `migrationsReady` via the gate above.
 // ============================================================================
 
+function startBackgroundInit() {
 // Resolve MLflow experiment ID (HTTP call) in parallel with DB init,
 // but defer mlflow.init() until after sync — otherwise the SDK instruments
 // sync queries that have no parent span and produces noisy warnings.
@@ -517,7 +606,8 @@ migrationsReady = (async () => {
 // this, the promise rejection logs a second time via unhandledRejection.
 migrationsReady.catch(() => {});
 
-(async () => {
+// Fire-and-forget: MLflow setup trails migrations but nothing awaits it.
+void (async () => {
   // Wait for migrations to complete (or fail) before doing MLflow setup —
   // MLflow doesn't depend on the DB, but ordering keeps the boot log readable.
   await migrationsReady.catch(() => {/* gate already surfaced this */});
@@ -552,3 +642,4 @@ migrationsReady.catch(() => {});
     };
   }
 })();
+}
