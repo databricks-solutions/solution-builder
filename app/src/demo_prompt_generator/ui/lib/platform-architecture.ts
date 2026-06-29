@@ -177,6 +177,8 @@ export interface AnnotationData {
   text?: string;
   /** text/box: font size in px (default 14). */
   fontSize?: number;
+  /** text/box: bold text. */
+  bold?: boolean;
   /** text/box: show a border (box defaults true, text defaults false). */
   border?: boolean;
   /** box: vertical × horizontal text placement (default "middle"/"center"). */

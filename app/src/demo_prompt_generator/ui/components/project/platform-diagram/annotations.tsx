@@ -57,6 +57,7 @@ export const AnnotationNode = memo(function AnnotationNode({ data, selected }: N
   };
 
   const fontSize = a.fontSize ?? 14;
+  const fontWeight = a.bold ? 700 : 400;
   // Border: borderWidth is the source of truth. Fall back to the legacy `border`
   // boolean (box defaulted on) for older saved annotations.
   const legacyBorderOn = a.border ?? a.variant === "box";
@@ -107,12 +108,12 @@ export const AnnotationNode = memo(function AnnotationNode({ data, selected }: N
               }}
               onClick={(e) => e.stopPropagation()}
               className={`h-full w-full resize-none bg-transparent outline-none ${d.fontColor ? "" : "text-foreground"}`}
-              style={{ fontSize, textAlign: hA, ...(d.fontColor ? { color: d.fontColor } : {}) }}
+              style={{ fontSize, fontWeight, textAlign: hA, ...(d.fontColor ? { color: d.fontColor } : {}) }}
             />
           ) : (
             <span
               className={`whitespace-pre-wrap break-words ${d.fontColor ? "" : "text-foreground"}`}
-              style={{ fontSize, transform: "scale(var(--cs, 1))", ...(d.fontColor ? { color: d.fontColor } : {}) }}
+              style={{ fontSize, fontWeight, transform: "scale(var(--cs, 1))", ...(d.fontColor ? { color: d.fontColor } : {}) }}
               title="Double-click to edit"
               onDoubleClick={(e) => { e.stopPropagation(); setEditing(a.text ?? ""); }}
             >

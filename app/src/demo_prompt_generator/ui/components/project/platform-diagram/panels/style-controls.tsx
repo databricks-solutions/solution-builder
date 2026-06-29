@@ -64,6 +64,18 @@ export function AnnotationMenu({
               onChange={(e) => onAnno({ fontSize: Number(e.target.value) })}
               onClick={(e) => e.stopPropagation()} className="h-1.5 w-full cursor-pointer accent-primary" />
           </div>
+          {/* Bold toggle */}
+          <div className="flex items-center gap-2 px-2 py-1">
+            <span className="mr-auto text-[11px] text-muted-foreground">Bold</span>
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); onAnno({ bold: !a.bold }); }}
+              className={`cursor-pointer rounded px-2 py-0.5 text-[11px] font-bold ${a.bold ? "bg-primary text-primary-foreground" : "border border-border hover:bg-muted"}`}
+              title="Bold text"
+            >
+              B
+            </button>
+          </div>
           {/* Horizontal text alignment */}
           <div className="flex items-center gap-1 px-2 py-1.5">
             <span className="mr-auto text-[11px] text-muted-foreground">Align</span>
