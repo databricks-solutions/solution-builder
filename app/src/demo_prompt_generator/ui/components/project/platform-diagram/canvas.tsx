@@ -42,6 +42,7 @@ import {
   EditModeContext,
   nodeFootprint,
   nodeTypeFor,
+  baseSize,
 } from "./shared";
 import {
   type Rect,
@@ -709,9 +710,24 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasP
   }, [setNodes, scheduleSave, edges]);
 
   // Set a node's manual content scale (from the right-click slider).
+  // Scale a node: grow/shrink the WHOLE box (footprint) AND the content (--cs)
+  // together, so it stays proportional — not just shrinking content inside a
+  // fixed box (which left empty space). Box = natural size × scale.
   const setNodeScale = useCallback((id: string, scale: number) => {
     setNodes((nds) => {
-      const next = nds.map((n) => (n.id === id ? { ...n, data: { ...n.data, scale } } : n));
+      const next = nds.map((n) => {
+        if (n.id !== id) return n;
+        const dd = n.data as NodeData;
+        const nat = baseSize(dd.component);          // un-rotated natural card size
+        const cardW = Math.round(nat.w * scale);
+        const cardH = Math.round(nat.h * scale);
+        const fp = nodeFootprint(dd.component, { w: cardW, h: cardH, rot: dd.rot });
+        return {
+          ...n,
+          width: fp.w, height: fp.h, style: { ...n.style, width: fp.w, height: fp.h },
+          data: { ...dd, scale, w: cardW, h: cardH },
+        };
+      });
       scheduleSave(next, edges);
       return next;
     });
