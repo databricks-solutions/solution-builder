@@ -26,11 +26,14 @@ export const LakeflowGenieBlock = memo(function LakeflowGenieBlock({ data, selec
       w={d.w ?? nat.w}
       h={d.h ?? nat.h}
       scale={d.scale ?? 1}
+      baseW={nat.w}
+      baseH={nat.h}
       editMode={editMode}
       selected={!!selected}
       forceDots={isDropTarget}
       hideHandles
       onResize={(w, h) => d.onResize(d.nodeId, w, h)}
+      onScale={(w) => d.onResize(d.nodeId, w, Math.round((w * nat.h) / nat.w), w / nat.w)}
       onContext={(e) => { e.preventDefault(); d.onContext(d.nodeId, e.clientX, e.clientY); }}
     >
       <LakeflowPorts editMode={editMode} selected={!!selected} isDropTarget={isDropTarget} />

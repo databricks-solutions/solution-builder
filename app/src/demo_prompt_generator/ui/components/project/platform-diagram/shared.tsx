@@ -5,7 +5,7 @@
  * and the drop-target context.
  */
 import { createContext, type CSSProperties } from "react";
-import { Handle, Position, NodeResizer } from "@xyflow/react";
+import { Handle, Position, NodeResizer, NodeResizeControl } from "@xyflow/react";
 import { type PlatformComponent, type BandId, type FlowStyle } from "@/lib/platform-architecture";
 
 export type { FlowStyle };
@@ -28,8 +28,9 @@ export interface NodeData {
   onContext: (id: string, clientX: number, clientY: number) => void;
   /** Commit a new label for this node (double-click to rename). */
   onRename: (id: string, label: string) => void;
-  /** Resize callback (from NodeResizer) — w/h are the un-rotated card size. */
-  onResize: (id: string, w: number, h: number) => void;
+  /** Resize callback (from NodeResizer) — w/h are the un-rotated card size.
+   *  Optional `scale` (corner-drag) is stored so content scales with the box. */
+  onResize: (id: string, w: number, h: number, scale?: number) => void;
   /** Rotation in degrees (0/90/180/270). */
   rot: number;
   /** User-resized footprint (px); undefined → natural size. */
@@ -171,18 +172,28 @@ export function RotatableCard({
   w,
   h,
   scale,
+  baseW,
+  baseH,
   editMode,
   selected,
   forceDots = false,
   hideHandles = false,
   onContext,
   onResize,
+  onScale,
   children,
 }: {
   rot: number;
   w: number;
   h: number;
   scale: number;
+  /** Natural (un-resized) content size. When given, the content is laid out at
+   *  this size then uniformly scaled to fill the w×h box — so content always
+   *  fills the box proportionally (corner-resize OR Scale slider). Omit for
+   *  free-form nodes (annotations/text) that manage their own sizing; those
+   *  keep the legacy `--cs`=scale content transform. */
+  baseW?: number;
+  baseH?: number;
   editMode: boolean;
   selected: boolean;
   forceDots?: boolean;
@@ -190,7 +201,12 @@ export function RotatableCard({
    *  named ports instead and don't want the generic dots. */
   hideHandles?: boolean;
   onContext: (e: React.MouseEvent) => void;
+  /** Side-drag: stretch the box on one axis (content stays its scaled size). */
   onResize: (w: number, h: number) => void;
+  /** Corner-drag (fit mode): uniform scale of the whole element. Given the new
+   *  width, the caller derives scale = w / naturalW and resizes the box to
+   *  natural × scale. Omitted → corner behaves like onResize (legacy). */
+  onScale?: (newW: number) => void;
   children: React.ReactNode;
 }) {
   const quarter = ((rot % 360) + 360) % 360;
@@ -201,10 +217,15 @@ export function RotatableCard({
   // selection box rotated, not the card).
   const cardW = w;
   const cardH = h;
-  // Content scale is now MANUAL (right-click → Scale slider; default 1). The
-  // card content renders at its natural size × this scale and is CROPPED by
-  // the box (overflow-hidden) if it doesn't fit — no auto-fit.
-  const contentScale = scale;
+  // Two resize behaviours for a fit-mode node (baseW given):
+  //   • CORNER drag (locked aspect) sets `scale` → content + box grow together.
+  //   • SIDE drag stretches w/h independently → the BOX grows, content stays at
+  //     its scaled size (natural × scale), centred, leaving empty space.
+  // So content is laid out at natural size, scaled UNIFORMLY by `scale`, and
+  // centred in the cardW×cardH box. Legacy mode (annotations, no baseW): content
+  // fills the box and uses its own --cs = scale transform.
+  const fitMode = typeof baseW === "number" && baseW > 0;
+  const fitFactor = scale || 1;
   // The shell FILLS the ReactFlow node box (ReactFlow + NodeResizer own the
   // node's width/height — see schemaToFlow). Filling 100% keeps the selection
   // frame, the resizer, and the visual all the same size (no drift on resize).
@@ -221,27 +242,59 @@ export function RotatableCard({
   const minH = swapped90 ? 32 : 24;
   return (
     <div className="group relative h-full w-full" onContextMenu={onContext}>
-      <NodeResizer
-        isVisible={editMode && selected}
-        minWidth={minW}
-        minHeight={minH}
-        // Free width/height (no locked aspect). Snap each dimension to the 16px
-        // grid so resized boxes stay aligned with everything else (magnet).
-        // Resize SMOOTHLY (raw px) during the drag — snapping every tick made
-        // the resizer's internal delta tracking fight the fed-back width and
-        // jump. Snap to the 16px grid only once, on release.
-        onResize={(_, p) => onResize(p.width, p.height)}
-        onResizeEnd={(_, p) => {
-          const snap = (v: number) => Math.round(v / 16) * 16;
-          onResize(snap(p.width), snap(p.height));
-        }}
-        lineClassName="!border-primary/50"
-        handleClassName="!bg-primary !border-2 !border-background !w-3.5 !h-3.5 !rounded-sm !shadow-md"
-      />
+      {fitMode && onScale ? (
+        <>
+          {/* CORNER handles (locked aspect) → uniform scale of the element. */}
+          <NodeResizer
+            isVisible={editMode && selected}
+            minWidth={minW}
+            minHeight={minH}
+            keepAspectRatio
+            onResize={(_, p) => onScale(p.width)}
+            onResizeEnd={(_, p) => onScale(p.width)}
+            lineClassName="!border-transparent"
+            handleClassName="!bg-primary !border-2 !border-background !w-3.5 !h-3.5 !rounded-sm !shadow-md"
+          />
+          {/* SIDE handles → stretch the BOX on one axis (content unscaled). */}
+          {editMode && selected && (["top", "right", "bottom", "left"] as const).map((side) => (
+            <NodeResizeControl
+              key={side}
+              position={side}
+              minWidth={minW}
+              minHeight={minH}
+              onResize={(_, p) => onResize(p.width, p.height)}
+              onResizeEnd={(_, p) => { const snap = (v: number) => Math.round(v / 16) * 16; onResize(snap(p.width), snap(p.height)); }}
+              style={{ background: "transparent", border: "none" }}
+            >
+              <span
+                className="block rounded-full border border-primary bg-background shadow-sm"
+                style={{
+                  width: side === "left" || side === "right" ? 5 : 18,
+                  height: side === "left" || side === "right" ? 18 : 5,
+                  cursor: side === "left" || side === "right" ? "ew-resize" : "ns-resize",
+                }}
+              />
+            </NodeResizeControl>
+          ))}
+        </>
+      ) : (
+        <NodeResizer
+          isVisible={editMode && selected}
+          minWidth={minW}
+          minHeight={minH}
+          onResize={(_, p) => onResize(p.width, p.height)}
+          onResizeEnd={(_, p) => {
+            const snap = (v: number) => Math.round(v / 16) * 16;
+            onResize(snap(p.width), snap(p.height));
+          }}
+          lineClassName="!border-primary/50"
+          handleClassName="!bg-primary !border-2 !border-background !w-3.5 !h-3.5 !rounded-sm !shadow-md"
+        />
+      )}
       {!hideHandles && <NodeHandles show={editMode && !selected} forceDots={forceDots} />}
-      {/* Card sized to EXACTLY the (un-rotated) card box and rotated about the
-          shell center — fills the footprint so its border == the box edges.
-          `--cs` lets the card scale its content with the box. */}
+      {/* Card box (un-rotated card dims), rotated about the shell centre so its
+          border == the box edges. Inside, the content is rendered at NATURAL
+          size and scaled by fitFactor to fill the box (single scale source). */}
       <div
         style={
           {
@@ -252,11 +305,31 @@ export function RotatableCard({
             height: cardH,
             transform: `translate(-50%, -50%) rotate(${quarter}deg)`,
             transformOrigin: "center center",
-            ["--cs" as string]: contentScale,
+            // Fit mode scales here; legacy mode lets children use --cs = scale.
+            ["--cs" as string]: fitMode ? 1 : scale,
+            overflow: "hidden",
           } as React.CSSProperties
         }
       >
-        {children}
+        {fitMode ? (
+          // Content at NATURAL size, uniformly scaled by `scale`, centred in the
+          // box. Corner-drag changes `scale` (box hugs content); side-drag grows
+          // the box (cardW/cardH) leaving content centred with empty space.
+          <div className="absolute inset-0 grid place-items-center">
+            <div
+              style={{
+                width: baseW,
+                height: baseH,
+                transform: `scale(${fitFactor})`,
+                transformOrigin: "center center",
+              }}
+            >
+              {children}
+            </div>
+          </div>
+        ) : (
+          children
+        )}
       </div>
     </div>
   );

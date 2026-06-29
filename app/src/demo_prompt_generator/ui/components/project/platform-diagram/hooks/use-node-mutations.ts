@@ -24,7 +24,9 @@ import { type AnnotationNodeData } from "../annotations";
 type SetNodes = (updater: (nds: Node[]) => Node[]) => void;
 
 export interface NodeMutations {
-  onResize: (id: string, w: number, h: number) => void;
+  /** Resize a node's box. `scale` (corner-drag, fit mode) is stored too so the
+   *  content scales with it; omit for a side-drag (box stretch, content fixed). */
+  onResize: (id: string, w: number, h: number, scale?: number) => void;
   onRename: (id: string, label: string) => void;
   onAnnotate: (id: string, patch: Partial<AnnotationData>) => void;
   /** Refresh the live setNodes/scheduleSave/edges the stable callbacks read. */
@@ -48,7 +50,7 @@ export function useNodeMutations(): NodeMutations {
   // w/h here are the FOOTPRINT (on-canvas) dims from NodeResizer. Store them
   // back as CARD dims (un-swap for rotation) and keep node.width/height in sync
   // so the box, selection frame, and visual all stay the same size.
-  const onResize = useCallback((id: string, w: number, h: number) => {
+  const onResize = useCallback((id: string, w: number, h: number, scale?: number) => {
     setNodesRef.current?.((nds) => {
       const next = nds.map((n) => {
         if (n.id !== id) return n;
@@ -62,7 +64,7 @@ export function useNodeMutations(): NodeMutations {
           width: w,
           height: h,
           style: { ...n.style, width: w, height: h },
-          data: { ...dd, w: Math.round(cardW), h: Math.round(cardH) },
+          data: { ...dd, w: Math.round(cardW), h: Math.round(cardH), ...(scale !== undefined ? { scale } : {}) },
         };
       });
       scheduleSaveRef.current?.(next, edgesRef.current);
