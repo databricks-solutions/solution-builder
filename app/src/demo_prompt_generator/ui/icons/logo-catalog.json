@@ -59,6 +59,7 @@
   "anthropic": { "trademark": true, "oss": false, "source": false },
   "gemini": { "trademark": true, "oss": false, "source": false },
   "genie-ontology": { "trademark": false, "oss": false, "source": false },
+  "agent-bricks": { "trademark": false, "oss": false, "source": false },
   "gitlab": { "trademark": true, "source": true },
   "google-ads": { "trademark": true, "source": true },
   "google-analytics": { "trademark": true, "source": true },

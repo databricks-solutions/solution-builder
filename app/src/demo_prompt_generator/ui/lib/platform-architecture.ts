@@ -92,7 +92,7 @@ export type FlowStyle = "dot" | "particles" | "docs" | "laser";
 
 /** Composite block kinds (super-set components that draw an inner mini-diagram
  *  and expose multiple named ports). Extend this as we add more blocks. */
-export type CompositeKind = "lakeflow" | "genie-code" | "governance" | "lakeflow-genie";
+export type CompositeKind = "lakeflow" | "genie-code" | "governance" | "lakeflow-genie" | "agent-bricks";
 
 /** The 3 left input ports a "lakeflow" composite exposes. Edge handle ids on
  *  the block are `in-${port}` (+ a single `r` output on the right). */
@@ -155,12 +155,16 @@ export interface NodePosition {
   borderStyle?: "solid" | "dashed";
   borderColor?: string;    // hex
   borderRadius?: number;   // px corner radius
+  shadow?: boolean;        // drop shadow (default true)
   /** Stacking order (bring to front / send to back). Default 0. */
   z?: number;
   /** A canvas-added data source (from "+ more data sources"). Stores just the
    *  logo-catalog key + icon; label/ingest defaults come from the unified
    *  logo-catalog.json. Present only for such nodes. */
   source?: { key: string; icon: IconKey };
+  /** Id of the group this node belongs to (see PlatformLayout.groups). When
+   *  set, x/y are RELATIVE to the group container's top-left. */
+  parentId?: string;
 }
 
 /** A free-form canvas annotation — not a Databricks catalog component. One node
@@ -209,6 +213,18 @@ export interface PlatformEdge {
   label?: string;
 }
 
+/** A user-created group: a labelled container that encloses member nodes and
+ *  moves them as a unit. Members carry `parentId` = this group's id. */
+export interface NodeGroup {
+  id: string;          // "group-<n>"
+  label?: string;
+  x: number;           // top-left (flow coords) of the container
+  y: number;
+  w: number;
+  h: number;
+  z?: number;
+}
+
 export interface PlatformLayout {
   /** Saved node positions, keyed by component id. Missing → auto-laid out. */
   nodes: Record<string, NodePosition>;
@@ -216,6 +232,8 @@ export interface PlatformLayout {
   edges: PlatformEdge[];
   /** Component ids removed from the canvas (vs the catalog defaults). */
   hidden: string[];
+  /** User-created grouping containers. */
+  groups?: NodeGroup[];
 }
 
 // -- The override shape the AGENT writes into architecture.md ----------------
@@ -326,6 +344,9 @@ const CATALOG: Record<BandId, CatalogComponent[]> = {
     { id: "genie", label: "AI/BI Genie", icon: "genieBrand", desc: "Ask questions of your data in plain language and get governed answers." },
     { id: "knowledge-assistant", label: "Knowledge Assistant", icon: "knowledgeAssistant", desc: "Chat with your documents — grounded, cited answers from unstructured content." },
     { id: "supervisor-agent", label: "Multi-Agent Supervisor", icon: "multiAgentSupervisor", desc: "Routes a question to the right specialist agent and composes the answer." },
+    // Composite "Agent Bricks" block: the bundled agent building blocks
+    // (supervisor + extraction + document parsing + classification).
+    { id: "agent-bricks", label: "Agent Bricks", icon: "file:vendor/agent-bricks", kind: "agent-bricks", desc: "Databricks' managed agents — a multi-agent supervisor plus information extraction, document parsing, and classification, built and governed for you." },
     { id: "ml-training-serving", label: "ML Models", icon: "mlModel", desc: "Train, register, and serve models on governed data." },
     { id: "vector-search", label: "Vector Search", icon: "vectorSearch", desc: "Semantic search and retrieval that grounds agents in your data." },
     { id: "information-extraction", label: "Information Extraction", icon: "unstructuredData", desc: "Turn PDFs and documents into structured, queryable data." },
@@ -367,9 +388,12 @@ const CATALOG: Record<BandId, CatalogComponent[]> = {
   // REPLACES these per demo. Third-party logos render as a name badge until the
   // trademark toggle is enabled.
   sources: [
-    { id: "src-shopify", label: "Shopify", icon: "file:vendor/shopify", ingest: "lakeflow-connect", desc: "Orders & returns — 400K rows over 24 months, via Lakeflow Connect." },
-    { id: "src-zendesk", label: "Zendesk", icon: "file:vendor/zendesk", ingest: "lakeflow-connect", desc: "Customer-service tickets & return reasons, via Lakeflow Connect." },
-    { id: "src-erp", label: "ERP", icon: "file:vendor/sap", ingest: "lakeflow-connect", desc: "Production lots & QC records, via Lakeflow Connect." },
+    // Default sources are license-safe (OSS logos) + generic feeds — a clean
+    // starting estate. The agent swaps in the demo's real systems (Shopify,
+    // Zendesk, …) per story; those vendor logos live in the icon bank / "+ more
+    // data sources" picker and the palette search.
+    { id: "src-kafka", label: "Kafka", icon: "file:vendor/kafka", ingest: "zerobus", desc: "Streaming events ingested in real time via Zerobus." },
+    { id: "src-postgres", label: "Postgres", icon: "file:vendor/postgresql", ingest: "lakeflow-connect", desc: "Operational database ingested via Lakeflow Connect." },
     { id: "src-sensors", label: "Sensor data", icon: "sensorSource", ingest: "zerobus", desc: "Real-time sensor / IoT telemetry, streamed via Zerobus." },
     { id: "src-pdf", label: "PDF documents", icon: "pdfLogo", ingest: "direct", desc: "Documents (PDFs) — landed as files on a UC Volume." },
   ],

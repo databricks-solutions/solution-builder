@@ -142,9 +142,7 @@ export const LakeflowBlock = memo(function LakeflowBlock({ data, selected }: Nod
 
       <div
         onClick={() => d.onSelect(d.nodeId)}
-        className={`flex h-full w-full flex-col overflow-hidden ${card.hasFill ? "" : "bg-card"} shadow-sm transition-shadow ${
-          selected ? "ring-2 ring-primary/60 shadow-md" : "hover:shadow-md"
-        }`}
+        className={`flex h-full w-full flex-col overflow-hidden transition-shadow ${card.hasFill ? "" : "bg-card"} ${selected ? "ring-2 ring-primary/60" : ""} ${card.shadow ? (selected ? "shadow-md" : "shadow-sm hover:shadow-md") : ""}`}
         style={card.style}
       >
         <div className="flex h-full w-full" style={{ transform: "scale(var(--cs, 1))", transformOrigin: "top left" }}>

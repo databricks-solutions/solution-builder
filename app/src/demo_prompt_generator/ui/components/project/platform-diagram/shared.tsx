@@ -47,6 +47,8 @@ export interface NodeData {
   borderColor?: string;
   /** Corner radius (px) override; undefined → the card's default rounding. */
   borderRadius?: number;
+  /** Drop shadow on the box; undefined → on. Set false to remove it. */
+  shadow?: boolean;
   /** Whether real third-party trademarked logos may be shown (schema-level
    *  opt-in). When false, gated vendor logos render as a text badge. */
   allowTrademark?: boolean;
@@ -77,21 +79,24 @@ export type StylePatch = {
   borderStyle?: "solid" | "dashed";
   borderColor?: string;
   borderRadius?: number;
+  shadow?: boolean;
 };
 
 /** Build the inline card style from a node's per-node overrides — used by the
  *  plain ComponentNode AND every composite (lakeflow/genie/governance) so the
- *  right-click style controls (border width/style/color/radius, fill, opacity)
- *  behave identically across all node kinds. `defaults` supply each value when
- *  the node hasn't overridden it. Returns the style + a flag for whether a
- *  custom fill is set (so the caller can drop its `bg-card` class). */
+ *  right-click style controls (border width/style/color/radius, fill, opacity,
+ *  shadow) behave identically across all node kinds. `defaults` supply each
+ *  value when the node hasn't overridden it. Returns the style + flags for
+ *  whether a custom fill is set (drop `bg-card`) and whether the drop shadow is
+ *  on (default true; the caller adds `shadow-sm` when so). */
 export function cardStyle(
   d: NodeData,
   defaults: { borderColor: string; radius: number; opacity?: number },
-): { style: CSSProperties; hasFill: boolean } {
+): { style: CSSProperties; hasFill: boolean; shadow: boolean } {
   const w = d.borderWidth ?? 1;
   return {
     hasFill: !!d.fillColor,
+    shadow: d.shadow ?? true,
     style: {
       borderStyle: w > 0 ? (d.borderStyle ?? "solid") : "none",
       borderWidth: w,
@@ -118,6 +123,7 @@ export function nodeTypeFor(c: PlatformComponent): string {
   if (c.kind === "genie-code") return "genieCode";
   if (c.kind === "governance") return "governance";
   if (c.kind === "lakeflow-genie") return "lakeflowGenie";
+  if (c.kind === "agent-bricks") return "agentBricks";
   return "component";
 }
 
@@ -127,6 +133,7 @@ export function nodeTypeFor(c: PlatformComponent): string {
 export function baseSize(c: PlatformComponent): { w: number; h: number } {
   if (c.kind === "lakeflow") return { w: 224, h: 148 }; // composite super-block
   if (c.kind === "lakeflow-genie") return { w: 360, h: 188 }; // Lakeflow over a slim Genie footer
+  if (c.kind === "agent-bricks") return { w: 300, h: 168 }; // logo header + 2×2 agent grid
   if (c.kind === "genie-code") return { w: 360, h: 112 }; // wide "built with Genie Code" strip
   if (c.kind === "governance") return { w: 580, h: 108 }; // wide horizontal governance bar
   if (c.id === "sdp") return { w: 230, h: 112 };

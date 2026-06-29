@@ -476,6 +476,8 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasP
       const pos = screenToFlowPosition({ x: e.clientX, y: e.clientY });
       const logoKey = e.dataTransfer.getData("application/x-logo");
       if (logoKey) { addAnnotation("logo", pos, { icon: logoKey }); return; }
+      const sourceKey = e.dataTransfer.getData("application/x-source");
+      if (sourceKey) { addSourceFromIcon(sourceKey); return; }
       const anno = e.dataTransfer.getData("application/x-annotation");
       if (anno) {
         const id = addAnnotation(anno as AnnotationVariant, pos);
@@ -486,7 +488,7 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasP
       if (!id) return;
       addComponent(id, pos);
     },
-    [addComponent, addAnnotation, screenToFlowPosition],
+    [addComponent, addAnnotation, addSourceFromIcon, screenToFlowPosition],
   );
 
   // Rotate a node by +90° (wraps 0→90→180→270→0). From the right-click menu.
@@ -653,6 +655,7 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasP
     borderStyle: menuNodeData?.borderStyle,
     borderColor: menuNodeData?.borderColor,
     borderRadius: menuNodeData?.borderRadius,
+    shadow: menuNodeData?.shadow,
   };
 
   return (
@@ -667,6 +670,7 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasP
           onAdd={(id) => addComponent(id)}
           onAddAnnotation={(v) => { const id = addAnnotation(v); if (v === "logo") setLogoPickerFor(id); }}
           onAddLogo={(iconKey) => addAnnotation("logo", undefined, { icon: iconKey })}
+          onAddSource={(iconKey) => addSourceFromIcon(iconKey)}
           onToggleTrademark={toggleTrademark}
           onMoreSources={() => setSourcePicker(true)}
           picking={pickingFor !== null}

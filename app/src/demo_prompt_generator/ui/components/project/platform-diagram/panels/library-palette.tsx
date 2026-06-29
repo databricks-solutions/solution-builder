@@ -19,7 +19,7 @@ import {
 import { BrandMark } from "../brand-mark";
 import { AnyIcon } from "../annotations";
 import { type AnnotationVariant } from "@/lib/platform-architecture";
-import { FILE_ICONS, type FileIcon } from "../../../file-icons";
+import { FILE_ICONS, type FileIcon, logoMetaForKey, logoLabel } from "../../../file-icons";
 
 export const LibraryPalette = memo(function LibraryPalette({
   schema,
@@ -30,6 +30,7 @@ export const LibraryPalette = memo(function LibraryPalette({
   onCancelPick,
   onAddAnnotation,
   onAddLogo,
+  onAddSource,
   onToggleTrademark,
   onMoreSources,
 }: {
@@ -39,6 +40,8 @@ export const LibraryPalette = memo(function LibraryPalette({
   onAddAnnotation: (variant: AnnotationVariant) => void;
   /** Add a logo annotation pre-set to a file-icon key (cloud / vendor mark). */
   onAddLogo: (iconKey: string) => void;
+  /** Add a data source from a file-icon key (same as the source picker). */
+  onAddSource?: (iconKey: string) => void;
   /** Toggle the trademark-logo opt-in (Canvas handles the confirm flow). */
   onToggleTrademark?: () => void;
   /** Open the "+ more data sources" picker. */
@@ -82,6 +85,61 @@ export const LibraryPalette = memo(function LibraryPalette({
         </div>
       )}
       <div className="flex-1 overflow-y-auto p-2">
+        {/* When searching, surface matching LOGOS + SOURCES from the icon bank
+            (e.g. "kafka" → the Kafka logo / source). Vendor marks only; cloud
+            logos already have their own section below. Capped at 3 each. */}
+        {!picking && ql && (() => {
+          const vendor = FILE_ICONS.filter((f) => f.group === "vendor" && matchText(`${f.name} ${f.category}`));
+          // Mutually exclusive: a data-source logo shows under Sources only;
+          // everything else under Logos — so a match (e.g. Kafka) appears once.
+          const sources = vendor.filter((f) => logoMetaForKey(f.key).source).slice(0, 3);
+          const logos = vendor.filter((f) => !logoMetaForKey(f.key).source).slice(0, 3);
+          if (logos.length === 0 && sources.length === 0) return null;
+          return (
+            <>
+              {logos.length > 0 && (
+                <div className="mb-3">
+                  <div className="px-1 py-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Logos</div>
+                  {logos.map((f) => (
+                    <button
+                      key={`logo-${f.key}`}
+                      type="button"
+                      draggable
+                      onDragStart={(e) => { e.dataTransfer.setData("application/x-logo", f.key); e.dataTransfer.effectAllowed = "copy"; }}
+                      onDoubleClick={() => onAddLogo(f.key)}
+                      title={`Add logo: ${logoLabel(f.name)}`}
+                      className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12px] text-foreground hover:bg-muted"
+                    >
+                      <GripVertical className="h-3 w-3 shrink-0 text-muted-foreground/40" />
+                      <AnyIcon iconKey={f.key} className="h-4 w-4 [&_svg]:h-4 [&_svg]:w-4" />
+                      <span className="truncate">{logoLabel(f.name)}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+              {sources.length > 0 && onAddSource && (
+                <div className="mb-3">
+                  <div className="px-1 py-1 text-[10px] font-bold uppercase tracking-wider" style={{ color: BAND_COLOR.sources }}>Sources</div>
+                  {sources.map((f) => (
+                    <button
+                      key={`src-${f.key}`}
+                      type="button"
+                      draggable
+                      onDragStart={(e) => { e.dataTransfer.setData("application/x-source", f.key); e.dataTransfer.effectAllowed = "copy"; }}
+                      onDoubleClick={() => onAddSource(f.key)}
+                      title={`Add data source: ${logoLabel(f.name)}`}
+                      className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12px] text-foreground hover:bg-muted"
+                    >
+                      <GripVertical className="h-3 w-3 shrink-0 text-muted-foreground/40" />
+                      <AnyIcon iconKey={f.key} className="h-4 w-4 [&_svg]:h-4 [&_svg]:w-4" />
+                      <span className="truncate">{logoLabel(f.name)}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </>
+          );
+        })()}
         {/* Free-form annotations (not Databricks catalog components). */}
         {!picking && !ql && (
           <div className="mb-3">
