@@ -417,16 +417,15 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasP
         while (nds.some((n) => n.id === nid)) nid = `${base}#${k++}`;
         return nid;
       };
-      // logo (top) + 4 building blocks in a row beneath it, centred on (cx,cy).
+      // All exploded pieces land at the EXACT Agent Bricks position (stacked);
+      // the user then drags them apart. (groupId lets them move/re-group as one.)
       const SUBS = ["supervisor-agent", "information-extraction", "document-parsing", "classification"];
-      const colGap = 150, rowGap = 80;
-      const startX = cx - ((SUBS.length - 1) * colGap) / 2;
       const placed: Node[] = [];
-      // logo annotation on top (same shape as addAnnotation's logo variant)
+      // logo annotation (same shape as addAnnotation's logo variant)
       const logoId = mkId("anno-agent-bricks");
       const logoSz = ANNOTATION_DEFAULT_SIZE.logo;
       placed.push({
-        id: logoId, type: "annotation", position: { x: cx, y: cy - rowGap },
+        id: logoId, type: "annotation", position: { x: cx, y: cy },
         width: logoSz.w, height: logoSz.h, style: { width: logoSz.w, height: logoSz.h },
         data: {
           nodeId: logoId,
@@ -437,13 +436,13 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasP
         } satisfies AnnotationNodeData,
       } as Node);
       // the 4 building-block tiles
-      SUBS.forEach((slug, i) => {
+      SUBS.forEach((slug) => {
         const found = catalog.get(slug);
         if (!found) return;
         const nid = mkId(slug);
         const fp = nodeFootprint(found.component, {});
         placed.push({
-          id: nid, type: nodeTypeFor(found.component), position: { x: startX + i * colGap, y: cy + rowGap / 2 },
+          id: nid, type: nodeTypeFor(found.component), position: { x: cx, y: cy },
           width: fp.w, height: fp.h, style: { width: fp.w, height: fp.h },
           data: {
             nodeId: nid, component: found.component, bandId: found.bandId, bandColor: BAND_COLOR[found.bandId],
