@@ -72,8 +72,8 @@ export const ComponentNode = memo(function ComponentNode({ data, selected }: Nod
       style={card.style}
     >
       <div
-        className="flex flex-1 items-center gap-2.5 px-3 py-2.5"
-        style={{ transform: "scale(var(--cs, 1))", transformOrigin: "left center" }}
+        className="flex min-h-0 w-full flex-1 items-center gap-2.5 px-3 py-2.5"
+        style={{ transform: "scale(var(--cs, 1))", transformOrigin: "center center" }}
       >
         {/* Icon slot. Real logo (or a full-name brand badge when the logo is
             trademark-gated and not enabled). The text label still stays. */}
