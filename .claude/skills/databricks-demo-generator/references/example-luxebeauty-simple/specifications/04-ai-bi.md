@@ -239,20 +239,4 @@ Same 12-column grid as Page 1. The `sec_*` widgets are thin (`h=1`) markdown sec
 
 ### Validation
 
-- Operations page renders without horizontal scroll on a 1440px screen; widgets float on a white canvas with no visible borders.
-- All 4 KPI tiles display a sensible dataset-level total: Refunds in compact USD (the spike's headline), Returns + Orders as compact integers, Revenue in compact USD (with 2 decimals).
-- Changing the global Date Range filter updates all 4 KPI values live (without changing the dataset SQL).
-- Forecast-line: actuals through ~last full week, dashed prediction band continuing 4 weeks forward, **vertical annotation line on `AFFECTED_LOT_DATE`** labeled with the lot ID. Peak **not** at the rightmost edge.
-- Bubble map: Paris is the single largest bubble (≥ ~30 affected customers), followed by visible London / Milan / Madrid / Berlin clusters; US East/West mid-sized; Tokyo / Seoul / Sydney small. Tooltip shows city + count + refund total.
-- Category donut: Skincare is the largest slice (deep navy).
-- Refunds-by-country bar: France first, then IT / GB / DE / US.
-- Weekly-orders area chart: lines stay flat across the whole window — visibly UNLIKE the refunds spike.
-- Investigation sankey: the Skincare → {SKU-1001, SKU-1002, SKU-1003} → LOT-{YYYY-MMDD} flow lines visibly dominate. "Other products" / "Other lots" buckets exist but stay thin.
-- Affected-vs-everyday country bars: every EU country shows a yellow `Affected lot` bar taller than its steel-blue `Everyday returns` bar.
-- Reasons bar: `quality` is ~all yellow; `changed_mind` / `wrong_item` / `didnt_fit` are ~all steel blue.
-- Sentiment bar: `3 - Very angry` + `2 - Angry` together carry ~all of the affected-lot returns; `0 - Satisfied` + `1 - Neutral` carry the baseline.
-- Comments table sorted by Anger DESC: top rows contain "grainy" / "separated" / "watery" texture complaints.
-- Region filter (select "EU") → every widget updates; the map zooms to the EU bounding box (Paris cluster fills the frame).
-- Category filter (select "Skincare") → returns spike pronounced; sankey collapses to a single category.
-
-Add `dashboard_id` to `resources.json`.
+Open the published dashboard and confirm the story reads at a glance: the refund spike stands out, the affected lot/SKUs dominate the investigation widgets, the map lights up EU (Paris largest), and the global filters update every widget. Add `dashboard_id` to `resources.json`.
