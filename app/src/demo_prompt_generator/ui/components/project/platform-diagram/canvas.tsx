@@ -454,75 +454,6 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasP
     [catalog, deepLinks, onSelect, onContext, onResize, onRename, setNodes, scheduleSave, edges],
   );
 
-  // Agent Bricks "Ungroup" — a DEDICATED path (not generic groups): replace the
-  // single agent-bricks composite with its real building-block tiles + a logo
-  // annotation, laid out around where the block was, all sharing a fresh
-  // groupId so they can be re-grouped. The user can then delete any of them.
-  const explodeAgentBricks = useCallback((id: string) => {
-    setNodes((nds) => {
-      const ab = nds.find((n) => n.id === id);
-      if (!ab || (ab.data as NodeData).component.kind !== "agent-bricks") return nds;
-      const cx = ab.position.x, cy = ab.position.y; // center (nodeOrigin 0.5)
-      const W = (ab.width ?? 300) as number, H = (ab.height ?? 168) as number;
-      const left = cx - W / 2, top = cy - H / 2; // box top-left (flow coords)
-      const gid = `group-${Date.now().toString(36)}`;
-      const mkId = (base: string) => {
-        let nid = base, k = 2;
-        while (nds.some((n) => n.id === nid)) nid = `${base}#${k++}`;
-        return nid;
-      };
-      // Reproduce the Agent Bricks INTERNAL layout as separate nodes occupying
-      // the same footprint: the logo header (top-left) + a 2×2 grid of the four
-      // building blocks below. Positions are centres (nodeOrigin 0.5).
-      const SUBS = ["supervisor-agent", "information-extraction", "document-parsing", "classification"];
-      const pad = 12;
-      const headerH = 30; // top header band where the logo sits
-      const placed: Node[] = [];
-      // logo annotation — top-left, in the header band
-      const logoId = mkId("anno-agent-bricks");
-      const logoSz = ANNOTATION_DEFAULT_SIZE.logo;
-      placed.push({
-        id: logoId, type: "annotation",
-        position: { x: left + pad + logoSz.w / 2, y: top + pad + logoSz.h / 2 },
-        width: logoSz.w, height: logoSz.h, style: { width: logoSz.w, height: logoSz.h },
-        data: {
-          nodeId: logoId,
-          annotation: { variant: "logo", icon: "file:vendor/agent-bricks" },
-          component: { id: logoId, label: "", icon: "data", desc: "", state: "active" } as PlatformComponent,
-          bandId: "agentic-work" as BandId, bandColor: BAND_COLOR["agentic-work"],
-          deepLink: null, onSelect, onContext, onResize, onRename, onAnnotate, rot: 0, groupId: gid,
-        } satisfies AnnotationNodeData,
-      } as Node);
-      // the 4 building-block tiles, in a 2×2 grid below the header. Space the
-      // grid by the tiles' OWN footprint (so each label fits) — the grid can
-      // extend past the old box bounds; they're independent tiles now.
-      const sampleFp = nodeFootprint(catalog.get(SUBS[0])!.component, {});
-      const gap = 16;
-      const cellW = sampleFp.w, cellH = sampleFp.h;
-      const gridTop = top + headerH + cellH / 2; // first row centre
-      SUBS.forEach((slug, i) => {
-        const found = catalog.get(slug);
-        if (!found) return;
-        const nid = mkId(slug);
-        const fp = nodeFootprint(found.component, {});
-        const col = i % 2, row = Math.floor(i / 2);
-        const x = left + cellW / 2 + col * (cellW + gap);
-        const y = gridTop + row * (cellH + gap);
-        placed.push({
-          id: nid, type: nodeTypeFor(found.component), position: { x, y },
-          width: fp.w, height: fp.h, style: { width: fp.w, height: fp.h },
-          data: {
-            nodeId: nid, component: found.component, bandId: found.bandId, bandColor: BAND_COLOR[found.bandId],
-            deepLink: deepLinks[slug] ?? null, onSelect, onContext, onResize, onRename, rot: 0, groupId: gid,
-          } satisfies NodeData,
-        } as Node);
-      });
-      const next = [...nds.filter((n) => n.id !== id), ...placed];
-      scheduleSave(next, edges);
-      return next;
-    });
-  }, [catalog, deepLinks, onSelect, onContext, onResize, onRename, onAnnotate, setNodes, scheduleSave, edges]);
-
   // Add a free-form annotation node (text / box / logo / image). Returns the
   // new node id so callers can act on it (e.g. open the logo picker).
   const annoCounter = useRef(0);
@@ -913,18 +844,15 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasP
   const styleTargets = selectedIds;
   // Grouping state. `isGroup`: the selected node already belongs to a group →
   // offer Ungroup. `canGroup`: 2+ nodes selected that aren't all already one
-  // group → offer Group. groupTargets = the ids Group will stamp. Agent Bricks
-  // offers Ungroup too (its own explode path), even though it's a single node.
-  const panelIsAgentBricks = selectedIds.length === 1 && panelPrimaryData?.component.kind === "agent-bricks";
+  // group → offer Group. groupTargets = the ids Group will stamp.
   const groupTargets = selectedIds.length > 1 ? selectedIds : [];
   const groupIdsInSel = new Set(groupTargets.map((id) => (nodes.find((n) => n.id === id)?.data as NodeData | undefined)?.groupId));
   // The whole multi-selection is exactly one existing group (every member shares
   // one defined groupId) → offer Ungroup, not Group.
   const selIsOneGroup = groupTargets.length > 1 && groupIdsInSel.size === 1 && !groupIdsInSel.has(undefined);
-  // `isGroup` (offer Ungroup): a single grouped node, the whole selection being
-  // one group, or an Agent Bricks composite (its own explode path).
-  const isGroup =
-    (selectedIds.length === 1 && !!panelPrimaryData?.groupId) || selIsOneGroup || !!panelIsAgentBricks;
+  // `isGroup` (offer Ungroup): a single grouped node or a whole-group selection.
+  // (Agent Bricks explode was removed — it's a single composite, not a group.)
+  const isGroup = (selectedIds.length === 1 && !!panelPrimaryData?.groupId) || selIsOneGroup;
   // Offer Group unless the selection is already exactly one existing group.
   const canGroup = groupTargets.length > 1 && !selIsOneGroup;
   // The (primary) selected node's style fields — drives the controls' current
@@ -1191,11 +1119,10 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasP
         <EditPanel
           selectionCount={selectedIds.length}
           annotation={panelAnno}
-          nodeScale={panelPrimaryData?.scale ?? 1}
+          nodeScale={panelPrimaryData ? (panelPrimaryData.w ?? baseSize(panelPrimaryData.component).w) / baseSize(panelPrimaryData.component).w : 1}
           style={panelNodeStyle}
           isGroup={isGroup}
           canGroup={canGroup}
-          isAgentBricks={!!panelIsAgentBricks}
           onClose={clearSelection}
           onRotate={() => rotateNode(panelPrimaryId)}
           onRemove={() => { const ids = [...selectedIds]; clearSelection(); ids.forEach(removeNode); }}
@@ -1210,7 +1137,7 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasP
           onStyle={(patch) => styleNodes(styleTargets, patch)}
           onCopyStyle={() => setCopiedStyle(panelNodeStyle)}
           onGroup={() => groupNodes(groupTargets)}
-          onUngroup={() => { if (panelIsAgentBricks) explodeAgentBricks(panelPrimaryId); else ungroupNode(panelPrimaryId); }}
+          onUngroup={() => ungroupNode(panelPrimaryId)}
           onZ={(dir) => setNodeZ(styleTargets, dir)}
         />
       )}

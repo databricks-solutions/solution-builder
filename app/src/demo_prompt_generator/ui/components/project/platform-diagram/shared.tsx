@@ -213,11 +213,13 @@ export function RotatableCard({
   // selection box rotated, not the card).
   const cardW = w;
   const cardH = h;
-  // The card box is w×h; the children fill it (border == box edges) so EVERY
-  // resize handle moves the visible box. `--cs` = scale scales the inner content
-  // (set by CORNER drag / Scale slider); a SIDE drag changes w/h only, so the
-  // box grows/shrinks while the content keeps its scale.
-  const contentScale = scale || 1;
+  // Resize = change the BOX (w×h); content REFLOWS to fill it, never scaled.
+  // So `--cs` is pinned to 1 (the children's `scale(var(--cs))` wrappers become
+  // no-ops) and any handle — corner (proportional w/h), side (one axis), or the
+  // Scale slider (proportional w/h) — just changes the box size. (Legacy
+  // annotations also read --cs=1 here, which is their default.)
+  const contentScale = 1;
+  void scale;
   // The shell FILLS the ReactFlow node box (ReactFlow + NodeResizer own the
   // node's width/height — see schemaToFlow). Filling 100% keeps the selection
   // frame, the resizer, and the visual all the same size (no drift on resize).
