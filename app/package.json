@@ -17,6 +17,7 @@
         "typecheck": "tsc --noEmit",
         "gen:arch-skill": "bun run scripts/gen-architecture-skill.ts",
         "build:arch-standalone": "./scripts/build-arch-standalone.sh",
+        "build:arch-skill": "./scripts/build-architecture-skill.sh",
         "electron:dev": "electron .",
         "electron:build": "./scripts/build-electron.sh",
         "electron:pack": "electron-builder --dir",

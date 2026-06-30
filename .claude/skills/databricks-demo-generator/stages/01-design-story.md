@@ -25,7 +25,7 @@ Nail down the specifics. The exact structure depends on the story pattern, but d
 
 Before writing any file, load all references in a single response. All reads in ONE turn.
 
-- `DEMO_SKILL_DIR/references/architecture/architecture.md` — diagram schema
+- the `databricks-architecture` skill (`.claude/skills/databricks-architecture/SKILL.md`) — diagram schema
 - **Style reference (pick one based on capabilities)** — read at most one for README format:
   - **Simple demo** (capabilities ⊆ {`synthetic-data-gen`, `aibi-dashboards`, `genie`, `databricks-apps`, `lakebase`} plus talking-track): `DEMO_SKILL_DIR/references/example-luxebeauty-simple/README.md`
   - **Full demo** (any of `sdp`, `metric-views`, `ml-training-serving`, `knowledge-assistant`, `supervisor-agent`): `DEMO_SKILL_DIR/references/example-luxebeauty/README.md`
@@ -57,7 +57,7 @@ Capability IDs come from `DEMO_SKILL_DIR/references/platform_architecture.md`.
 
 ### `./architecture.md`
 
-Capability-layer platform diagram following the schema in `DEMO_SKILL_DIR/references/architecture/architecture.md`. The full platform renders from a built-in catalog and component states auto-seed from `resources.json` (buildable → active, talking_track → mentioned) — so this file is **small**: mostly the demo's `sources` plus story-tied `desc` overrides on the headline components. The set of active/mentioned components must match the products in README and `resources.json`.
+Platform-architecture diagram following the schema in the `databricks-architecture` skill (`.claude/skills/databricks-architecture/SKILL.md`). It's a flat `nodes`/`edges` JSON (in a ```json fence) listing the components shown + the lines between them — place nodes by `col` (lanes), wire edges by id. Show the demo's real source systems + the headline components with story-tied `desc`s; the set shown must match the products in README and `resources.json`.
 
 ### `./README.md`
 

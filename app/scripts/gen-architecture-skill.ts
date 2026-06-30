@@ -21,7 +21,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 // HERE = app/scripts → repo root is two levels up.
 const SKILL = resolve(
   HERE,
-  "../../.claude/skills/databricks-demo-generator/references/architecture/architecture.md",
+  "../../.claude/skills/databricks-architecture/SKILL.md",
 );
 const ICONS_DIR = resolve(HERE, "../src/demo_prompt_generator/ui/icons");
 
