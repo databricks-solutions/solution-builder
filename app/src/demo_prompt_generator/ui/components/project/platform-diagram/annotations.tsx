@@ -11,12 +11,21 @@ import { DATABRICKS_ICONS, BRAND_ICONS, type DatabricksIconName } from "../../da
 import { FILE_ICONS, FileSvgIcon, isFileIconKey, logoMetaByName, logoAliases } from "../../file-icons";
 import INDUSTRY_MAP from "../../../icons/industry-map.json";
 import { BrandMark } from "./brand-mark";
-import { type AnnotationData, type AnnotationVariant } from "@/lib/platform-architecture";
-import { RotatableCard, DropTargetContext, EditModeContext, type NodeData } from "./shared";
+import { type AnnotationData, type AnnotationVariant, isCustomIconKey, customLogoId } from "@/lib/platform-architecture";
+import { RotatableCard, DropTargetContext, EditModeContext, CustomLogosContext, InlineSvgIcon, type NodeData } from "./shared";
 
-/** Render any icon key — a built-in DatabricksIconName or a file-icon key
- *  ("file:…") — at a given size. Used by the Logo annotation + the picker. */
+/** Render any icon key — a built-in DatabricksIconName, a file-icon key
+ *  ("file:…"), or a custom inline-SVG logo ("custom:<id>") — at a given size.
+ *  Used by the Logo annotation + the picker. */
 export function AnyIcon({ iconKey, className, style }: { iconKey: string; className?: string; style?: React.CSSProperties }) {
+  const customLogos = useContext(CustomLogosContext);
+  if (isCustomIconKey(iconKey)) {
+    const svg = customLogos[customLogoId(iconKey)];
+    if (svg) return <InlineSvgIcon svg={svg} className={className} style={style} />;
+    // Unknown custom id → neutral placeholder.
+    const Data = DATABRICKS_ICONS.data;
+    return <Data className={className} style={{ color: "var(--muted-foreground)", ...style }} />;
+  }
   if (isFileIconKey(iconKey)) return <FileSvgIcon iconKey={iconKey} className={className} style={style} />;
   const Icon = DATABRICKS_ICONS[iconKey as DatabricksIconName] || DATABRICKS_ICONS.data;
   const isBrand = BRAND_ICONS.has(iconKey as DatabricksIconName);
@@ -127,10 +136,18 @@ export const AnnotationNode = memo(function AnnotationNode({ data, selected }: N
       {a.variant === "logo" && (
         <div
           onClick={() => d.onSelect(d.nodeId)}
-          className={`grid h-full w-full place-items-center rounded-md ${selected ? "ring-2 ring-primary/60" : ""}`}
+          className={`flex h-full w-full flex-col items-center justify-center rounded-md ${selected ? "ring-2 ring-primary/60" : ""}`}
           title="Right-click → Pick logo"
         >
-          <AnyIcon iconKey={a.icon ?? "data"} className="h-full w-full p-1 [&_svg]:h-full [&_svg]:w-full" />
+          <AnyIcon iconKey={a.icon ?? "data"} className="min-h-0 w-full flex-1 p-1 [&_svg]:h-full [&_svg]:w-full" />
+          {a.text && (
+            <span
+              className="w-full shrink-0 truncate text-center text-[11px] font-medium text-muted-foreground"
+              style={{ ...(a.fontSize ? { fontSize: a.fontSize } : {}), ...(a.bold ? { fontWeight: 700 } : {}) }}
+            >
+              {a.text}
+            </span>
+          )}
         </div>
       )}
 

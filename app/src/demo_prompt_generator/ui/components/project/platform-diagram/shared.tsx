@@ -157,6 +157,18 @@ export const DropTargetContext = createContext<string | null>(null);
  *  object (which would defeat React.memo on all N nodes). */
 export const EditModeContext = createContext<boolean>(true);
 
+/** Inline custom SVG logos (id → svg string), from the file's `custom_logos`.
+ *  An `icon: "custom:<id>"` resolves against this. Context-delivered (like edit
+ *  mode) so it reaches every leaf renderer without per-node data. */
+export const CustomLogosContext = createContext<Record<string, string>>({});
+
+/** Render an inline SVG string as a scalable `<img>` (data URI) — used for
+ *  custom logos. Consistent with FileSvgIcon (objectFit: contain). */
+export function InlineSvgIcon({ svg, className, style }: { svg: string; className?: string; style?: CSSProperties }) {
+  const src = `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+  return <img src={src} alt="" draggable={false} className={className} style={{ objectFit: "contain", ...style }} />;
+}
+
 /** ReactFlow node `type` for a component, by its composite kind. */
 export function nodeTypeFor(c: PlatformComponent): string {
   if (c.kind === "lakeflow") return "composite";

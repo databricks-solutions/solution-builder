@@ -15,6 +15,7 @@
         "dev:backend": "uv run uvicorn demo_prompt_generator.backend.app:app --host 127.0.0.1 --port 8000 --reload",
         "build": "vite build --config vite.config.ts",
         "typecheck": "tsc --noEmit",
+        "gen:arch-skill": "bun run scripts/gen-architecture-skill.ts",
         "electron:dev": "electron .",
         "electron:build": "./scripts/build-electron.sh",
         "electron:pack": "electron-builder --dir",

@@ -7,9 +7,11 @@
  * marks are always shown as logos. The real third-party logos appear only when
  * the demo opts in via `enableTrademarkLogos` (with a permission ack).
  */
-import { useEffect, useState } from "react";
+import { useContext, useEffect, useState } from "react";
 import { DATABRICKS_ICONS, BRAND_ICONS, TRADEMARK_ICONS, type DatabricksIconName } from "../../databricks-icons";
 import { isFileIconKey, getFileIcon, getFileIconColor, FileSvgIcon, logoMetaForKey } from "../../file-icons";
+import { isCustomIconKey, customLogoId } from "@/lib/platform-architecture";
+import { CustomLogosContext, InlineSvgIcon } from "./shared";
 
 /** Brand colors for the built-in trademarked vendor logos (badge background). */
 const BUILTIN_BADGE_COLOR: Partial<Record<string, string>> = {
@@ -84,8 +86,17 @@ export function BrandMark({
    *  full-name pill. */
   mono?: boolean;
 }) {
+  const customLogos = useContext(CustomLogosContext);
   const gated = isTrademarkMark(iconKey);
   const fileColor = useFileColor(isFileIconKey(iconKey) && gated && !allowTrademark ? iconKey : null);
+
+  // Custom inline-SVG logo: never trademark-gated, always render.
+  if (isCustomIconKey(iconKey)) {
+    const svg = customLogos[customLogoId(iconKey)];
+    if (svg) return <InlineSvgIcon svg={svg} className={className} style={style} />;
+    const Data = DATABRICKS_ICONS.data;
+    return <Data className={className} style={{ color: bandColor, ...style }} />;
+  }
 
   if (!gated || allowTrademark) {
     // Show the real mark.

@@ -22,14 +22,18 @@ To start from one, copy its `nodes`/`edges` into the project's `architecture.md`
   "story": "One line framing the demo (optional).",
   "options": { "trademarkLogos": false },
   "columns": ["sources", "pipeline", "compute", "work", "entry", "user"],
+  "custom_logos": [
+    { "id": "acme", "svg": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path fill='#7C3AED' d='M12 2l3 7 7 .5-5 4.5 1.5 7L12 17l-6 4 1.5-7-5-4.5 7-.5z'/></svg>" }
+  ],
   "nodes": [
     { "id": "src-erp", "type": "source", "col": "sources", "label": "ERP System", "icon": "file:vendor/sap", "ingest": "lakeflow-connect" },
+    { "id": "src-acme", "type": "source", "col": "sources", "label": "ACME Corp", "icon": "custom:acme", "ingest": "lakeflow-connect" },
     { "id": "lakeflow-genie-block", "type": "lakeflow-genie-block", "col": "pipeline" },
     { "id": "lakehouse", "type": "lakehouse", "col": "compute" },
     { "id": "aibi-dashboards", "type": "aibi-dashboards", "col": "work", "row": 1 },
     { "id": "genie", "type": "genie", "col": "work", "row": 2, "label": "Genie Room", "desc": "Ask anything about your data" },
     { "id": "genie-one", "type": "genie-one", "col": "entry", "rot": 90 },
-    { "id": "user", "type": "logo", "col": "user", "icon": "file:persona/user" },
+    { "id": "user", "type": "logo", "col": "user", "icon": "file:persona/user", "text": "Business users", "size": [88, 88] },
     { "id": "governance-block", "type": "governance-block", "at": [1058, -178] },
     { "id": "platform-box", "type": "box", "z": -1, "border": true, "wraps": ["src-erp", "lakeflow-genie-block", "lakehouse", "aibi-dashboards", "genie", "genie-one", "user"] }
   ],
@@ -48,6 +52,7 @@ To start from one, copy its `nodes`/`edges` into the project's `architecture.md`
 | `story` | No | One-line caption under the title. |
 | `options.trademarkLogos` | No | `true` → render real third-party brand logos. Default `false` (neutral badges). |
 | `columns` | No | Ordered left→right **lane names**. Nodes reference one via `col`. Add/rename/insert lanes freely for a different shape — no fixed taxonomy. |
+| `custom_logos` | No | `[{ id, svg }]` — inline SVG logos. Reference one from any node's `icon` as `"custom:<id>"`. See *Custom logos & images*. |
 | `nodes` | Yes | The components on the canvas (see below). |
 | `edges` | Yes | The lines between them. |
 
@@ -59,13 +64,18 @@ To start from one, copy its `nodes`/`edges` into the project's `architecture.md`
 | `col` | placement | The lane (from `columns`) this node sits in. Nodes in a lane stack vertically, centered. **Primary way to place a node.** |
 | `row` | No | Order within the lane (else order of appearance). |
 | `wraps` | container | On a `type:"box"`: the node ids this box ENCLOSES. The box auto-sizes around them (+ `pad`, default 24). Nesting works (a box may wrap boxes) — see *Containers*. |
-| `at` | No | `[x, y]` **explicit** position (node center). **Overrides `col`.** Use only for off-flow elements (top banners) or to pin something. |
+| `bounds` | container | On a `type:"box"`: per-side edge anchors `{ left?, right?, top?, bottom? }`. Each side = `"<nodeId>:<anchor>"` (anchor ∈ `left`/`right`/`center` for x, `top`/`bottom`/`center` for y), or `"col:<name>:<anchor>"` (a lane's edge/midpoint), or `"wrap"`. Lets the box edge cut HALFWAY through a node/column. Unspecified sides fall back to `wraps`. |
+| `pin` | placement | Dock this node at a box anchor: `top-left`·`top`·`top-right`·`left`·`center`·`right`·`bottom-left`·`bottom`·`bottom-right`. Use for banners/personas in a box corner (overrides `col`). |
+| `pinTo` · `pinPad` | with `pin` | `pinTo` = the box id to dock into (default: the largest box / overall bounds). `pinPad` = inset px (default 16). |
+| `float` | with `pin` | `false`/omitted (default) → **reserve a band**: the target box GROWS by this node's height so it never overlaps content (a top pin pushes content down, a bottom pin extends the box down). `true` → **overlay** at the corner (may sit over content). |
+| `at` | No | `[x, y]` **explicit** position (node center). **Overrides `col`/`pin`.** Use for fully manual placement. (A user drag also persists here.) |
 | `size` | No | `[w, h]` if resized from the natural size. |
-| `rot` · `scale` · `z` · `group` · `pad` | No | Rotation°, content scale, stacking order, group tag, container padding. |
-| `label` · `desc` · `icon` | No | Override the catalog default copy/icon (only when it differs). |
+| `rot` · `scale` · `z` · `pad` | No | Rotation° (0/90/180/270), content scale, stacking order (negative = behind), container padding. |
+| `group` | No | A shared string id stamped on several nodes → they form a GROUP: selecting one selects all, and they move together on the canvas. |
+| `label` · `desc` · `icon` | No | Override the catalog default copy/icon (only when it differs). `icon` may be a built-in name, a `file:vendor/…`/`file:cloud/…` key, or a `custom:<id>` (see *Custom logos & images*). |
 | `ingest` | source only | `lakeflow-connect` (default) · `zerobus` · `direct`. |
-| `text`·`fontSize`·`bold`·`border`·`vAlign`·`hAlign`·`src` | box/text/logo/image | Annotation props. |
-| `style` | No | `{ border, borderStyle, borderColor, radius, shadow, fill, font, opacity }` — visual overrides; emit only what differs. (`border` = width px; `shadow` = 0–100; `radius` = px.) |
+| `text`·`fontSize`·`bold`·`border`·`vAlign`·`hAlign`·`src` | box/text/logo/image | Annotation props — see *Annotations*. |
+| `style` | No | `{ border, borderStyle, borderColor, radius, shadow, fill, font, opacity }` — visual overrides; emit only what differs. `border` = width px (0 = none); `borderStyle` = `solid`/`dashed`; `borderColor`/`fill`/`font` = hex; `radius` = corner px; `shadow` = 0–100 intensity (0 = none); `opacity` = 0–1. |
 
 The **band** a component belongs to (which sets its tile color) is derived from its `type` — you never write it.
 
@@ -90,6 +100,30 @@ A `type:"box"` with `wraps: [ids]` becomes a **labeled container** that auto-siz
 ```
 
 The inner nodes get placed (by `col` or `at`); each box sizes itself around its members, innermost first. You never compute a box's `at`/`size`.
+
+### Annotations (free-form, not catalog components)
+
+Four `type`s let you add labels and marks that aren't Databricks components:
+
+| type | props | use |
+|------|-------|-----|
+| `text` | `text`, `fontSize`, `bold`, `vAlign`/`hAlign` | a free-floating text label. |
+| `box` | `text`, `border` (bool), `fontSize`, `vAlign`/`hAlign`, + `wraps`/`bounds`/`pad` | a labeled rectangle / container (the platform box, cloud/VPC boxes). |
+| `logo` | `icon` (any icon key, incl. `file:…` or `custom:<id>`), `text` (caption below) | a standalone logo — e.g. the `file:persona/user` end-user marker. |
+| `image` | `src` | a standalone image (URL or base64 — see below). |
+
+> `border` on a `box`/`text` is a **bool** (show a default-weight border; box defaults on, text off). To set an exact border WIDTH/color/dash, use `style.border` (px), `style.borderColor`, `style.borderStyle` — those win. Don't confuse the two.
+
+### Custom logos & images
+
+- **Custom SVG logos** — add inline SVGs in the top-level `custom_logos` array and reference them by id from ANY node's `icon`:
+  ```json
+  "custom_logos": [
+    { "id": "acme", "svg": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path fill='#7C3AED' d='M12 2l3 7 7 .5-5 4.5 1.5 7L12 17l-6 4 1.5-7-5-4.5 7-.5z'/></svg>" }
+  ]
+  ```
+  Then `"icon": "custom:acme"` on a `type:"source"` tile (a named data source with a custom brand) OR a `type:"logo"` node (a standalone mark). Custom logos are never trademark-gated — always shown. (Escape the SVG quotes for JSON, or use single quotes inside the SVG as above.)
+- **Images (base64)** — a `type:"image"` node with `"src": "data:image/png;base64,…"` (or an http URL). **Standalone only** — an image is its own node; you can't use it as a component/source `icon` (use a `custom_logos` SVG for that).
 
 ---
 
@@ -122,80 +156,108 @@ sources (≈3 rows)  →  Lakeflow + Genie (one block)  →  lakehouse + lakebas
   - Right port `@r` → the compute layer. **Inside the block = Genie Code + SDP** (all bronze→silver→gold) — do NOT add separate `sdp`/`genie-code` nodes.
 - **Compute** (both fed by `lakeflow-genie-block@r`): `lakehouse` (BI+AI) and `lakebase` (live app state).
 - **Consumption:** `lakehouse` → `aibi-dashboards` + `genie`. `lakebase` → the `databricks-apps-work` app; the **app also consumes the Genie Room + dashboard**.
-- **End user:** a `file:persona/user` `logo` reaches the resources **through `genie-one`**. Those edges are **relationship arrows** — leave `arrow` out (auto): user ==> Genie One, Genie One --> dashboard / Genie Room / app.
+- **End user:** a `file:persona/user` `logo` (give it `"text": "Business users"` as the caption by default, and a slightly taller `size` like `[88, 88]` so icon + caption fit) reaches the resources **through `genie-one`**. Those edges are **relationship arrows** — leave `arrow` out (auto): user ==> Genie One, Genie One --> dashboard / Genie Room / app.
 
 ---
 
 ## Component catalog (dense reference)
 
-Use the `type` id; the renderer supplies the icon, label, default description, and size. Override `label`/`desc` only when story-specific.
+<!-- BEGIN: generated-catalog -->
 
-### Data (pipeline / storage)
-| type | label | notes |
-|----|-------|-------|
-| `lakeflow-block` | Lakeflow | composite — ingest rail (Connect/Zerobus/direct) + bronze→silver→gold. 224×148. Ports `in-lakeflow-connect`/`in-zerobus`/`in-direct` (left), `r` (right). |
-| `lakeflow-genie-block` | Lakeflow + Genie | composite — Lakeflow + a "Built with Genie Code" footer. 360×208. Same ports. **Preferred** pipeline block. |
-| `lakeflow-connect` | Lakeflow Connect | plain tile (managed connectors). |
-| `zerobus-ingest` | Lakeflow Zerobus | plain tile (realtime ingest). |
-| `sdp` | Lakeflow SDP | 230×112 — declarative bronze→silver→gold (when not using the composite). |
-| `uc-volume` | UC Volume | governed file storage (where PDFs land). |
-| `lakeflow-jobs` | Lakeflow Jobs | "Orchestrate anything". |
-| `notebooks-eda` | Notebooks | interactive analysis. |
-| `delta-sharing` · `marketplace` | — | open sharing / 3rd-party assets. |
-| `lakebase` | Lakebase | serverless Postgres for app state. |
-| `lakehouse` | Lakehouse | one governed copy for BI+AI. "RT" badge. |
+<!-- AUTO-GENERATED from CATALOG in app/.../lib/platform-architecture.ts
+     by `bun run scripts/gen-architecture-skill.ts` — DO NOT EDIT BY HAND. -->
 
-### Work (agents / analytics)
-| type | label | notes |
-|----|-------|-------|
-| `genie` | Genie Room | plain-language Q&A. |
-| `genie-one` | Genie One - Mobile app | business-user access surface. |
-| `knowledge-assistant` | Knowledge Assistant | grounded answers over documents. |
-| `supervisor-agent` | Multi-Agent Supervisor | routes a question across agents. |
-| `agent-bricks` | Agent Bricks | composite — Supervisor over KA/Genie/MCP/Functions + task chips. 230×170. |
-| `ml-training-serving` | ML Models | train/register/serve. |
-| `vector-search` | Vector Search | semantic retrieval. |
-| `information-extraction` · `document-parsing` · `classification` | — | doc → structured. |
-| `genie-code` | Built with Genie Code | composite — 360×112 "describe it, Genie Code builds it" strip. |
+Use the `type` id; the renderer supplies the icon, label, default description and size. Override `label`/`desc` only when story-specific. Composite blocks carry their own internal layout — treat each as ONE node (don't also add its sub-parts).
 
-### Apps
-| type | label | notes |
-|----|-------|-------|
-| `databricks-apps-work` | Databricks Apps | "Deploy business apps" — the custom app. **Preferred** over `databricks-apps`. |
-| `aibi-dashboards` | AI/BI Dashboard | governed dashboards. |
-| `databricks-apps` | Databricks Apps | legacy id. |
+### Agentic Data `agentic-data`
 
-### Governance / platform
-| type | label | notes |
-|----|-------|-------|
-| `governance-block` | Unified Governance | composite — Unity Catalog + AI Gateway + Genie Ontology bar. 580×108. **Preferred** over the loose tiles. |
-| `db-platform` | Databricks Platform | composite — the Databricks wordmark + "The Data Intelligence Platform". 380×60. Title banner. |
-| `unity-catalog` · `ai-gateway` · `data-quality` · `abac` · `data-classification` | — | individual governance tiles. |
+| type | label | size | what it is / when to use |
+|------|-------|------|--------------------------|
+| `lakeflow-block` | Lakeflow | 224×148 | The whole ingest + bronze→silver→gold SDP in one block (no Genie Code framing). Contains SDP — never add a separate sdp tile beside it. |
+| | | | **ports:** `in-lakeflow-connect` ← databases / SaaS apps (ingest: lakeflow-connect) · `in-zerobus` ← realtime streams / sensors (ingest: zerobus) · `in-direct` ← files: PDF / CSV / Parquet (ingest: direct) · `r` → the compute layer |
+| `lakeflow-genie-block` | Lakeflow + Genie | 360×208 | The PREFERRED data-layer block — ingest + bronze→silver→gold SDP, built/maintained by Genie Code. It IS the data layer; contains SDP + Genie Code, so never add separate sdp / genie-code tiles beside it. |
+| | | | **ports:** `in-lakeflow-connect` ← databases / SaaS apps (ingest: lakeflow-connect) · `in-zerobus` ← realtime streams / sensors (ingest: zerobus) · `in-direct` ← files: PDF / CSV / Parquet (ingest: direct) · `r` → the compute layer |
+| `lakeflow-connect` | Lakeflow Connect | 200×56 | Managed connectors ingest from databases and SaaS apps under governance. |
+| `zerobus-ingest` | Lakeflow Zerobus | 200×56 | Real-time, direct ingest of streaming events into the lakehouse. |
+| `sdp` | Lakeflow SDP | 230×112 | Spark Declarative Pipelines — declarative bronze → silver → gold that self-heal and scale. |
+| `uc-volume` | UC Volume | 200×56 | Governed file storage in Unity Catalog — where raw documents (PDFs) land. |
+| `lakeflow-jobs` | Lakeflow Jobs | 230×70 | Orchestrate the whole pipeline on a schedule or trigger. |
+| `notebooks-eda` | Notebooks | 200×56 | Interactive exploration and analysis on governed data. |
+| `delta-sharing` | Delta Sharing | 200×56 | Open, cross-org data sharing with no copies. |
+| `marketplace` | Marketplace | 200×56 | Discover and consume third-party data and AI assets. |
+| `lakebase` | Lakebase | 230×70 | Managed Postgres for app state — reads/writes the live queue. |
+| `lakehouse` | Lakehouse | 230×70 | One copy of governed data for BI + AI — real-time queries at scale. |
 
-> **Composites** carry their own internal layout (and Lakeflow's named ports). Treat each as ONE node — don't also add its sub-parts (e.g. no `sdp` next to `lakeflow-genie-block`).
+### Agentic Work `agentic-work`
 
-### Custom / composite blocks — what's drawn inside & when to use
+| type | label | size | what it is / when to use |
+|------|-------|------|--------------------------|
+| `databricks-apps-work` | Databricks Apps | 230×70 | The custom business app — PREFERRED over the legacy databricks-apps tile. Runs on Lakebase; can embed the dashboard + Genie Room. |
+| `genie-one` | Genie One - Mobile app | 230×70 | The business-user / mobile entry point. Convention: a file:persona/user logo (caption 'Business users') to its right — user ==> Genie One, and Genie One --> dashboard / Genie Room / app. Those edges auto-render as arrows (leave `arrow` out). |
+| `genie` | Genie Room | 230×70 | ask anything about your data |
+| `knowledge-assistant` | Knowledge Assistant | 200×56 | Chat with your documents — grounded, cited answers from unstructured content. |
+| `supervisor-agent` | Multi-Agent Supervisor | 200×56 | Routes a question to the right specialist agent and composes the answer. |
+| `agent-bricks` | Agent Bricks | 230×170 | Managed MULTI-agent system: a Supervisor orchestrating Knowledge Assistant / Genie / MCP / Functions (with extraction·parsing·classification chips). Use when the agent layer is a supervisor routing to specialists; if the demo uses only one agent capability, use that single tile instead. |
+| `ml-training-serving` | ML Models | 200×56 | Train, register, and serve models on governed data. |
+| `vector-search` | Vector Search | 200×56 | Semantic search and retrieval that grounds agents in your data. |
+| `information-extraction` | Information Extraction | 200×56 | Turn PDFs and documents into structured, queryable data. |
+| `document-parsing` | Document Parsing | 200×56 | Parse PDFs and documents into clean, structured text + layout. |
+| `classification` | Classification | 200×56 | Classify documents and records into governed categories. |
+| `genie-code` | Built with Genie Code | 360×112 | Standalone 'describe it → Genie Code builds it' beat. Use only when NOT already using lakeflow-genie-block (which has the Genie Code footer built in). |
 
-These are the rich, self-contained blocks. Each renders a small diagram *inside* the tile, so picking the right one tells a lot of the story on its own. **Use one composite instead of several loose tiles.**
+### Agentic Apps `agentic-apps`
 
-- **`lakeflow-genie-block` (Lakeflow + Genie)** — *Inside:* a 3-port ingest rail (Lakeflow Connect / Zerobus / direct file landing) feeding a bronze→silver→gold SDP pipeline, with a "Built with Genie Code" footer. *Use when:* the demo has a real ingestion + transformation pipeline (almost always). It IS the data layer — every source connects into one of its three left ports, and it emits to the compute layer from `@r`. **This already contains SDP + Genie Code**, so never add `sdp` or `genie-code` beside it. Prefer over `lakeflow-block` unless you specifically don't want the Genie Code framing.
+| type | label | size | what it is / when to use |
+|------|-------|------|--------------------------|
+| `databricks-apps` | Databricks Apps | 200×56 | Custom web app where the team does the work — queue, actions, all in one place. |
+| `aibi-dashboards` | AI/BI Dashboard | 230×70 | Governed dashboards on the same data — one set of numbers, one page. |
 
-- **`lakeflow-block` (Lakeflow)** — *Inside:* the same ingest rail + medallion pipeline, **without** the Genie Code footer. *Use when:* you want the pipeline but the demo's narrative isn't "built with Genie Code." Same 3 ports.
+### Unified Governance `unified-governance`
 
-- **`governance-block` (Unified Governance)** — *Inside:* a wide bar with Unity Catalog + Unity AI Gateway (showing OpenAI/Anthropic/Gemini — "access any model") + a live Genie Ontology graph. *Use when:* the demo wants to show governance/semantics as ONE foundation bar across the top or bottom (the normal case). Prefer over the loose `unity-catalog`/`ai-gateway`/`data-quality`/`abac`/`data-classification` tiles — use those only if you must call out one governance feature in isolation.
+| type | label | size | what it is / when to use |
+|------|-------|------|--------------------------|
+| `governance-block` | Unified Governance | 580×108 | One governance bar: Unity Catalog + Unity AI Gateway (access any model) + a live Genie Ontology graph. Prefer over the loose unity-catalog / ai-gateway / data-quality / abac / data-classification tiles (use those only to spotlight one feature). |
+| `db-platform` | Databricks Platform | 380×60 | Title banner (the Databricks wordmark). Pin it top-left, usually paired with a big background box (z:-1) wrapping everything → reads as 'all of this is the platform'. |
+| `unity-catalog` | Unity Catalog | 200×56 | One governed catalog — access, lineage, and semantics across data + AI. |
+| `ai-gateway` | Unity AI Gateway | 200×56 | Every model and agent call governed — security, cost, and rate limits. |
+| `data-quality` | Data Quality | 200×56 | Expectations and monitors keep bad data out of the gold layer. |
+| `abac` | ABAC | 200×56 | Attribute-based access control — fine-grained, policy-driven permissions. |
+| `data-classification` | Data Classification | 200×56 | Automatically tag and govern sensitive data. |
 
-- **`agent-bricks` (Agent Bricks)** — *Inside:* a Supervisor agent at the root of a tree, orchestrating Knowledge Assistant / Genie room / MCP / Functions, with Classification·Extraction·Doc-parsing task chips. *Use when:* the demo's agent layer is a **managed multi-agent system** (a supervisor routing to specialists). If the demo only uses ONE agent capability (just Genie, or just a KA), use that single tile instead — don't over-state with Agent Bricks.
+> Sources are demo-authored (not in this catalog): use `type:"source"` with a vendor `icon` (`file:vendor/<name>`) + an `ingest` path (see the icon bank below).
 
-- **`genie-code` (Built with Genie Code)** — *Inside:* a terminal that "types" a request then animates building a mini pipeline + dashboard. *Use when:* you want a standalone "describe it → Genie Code builds it" beat and you're NOT already using `lakeflow-genie-block` (which has the Genie Code footer built in). Rarely needed alongside the combined block.
-
-- **`db-platform` (Databricks Platform)** — *Inside:* the Databricks wordmark + "The Data Intelligence Platform". *Use as:* a title banner, typically top-left, to label the whole diagram as running on the platform. Pair it with a big background `box` (`wraps` the flow, `z:-1`) that everything sits inside. **`db-platform` and `governance-block` render with no border and no shadow by default** — don't add a `style` for that.
-
-- **`genie-one` (Genie One – Mobile app)** — not a composite, but special: the **business-user / mobile entry point**. *Use when:* the demo has an end user who consumes the resources through one surface. Convention: a `file:persona/user` `logo` to its right (user ==> Genie One), and Genie One --> the dashboard / Genie Room / app. These edges auto-render as arrows (leave `arrow` out).
-
-- **`source` + `file:vendor/custom-source`** — the animated "generic" source (red triangle/circle/square). *Use when:* the demo's source has no real vendor logo, or you want a placeholder the user renames. Otherwise prefer a real `file:vendor/<name>` logo.
+<!-- END: generated-catalog -->
 
 ### Sources
 Use `type:"source"` with a vendor `icon` (`file:vendor/<name>` — e.g. `postgresql`, `kafka`, `sap`, `salesforce`, `shopify`) and an `ingest` path. Generic fallbacks: `pdfLogo`, `sensorSource`, `inputData`, `unstructuredData`. The `ingest` decides which Lakeflow port the source's edge targets (`lakeflow-connect`→`in-lakeflow-connect`, `zerobus`→`in-zerobus`, `direct`→`in-direct`). A custom shapes source: `file:vendor/custom-source`. A persona/user marker: `file:persona/user` (as a `logo` node).
+
+Show **real, NAMED source systems** — never a single "Synthetic Data" / "synthetic" placeholder (it reads as fake and tells no story).
+- **Follow the user first:** if they named their sources (one or many), use exactly those.
+- **Default when you have no signal:** add **~4** plausible real systems with real vendor logos, spanning the three ingest paths so the Lakeflow block's three ports are used — e.g. a database (`postgresql`/`mysql`, `lakeflow-connect`), a SaaS app (`salesforce`/`shopify`, `lakeflow-connect`), **sensor / IoT data** (`sensorSource`, `zerobus`), and documents (`pdfLogo`, `direct`). Fit the industry if one is implied; otherwise this generic mix is fine. This is just the fallback — a demo that clearly wants one source should show one.
+- For the streaming/`zerobus` path lead with **sensor data**, NOT Kafka — Zerobus is Databricks' direct ingest that *replaces* a Kafka-style broker, so showing Kafka alongside it is contradictory.
+- Only use `file:vendor/custom-source` for a source that genuinely has no real-world product behind it.
+
+### Available logos (icon bank)
+
+<!-- BEGIN: generated-icons -->
+
+<!-- AUTO-GENERATED from the icon bank (icons/vendor + icons/cloud) — DO NOT EDIT BY HAND. -->
+
+Logos you can set as a node `icon`. Keys are self-explanatory; use them verbatim.
+
+**Vendor / product logos** — `file:vendor/<name>`:
+
+`adyen`, `agent-bricks`, `airbyte`, `airtable`, `amplitude`, `anthropic`, `apache-airflow`, `apache-couchdb`, `apache-flink`, `apache-hbase`, `apache-nifi`, `apache-spark`, `atlassian`, `bigcommerce`, `box`, `braze`, `brevo`, `cassandra`, `clickhouse`, `cockroachdb`, `confluence`, `couchbase`, `custom-source`, `databricks`, `databricks-wordmark`, `dbt`, `dropbox`, `duckdb`, `elasticsearch`, `gemini`, `genie-ontology`, `github`, `gitlab`, `glean`, `google-ads`, `google-analytics`, `google-docs`, `google-drive`, `google-sheets`, `grafana`, `hootsuite`, `hubspot`, `ibm`, `influxdb`, `informatica`, `intercom`, `jira`, `kafka`, `klarna`, `looker`, `mailchimp`, `mariadb`, `marketo`, `mastercard`, `meta`, `metabase`, `microsoft`, `microsoft-sql-server`, `mixpanel`, `mongodb`, `mqtt`, `mysql`, `neo4j`, `node-red`, `notion`, `openai`, `oracle`, `paypal`, `planetscale`, `postgresql`, `power-bi`, `prestashop`, `presto`, `pulsar`, `qlik`, `quickbooks`, `rabbitmq`, `redis`, `salesforce`, `sap`, `scylladb`, `segment`, `sendgrid`, `shopify`, `shopware`, `siemens`, `singlestore`, `slack`, `snapchat`, `snowflake`, `sqlite`, `square`, `stripe`, `supabase`, `superset`, `tableau`, `talend`, `teradata`, `tiktok`, `trino`, `twilio`, `visa`, `woocommerce`, `xero`, `youtube`, `zapier`, `zendesk`, `zeroops`, `zoho`
+
+**Cloud logos** — `file:cloud/<provider>/<category>/<name>` (e.g. `file:cloud/aws/storage/s3`):
+
+- **aws**: `analytics/athena`, `analytics/glue`, `analytics/redshift`, `compute/ec2`, `compute/lambda`, `database/dynamodb`, `database/rds`, `ml/sagemaker`, `networking/route53`, `networking/vpc`, `storage/s3`, `streaming/kinesis`
+- **azure**: `analytics/data-factory`, `analytics/synapse`, `compute/functions`, `compute/virtual-machines`, `database/cosmos-db`, `database/sql-database`, `ml/machine-learning`, `networking/virtual-network`, `storage/blob-storage`, `streaming/event-hubs`
+- **gcp**: `analytics/bigquery`, `analytics/dataflow`, `analytics/dataproc`, `compute/cloud-functions`, `compute/compute-engine`, `database/bigtable`, `database/cloud-sql`, `ml/vertex-ai`, `networking/vpc`, `storage/cloud-storage`, `streaming/pubsub`
+
+Also: `file:persona/user` (a person — use as a `logo` node, caption "Business users"), `file:vendor/custom-source` (generic animated shapes source when no real logo fits).
+
+<!-- END: generated-icons -->
 
 ---
 

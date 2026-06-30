@@ -33,6 +33,7 @@ import {
 import { saveProjectFile, type DeployedResourceLink } from "@/lib/custom-api";
 import { Check, Loader2 } from "lucide-react";
 import { Canvas } from "./platform-diagram/canvas";
+import { CustomLogosContext } from "./platform-diagram/shared";
 
 // ---------------------------------------------------------------------------
 // Top-level component — owns parse, deep-link resolution, save
@@ -113,9 +114,11 @@ function PlatformDiagram({ content, deployedResources, projectId }: PlatformDiag
         <div className="text-sm font-medium text-foreground">{schema.name}</div>
         <SaveChip status={status} />
       </div>
-      <ReactFlowProvider>
-        <Canvas schema={schema} deepLinks={deepLinks} onPersist={onPersist} onSetTrademark={onSetTrademark} />
-      </ReactFlowProvider>
+      <CustomLogosContext.Provider value={schema.customLogos ?? {}}>
+        <ReactFlowProvider>
+          <Canvas schema={schema} deepLinks={deepLinks} onPersist={onPersist} onSetTrademark={onSetTrademark} />
+        </ReactFlowProvider>
+      </CustomLogosContext.Provider>
     </div>
   );
 }

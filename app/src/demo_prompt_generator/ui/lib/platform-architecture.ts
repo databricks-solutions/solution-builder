@@ -75,6 +75,18 @@ export interface PlatformComponent {
   sublabel?: string;
   /** A tiny colored pill next to the label (e.g. "RT" for real-time). */
   badge?: string;
+
+  // -- Authoring metadata (catalog-only) — the SINGLE source of truth for the
+  //    skill's component reference. `scripts/gen-architecture-skill.mjs` reads
+  //    these + the default `desc` and writes the catalog section into the
+  //    architecture skill doc. Not used at render time; only to guide the agent.
+  /** One line for the agent: what it is / what's inside / when to pick it (vs
+   *  alternatives). Omit for plain tiles whose `desc` already says it. */
+  authoring?: string;
+  /** Components with named anchors: handle id → what connects there. e.g.
+   *  { "in-lakeflow-connect": "← databases / SaaS apps", "r": "→ compute" }.
+   *  THE key metadata — tells the agent which port maps to what. */
+  ports?: Record<string, string>;
 }
 
 export type IngestPath = "lakeflow-connect" | "zerobus" | "direct";
@@ -119,6 +131,9 @@ export interface PlatformSchema {
   /** Canvas layout — node positions + edges. Persisted by the interactive
    *  editor; auto-seeded by band when absent. */
   layout: PlatformLayout;
+  /** Inline custom SVG logos, keyed by id. A node references one via
+   *  `icon: "custom:<id>"`. Threaded to the renderers via CustomLogosContext. */
+  customLogos?: Record<string, string>;
 }
 
 // -- Interactive-canvas layout (positions + edges) ---------------------------
@@ -247,6 +262,24 @@ export interface FileNode {
    *  node ids (+ `pad`). Recursive — a box may wrap other boxes. */
   wraps?: string[];
   pad?: number;
+  /** Per-side edge anchors for a `type:"box"` — places each edge at a reference
+   *  point instead of wrapping. Each side is `"<nodeId>:<anchor>"` (anchor =
+   *  left|right|top|bottom|center of that node's box) or `"col:<name>:<anchor>"`
+   *  (a column's edge/midpoint), or "wrap" to fall back to enclosing `wraps`.
+   *  Lets the box cut HALFWAY through a node/column (the node straddles the
+   *  border). Unspecified sides fall back to `wraps` (or 0). */
+  bounds?: { left?: string; right?: string; top?: string; bottom?: string };
+  /** Named anchor placement (instead of `at`): one of the 8 box anchors or
+   *  "center", resolved against `pinTo` (a box id) or the platform box / overall
+   *  content bounds. For banners/personas sitting on a box corner. */
+  pin?: "top-left" | "top" | "top-right" | "left" | "center" | "right" | "bottom-left" | "bottom" | "bottom-right";
+  pinTo?: string;
+  pinPad?: number;
+  /** Pin mode. false/omitted (default) → RESERVE a band: the target box grows by
+   *  this element's height (top pins push content down, bottom pins extend the
+   *  box down) so it never overlaps the content. true → FLOAT: overlay inside the
+   *  box at the corner (may sit over content). */
+  float?: boolean;
   /** Resized box [w, h]. */
   size?: [number, number];
   rot?: number;
@@ -303,6 +336,9 @@ export interface ArchitectureFile {
   /** Ordered left→right lane names. Nodes reference one via `col`. Optional —
    *  only needed when authoring with symbolic (col-based) placement. */
   columns?: string[];
+  /** Inline custom SVG logos: `[{ id, svg }]`. Reference one from any node's
+   *  `icon` as `"custom:<id>"` (works as a logo node OR a source tile). */
+  custom_logos?: { id: string; svg: string }[];
   nodes?: FileNode[];
   edges?: FileEdge[];
 }
@@ -373,33 +409,43 @@ type CatalogComponent = Omit<PlatformComponent, "state">;
 
 /** Generic, brand-level fallback blurbs. The agent overrides these per demo
  *  with story-tied copy. Kept short — one sentence, what it does for a user. */
-const CATALOG: Record<BandId, CatalogComponent[]> = {
+export const CATALOG: Record<BandId, CatalogComponent[]> = {
   "agentic-apps": [
     { id: "databricks-apps", label: "Databricks Apps", icon: "databricksApps", desc: "Custom web app where the team does the work — queue, actions, all in one place." },
     { id: "aibi-dashboards", label: "AI/BI Dashboard", icon: "aibiBrand", sublabel: "Analyst consult & build insight", desc: "Governed dashboards on the same data — one set of numbers, one page." },
   ],
   "agentic-work": [
-    { id: "databricks-apps-work", label: "Databricks Apps", icon: "databricksAppsBrand", sublabel: "Deploy business apps", desc: "Deploy business apps" },
-    { id: "genie-one", label: "Genie One - Mobile app", icon: "genieOneBrand", sublabel: "Databricks access for business user", desc: "Databricks access for business user" },
+    { id: "databricks-apps-work", label: "Databricks Apps", icon: "databricksAppsBrand", sublabel: "Deploy business apps", desc: "Deploy business apps",
+      authoring: "The custom business app — PREFERRED over the legacy databricks-apps tile. Runs on Lakebase; can embed the dashboard + Genie Room." },
+    { id: "genie-one", label: "Genie One - Mobile app", icon: "genieOneBrand", sublabel: "Databricks access for business user", desc: "Databricks access for business user",
+      authoring: "The business-user / mobile entry point. Convention: a file:persona/user logo (caption 'Business users') to its right — user ==> Genie One, and Genie One --> dashboard / Genie Room / app. Those edges auto-render as arrows (leave `arrow` out)." },
     { id: "genie", label: "Genie Room", icon: "genieBrand", sublabel: "Ask anything about your data", desc: "ask anything about your data" },
     { id: "knowledge-assistant", label: "Knowledge Assistant", icon: "knowledgeAssistant", desc: "Chat with your documents — grounded, cited answers from unstructured content." },
     { id: "supervisor-agent", label: "Multi-Agent Supervisor", icon: "multiAgentSupervisor", desc: "Routes a question to the right specialist agent and composes the answer." },
     // Composite "Agent Bricks" block: the bundled agent building blocks
     // (supervisor + extraction + document parsing + classification).
-    { id: "agent-bricks", label: "Agent Bricks", icon: "file:vendor/agent-bricks", kind: "agent-bricks", desc: "Databricks' managed agents — a multi-agent supervisor plus information extraction, document parsing, and classification, built and governed for you." },
+    { id: "agent-bricks", label: "Agent Bricks", icon: "file:vendor/agent-bricks", kind: "agent-bricks",
+      desc: "Databricks' managed agents — a multi-agent supervisor plus information extraction, document parsing, and classification, built and governed for you.",
+      authoring: "Managed MULTI-agent system: a Supervisor orchestrating Knowledge Assistant / Genie / MCP / Functions (with extraction·parsing·classification chips). Use when the agent layer is a supervisor routing to specialists; if the demo uses only one agent capability, use that single tile instead." },
     { id: "ml-training-serving", label: "ML Models", icon: "mlModel", desc: "Train, register, and serve models on governed data." },
     { id: "vector-search", label: "Vector Search", icon: "vectorSearch", desc: "Semantic search and retrieval that grounds agents in your data." },
     { id: "information-extraction", label: "Information Extraction", icon: "unstructuredData", desc: "Turn PDFs and documents into structured, queryable data." },
     // The Agent Bricks building blocks (also surfaced inside the composite).
     { id: "document-parsing", label: "Document Parsing", icon: "inputData", desc: "Parse PDFs and documents into clean, structured text + layout." },
     { id: "classification", label: "Classification", icon: "aiFunctions", desc: "Classify documents and records into governed categories." },
-    { id: "genie-code", label: "Built with Genie Code", icon: "genieCodeBrand", kind: "genie-code", desc: "Describe it — Genie Code ingests the data and builds the dashboard, end to end." },
+    { id: "genie-code", label: "Built with Genie Code", icon: "genieCodeBrand", kind: "genie-code",
+      desc: "Describe it — Genie Code ingests the data and builds the dashboard, end to end.",
+      authoring: "Standalone 'describe it → Genie Code builds it' beat. Use only when NOT already using lakeflow-genie-block (which has the Genie Code footer built in)." },
   ],
   "unified-governance": [
     // Composite "Unified Governance" bar: Unity Catalog + Unity AI Gateway (all
     // foundation models) + Genie Ontology, rendered as one horizontal strip.
-    { id: "governance-block", label: "Unified Governance", icon: "unityCatalogBrand", kind: "governance", desc: "One control plane for data + AI: Unity Catalog governs access, lineage and quality; the Unity AI Gateway governs every foundation-model call (OpenAI, Anthropic, Gemini, …); Genie Ontology is the shared semantic layer." },
-    { id: "db-platform", label: "Databricks Platform", icon: "file:vendor/databricks-wordmark", kind: "db-platform", desc: "The Databricks Data Intelligence Platform — one governed foundation for all data + AI." },
+    { id: "governance-block", label: "Unified Governance", icon: "unityCatalogBrand", kind: "governance",
+      desc: "One control plane for data + AI: Unity Catalog governs access, lineage and quality; the Unity AI Gateway governs every foundation-model call (OpenAI, Anthropic, Gemini, …); Genie Ontology is the shared semantic layer.",
+      authoring: "One governance bar: Unity Catalog + Unity AI Gateway (access any model) + a live Genie Ontology graph. Prefer over the loose unity-catalog / ai-gateway / data-quality / abac / data-classification tiles (use those only to spotlight one feature)." },
+    { id: "db-platform", label: "Databricks Platform", icon: "file:vendor/databricks-wordmark", kind: "db-platform",
+      desc: "The Databricks Data Intelligence Platform — one governed foundation for all data + AI.",
+      authoring: "Title banner (the Databricks wordmark). Pin it top-left, usually paired with a big background box (z:-1) wrapping everything → reads as 'all of this is the platform'." },
     { id: "unity-catalog", label: "Unity Catalog", icon: "unityCatalogBrand", desc: "One governed catalog — access, lineage, and semantics across data + AI." },
     { id: "ai-gateway", label: "Unity AI Gateway", icon: "aiGatewayBrand", desc: "Every model and agent call governed — security, cost, and rate limits." },
     { id: "data-quality", label: "Data Quality", icon: "unityCatalog", desc: "Expectations and monitors keep bad data out of the gold layer." },
@@ -409,9 +455,15 @@ const CATALOG: Record<BandId, CatalogComponent[]> = {
   "agentic-data": [
     // Composite "Lakeflow" super-block: Lakeflow Connect + Zerobus + direct
     // ingest feeding a bronze→silver→gold pipeline, with 3 left input ports.
-    { id: "lakeflow-block", label: "Lakeflow", icon: "lakeflowConnectBrand", kind: "lakeflow", desc: "One block: managed ingest (Lakeflow Connect), real-time streams (Zerobus) and direct file landing, all flowing into a declarative bronze → silver → gold pipeline." },
+    { id: "lakeflow-block", label: "Lakeflow", icon: "lakeflowConnectBrand", kind: "lakeflow",
+      desc: "One block: managed ingest (Lakeflow Connect), real-time streams (Zerobus) and direct file landing, all flowing into a declarative bronze → silver → gold pipeline.",
+      authoring: "The whole ingest + bronze→silver→gold SDP in one block (no Genie Code framing). Contains SDP — never add a separate sdp tile beside it.",
+      ports: { "in-lakeflow-connect": "← databases / SaaS apps (ingest: lakeflow-connect)", "in-zerobus": "← realtime streams / sensors (ingest: zerobus)", "in-direct": "← files: PDF / CSV / Parquet (ingest: direct)", "r": "→ the compute layer" } },
     // Combined box: the Lakeflow super-block stacked over the Genie Code block.
-    { id: "lakeflow-genie-block", label: "Lakeflow + Genie", icon: "lakeflowConnectBrand", kind: "lakeflow-genie", desc: "Lakeflow ingest + declarative pipeline, with Genie Code building and maintaining it — one box, end to end." },
+    { id: "lakeflow-genie-block", label: "Lakeflow + Genie", icon: "lakeflowConnectBrand", kind: "lakeflow-genie",
+      desc: "Lakeflow ingest + declarative pipeline, with Genie Code building and maintaining it — one box, end to end.",
+      authoring: "The PREFERRED data-layer block — ingest + bronze→silver→gold SDP, built/maintained by Genie Code. It IS the data layer; contains SDP + Genie Code, so never add separate sdp / genie-code tiles beside it.",
+      ports: { "in-lakeflow-connect": "← databases / SaaS apps (ingest: lakeflow-connect)", "in-zerobus": "← realtime streams / sensors (ingest: zerobus)", "in-direct": "← files: PDF / CSV / Parquet (ingest: direct)", "r": "→ the compute layer" } },
     { id: "lakeflow-connect", label: "Lakeflow Connect", icon: "lakeflowConnectBrand", desc: "Managed connectors ingest from databases and SaaS apps under governance." },
     { id: "zerobus-ingest", label: "Lakeflow Zerobus", icon: "zerobus", desc: "Real-time, direct ingest of streaming events into the lakehouse." },
     { id: "sdp", label: "Lakeflow SDP", icon: "sdpBrand", desc: "Spark Declarative Pipelines — declarative bronze → silver → gold that self-heal and scale." },
@@ -569,36 +621,116 @@ export function computeLayout(file: ArchitectureFile): Map<string, ResolvedBox> 
     }
   }
 
-  // 4) Wrapper boxes — innermost first (a box's depth = how many wrappers it
-  //    nests under). Size each to enclose its children + pad. A pinned wrapper
-  //    keeps its `at`/`size`; an un-pinned one is fully derived.
-  const wrappers = nodes.filter((n) => n.wraps && n.wraps.length);
+  // 4) Box nodes (wrappers and/or explicit `bounds`) — innermost first.
+  //    `wraps` → enclose children + pad. `bounds` → place each named side at a
+  //    node/column anchor (can cut halfway through a node). A box may use both:
+  //    `bounds` sides win, unspecified sides fall back to the wrap rect (or 0).
+  const boxes = nodes.filter((n) => (n.wraps && n.wraps.length) || n.bounds);
   const depth = (id: string, seen = new Set<string>()): number => {
     if (seen.has(id)) return 0; // cycle guard
     seen.add(id);
-    const parent = wrappers.find((w) => w.wraps!.includes(id));
+    const parent = boxes.find((w) => w.wraps?.includes(id));
     return parent ? 1 + depth(parent.id, seen) : 0;
   };
-  // Deepest-nested children resolve first → process wrappers by DESC depth.
-  wrappers.sort((a, b) => depth(b.id) - depth(a.id));
-  for (const w of wrappers) {
-    if (Array.isArray(w.at)) continue; // pinned wrapper: leave as-is
-    const pad = w.pad ?? WRAP_PAD;
-    const kids = w.wraps!.map((cid) => out.get(cid)).filter(Boolean) as ResolvedBox[];
-    if (!kids.length) { out.set(w.id, { x: 0, y: 0, w: 200, h: 100 }); continue; }
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    for (const k of kids) {
-      minX = Math.min(minX, k.x - k.w / 2);
-      minY = Math.min(minY, k.y - k.h / 2);
-      maxX = Math.max(maxX, k.x + k.w / 2);
-      maxY = Math.max(maxY, k.y + k.h / 2);
+  boxes.sort((a, b) => depth(b.id) - depth(a.id)); // deepest children first
+
+  // Resolve a `bounds` side string → an absolute coordinate on the given axis.
+  //   "<nodeId>:<anchor>"  | "col:<name>:<anchor>"  | "wrap"
+  // anchor ∈ left|right|center (x axis) / top|bottom|center (y axis).
+  const colCenterX = (name: string) =>
+    colIndex.has(name) ? colIndex.get(name)! * COL_GAP : undefined;
+  const sideCoord = (spec: string, axis: "x" | "y"): number | undefined => {
+    if (spec === "wrap") return undefined;
+    if (spec.startsWith("col:")) {
+      const [, name, anchor = "center"] = spec.split(":");
+      const cx = colCenterX(name);
+      if (cx === undefined || axis !== "x") return undefined;
+      // a column has no intrinsic width here → treat center == left == right
+      return cx + (anchor === "left" ? -COL_GAP / 2 : anchor === "right" ? COL_GAP / 2 : 0);
     }
-    out.set(w.id, {
-      x: (minX + maxX) / 2,
-      y: (minY + maxY) / 2,
-      w: maxX - minX + pad * 2,
-      h: maxY - minY + pad * 2,
-    });
+    const [id, anchor = "center"] = spec.split(":");
+    const b = out.get(id);
+    if (!b) return undefined;
+    if (axis === "x") return anchor === "left" ? b.x - b.w / 2 : anchor === "right" ? b.x + b.w / 2 : b.x;
+    return anchor === "top" ? b.y - b.h / 2 : anchor === "bottom" ? b.y + b.h / 2 : b.y;
+  };
+
+  for (const w of boxes) {
+    if (Array.isArray(w.at)) continue; // pinned box: leave as-is
+    const pad = w.pad ?? WRAP_PAD;
+    // Wrap rect from children (if any) — the fallback for unspecified sides.
+    const kids = (w.wraps ?? []).map((cid) => out.get(cid)).filter(Boolean) as ResolvedBox[];
+    let L = Infinity, T = Infinity, R = -Infinity, B = -Infinity;
+    for (const k of kids) {
+      L = Math.min(L, k.x - k.w / 2); T = Math.min(T, k.y - k.h / 2);
+      R = Math.max(R, k.x + k.w / 2); B = Math.max(B, k.y + k.h / 2);
+    }
+    if (kids.length) { L -= pad; T -= pad; R += pad; B += pad; }
+    // Override sides from explicit `bounds`.
+    const bn = w.bounds;
+    const left = bn?.left ? sideCoord(bn.left, "x") ?? L : L;
+    const right = bn?.right ? sideCoord(bn.right, "x") ?? R : R;
+    const top = bn?.top ? sideCoord(bn.top, "y") ?? T : T;
+    const bottom = bn?.bottom ? sideCoord(bn.bottom, "y") ?? B : B;
+    if (![left, right, top, bottom].every(Number.isFinite)) {
+      out.set(w.id, { x: 0, y: 0, w: 200, h: 100 });
+      continue;
+    }
+    // RESERVE bands for NON-float pinned children docking into this box: a top
+    // pin pushes the top edge up by its height (+pad); a bottom pin extends the
+    // bottom edge down. Float pins overlay and reserve nothing.
+    let top2 = top, bottom2 = bottom;
+    const docked = nodes.filter((n) => n.pin && !n.float && !Array.isArray(n.at) && n.pinTo === w.id);
+    const bandH = (vside: "top" | "bottom") => {
+      const hs = docked
+        .filter((n) => (n.pin!.startsWith("top") ? "top" : n.pin!.startsWith("bottom") ? "bottom" : "") === vside)
+        .map((n) => sizeOf(n).h);
+      return hs.length ? Math.max(...hs) + 2 * (/* band pad */ 12) : 0;
+    };
+    top2 -= bandH("top");
+    bottom2 += bandH("bottom");
+    out.set(w.id, { x: (left + right) / 2, y: (top2 + bottom2) / 2, w: right - left, h: bottom2 - top2 });
+  }
+
+  // 5) Pinned-by-anchor nodes (`pin`) — resolved LAST, after boxes are sized.
+  //    Anchor against `pinTo` (a box id) or, if absent, the largest box / the
+  //    overall content bounds. NON-float pins sit in their reserved band at the
+  //    box edge (left/center/right by the h anchor); float pins inset inward.
+  const ANCHORS: Record<string, [number, number]> = {
+    "top-left": [-1, -1], top: [0, -1], "top-right": [1, -1],
+    left: [-1, 0], center: [0, 0], right: [1, 0],
+    "bottom-left": [-1, 1], bottom: [0, 1], "bottom-right": [1, 1],
+  };
+  const pinned = nodes.filter((n) => n.pin && !Array.isArray(n.at));
+  if (pinned.length) {
+    // Default target = the biggest box, else the bounding box of everything.
+    const allBoxes = boxes.map((w) => out.get(w.id)).filter(Boolean) as ResolvedBox[];
+    const biggest = allBoxes.sort((a, b) => b.w * b.h - a.w * a.h)[0];
+    let fallback = biggest;
+    if (!fallback) {
+      let L = Infinity, T = Infinity, R = -Infinity, B = -Infinity;
+      for (const b of out.values()) { L = Math.min(L, b.x - b.w / 2); T = Math.min(T, b.y - b.h / 2); R = Math.max(R, b.x + b.w / 2); B = Math.max(B, b.y + b.h / 2); }
+      fallback = Number.isFinite(L) ? { x: (L + R) / 2, y: (T + B) / 2, w: R - L, h: B - T } : { x: 0, y: 0, w: 0, h: 0 };
+    }
+    for (const n of pinned) {
+      const target = (n.pinTo ? out.get(n.pinTo) : undefined) ?? fallback;
+      const s = sizeOf(n);
+      const pad = n.pinPad ?? 16;
+      const [ax, ay] = ANCHORS[n.pin!] ?? [0, 0];
+      if (!n.float) {
+        // Docked into a reserved band: x = left/center/right edge of the box
+        // (inset by half size + pad); y = the band centre at the box edge
+        // (the box already grew to make room, so it sits BELOW/ABOVE content).
+        const x = target.x + ax * (target.w / 2 - s.w / 2 - pad);
+        const y = target.y + ay * (target.h / 2 - s.h / 2 - 12);
+        out.set(n.id, { x, y, w: s.w, h: s.h });
+        continue;
+      }
+      // Inset by half the node size + pad so the node sits INSIDE the corner.
+      const x = target.x + ax * (target.w / 2 - s.w / 2 - pad);
+      const y = target.y + ay * (target.h / 2 - s.h / 2 - pad);
+      out.set(n.id, { x, y, w: s.w, h: s.h });
+    }
   }
 
   return out;
@@ -624,9 +756,10 @@ export function parseArchitecture(content: string): PlatformSchema {
     const box = placed.get(n.id) ?? { x: 0, y: 0, ...naturalSize(n.type) };
     const [x, y] = [box.x, box.y];
     const st = n.style ?? {};
-    // A wrapper box's size is derived by computeLayout; otherwise an explicit
-    // `size` wins (a plain node keeps its natural size → no w/h stored).
-    const derivedSize = n.wraps && !n.size ? [box.w, box.h] as [number, number] : n.size;
+    // A container box's size is derived by computeLayout (from `wraps` and/or
+    // `bounds`); otherwise an explicit `size` wins (a plain node keeps its
+    // natural size → no w/h stored).
+    const derivedSize = (n.wraps || n.bounds) && !n.size ? [box.w, box.h] as [number, number] : n.size;
     const pos: NodePosition = {
       x: x ?? 0,
       y: y ?? 0,
@@ -724,12 +857,18 @@ export function parseArchitecture(content: string): PlatformSchema {
     };
   });
 
+  const customLogos: Record<string, string> = {};
+  for (const c of file?.custom_logos ?? []) {
+    if (c?.id && typeof c.svg === "string") customLogos[c.id] = c.svg;
+  }
+
   return {
     name: file?.name ?? "Solution architecture",
     story: file?.story,
     enableTrademarkLogos: file?.options?.trademarkLogos ?? false,
     bands: catalogSchemaBands(),
     layout: { nodes, edges, hidden: [] },
+    ...(Object.keys(customLogos).length ? { customLogos } : {}),
   };
 }
 
@@ -758,6 +897,14 @@ export function catalogBands(): { id: BandId; label: string; sublabel?: string; 
 export function baseId(nodeId: string): string {
   const h = nodeId.indexOf("#");
   return h === -1 ? nodeId : nodeId.slice(0, h);
+}
+
+/** Inline custom-logo icon keys: `custom:<id>` → renders `customLogos[id]`. */
+export function isCustomIconKey(key: string | undefined): key is string {
+  return typeof key === "string" && key.startsWith("custom:");
+}
+export function customLogoId(key: string): string {
+  return key.slice("custom:".length);
 }
 
 // =============================================================================
@@ -871,10 +1018,20 @@ export function serializeArchitecture(
     };
   });
 
+  // Round-trip custom logos: keep every `custom:<id>` an emitted node references.
+  const usedCustom = new Set<string>();
+  for (const n of nodes) {
+    if (isCustomIconKey(n.icon)) usedCustom.add(customLogoId(n.icon));
+  }
+  const custom_logos = [...usedCustom]
+    .map((id) => ({ id, svg: schema.customLogos?.[id] }))
+    .filter((c): c is { id: string; svg: string } => typeof c.svg === "string");
+
   const out: ArchitectureFile = {
     name: schema.name,
     ...(schema.story ? { story: schema.story } : {}),
     ...(schema.enableTrademarkLogos ? { options: { trademarkLogos: true } } : {}),
+    ...(custom_logos.length ? { custom_logos } : {}),
     nodes,
     edges,
   };
