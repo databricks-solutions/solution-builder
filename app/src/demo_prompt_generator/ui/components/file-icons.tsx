@@ -15,6 +15,17 @@
 // <img src> when an icon actually renders.
 const urls = import.meta.glob("../icons/**/*.svg", { query: "?url", import: "default", eager: true }) as Record<string, string>;
 
+// STANDALONE build (`__ARCH_STANDALONE__`): the single-file HTML has no asset
+// server, so embed each SVG inline as a `data:` URI. We glob the raw source too
+// and, in standalone, override `url` with the data-URI. Guarded so the normal
+// app keeps lazy URL loading (no bundle bloat).
+declare const __ARCH_STANDALONE__: boolean | undefined;
+const IS_STANDALONE = typeof __ARCH_STANDALONE__ !== "undefined" && __ARCH_STANDALONE__;
+const raws = import.meta.glob("../icons/**/*.svg", { query: "?raw", import: "default", eager: true }) as Record<string, string>;
+function svgDataUri(svg: string): string {
+  return "data:image/svg+xml;utf8," + encodeURIComponent(svg);
+}
+
 export interface FileIcon {
   /** Stable key: `file:<group>/<path-without-extension>`. */
   key: string;
@@ -39,7 +50,10 @@ function parse(path: string): Omit<FileIcon, "url"> {
 }
 
 export const FILE_ICONS: FileIcon[] = Object.entries(urls)
-  .map(([path, url]) => ({ ...parse(path), url }))
+  .map(([path, url]) => ({
+    ...parse(path),
+    url: IS_STANDALONE && raws[path] ? svgDataUri(raws[path]) : url,
+  }))
   .sort((a, b) => a.key.localeCompare(b.key));
 
 const BY_KEY = new Map(FILE_ICONS.map((i) => [i.key, i]));

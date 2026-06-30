@@ -83,9 +83,16 @@ interface CanvasProps {
   deepLinks: Record<string, string | null>;
   onPersist: (layout: PlatformSchema["layout"]) => void;
   onSetTrademark: (on: boolean) => void;
+  /** Initial edit-mode. Defaults to true (the in-app editor); the standalone
+   *  viewer passes false to render read-only. */
+  defaultEditMode?: boolean;
+  /** Hard read-only: hide the floating action bar (View/Edit toggle, undo/redo,
+   *  …) entirely and lock to view mode. The standalone VIEWER passes this so it
+   *  shows ONLY the diagram — no edit affordances at all. */
+  readOnly?: boolean;
 }
 
-export function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasProps) {
+export function Canvas({ schema, deepLinks, onPersist, onSetTrademark, defaultEditMode = true, readOnly = false }: CanvasProps) {
   const [confirmTrademark, setConfirmTrademark] = useState(false);
   const [sourcePicker, setSourcePicker] = useState(false);
   // Turning logos ON requires a permission ack; turning OFF is immediate.
@@ -94,7 +101,7 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasP
     else setConfirmTrademark(true);
   }, [schema.enableTrademarkLogos, onSetTrademark]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [editMode, setEditMode] = useState(true);
+  const [editMode, setEditMode] = useState(defaultEditMode);
   const [menu, setMenu] = useState<CtxMenu>(null);
   // Node id whose TYPE we're changing (right-click → Change type). While set,
   // the library palette is in "pick a replacement" mode + the canvas is dimmed.
@@ -985,7 +992,9 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasP
           </defs>
         </svg>
 
-        {/* floating action bar */}
+        {/* floating action bar — hidden entirely in hard read-only (the
+            standalone viewer shows only the diagram). */}
+        {!readOnly && (
         <div className="absolute right-3 top-3 z-10 flex items-center gap-1 rounded-lg border border-border bg-card/95 p-1 shadow-sm backdrop-blur">
           {/* View / Edit mode toggle */}
           <div className="flex items-center rounded-md bg-muted/60 p-0.5">
@@ -1048,6 +1057,7 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasP
             </>
           )}
         </div>
+        )}
 
         {/* Permission confirmation before enabling real brand logos. */}
         {confirmTrademark && (

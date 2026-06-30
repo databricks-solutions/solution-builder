@@ -44,11 +44,22 @@ interface PlatformDiagramProps {
   capabilities: { buildable: string[]; talking_track: string[] } | null;
   deployedResources?: DeployedResourceLink[];
   projectId: string;
+  /** Initial edit-mode (default true). The standalone viewer passes false. */
+  defaultEditMode?: boolean;
+  /** Hard read-only: hide the canvas action bar entirely (no View/Edit toggle,
+   *  undo/redo, logos toggle). The standalone VIEWER passes this. */
+  readOnly?: boolean;
+  /** Standalone override: when set, persistence is handled by the host (e.g. the
+   *  standalone keeps the serialized markdown in memory for "Download HTML")
+   *  instead of saving to the backend. Receives the full architecture.md string. */
+  onSave?: (md: string) => void;
+  /** Hide the top save-status bar (the standalone has its own chrome). */
+  hideChrome?: boolean;
 }
 
 type SaveStatus = "idle" | "saving" | "saved" | "error";
 
-function PlatformDiagram({ content, deployedResources, projectId }: PlatformDiagramProps) {
+function PlatformDiagram({ content, deployedResources, projectId, defaultEditMode = true, readOnly, onSave, hideChrome }: PlatformDiagramProps) {
   // Parse the flat architecture.md into the internal schema. The file is the
   // sole source of truth for what's shown (no capability-state seeding).
   const built = useMemo(
@@ -81,25 +92,27 @@ function PlatformDiagram({ content, deployedResources, projectId }: PlatformDiag
 
   const onPersist = useCallback(
     (layout: PlatformSchema["layout"]) => {
-      setStatus("saving");
       const md = serializeArchitecture(schemaRef.current, layout);
+      if (onSave) { onSave(md); return; } // standalone: host owns persistence
+      setStatus("saving");
       saveProjectFile(projectId, "architecture.md", md)
         .then(() => setStatus("saved"))
         .catch(() => setStatus("error"));
     },
-    [projectId],
+    [projectId, onSave],
   );
 
   // Toggle the trademark-logo opt-in and persist (re-serializes with the flag).
   const onSetTrademark = useCallback((on: boolean) => {
     setTrademark(on);
-    setStatus("saving");
     const next: PlatformSchema = { ...schemaRef.current, enableTrademarkLogos: on };
     const md = serializeArchitecture(next, next.layout);
+    if (onSave) { onSave(md); return; } // standalone: host owns persistence
+    setStatus("saving");
     saveProjectFile(projectId, "architecture.md", md)
       .then(() => setStatus("saved"))
       .catch(() => setStatus("error"));
-  }, [projectId]);
+  }, [projectId, onSave]);
 
   // Reset "saved" → "idle" after a moment so the chip doesn't linger.
   useEffect(() => {
@@ -110,13 +123,15 @@ function PlatformDiagram({ content, deployedResources, projectId }: PlatformDiag
 
   return (
     <div className="flex h-full w-full flex-col">
-      <div className="flex items-center justify-between border-b border-border bg-muted/30 px-3 py-2">
-        <div className="text-sm font-medium text-foreground">{schema.name}</div>
-        <SaveChip status={status} />
-      </div>
+      {!hideChrome && (
+        <div className="flex items-center justify-between border-b border-border bg-muted/30 px-3 py-2">
+          <div className="text-sm font-medium text-foreground">{schema.name}</div>
+          <SaveChip status={status} />
+        </div>
+      )}
       <CustomLogosContext.Provider value={schema.customLogos ?? {}}>
         <ReactFlowProvider>
-          <Canvas schema={schema} deepLinks={deepLinks} onPersist={onPersist} onSetTrademark={onSetTrademark} />
+          <Canvas schema={schema} deepLinks={deepLinks} onPersist={onPersist} onSetTrademark={onSetTrademark} defaultEditMode={defaultEditMode} readOnly={readOnly} />
         </ReactFlowProvider>
       </CustomLogosContext.Provider>
     </div>
