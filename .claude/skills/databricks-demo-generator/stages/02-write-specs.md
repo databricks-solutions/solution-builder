@@ -24,7 +24,7 @@ Before you start writing, check `resources.json` capabilities and read the match
 
 - **Simple demo** — capabilities are a subset of:
   `synthetic-data-gen`, `aibi-dashboards`, `genie`, `databricks-apps`, `lakebase`,
-  plus the talking-track set (`lakeflow-connect`, `unity-catalog`, `databricks-one`, `genie-code`).
+  plus the talking-track set (`lakeflow-connect`, `unity-catalog`, `genie-one`, `genie-code`).
   No `sdp`, no `metric-views`, no `ml-training-serving`, no `knowledge-assistant`, no `supervisor-agent`.
   → Reference: **`DEMO_SKILL_DIR/references/example-luxebeauty-simple/specifications/`**
   (synth → gold tables directly, no SDP / KA / MAS / ML; 2 spec files at the top level + the `app/` subset).

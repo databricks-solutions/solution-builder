@@ -910,7 +910,7 @@ _RESOURCE_URL_PATTERNS: dict[str, tuple[str, str]] = {
     "genie_space_id": ("{host}/genie/rooms/{id}", "Genie Space"),
     "warehouse_id": ("{host}/sql/warehouses/{id}", "SQL Warehouse"),
     "knowledge_assistant_id": ("{host}/ml/bricks/ka/configure/{id}", "Knowledge Assistant"),
-    "multi_agent_supervisor_id": ("{host}/ml/bricks/sa/configure/{id}", "Multi-Agent Supervisor"),
+    "multi_agent_supervisor_id": ("{host}/ml/bricks/sa/configure/{id}", "Supervisor Agent"),
     # mlflow_experiment_path handled separately below — needs an SDK
     # call to resolve the workspace path → experiment_id, then builds
     # `/ml/experiments/<id>/runs?o=<workspace_id>`.

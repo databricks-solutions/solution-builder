@@ -212,7 +212,7 @@ First, assess the user's input — how much is already decided?
    1. **Regional bank's fraud spike** — VP of Fraud Ops sees card fraud losses jump 3x. Traces it to compromised POS terminals at a merchant chain.
    2. **Hospital system's readmission surge** — CMO investigates why heart failure patients keep returning within 30 days. Uncovers a discharge protocol gap.
    3. **Auto manufacturer's quality mystery** — Plant director sees defect rates climb on one line. Traces it to a worn bearing in Station 7.
-   Suggested stack: synthetic-data-gen, sdp, aibi-dashboards, genie  + lakeflow-connect, genie-code, databricks-one, unity-catalog
+   Suggested stack: synthetic-data-gen, sdp, aibi-dashboards, genie  + lakeflow-connect, genie-code, genie-one, unity-catalog
    
    Pick one, combine ideas, or describe something else / add capabilities.
    ```

@@ -120,7 +120,7 @@ const CAPABILITY_TIER: Partial<Record<string, TierType>> = {
   // ── Analyst Layer / Interface ───────────────────────────────────────
   // Apps + Databricks One are interface-tier (rose) in the schema.
   "databricks-apps": "interface",
-  "databricks-one": "interface",
+  "genie-one": "interface",
   // Lakebase is an OLTP datastore — typically rendered in the ingest tier.
   "lakebase": "ingest",
 
@@ -149,7 +149,7 @@ function tierForWidget(widget: Widget): TierType {
 
 /** Slugs that ship without a useful "live" signal AND don't make sense
  *  as user-facing resource tiles. Keep in sync with build-eta.ts. */
-const HIDDEN_SLUGS = new Set(["synthetic-data-gen", "databricks-one", "genie-code"]);
+const HIDDEN_SLUGS = new Set(["synthetic-data-gen", "genie-one", "genie-code"]);
 
 type WidgetState = "pending" | "live";
 

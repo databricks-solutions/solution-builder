@@ -420,7 +420,7 @@ export const CATALOG: Record<BandId, CatalogComponent[]> = {
       authoring: "The business-user / mobile entry point. Convention: a file:persona/user logo (caption 'Business users') to its right — user ==> Genie One, and Genie One --> dashboard / Genie Room / app. Those edges auto-render as arrows (leave `arrow` out)." },
     { id: "genie", label: "Genie Room", icon: "genieBrand", sublabel: "Ask anything about your data", desc: "ask anything about your data" },
     { id: "knowledge-assistant", label: "Knowledge Assistant", icon: "knowledgeAssistant", desc: "Chat with your documents — grounded, cited answers from unstructured content." },
-    { id: "supervisor-agent", label: "Multi-Agent Supervisor", icon: "multiAgentSupervisor", desc: "Routes a question to the right specialist agent and composes the answer." },
+    { id: "supervisor-agent", label: "Supervisor Agent", icon: "multiAgentSupervisor", desc: "Routes a question to the right specialist agent and composes the answer." },
     // Composite "Agent Bricks" block: the bundled agent building blocks
     // (supervisor + extraction + document parsing + classification).
     { id: "agent-bricks", label: "Agent Bricks", icon: "file:vendor/agent-bricks", kind: "agent-bricks",
@@ -433,7 +433,7 @@ export const CATALOG: Record<BandId, CatalogComponent[]> = {
     { id: "document-parsing", label: "Document Parsing", icon: "inputData", desc: "Parse PDFs and documents into clean, structured text + layout." },
     { id: "classification", label: "Classification", icon: "aiFunctions", desc: "Classify documents and records into governed categories." },
     { id: "genie-code", label: "Built with Genie Code", icon: "genieCodeBrand", kind: "genie-code",
-      desc: "Describe it — Genie Code ingests the data and builds the dashboard, end to end.",
+      desc: "A copilot for everyone — describe what you want and Genie Code builds the pipeline, dashboard or app for you, directly on Databricks.",
       authoring: "Standalone 'describe it → Genie Code builds it' beat. Use only when NOT already using lakeflow-genie-block (which has the Genie Code footer built in)." },
   ],
   "unified-governance": [
@@ -463,7 +463,7 @@ export const CATALOG: Record<BandId, CatalogComponent[]> = {
       desc: "Lakeflow ingest + declarative pipeline, with Genie Code building and maintaining it — one box, end to end.",
       authoring: "The PREFERRED data-layer block — ingest + bronze→silver→gold SDP, built/maintained by Genie Code. It IS the data layer; contains SDP + Genie Code, so never add separate sdp / genie-code tiles beside it.",
       ports: { "in-lakeflow-connect": "← databases / SaaS apps (ingest: lakeflow-connect)", "in-zerobus": "← realtime streams / sensors (ingest: zerobus)", "in-direct": "← files: PDF / CSV / Parquet (ingest: direct)", "r": "→ the compute layer" } },
-    { id: "lakeflow-connect", label: "Lakeflow Connect", icon: "lakeflowConnectBrand", desc: "Managed connectors ingest from databases and SaaS apps under governance." },
+    { id: "lakeflow-connect", label: "Lakeflow Connect", icon: "lakeflowConnectBrand", desc: "A few-click interface to connect and ingest data from 100+ sources — SaaS apps, databases, files and knowledge systems." },
     { id: "zerobus-ingest", label: "Lakeflow Zerobus", icon: "zerobus", desc: "Real-time, direct ingest of streaming events into the lakehouse." },
     { id: "sdp", label: "Lakeflow SDP", icon: "sdpBrand", desc: "Spark Declarative Pipelines — declarative bronze → silver → gold that self-heal and scale." },
     { id: "uc-volume", label: "UC Volume", icon: "volume", desc: "Governed file storage in Unity Catalog — where raw documents (PDFs) land." },

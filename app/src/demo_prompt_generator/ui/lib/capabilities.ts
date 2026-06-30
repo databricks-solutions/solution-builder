@@ -39,37 +39,46 @@ export const CAPABILITY_META: Record<string, CapabilityMeta> = {
   // ── Data Ingestion ────────────────────────────────────────────────
   "synthetic-data-gen": { group: "Data Ingestion", display: "Synthetic Data", icon: "lakeflowConnect" },
   "lakeflow-connect":   { group: "Data Ingestion", display: "Lakeflow Connect", icon: "lakeflowConnect" },
+  "lakeflow-designer":  { group: "Data Ingestion", display: "Lakeflow Designer", icon: "sdpPipeline" },
   "sdp":                { group: "Data Ingestion", display: "Spark Declarative Pipelines", icon: "sdpPipeline", deployed_type: "pipeline" },
-  "zerobus-ingest":     { group: "Data Ingestion", display: "Zerobus Ingest", icon: "streaming" },
+  "zerobus-ingest":     { group: "Data Ingestion", display: "Lakeflow Zerobus", icon: "streaming" },
   "delta-sharing":      { group: "Data Ingestion", display: "Delta Sharing", icon: "deltaSharing" },
   "marketplace":        { group: "Data Ingestion", display: "Marketplace", icon: "deltaSharing" },
 
   // ── Data Processing ───────────────────────────────────────────────
   "ai-functions":  { group: "Data Processing", display: "AI Functions", icon: "aiFunctions" },
-  "metric-views":  { group: "Data Processing", display: "Metric Views", icon: "metricViews", deployed_type: "metric_view" },
+  "metric-views":  { group: "Data Processing", display: "Metrics", icon: "metricViews", deployed_type: "metric_view" },
   "lakeflow-jobs": { group: "Data Processing", display: "Lakeflow Jobs", icon: "sdpPipeline" },
 
   // ── AI ────────────────────────────────────────────────────────────
+  "agent-bricks":           { group: "AI", display: "Agent Bricks", icon: "agents" },
   "knowledge-assistant":    { group: "AI", display: "Knowledge Assistant", icon: "knowledgeAssistant", deployed_type: "knowledge_assistant" },
-  "supervisor-agent":       { group: "AI", display: "Multi-Agent Supervisor", icon: "multiAgentSupervisor", deployed_type: "multi_agent_supervisor" },
+  "supervisor-agent":       { group: "AI", display: "Supervisor Agent", icon: "multiAgentSupervisor", deployed_type: "multi_agent_supervisor" },
   "ml-training-serving":    { group: "AI", display: "ML Training & Serving", icon: "mlModel", deployed_type: ["mlflow_experiment", "ml_model"] },
   "vector-search":          { group: "AI", display: "Vector Search", icon: "vectorSearch" },
   "information-extraction": { group: "AI", display: "Information Extraction", icon: "unstructuredData" },
-  "ai-gateway":             { group: "AI", display: "AI Gateway", icon: "aiGateway" },
+  "genie-zeroops":          { group: "AI", display: "Genie ZeroOps", icon: "agents" },
+  "omnigent":               { group: "AI", display: "Managed Omnigent", icon: "agents" },
+  "ai-gateway":             { group: "AI", display: "Unity AI Gateway", icon: "aiGateway" },
 
   // ── Data Analysis ─────────────────────────────────────────────────
   "aibi-dashboards": { group: "Data Analysis", display: "AI/BI Dashboard", icon: "dashboard", deployed_type: "dashboard" },
-  "genie":           { group: "Data Analysis", display: "AI/BI Genie", icon: "genie", deployed_type: "genie_space" },
+  "genie":           { group: "Data Analysis", display: "AI/BI Genie Agent (Genie Spaces)", icon: "genie", deployed_type: "genie_space" },
   "notebooks-eda":   { group: "Data Analysis", display: "Notebooks", icon: "notebooks" },
   "genie-code":      { group: "Data Analysis", display: "Genie Code", icon: "agents" },
+  "lakehouse-rt":    { group: "Data Analysis", display: "Lakehouse Real Time (SQL Warehouse on Reyden)", icon: "sqlWarehouse" },
 
   // ── Analyst Layer ─────────────────────────────────────────────────
   "databricks-apps": { group: "Analyst Layer", display: "Databricks App", icon: "databricksApps", deployed_type: "app" },
+  "app-builder":     { group: "Analyst Layer", display: "App Builder", icon: "databricksApps" },
   "lakebase":        { group: "Analyst Layer", display: "Lakebase", icon: "lakebase", deployed_type: "lakebase_project" },
-  "databricks-one":  { group: "Analyst Layer", display: "Databricks One", icon: "businessUser" },
+  "genie-one":  { group: "Analyst Layer", display: "Genie One", icon: "genieOneBrand" },
+  "lakewatch":       { group: "Analyst Layer", display: "LakeWatch", icon: "databricksApps" },
+  "customer-lake":   { group: "Analyst Layer", display: "CustomerLake", icon: "databricksApps" },
 
   // ── Foundation ────────────────────────────────────────────────────
   "unity-catalog":       { group: "Foundation", display: "Unity Catalog", icon: "unityCatalog", deployed_type: "catalog_explorer" },
+  "genie-ontology":      { group: "Foundation", display: "Genie Ontology", icon: "unityCatalog" },
   "data-quality":        { group: "Foundation", display: "Data Quality", icon: "unityCatalog" },
   "abac":                { group: "Foundation", display: "ABAC", icon: "unityCatalog" },
   "data-classification": { group: "Foundation", display: "Data Classification", icon: "unityCatalog" },

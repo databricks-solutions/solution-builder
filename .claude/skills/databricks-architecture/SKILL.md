@@ -202,7 +202,7 @@ Use the `type` id; the renderer supplies the icon, label, default description an
 | | | | **ports:** `in-lakeflow-connect` ← databases / SaaS apps (ingest: lakeflow-connect) · `in-zerobus` ← realtime streams / sensors (ingest: zerobus) · `in-direct` ← files: PDF / CSV / Parquet (ingest: direct) · `r` → the compute layer |
 | `lakeflow-genie-block` | Lakeflow + Genie | 360×208 | The PREFERRED data-layer block — ingest + bronze→silver→gold SDP, built/maintained by Genie Code. It IS the data layer; contains SDP + Genie Code, so never add separate sdp / genie-code tiles beside it. |
 | | | | **ports:** `in-lakeflow-connect` ← databases / SaaS apps (ingest: lakeflow-connect) · `in-zerobus` ← realtime streams / sensors (ingest: zerobus) · `in-direct` ← files: PDF / CSV / Parquet (ingest: direct) · `r` → the compute layer |
-| `lakeflow-connect` | Lakeflow Connect | 200×56 | Managed connectors ingest from databases and SaaS apps under governance. |
+| `lakeflow-connect` | Lakeflow Connect | 200×56 | A few-click interface to connect and ingest data from 100+ sources — SaaS apps, databases, files and knowledge systems. |
 | `zerobus-ingest` | Lakeflow Zerobus | 200×56 | Real-time, direct ingest of streaming events into the lakehouse. |
 | `sdp` | Lakeflow SDP | 230×112 | Spark Declarative Pipelines — declarative bronze → silver → gold that self-heal and scale. |
 | `uc-volume` | UC Volume | 200×56 | Governed file storage in Unity Catalog — where raw documents (PDFs) land. |
@@ -221,7 +221,7 @@ Use the `type` id; the renderer supplies the icon, label, default description an
 | `genie-one` | Genie One - Mobile app | 230×70 | The business-user / mobile entry point. Convention: a file:persona/user logo (caption 'Business users') to its right — user ==> Genie One, and Genie One --> dashboard / Genie Room / app. Those edges auto-render as arrows (leave `arrow` out). |
 | `genie` | Genie Room | 230×70 | ask anything about your data |
 | `knowledge-assistant` | Knowledge Assistant | 200×56 | Chat with your documents — grounded, cited answers from unstructured content. |
-| `supervisor-agent` | Multi-Agent Supervisor | 200×56 | Routes a question to the right specialist agent and composes the answer. |
+| `supervisor-agent` | Supervisor Agent | 200×56 | Routes a question to the right specialist agent and composes the answer. |
 | `agent-bricks` | Agent Bricks | 230×170 | Managed MULTI-agent system: a Supervisor orchestrating Knowledge Assistant / Genie / MCP / Functions (with extraction·parsing·classification chips). Use when the agent layer is a supervisor routing to specialists; if the demo uses only one agent capability, use that single tile instead. |
 | `ml-training-serving` | ML Models | 200×56 | Train, register, and serve models on governed data. |
 | `vector-search` | Vector Search | 200×56 | Semantic search and retrieval that grounds agents in your data. |

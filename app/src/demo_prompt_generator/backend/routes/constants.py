@@ -250,7 +250,7 @@ LuxeBeauty's canonical example for the action chain itself:
 ## Capability Selection Rules
 - Pick capabilities based on the user's prompt — do not pre-bias toward any buildable capability.
 - Always include "synthetic-data-gen" — all demos need realistic fake data
-- Almost always include talking track: "lakeflow-connect", "unity-catalog", "databricks-one", "genie-code"
+- Almost always include talking track: "lakeflow-connect", "unity-catalog", "genie-one", "genie-code"
 - Unity Catalog should almost always be included unless explicitly excluded
 - Match capabilities to the story — each product should have a clear moment in the demo
 - Consider dependencies (dashboards need SDP data, apps need lakebase, etc.)
@@ -263,7 +263,7 @@ LuxeBeauty's canonical example for the action chain itself:
   - sdp (data processing)
   - aibi-dashboards + genie (simple wow effect)
   - databricks-apps + lakebase (app mentioned, lakebase is dependency)
-  - unity-catalog, databricks-one, genie-code (talking track)
+  - unity-catalog, genie-one, genie-code (talking track)
 - "An IOT demo with sensor data streaming" →
   - synthetic-data-gen (always needed)
   - lakeflow-connect (data ingestion) + zerobus-ingest (realtime streaming)

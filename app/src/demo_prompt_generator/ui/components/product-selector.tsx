@@ -68,7 +68,7 @@ const HIDDEN_CAPABILITY_IDS = [
   "lakeflow-connect",
   "delta-sharing",
   "genie-code",
-  "databricks-one",
+  "genie-one",
 ];
 
 // Tier override per capability id — mirrors project-overview's CAPABILITY_TIER
@@ -95,7 +95,7 @@ const CAPABILITY_TIER: Partial<Record<string, TierType>> = {
   "aibi-dashboards": "analytics",
   "notebooks-eda": "analytics",
   "databricks-apps": "interface",
-  "databricks-one": "interface",
+  "genie-one": "interface",
   "lakebase": "ingest",
   "unity-catalog": "governance",
   "data-quality": "governance",

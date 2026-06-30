@@ -77,7 +77,7 @@ export const Route = createFileRoute("/")({
 const DEFAULT_SELECTED_PRODUCTS = [
   "unity-catalog",       // Governance story
   "genie-code",          // AI coding assistant
-  "databricks-one",      // Business user experience
+  "genie-one",      // Business user experience
   "lakeflow-connect",    // Data ingestion
 ];
 

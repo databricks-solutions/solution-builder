@@ -38,7 +38,7 @@ const SIMPLE_VISIBLE_TILES = [
 ] as const;
 const SIMPLE_TALK_TRACK = [
   "lakeflow-connect",
-  "databricks-one",
+  "genie-one",
   "genie-code",
 ] as const;
 const SIMPLE_BASELINE = [
