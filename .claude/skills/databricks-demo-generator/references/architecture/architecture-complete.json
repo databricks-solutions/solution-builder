@@ -1,239 +1,43 @@
 {
   "name": "Data Intelligence Platform — End-to-End Architecture",
   "story": "Sources → one governed Lakeflow + Genie pipeline → lakehouse & lakebase → dashboards, Genie and an app → the business user via Genie One.",
+  "columns": ["sources", "pipeline", "compute", "work", "entry", "user"],
   "nodes": [
-    {
-      "id": "src-postgres",
-      "type": "source",
-      "at": [
-        -124,
-        -4
-      ],
-      "label": "Postgres",
-      "icon": "file:vendor/postgresql",
-      "ingest": "lakeflow-connect"
-    },
-    {
-      "id": "src-sensors",
-      "type": "source",
-      "at": [
-        -124,
-        92
-      ],
-      "label": "Sensor data",
-      "icon": "sensorSource",
-      "ingest": "zerobus"
-    },
-    {
-      "id": "src-erp",
-      "type": "source",
-      "at": [
-        -124,
-        -84
-      ],
-      "label": "ERP System",
-      "icon": "file:vendor/sap",
-      "ingest": "lakeflow-connect"
-    },
-    {
-      "id": "lakeflow-genie-block",
-      "type": "lakeflow-genie-block",
-      "at": [
-        300,
-        40
-      ],
-      "desc": "Declarative bronze → silver → gold pipeline — Genie Code describes the transformations, Lakeflow runs them reliably at scale."
-    },
-    {
-      "id": "lakebase",
-      "type": "lakebase",
-      "at": [
-        678,
-        86
-      ],
-      "desc": "Managed Postgres for app state — reads/writes the live queue."
-    },
-    {
-      "id": "lakehouse",
-      "type": "lakehouse",
-      "at": [
-        675,
-        3
-      ],
-      "desc": "One governed copy of the data for both BI and AI — consistent, real-time queries at scale."
-    },
-    {
-      "id": "databricks-apps-work",
-      "type": "databricks-apps-work",
-      "at": [
-        979,
-        163
-      ]
-    },
-    {
-      "id": "genie-one",
-      "type": "genie-one",
-      "at": [
-        1200,
-        64
-      ],
-      "size": [
-        320,
-        64
-      ],
-      "rot": 90
-    },
-    {
-      "id": "genie",
-      "type": "genie",
-      "at": [
-        979,
-        51
-      ],
-      "desc": "Business users ask 'Which product lines are underperforming this quarter?' in plain language — Genie returns governed, auditable answers."
-    },
-    {
-      "id": "aibi-dashboards",
-      "type": "aibi-dashboards",
-      "at": [
-        979,
-        -29
-      ],
-      "desc": "Executive KPI dashboard — revenue, margins, order volumes, and inventory status, all live from the lakehouse."
-    },
-    {
-      "id": "governance-block",
-      "type": "governance-block",
-      "at": [
-        1058,
-        -170
-      ],
-      "desc": "Unity Catalog governs access, lineage, and data quality across every table — one control plane for data and AI.",
-      "style": {
-        "border": 0,
-        "radius": 10,
-        "shadow": 0
-      }
-    },
-    {
-      "id": "db-platform",
-      "type": "db-platform",
-      "at": [
-        190,
-        -178
-      ],
-      "desc": "The Databricks Data Intelligence Platform — one governed foundation for all data + AI.",
-      "style": {
-        "border": 0,
-        "shadow": 0
-      }
-    },
-    {
-      "id": "anno-logo-mqzbh6if-1",
-      "type": "logo",
-      "at": [
-        1312,
-        64
-      ],
-      "icon": "file:persona/user"
-    },
-    {
-      "id": "anno-box-mqzbkvzp-1",
-      "type": "box",
-      "at": [
-        648,
-        8
-      ],
-      "size": [
-        1424,
-        496
-      ],
-      "z": -1,
-      "fontSize": 14,
-      "border": true,
-      "vAlign": "middle",
-      "hAlign": "center"
-    }
+    { "id": "src-erp", "type": "source", "col": "sources", "row": 1, "label": "ERP System", "icon": "file:vendor/sap", "ingest": "lakeflow-connect" },
+    { "id": "src-postgres", "type": "source", "col": "sources", "row": 2, "label": "Postgres", "icon": "file:vendor/postgresql", "ingest": "lakeflow-connect" },
+    { "id": "src-sensors", "type": "source", "col": "sources", "row": 3, "label": "Sensor data", "icon": "sensorSource", "ingest": "zerobus" },
+
+    { "id": "lakeflow-genie-block", "type": "lakeflow-genie-block", "col": "pipeline", "desc": "Declarative bronze → silver → gold pipeline — Genie Code describes the transformations, Lakeflow runs them reliably at scale." },
+
+    { "id": "lakehouse", "type": "lakehouse", "col": "compute", "row": 1, "desc": "One governed copy of the data for both BI and AI — consistent, real-time queries at scale." },
+    { "id": "lakebase", "type": "lakebase", "col": "compute", "row": 2, "desc": "Managed Postgres for app state — reads/writes the live queue." },
+
+    { "id": "aibi-dashboards", "type": "aibi-dashboards", "col": "work", "row": 1, "desc": "Executive KPI dashboard — live from the lakehouse." },
+    { "id": "genie", "type": "genie", "col": "work", "row": 2, "desc": "Business users ask questions in plain language — Genie returns governed, auditable answers." },
+    { "id": "databricks-apps-work", "type": "databricks-apps-work", "col": "work", "row": 3 },
+
+    { "id": "genie-one", "type": "genie-one", "col": "entry", "rot": 90 },
+    { "id": "user", "type": "logo", "col": "user", "icon": "file:persona/user" },
+
+    { "id": "db-platform", "type": "db-platform", "at": [190, -178], "desc": "The Databricks Data Intelligence Platform — one governed foundation for all data + AI." },
+    { "id": "governance-block", "type": "governance-block", "at": [1058, -178], "desc": "Unity Catalog governs access, lineage, and data quality across every table — one control plane for data and AI." },
+
+    { "id": "platform-box", "type": "box", "wraps": ["src-erp", "src-postgres", "src-sensors", "lakeflow-genie-block", "lakehouse", "lakebase", "aibi-dashboards", "genie", "databricks-apps-work", "genie-one", "user"], "pad": 40, "z": -1, "border": true }
   ],
   "edges": [
-    {
-      "id": "e-src-postgres-r-lakeflow-genie-block-in-lakeflow-connect",
-      "from": "src-postgres@r",
-      "to": "lakeflow-genie-block@in-lakeflow-connect",
-      "flow": true
-    },
-    {
-      "id": "e-src-sensors-r-lakeflow-genie-block-in-zerobus",
-      "from": "src-sensors@r",
-      "to": "lakeflow-genie-block@in-zerobus",
-      "flow": true
-    },
-    {
-      "id": "e-src-erp-r-lakeflow-genie-block-in-lakeflow-connect",
-      "from": "src-erp@r",
-      "to": "lakeflow-genie-block@in-lakeflow-connect",
-      "flow": true
-    },
-    {
-      "id": "e-lakeflow-genie-block-r-lakehouse-l",
-      "from": "lakeflow-genie-block@r",
-      "to": "lakehouse@l",
-      "flow": true
-    },
-    {
-      "id": "e-lakeflow-genie-block-r-lakebase-l",
-      "from": "lakeflow-genie-block@r",
-      "to": "lakebase@l",
-      "flow": true
-    },
-    {
-      "id": "e-lakehouse-r-aibi-dashboards-l",
-      "from": "lakehouse@r",
-      "to": "aibi-dashboards@l",
-      "flow": true
-    },
-    {
-      "id": "e-lakehouse-r-genie-l",
-      "from": "lakehouse@r",
-      "to": "genie@l",
-      "flow": true
-    },
-    {
-      "id": "e-lakebase-r-databricks-apps-work-l",
-      "from": "lakebase@r",
-      "to": "databricks-apps-work@l",
-      "flow": true
-    },
-    {
-      "id": "e-genie-b-databricks-apps-work-t",
-      "from": "genie@b",
-      "to": "databricks-apps-work@t"
-    },
-    {
-      "id": "e-aibi-dashboards-b-databricks-apps-work-t",
-      "from": "aibi-dashboards@b",
-      "to": "databricks-apps-work@t"
-    },
-    {
-      "id": "e-anno-logo-mqzbh6if-1-l-genie-one-r",
-      "from": "anno-logo-mqzbh6if-1@l",
-      "to": "genie-one@r",
-      "centerX": 1248
-    },
-    {
-      "id": "e-genie-one-l-genie-r",
-      "from": "genie-one@l",
-      "to": "genie@r"
-    },
-    {
-      "id": "e-aibi-dashboards-r-genie-one-l",
-      "from": "genie-one@l",
-      "to": "aibi-dashboards@r"
-    },
-    {
-      "id": "e-databricks-apps-work-r-genie-one-l",
-      "from": "genie-one@l",
-      "to": "databricks-apps-work@r"
-    }
+    { "id": "e1", "from": "src-erp", "to": "lakeflow-genie-block", "flow": true },
+    { "id": "e2", "from": "src-postgres", "to": "lakeflow-genie-block", "flow": true },
+    { "id": "e3", "from": "src-sensors", "to": "lakeflow-genie-block", "flow": true },
+    { "id": "e4", "from": "lakeflow-genie-block", "to": "lakehouse", "flow": true },
+    { "id": "e5", "from": "lakeflow-genie-block", "to": "lakebase", "flow": true },
+    { "id": "e6", "from": "lakehouse", "to": "aibi-dashboards", "flow": true },
+    { "id": "e7", "from": "lakehouse", "to": "genie", "flow": true },
+    { "id": "e8", "from": "lakebase", "to": "databricks-apps-work", "flow": true },
+    { "id": "e9", "from": "genie@b", "to": "databricks-apps-work@t" },
+    { "id": "e10", "from": "aibi-dashboards@b", "to": "databricks-apps-work@t" },
+    { "id": "e11", "from": "user", "to": "genie-one" },
+    { "id": "e12", "from": "genie-one", "to": "genie" },
+    { "id": "e13", "from": "genie-one", "to": "aibi-dashboards" },
+    { "id": "e14", "from": "genie-one", "to": "databricks-apps-work" }
   ]
 }

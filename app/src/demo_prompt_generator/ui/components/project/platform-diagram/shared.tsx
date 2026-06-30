@@ -6,7 +6,7 @@
  */
 import { createContext, type CSSProperties } from "react";
 import { Handle, Position, NodeResizer, NodeResizeControl } from "@xyflow/react";
-import { type PlatformComponent, type BandId, type FlowStyle } from "@/lib/platform-architecture";
+import { naturalSize, type PlatformComponent, type BandId, type FlowStyle } from "@/lib/platform-architecture";
 
 export type { FlowStyle };
 
@@ -125,10 +125,12 @@ function shadowCss(level: number): string | undefined {
 
 export function cardStyle(
   d: NodeData,
-  defaults: { borderColor: string; radius: number; opacity?: number },
+  defaults: { borderColor: string; radius: number; opacity?: number; borderWidth?: number; shadow?: number | boolean },
 ): { style: CSSProperties; hasFill: boolean; shadow: boolean } {
-  const w = d.borderWidth ?? 1;
-  const level = shadowLevel(d.shadow);
+  // Per-node override (d.*) always wins; otherwise the caller's default (e.g. a
+  // composite that wants no border/shadow), otherwise the global fallback.
+  const w = d.borderWidth ?? defaults.borderWidth ?? 1;
+  const level = shadowLevel(d.shadow ?? defaults.shadow);
   return {
     hasFill: !!d.fillColor,
     // Kept for API compat (callers spread card.style for the shadow now); true
@@ -170,16 +172,18 @@ export function nodeTypeFor(c: PlatformComponent): string {
  *  shell can swap W/H for 90°/270° and ReactFlow's handles land on the real
  *  rotated edges (not the original box). */
 export function baseSize(c: PlatformComponent): { w: number; h: number } {
-  if (c.kind === "lakeflow") return { w: 224, h: 148 }; // composite super-block
-  if (c.kind === "lakeflow-genie") return { w: 360, h: 208 }; // Lakeflow over a slim Genie footer
-  if (c.kind === "agent-bricks") return { w: 230, h: 170 }; // logo header + supervisor tree + task-type chips
-  if (c.kind === "genie-code") return { w: 360, h: 112 }; // wide "built with Genie Code" strip
-  if (c.kind === "governance") return { w: 580, h: 108 }; // wide horizontal governance bar
-  if (c.kind === "db-platform") return { w: 380, h: 60 }; // Databricks wordmark + "The Data Intelligence Platform" banner
-  if (c.id === "sdp") return { w: 230, h: 112 };
-  // A sub-line + (optional) badge needs a slightly wider, taller tile.
-  if (c.sublabel) return { w: 230, h: 70 };
-  return { w: 200, h: 56 };
+  // Single source of truth lives in the lib layer (naturalSize), keyed by the
+  // component's composite kind / id. A composite kind takes priority over the
+  // id (naturalSize keys composites by their catalog id, but a runtime
+  // component may carry only `kind`), so branch on kind here first, then defer
+  // to naturalSize for plain tiles / sublabel sizing.
+  if (c.kind === "lakeflow") return { w: 224, h: 148 };
+  if (c.kind === "lakeflow-genie") return { w: 360, h: 208 };
+  if (c.kind === "agent-bricks") return { w: 230, h: 170 };
+  if (c.kind === "genie-code") return { w: 360, h: 112 };
+  if (c.kind === "governance") return { w: 580, h: 108 };
+  if (c.kind === "db-platform") return { w: 380, h: 60 };
+  return naturalSize(c.id);
 }
 
 /** On-canvas footprint of a node = its card dims (natural or resized) with W/H
@@ -300,6 +304,15 @@ export function RotatableCard({
                   width: side === "left" || side === "right" ? 5 : 18,
                   height: side === "left" || side === "right" ? 18 : 5,
                   cursor: side === "left" || side === "right" ? "ew-resize" : "ns-resize",
+                  // Nudge the grip OUTSIDE the box edge (easy to grab, no overlap
+                  // with content). Left/right also need a -50% Y to re-center on
+                  // the edge midpoint (the control anchors their grip from the
+                  // top, not the middle); top/bottom already center horizontally.
+                  transform:
+                    side === "left" ? "translate(-4px, calc(-50% + 2px))"
+                    : side === "right" ? "translate(4px, calc(-50% + 2px))"
+                    : side === "top" ? "translateY(-4px)"
+                    : "translateY(4px)",
                 }}
               />
             </NodeResizeControl>

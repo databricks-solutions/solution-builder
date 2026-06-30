@@ -235,8 +235,18 @@ export interface PlatformLayout {
 export interface FileNode {
   id: string;
   type: string;
-  /** Required canvas position [x, y]. */
-  at: [number, number];
+  /** Canvas position [x, y] (node CENTER). Optional: when omitted, computeLayout
+   *  derives it from `col`/`row` (or wraps). An explicit `at` ALWAYS wins. */
+  at?: [number, number];
+  /** Symbolic layout: which declared `columns` lane this node sits in, and its
+   *  order within that lane (else order = order of appearance). Ignored when
+   *  `at` is set. */
+  col?: string;
+  row?: number;
+  /** Container box: this node (type "box") auto-sizes to enclose these child
+   *  node ids (+ `pad`). Recursive — a box may wrap other boxes. */
+  wraps?: string[];
+  pad?: number;
   /** Resized box [w, h]. */
   size?: [number, number];
   rot?: number;
@@ -290,6 +300,9 @@ export interface ArchitectureFile {
   name?: string;
   story?: string;
   options?: { trademarkLogos?: boolean };
+  /** Ordered left→right lane names. Nodes reference one via `col`. Optional —
+   *  only needed when authoring with symbolic (col-based) placement. */
+  columns?: string[];
   nodes?: FileNode[];
   edges?: FileEdge[];
 }
@@ -441,6 +454,38 @@ const CATALOG_BY_ID: Map<string, { c: CatalogComponent; band: BandId }> = (() =>
 })();
 
 // =============================================================================
+// Natural sizes — the canonical [w,h] each node type renders at (before any
+// user resize). Single source of truth: shared.tsx `baseSize` delegates here,
+// and `computeLayout` uses it to stack columns + size wrapper boxes.
+// =============================================================================
+
+/** Default annotation sizes (mirror of ANNOTATION_DEFAULT_SIZE in annotations.tsx —
+ *  kept here to avoid a lib→component import cycle). */
+const ANNOTATION_SIZE: Record<AnnotationVariant, { w: number; h: number }> = {
+  text: { w: 160, h: 40 },
+  box: { w: 180, h: 100 },
+  logo: { w: 64, h: 64 },
+  image: { w: 200, h: 140 },
+};
+
+/** Natural [w,h] for a file `type` (catalog id / composite kind / source /
+ *  annotation variant). Mirrors shared.tsx `baseSize`. */
+export function naturalSize(type: string): { w: number; h: number } {
+  if (ANNOTATION_TYPES.has(type as AnnotationVariant)) return ANNOTATION_SIZE[type as AnnotationVariant];
+  const c = CATALOG_BY_ID.get(type)?.c;
+  const kind = c?.kind;
+  if (kind === "lakeflow") return { w: 224, h: 148 };
+  if (kind === "lakeflow-genie") return { w: 360, h: 208 };
+  if (kind === "agent-bricks") return { w: 230, h: 170 };
+  if (kind === "genie-code") return { w: 360, h: 112 };
+  if (kind === "governance") return { w: 580, h: 108 };
+  if (kind === "db-platform") return { w: 380, h: 60 };
+  if (type === "sdp") return { w: 230, h: 112 };
+  if (c?.sublabel) return { w: 230, h: 70 };
+  return { w: 200, h: 56 }; // plain tile + sources
+}
+
+// =============================================================================
 // Build: catalog + resources.json defaults + agent override → final schema
 // =============================================================================
 
@@ -463,22 +508,130 @@ function splitHandle(ref: string): { id: string; handle?: string } {
   return at === -1 ? { id: ref } : { id: ref.slice(0, at), handle: ref.slice(at + 1) };
 }
 
+// =============================================================================
+// computeLayout — resolve symbolic placement (columns + wraps) into pixel
+// positions. Explicit `at` always wins; only nodes without `at` are placed.
+// =============================================================================
+
+const COL_GAP = 340;  // x spacing between lane centers
+const ROW_GAP = 28;   // vertical gap between stacked tiles in a lane
+const WRAP_PAD = 24;   // default container padding
+
+export interface ResolvedBox { x: number; y: number; w: number; h: number }
+
+/** Resolve every node's CENTER [x,y] (and, for wrapper boxes, its [w,h]) from
+ *  the file's `columns`/`col`/`row` + `wraps`. A node with an explicit `at` is
+ *  pinned there (and excluded from column stacking). Returns a map id→box. */
+export function computeLayout(file: ArchitectureFile): Map<string, ResolvedBox> {
+  const out = new Map<string, ResolvedBox>();
+  const nodes = file.nodes ?? [];
+  const sizeOf = (n: FileNode): { w: number; h: number } =>
+    n.size ? { w: n.size[0], h: n.size[1] } : naturalSize(n.type);
+
+  // 1) Pinned nodes (explicit `at`) — use verbatim. Wrapper boxes are resolved
+  //    later (their size/pos derive from children) unless they too were pinned.
+  for (const n of nodes) {
+    if (Array.isArray(n.at)) {
+      const s = sizeOf(n);
+      out.set(n.id, { x: n.at[0], y: n.at[1], w: s.w, h: s.h });
+    }
+  }
+
+  // 2) Column stacking — only non-wrapper, un-pinned nodes that declare a `col`.
+  const cols = file.columns ?? [];
+  const colIndex = new Map(cols.map((c, i) => [c, i]));
+  const laned = nodes.filter((n) => !out.has(n.id) && !n.wraps && n.col && colIndex.has(n.col));
+  const byCol = new Map<string, FileNode[]>();
+  for (const n of laned) {
+    const arr = byCol.get(n.col!) ?? [];
+    arr.push(n);
+    byCol.set(n.col!, arr);
+  }
+  for (const [col, list] of byCol) {
+    list.sort((a, b) => (a.row ?? 0) - (b.row ?? 0)); // stable-ish; appearance order kept for ties
+    const x = (colIndex.get(col)! ) * COL_GAP;
+    const heights = list.map((n) => sizeOf(n).h);
+    const total = heights.reduce((s, h) => s + h, 0) + ROW_GAP * (list.length - 1);
+    let cy = -total / 2; // center the stack on y=0
+    list.forEach((n, i) => {
+      const s = sizeOf(n);
+      out.set(n.id, { x, y: cy + heights[i] / 2, w: s.w, h: s.h });
+      cy += heights[i] + ROW_GAP;
+    });
+  }
+
+  // 3) Any node still unplaced (no `at`, no resolvable `col`, not a wrapper) →
+  //    park at origin (shouldn't happen with well-formed files).
+  for (const n of nodes) {
+    if (!out.has(n.id) && !n.wraps) {
+      const s = sizeOf(n);
+      out.set(n.id, { x: 0, y: 0, w: s.w, h: s.h });
+    }
+  }
+
+  // 4) Wrapper boxes — innermost first (a box's depth = how many wrappers it
+  //    nests under). Size each to enclose its children + pad. A pinned wrapper
+  //    keeps its `at`/`size`; an un-pinned one is fully derived.
+  const wrappers = nodes.filter((n) => n.wraps && n.wraps.length);
+  const depth = (id: string, seen = new Set<string>()): number => {
+    if (seen.has(id)) return 0; // cycle guard
+    seen.add(id);
+    const parent = wrappers.find((w) => w.wraps!.includes(id));
+    return parent ? 1 + depth(parent.id, seen) : 0;
+  };
+  // Deepest-nested children resolve first → process wrappers by DESC depth.
+  wrappers.sort((a, b) => depth(b.id) - depth(a.id));
+  for (const w of wrappers) {
+    if (Array.isArray(w.at)) continue; // pinned wrapper: leave as-is
+    const pad = w.pad ?? WRAP_PAD;
+    const kids = w.wraps!.map((cid) => out.get(cid)).filter(Boolean) as ResolvedBox[];
+    if (!kids.length) { out.set(w.id, { x: 0, y: 0, w: 200, h: 100 }); continue; }
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const k of kids) {
+      minX = Math.min(minX, k.x - k.w / 2);
+      minY = Math.min(minY, k.y - k.h / 2);
+      maxX = Math.max(maxX, k.x + k.w / 2);
+      maxY = Math.max(maxY, k.y + k.h / 2);
+    }
+    out.set(w.id, {
+      x: (minX + maxX) / 2,
+      y: (minY + maxY) / 2,
+      w: maxX - minX + pad * 2,
+      h: maxY - minY + pad * 2,
+    });
+  }
+
+  return out;
+}
+
 /** Parse the flat ArchitectureFile into the internal PlatformSchema the canvas
  *  consumes. `bands` = the full catalog (for lookup/color); `layout.nodes` =
  *  exactly the placed nodes from the file; `layout.edges` = the file edges. */
 export function parseArchitecture(content: string): PlatformSchema {
-  const file = parseArchitectureFile(content);
+  const file = parseArchitectureFile(content) ?? {};
   const nodes: Record<string, NodePosition> = {};
+
+  // Resolve symbolic placement (columns + wraps) → pixel positions. Explicit
+  // `at` wins; this fills in the rest + sizes wrapper boxes.
+  const placed = computeLayout(file);
+  // file node id → the canvas node id we store under (catalog nodes may be
+  // re-keyed to `type`), and its resolved box — used for edge-handle inference.
+  const fileToNode = new Map<string, string>();
+  const boxOf = new Map<string, ResolvedBox>();
 
   for (const n of file?.nodes ?? []) {
     if (!n?.id || !n.type) continue;
-    const [x, y] = Array.isArray(n.at) ? n.at : [0, 0];
+    const box = placed.get(n.id) ?? { x: 0, y: 0, ...naturalSize(n.type) };
+    const [x, y] = [box.x, box.y];
     const st = n.style ?? {};
+    // A wrapper box's size is derived by computeLayout; otherwise an explicit
+    // `size` wins (a plain node keeps its natural size → no w/h stored).
+    const derivedSize = n.wraps && !n.size ? [box.w, box.h] as [number, number] : n.size;
     const pos: NodePosition = {
       x: x ?? 0,
       y: y ?? 0,
       ...(n.rot !== undefined ? { rot: n.rot } : {}),
-      ...(n.size ? { w: n.size[0], h: n.size[1] } : {}),
+      ...(derivedSize ? { w: derivedSize[0], h: derivedSize[1] } : {}),
       ...(n.scale !== undefined ? { scale: n.scale } : {}),
       ...(n.z !== undefined ? { z: n.z } : {}),
       ...(n.group !== undefined ? { groupId: n.group } : {}),
@@ -522,17 +675,45 @@ export function parseArchitecture(content: string): PlatformSchema {
       nodeId = n.type;
     }
     nodes[nodeId] = pos;
+    fileToNode.set(n.id, nodeId);
+    boxOf.set(n.id, box);
   }
+
+  // Edge-handle inference: when `from`/`to` carry no explicit `@handle`, derive
+  // it from geometry (+ source ingest into a Lakeflow block).
+  const ingestOf = (fileId: string): IngestPath | undefined => {
+    const fn = (file.nodes ?? []).find((x) => x.id === fileId);
+    return fn?.type === "source" ? (fn.ingest ?? "lakeflow-connect") : undefined;
+  };
+  const isLakeflow = (fileId: string): boolean => {
+    const fn = (file.nodes ?? []).find((x) => x.id === fileId);
+    const k = fn ? CATALOG_BY_ID.get(fn.type)?.c.kind : undefined;
+    return k === "lakeflow" || k === "lakeflow-genie";
+  };
+  const inferHandles = (sId: string, tId: string): { sh?: string; th?: string } => {
+    // Source → Lakeflow block: pick the target PORT from the source's ingest.
+    if (ingestOf(sId) && isLakeflow(tId)) return { sh: "r", th: `in-${ingestOf(sId)}` };
+    const sb = boxOf.get(sId), tb = boxOf.get(tId);
+    if (!sb || !tb) return {};
+    const dx = tb.x - sb.x, dy = tb.y - sb.y;
+    if (Math.abs(dx) >= Math.abs(dy)) {
+      return dx >= 0 ? { sh: "r", th: "l" } : { sh: "l", th: "r" };
+    }
+    return dy >= 0 ? { sh: "b", th: "t" } : { sh: "t", th: "b" };
+  };
 
   const edges: PlatformEdge[] = (file?.edges ?? []).map((e, i) => {
     const s = splitHandle(e.from);
     const t = splitHandle(e.to);
+    const inf = (!s.handle || !t.handle) ? inferHandles(s.id, t.id) : {};
+    const sourceHandle = s.handle ?? inf.sh;
+    const targetHandle = t.handle ?? inf.th;
     return {
       id: e.id ?? `e-${s.id}-${t.id}-${i}`,
-      source: s.id,
-      target: t.id,
-      ...(s.handle ? { sourceHandle: s.handle } : {}),
-      ...(t.handle ? { targetHandle: t.handle } : {}),
+      source: fileToNode.get(s.id) ?? s.id,
+      target: fileToNode.get(t.id) ?? t.id,
+      ...(sourceHandle ? { sourceHandle } : {}),
+      ...(targetHandle ? { targetHandle } : {}),
       animated: !!e.flow,
       ...(e.dashed ? { dashed: true } : {}),
       ...(e.shape ? { shape: e.shape } : {}),

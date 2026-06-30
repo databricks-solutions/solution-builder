@@ -14,7 +14,7 @@ export const DbPlatformBlock = memo(function DbPlatformBlock({ data, selected }:
   const isDropTarget = useContext(DropTargetContext) === d.nodeId;
   const editMode = useContext(EditModeContext);
   const nat = baseSize(d.component);
-  const card = cardStyle(d, { borderColor: `${d.bandColor}66`, radius: 16 });
+  const card = cardStyle(d, { borderColor: `${d.bandColor}66`, radius: 16, borderWidth: 0, shadow: 0 });
   return (
     <RotatableCard
       rot={d.rot}

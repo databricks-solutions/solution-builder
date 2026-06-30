@@ -33,7 +33,7 @@ export const GovernanceBlock = memo(function GovernanceBlock({ data, selected }:
   const nat = baseSize(d.component);
   const UnityCatalog = DATABRICKS_ICONS.unityCatalogBrand;
   const AIGateway = DATABRICKS_ICONS.aiGatewayBrand;
-  const card = cardStyle(d, { borderColor: `${d.bandColor}66`, radius: 16 });
+  const card = cardStyle(d, { borderColor: `${d.bandColor}66`, radius: 16, borderWidth: 0, shadow: 0 });
 
   return (
     <RotatableCard
