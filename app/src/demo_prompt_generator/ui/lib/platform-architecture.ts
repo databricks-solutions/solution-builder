@@ -190,8 +190,6 @@ export interface AnnotationData {
   fontSize?: number;
   /** text/box: bold text. */
   bold?: boolean;
-  /** text/box: show a border (box defaults true, text defaults false). */
-  border?: boolean;
   /** box: vertical × horizontal text placement (default "middle"/"center"). */
   vAlign?: "top" | "middle" | "bottom";
   hAlign?: "left" | "center" | "right";
@@ -269,17 +267,19 @@ export interface FileNode {
    *  Lets the box cut HALFWAY through a node/column (the node straddles the
    *  border). Unspecified sides fall back to `wraps` (or 0). */
   bounds?: { left?: string; right?: string; top?: string; bottom?: string };
-  /** Named anchor placement (instead of `at`): one of the 8 box anchors or
-   *  "center", resolved against `pinTo` (a box id) or the platform box / overall
-   *  content bounds. For banners/personas sitting on a box corner. */
-  pin?: "top-left" | "top" | "top-right" | "left" | "center" | "right" | "bottom-left" | "bottom" | "bottom-right";
-  pinTo?: string;
-  pinPad?: number;
-  /** Pin mode. false/omitted (default) → RESERVE a band: the target box grows by
-   *  this element's height (top pins push content down, bottom pins extend the
-   *  box down) so it never overlaps the content. true → FLOAT: overlay inside the
-   *  box at the corner (may sit over content). */
-  float?: boolean;
+  /** Anchor placement inside a box (instead of `at`/`col`). For banners /
+   *  personas sitting on a box corner.
+   *    at:    one of the 9 anchors (top-left … center … bottom-right).
+   *    to:    the box id to dock into (default: the largest box / overall bounds).
+   *    pad:   inset px from the box edge (default 16).
+   *    float: false/omitted → RESERVE a band (the box grows so this never
+   *           overlaps content); true → overlay at the corner (may sit over it). */
+  pin?: {
+    at: "top-left" | "top" | "top-right" | "left" | "center" | "right" | "bottom-left" | "bottom" | "bottom-right";
+    to?: string;
+    pad?: number;
+    float?: boolean;
+  };
   /** Resized box [w, h]. */
   size?: [number, number];
   rot?: number;
@@ -296,7 +296,6 @@ export interface FileNode {
   text?: string;
   fontSize?: number;
   bold?: boolean;
-  border?: boolean;
   vAlign?: "top" | "middle" | "bottom";
   hAlign?: "left" | "center" | "right";
   src?: string;
@@ -680,10 +679,10 @@ export function computeLayout(file: ArchitectureFile): Map<string, ResolvedBox> 
     // pin pushes the top edge up by its height (+pad); a bottom pin extends the
     // bottom edge down. Float pins overlay and reserve nothing.
     let top2 = top, bottom2 = bottom;
-    const docked = nodes.filter((n) => n.pin && !n.float && !Array.isArray(n.at) && n.pinTo === w.id);
+    const docked = nodes.filter((n) => n.pin && !n.pin.float && !Array.isArray(n.at) && n.pin.to === w.id);
     const bandH = (vside: "top" | "bottom") => {
       const hs = docked
-        .filter((n) => (n.pin!.startsWith("top") ? "top" : n.pin!.startsWith("bottom") ? "bottom" : "") === vside)
+        .filter((n) => (n.pin!.at.startsWith("top") ? "top" : n.pin!.at.startsWith("bottom") ? "bottom" : "") === vside)
         .map((n) => sizeOf(n).h);
       return hs.length ? Math.max(...hs) + 2 * (/* band pad */ 12) : 0;
     };
@@ -713,11 +712,11 @@ export function computeLayout(file: ArchitectureFile): Map<string, ResolvedBox> 
       fallback = Number.isFinite(L) ? { x: (L + R) / 2, y: (T + B) / 2, w: R - L, h: B - T } : { x: 0, y: 0, w: 0, h: 0 };
     }
     for (const n of pinned) {
-      const target = (n.pinTo ? out.get(n.pinTo) : undefined) ?? fallback;
+      const target = (n.pin!.to ? out.get(n.pin!.to) : undefined) ?? fallback;
       const s = sizeOf(n);
-      const pad = n.pinPad ?? 16;
-      const [ax, ay] = ANCHORS[n.pin!] ?? [0, 0];
-      if (!n.float) {
+      const pad = n.pin!.pad ?? 16;
+      const [ax, ay] = ANCHORS[n.pin!.at] ?? [0, 0];
+      if (!n.pin!.float) {
         // Docked into a reserved band: x = left/center/right edge of the box
         // (inset by half size + pad); y = the band centre at the box edge
         // (the box already grew to make room, so it sits BELOW/ABOVE content).
@@ -787,7 +786,6 @@ export function parseArchitecture(content: string): PlatformSchema {
         ...(n.text !== undefined ? { text: n.text } : {}),
         ...(n.fontSize !== undefined ? { fontSize: n.fontSize } : {}),
         ...(n.bold !== undefined ? { bold: n.bold } : {}),
-        ...(n.border !== undefined ? { border: n.border } : {}),
         ...(n.vAlign !== undefined ? { vAlign: n.vAlign } : {}),
         ...(n.hAlign !== undefined ? { hAlign: n.hAlign } : {}),
         ...(n.icon !== undefined ? { icon: n.icon } : {}),
@@ -972,7 +970,6 @@ export function serializeArchitecture(
         ...(a.text !== undefined ? { text: a.text } : {}),
         ...(a.fontSize !== undefined ? { fontSize: a.fontSize } : {}),
         ...(a.bold !== undefined ? { bold: a.bold } : {}),
-        ...(a.border !== undefined ? { border: a.border } : {}),
         ...(a.vAlign !== undefined ? { vAlign: a.vAlign } : {}),
         ...(a.hAlign !== undefined ? { hAlign: a.hAlign } : {}),
         ...(a.icon !== undefined ? { icon: a.icon } : {}),

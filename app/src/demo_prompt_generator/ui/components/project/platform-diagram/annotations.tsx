@@ -67,10 +67,9 @@ export const AnnotationNode = memo(function AnnotationNode({ data, selected }: N
 
   const fontSize = a.fontSize ?? 14;
   const fontWeight = a.bold ? 700 : 400;
-  // Border: borderWidth is the source of truth. Fall back to the legacy `border`
-  // boolean (box defaulted on) for older saved annotations.
-  const legacyBorderOn = a.border ?? a.variant === "box";
-  const borderW = d.borderWidth ?? (legacyBorderOn ? 1 : 0);
+  // Border: `style.border` (borderWidth) is the ONLY border control. A box
+  // defaults to a 1px border; text to none. Set borderWidth 0 to remove a box's.
+  const borderW = d.borderWidth ?? (a.variant === "box" ? 1 : 0);
   const showBorder = borderW > 0;
   const vA = a.vAlign ?? "middle";
   const hA = a.hAlign ?? "center";

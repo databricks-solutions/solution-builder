@@ -70,7 +70,8 @@
     { "id": "governance-block", "type": "governance-block", "at": [1058, -178], "desc": "Unity Catalog governs access, lineage and quality across every table — one control plane for data + AI." },
 
     // The big white "platform" box — auto-sized to WRAP the whole flow (z:-1).
-    { "id": "platform-box", "type": "box", "z": -1, "border": true, "pad": 40,
+    // (A box shows a 1px border by default; set style.border to change it.)
+    { "id": "platform-box", "type": "box", "z": -1, "pad": 40,
       "wraps": ["src-erp", "src-postgres", "src-sensors", "lakeflow-genie-block", "lakehouse", "lakebase", "aibi-dashboards", "genie", "databricks-apps-work", "genie-one", "user"] }
   ],
 

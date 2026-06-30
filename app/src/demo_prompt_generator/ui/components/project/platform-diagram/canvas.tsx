@@ -472,8 +472,8 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark }: CanvasP
     (variant: AnnotationVariant, at?: { x: number; y: number }, extra?: Partial<AnnotationData>): string => {
       const pos = at ?? { x: 160, y: 160 };
       const defaults: AnnotationData =
-        variant === "box" ? { variant, text: "", border: true, vAlign: "middle", hAlign: "center", fontSize: 14 }
-        : variant === "text" ? { variant, text: "Text", border: false, fontSize: 14 }
+        variant === "box" ? { variant, text: "", vAlign: "middle", hAlign: "center", fontSize: 14 }
+        : variant === "text" ? { variant, text: "Text", fontSize: 14 }
         : variant === "logo" ? { variant, icon: "data" }
         : { variant }; // image — src set via menu/paste
       const annotation = { ...defaults, ...extra };

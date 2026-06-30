@@ -35,7 +35,7 @@ To start from one, copy its `nodes`/`edges` into the project's `architecture.md`
     { "id": "genie-one", "type": "genie-one", "col": "entry", "rot": 90 },
     { "id": "user", "type": "logo", "col": "user", "icon": "file:persona/user", "text": "Business users", "size": [88, 88] },
     { "id": "governance-block", "type": "governance-block", "at": [1058, -178] },
-    { "id": "platform-box", "type": "box", "z": -1, "border": true, "wraps": ["src-erp", "lakeflow-genie-block", "lakehouse", "aibi-dashboards", "genie", "genie-one", "user"] }
+    { "id": "platform-box", "type": "box", "z": -1, "wraps": ["src-erp", "lakeflow-genie-block", "lakehouse", "aibi-dashboards", "genie", "genie-one", "user"] }
   ],
   "edges": [
     { "id": "e1", "from": "src-erp", "to": "lakeflow-genie-block", "flow": true },
@@ -65,16 +65,14 @@ To start from one, copy its `nodes`/`edges` into the project's `architecture.md`
 | `row` | No | Order within the lane (else order of appearance). |
 | `wraps` | container | On a `type:"box"`: the node ids this box ENCLOSES. The box auto-sizes around them (+ `pad`, default 24). Nesting works (a box may wrap boxes) — see *Containers*. |
 | `bounds` | container | On a `type:"box"`: per-side edge anchors `{ left?, right?, top?, bottom? }`. Each side = `"<nodeId>:<anchor>"` (anchor ∈ `left`/`right`/`center` for x, `top`/`bottom`/`center` for y), or `"col:<name>:<anchor>"` (a lane's edge/midpoint), or `"wrap"`. Lets the box edge cut HALFWAY through a node/column. Unspecified sides fall back to `wraps`. |
-| `pin` | placement | Dock this node at a box anchor: `top-left`·`top`·`top-right`·`left`·`center`·`right`·`bottom-left`·`bottom`·`bottom-right`. Use for banners/personas in a box corner (overrides `col`). |
-| `pinTo` · `pinPad` | with `pin` | `pinTo` = the box id to dock into (default: the largest box / overall bounds). `pinPad` = inset px (default 16). |
-| `float` | with `pin` | `false`/omitted (default) → **reserve a band**: the target box GROWS by this node's height so it never overlaps content (a top pin pushes content down, a bottom pin extends the box down). `true` → **overlay** at the corner (may sit over content). |
+| `pin` | placement | Dock this node into a box corner (overrides `col`). An object `{ at, to?, pad?, float? }`: `at` = one of `top-left`·`top`·`top-right`·`left`·`center`·`right`·`bottom-left`·`bottom`·`bottom-right`; `to` = box id to dock into (default: the largest box); `pad` = inset px (default 16); `float` = `false`/omitted → **reserve a band** (the box GROWS so this never overlaps content — top pin pushes content down, bottom extends the box down), `true` → **overlay** at the corner (may sit over content). Use for banners / personas. |
 | `at` | No | `[x, y]` **explicit** position (node center). **Overrides `col`/`pin`.** Use for fully manual placement. (A user drag also persists here.) |
 | `size` | No | `[w, h]` if resized from the natural size. |
 | `rot` · `scale` · `z` · `pad` | No | Rotation° (0/90/180/270), content scale, stacking order (negative = behind), container padding. |
 | `group` | No | A shared string id stamped on several nodes → they form a GROUP: selecting one selects all, and they move together on the canvas. |
 | `label` · `desc` · `icon` | No | Override the catalog default copy/icon (only when it differs). `icon` may be a built-in name, a `file:vendor/…`/`file:cloud/…` key, or a `custom:<id>` (see *Custom logos & images*). |
 | `ingest` | source only | `lakeflow-connect` (default) · `zerobus` · `direct`. |
-| `text`·`fontSize`·`bold`·`border`·`vAlign`·`hAlign`·`src` | box/text/logo/image | Annotation props — see *Annotations*. |
+| `text`·`fontSize`·`bold`·`vAlign`·`hAlign`·`src` | box/text/logo/image | Annotation props — see *Annotations*. |
 | `style` | No | `{ border, borderStyle, borderColor, radius, shadow, fill, font, opacity }` — visual overrides; emit only what differs. `border` = width px (0 = none); `borderStyle` = `solid`/`dashed`; `borderColor`/`fill`/`font` = hex; `radius` = corner px; `shadow` = 0–100 intensity (0 = none); `opacity` = 0–1. |
 
 The **band** a component belongs to (which sets its tile color) is derived from its `type` — you never write it.
@@ -108,11 +106,11 @@ Four `type`s let you add labels and marks that aren't Databricks components:
 | type | props | use |
 |------|-------|-----|
 | `text` | `text`, `fontSize`, `bold`, `vAlign`/`hAlign` | a free-floating text label. |
-| `box` | `text`, `border` (bool), `fontSize`, `vAlign`/`hAlign`, + `wraps`/`bounds`/`pad` | a labeled rectangle / container (the platform box, cloud/VPC boxes). |
+| `box` | `text`, `fontSize`, `vAlign`/`hAlign`, + `wraps`/`bounds`/`pad` | a labeled rectangle / container (the platform box, cloud/VPC boxes). |
 | `logo` | `icon` (any icon key, incl. `file:…` or `custom:<id>`), `text` (caption below) | a standalone logo — e.g. the `file:persona/user` end-user marker. |
 | `image` | `src` | a standalone image (URL or base64 — see below). |
 
-> `border` on a `box`/`text` is a **bool** (show a default-weight border; box defaults on, text off). To set an exact border WIDTH/color/dash, use `style.border` (px), `style.borderColor`, `style.borderStyle` — those win. Don't confuse the two.
+> A `box` shows a 1px border by default; `text` shows none. The border is controlled ONLY by `style` — set `style.border` (px width, `0` = none), `style.borderColor`, `style.borderStyle` (`solid`/`dashed`). There is no separate border boolean.
 
 ### Custom logos & images
 
