@@ -5,7 +5,7 @@
  * and the drop-target context.
  */
 import { createContext, useContext, type CSSProperties } from "react";
-import { Handle, Position, NodeResizer, NodeResizeControl } from "@xyflow/react";
+import { Handle, Position, NodeResizer, NodeResizeControl, useStore } from "@xyflow/react";
 import { naturalSize, type PlatformComponent, type BandId, type FlowStyle } from "@/lib/platform-architecture";
 
 export type { FlowStyle };
@@ -358,7 +358,7 @@ export function RotatableCard({
           handleClassName="!bg-primary !border-2 !border-background !w-3.5 !h-3.5 !rounded-sm !shadow-md"
         />
       )}
-      {!hideHandles && <NodeHandles show={editMode && !selected} forceDots={forceDots} />}
+      {!hideHandles && <NodeHandles editMode={editMode} selected={selected} forceDots={forceDots} />}
       {/* Card box at the node's w×h (un-rotated), rotated about the shell centre
           so its border == the box edges. The children (the bordered card +
           content) FILL this box, so any resize handle moves the visible box.
@@ -386,42 +386,72 @@ export function RotatableCard({
 
 /** The four connection dots (top/right/bottom/left) every node carries so the
  *  user can link from any side. Each side is both source + target. */
-export function NodeHandles({ show, forceDots = false }: { show: boolean; forceDots?: boolean }) {
+export function NodeHandles({ editMode, selected = false, forceDots = false }: { editMode: boolean; selected?: boolean; forceDots?: boolean }) {
   // Two-part design so the DOT can float outside the box while EDGES still
   // terminate ON the box edge:
   //   • the real <Handle> stays on the node border (ReactFlow anchors edges to
-  //     it → lines touch the box, no floating gap). It's a small invisible
-  //     hit-area.
-  //   • a separate decorative dot is pushed ~9px OUTSIDE the border (visual
-  //     only). Dots fade in on node hover in edit mode (so the canvas isn't a
-  //     sea of dots at rest), OR are FORCED visible when this tile is the
-  //     reconnect drop target — so the user sees the anchor points to aim at.
-  const vis = show
-    ? "opacity-0 transition-opacity duration-150 group-hover:opacity-100"
-    : "opacity-0 pointer-events-none";
-  // Invisible-ish hit handle pinned to the border.
-  const handle = `!w-3 !h-3 !bg-transparent !border-0 ${vis}`;
-  // Decorative dot, offset outward per side. Larger + always-on when forced.
-  const dotVis = forceDots ? "opacity-100" : vis;
-  const dot =
-    `pointer-events-none absolute z-10 rounded-full bg-background shadow-sm ${dotVis} ` +
-    (forceDots ? "h-3 w-3 border-2 border-primary" : "h-2.5 w-2.5 border-2 border-primary/70");
-  // All handles are type="source"; with ConnectionMode.Loose on the canvas a
-  // source handle can be BOTH the start and the end of a connection — so every
-  // side is grabbable to start a link AND a valid drop target. (Previously
-  // r/b were source-only and l/t target-only, so you couldn't start from the
-  // left/top — that was the "nothing on mouseover left" bug.)
+  //     it → lines touch the box, no floating gap). It's the grabbable hit area.
+  //   • a separate decorative dot is pushed OUTSIDE the border (visual only).
+  //     Dots fade in on node hover in edit mode (so the canvas isn't a sea of
+  //     dots at rest), and stay on when the node is SELECTED or is the reconnect
+  //     drop target (forceDots) — so the anchors you can pull from are obvious.
+  //
+  // Handles are CONNECTABLE whenever we're in edit mode — including when the
+  // node is already selected or an anchor already has an edge. That's what lets
+  // you start a SECOND link from the same anchor (a source handle has no
+  // connection cap, and Loose mode makes every side both source + target).
+  const connectable = editMode;
+  // Screen-CONSTANT sizing: the handles/dots live inside the zoomed viewport, so
+  // without this they'd shrink/grow with zoom. Counter-scale by 1/zoom so they
+  // stay a fixed pixel size on screen at any zoom level.
+  const zoom = useStore((s) => s.transform[2]);
+  const inv = 1 / (zoom || 1);
+  // Visibility: hidden at rest, fade in on hover; forced-on when selected/target.
+  const dotOn = forceDots || selected;
+  const dotVisCls = dotOn
+    ? "opacity-100"
+    : editMode
+      ? "opacity-0 transition-opacity duration-150 group-hover:opacity-100"
+      : "opacity-0";
+  const handleCls = `!bg-transparent !border-0 ${editMode ? "" : "!pointer-events-none"}`;
+  // Hit area sized to cover the visible dot (which floats ~OUT px outside the
+  // border) so aiming at the round lands on the handle — even when an edge is
+  // attached (fork). Grows in flow units as we zoom out to stay screen-constant.
+  // High zIndex so it beats a connected edge's interaction stripe.
+  //
+  // CRITICAL centering: ReactFlow anchors a handle to its border with a per-side
+  // transform sized for the DEFAULT handle box; once we resize it, we must
+  // re-center per side ourselves — else the (bigger) box grows off toward one
+  // side and the hit area no longer sits under the dot (the "it's to the right
+  // of the round" bug). We pin each side and recenter with our own transform.
+  const HIT = Math.max(24, 24 * inv);
+  const OUT = 9; // px the dot floats outside the border (screen-constant)
+  const off = OUT * inv; // push the hit box outward so it's centered on the dot
+  const base: CSSProperties = { width: HIT, height: HIT, zIndex: 20, position: "absolute" };
+  // Per-side: sit centered on the dot (border ± OUT), overriding RF's transform.
+  const hStyle: Record<string, CSSProperties> = {
+    r: { ...base, left: "100%", top: "50%", transform: `translate(calc(-50% + ${off}px), -50%)` },
+    l: { ...base, left: 0, top: "50%", transform: `translate(calc(-50% - ${off}px), -50%)` },
+    b: { ...base, top: "100%", left: "50%", transform: `translate(-50%, calc(-50% + ${off}px))` },
+    t: { ...base, top: 0, left: "50%", transform: `translate(-50%, calc(-50% - ${off}px))` },
+  };
+  // Decorative dot — offset outward, counter-scaled so its screen size is fixed.
+  const dotCls =
+    `pointer-events-none absolute z-10 rounded-full bg-background shadow-sm ${dotVisCls} ` +
+    (dotOn ? "border-2 border-primary" : "border-2 border-primary/70");
+  const DOT = dotOn ? 12 : 10;
+  const dotBase: CSSProperties = { width: DOT * inv, height: DOT * inv };
   return (
     <>
-      <Handle type="source" position={Position.Right} id="r" className={handle} isConnectable={show} />
-      <Handle type="source" position={Position.Left} id="l" className={handle} isConnectable={show} />
-      <Handle type="source" position={Position.Bottom} id="b" className={handle} isConnectable={show} />
-      <Handle type="source" position={Position.Top} id="t" className={handle} isConnectable={show} />
-      {/* decorative outward dots (don't affect edge anchoring) */}
-      <span className={dot} style={{ right: -9, top: "50%", transform: "translateY(-50%)" }} />
-      <span className={dot} style={{ left: -9, top: "50%", transform: "translateY(-50%)" }} />
-      <span className={dot} style={{ bottom: -9, left: "50%", transform: "translateX(-50%)" }} />
-      <span className={dot} style={{ top: -9, left: "50%", transform: "translateX(-50%)" }} />
+      <Handle type="source" position={Position.Right} id="r" className={handleCls} style={hStyle.r} isConnectable={connectable} />
+      <Handle type="source" position={Position.Left} id="l" className={handleCls} style={hStyle.l} isConnectable={connectable} />
+      <Handle type="source" position={Position.Bottom} id="b" className={handleCls} style={hStyle.b} isConnectable={connectable} />
+      <Handle type="source" position={Position.Top} id="t" className={handleCls} style={hStyle.t} isConnectable={connectable} />
+      {/* decorative outward dots (don't affect edge anchoring), screen-constant */}
+      <span className={dotCls} style={{ ...dotBase, right: -OUT * inv, top: "50%", transform: "translateY(-50%)" }} />
+      <span className={dotCls} style={{ ...dotBase, left: -OUT * inv, top: "50%", transform: "translateY(-50%)" }} />
+      <span className={dotCls} style={{ ...dotBase, bottom: -OUT * inv, left: "50%", transform: "translateX(-50%)" }} />
+      <span className={dotCls} style={{ ...dotBase, top: -OUT * inv, left: "50%", transform: "translateX(-50%)" }} />
     </>
   );
 }

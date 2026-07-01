@@ -5,7 +5,7 @@
  * are one ReactFlow node kind ("annotation") with a `variant`; their props live
  * in the node's layout entry (NodePosition.annotation) so they persist.
  */
-import { memo, useContext, useState, useMemo } from "react";
+import { memo, useContext, useState, useMemo, useRef, useLayoutEffect } from "react";
 import { type NodeProps } from "@xyflow/react";
 import { DATABRICKS_ICONS, BRAND_ICONS, type DatabricksIconName } from "../../databricks-icons";
 import { FILE_ICONS, FileSvgIcon, isFileIconKey, logoMetaByName, logoAliases } from "../../file-icons";
@@ -80,6 +80,29 @@ export const AnnotationNode = memo(function AnnotationNode({ data, selected }: N
   const showBorder = borderW > 0;
   const vA = a.vAlign ?? "middle";
   const hA = a.hAlign ?? "center";
+
+  // --- Auto-fit for the plain TEXT annotation --------------------------------
+  // A text label sizes to its content (not a fixed box): we measure the
+  // rendered text off-layout and write the natural size back as the node's
+  // w/h via onResize. Only wraps on explicit newlines. (Boxes stay manually
+  // sizable.) The measure runs when the text/font/scale changes.
+  const measureRef = useRef<HTMLSpanElement>(null);
+  const isTextVariant = a.variant === "text";
+  const scale = d.scale ?? 1;
+  // The text we size to: the LIVE editing buffer while editing (so the node
+  // grows as you type), else the committed text.
+  const sizingText = editing !== null ? editing : (a.text ?? "");
+  useLayoutEffect(() => {
+    if (!isTextVariant) return;
+    const el = measureRef.current;
+    if (!el) return;
+    const PAD = 6; // small breathing room around the glyphs
+    const w = Math.max(24, Math.ceil(el.offsetWidth * scale) + PAD * 2);
+    const h = Math.max(20, Math.ceil(el.offsetHeight * scale) + PAD * 2);
+    if (Math.abs((d.w ?? 0) - w) > 1 || Math.abs((d.h ?? 0) - h) > 1) {
+      d.onResize(d.nodeId, w, h);
+    }
+  }, [isTextVariant, sizingText, fontSize, fontWeight, scale, d.w, d.h, d.nodeId, d.onResize]);
 
   return (
     <RotatableCard
@@ -185,12 +208,29 @@ export const AnnotationNode = memo(function AnnotationNode({ data, selected }: N
               />
             ) : (
               <span
-                className={`whitespace-pre-wrap break-words ${d.fontColor ? "" : "text-foreground"}`}
+                // Text: `whitespace-pre` so it sizes to content + only wraps on
+                // explicit newlines (the node auto-fits it). Box: wrap within
+                // the manually-sized box as before.
+                className={`${isBox ? "whitespace-pre-wrap break-words" : "whitespace-pre"} ${d.fontColor ? "" : "text-foreground"}`}
                 style={{ fontSize, fontWeight, transform: "scale(var(--cs, 1))", ...(d.fontColor ? { color: d.fontColor } : {}) }}
                 title="Double-click to edit"
                 onDoubleClick={(e) => { e.stopPropagation(); setEditing(a.text ?? ""); }}
               >
                 {a.text || (isBox ? "" : "Text")}
+              </span>
+            )}
+            {/* Off-layout measurer for the auto-fit text node — mirrors the
+                display span's font at scale 1 so we can read its natural size.
+                Renders the LIVE editing buffer so the node grows as you type.
+                A trailing space keeps a width on empty/blank lines. */}
+            {isTextVariant && (
+              <span
+                ref={measureRef}
+                aria-hidden
+                className="pointer-events-none invisible absolute whitespace-pre"
+                style={{ left: -99999, top: -99999, fontSize, fontWeight }}
+              >
+                {(sizingText || "Text") + " "}
               </span>
             )}
           </div>

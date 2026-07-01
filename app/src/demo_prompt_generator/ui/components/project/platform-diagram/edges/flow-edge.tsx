@@ -271,7 +271,10 @@ const FlowEdge = memo(function FlowEdge(props: EdgeProps) {
           </marker>
         </defs>
       )}
-      <BaseEdge path={path} markerEnd={markerEndUrl} markerStart={markerStartUrl} style={baseStyle} interactionWidth={24} />
+      {/* interactionWidth kept modest: a fat stripe blankets the source/target
+          anchors and steals the pointer, so you can't start a NEW link (fork)
+          from an already-connected anchor. 10px still clicks the line easily. */}
+      <BaseEdge path={path} markerEnd={markerEndUrl} markerStart={markerStartUrl} style={baseStyle} interactionWidth={10} />
       {/* Key by edge id (NOT path): a drag/resize changes `path`, but keying by
           it would unmount + remount the whole SMIL subtree every frame. Keyed
           by id, the animated elements stay mounted and just re-read the updated
