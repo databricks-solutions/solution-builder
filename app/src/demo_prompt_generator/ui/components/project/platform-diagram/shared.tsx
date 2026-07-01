@@ -4,7 +4,7 @@
  * footprint math, the rotatable/resizable card shell, the connection handles,
  * and the drop-target context.
  */
-import { createContext, type CSSProperties } from "react";
+import { createContext, useContext, type CSSProperties } from "react";
 import { Handle, Position, NodeResizer, NodeResizeControl } from "@xyflow/react";
 import { naturalSize, type PlatformComponent, type BandId, type FlowStyle } from "@/lib/platform-architecture";
 
@@ -157,6 +157,15 @@ export const DropTargetContext = createContext<string | null>(null);
  *  object (which would defeat React.memo on all N nodes). */
 export const EditModeContext = createContext<boolean>(true);
 
+/** True when at most ONE node is selected. Gates the per-node resize/rotate
+ *  handles: a lasso multi-select would otherwise mount 5 ReactFlow resize
+ *  controls PER node (1 NodeResizer + 4 side controls) in a single frame —
+ *  the dominant lasso cost. Per-node resize on a big multi-selection isn't
+ *  usable anyway (one handle can't resize the group), so we hide them unless
+ *  the selection is a single node. Context-delivered so it doesn't churn node
+ *  data; the value only flips when the selection crosses the 1↔many boundary. */
+export const SingleSelectionContext = createContext<boolean>(true);
+
 /** Inline custom SVG logos (id → svg string), from the file's `custom_logos`.
  *  An `icon: "custom:<id>"` resolves against this. Context-delivered (like edit
  *  mode) so it reaches every leaf renderer without per-node data. */
@@ -284,13 +293,18 @@ export function RotatableCard({
   const swapped90 = quarter === 90 || quarter === 270;
   const minW = swapped90 ? 24 : 32;
   const minH = swapped90 ? 32 : 24;
+  // Resize handles show only for a SINGLE selection — a lasso multi-select
+  // would otherwise mount 5 ReactFlow resize controls per node in one frame
+  // (the lasso lag). One handle can't resize a group anyway.
+  const singleSel = useContext(SingleSelectionContext);
+  const showResize = editMode && selected && singleSel;
   return (
     <div className="group relative h-full w-full" onContextMenu={onContext}>
       {onScale ? (
         <>
           {/* CORNER handles (locked aspect) → uniform scale of the element. */}
           <NodeResizer
-            isVisible={editMode && selected}
+            isVisible={showResize}
             minWidth={minW}
             minHeight={minH}
             keepAspectRatio
@@ -300,7 +314,7 @@ export function RotatableCard({
             handleClassName="!bg-primary !border-2 !border-background !w-3.5 !h-3.5 !rounded-sm !shadow-md"
           />
           {/* SIDE handles → stretch the BOX on one axis (content unscaled). */}
-          {editMode && selected && (["top", "right", "bottom", "left"] as const).map((side) => (
+          {showResize && (["top", "right", "bottom", "left"] as const).map((side) => (
             <NodeResizeControl
               key={side}
               position={side}
@@ -332,7 +346,7 @@ export function RotatableCard({
         </>
       ) : (
         <NodeResizer
-          isVisible={editMode && selected}
+          isVisible={showResize}
           minWidth={minW}
           minHeight={minH}
           onResize={(_, p) => onResize(p.width, p.height)}

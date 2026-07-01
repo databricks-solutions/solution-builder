@@ -80,7 +80,7 @@ export const EditPanel = memo(function EditPanel({
   onUngroup: () => void;
   onZ: (dir: "front" | "back") => void;
 }) {
-  const Item: MenuItemFn = ({ icon, label, onClick, active }) => (
+  const Item: MenuItemFn = ({ icon, label, onClick, active, hint }) => (
     <button
       type="button"
       onClick={onClick}
@@ -89,12 +89,13 @@ export const EditPanel = memo(function EditPanel({
       <span className="grid h-4 w-4 place-items-center">{icon}</span>
       {label}
       {active && <Check className="ml-auto h-3.5 w-3.5" />}
+      {!active && hint && <span className="ml-auto text-[10.5px] tabular-nums text-muted-foreground/70">{hint}</span>}
     </button>
   );
   const ZItems = (
     <>
-      <Item icon={<BringToFront className="h-3.5 w-3.5" />} label="Bring to front" onClick={() => onZ("front")} />
-      <Item icon={<SendToBack className="h-3.5 w-3.5" />} label="Send to back" onClick={() => onZ("back")} />
+      <Item icon={<BringToFront className="h-3.5 w-3.5" />} label="Bring to front" onClick={() => onZ("front")} hint="⌘⇧↑" />
+      <Item icon={<SendToBack className="h-3.5 w-3.5" />} label="Send to back" onClick={() => onZ("back")} hint="⌘⇧↓" />
     </>
   );
   const Divider = () => <div className="my-1 border-t border-border/60" />;
@@ -127,8 +128,8 @@ export const EditPanel = memo(function EditPanel({
           <>
             {(canGroup || isGroup) && (
               <>
-                {canGroup && <Item icon={<Group className="h-3.5 w-3.5" />} label="Group" onClick={onGroup} />}
-                {isGroup && <Item icon={<Ungroup className="h-3.5 w-3.5" />} label="Ungroup" onClick={onUngroup} />}
+                {canGroup && <Item icon={<Group className="h-3.5 w-3.5" />} label="Group" onClick={onGroup} hint="⌘G" />}
+                {isGroup && <Item icon={<Ungroup className="h-3.5 w-3.5" />} label="Ungroup" onClick={onUngroup} hint="⇧⌘G" />}
                 <Divider />
               </>
             )}
@@ -137,7 +138,7 @@ export const EditPanel = memo(function EditPanel({
             <Divider />
             {ZItems}
             <Divider />
-            <Item icon={<Trash2 className="h-3.5 w-3.5" />} label="Remove all" onClick={onRemove} />
+            <Item icon={<Trash2 className="h-3.5 w-3.5" />} label="Remove all" onClick={onRemove} hint="⌫" />
           </>
         ) : annotation ? (
           <>
@@ -151,8 +152,8 @@ export const EditPanel = memo(function EditPanel({
         ) : (
           <>
             <Item icon={<Replace className="h-3.5 w-3.5" />} label="Change type…" onClick={onChangeType} />
-            {(isGroup || isAgentBricks) && <Item icon={<Ungroup className="h-3.5 w-3.5" />} label="Ungroup" onClick={onUngroup} />}
-            <Item icon={<RotateCw className="h-3.5 w-3.5" />} label="Rotate 90°" onClick={onRotate} />
+            {(isGroup || isAgentBricks) && <Item icon={<Ungroup className="h-3.5 w-3.5" />} label="Ungroup" onClick={onUngroup} hint="⇧⌘G" />}
+            <Item icon={<RotateCw className="h-3.5 w-3.5" />} label="Rotate 90°" onClick={onRotate} hint="R" />
             {/* Content scale slider — shrink/grow the icon+label inside the box. */}
             <div className="px-2 py-1.5">
               <div className="mb-1 flex items-center justify-between text-[11px] text-muted-foreground">
@@ -176,7 +177,7 @@ export const EditPanel = memo(function EditPanel({
             <Divider />
             {ZItems}
             <Divider />
-            <Item icon={<Trash2 className="h-3.5 w-3.5" />} label="Remove" onClick={onRemove} />
+            <Item icon={<Trash2 className="h-3.5 w-3.5" />} label="Remove" onClick={onRemove} hint="⌫" />
           </>
         )}
       </div>

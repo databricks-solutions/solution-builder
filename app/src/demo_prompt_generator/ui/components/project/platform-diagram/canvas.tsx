@@ -4,6 +4,7 @@
  * right-click menu, drag-to-add, undo/redo history, and the debounced save.
  */
 import {
+  memo,
   useMemo,
   useState,
   useEffect,
@@ -42,6 +43,7 @@ import {
   type StylePatch,
   DropTargetContext,
   EditModeContext,
+  SingleSelectionContext,
   nodeFootprint,
   nodeTypeFor,
   baseSize,
@@ -93,7 +95,35 @@ interface CanvasProps {
   readOnly?: boolean;
 }
 
-export function Canvas({ schema, deepLinks, onPersist, onSetTrademark, defaultEditMode = true, readOnly = false }: CanvasProps) {
+/** Stable empty-selection sentinel so `groupTargets` keeps one identity when
+ *  nothing multi-selected (a fresh `[]` each render would churn the memo'd
+ *  EditPanel every drag frame). */
+const EMPTY_IDS: string[] = [];
+
+/** Stable no-op context-menu suppressor for the ReactFlow node/selection
+ *  handlers (a fresh `(e) => e.preventDefault()` each render is needless). */
+const preventDefault = (e: { preventDefault: () => void }) => e.preventDefault();
+
+// --- Static <ReactFlow> props — hoisted to module scope so they keep ONE
+//     identity for the component's lifetime. Passing fresh object/array
+//     literals inline would hand ReactFlow a new reference every Canvas render
+//     (i.e. every drag frame), churning its internal store. ---
+const NODE_ORIGIN: [number, number] = [0.5, 0.5];
+const SNAP_GRID: [number, number] = [16, 16];
+// Cap the initial fit at 0.75 so the diagram starts zoomed OUT a bit
+// (components render smaller) instead of filling the viewport at 1×.
+const FIT_VIEW_OPTIONS = { padding: 0.2, maxZoom: 0.75 };
+const PRO_OPTIONS = { hideAttribution: true };
+const DEFAULT_EDGE_OPTIONS = { type: "flow" };
+const PAN_ON_DRAG: [number, number] = [1, 2];
+const MULTI_SELECT_KEYS = ["Shift"];
+
+// memo: the parent (PlatformDiagram) re-renders on every save-status change
+// (saving → saved → idle, ~3× per save). All of Canvas's props are stable
+// (memoized schema/deepLinks, useCallback'd handlers), so the memo drops those
+// parent-driven full re-renders entirely — they'd otherwise re-run the whole
+// render body for a status chip the Canvas doesn't even show.
+export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSetTrademark, defaultEditMode = true, readOnly = false }: CanvasProps) {
   const [confirmTrademark, setConfirmTrademark] = useState(false);
   const [sourcePicker, setSourcePicker] = useState(false);
   // Turning logos ON requires a permission ack; turning OFF is immediate.
@@ -113,7 +143,15 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark, defaultEd
   // the right-click style controls apply to one node or the whole selection.
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const onSelectionChange = useCallback(({ nodes: sel }: { nodes: Node[] }) => {
-    setSelectedIds(sel.map((n) => n.id));
+    // ReactFlow fires this on EVERY rubber-band tick as the lasso sweeps. A raw
+    // `sel.map(...)` allocates a fresh array each time, so React never bails out
+    // (Object.is on arrays) → the whole Canvas re-renders per tick even when the
+    // selected SET is unchanged. Bail when membership is identical so only real
+    // selection changes re-render.
+    setSelectedIds((prev) => {
+      if (prev.length === sel.length && prev.every((id, i) => id === sel[i].id)) return prev;
+      return sel.map((n) => n.id);
+    });
   }, []);
   const { screenToFlowPosition } = useReactFlow();
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -232,6 +270,16 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark, defaultEd
     pasteClipboard: () => {},
     clearSelection: () => {},
     nudge: (_ux: number, _uy: number, _snap: boolean) => {},
+    // Right-menu actions, also driven by shortcuts (Figma/Lucid convention).
+    group: () => {},
+    ungroup: () => {},
+    bringToFront: () => {},
+    sendToBack: () => {},
+    duplicate: () => {},
+    rotate: () => {},
+    remove: () => {},
+    undo: () => {},
+    redo: () => {},
   });
   useEffect(() => {
     if (!editMode) return;
@@ -247,18 +295,40 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark, defaultEd
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") { editKeyHandlersRef.current.clearSelection(); return; }
       if (isTyping()) return;
+      const H = editKeyHandlersRef.current;
+      // ⌘⇧↑ / ⌘⇧↓ = bring-to-front / send-to-back (Keynote/Sketch convention).
+      // Caught BEFORE the plain-arrow nudge since Cmd+arrow must not move.
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
+        e.preventDefault();
+        e.key === "ArrowUp" ? H.bringToFront() : H.sendToBack();
+        return;
+      }
       // Plain arrow = step a grid cell and snap to the 16px grid (magnet).
-      // Shift+arrow = exact 1px move for fine positioning.
-      if (ARROWS[e.key]) {
+      // Shift+arrow = exact 1px move for fine positioning. (No modifier here —
+      // Cmd/Ctrl+arrow fell through above.)
+      if (ARROWS[e.key] && !e.metaKey && !e.ctrlKey) {
         e.preventDefault();
         const [ux, uy] = ARROWS[e.key];
         editKeyHandlersRef.current.nudge(ux, uy, !e.shiftKey);
         return;
       }
+      // Delete / Backspace → remove the selection (no modifier). ReactFlow's own
+      // delete is off; we route through removeNode so edges + history stay right.
+      if (e.key === "Delete" || e.key === "Backspace") { e.preventDefault(); H.remove(); return; }
+      // R (no modifier) → rotate the primary selected node 90°.
+      if (e.key.toLowerCase() === "r" && !e.metaKey && !e.ctrlKey && !e.altKey) { e.preventDefault(); H.rotate(); return; }
       if (!(e.metaKey || e.ctrlKey)) return;
       const k = e.key.toLowerCase();
-      if (k === "c") { editKeyHandlersRef.current.copySelection(); }
-      else if (k === "v") { e.preventDefault(); editKeyHandlersRef.current.pasteClipboard(); }
+      // Figma/Lucid-standard modifier shortcuts. e.key for the bracket keys is
+      // "]"/"[" regardless of layout; group/dup/undo use letters.
+      if (k === "c") { H.copySelection(); }
+      else if (k === "v") { e.preventDefault(); H.pasteClipboard(); }
+      else if (k === "d") { e.preventDefault(); H.duplicate(); }
+      else if (k === "g") { e.preventDefault(); e.shiftKey ? H.ungroup() : H.group(); }
+      else if (k === "z") { e.preventDefault(); e.shiftKey ? H.redo() : H.undo(); }
+      else if (k === "y") { e.preventDefault(); H.redo(); } // ⌘Y = redo (Windows-ish)
+      else if (e.key === "]") { e.preventDefault(); H.bringToFront(); }
+      else if (e.key === "[") { e.preventDefault(); H.sendToBack(); }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -859,15 +929,24 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark, defaultEd
     setMenu({ kind: "edge", id: edge.id, x: e.clientX, y: e.clientY });
   }, [editMode]);
 
+  // id → node map, rebuilt only when `nodes` changes. Turns the many O(n)
+  // `nodes.find(...)` selection/panel lookups below into O(1) — they used to
+  // run (each O(n)) on EVERY render, i.e. every drag frame.
+  const nodesById = useMemo(() => {
+    const m = new Map<string, Node>();
+    for (const n of nodes) m.set(n.id, n);
+    return m;
+  }, [nodes]);
+
   // Prefer the LIVE node's own component data (it carries the correct
   // label/desc — including for freshly-added nodes resolved from the raw
   // catalog) over a re-lookup by base id, which would miss per-instance copy.
-  const selected = (() => {
+  const selectedNodeData = selectedId ? (nodesById.get(selectedId)?.data as NodeData | undefined) : undefined;
+  const selected = useMemo(() => {
     if (!selectedId) return null;
-    const live = nodes.find((n) => n.id === selectedId)?.data as NodeData | undefined;
-    if (live?.component && live.bandId) return { component: live.component, bandId: live.bandId };
+    if (selectedNodeData?.component && selectedNodeData.bandId) return { component: selectedNodeData.component, bandId: selectedNodeData.bandId };
     return catalog.get(baseId(selectedId)) ?? null;
-  })();
+  }, [selectedId, selectedNodeData, catalog]);
   // Base ids of every placed instance — the library dims a catalog item when at
   // least one instance is on the canvas (but it stays draggable for duplicates).
   const placedIds = useMemo(() => new Set(nodes.map((n) => baseId(n.id))), [nodes]);
@@ -881,7 +960,7 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark, defaultEd
   // scale, change-type, rotate) act on — the first selected node.
   const panelPrimaryId = selectedIds[0] as string | undefined;
   const panelPrimaryData = panelPrimaryId
-    ? (nodes.find((n) => n.id === panelPrimaryId)?.data as NodeData | undefined)
+    ? (nodesById.get(panelPrimaryId)?.data as NodeData | undefined)
     : undefined;
   // The selected node's annotation props, if it's a free-form annotation (single).
   const panelAnno = selectedIds.length === 1
@@ -892,8 +971,8 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark, defaultEd
   // Grouping state. `isGroup`: the selected node already belongs to a group →
   // offer Ungroup. `canGroup`: 2+ nodes selected that aren't all already one
   // group → offer Group. groupTargets = the ids Group will stamp.
-  const groupTargets = selectedIds.length > 1 ? selectedIds : [];
-  const groupIdsInSel = new Set(groupTargets.map((id) => (nodes.find((n) => n.id === id)?.data as NodeData | undefined)?.groupId));
+  const groupTargets = useMemo(() => (selectedIds.length > 1 ? selectedIds : EMPTY_IDS), [selectedIds]);
+  const groupIdsInSel = new Set(groupTargets.map((id) => (nodesById.get(id)?.data as NodeData | undefined)?.groupId));
   // The whole multi-selection is exactly one existing group (every member shares
   // one defined groupId) → offer Ungroup, not Group.
   const selIsOneGroup = groupTargets.length > 1 && groupIdsInSel.size === 1 && !groupIdsInSel.has(undefined);
@@ -903,17 +982,20 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark, defaultEd
   // Offer Group unless the selection is already exactly one existing group.
   const canGroup = groupTargets.length > 1 && !selIsOneGroup;
   // The (primary) selected node's style fields — drives the controls' current
-  // values and is what "Copy style" captures.
-  const panelNodeStyle: StylePatch = {
-    opacity: panelPrimaryData?.opacity,
-    fillColor: panelPrimaryData?.fillColor,
-    fontColor: panelPrimaryData?.fontColor,
-    borderWidth: panelPrimaryData?.borderWidth,
-    borderStyle: panelPrimaryData?.borderStyle,
-    borderColor: panelPrimaryData?.borderColor,
-    borderRadius: panelPrimaryData?.borderRadius,
-    shadow: panelPrimaryData?.shadow,
-  };
+  // values and is what "Copy style" captures. Memoized on the primitive fields
+  // so its IDENTITY is stable across a drag (the dragged node's `data` object is
+  // unchanged frame-to-frame) → the memo'd EditPanel doesn't re-render per frame.
+  const ps = panelPrimaryData;
+  const panelNodeStyle: StylePatch = useMemo(() => ({
+    opacity: ps?.opacity,
+    fillColor: ps?.fillColor,
+    fontColor: ps?.fontColor,
+    borderWidth: ps?.borderWidth,
+    borderStyle: ps?.borderStyle,
+    borderColor: ps?.borderColor,
+    borderRadius: ps?.borderRadius,
+    shadow: ps?.shadow,
+  }), [ps?.opacity, ps?.fillColor, ps?.fontColor, ps?.borderWidth, ps?.borderStyle, ps?.borderColor, ps?.borderRadius, ps?.shadow]);
   // Clear the live ReactFlow selection (closes the panel). Used by the panel's
   // X, the Escape key, and the pane click.
   const clearSelection = useCallback(() => {
@@ -944,31 +1026,101 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark, defaultEd
   }, [setNodes, scheduleSave, edges]);
   // Keep the window keydown effect's handlers pointed at the live callbacks
   // (the effect binds once per editMode; refs let it reach the current closures).
-  editKeyHandlersRef.current = { copySelection, pasteClipboard, clearSelection, nudge };
+  editKeyHandlersRef.current = {
+    copySelection, pasteClipboard, clearSelection, nudge,
+    group: () => { if (canGroup) groupNodes(groupTargets); },
+    ungroup: () => { if (isGroup && panelPrimaryId) ungroupNode(panelPrimaryId); },
+    bringToFront: () => { if (styleTargets.length) setNodeZ(styleTargets, "front"); },
+    sendToBack: () => { if (styleTargets.length) setNodeZ(styleTargets, "back"); },
+    // Duplicate = copy + paste in one step (the paste offsets +24 like Figma).
+    duplicate: () => { if (selectedIds.length) { copySelection(); pasteClipboard(); } },
+    rotate: () => { if (panelPrimaryId) rotateNode(panelPrimaryId); },
+    remove: () => { if (selectedIds.length) { const ids = [...selectedIds]; clearSelection(); ids.forEach(removeNode); } },
+    undo: () => { if (canUndo) undo(); },
+    redo: () => { if (canRedo) redo(); },
+  };
+
+  // Memoized EditPanel handlers. The panel is `memo`'d; feeding it fresh inline
+  // arrows every render (i.e. every drag frame, while dragging a SELECTED node)
+  // defeated that. These are stable across a drag (selection doesn't change
+  // mid-drag), so the panel skips re-render entirely while dragging.
+  const panelOnRotate = useCallback(() => { if (panelPrimaryId) rotateNode(panelPrimaryId); }, [panelPrimaryId, rotateNode]);
+  const panelOnRemove = useCallback(() => { const ids = [...selectedIds]; clearSelection(); ids.forEach(removeNode); }, [selectedIds, clearSelection, removeNode]);
+  const panelOnChangeType = useCallback(() => { if (panelPrimaryId) { setPickingFor(panelPrimaryId); clearSelection(); } }, [panelPrimaryId, clearSelection]);
+  const panelOnSetScale = useCallback((s: number) => { if (panelPrimaryId) setNodeScale(panelPrimaryId, s); }, [panelPrimaryId, setNodeScale]);
+  const panelOnAnno = useCallback((patch: Partial<AnnotationData>) => { if (panelPrimaryId) onAnnotate(panelPrimaryId, patch); }, [panelPrimaryId, onAnnotate]);
+  const panelOnPickLogo = useCallback(() => { if (panelPrimaryId) setLogoPickerFor(panelPrimaryId); }, [panelPrimaryId]);
+  const panelAnnoSrc = panelAnno?.src;
+  const panelOnSetImageUrl = useCallback(() => {
+    if (!panelPrimaryId) return;
+    const url = window.prompt("Image URL:", panelAnnoSrc ?? "");
+    if (url !== null) onAnnotate(panelPrimaryId, { src: url.trim() });
+  }, [panelPrimaryId, panelAnnoSrc, onAnnotate]);
+  const panelOnStyle = useCallback((patch: StylePatch) => styleNodes(styleTargets, patch), [styleNodes, styleTargets]);
+  const panelOnCopyStyle = useCallback(() => setCopiedStyle(panelNodeStyle), [panelNodeStyle]);
+  const panelOnGroup = useCallback(() => groupNodes(groupTargets), [groupNodes, groupTargets]);
+  const panelOnUngroup = useCallback(() => { if (panelPrimaryId) ungroupNode(panelPrimaryId); }, [panelPrimaryId, ungroupNode]);
+  const panelOnZ = useCallback((dir: "front" | "back") => setNodeZ(styleTargets, dir), [setNodeZ, styleTargets]);
+
+  // Stable ReactFlow pane/node click handlers (avoid a fresh closure each frame).
+  const onPaneClick = useCallback(() => { setSelectedId(null); setMenu(null); }, []);
+  const onNodeClick = useCallback((e: React.MouseEvent, node: Node) => {
+    if (e.shiftKey) return;
+    const gid = (node.data as NodeData | undefined)?.groupId;
+    if (gid) selectGroupRef.current(gid);
+  }, []);
+  const onMoveStart = useCallback(() => setMenu(null), []);
+
+  // Stable LibraryPalette handlers. The palette is `memo`'d and renders the
+  // WHOLE catalog subtree; fresh inline arrows each render (every drag frame)
+  // defeated the memo and re-rendered it per frame. The underlying add/change
+  // callbacks are already stable, so these thin adapters only need wrapping.
+  const paletteOnAdd = useCallback((id: string) => addComponent(id), [addComponent]);
+  const paletteOnAddAnnotation = useCallback(
+    (v: AnnotationVariant) => { const id = addAnnotation(v); if (v === "logo") setLogoPickerFor(id); },
+    [addAnnotation],
+  );
+  const paletteOnAddPreset = useCallback(
+    (pid: string) => { const p = DBX_ARCH_PRESET_BY_ID[pid]; if (p) addAnnotation("box", undefined, p.annotation); },
+    [addAnnotation],
+  );
+  const paletteOnAddLogo = useCallback((iconKey: string) => addAnnotation("logo", undefined, { icon: iconKey }), [addAnnotation]);
+  const paletteOnAddSource = useCallback((iconKey: string) => addSourceFromIcon(iconKey), [addSourceFromIcon]);
+  const paletteOnMoreSources = useCallback(() => setSourcePicker(true), []);
+  const paletteOnPick = useCallback((id: string) => { if (pickingFor) changeNodeType(pickingFor, id); setPickingFor(null); }, [pickingFor, changeNodeType]);
+  const paletteOnCancelPick = useCallback(() => setPickingFor(null), []);
+  const paletteIsPicking = pickingFor !== null;
+  const onCanvasDragOver = useCallback((e: React.DragEvent) => e.preventDefault(), []);
+
+  // Resize handles show only for a single (or empty) selection — see
+  // SingleSelectionContext. A primitive, so context propagates only when it
+  // actually flips across the 1↔many boundary (not per drag frame).
+  const singleSelection = selectedIds.length <= 1;
 
   return (
     <EditModeContext.Provider value={editMode}>
     <EdgeOpsContext.Provider value={edgeOps}>
     <DropTargetContext.Provider value={dropTargetId}>
+    <SingleSelectionContext.Provider value={singleSelection}>
     <div className="flex min-h-0 flex-1" ref={wrapRef}>
       {editMode && (
         <LibraryPalette
           schema={schema}
           placedIds={placedIds}
-          onAdd={(id) => addComponent(id)}
-          onAddAnnotation={(v) => { const id = addAnnotation(v); if (v === "logo") setLogoPickerFor(id); }}
-          onAddPreset={(pid) => { const p = DBX_ARCH_PRESET_BY_ID[pid]; if (p) addAnnotation("box", undefined, p.annotation); }}
-          onAddLogo={(iconKey) => addAnnotation("logo", undefined, { icon: iconKey })}
-          onAddSource={(iconKey) => addSourceFromIcon(iconKey)}
+          onAdd={paletteOnAdd}
+          onAddAnnotation={paletteOnAddAnnotation}
+          onAddPreset={paletteOnAddPreset}
+          onAddLogo={paletteOnAddLogo}
+          onAddSource={paletteOnAddSource}
           onToggleTrademark={toggleTrademark}
-          onMoreSources={() => setSourcePicker(true)}
-          picking={pickingFor !== null}
-          onPick={(id) => { if (pickingFor) changeNodeType(pickingFor, id); setPickingFor(null); }}
-          onCancelPick={() => setPickingFor(null)}
+          onMoreSources={paletteOnMoreSources}
+          picking={paletteIsPicking}
+          onPick={paletteOnPick}
+          onCancelPick={paletteOnCancelPick}
         />
       )}
 
-      <div className="relative min-w-0 flex-1" onDrop={onDrop} onDragOver={(e) => e.preventDefault()}>
+      <div className="relative min-w-0 flex-1" onDrop={onDrop} onDragOver={onCanvasDragOver}>
         {/* Dim + block the canvas while choosing a replacement type — the only
             interactive surface is the highlighted library on the left. */}
         {pickingFor !== null && (
@@ -1092,55 +1244,49 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark, defaultEd
           onNodesChange={handleNodesChange}
           onEdgesChange={onEdgesChange}
           onConnect={onConnect}
-          onPaneClick={() => { setSelectedId(null); setMenu(null); }}
-          onEdgeContextMenu={onEdgeContextMenu}
-          onEdgeClick={onEdgeClick}
           // Clicking a grouped node selects the whole group → they drag together.
           // A SHIFT click (multi-select add/remove) must NOT group-select, so the
           // user can shift-add/remove individual members; only a plain click does.
-          onNodeClick={(e, node) => {
-            if (e.shiftKey) return;
-            const gid = (node.data as NodeData | undefined)?.groupId;
-            if (gid) selectGroupRef.current(gid);
-          }}
+          onPaneClick={onPaneClick}
+          onEdgeContextMenu={onEdgeContextMenu}
+          onEdgeClick={onEdgeClick}
+          onNodeClick={onNodeClick}
           // Nodes no longer open a floating menu — selection drives the docked
           // edit panel. We still suppress the browser context menu on a node /
           // selection so a right-click there doesn't pop the native menu.
-          onSelectionContextMenu={(e) => e.preventDefault()}
-          onNodeContextMenu={(e) => e.preventDefault()}
+          onSelectionContextMenu={preventDefault}
+          onNodeContextMenu={preventDefault}
           onSelectionChange={onSelectionChange}
-          onMoveStart={() => setMenu(null)}
-          nodeOrigin={[0.5, 0.5]}
+          onMoveStart={onMoveStart}
+          nodeOrigin={NODE_ORIGIN}
           // Don't raise a node above the others just because it's selected —
           // keep its stacking order (only Bring-to-front/Send-to-back change z).
           elevateNodesOnSelect={false}
           selectionOnDrag
-          panOnDrag={[1, 2]}
+          panOnDrag={PAN_ON_DRAG}
           selectNodesOnDrag={false}
           // Shift = additive multi-select: shift-click toggles a node in/out of
           // the selection, shift-drag lassos ADD to the current selection. (No
           // selectionKeyCode override — keeping default so a plain drag still
           // lassos thanks to selectionOnDrag.)
-          multiSelectionKeyCode={["Shift"]}
+          multiSelectionKeyCode={MULTI_SELECT_KEYS}
           // Disable ReactFlow's built-in keyboard node movement — it snaps the
           // focused node to the 16px grid on every arrow press (Shift jumps even
           // further). Our own window keydown handler does the precise 1px nudge.
           disableKeyboardA11y
           fitView
-          // Cap the initial fit at 0.75 so the diagram starts zoomed OUT a bit
-          // (components render smaller) instead of filling the viewport at 1×.
-          fitViewOptions={{ padding: 0.2, maxZoom: 0.75 }}
+          fitViewOptions={FIT_VIEW_OPTIONS}
           minZoom={0.3}
           maxZoom={2}
-          proOptions={{ hideAttribution: true }}
-          defaultEdgeOptions={{ type: "flow" }}
+          proOptions={PRO_OPTIONS}
+          defaultEdgeOptions={DEFAULT_EDGE_OPTIONS}
           connectionMode={ConnectionMode.Loose}
           connectionRadius={36}
           nodesConnectable={editMode}
           nodesDraggable={editMode}
           elementsSelectable
           snapToGrid
-          snapGrid={[16, 16]}
+          snapGrid={SNAP_GRID}
         >
           <Background variant={BackgroundVariant.Dots} gap={16} size={1} color="#94a3b8" className="opacity-30" />
           <Controls className="!bg-background !border-border !shadow-sm [&>button]:!bg-background [&>button]:!border-border [&>button]:!text-foreground" showInteractive={false} />
@@ -1196,21 +1342,18 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark, defaultEd
           isGroup={isGroup}
           canGroup={canGroup}
           onClose={clearSelection}
-          onRotate={() => rotateNode(panelPrimaryId)}
-          onRemove={() => { const ids = [...selectedIds]; clearSelection(); ids.forEach(removeNode); }}
-          onChangeType={() => { setPickingFor(panelPrimaryId); clearSelection(); }}
-          onSetScale={(s) => setNodeScale(panelPrimaryId, s)}
-          onAnno={(patch) => onAnnotate(panelPrimaryId, patch)}
-          onPickLogo={() => setLogoPickerFor(panelPrimaryId)}
-          onSetImageUrl={() => {
-            const url = window.prompt("Image URL:", panelAnno?.src ?? "");
-            if (url !== null) onAnnotate(panelPrimaryId, { src: url.trim() });
-          }}
-          onStyle={(patch) => styleNodes(styleTargets, patch)}
-          onCopyStyle={() => setCopiedStyle(panelNodeStyle)}
-          onGroup={() => groupNodes(groupTargets)}
-          onUngroup={() => ungroupNode(panelPrimaryId)}
-          onZ={(dir) => setNodeZ(styleTargets, dir)}
+          onRotate={panelOnRotate}
+          onRemove={panelOnRemove}
+          onChangeType={panelOnChangeType}
+          onSetScale={panelOnSetScale}
+          onAnno={panelOnAnno}
+          onPickLogo={panelOnPickLogo}
+          onSetImageUrl={panelOnSetImageUrl}
+          onStyle={panelOnStyle}
+          onCopyStyle={panelOnCopyStyle}
+          onGroup={panelOnGroup}
+          onUngroup={panelOnUngroup}
+          onZ={panelOnZ}
         />
       )}
 
@@ -1225,8 +1368,9 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark, defaultEd
         />
       )}
     </div>
+    </SingleSelectionContext.Provider>
     </DropTargetContext.Provider>
     </EdgeOpsContext.Provider>
     </EditModeContext.Provider>
   );
-}
+});

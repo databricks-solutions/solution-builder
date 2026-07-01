@@ -19,139 +19,32 @@ import {
   POS_OF,
   sidePoint,
   nearestSide,
-  spreadFrac,
-  endSide,
   rectOf,
 } from "../edge-routing";
-import { PORT_FRAC, portAnchor } from "../composite-lakeflow";
+import { computeFanLayout } from "../fan-layout";
 import { EdgeFlow } from "./edge-flow";
 
 const FlowEdge = memo(function FlowEdge(props: EdgeProps) {
-  const { id, source, target, sourceHandleId, targetHandleId, style, data, selected, label } = props;
+  const { id, source, target, style, data, selected, label } = props;
   const sNode = useInternalNode(source);
   const tNode = useInternalNode(target);
   const ops = useContext(EdgeOpsContext);
   const d = data as EdgeData | undefined;
 
-  // For fan-out: among all edges sharing this edge's (node, side) anchor, find
-  // this edge's index + the group size, so we can spread them along the side.
-  const fan = useStore((s) => {
-    const node = (nid: string) => s.nodeLookup.get(nid);
-    const rect = (nid: string) => {
-      const n = node(nid);
-      return n ? rectOf(n as never) : null;
-    };
-    const sideForEnd = (e: { source: string; target: string; sourceHandle?: string | null; targetHandle?: string | null }, end: "source" | "target"): Side | null => {
-      const selfR = rect(end === "source" ? e.source : e.target);
-      const otherR = rect(end === "source" ? e.target : e.source);
-      if (!selfR || !otherR) return null;
-      const oc = { x: otherR.x + otherR.w / 2, y: otherR.y + otherR.h / 2 };
-      return endSide(selfR, end === "source" ? e.sourceHandle : e.targetHandle, oc);
-    };
-    // Group key = nodeId|side. For each edge in a group, remember the OTHER
-    // endpoint's center coordinate along the side's perpendicular axis (Y for
-    // left/right sides, X for top/bottom). Sorting the group by that key makes
-    // the fan order follow the other tiles' positions → lines don't cross, and
-    // it re-sorts live as nodes are dragged (this selector reads live rects).
-    const groups = new Map<string, { id: string; key: number }[]>();
-    s.edges.forEach((e) => {
-      for (const end of ["source", "target"] as const) {
-        const side = sideForEnd(e, end);
-        if (!side) continue;
-        const nid = end === "source" ? e.source : e.target;
-        const otherR = rect(end === "source" ? e.target : e.source);
-        if (!otherR) continue;
-        const sortKey =
-          side === "l" || side === "r"
-            ? otherR.y + otherR.h / 2 // order by other tile's vertical center
-            : otherR.x + otherR.w / 2; // top/bottom → horizontal center
-        // Group by the specific PORT handle if this end targets one (so edges
-        // sharing a port fan within it); else by node|side.
-        const handle = end === "source" ? e.sourceHandle : e.targetHandle;
-        const port = handle && handle in PORT_FRAC ? handle : null;
-        const key = port ? `${nid}|${port}` : `${nid}|${side}`;
-        const arr = groups.get(key) ?? [];
-        arr.push({ id: e.id, key: sortKey });
-        groups.set(key, arr);
-      }
-    });
-    const idx = (key: string) => {
-      const arr = (groups.get(key) ?? [])
-        .slice()
-        // Sort by other-endpoint position; tie-break on id for stability.
-        .sort((a, b) => a.key - b.key || (a.id < b.id ? -1 : 1));
-      return { i: arr.findIndex((x) => x.id === id), n: arr.length };
-    };
-    // Recompute this edge's sides here too (selector is self-contained).
-    const sR = rect(source);
-    const tR = rect(target);
-    if (!sR || !tR) return null;
-    const sCtr = { x: sR.x + sR.w / 2, y: sR.y + sR.h / 2 };
-    const tCtr = { x: tR.x + tR.w / 2, y: tR.y + tR.h / 2 };
-    const ss = endSide(sR, sourceHandleId, tCtr);
-    const ts = endSide(tR, targetHandleId, sCtr);
-    const sPort = portAnchor(sourceHandleId);
-    const tPort = portAnchor(targetHandleId);
-    // Group index/count: by port if the end targets one, else by side.
-    const sg = idx(sPort ? `${source}|${sourceHandleId}` : `${source}|${ss}`);
-    const tg = idx(tPort ? `${target}|${targetHandleId}` : `${target}|${ts}`);
-    // Edges sharing a PORT fan around its base fraction with a tight gap (so
-    // 3 sources into one port spread slightly instead of stacking).
-    const portFan = (base: number, i: number, n: number) =>
-      n <= 1 ? base : Math.min(0.95, Math.max(0.05, base + (i - (n - 1) / 2) * 0.06));
-
-    // Stagger the vertical mid-segment (centerX) for edges converging on the
-    // same target anchor, so their elbows don't stack on one vertical line.
-    // The direction depends on which SIDE of the anchor the source sits:
-    //   • source ABOVE the anchor  → bend its vertical to the LEFT  (out, then
-    //     drop down into the anchor) — farther above ⇒ farther left;
-    //   • source BELOW the anchor  → bend to the RIGHT (drop up into it).
-    // This makes the lines fan symmetrically around the anchor without crossing,
-    // and behaves correctly for a top port (most sources below it), a bottom
-    // port (most sources above it), or a middle one. Magnitude = rank among
-    // same-side siblings so two sources on the same side still separate.
-    // Only meaningful when the target end is a horizontal side (l/r).
-    const tEndSide = tPort?.side ?? ts;
-    const tFrac = tPort ? portFan(tPort.frac, tg.i < 0 ? 0 : tg.i, tg.n) : spreadFrac(tg.i < 0 ? 0 : tg.i, tg.n);
-    let centerX: number | undefined;
-    if (tg.n > 1 && (tEndSide === "l" || tEndSide === "r")) {
-      const midX = (sCtr.x + tCtr.x) / 2;
-      const STEP = 22; // px between adjacent verticals
-      // Anchor point's Y on the target side (computed from the rect we have in
-      // the selector — `tp` isn't available until after the selector runs).
-      const anchorY = sidePoint(tR, tEndSide, tFrac).y;
-      const sibs = (groups.get(tPort ? `${target}|${targetHandleId}` : `${target}|${ts}`) ?? [])
-        .slice()
-        .sort((a, b) => a.key - b.key || (a.id < b.id ? -1 : 1));
-      const above = sCtr.y < anchorY; // this source sits above the anchor
-      // Same-side siblings, ordered so the row NEAREST the anchor offsets least.
-      const sameSide = sibs.filter((e) => (above ? e.key < anchorY : e.key >= anchorY));
-      const pos = sameSide.findIndex((e) => e.id === id);
-      // Magnitude by distance from the anchor: the source FARTHEST from the
-      // anchor (top of an above-half / bottom of a below-half) offsets most, so
-      // same-side lines fan out without crossing. `sameSide` is sorted top→bottom
-      // by source Y; the row nearest the anchor offsets least in both halves.
-      const mag = sameSide.length - pos;
-      // Per the original spec: source ABOVE the anchor bends its vertical RIGHT
-      // (+, toward/closer to the anchor), source BELOW bends LEFT (−). The
-      // render step clamps this so it can never fold the path (see `centerX`
-      // guard below — it also covers a saved/dragged d.centerX).
-      centerX = midX + (above ? 1 : -1) * mag * STEP;
-    }
-    return {
-      sSide: sPort?.side ?? ss,
-      tSide: tPort?.side ?? ts,
-      sFrac: sPort ? portFan(sPort.frac, sg.i < 0 ? 0 : sg.i, sg.n) : spreadFrac(sg.i < 0 ? 0 : sg.i, sg.n),
-      tFrac,
-      centerX,
-    };
-  },
-  // Shallow-compare so the selector doesn't trigger a re-render every store
-  // tick (it returns a fresh object) — only when the computed anchors change.
-  (a, b) =>
-    !!a && !!b &&
-    a.sSide === b.sSide && a.tSide === b.tSide &&
-    a.sFrac === b.sFrac && a.tFrac === b.tFrac && a.centerX === b.centerX);
+  // Fan-out geometry: this edge's side/frac/centerX among the edges sharing its
+  // anchors. Computed for ALL edges AT ONCE by `computeFanLayout` (memoized on a
+  // store signature), so the E edge selectors share ONE O(E) computation per
+  // store tick instead of each redoing it (the old O(E²)-per-frame drag cost).
+  const fan = useStore(
+    (s) => computeFanLayout(s.edges, s.nodeLookup).get(id) ?? null,
+    // Shallow-compare the entry so a store tick that doesn't change THIS edge's
+    // anchors doesn't re-render it (the map is fresh only when the signature
+    // changes; the entry object is stable across ticks with the same layout).
+    (a, b) =>
+      !!a && !!b &&
+      a.sSide === b.sSide && a.tSide === b.tSide &&
+      a.sFrac === b.sFrac && a.tFrac === b.tFrac && a.centerX === b.centerX,
+  );
 
   // Live endpoint drag (reconnect). Hook runs unconditionally before guards.
   const [drag, setDrag] = useState<{ end: "source" | "target"; x: number; y: number; side?: Side; handle?: string } | null>(null);

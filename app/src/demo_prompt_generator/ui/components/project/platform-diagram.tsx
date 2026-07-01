@@ -60,11 +60,41 @@ interface PlatformDiagramProps {
 type SaveStatus = "idle" | "saving" | "saved" | "error";
 
 function PlatformDiagram({ content, deployedResources, projectId, defaultEditMode = true, readOnly, onSave, hideChrome }: PlatformDiagramProps) {
-  // Parse the flat architecture.md into the internal schema. The file is the
-  // sole source of truth for what's shown (no capability-state seeding).
+  // --- Guard against the diagram's own auto-save echoing back and reverting
+  //     the canvas to a stale version. -------------------------------------
+  // The canvas auto-saves architecture.md (debounced). That write trips the
+  // file-watcher, which makes the workspace RE-FETCH architecture.md and feed
+  // it back as a new `content` prop. Two failure modes that caused the "it
+  // jumped back to an older version" bug:
+  //   (a) the refetch returns the exact md we just wrote → a needless re-parse
+  //       + full canvas re-seed (also nukes undo history); and
+  //   (b) a file_changed for ANOTHER file fires the refetch while our debounced
+  //       save hasn't flushed yet → the refetch reads OLDER disk content and
+  //       re-seeds the canvas back to it, clobbering the live (newer) edits.
+  // Fix: remember (i) the md we last authored and (ii) whether a save is in
+  // flight. Ignore any incoming `content` that equals what we authored (own
+  // echo) or that arrives while our own newer edits are still un-persisted.
+  const lastAuthoredMd = useRef<string | null>(null);
+  const savePending = useRef(false);
+  // The `content` we accept into the parser. Starts as the prop; only advances
+  // to a NEW prop value when that value isn't our own echo / mid-save stale.
+  const [acceptedContent, setAcceptedContent] = useState<string | null>(content);
+  useEffect(() => {
+    if (content == null) { setAcceptedContent(content); return; }
+    // Our own save echo — the file we just wrote came back. Ignore it (the
+    // live canvas already reflects it; re-seeding would only reset history).
+    if (content === lastAuthoredMd.current) return;
+    // A save is in flight → our un-persisted edits are newer than any disk
+    // content the refetch could return. Don't let a stale refetch win.
+    if (savePending.current) return;
+    setAcceptedContent(content);
+  }, [content]);
+
+  // Parse the ACCEPTED flat architecture.md into the internal schema. The file
+  // is the sole source of truth for what's shown (no capability-state seeding).
   const built = useMemo(
-    () => parseArchitecture(content ?? ""),
-    [content],
+    () => parseArchitecture(acceptedContent ?? ""),
+    [acceptedContent],
   );
   // Trademark-logo opt-in is editable on the canvas; keep it as local state
   // seeded from the file, and fold it back onto the schema so both render and
@@ -93,11 +123,14 @@ function PlatformDiagram({ content, deployedResources, projectId, defaultEditMod
   const onPersist = useCallback(
     (layout: PlatformSchema["layout"]) => {
       const md = serializeArchitecture(schemaRef.current, layout);
+      lastAuthoredMd.current = md; // so the watcher echo of this write is ignored
       if (onSave) { onSave(md); return; } // standalone: host owns persistence
       setStatus("saving");
+      savePending.current = true; // ignore any refetch until this lands on disk
       saveProjectFile(projectId, "architecture.md", md)
         .then(() => setStatus("saved"))
-        .catch(() => setStatus("error"));
+        .catch(() => setStatus("error"))
+        .finally(() => { savePending.current = false; });
     },
     [projectId, onSave],
   );
@@ -107,11 +140,14 @@ function PlatformDiagram({ content, deployedResources, projectId, defaultEditMod
     setTrademark(on);
     const next: PlatformSchema = { ...schemaRef.current, enableTrademarkLogos: on };
     const md = serializeArchitecture(next, next.layout);
+    lastAuthoredMd.current = md; // ignore this write's own watcher echo
     if (onSave) { onSave(md); return; } // standalone: host owns persistence
     setStatus("saving");
+    savePending.current = true;
     saveProjectFile(projectId, "architecture.md", md)
       .then(() => setStatus("saved"))
-      .catch(() => setStatus("error"));
+      .catch(() => setStatus("error"))
+      .finally(() => { savePending.current = false; });
   }, [projectId, onSave]);
 
   // Reset "saved" → "idle" after a moment so the chip doesn't linger.

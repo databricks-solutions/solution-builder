@@ -24,6 +24,8 @@ export type MenuItemFn = (p: {
   label: string;
   onClick: () => void;
   active?: boolean;
+  /** Keyboard-shortcut hint shown right-aligned + greyed (e.g. "⌘G"). */
+  hint?: string;
 }) => React.ReactElement;
 
 /** The right-click menu body for a free-form annotation node — varies by
@@ -100,8 +102,8 @@ export function AnnotationMenu({
         </>
       )}
       <div className="my-1 border-t border-border/60" />
-      <Item icon={<RotateCw className="h-3.5 w-3.5" />} label="Rotate 90°" onClick={onRotate} />
-      <Item icon={<Trash2 className="h-3.5 w-3.5" />} label="Remove" onClick={onRemove} />
+      <Item icon={<RotateCw className="h-3.5 w-3.5" />} label="Rotate 90°" onClick={onRotate} hint="R" />
+      <Item icon={<Trash2 className="h-3.5 w-3.5" />} label="Remove" onClick={onRemove} hint="⌫" />
     </>
   );
 }
@@ -168,10 +170,22 @@ export function StyleControls({
           title="Text color"
         />
       </div>
-      {/* Border: width slider, solid/dashed toggle, color. */}
+      {/* Border: width slider, solid/dashed toggle, color. A "None" toggle sets
+          width 0 (no border) — mirrors the Fill "None". */}
       <div className="px-2 py-1.5">
         <div className="mb-1 flex items-center justify-between text-[11px] text-muted-foreground">
-          <span>Border</span><span>{borderW}px</span>
+          <span className="flex items-center gap-1.5">
+            Border
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); onStyle({ borderWidth: 0 }); }}
+              className={`cursor-pointer rounded px-1.5 py-0.5 text-[10px] ${borderW === 0 ? "bg-primary text-primary-foreground" : "border border-border hover:bg-muted"}`}
+              title="No border"
+            >
+              None
+            </button>
+          </span>
+          <span>{borderW}px</span>
         </div>
         <input
           type="range" min={0} max={6} step={1} value={borderW}
