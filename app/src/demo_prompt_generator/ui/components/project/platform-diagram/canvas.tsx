@@ -30,6 +30,7 @@ import {
   BAND_COLOR,
   BAND_META,
   catalogBands,
+  DBX_ARCH_PRESET_BY_ID,
   type PlatformComponent,
   type PlatformSchema,
   type BandId,
@@ -476,7 +477,7 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark, defaultEd
   // new node id so callers can act on it (e.g. open the logo picker).
   const annoCounter = useRef(0);
   const addAnnotation = useCallback(
-    (variant: AnnotationVariant, at?: { x: number; y: number }, extra?: Partial<AnnotationData>): string => {
+    (variant: AnnotationVariant, at?: { x: number; y: number }, extra?: Partial<AnnotationData>, dataExtra?: Partial<NodeData>): string => {
       const pos = at ?? { x: 160, y: 160 };
       const defaults: AnnotationData =
         variant === "box" ? { variant, text: "", vAlign: "middle", hAlign: "center", fontSize: 14 }
@@ -506,6 +507,7 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark, defaultEd
               deepLink: null,
               onSelect, onContext, onResize, onRename, onAnnotate,
               rot: 0,
+              ...dataExtra,
             } satisfies AnnotationNodeData,
           } as Node,
         ];
@@ -569,6 +571,12 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark, defaultEd
       if (anno) {
         const id = addAnnotation(anno as AnnotationVariant, pos);
         if (anno === "logo") setLogoPickerFor(id); // pick the logo right away
+        return;
+      }
+      const preset = e.dataTransfer.getData("application/x-annotation-preset");
+      if (preset) {
+        const p = DBX_ARCH_PRESET_BY_ID[preset];
+        if (p) addAnnotation("box", pos, p.annotation);
         return;
       }
       const id = e.dataTransfer.getData("application/x-component-id");
@@ -780,8 +788,6 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark, defaultEd
     const clip = clipboardRef.current;
     if (!clip || clip.length === 0) return;
     const OFF = 24;
-    const multi = clip.length > 1;
-    const gid = multi ? `group-${Date.now().toString(36)}-${groupCounter.current++}` : undefined;
     setNodes((nds) => {
       const taken = new Set(nds.map((n) => n.id));
       const idMap = new Map<string, string>(); // old id → new id
@@ -802,7 +808,9 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark, defaultEd
       const clones: Node[] = clip.map((src) => {
         const newId = mkId(src.id);
         idMap.set(src.id, newId);
-        const d = { ...(src.data as NodeData), nodeId: newId, groupId: gid };
+        // Paste never creates a group — clear any groupId so pasted nodes
+        // land as independent components.
+        const d = { ...(src.data as NodeData), nodeId: newId, groupId: undefined };
         return {
           ...src,
           id: newId,
@@ -949,6 +957,7 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark, defaultEd
           placedIds={placedIds}
           onAdd={(id) => addComponent(id)}
           onAddAnnotation={(v) => { const id = addAnnotation(v); if (v === "logo") setLogoPickerFor(id); }}
+          onAddPreset={(pid) => { const p = DBX_ARCH_PRESET_BY_ID[pid]; if (p) addAnnotation("box", undefined, p.annotation); }}
           onAddLogo={(iconKey) => addAnnotation("logo", undefined, { icon: iconKey })}
           onAddSource={(iconKey) => addSourceFromIcon(iconKey)}
           onToggleTrademark={toggleTrademark}
@@ -1118,7 +1127,9 @@ export function Canvas({ schema, deepLinks, onPersist, onSetTrademark, defaultEd
           // further). Our own window keydown handler does the precise 1px nudge.
           disableKeyboardA11y
           fitView
-          fitViewOptions={{ padding: 0.2 }}
+          // Cap the initial fit at 0.75 so the diagram starts zoomed OUT a bit
+          // (components render smaller) instead of filling the viewport at 1×.
+          fitViewOptions={{ padding: 0.2, maxZoom: 0.75 }}
           minZoom={0.3}
           maxZoom={2}
           proOptions={{ hideAttribution: true }}

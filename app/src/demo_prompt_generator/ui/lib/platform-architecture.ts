@@ -186,6 +186,12 @@ export interface AnnotationData {
   variant: AnnotationVariant;
   /** text/box: the (editable) text. */
   text?: string;
+  /** box: an optional title bar across the top of the box. Empty by default
+   *  (invisible — but double-clicking where it would be lets you edit it). */
+  title?: string;
+  /** box: an icon key rendered before the title text (e.g. a small Databricks
+   *  logo for the "Databricks Workspace" preset). */
+  titleIcon?: string;
   /** text/box: font size in px (default 14). */
   fontSize?: number;
   /** text/box: bold text. */
@@ -294,6 +300,9 @@ export interface FileNode {
   ingest?: IngestPath;
   /** box/text/logo/image annotation props. */
   text?: string;
+  /** box: title-bar text + leading icon. */
+  title?: string;
+  titleIcon?: IconKey;
   fontSize?: number;
   bold?: boolean;
   vAlign?: "top" | "middle" | "bottom";
@@ -343,6 +352,32 @@ export interface ArchitectureFile {
 }
 
 const ANNOTATION_TYPES = new Set<AnnotationVariant>(["text", "box", "logo", "image"]);
+
+/** "Databricks Architecture" palette presets — titled boxes used to frame the
+ *  physical Databricks layout (a workspace / metastore boundary). Each is just
+ *  a `box` annotation seeded with a title + leading logo; the body stays empty
+ *  (double-click to add centered text like any box). */
+export interface AnnotationPreset {
+  id: string;
+  label: string;
+  /** Extra AnnotationData merged onto the box defaults when placed. */
+  annotation: Partial<AnnotationData>;
+}
+export const DBX_ARCH_PRESETS: AnnotationPreset[] = [
+  {
+    id: "dbx-workspace",
+    label: "Databricks Workspace",
+    annotation: { title: "Databricks Workspace", titleIcon: "file:vendor/databricks" },
+  },
+  {
+    id: "dbx-metastore",
+    label: "Databricks Metastore",
+    annotation: { title: "Databricks Metastore", titleIcon: "databricksMetastore" },
+  },
+];
+export const DBX_ARCH_PRESET_BY_ID: Record<string, AnnotationPreset> = Object.fromEntries(
+  DBX_ARCH_PRESETS.map((p) => [p.id, p]),
+);
 
 // =============================================================================
 // Band metadata — the fixed marketing framing (top → bottom)
@@ -784,6 +819,8 @@ export function parseArchitecture(content: string): PlatformSchema {
       pos.annotation = {
         variant: n.type as AnnotationVariant,
         ...(n.text !== undefined ? { text: n.text } : {}),
+        ...(n.title !== undefined ? { title: n.title } : {}),
+        ...(n.titleIcon !== undefined ? { titleIcon: n.titleIcon } : {}),
         ...(n.fontSize !== undefined ? { fontSize: n.fontSize } : {}),
         ...(n.bold !== undefined ? { bold: n.bold } : {}),
         ...(n.vAlign !== undefined ? { vAlign: n.vAlign } : {}),
@@ -968,6 +1005,8 @@ export function serializeArchitecture(
       nodes.push({
         id, type: a.variant, at, ...common,
         ...(a.text !== undefined ? { text: a.text } : {}),
+        ...(a.title !== undefined ? { title: a.title } : {}),
+        ...(a.titleIcon !== undefined ? { titleIcon: a.titleIcon as IconKey } : {}),
         ...(a.fontSize !== undefined ? { fontSize: a.fontSize } : {}),
         ...(a.bold !== undefined ? { bold: a.bold } : {}),
         ...(a.vAlign !== undefined ? { vAlign: a.vAlign } : {}),

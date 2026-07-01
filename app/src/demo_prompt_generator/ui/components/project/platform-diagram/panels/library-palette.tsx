@@ -5,7 +5,7 @@
  * the "+ more data sources" entry, and the "pick a replacement type" mode.
  */
 import { memo, useState } from "react";
-import { BAND_COLOR, catalogBands, type PlatformSchema } from "@/lib/platform-architecture";
+import { BAND_COLOR, catalogBands, DBX_ARCH_PRESETS, type PlatformSchema } from "@/lib/platform-architecture";
 import {
   X,
   GripVertical,
@@ -29,6 +29,7 @@ export const LibraryPalette = memo(function LibraryPalette({
   onPick,
   onCancelPick,
   onAddAnnotation,
+  onAddPreset,
   onAddLogo,
   onAddSource,
   onToggleTrademark,
@@ -38,6 +39,8 @@ export const LibraryPalette = memo(function LibraryPalette({
   placedIds: Set<string>;
   onAdd: (componentId: string) => void;
   onAddAnnotation: (variant: AnnotationVariant) => void;
+  /** Add a titled-box preset ("Databricks Architecture" section) by preset id. */
+  onAddPreset: (presetId: string) => void;
   /** Add a logo annotation pre-set to a file-icon key (cloud / vendor mark). */
   onAddLogo: (iconKey: string) => void;
   /** Add a data source from a file-icon key (same as the source picker). */
@@ -162,6 +165,32 @@ export const LibraryPalette = memo(function LibraryPalette({
                 <GripVertical className="h-3 w-3 shrink-0 text-muted-foreground/40" />
                 <span className="grid h-4 w-4 place-items-center text-muted-foreground">{it.icon}</span>
                 <span className="truncate">{it.label}</span>
+              </button>
+            ))}
+          </div>
+        )}
+        {/* Databricks Architecture — titled-box presets (Workspace / Metastore)
+            for framing the physical platform layout. Dragged as box annotations. */}
+        {!picking && !ql && (
+          <div className="mb-3">
+            <div className="px-1 py-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Databricks Architecture</div>
+            {DBX_ARCH_PRESETS.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                draggable
+                onDragStart={(e) => { e.dataTransfer.setData("application/x-annotation-preset", p.id); e.dataTransfer.effectAllowed = "copy"; }}
+                onDoubleClick={() => onAddPreset(p.id)}
+                title={`Drag onto the canvas (or double-click to add): ${p.label}`}
+                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12.5px] text-foreground hover:bg-muted"
+              >
+                <GripVertical className="h-3 w-3 shrink-0 text-muted-foreground/40" />
+                {p.annotation.titleIcon ? (
+                  <AnyIcon iconKey={p.annotation.titleIcon} className="h-4 w-4 [&_svg]:h-4 [&_svg]:w-4" />
+                ) : (
+                  <Square className="h-4 w-4 text-muted-foreground" />
+                )}
+                <span className="truncate">{p.label}</span>
               </button>
             ))}
           </div>

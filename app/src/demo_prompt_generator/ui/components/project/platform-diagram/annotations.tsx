@@ -42,7 +42,7 @@ export interface AnnotationNodeData extends NodeData {
 
 export const ANNOTATION_DEFAULT_SIZE: Record<AnnotationVariant, { w: number; h: number }> = {
   text: { w: 160, h: 40 },
-  box: { w: 180, h: 100 },
+  box: { w: 320, h: 180 },
   logo: { w: 64, h: 64 },
   image: { w: 200, h: 140 },
 };
@@ -57,11 +57,18 @@ export const AnnotationNode = memo(function AnnotationNode({ data, selected }: N
   const isDropTarget = useContext(DropTargetContext) === d.nodeId;
   const editMode = useContext(EditModeContext);
   const [editing, setEditing] = useState<string | null>(null);
+  const [editingTitle, setEditingTitle] = useState<string | null>(null);
 
   const commit = () => {
     if (editing !== null) {
       d.onAnnotate(d.nodeId, { text: editing });
       setEditing(null);
+    }
+  };
+  const commitTitle = () => {
+    if (editingTitle !== null) {
+      d.onAnnotate(d.nodeId, { title: editingTitle });
+      setEditingTitle(null);
     }
   };
 
@@ -90,44 +97,103 @@ export const AnnotationNode = memo(function AnnotationNode({ data, selected }: N
         // Fill default: a BOX is solid white unless the user sets a color (or
         // "transparent"); plain TEXT is transparent by default.
         const fill = d.fillColor ?? (a.variant === "box" ? "#ffffff" : "transparent");
+        const isBox = a.variant === "box";
+        // The title bar: BOXES only. Rendered even when empty so there's a
+        // double-click target across the top strip — but the divider + padding
+        // only show once there's a title (or we're editing it), so an untitled
+        // box looks like a plain box.
+        const hasTitle = !!(a.title || a.titleIcon) || editingTitle !== null;
+        // Mask the border segment behind the legend with the box fill (or the
+        // canvas bg when transparent) so the border truly "stops" for the title.
+        const legendMask = fill && fill !== "transparent" ? fill : "var(--background)";
+        // The box's own corner radius (rounded-md = 6px default; overridable).
+        // The legend's TOP corners track it so the rounding stays proportional.
+        const boxRadius = d.borderRadius ?? 6;
+        const titleBar = isBox ? (
+          <div
+            onClick={(e) => { e.stopPropagation(); d.onSelect(d.nodeId); }}
+            onDoubleClick={(e) => { e.stopPropagation(); setEditingTitle(a.title ?? ""); }}
+            title="Double-click to edit title"
+            className="absolute left-3 top-0 z-10 flex max-w-[calc(100%-24px)] -translate-y-1/2 items-center gap-1.5"
+            style={hasTitle ? { background: legendMask, padding: "0 6px", borderTopLeftRadius: boxRadius, borderTopRightRadius: boxRadius } : { minWidth: 40, height: 12 }}
+          >
+            {hasTitle && a.titleIcon && (
+              <AnyIcon iconKey={a.titleIcon} className="h-5 w-5 shrink-0 [&_svg]:h-5 [&_svg]:w-5" />
+            )}
+            {editingTitle !== null ? (
+              <input
+                autoFocus
+                value={editingTitle}
+                onChange={(e) => setEditingTitle(e.target.value)}
+                onBlur={commitTitle}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") commitTitle();
+                  else if (e.key === "Escape") setEditingTitle(null);
+                  e.stopPropagation();
+                }}
+                onClick={(e) => e.stopPropagation()}
+                placeholder="Title"
+                className={`bg-transparent text-[15px] font-semibold leading-none outline-none ${d.fontColor ? "" : "text-foreground"}`}
+                style={d.fontColor ? { color: d.fontColor } : undefined}
+              />
+            ) : hasTitle ? (
+              <span className={`truncate text-[15px] font-semibold leading-none ${d.fontColor ? "" : "text-foreground"}`} style={d.fontColor ? { color: d.fontColor } : undefined}>
+                {a.title}
+              </span>
+            ) : null}
+          </div>
+        ) : null;
         return (
         <div
           onClick={() => d.onSelect(d.nodeId)}
-          className={`flex h-full w-full overflow-hidden rounded-md ${V_CLASS[vA]} ${H_CLASS[hA]} ${selected ? "ring-2 ring-primary/60" : ""}`}
+          title="Double-click to edit"
+          className={`relative flex h-full w-full flex-col ${selected ? "ring-2 ring-primary/60" : ""}`}
           style={{
+            borderRadius: boxRadius,
             borderStyle: showBorder ? (d.borderStyle ?? "solid") : undefined,
             borderWidth: showBorder ? borderW : undefined,
             borderColor: showBorder ? (d.borderColor ?? "var(--border)") : undefined,
-            padding: showBorder ? 8 : 2,
             opacity: d.opacity ?? 1,
             background: fill,
           }}
         >
-          {editing !== null ? (
-            <textarea
-              autoFocus
-              value={editing}
-              onChange={(e) => setEditing(e.target.value)}
-              onBlur={commit}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) commit();
-                else if (e.key === "Escape") setEditing(null);
-                e.stopPropagation();
-              }}
-              onClick={(e) => e.stopPropagation()}
-              className={`h-full w-full resize-none bg-transparent outline-none ${d.fontColor ? "" : "text-foreground"}`}
-              style={{ fontSize, fontWeight, textAlign: hA, ...(d.fontColor ? { color: d.fontColor } : {}) }}
-            />
-          ) : (
-            <span
-              className={`whitespace-pre-wrap break-words ${d.fontColor ? "" : "text-foreground"}`}
-              style={{ fontSize, fontWeight, transform: "scale(var(--cs, 1))", ...(d.fontColor ? { color: d.fontColor } : {}) }}
-              title="Double-click to edit"
-              onDoubleClick={(e) => { e.stopPropagation(); setEditing(a.text ?? ""); }}
-            >
-              {a.text || (a.variant === "box" ? "" : "Text")}
-            </span>
-          )}
+          {titleBar}
+          {/* Body — centered (or aligned) editable text, as before. */}
+          <div
+            onDoubleClick={(e) => { e.stopPropagation(); setEditing(a.text ?? ""); }}
+            className={`flex min-h-0 w-full flex-1 overflow-hidden ${V_CLASS[vA]} ${H_CLASS[hA]}`}
+            style={{ padding: showBorder ? 8 : 2 }}
+          >
+            {editing !== null ? (
+              <textarea
+                autoFocus
+                value={editing}
+                rows={Math.max(1, editing.split("\n").length)}
+                onChange={(e) => setEditing(e.target.value)}
+                onBlur={commit}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) commit();
+                  else if (e.key === "Escape") setEditing(null);
+                  e.stopPropagation();
+                }}
+                onClick={(e) => e.stopPropagation()}
+                // No h-full: the textarea auto-sizes to its content and lives in
+                // the aligned flex slot, so you edit text where it'll actually
+                // render (center / top-left / etc.) instead of always top-left.
+                className={`w-full resize-none overflow-hidden bg-transparent outline-none ${d.fontColor ? "" : "text-foreground"}`}
+                style={{ fontSize, fontWeight, lineHeight: 1.3, textAlign: hA, ...(d.fontColor ? { color: d.fontColor } : {}) }}
+              />
+            ) : (
+              <span
+                className={`whitespace-pre-wrap break-words ${d.fontColor ? "" : "text-foreground"}`}
+                style={{ fontSize, fontWeight, transform: "scale(var(--cs, 1))", ...(d.fontColor ? { color: d.fontColor } : {}) }}
+                title="Double-click to edit"
+                onDoubleClick={(e) => { e.stopPropagation(); setEditing(a.text ?? ""); }}
+              >
+                {a.text || (isBox ? "" : "Text")}
+              </span>
+            )}
+          </div>
         </div>
         );
       })()}
