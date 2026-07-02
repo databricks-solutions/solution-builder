@@ -30,10 +30,17 @@ import {
   serializeArchitecture,
   type PlatformSchema,
 } from "@/lib/platform-architecture";
-import { saveProjectFile, type DeployedResourceLink } from "@/lib/custom-api";
-import { Check, Loader2 } from "lucide-react";
+import { saveProjectFile, getArchitectureStandaloneTemplate, type DeployedResourceLink } from "@/lib/custom-api";
+import { Check, ChevronDown, Download, Loader2 } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Canvas } from "./platform-diagram/canvas";
 import { CustomLogosContext } from "./platform-diagram/shared";
+import { exportDiagramImage } from "./platform-diagram/export-image";
 
 // ---------------------------------------------------------------------------
 // Top-level component — owns parse, deep-link resolution, save
@@ -160,9 +167,53 @@ function PlatformDiagram({ content, deployedResources, projectId, defaultEditMod
   return (
     <div className="flex h-full w-full flex-col">
       {!hideChrome && (
-        <div className="flex items-center justify-between border-b border-border bg-muted/30 px-3 py-2">
+        <div className="flex items-center justify-between gap-2 border-b border-border bg-muted/30 px-3 py-2">
           <div className="text-sm font-medium text-foreground">{schema.name}</div>
-          <SaveChip status={status} />
+          <div className="flex items-center gap-2">
+            <SaveChip status={status} />
+            {/* Download menu — PNG/SVG capture, or a self-contained standalone
+                HTML (the architecture-skill editor template with THIS diagram
+                baked into its inline JSON block). */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  className="flex cursor-pointer items-center gap-1 rounded-md border border-border bg-background px-2 py-1 text-[11.5px] font-medium text-foreground hover:bg-muted"
+                >
+                  <Download className="h-3.5 w-3.5" /> Download <ChevronDown className="h-3 w-3 text-muted-foreground" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem className="cursor-pointer" onClick={() => void exportDiagramImage("png")}>Image (PNG)</DropdownMenuItem>
+                <DropdownMenuItem className="cursor-pointer" onClick={() => void exportDiagramImage("svg")}>Image (SVG)</DropdownMenuItem>
+                <DropdownMenuItem
+                  className="cursor-pointer"
+                  onClick={async () => {
+                    try {
+                      const template = await getArchitectureStandaloneTemplate();
+                      let json = (lastAuthoredMd.current ?? acceptedContent ?? "").trim();
+                      const fence = json.match(/```(?:json)?\s*\n([\s\S]*?)\n```/);
+                      if (fence) json = fence[1].trim();
+                      try { json = JSON.stringify(JSON.parse(json), null, 2); } catch { /* keep as-is */ }
+                      const replaced = template.replace(
+                        /(<script[^>]*id="architecture"[^>]*>)([\s\S]*?)(<\/script>)/,
+                        (_all, open, _body, close) => `${open}\n${json}\n${close}`,
+                      );
+                      const blob = new Blob([replaced], { type: "text/html" });
+                      const a = document.createElement("a");
+                      a.href = URL.createObjectURL(blob);
+                      a.download = "architecture.html";
+                      a.click();
+                    } catch (e) {
+                      console.error("standalone HTML export failed:", e);
+                    }
+                  }}
+                >
+                  Standalone HTML (editable page)
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         </div>
       )}
       <CustomLogosContext.Provider value={schema.customLogos ?? {}}>

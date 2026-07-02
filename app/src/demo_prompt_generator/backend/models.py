@@ -270,6 +270,11 @@ class Project(SQLModel, table=True):
     narrative_readme_hash: Optional[str] = SQLField(default=None, max_length=64)
     project_type: str = SQLField(default=ProjectType.DATABRICKS_DEMO.value, max_length=50)
     stage: str = SQLField(default=ProjectStage.DRAFTING.value, max_length=20)
+    # Architecture-first lifecycle: created from the home page's "Describe your
+    # architecture" mode. While True the workspace opens on the Architecture tab
+    # and shows the "Build the solution" CTA; flipped to False when the user
+    # kicks off the build from the architecture.
+    architecture_first: bool = SQLField(default=False)
 
     # Skills config (JSON array of skill names)
     skills: str = SQLField(default="[]", sa_column=Column(Text))
@@ -555,12 +560,33 @@ class ProjectCreateRequest(BaseModel):
         None,
         description="Opening chat message. Persisted as a user Message on the new project so it survives refresh and renders before the agent replies.",
     )
+    architecture_first: bool = Field(
+        False,
+        description="Architecture-first project: opens on the Architecture tab and shows the 'Build the solution' CTA until the build is kicked off.",
+    )
 
 
 class ProjectUpdateRequest(BaseModel):
     """Request to update a project."""
     name: Optional[str] = None
     description: Optional[str] = None
+    # Flipped to False when the user builds the solution from the architecture.
+    architecture_first: Optional[bool] = None
+
+
+class ProjectProvisionRequest(BaseModel):
+    """Request to provision the remote assets an architecture-first project
+    skipped at creation (LLM name/schema generation, warehouse discovery,
+    CREATE SCHEMA). Idempotent — called by the "Build the solution" dialog
+    right before the build prompt is sent."""
+    description: Optional[str] = Field(
+        None,
+        description="The build story/topic. When set, the project name + description are regenerated from it (richer input than the original architecture prompt).",
+    )
+    capabilities: Optional[list[str]] = Field(
+        None,
+        description="Final capability selection from the build dialog — re-seeds resources.json (only while no resources have been created yet).",
+    )
 
 
 class DescriptionAiEditRequest(BaseModel):
@@ -596,6 +622,7 @@ class ProjectOut(BaseModel):
     narrative_readme_hash: Optional[str] = None
     project_type: str
     stage: str = ProjectStage.DRAFTING.value
+    architecture_first: bool = False
     created_at: datetime
     updated_at: datetime
     message_count: int = 0

@@ -131,30 +131,42 @@ def _find_repo_root() -> Optional[Path]:
     return None
 
 
-def get_demo_generator_skill_path() -> Optional[Path]:
-    """Get the path to the demo-generator skill.
+def _get_repo_skill_path(skill_name: str) -> Optional[Path]:
+    """Resolve a skill that lives in THIS repo's ``.claude/skills/<name>``.
 
-    Wheel install: ``demo_prompt_generator/.claude/skills/databricks-demo-generator/``
-    is shipped inside the package by scripts/build.sh.
+    Wheel install: ``demo_prompt_generator/.claude/skills/<name>/`` is shipped
+    inside the package by scripts/build.sh.
     Editable dev install: walk up to the repo's ``.claude/skills/...``.
     """
-    bundled = Path(__file__).parent.parent.parent / ".claude" / "skills" / "databricks-demo-generator"
+    bundled = Path(__file__).parent.parent.parent / ".claude" / "skills" / skill_name
     if bundled.exists():
         return bundled
 
     repo_root = _find_repo_root()
     if repo_root:
-        demo_skill = repo_root / ".claude" / "skills" / "databricks-demo-generator"
-        if demo_skill.exists():
-            return demo_skill
+        skill = repo_root / ".claude" / "skills" / skill_name
+        if skill.exists():
+            return skill
 
     current_file = Path(__file__)
     for parent in current_file.parents:
-        candidate = parent / ".claude" / "skills" / "databricks-demo-generator"
+        candidate = parent / ".claude" / "skills" / skill_name
         if candidate.exists():
             return candidate
 
     return None
+
+
+def get_demo_generator_skill_path() -> Optional[Path]:
+    """Get the path to the demo-generator skill."""
+    return _get_repo_skill_path("databricks-demo-generator")
+
+
+def get_architecture_skill_path() -> Optional[Path]:
+    """Get the path to the databricks-architecture skill (SKILL.md, reference/,
+    and — in dev / a wheel that ships it — renderer/ with the standalone
+    viewer/editor HTMLs)."""
+    return _get_repo_skill_path("databricks-architecture")
 
 
 # Ignore rules for skill copies. We intentionally KEEP node_modules — the
@@ -200,6 +212,28 @@ def copy_skills_to_project(project_id: str) -> bool:
         shutil.copytree(demo_skill_path, dest, ignore=_SKILL_COPY_IGNORE)
         copied += 1
 
+    # Copy the databricks-architecture skill (also this repo). The
+    # demo-generator SKILL.md points the agent at
+    # `.claude/skills/databricks-architecture/SKILL.md` for the flat
+    # nodes/edges schema + component catalog + reference diagrams — without
+    # this copy that path doesn't exist inside a project session.
+    # `renderer/` (the ~5MB standalone viewer/editor HTMLs + headless render
+    # loop) is excluded: inside the app the Architecture tab renders
+    # architecture.md natively, so the agent only needs SKILL.md + reference/.
+    arch_skill_path = _get_repo_skill_path("databricks-architecture")
+    if arch_skill_path and arch_skill_path.exists():
+        dest = skills_dest / "databricks-architecture"
+        if dest.exists():
+            shutil.rmtree(dest)
+        shutil.copytree(
+            arch_skill_path,
+            dest,
+            ignore=shutil.ignore_patterns(
+                "renderer", ".venv", ".DS_Store", "__pycache__", "*.pyc",
+            ),
+        )
+        copied += 1
+
     # Copy every non-excluded skill from ai-dev-kit.
     skills_src = Path(AI_DEV_KIT_LOCAL) / "databricks-skills"
     if skills_src.exists():
@@ -221,9 +255,17 @@ def copy_skills_to_project(project_id: str) -> bool:
 
 
 def ensure_project_skills(project_id: str) -> bool:
-    """Ensure skills exist in project, copying if missing."""
+    """Ensure skills exist in project, copying if missing.
+
+    Also heals projects created before the databricks-architecture skill was
+    added to the copy set — they have a populated skills dir but lack it.
+    """
     skills_dir = Path(PROJECTS_BASE_DIR) / project_id / ".claude" / "skills"
-    if not skills_dir.exists() or not any(skills_dir.iterdir()):
+    if (
+        not skills_dir.exists()
+        or not any(skills_dir.iterdir())
+        or not (skills_dir / "databricks-architecture" / "SKILL.md").exists()
+    ):
         return copy_skills_to_project(project_id)
     return True
 

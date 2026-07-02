@@ -16,11 +16,11 @@
  *   __ARCH_MODE__        = "viewer" | "editor"
  *   __ARCH_STANDALONE__  = true   (makes file-icons inline as data-URIs)
  */
-import { StrictMode, useCallback, useRef, useState } from "react";
+import { StrictMode, useCallback, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { toPng, toSvg } from "html-to-image";
 import "@/styles/globals.css";
 import PlatformDiagram from "@/components/project/platform-diagram";
+import { exportDiagramImage } from "@/components/project/platform-diagram/export-image";
 
 declare const __ARCH_MODE__: string | undefined;
 const MODE: "viewer" | "editor" = (typeof __ARCH_MODE__ !== "undefined" && __ARCH_MODE__ === "editor") ? "editor" : "viewer";
@@ -37,15 +37,6 @@ function readInlineArchitecture(): string {
   return raw;
 }
 
-/** The fit-to-content element html-to-image / the headless screenshot capture:
- *  the ReactFlow viewport (the transformed layer holding the nodes). Falls back
- *  to the pane. */
-function captureTarget(): HTMLElement | null {
-  return (
-    document.querySelector(".react-flow__viewport") as HTMLElement | null
-  ) ?? (document.querySelector(".react-flow") as HTMLElement | null);
-}
-
 function download(name: string, dataUrl: string) {
   const a = document.createElement("a");
   a.href = dataUrl;
@@ -53,56 +44,195 @@ function download(name: string, dataUrl: string) {
   a.click();
 }
 
+/** Strip an optional ```json fence and pretty-print when parseable. */
+function prettyJson(raw: string): string {
+  let t = raw.trim();
+  const m = t.match(/```(?:json)?\s*\n([\s\S]*?)\n```/);
+  if (m) t = m[1].trim();
+  try { return JSON.stringify(JSON.parse(t), null, 2); } catch { return t; }
+}
+
+/** Rebuild THIS html with the inline JSON block replaced by `md` (fence
+ *  stripped, pretty-printed when valid). Shared by Download HTML + the
+ *  File System Access auto-save. */
+function buildHtml(md: string): string {
+  let json = md.trim();
+  const m = json.match(/```(?:json)?\s*\n([\s\S]*?)\n```/);
+  if (m) json = m[1].trim();
+  try { json = JSON.stringify(JSON.parse(json), null, 2); } catch { /* keep as-is */ }
+  const html = document.documentElement.outerHTML;
+  const replaced = html.replace(
+    /(<script[^>]*id="architecture"[^>]*>)([\s\S]*?)(<\/script>)/,
+    (_all, open, _body, close) => `${open}\n${json}\n${close}`,
+  );
+  return "<!doctype html>\n" + replaced;
+}
+
+// --- Persistence for a file:// page (which cannot silently overwrite itself) --
+// 1. localStorage snapshot keyed by this file's URL: every edit is stashed, and
+//    reopening the SAME file auto-restores unsaved edits (all browsers).
+// 2. File System Access API (Chromium): "Save" asks ONCE for the html file
+//    itself; we keep the handle and every subsequent edit auto-writes to disk.
+const LS_KEY = `arch-autosave:${location.href}`;
+
+/** Minimal ambient typing for the File System Access API (Chromium). */
+interface FsaWritable { write(data: string): Promise<void>; close(): Promise<void> }
+interface FsaHandle { createWritable(): Promise<FsaWritable> }
+type FsaWindow = Window & {
+  showSaveFilePicker?: (opts?: {
+    suggestedName?: string;
+    types?: { description?: string; accept: Record<string, string[]> }[];
+  }) => Promise<FsaHandle>;
+};
+const FSA_SUPPORTED = typeof (window as FsaWindow).showSaveFilePicker === "function";
+
 function App() {
-  // The live architecture.md string — seeded from the inline block, updated by
-  // the diagram's onSave (so Download HTML reflects edits). Used only in editor.
-  const initial = readInlineArchitecture();
+  // The live architecture.md string — seeded from the inline block (or a newer
+  // localStorage snapshot of unsaved edits for this same file), updated by the
+  // diagram's onSave (so Download/Save reflect edits).
+  const inline = readInlineArchitecture();
+  // EDITOR ONLY: the viewer must always render exactly its inline JSON — a
+  // localStorage restore there would poison the headless render loop (the
+  // agent rewrites the same file path; a stale snapshot for that href would
+  // override the fresh content in the PNG it reads back).
+  const stored = (() => {
+    if (MODE !== "editor") return null;
+    try { return localStorage.getItem(LS_KEY); } catch { return null; }
+  })();
+  const restoredFromStorage = !!(stored && stored.trim() && stored.trim() !== inline.trim());
+  const initial = restoredFromStorage ? stored!.trim() : inline;
   const [content, setContent] = useState<string>(initial);
   const liveMd = useRef<string>(initial);
+  const [showRestored, setShowRestored] = useState(restoredFromStorage);
+  const discardRestored = useCallback(() => {
+    try { localStorage.removeItem(LS_KEY); } catch { /* ignore */ }
+    liveMd.current = inline;
+    setContent(inline);
+    setShowRestored(false);
+  }, [inline]);
 
-  const onSave = useCallback((md: string) => { liveMd.current = md; }, []);
+  // File System Access auto-save (Chromium): once the user links the file via
+  // "Save", every edit re-writes it (debounced). `saveState` drives the chip.
+  const fileHandle = useRef<FsaHandle | null>(null);
+  const [saveState, setSaveState] = useState<"unlinked" | "saved" | "saving" | "error">("unlinked");
+  const fsaTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const writeToFile = useCallback(async () => {
+    const h = fileHandle.current;
+    if (!h) return;
+    setSaveState("saving");
+    try {
+      const w = await h.createWritable();
+      await w.write(buildHtml(liveMd.current));
+      await w.close();
+      setSaveState("saved");
+      // The file now holds the edits — the localStorage snapshot is redundant.
+      try { localStorage.removeItem(LS_KEY); } catch { /* ignore */ }
+    } catch (e) {
+      console.error("auto-save failed:", e);
+      setSaveState("error");
+    }
+  }, []);
+  const scheduleWrite = useCallback(() => {
+    if (!fileHandle.current) return;
+    if (fsaTimer.current) clearTimeout(fsaTimer.current);
+    fsaTimer.current = setTimeout(() => { void writeToFile(); }, 1200);
+  }, [writeToFile]);
+  const linkAndSave = useCallback(async () => {
+    try {
+      const picker = (window as FsaWindow).showSaveFilePicker;
+      if (!picker) return;
+      fileHandle.current = await picker({
+        suggestedName: "architecture.html",
+        types: [{ description: "HTML", accept: { "text/html": [".html"] } }],
+      });
+      await writeToFile();
+    } catch {
+      /* user cancelled the picker */
+    }
+  }, [writeToFile]);
+
+  // Stash every edit + feed the FSA auto-save. Called by the diagram's onSave
+  // and by the JSON debug panel.
+  const persistEdit = useCallback((md: string) => {
+    // Editor only (see the restore note above) — viewer edits via the JSON
+    // debug panel are deliberately ephemeral.
+    if (MODE === "editor") {
+      try { localStorage.setItem(LS_KEY, md); } catch { /* quota/file:// quirks */ }
+    }
+    scheduleWrite();
+  }, [scheduleWrite]);
+
+  // ---- hidden JSON debug panel -------------------------------------------
+  // An almost-invisible `{ }` toggle bottom-left opens a live JSON view of the
+  // architecture. Edits are debounce-parsed and applied to the canvas (invalid
+  // JSON shows an error and is NOT applied); canvas edits sync back into the
+  // textarea whenever it isn't focused. Pure debug aid.
+  const [showJson, setShowJson] = useState(false);
+  const [jsonDraft, setJsonDraft] = useState("");
+  const [jsonErr, setJsonErr] = useState<string | null>(null);
+  const showJsonRef = useRef(false);
+  showJsonRef.current = showJson;
+  const draftFocusedRef = useRef(false);
+  const applyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const onSave = useCallback((md: string) => {
+    liveMd.current = md;
+    persistEdit(md);
+    // Keep the debug panel in sync with canvas edits (only when not typing).
+    if (showJsonRef.current && !draftFocusedRef.current) setJsonDraft(prettyJson(md));
+  }, [persistEdit]);
+
+  const toggleJson = useCallback(() => {
+    setShowJson((open) => {
+      if (!open) {
+        setJsonDraft(prettyJson(liveMd.current || ""));
+        setJsonErr(null);
+      }
+      return !open;
+    });
+  }, []);
+
+  const onJsonDraftChange = useCallback((v: string) => {
+    setJsonDraft(v);
+    if (applyTimer.current) clearTimeout(applyTimer.current);
+    applyTimer.current = setTimeout(() => {
+      let t = v.trim();
+      const m = t.match(/```(?:json)?\s*\n([\s\S]*?)\n```/);
+      if (m) t = m[1].trim();
+      try {
+        JSON.parse(t); // validate only — apply the raw text, diagram parses it
+        setJsonErr(null);
+        liveMd.current = t;
+        setContent(t);
+        persistEdit(t);
+      } catch (e) {
+        setJsonErr(e instanceof Error ? e.message : "Invalid JSON");
+      }
+    }, 400);
+  }, [persistEdit]);
 
   // ---- editor toolbar actions -------------------------------------------
-  const onLoad = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const f = e.target.files?.[0];
-    if (!f) return;
-    const r = new FileReader();
-    r.onload = () => {
-      let text = String(r.result ?? "");
-      // accept a fenced ```json block (architecture.md) OR raw json
-      const m = text.match(/```(?:json)?\s*\n([\s\S]*?)\n```/);
-      if (m) text = m[1];
-      const t = text.trim();
-      liveMd.current = t;
-      setContent(t);
-    };
-    r.readAsText(f);
-  }, []);
-
-  const exportImage = useCallback(async (kind: "png" | "svg") => {
-    const el = captureTarget();
-    if (!el) return;
-    const opts = { backgroundColor: "#ffffff", pixelRatio: 2, cacheBust: true };
-    const dataUrl = kind === "png" ? await toPng(el, opts) : await toSvg(el, opts);
-    download(`architecture.${kind}`, dataUrl);
-  }, []);
-
   // Download a fresh copy of THIS html with the inline JSON block replaced by
-  // the current (edited) architecture. Re-reads the live md (strips any fence).
+  // the current (edited) architecture. Used as the Save fallback where the
+  // File System Access API doesn't exist (Firefox/Safari).
   const downloadHtml = useCallback(() => {
-    let json = liveMd.current.trim();
-    const m = json.match(/```(?:json)?\s*\n([\s\S]*?)\n```/);
-    if (m) json = m[1].trim();
-    // Pretty-print if valid.
-    try { json = JSON.stringify(JSON.parse(json), null, 2); } catch { /* keep as-is */ }
-    const html = document.documentElement.outerHTML;
-    const replaced = html.replace(
-      /(<script[^>]*id="architecture"[^>]*>)([\s\S]*?)(<\/script>)/,
-      (_all, open, _body, close) => `${open}\n${json}\n${close}`,
-    );
-    const blob = new Blob(["<!doctype html>\n" + replaced], { type: "text/html" });
+    const blob = new Blob([buildHtml(liveMd.current)], { type: "text/html" });
     download("architecture.html", URL.createObjectURL(blob));
   }, []);
+
+  // ⌘S / Ctrl+S — write to the linked file (FSA), link it first if needed, or
+  // fall back to Download HTML where the API doesn't exist (Firefox/Safari).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== "s") return;
+      e.preventDefault();
+      if (fileHandle.current) void writeToFile();
+      else if (FSA_SUPPORTED) void linkAndSave();
+      else downloadHtml();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [writeToFile, linkAndSave, downloadHtml]);
 
   const Btn = (p: { onClick: () => void; children: React.ReactNode }) => (
     <button
@@ -119,16 +249,47 @@ function App() {
       {MODE === "editor" && (
         <div className="flex shrink-0 items-center gap-2 border-b border-border bg-muted/30 px-3 py-2">
           <span className="mr-1 text-[12px] font-semibold text-foreground">Architecture editor</span>
-          <label className="cursor-pointer rounded-md border border-border bg-background px-2.5 py-1 text-[12px] font-medium text-foreground hover:bg-muted">
-            Load…
-            <input type="file" accept=".json,.md,.txt,application/json" className="hidden" onChange={onLoad} />
-          </label>
-          <Btn onClick={() => exportImage("png")}>Download PNG</Btn>
-          <Btn onClick={() => exportImage("svg")}>Download SVG</Btn>
-          <Btn onClick={downloadHtml}>Download HTML</Btn>
+          {/* Save (⌘S): Chromium links THIS html file once via the file picker,
+              then every edit auto-writes back to it. Elsewhere → download (the
+              downloaded html IS the save — this file is already standalone). */}
+          {FSA_SUPPORTED ? (
+            <Btn onClick={() => (fileHandle.current ? void writeToFile() : void linkAndSave())}>
+              {saveState === "unlinked" ? "Save…" : "Save"}
+            </Btn>
+          ) : (
+            <Btn onClick={downloadHtml}>Save (download)</Btn>
+          )}
+          {/* Download as image — one button, pick the format. The visual gap
+              below the trigger is PADDING inside the hover element (not a
+              margin) so moving the cursor down to the list never leaves the
+              hover group — a margin gap was closing the menu mid-travel. */}
+          <div className="group relative">
+            <Btn onClick={() => {}}>Download ▾</Btn>
+            <div className="invisible absolute left-0 top-full z-50 pt-1 group-hover:visible">
+              <div className="min-w-[140px] rounded-md border border-border bg-card py-1 shadow-lg">
+                <button type="button" onClick={() => void exportDiagramImage("png")} className="block w-full cursor-pointer px-3 py-1.5 text-left text-[12px] text-foreground hover:bg-muted">Image (PNG)</button>
+                <button type="button" onClick={() => void exportDiagramImage("svg")} className="block w-full cursor-pointer px-3 py-1.5 text-left text-[12px] text-foreground hover:bg-muted">Image (SVG)</button>
+              </div>
+            </div>
+          </div>
+          {/* Auto-save status once the file is linked. */}
+          {saveState !== "unlinked" && (
+            <span className={`text-[11px] ${saveState === "error" ? "text-destructive" : "text-muted-foreground"}`}>
+              {saveState === "saving" ? "Saving…" : saveState === "error" ? "Save failed" : "Auto-saving to file ✓"}
+            </span>
+          )}
+          {/* Unsaved edits restored from this browser's snapshot of the file. */}
+          {showRestored && (
+            <span className="ml-auto flex items-center gap-1.5 rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[11px] text-amber-800">
+              Restored unsaved edits
+              <button type="button" onClick={discardRestored} className="cursor-pointer underline underline-offset-2 hover:text-amber-950">
+                discard
+              </button>
+            </span>
+          )}
         </div>
       )}
-      <div className="min-h-0 flex-1">
+      <div className="relative min-h-0 flex-1">
         <PlatformDiagram
           content={content || null}
           capabilities={null}
@@ -138,6 +299,44 @@ function App() {
           onSave={onSave}
           hideChrome
         />
+
+        {/* Almost-hidden JSON debug toggle (bottom-right, clear of the zoom
+            controls bottom-left). */}
+        <button
+          type="button"
+          onClick={toggleJson}
+          title="View / edit the architecture JSON (debug)"
+          className={`absolute bottom-2 right-2 z-50 cursor-pointer rounded px-1.5 py-0.5 font-mono text-[10px] transition-opacity ${showJson ? "bg-card text-foreground opacity-90 shadow-sm" : "text-muted-foreground opacity-20 hover:opacity-80"}`}
+        >
+          {"{ }"}
+        </button>
+
+        {/* Live JSON panel — edits apply to the canvas when valid. */}
+        {showJson && (
+          <div className="absolute bottom-8 right-2 z-50 flex h-[46vh] w-[520px] max-w-[92vw] flex-col overflow-hidden rounded-lg border border-border bg-card shadow-2xl">
+            <div className="flex shrink-0 items-center gap-2 border-b border-border px-2.5 py-1.5">
+              <span className="font-mono text-[11px] font-semibold text-foreground">architecture JSON</span>
+              <span className={`truncate text-[10px] ${jsonErr ? "text-destructive" : "text-muted-foreground"}`}>
+                {jsonErr ? jsonErr : "live — valid edits apply to the canvas"}
+              </span>
+              <button
+                type="button"
+                onClick={toggleJson}
+                className="ml-auto cursor-pointer rounded px-1 text-[12px] text-muted-foreground hover:bg-muted hover:text-foreground"
+              >
+                ×
+              </button>
+            </div>
+            <textarea
+              value={jsonDraft}
+              onChange={(e) => onJsonDraftChange(e.target.value)}
+              onFocus={() => { draftFocusedRef.current = true; }}
+              onBlur={() => { draftFocusedRef.current = false; }}
+              spellCheck={false}
+              className="min-h-0 flex-1 resize-none bg-background p-2.5 font-mono text-[11px] leading-relaxed text-foreground outline-none"
+            />
+          </div>
+        )}
       </div>
     </div>
   );

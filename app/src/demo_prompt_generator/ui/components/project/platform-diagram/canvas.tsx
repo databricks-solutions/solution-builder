@@ -171,6 +171,10 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
   // the keydown handler and nothing renders off it.
   const clipboardRef = useRef<Node[] | null>(null);
 
+  // Live editMode mirror so the stable onSelect can check the mode without
+  // re-creating (which would churn every node's data identity).
+  const editModeRef = useRef(editMode);
+  editModeRef.current = editMode;
   const onSelect = useCallback((id: string) => {
     // In paste mode, a click pastes the copied style onto the node (and stays
     // in paste mode for more pastes) instead of selecting it.
@@ -178,6 +182,11 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
       styleNodesRef.current?.([id], copiedStyleRef.current);
       return;
     }
+    // selectedId only drives the VIEW-mode DetailPanel. In edit mode, setting
+    // it changes nothing visible but still lands as a separate full-Canvas
+    // commit on every click (after RF's own selection commit) — one of the
+    // sequential renders behind the click latency. Skip it entirely.
+    if (editModeRef.current) return;
     setSelectedId((cur) => (cur === id ? null : id));
   }, []);
 
@@ -279,8 +288,6 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
     duplicate: () => {},
     rotate: () => {},
     remove: () => {},
-    undo: () => {},
-    redo: () => {},
   });
   useEffect(() => {
     if (!editMode) return;
@@ -326,8 +333,8 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
       else if (k === "v") { e.preventDefault(); H.pasteClipboard(); }
       else if (k === "d") { e.preventDefault(); H.duplicate(); }
       else if (k === "g") { e.preventDefault(); e.shiftKey ? H.ungroup() : H.group(); }
-      else if (k === "z") { e.preventDefault(); e.shiftKey ? H.redo() : H.undo(); }
-      else if (k === "y") { e.preventDefault(); H.redo(); } // ⌘Y = redo (Windows-ish)
+      // NOTE: ⌘Z / ⇧⌘Z / ⌘Y are bound by useDiagramHistory's own keydown —
+      // binding them here too made every undo/redo fire TWICE per press.
       else if (e.key === "]") { e.preventDefault(); H.bringToFront(); }
       else if (e.key === "[") { e.preventDefault(); H.sendToBack(); }
     };
@@ -731,7 +738,13 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
   // Selecting one group member selects the whole group (so a drag moves them
   // together). Called from onNodeClick. Refs so the stable handler can reach it.
   const selectGroup = useCallback((gid: string) => {
-    setNodes((nds) => nds.map((n) => ({ ...n, selected: (n.data as NodeData).groupId === gid })));
+    // Identity-preserving: only clone nodes whose `selected` actually flips —
+    // a fresh object for every node busts every node's React.memo on each
+    // grouped-node click.
+    setNodes((nds) => nds.map((n) => {
+      const want = (n.data as NodeData).groupId === gid;
+      return (n.selected ?? false) === want ? n : { ...n, selected: want };
+    }));
   }, [setNodes]);
   const selectGroupRef = useRef(selectGroup);
   selectGroupRef.current = selectGroup;
@@ -962,7 +975,17 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
   }, [selectedId, selectedNodeData, catalog]);
   // Base ids of every placed instance — the library dims a catalog item when at
   // least one instance is on the canvas (but it stays draggable for duplicates).
-  const placedIds = useMemo(() => new Set(nodes.map((n) => baseId(n.id))), [nodes]);
+  // TWO-STEP memo so the Set's IDENTITY only changes when MEMBERSHIP changes:
+  // `nodes` gets a new array identity on every drag/resize frame and on every
+  // selection commit, and a fresh Set each time busted the memo'd
+  // LibraryPalette — re-rendering the entire catalog subtree per frame (the
+  // main remaining resize/selection jank). The membership key is O(N) string
+  // work per commit; the Set (and the palette) only rebuild on add/remove.
+  const placedKey = useMemo(
+    () => Array.from(new Set(nodes.map((n) => baseId(n.id)))).sort().join(" "),
+    [nodes],
+  );
+  const placedIds = useMemo(() => new Set(placedKey ? placedKey.split(" ") : []), [placedKey]);
   const menuEdge = menu?.kind === "edge" ? edges.find((e) => e.id === menu.id) : undefined;
 
   // --- Right-side EDIT PANEL state (driven by the SELECTION, not a menu) -----
@@ -1050,8 +1073,6 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
     duplicate: () => { if (selectedIds.length) { copySelection(); pasteClipboard(); } },
     rotate: () => { if (panelPrimaryId) rotateNode(panelPrimaryId); },
     remove: () => { if (selectedIds.length) { const ids = [...selectedIds]; clearSelection(); ids.forEach(removeNode); } },
-    undo: () => { if (canUndo) undo(); },
-    redo: () => { if (canRedo) redo(); },
   };
 
   // Memoized EditPanel handlers. The panel is `memo`'d; feeding it fresh inline

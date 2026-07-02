@@ -40,6 +40,9 @@ export interface Project {
   narrative_readme_hash?: string | null;
   project_type: string;
   stage: ProjectStage;
+  /** Architecture-first project: opens on the Architecture tab and shows the
+   *  "Build the solution" CTA until the build is kicked off (flag → false). */
+  architecture_first?: boolean;
   created_at: string;
   updated_at: string;
   message_count: number;
@@ -291,6 +294,7 @@ export async function createProject(
   capabilities: string[] = [],
   initialPrompt?: string,
   contextFiles?: UploadedFile[],
+  architectureFirst = false,
 ): Promise<Project> {
   const resp = await fetch(apiUrl("/api/projects"), {
     method: "POST",
@@ -300,10 +304,20 @@ export async function createProject(
       capabilities,
       initial_prompt: initialPrompt,
       context_files: contextFiles ?? [],
+      architecture_first: architectureFirst,
     }),
   });
   if (!resp.ok) throw new Error(`Failed to create project: ${resp.status}`);
   return resp.json();
+}
+
+/** The standalone architecture editor HTML template (the skill's renderer).
+ *  Callers inject the current diagram JSON into its inline block to produce a
+ *  self-contained, shareable + editable architecture page. */
+export async function getArchitectureStandaloneTemplate(): Promise<string> {
+  const resp = await fetch(apiUrl("/api/constants/architecture-standalone-template"));
+  if (!resp.ok) throw new Error(`Standalone template unavailable: ${resp.status}`);
+  return resp.text();
 }
 
 export async function getProject(projectId: string): Promise<Project> {
@@ -314,7 +328,7 @@ export async function getProject(projectId: string): Promise<Project> {
 
 export async function updateProject(
   projectId: string,
-  updates: { name?: string; description?: string }
+  updates: { name?: string; description?: string; architecture_first?: boolean }
 ): Promise<Project> {
   const resp = await fetch(apiUrl(`/api/projects/${projectId}`), {
     method: "PATCH",
@@ -322,6 +336,22 @@ export async function updateProject(
     body: JSON.stringify(updates),
   });
   if (!resp.ok) throw new Error(`Failed to update project: ${resp.status}`);
+  return resp.json();
+}
+
+/** Provision the remote assets an architecture-first project skipped at
+ *  creation (LLM name/schema, warehouse discovery, CREATE SCHEMA). Idempotent
+ *  — the "Build the solution" dialog calls it right before the build prompt. */
+export async function provisionProject(
+  projectId: string,
+  body: { description?: string; capabilities?: string[] },
+): Promise<Project> {
+  const resp = await fetch(apiUrl(`/api/projects/${projectId}/provision`), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!resp.ok) throw new Error(`Failed to provision project: ${resp.status}`);
   return resp.json();
 }
 
@@ -1256,7 +1286,14 @@ export async function* streamSuggestCapabilities(
   /** Joined extraction of any files the user uploaded on the home page.
    *  When set, the backend injects it as a ground-truth context block in
    *  the suggester prompt. Capped to 50 KB by the caller. */
-  contextText?: string
+  contextText?: string,
+  /** Architecture-first: data-source names from the user's diagram. The
+   *  backend tells the LLM to anchor each idea in these exact systems. */
+  datasources?: string[],
+  /** Capabilities-only mode (architecture tab): the LLM selects matching
+   *  capabilities from the text — NO use-case ideas. The stream emits only
+   *  `capabilities` (+ `reasoning`); never `count`/`idea`. */
+  capabilitiesOnly?: boolean
 ): AsyncGenerator<SuggestEvent> {
   const body: Record<string, unknown> = { prompt, capabilities };
   if (previousIdeas && previousIdeas.length > 0) {
@@ -1268,6 +1305,12 @@ export async function* streamSuggestCapabilities(
   }
   if (contextText && contextText.length > 0) {
     body.context_text = contextText;
+  }
+  if (datasources && datasources.length > 0) {
+    body.datasources = datasources;
+  }
+  if (capabilitiesOnly) {
+    body.capabilities_only = true;
   }
 
   const resp = await fetch(apiUrl("/api/capabilities/suggest"), {

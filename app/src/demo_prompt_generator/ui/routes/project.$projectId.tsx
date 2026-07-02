@@ -24,6 +24,8 @@ import { HeaderStatusPill } from "@/components/project/project-overview";
 import { SkillsPopup } from "@/components/project/skills-popup";
 import { UserMenu } from "@/components/layout/user-menu";
 import { TemplatePublishDialog } from "@/components/project/template-publish-dialog";
+import { BuildSolutionDialog } from "@/components/project/build-solution-dialog";
+import { extractArchitectureCapabilities } from "@/lib/architecture-capabilities";
 import { DescriptionEditDialog } from "@/components/project/description-edit-dialog";
 import {
   ResourcesPopover,
@@ -66,6 +68,7 @@ import {
   deleteProject,
   clearProjectSession,
   updateProject,
+  provisionProject,
   getTemplateByProject,
   downloadProjectAsZip,
   getDeployedResources,
@@ -184,7 +187,8 @@ function ProjectPage() {
   // calls `navigate({ search })` which pushes a new browser history
   // entry, so the back/forward arrows walk through tab history.
   const { tab: tabFromUrl } = Route.useSearch();
-  const activeTab: ProjectTab = tabFromUrl ?? "overview";
+  // NOTE: `activeTab` is derived AFTER the project state below — an
+  // architecture-first project defaults to the Architecture tab.
   const setActiveTab = useCallback(
     (next: ProjectTab) => {
       // Drop the `tab` key entirely when picking the default so URLs
@@ -206,6 +210,14 @@ function ProjectPage() {
 
   // Project state
   const [project, setProject] = useState<Project | null>(null);
+  // ARCHITECTURE-FIRST projects hide Overview + Story and live on the
+  // Architecture tab — force it even if a stale ?tab= points at a now-hidden
+  // tab. Otherwise the URL param wins, defaulting to Overview.
+  const activeTab: ProjectTab = project?.architecture_first
+    ? (tabFromUrl === "architecture" || tabFromUrl === "app" || tabFromUrl === "files"
+        ? tabFromUrl
+        : "architecture")
+    : (tabFromUrl ?? "overview");
   const [projectNotFound, setProjectNotFound] = useState(false);
   const [files, setFiles] = useState<ProjectFile[]>([]);
   // True once the initial file list has loaded — guards the architecture
@@ -1301,12 +1313,12 @@ function ProjectPage() {
   }, [projectId, architectureContent]);
 
   // Re-fetch architecture.md from disk after the watcher reports it changed
-  // (the agent rewrote it). Only when it's already loaded — no point fetching a
-  // tab the user never opened. Shows a spinner over the diagram during reload.
-  const architectureLoadedRef = useRef(false);
-  useEffect(() => { architectureLoadedRef.current = architectureContent !== null; }, [architectureContent]);
+  // (the agent rewrote it — or just CREATED it). No "already loaded" guard:
+  // in the architecture-first flow the tab opens BEFORE the file exists (the
+  // initial load 404s), so gating on a previous successful load made the
+  // first agent-created diagram never appear without a manual refresh. The
+  // file_changed event itself proves the file exists now.
   const reloadArchitecture = useCallback(async () => {
-    if (!architectureLoadedRef.current) return;
     setArchitectureReloading(true);
     try {
       const content = await getProjectFile(projectId, "architecture.md");
@@ -1374,6 +1386,44 @@ function ProjectPage() {
       "Read the solution generator skill architecture reference for proper formatting."
     );
   }, [isStreaming, handleSendMessage]);
+
+  // --- Architecture-first: "Build the solution for this architecture" -------
+  // The CTA on the Architecture tab opens a dialog that reuses the home page's
+  // story step (use-case ideas + capability picker, pre-seeded from the
+  // diagram). Building sends the composed prompt to THIS project's agent and
+  // flips architecture_first off — the project then behaves like any other.
+  const [buildDialogOpen, setBuildDialogOpen] = useState(false);
+  const extractedArchitecture = useMemo(
+    () => extractArchitectureCapabilities(architectureContent),
+    [architectureContent],
+  );
+  const handleBuildSolution = useCallback(
+    async (initialPrompt: string, capabilities: string[], storyDescription: string) => {
+      // Guard: handleSendMessage silently no-ops while the agent is streaming —
+      // without this we'd flip the flag with NO build started (CTA lost).
+      // Throwing keeps the dialog open with a clear error instead.
+      if (isStreaming) {
+        throw new Error("The agent is still working — wait for it to finish, then start the build.");
+      }
+      // 1. Provision the remote assets the fast architecture-first create
+      //    deferred (LLM name/schema, warehouse, CREATE SCHEMA) + re-seed
+      //    resources.json with the final capability selection. Idempotent.
+      const provisioned = await provisionProject(projectId, {
+        description: storyDescription,
+        capabilities,
+      });
+      setProject((prev) => (prev ? { ...prev, ...provisioned } : provisioned));
+      // 2. Kick off the build in the existing conversation.
+      await handleSendMessage(initialPrompt);
+      // 3. Persist the lifecycle flip (CTA disappears; future opens land on
+      //    Overview) + mirror it locally so the UI updates immediately.
+      const updated = await updateProject(projectId, { architecture_first: false });
+      setProject((prev) => (prev ? { ...prev, architecture_first: updated.architecture_first } : prev));
+      // 4. Land the user on the Overview tab where the build streams in.
+      setActiveTab("overview");
+    },
+    [isStreaming, handleSendMessage, projectId, setActiveTab],
+  );
 
   // Handle create specifications - send message to agent
   const handleCreateSpec = useCallback(() => {
@@ -1751,19 +1801,24 @@ function ProjectPage() {
                     <Pencil className="h-3.5 w-3.5 text-muted-foreground" />
                   </button>
                   {/* Compact status pill — Drafting / Planning / Building 4/5 / Ready.
-                      Clicking opens the assistant when there's live activity. */}
-                  <HeaderStatusPill
-                    buildable={capabilities?.buildable ?? []}
-                    deployed={deployedResources?.resources ?? []}
-                    hasStarted={
-                      files.some((f) => f.path.startsWith("specifications/")) ||
-                      (deployedResources?.resources.length ?? 0) > 0
-                    }
-                    isStreaming={isStreaming}
-                    onClick={() => {
-                      if (!isChatOpen) handleToggleChat();
-                    }}
-                  />
+                      Clicking opens the assistant when there's live activity.
+                      Hidden for architecture-first projects awaiting their
+                      build: "Planning 0/2" is misleading before the use-case
+                      even exists. */}
+                  {!project?.architecture_first && (
+                    <HeaderStatusPill
+                      buildable={capabilities?.buildable ?? []}
+                      deployed={deployedResources?.resources ?? []}
+                      hasStarted={
+                        files.some((f) => f.path.startsWith("specifications/")) ||
+                        (deployedResources?.resources.length ?? 0) > 0
+                      }
+                      isStreaming={isStreaming}
+                      onClick={() => {
+                        if (!isChatOpen) handleToggleChat();
+                      }}
+                    />
+                  )}
                   {linkedTemplate && (
                     <Badge
                       variant={linkedTemplate.status === "APPROVED" ? "default" : "secondary"}
@@ -1786,6 +1841,14 @@ function ProjectPage() {
               expectedResourceCount={capabilities?.buildable?.length ?? 0}
               onCreateArchitecture={handleCreateArchitecture}
               onUpdateArchitecture={handleUpdateArchitecture}
+              // Architecture-first: the stepper's primary action becomes
+              // "Build the solution for this architecture" (wired only once
+              // the architecture has parsed).
+              onBuildSolution={
+                project?.architecture_first && extractedArchitecture
+                  ? () => setBuildDialogOpen(true)
+                  : undefined
+              }
               onCreateSpec={handleCreateSpec}
               onUpdateSpec={handleUpdateSpec}
               onBuildResources={handleBuildResources}
@@ -1959,6 +2022,7 @@ function ProjectPage() {
             onLoadArchitecture={handleLoadArchitecture}
             isCreatingArchitecture={isCreatingArchitecture}
             onCreateArchitecture={handleCreateArchitecture}
+            architectureFirst={!!project?.architecture_first}
             isStreaming={isStreaming}
             resources={{
               warehouseName: resources.warehouseName,
@@ -2146,6 +2210,16 @@ function ProjectPage() {
         resources={resources}
         onResourcesChange={setResources}
       />
+
+      {/* Build-the-solution dialog (architecture-first projects) */}
+      {extractedArchitecture && (
+        <BuildSolutionDialog
+          open={buildDialogOpen}
+          onOpenChange={setBuildDialogOpen}
+          extracted={extractedArchitecture}
+          onBuild={handleBuildSolution}
+        />
+      )}
 
       {/* Description Edit Dialog */}
       <DescriptionEditDialog

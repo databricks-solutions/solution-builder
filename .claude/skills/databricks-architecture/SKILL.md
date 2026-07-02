@@ -27,7 +27,7 @@ An architecture lives in **one self-contained HTML file** with its data in an in
    Put your `nodes`/`edges` (schema below) inside that block. Plain JSON — no `//` comments.
 3. **View it**: open the HTML in any browser (double-click — no server). The editor variant can Download a PNG/SVG or a fresh standalone HTML with edits baked in.
 
-Start from a reference in `reference/` (`architecture-complete.jsonc` = the flagship end-to-end shape; `architecture-simple.jsonc` = minimal) — copy its `nodes`/`edges` into the inline block and adapt. **Strip the `//` comments** when you paste (the inline block is parsed as JSON).
+Start from the minimal example in **The format** below (copy its `nodes`/`edges` into the inline block and adapt), or from `reference/architecture-complete.jsonc` — the flagship end-to-end shape — when the demo needs the full platform story. **Strip the `//` comments** when you paste (the inline block is parsed as JSON).
 
 ## Feedback loop — render to an image and iterate (for the agent)
 
@@ -43,34 +43,57 @@ Then **read `my-arch.png`**, check the diagram is right (components present, wir
 
 ## The format
 
-```json
+The minimal end-to-end shape — **use this as your starting point** (it's JSONC
+so you can read the comments; **strip the `//` comments** when you emit into
+the inline block, which is parsed as plain JSON):
+
+```jsonc
 {
-  "name": "My Demo Architecture",
-  "story": "One line framing the demo (optional).",
-  "options": { "trademarkLogos": false },
-  "columns": ["sources", "pipeline", "compute", "work", "entry", "user"],
-  "custom_logos": [
-    { "id": "acme", "svg": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path fill='#7C3AED' d='M12 2l3 7 7 .5-5 4.5 1.5 7L12 17l-6 4 1.5-7-5-4.5 7-.5z'/></svg>" }
-  ],
+  "name": "Simple Solution Architecture",
+  "story": "One source → governed Lakeflow + Genie pipeline → lakehouse → a dashboard and an app, with Genie for plain-language Q&A.",
+  "columns": ["sources", "pipeline", "compute", "work", "entry"],
   "nodes": [
-    { "id": "src-erp", "type": "source", "col": "sources", "label": "ERP System", "icon": "file:vendor/sap", "ingest": "lakeflow-connect" },
-    { "id": "src-acme", "type": "source", "col": "sources", "label": "ACME Corp", "icon": "custom:acme", "ingest": "lakeflow-connect" },
+    // A real, named source. `ingest` decides which Lakeflow port it lands on.
+    { "id": "src-postgres", "type": "source", "col": "sources", "label": "Postgres", "icon": "file:vendor/postgresql", "ingest": "lakeflow-connect" },
+    // The one data-layer block (ingest + bronze→silver→gold, built by Genie Code).
     { "id": "lakeflow-genie-block", "type": "lakeflow-genie-block", "col": "pipeline" },
     { "id": "lakehouse", "type": "lakehouse", "col": "compute" },
+    // Consumption lane: dashboard + Genie + the business app, stacked.
     { "id": "aibi-dashboards", "type": "aibi-dashboards", "col": "work", "row": 1 },
-    { "id": "genie", "type": "genie", "col": "work", "row": 2, "label": "Genie Room", "desc": "Ask anything about your data" },
+    { "id": "genie", "type": "genie", "col": "work", "row": 2 },
+    { "id": "databricks-apps-work", "type": "databricks-apps-work", "col": "work", "row": 3 },
+    // Genie One = the business-user entry point (an INTERFACE onto everything to
+    // its left). It's wide, so ROTATE it 90° to stand vertically — a slim lane
+    // that saves horizontal space while still spanning the consumption tiles.
     { "id": "genie-one", "type": "genie-one", "col": "entry", "rot": 90 },
-    { "id": "user", "type": "logo", "col": "user", "icon": "file:persona/user", "text": "Business users", "size": [88, 88] },
-    { "id": "governance-block", "type": "governance-block", "at": [1058, -178] },
-    { "id": "platform-box", "type": "box", "z": -1, "wraps": ["src-erp", "lakeflow-genie-block", "lakehouse", "aibi-dashboards", "genie", "genie-one", "user"] }
+    // Governance bar PINNED to the platform box (never absolute `at` — those
+    // coordinates drift off-corner the moment the node set changes). The
+    // non-float pin reserves a top band, so the box grows to enclose it.
+    { "id": "governance-block", "type": "governance-block", "pin": { "at": "top", "to": "platform-box" } },
+    // One white box wrapping the whole flow = "all of this is the platform".
+    { "id": "platform-box", "type": "box", "z": -1,
+      "wraps": ["src-postgres", "lakeflow-genie-block", "lakehouse", "aibi-dashboards", "genie", "databricks-apps-work", "genie-one"] }
   ],
   "edges": [
-    { "id": "e1", "from": "src-erp", "to": "lakeflow-genie-block", "flow": true },
-    { "id": "e2", "from": "lakehouse", "to": "genie", "flow": true },
-    { "id": "e3", "from": "genie-one", "to": "aibi-dashboards" }
+    { "id": "e1", "from": "src-postgres", "to": "lakeflow-genie-block", "flow": true },
+    { "id": "e2", "from": "lakeflow-genie-block", "to": "lakehouse", "flow": true },
+    { "id": "e3", "from": "lakehouse", "to": "aibi-dashboards", "flow": true },
+    { "id": "e4", "from": "lakehouse", "to": "genie", "flow": true },
+    { "id": "e5", "from": "lakehouse", "to": "databricks-apps-work", "flow": true },
+    // Genie One fronts the consumption tiles (auto-arrow — Genie One edges
+    // point away from it toward the resource; no `flow`/`arrow` needed).
+    { "id": "e6", "from": "genie-one", "to": "aibi-dashboards" },
+    { "id": "e7", "from": "genie-one", "to": "genie" },
+    { "id": "e8", "from": "genie-one", "to": "databricks-apps-work" }
   ]
 }
 ```
+
+Placement is SYMBOLIC: `columns` are left→right lanes; a node's `col` puts it
+in a lane (stacked top→bottom by `row`). The renderer computes the pixels —
+you almost never write `at`. Edges are by node id; the `@handle` is inferred.
+`options.trademarkLogos` and `custom_logos` are covered in the tables +
+sections below.
 
 ### Top level
 | Field | Required | Description |
@@ -156,7 +179,7 @@ Four `type`s let you add labels and marks that aren't Databricks components:
 
 You produce the same flat `nodes`/`edges` regardless of where the intent comes from:
 
-1. **From a pasted conversation / free-text intent.** The user pastes a transcript or types "ingest ERP data into a business app." **Extract the main components** they imply (source systems, pipeline, serving layer, dashboard/app, agents), map each to a catalog `type`, and place them — start from `architecture-complete.jsonc` (or `architecture-simple.jsonc`) and adapt positions + swap the sources. Don't invent a story.
+1. **From a pasted conversation / free-text intent.** The user pastes a transcript or types "ingest ERP data into a business app." **Extract the main components** they imply (source systems, pipeline, serving layer, dashboard/app, agents), map each to a catalog `type`, and place them — start from the minimal example in **The format** (or `architecture-complete.jsonc` for the full shape) and adapt positions + swap the sources. Don't invent a story.
 2. **From an existing story + selected capabilities.** A demo has a `README.md`/`resources.json`. Place a node per chosen capability (use its slug as the `type`) plus the story's sources; give headline nodes story-tied `label`/`desc`.
 3. **From a reference, then edited.** Start from a reference file and tweak.
 
@@ -173,7 +196,7 @@ sources (≈3 rows)  →  Lakeflow + Genie (one block)  →  lakehouse + lakebas
      →  dashboard + Genie Room + app  →  Genie One  →  the end user
 ```
 
-- **Top-left:** the `db-platform` wordmark. **Top-right:** `governance-block` (Unity Catalog) over everything. **Everything sits inside ONE big white `box`** (`z:-1`) — that box *is* "the Databricks Platform".
+- **Top-left:** the `db-platform` wordmark. **Top-right:** `governance-block` (Unity Catalog) over everything. **Both are `pin`ned to the platform box's corners** (`"pin": { "at": "top-left"|"top-right", "to": "platform-box" }`) — never absolute `at`, which drifts off-corner as soon as the node set changes. **Everything sits inside ONE big white `box`** (`z:-1`) — that box *is* "the Databricks Platform", and the non-float pins reserve a top band so it grows to enclose the banners too.
 - **The `lakeflow-genie-block` has THREE left ports** — wire each source to the one matching HOW it's ingested:
   - `in-lakeflow-connect` ← **databases / SaaS apps**: Postgres, ERP/SAP, Salesforce, MySQL…
   - `in-zerobus` ← **realtime streams / sensors / IoT / events**: sensor data… (NOT Kafka — Zerobus replaces a Kafka-style broker).
@@ -291,7 +314,7 @@ Also: `file:persona/user` (a person — use as a `logo` node, caption "Business 
 1. **Only list what's shown.** A node in `nodes` is on the canvas; anything else simply isn't there. No state, no hidden list.
 2. **Map words → catalog `type`s.** Reuse catalog ids. Use `type:"source"` for the demo's source systems.
 3. **Prefer composites:** `lakeflow-genie-block` over `sdp`+`lakeflow-connect`; `governance-block` over the five governance tiles; `agent-bricks` for managed multi-agent.
-4. **Place by `col`, not coordinates.** Declare `columns`, give each node a `col` (+ `row` to order within a lane). Let the renderer compute x/y. Use an explicit `at` only for off-flow banners (db-platform, governance) or to pin something. Don't invent pixel coordinates.
+4. **Place by `col`, not coordinates.** Declare `columns`, give each node a `col` (+ `row` to order within a lane). Let the renderer compute x/y. Off-flow banners (db-platform, governance) use `pin` onto the platform box's corners — never an absolute `at` (tuned coordinates drift the moment the node set changes). Don't invent pixel coordinates.
 5. **Wrap groups in a `box` via `wraps`** — the platform box (the whole flow), or cloud/VPC/zone containers (nested). It auto-sizes; you never set its `at`/`size`.
 6. **Edges by id; handles inferred.** Write `from`/`to` as plain ids — the `@handle` and source ingest port are inferred. Add `@handle` only to override (e.g. `@b`/`@t` for a vertical link).
 7. **Descriptions are the point.** Make `desc`s demo-specific and human, not datasheet copy.
@@ -301,7 +324,6 @@ Also: `file:persona/user` (a person — use as a `logo` node, caption "Business 
 
 ## Reference files
 
-- `reference/architecture-complete.jsonc` — the flagship end-to-end shape (commented).
-- `reference/architecture-simple.jsonc` — the minimal shape (commented).
+- `reference/architecture-complete.jsonc` — the flagship end-to-end shape (commented). The minimal shape is inlined in **The format** above.
 - `renderer/architecture-viewer.html` / `architecture-editor.html` — copy one, edit its inline JSON.
 - `renderer/render-arch.mjs` — `node renderer/render-arch.mjs <file>.html` → a PNG to read.

@@ -94,6 +94,9 @@ interface FileViewerProps {
   onLoadArchitecture?: () => void;
   isCreatingArchitecture?: boolean;
   onCreateArchitecture?: () => void;
+  /** Architecture-first project awaiting its build: hide Overview + Story
+   *  tabs and default the workspace to the Architecture tab. */
+  architectureFirst?: boolean;
   isStreaming?: boolean; // Whether the agent is currently working
   resources?: ResourcesInfo;
   onResourcesClick?: () => void;
@@ -223,31 +226,35 @@ const ArchitectureView = memo(function ArchitectureView({
   const hasContent = (hasArchitecture && architectureContent) || !!capabilities;
   if (hasContent) {
     return (
-      <div className="relative flex flex-1 min-h-0">
-        <Suspense
-          fallback={
-            <div className="flex-1 flex items-center justify-center">
-              <Loader2 className="h-6 w-6 animate-spin text-primary" />
+      <div className="flex flex-1 min-h-0 flex-col">
+        {/* (The architecture-first "Build the solution" CTA lives in the
+            BuildStepper in the workspace header, not here.) */}
+        <div className="relative flex flex-1 min-h-0">
+          <Suspense
+            fallback={
+              <div className="flex-1 flex items-center justify-center">
+                <Loader2 className="h-6 w-6 animate-spin text-primary" />
+              </div>
+            }
+          >
+            <PlatformDiagram
+              content={hasArchitecture ? architectureContent : null}
+              capabilities={capabilities ?? null}
+              deployedResources={deployedResources}
+              projectId={projectId}
+            />
+          </Suspense>
+          {/* Reload spinner: the agent rewrote architecture.md and we're
+              re-fetching it from disk. */}
+          {architectureReloading && (
+            <div className="pointer-events-none absolute inset-0 z-20 flex items-start justify-center bg-background/40 pt-6">
+              <div className="pointer-events-auto flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5 text-[12px] font-medium text-foreground shadow-md">
+                <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+                Updating diagram…
+              </div>
             </div>
-          }
-        >
-          <PlatformDiagram
-            content={hasArchitecture ? architectureContent : null}
-            capabilities={capabilities ?? null}
-            deployedResources={deployedResources}
-            projectId={projectId}
-          />
-        </Suspense>
-        {/* Reload spinner: the agent rewrote architecture.md and we're
-            re-fetching it from disk. */}
-        {architectureReloading && (
-          <div className="pointer-events-none absolute inset-0 z-20 flex items-start justify-center bg-background/40 pt-6">
-            <div className="pointer-events-auto flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5 text-[12px] font-medium text-foreground shadow-md">
-              <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
-              Updating diagram…
-            </div>
-          </div>
-        )}
+          )}
+        </div>
       </div>
     );
   }
@@ -648,6 +655,9 @@ interface TabBarProps {
   hasArchitecture: boolean;
   hasApp: boolean;
   showAppTab: boolean;
+  /** Architecture-first project awaiting its build → hide Overview + Story
+   *  (there's no story/build yet; the diagram is the whole workspace). */
+  architectureFirst?: boolean;
 }
 
 function tabClasses(isActive: boolean, isAvailable: boolean): string {
@@ -687,11 +697,13 @@ const TabBar = memo(function TabBar({
   hasArchitecture,
   hasApp,
   showAppTab,
+  architectureFirst = false,
 }: TabBarProps) {
   return (
     <div className="shrink-0 border-b border-border bg-muted/30">
       <div className="flex items-center px-4 py-2">
         <div className="flex items-center gap-1 bg-muted/50 rounded-md p-0.5" role="tablist" aria-label="View tabs">
+          {!architectureFirst && (
           <button
             role="tab"
             aria-selected={activeTab === "overview"}
@@ -702,7 +714,9 @@ const TabBar = memo(function TabBar({
             <TabIcon Icon={Sparkles} showDot={false} />
             Overview
           </button>
+          )}
 
+          {!architectureFirst && (
           <button
             role="tab"
             aria-selected={activeTab === "story"}
@@ -713,6 +727,7 @@ const TabBar = memo(function TabBar({
             <TabIcon Icon={BookOpen} showDot={hasReadme && activeTab !== "story"} />
             Story
           </button>
+          )}
 
           <button
             role="tab"
@@ -785,6 +800,7 @@ export const FileViewer = memo(function FileViewer({
   onLoadArchitecture,
   isCreatingArchitecture = false,
   onCreateArchitecture,
+  architectureFirst = false,
   isStreaming = false,
   resources,
   onResourcesClick,
@@ -886,6 +902,7 @@ export const FileViewer = memo(function FileViewer({
         hasArchitecture={hasArchitecture}
         hasApp={hasApp}
         showAppTab={showAppTab}
+        architectureFirst={architectureFirst}
       />
 
       <div className="flex flex-1 min-h-0">

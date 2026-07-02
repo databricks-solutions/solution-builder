@@ -33,7 +33,7 @@ Sometimes the opening message says the user wants to **start by creating an arch
 
 1. **Skip stages 0–1.** Do **not** design a story, write `resources.json`/`README.md`, write specs, or build resources.
 2. Read the **`databricks-architecture` skill** (`.claude/skills/databricks-architecture/SKILL.md`) — the flat `nodes`/`edges` schema + component catalog + reference diagrams.
-3. **Extract the main components** the user's text implies — source systems, pipeline, serving layer, dashboards/apps, agents — and map each to a real catalog component id. Start from `architecture-simple.json` or `architecture-complete.json` when the intent clearly matches one, then patch in the named sources. Set `state` explicitly (there's no `resources.json` yet).
+3. **Extract the main components** the user's text implies — source systems, pipeline, serving layer, dashboards/apps, agents — and map each to a real catalog component id. Start from the minimal example inlined in that skill's **The format** section (or its `reference/architecture-complete.jsonc` for the full platform shape) when the intent clearly matches one, then patch in the named sources.
 4. **Write ONLY `architecture.md`** at the project root (the schema in a fenced ```json block), then **stop** with a one-liner inviting the user to review/edit it on the Architecture tab. The story comes later — the user will click "Generate the solution from this architecture", which kicks off stage 1 *constrained to* the components they kept on the canvas.
 
 ## Paths

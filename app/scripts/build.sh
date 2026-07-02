@@ -109,6 +109,21 @@ if [[ -d "../.claude/skills/databricks-demo-generator" ]]; then
         "$PKG_DIR/.claude/skills/databricks-demo-generator/"
 fi
 
+# .claude/skills/databricks-architecture/ — the architecture-diagram skill the
+# demo-generator SKILL.md points the agent at (flat nodes/edges schema +
+# component catalog + reference diagrams). skills_manager copies it into every
+# project (renderer/ excluded there), so the wheel must ship it. renderer/ IS
+# included in the wheel: the backend serves architecture-editor.html for the
+# app's "Download standalone HTML" export (~5MB wheel cost).
+if [[ -d "../.claude/skills/databricks-architecture" ]]; then
+    mkdir -p "$PKG_DIR/.claude/skills"
+    rsync -a \
+        --exclude='node_modules' \
+        --exclude='__pycache__' \
+        "../.claude/skills/databricks-architecture/" \
+        "$PKG_DIR/.claude/skills/databricks-architecture/"
+fi
+
 # initial_templates/ — pre-authored seed templates.
 if [[ -d "../initial_templates" ]]; then
     cp -r "../initial_templates" "$PKG_DIR/initial_templates"

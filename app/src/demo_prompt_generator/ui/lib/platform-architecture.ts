@@ -629,7 +629,8 @@ function splitHandle(ref: string): { id: string; handle?: string } {
 // positions. Explicit `at` always wins; only nodes without `at` are placed.
 // =============================================================================
 
-const COL_GAP = 340;  // x spacing between lane centers
+const INTER_COL_GAP = 78; // x gap between the EDGES of adjacent lanes (tight — lanes hug their content)
+const DEFAULT_COL_W = 200; // assumed width for a declared-but-empty lane
 const ROW_GAP = 28;   // vertical gap between stacked tiles in a lane
 const WRAP_PAD = 24;   // default container padding
 
@@ -637,12 +638,22 @@ export interface ResolvedBox { x: number; y: number; w: number; h: number }
 
 /** Resolve every node's CENTER [x,y] (and, for wrapper boxes, its [w,h]) from
  *  the file's `columns`/`col`/`row` + `wraps`. A node with an explicit `at` is
- *  pinned there (and excluded from column stacking). Returns a map id→box. */
+ *  pinned there (and excluded from column stacking). Returns a map id→box.
+ *
+ *  Column widths are PROPORTIONAL to content: each lane is as wide as its
+ *  widest node (rotation-aware), and lanes sit INTER_COL_GAP apart edge-to-
+ *  edge — a narrow lane (a rotated Genie One, a persona logo) pulls its
+ *  neighbours in instead of reserving a fixed-width slot. */
 export function computeLayout(file: ArchitectureFile): Map<string, ResolvedBox> {
   const out = new Map<string, ResolvedBox>();
   const nodes = file.nodes ?? [];
-  const sizeOf = (n: FileNode): { w: number; h: number } =>
-    n.size ? { w: n.size[0], h: n.size[1] } : naturalSize(n.type);
+  // On-canvas footprint: explicit `size` (or natural), with w/h SWAPPED for a
+  // 90°/270° rotation — a rotated tall node is a narrow one on the canvas.
+  const sizeOf = (n: FileNode): { w: number; h: number } => {
+    const s = n.size ? { w: n.size[0], h: n.size[1] } : naturalSize(n.type);
+    const q = (((n.rot ?? 0) % 360) + 360) % 360;
+    return q === 90 || q === 270 ? { w: s.h, h: s.w } : s;
+  };
 
   // 1) Pinned nodes (explicit `at`) — use verbatim. Wrapper boxes are resolved
   //    later (their size/pos derive from children) unless they too were pinned.
@@ -663,9 +674,26 @@ export function computeLayout(file: ArchitectureFile): Map<string, ResolvedBox> 
     arr.push(n);
     byCol.set(n.col!, arr);
   }
+  // Lane width = the widest node it holds (rotation-aware); lane centers are
+  // cumulative so a narrow lane takes only the room it needs. The FIRST lane
+  // stays centered at x=0 (the historical origin).
+  const colWidth = new Map<string, number>();
+  for (const [col, list] of byCol) {
+    colWidth.set(col, Math.max(...list.map((n) => sizeOf(n).w)));
+  }
+  const colX = new Map<string, number>();
+  {
+    let rightEdge = 0;
+    cols.forEach((c, i) => {
+      const w = colWidth.get(c) ?? DEFAULT_COL_W;
+      const cx = i === 0 ? 0 : rightEdge + INTER_COL_GAP + w / 2;
+      colX.set(c, cx);
+      rightEdge = cx + w / 2;
+    });
+  }
   for (const [col, list] of byCol) {
     list.sort((a, b) => (a.row ?? 0) - (b.row ?? 0)); // stable-ish; appearance order kept for ties
-    const x = (colIndex.get(col)! ) * COL_GAP;
+    const x = colX.get(col) ?? 0;
     const heights = list.map((n) => sizeOf(n).h);
     const total = heights.reduce((s, h) => s + h, 0) + ROW_GAP * (list.length - 1);
     let cy = -total / 2; // center the stack on y=0
@@ -701,16 +729,16 @@ export function computeLayout(file: ArchitectureFile): Map<string, ResolvedBox> 
   // Resolve a `bounds` side string → an absolute coordinate on the given axis.
   //   "<nodeId>:<anchor>"  | "col:<name>:<anchor>"  | "wrap"
   // anchor ∈ left|right|center (x axis) / top|bottom|center (y axis).
-  const colCenterX = (name: string) =>
-    colIndex.has(name) ? colIndex.get(name)! * COL_GAP : undefined;
   const sideCoord = (spec: string, axis: "x" | "y"): number | undefined => {
     if (spec === "wrap") return undefined;
     if (spec.startsWith("col:")) {
       const [, name, anchor = "center"] = spec.split(":");
-      const cx = colCenterX(name);
+      const cx = colX.get(name);
       if (cx === undefined || axis !== "x") return undefined;
-      // a column has no intrinsic width here → treat center == left == right
-      return cx + (anchor === "left" ? -COL_GAP / 2 : anchor === "right" ? COL_GAP / 2 : 0);
+      // The lane's real half-extent: half its content width + half the edge gap
+      // (so col:left/right cut midway between adjacent lanes).
+      const half = (colWidth.get(name) ?? DEFAULT_COL_W) / 2 + INTER_COL_GAP / 2;
+      return cx + (anchor === "left" ? -half : anchor === "right" ? half : 0);
     }
     const [id, anchor = "center"] = spec.split(":");
     const b = out.get(id);

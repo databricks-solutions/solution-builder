@@ -106,18 +106,25 @@ export const AnnotationNode = memo(function AnnotationNode({ data, selected }: N
   const hA = a.hAlign ?? "center";
 
   // --- Auto-fit for the plain TEXT annotation --------------------------------
-  // A text label sizes to its content (not a fixed box): we measure the
-  // rendered text off-layout and write the natural size back as the node's
-  // w/h via onResize. Only wraps on explicit newlines. (Boxes stay manually
-  // sizable.) The measure runs when the text/font/scale changes.
+  // A text label sizes to its content: we measure the rendered text off-layout
+  // and write the natural size back via onResize. SIGNATURE-GUARDED: the
+  // measure (a forced-layout offsetWidth read) + refit run only when the
+  // CONTENT changes (text/font/scale) — with d.w/d.h in the deps it re-ran on
+  // every resize/drag frame, thrashing layout and snapping the node back
+  // (text nodes were un-resizable). Unlike the logo fit below, the FIRST run
+  // does fit (a fresh text node should always hug its content).
   const measureRef = useRef<HTMLSpanElement>(null);
   const isTextVariant = a.variant === "text";
   const scale = d.scale ?? 1;
   // The text we size to: the LIVE editing buffer while editing (so the node
   // grows as you type), else the committed text.
   const sizingText = editing !== null ? editing : (a.text ?? "");
+  const textFitSig = useRef<string | null>(null);
   useLayoutEffect(() => {
-    if (!isTextVariant) return;
+    if (!isTextVariant) { textFitSig.current = null; return; }
+    const sig = `${sizingText}|${fontSize}|${fontWeight}|${scale}`;
+    if (textFitSig.current === sig) return; // content unchanged (manual resize / selection) → skip
+    textFitSig.current = sig;
     const el = measureRef.current;
     if (!el) return;
     const PAD = 6; // small breathing room around the glyphs
@@ -126,7 +133,7 @@ export const AnnotationNode = memo(function AnnotationNode({ data, selected }: N
     if (Math.abs((d.w ?? 0) - w) > 1 || Math.abs((d.h ?? 0) - h) > 1) {
       d.onResize(d.nodeId, w, h);
     }
-  }, [isTextVariant, sizingText, fontSize, fontWeight, scale, d.w, d.h, d.nodeId, d.onResize]);
+  }, [isTextVariant, sizingText, fontSize, fontWeight, scale, d]);
 
   // --- Auto-fit for a LOGO with a POSITIONED caption (right/left/top/bottom) --
   // The tile hugs icon + text — but ONLY when the CONTENT changes (typing, font

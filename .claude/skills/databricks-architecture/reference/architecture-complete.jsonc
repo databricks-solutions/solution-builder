@@ -16,15 +16,16 @@
 //     geometry (left→right ⇒ source @r → target @l) and, for a source feeding
 //     the Lakeflow block, from the source's `ingest` (→ the right in-* port).
 //     Add an explicit `@handle` only to override (e.g. `@b`/`@t` for a vertical
-//     link). An explicit `at` on a node also overrides its column placement —
-//     handy for banners (db-platform / governance) that sit outside the flow.
+//     link). Banners (db-platform / governance) use `pin` to dock onto a box's
+//     corner — never absolute `at` (which only holds for one node set).
 //   The user can drag anything afterwards; their positions persist as `at`.
 //
 // LEFT → RIGHT story:
 //   sources (≈3 rows) → Lakeflow + Genie (one block) → lakehouse + lakebase
 //        → dashboard + Genie Room + app → Genie One → the end user
-//   db-platform wordmark + governance-block (UC) sit as a top band; one big
-//   white `box` wraps the whole flow = "the Databricks Platform".
+//   db-platform wordmark + governance-block (UC) pin to the platform box's
+//   top corners; one big white `box` wraps the whole flow = "the Databricks
+//   Platform" (the pins reserve a top band so the box encloses them too).
 //
 // THE lakeflow-genie-block HAS THREE LEFT PORTS — a source's `ingest` picks one:
 //   lakeflow-connect → in-lakeflow-connect  (databases / SaaS: Postgres, SAP…)
@@ -60,14 +61,20 @@
     { "id": "genie",               "type": "genie",               "col": "work", "row": 2, "desc": "Business users ask questions in plain language — governed, auditable answers." },
     { "id": "databricks-apps-work","type": "databricks-apps-work","col": "work", "row": 3 },
 
-    // Business-user entry point (rotated to stand vertically), then the user.
+    // Genie One = the business-user INTERFACE onto everything to its left.
+    // It's a wide banner, so rotate it 90° to stand vertically — a slim lane
+    // that saves horizontal space. Then the end user.
     { "id": "genie-one", "type": "genie-one", "col": "entry", "rot": 90 },
     { "id": "user",      "type": "logo",      "col": "user", "icon": "file:persona/user" },
 
-    // Top band — banners placed with explicit `at` (outside the column flow).
+    // Top band — banners PINNED to the platform box's corners (never absolute
+    // `at`: those coordinates only hold for one node set; change the sources
+    // and the banners drift off-corner). A non-float pin also RESERVES a top
+    // band — the box grows to enclose the banners, so it reads as the outer
+    // frame around governance ("all of this is the platform").
     // db-platform + governance-block render with NO border/shadow by default.
-    { "id": "db-platform",      "type": "db-platform",      "at": [190, -178],  "desc": "The Databricks Data Intelligence Platform — one governed foundation for all data + AI." },
-    { "id": "governance-block", "type": "governance-block", "at": [1058, -178], "desc": "Unity Catalog governs access, lineage and quality across every table — one control plane for data + AI." },
+    { "id": "db-platform",      "type": "db-platform",      "pin": { "at": "top-left",  "to": "platform-box" }, "desc": "The Databricks Data Intelligence Platform — one governed foundation for all data + AI." },
+    { "id": "governance-block", "type": "governance-block", "pin": { "at": "top-right", "to": "platform-box" }, "desc": "Unity Catalog governs access, lineage and quality across every table — one control plane for data + AI." },
 
     // The big white "platform" box — auto-sized to WRAP the whole flow (z:-1).
     // (A box shows a 1px border by default; set style.border to change it.)
