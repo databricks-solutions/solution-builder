@@ -58,6 +58,7 @@ import { LF_PORTS } from "./composite-lakeflow";
 import {
   IconPicker,
   ANNOTATION_DEFAULT_SIZE,
+  logoFitSize,
   type AnnotationNodeData,
 } from "./annotations";
 import { logoLabel, logoMetaByName } from "../../file-icons";
@@ -191,7 +192,7 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
   // setNodes/scheduleSave/edges refs internally (kept live via `bind` once those
   // values exist), which is what used to be Canvas's setNodesRef/scheduleSaveRef/
   // edgesRef trio.
-  const { onResize, onRename, onAnnotate, bind: bindNodeMutations } = useNodeMutations();
+  const { onResize, onRename, onAnnotate, onAnnotateResize, bind: bindNodeMutations } = useNodeMutations();
 
   const initial = useMemo(
     () => schemaToFlow(schema, deepLinks, onSelect, onContext, onResize, onRename, onAnnotate),
@@ -558,7 +559,14 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
       annoCounter.current += 1;
       const id = `anno-${variant}-${Date.now().toString(36)}-${annoCounter.current}`;
       setNodes((nds) => {
-        const sz = ANNOTATION_DEFAULT_SIZE[variant];
+        // A positioned-caption logo (Catalog/Schema/Table) sizes to its content
+        // at ADD time (canvas measureText — synchronous), since the auto-fit
+        // effect deliberately skips mount to respect manual/persisted sizes.
+        const cap = annotation.caption === "side" ? "right" : annotation.caption === "below" ? "bottom" : annotation.caption;
+        const positionedLogo = variant === "logo" && (cap === "right" || cap === "left" || cap === "top" || cap === "bottom");
+        const sz = positionedLogo
+          ? logoFitSize(annotation.text ?? "", cap === "right" || cap === "left", annotation.fontSize ?? 13, annotation.bold)
+          : ANNOTATION_DEFAULT_SIZE[variant];
         const next = [
           ...nds,
           {
@@ -571,6 +579,11 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
             data: {
               nodeId: id,
               annotation,
+              // Carry w/h into data so RotatableCard renders at the SAME size as
+              // the ReactFlow node box on add — otherwise the card falls back to
+              // the default logo size (64×64) while the node box is 150×44, and
+              // you see two mismatched selection boxes until a reload re-syncs.
+              w: sz.w, h: sz.h,
               component: { id, label: "", icon: "data", desc: "", state: "active" } as PlatformComponent,
               bandId: "sources" as BandId,
               bandColor: "#64748b",
@@ -646,7 +659,7 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
       const preset = e.dataTransfer.getData("application/x-annotation-preset");
       if (preset) {
         const p = DBX_ARCH_PRESET_BY_ID[preset];
-        if (p) addAnnotation("box", pos, p.annotation);
+        if (p) addAnnotation(p.variant ?? "box", pos, p.annotation);
         return;
       }
       const id = e.dataTransfer.getData("application/x-component-id");
@@ -990,12 +1003,13 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
     opacity: ps?.opacity,
     fillColor: ps?.fillColor,
     fontColor: ps?.fontColor,
+    iconColor: ps?.iconColor,
     borderWidth: ps?.borderWidth,
     borderStyle: ps?.borderStyle,
     borderColor: ps?.borderColor,
     borderRadius: ps?.borderRadius,
     shadow: ps?.shadow,
-  }), [ps?.opacity, ps?.fillColor, ps?.fontColor, ps?.borderWidth, ps?.borderStyle, ps?.borderColor, ps?.borderRadius, ps?.shadow]);
+  }), [ps?.opacity, ps?.fillColor, ps?.fontColor, ps?.iconColor, ps?.borderWidth, ps?.borderStyle, ps?.borderColor, ps?.borderRadius, ps?.shadow]);
   // Clear the live ReactFlow selection (closes the panel). Used by the panel's
   // X, the Escape key, and the pane click.
   const clearSelection = useCallback(() => {
@@ -1048,7 +1062,25 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
   const panelOnRemove = useCallback(() => { const ids = [...selectedIds]; clearSelection(); ids.forEach(removeNode); }, [selectedIds, clearSelection, removeNode]);
   const panelOnChangeType = useCallback(() => { if (panelPrimaryId) { setPickingFor(panelPrimaryId); clearSelection(); } }, [panelPrimaryId, clearSelection]);
   const panelOnSetScale = useCallback((s: number) => { if (panelPrimaryId) setNodeScale(panelPrimaryId, s); }, [panelPrimaryId, setNodeScale]);
-  const panelOnAnno = useCallback((patch: Partial<AnnotationData>) => { if (panelPrimaryId) onAnnotate(panelPrimaryId, patch); }, [panelPrimaryId, onAnnotate]);
+  const panelOnAnno = useCallback((patch: Partial<AnnotationData>) => {
+    if (!panelPrimaryId) return;
+    // Flipping a logo's text position between a HORIZONTAL (right/left) and a
+    // VERTICAL (top/bottom) placement swaps the box's w/h. Apply the caption +
+    // the swapped size in ONE commit so the box updates instantly (no
+    // annotate→measure→resize double render → the ~100ms lag).
+    if (patch.caption !== undefined) {
+      const nd = nodesById.get(panelPrimaryId)?.data as (NodeData & { annotation?: AnnotationData }) | undefined;
+      const norm = (c?: string) => (c === "side" ? "right" : c === "below" ? "bottom" : c);
+      const wasH = (() => { const c = norm(nd?.annotation?.caption); return c === "right" || c === "left"; })();
+      const nowH = patch.caption === "right" || patch.caption === "left";
+      const w = nd?.w, h = nd?.h;
+      if (wasH !== nowH && w !== undefined && h !== undefined) {
+        onAnnotateResize(panelPrimaryId, patch, h, w); // swap axes
+        return;
+      }
+    }
+    onAnnotate(panelPrimaryId, patch);
+  }, [panelPrimaryId, onAnnotate, onAnnotateResize, nodesById]);
   const panelOnPickLogo = useCallback(() => { if (panelPrimaryId) setLogoPickerFor(panelPrimaryId); }, [panelPrimaryId]);
   const panelAnnoSrc = panelAnno?.src;
   const panelOnSetImageUrl = useCallback(() => {
@@ -1081,7 +1113,7 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
     [addAnnotation],
   );
   const paletteOnAddPreset = useCallback(
-    (pid: string) => { const p = DBX_ARCH_PRESET_BY_ID[pid]; if (p) addAnnotation("box", undefined, p.annotation); },
+    (pid: string) => { const p = DBX_ARCH_PRESET_BY_ID[pid]; if (p) addAnnotation(p.variant ?? "box", undefined, p.annotation); },
     [addAnnotation],
   );
   const paletteOnAddLogo = useCallback((iconKey: string) => addAnnotation("logo", undefined, { icon: iconKey }), [addAnnotation]);
@@ -1213,8 +1245,6 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
               >
                 <ImageIcon className="h-3.5 w-3.5" /> Logos {schema.enableTrademarkLogos ? "on" : "off"}
               </button>
-              <div className="mx-0.5 h-5 w-px bg-border" />
-              <span className="px-1.5 text-[10.5px] text-muted-foreground">Select a block · right-click a line</span>
             </>
           )}
         </div>
@@ -1265,10 +1295,13 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
           selectionOnDrag
           panOnDrag={PAN_ON_DRAG}
           selectNodesOnDrag={false}
-          // Shift = additive multi-select: shift-click toggles a node in/out of
-          // the selection, shift-drag lassos ADD to the current selection. (No
-          // selectionKeyCode override — keeping default so a plain drag still
-          // lassos thanks to selectionOnDrag.)
+          // Shift = additive multi-select (shift-click toggles a node in/out of
+          // the selection). selectionKeyCode is DISABLED: ReactFlow's default is
+          // "Shift", which summons the selection overlay pane ABOVE the nodes the
+          // moment Shift goes down — stealing the pointer from resize handles
+          // (Shift+resize lassoed instead of keeping the aspect ratio). A plain
+          // drag still lassos via selectionOnDrag, so nothing is lost.
+          selectionKeyCode={null}
           multiSelectionKeyCode={MULTI_SELECT_KEYS}
           // Disable ReactFlow's built-in keyboard node movement — it snaps the
           // focused node to the 16px grid on every arrow press (Shift jumps even

@@ -161,6 +161,7 @@ export interface NodePosition {
   opacity?: number;        // 0..1, whole-node opacity
   fillColor?: string;      // box/background color (hex)
   fontColor?: string;      // text/label color (hex)
+  iconColor?: string;      // logo SVG recolor (hex); unset → icon's own color
   /** Border styling. borderWidth 0 = no border. */
   borderWidth?: number;    // px
   borderStyle?: "solid" | "dashed";
@@ -202,6 +203,10 @@ export interface AnnotationData {
   /** logo: the chosen icon key — a DatabricksIconName OR a file-icon key
    *  ("file:vendor/snowflake", "file:cloud/aws/storage/s3"). */
   icon?: string;
+  /** logo: where the text caption sits relative to the icon —
+   *  right | left | top | bottom. Legacy "side" == right, "below" == bottom.
+   *  Default (unset) renders below (the original logo caption behavior). */
+  caption?: "right" | "left" | "top" | "bottom" | "side" | "below";
   /** image: a URL, or a `data:` base64 string for pasted images. */
   src?: string;
 }
@@ -303,6 +308,8 @@ export interface FileNode {
   /** box: title-bar text + leading icon. */
   title?: string;
   titleIcon?: IconKey;
+  /** logo: caption placement (right|left|top|bottom; legacy side|below). */
+  caption?: "right" | "left" | "top" | "bottom" | "side" | "below";
   fontSize?: number;
   bold?: boolean;
   vAlign?: "top" | "middle" | "bottom";
@@ -317,6 +324,7 @@ export interface FileNode {
     shadow?: number | boolean;
     fill?: string;          // fillColor
     font?: string;          // fontColor
+    icon?: string;          // iconColor (recolor a logo's SVG)
     opacity?: number;
   };
 }
@@ -353,14 +361,16 @@ export interface ArchitectureFile {
 
 const ANNOTATION_TYPES = new Set<AnnotationVariant>(["text", "box", "logo", "image"]);
 
-/** "Databricks Architecture" palette presets — titled boxes used to frame the
- *  physical Databricks layout (a workspace / metastore boundary). Each is just
- *  a `box` annotation seeded with a title + leading logo; the body stays empty
- *  (double-click to add centered text like any box). */
+/** "Databricks Architecture" palette presets — ready-made annotations for the
+ *  physical Databricks layout: titled container boxes (Workspace / Metastore)
+ *  and logo+label tiles (Catalog / Schema / Table). Each seeds an annotation of
+ *  the given `variant` with the extra props merged on. */
 export interface AnnotationPreset {
   id: string;
   label: string;
-  /** Extra AnnotationData merged onto the box defaults when placed. */
+  /** Which annotation variant to place (default "box"). */
+  variant?: AnnotationVariant;
+  /** Extra AnnotationData merged onto the variant defaults when placed. */
   annotation: Partial<AnnotationData>;
 }
 export const DBX_ARCH_PRESETS: AnnotationPreset[] = [
@@ -373,6 +383,26 @@ export const DBX_ARCH_PRESETS: AnnotationPreset[] = [
     id: "dbx-metastore",
     label: "Databricks Metastore",
     annotation: { title: "Databricks Metastore", titleIcon: "databricksMetastore" },
+  },
+  // Catalog / Schema / Table — a logo (nested database cylinder) + an editable
+  // label to its side. Placed as `logo` annotations with caption:"side".
+  {
+    id: "dbx-catalog",
+    label: "Catalog",
+    variant: "logo",
+    annotation: { icon: "dbCatalog", text: "Catalog", caption: "side" },
+  },
+  {
+    id: "dbx-schema",
+    label: "Schema",
+    variant: "logo",
+    annotation: { icon: "dbSchema", text: "Schema", caption: "side" },
+  },
+  {
+    id: "dbx-table",
+    label: "Table",
+    variant: "logo",
+    annotation: { icon: "dbTable", text: "Table", caption: "side" },
   },
 ];
 export const DBX_ARCH_PRESET_BY_ID: Record<string, AnnotationPreset> = Object.fromEntries(
@@ -807,6 +837,7 @@ export function parseArchitecture(content: string): PlatformSchema {
       ...(st.opacity !== undefined ? { opacity: st.opacity } : {}),
       ...(st.fill !== undefined ? { fillColor: st.fill } : {}),
       ...(st.font !== undefined ? { fontColor: st.font } : {}),
+      ...(st.icon !== undefined ? { iconColor: st.icon } : {}),
       ...(st.border !== undefined ? { borderWidth: st.border } : {}),
       ...(st.borderStyle !== undefined ? { borderStyle: st.borderStyle } : {}),
       ...(st.borderColor !== undefined ? { borderColor: st.borderColor } : {}),
@@ -826,6 +857,7 @@ export function parseArchitecture(content: string): PlatformSchema {
         ...(n.vAlign !== undefined ? { vAlign: n.vAlign } : {}),
         ...(n.hAlign !== undefined ? { hAlign: n.hAlign } : {}),
         ...(n.icon !== undefined ? { icon: n.icon } : {}),
+        ...(n.caption !== undefined ? { caption: n.caption } : {}),
         ...(n.src !== undefined ? { src: n.src } : {}),
       };
     } else if (n.type === "source") {
@@ -976,6 +1008,7 @@ function styleOf(pos: NodePosition): FileNode["style"] | undefined {
   if (pos.shadow !== undefined) s.shadow = pos.shadow;
   if (pos.fillColor !== undefined) s.fill = pos.fillColor;
   if (pos.fontColor !== undefined) s.font = pos.fontColor;
+  if (pos.iconColor !== undefined) s.icon = pos.iconColor;
   if (pos.opacity !== undefined) s.opacity = pos.opacity;
   return Object.keys(s).length ? s : undefined;
 }
@@ -1012,6 +1045,7 @@ export function serializeArchitecture(
         ...(a.vAlign !== undefined ? { vAlign: a.vAlign } : {}),
         ...(a.hAlign !== undefined ? { hAlign: a.hAlign } : {}),
         ...(a.icon !== undefined ? { icon: a.icon } : {}),
+        ...(a.caption !== undefined ? { caption: a.caption } : {}),
         ...(a.src !== undefined ? { src: a.src } : {}),
         ...(style ? { style } : {}),
       });

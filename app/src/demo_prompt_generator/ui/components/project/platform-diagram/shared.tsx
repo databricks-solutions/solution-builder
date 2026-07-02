@@ -4,7 +4,7 @@
  * footprint math, the rotatable/resizable card shell, the connection handles,
  * and the drop-target context.
  */
-import { createContext, useContext, type CSSProperties } from "react";
+import { createContext, useContext, useRef, type CSSProperties } from "react";
 import { Handle, Position, NodeResizer, NodeResizeControl, useStore } from "@xyflow/react";
 import { naturalSize, type PlatformComponent, type BandId, type FlowStyle } from "@/lib/platform-architecture";
 
@@ -43,6 +43,8 @@ export interface NodeData {
   opacity?: number;
   fillColor?: string;
   fontColor?: string;
+  /** Logo annotations: recolor the SVG icon. Undefined → the icon's own color. */
+  iconColor?: string;
   borderWidth?: number;
   borderStyle?: "solid" | "dashed";
   borderColor?: string;
@@ -85,6 +87,7 @@ export type StylePatch = {
   opacity?: number;
   fillColor?: string;
   fontColor?: string;
+  iconColor?: string;
   borderWidth?: number;
   borderStyle?: "solid" | "dashed";
   borderColor?: string;
@@ -114,7 +117,7 @@ export function shadowLevel(shadow: number | boolean | undefined): number {
 /** A CSS box-shadow string for a given 0–100 intensity (0 → none). The blur,
  *  spread and alpha all scale with the level so the slider reads continuously
  *  from "flat" to "lifted". */
-function shadowCss(level: number): string | undefined {
+export function shadowCss(level: number): string | undefined {
   if (level <= 0) return undefined;
   const t = level / 100;
   const y = Math.round(1 + t * 9);          // 1 → 10 px offset
@@ -298,6 +301,16 @@ export function RotatableCard({
   // (the lasso lag). One handle can't resize a group anyway.
   const singleSel = useContext(SingleSelectionContext);
   const showResize = editMode && selected && singleSel;
+  // Shift-drag a resize handle = keep the aspect ratio. We capture the ratio at
+  // drag start (onResizeStart) and, while Shift is held, constrain h to w.
+  const ratioRef = useRef(1);
+  const onSizeStart = (_: unknown, p: { width: number; height: number }) => {
+    ratioRef.current = p.height > 0 ? p.width / p.height : 1;
+  };
+  // Given a raw resize result, lock the aspect ratio when Shift is down. Drives
+  // h from w (the primary drag axis) using the start ratio.
+  const lockRatio = (e: { shiftKey?: boolean } | undefined, w: number, h: number): [number, number] =>
+    e?.shiftKey ? [w, Math.round(w / (ratioRef.current || 1))] : [w, h];
   return (
     <div className="group relative h-full w-full" onContextMenu={onContext}>
       {onScale ? (
@@ -320,8 +333,9 @@ export function RotatableCard({
               position={side}
               minWidth={minW}
               minHeight={minH}
-              onResize={(_, p) => onResize(p.width, p.height)}
-              onResizeEnd={(_, p) => { const snap = (v: number) => Math.round(v / 16) * 16; onResize(snap(p.width), snap(p.height)); }}
+              onResizeStart={onSizeStart}
+              onResize={(e, p) => { const [w, h] = lockRatio(e as { shiftKey?: boolean }, p.width, p.height); onResize(w, h); }}
+              onResizeEnd={(e, p) => { const snap = (v: number) => Math.round(v / 16) * 16; const [w, h] = lockRatio(e as { shiftKey?: boolean }, p.width, p.height); onResize(snap(w), snap(h)); }}
               style={{ background: "transparent", border: "none" }}
             >
               <span
@@ -349,10 +363,12 @@ export function RotatableCard({
           isVisible={showResize}
           minWidth={minW}
           minHeight={minH}
-          onResize={(_, p) => onResize(p.width, p.height)}
-          onResizeEnd={(_, p) => {
+          onResizeStart={onSizeStart}
+          onResize={(e, p) => { const [w, h] = lockRatio(e as { shiftKey?: boolean }, p.width, p.height); onResize(w, h); }}
+          onResizeEnd={(e, p) => {
             const snap = (v: number) => Math.round(v / 16) * 16;
-            onResize(snap(p.width), snap(p.height));
+            const [w, h] = lockRatio(e as { shiftKey?: boolean }, p.width, p.height);
+            onResize(snap(w), snap(h));
           }}
           lineClassName="!border-primary/50"
           handleClassName="!bg-primary !border-2 !border-background !w-3.5 !h-3.5 !rounded-sm !shadow-md"

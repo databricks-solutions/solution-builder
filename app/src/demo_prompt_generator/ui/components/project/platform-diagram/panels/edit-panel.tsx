@@ -144,7 +144,7 @@ export const EditPanel = memo(function EditPanel({
           <>
             <AnnotationMenu a={annotation} Item={Item} onAnno={onAnno} onPickLogo={onPickLogo} onSetImageUrl={onSetImageUrl} onRotate={onRotate} onRemove={onRemove} />
             <Divider />
-            <StyleControls style={style} onStyle={onStyle} />
+            <StyleControls style={style} onStyle={onStyle} showIconColor={annotation.variant === "logo"} noBoxDefaults={annotation.variant === "logo"} />
             <Item icon={<Copy className="h-3.5 w-3.5" />} label="Copy style" onClick={onCopyStyle} />
             <Divider />
             {ZItems}

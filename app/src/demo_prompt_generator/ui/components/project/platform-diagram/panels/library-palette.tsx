@@ -88,15 +88,15 @@ export const LibraryPalette = memo(function LibraryPalette({
         </div>
       </div>
       <div className="flex-1 overflow-y-auto p-2">
-        {/* When searching, surface matching LOGOS + SOURCES from the icon bank
-            (e.g. "kafka" → the Kafka logo / source). Vendor marks only; cloud
-            logos already have their own section below. Capped at 3 each. */}
+        {/* When searching, surface matching LOGOS + SOURCES from the WHOLE icon
+            bank (vendor, persona, cloud) — e.g. "kafka" → the Kafka source,
+            "aws"/"s3" → the cloud mark. No arbitrary cap; the list scrolls. */}
         {!picking && ql && (() => {
-          const vendor = FILE_ICONS.filter((f) => (f.group === "vendor" || f.group === "persona") && matchText(`${f.name} ${f.category} ${logoAliases(f.name).join(" ")}`));
+          const matched = FILE_ICONS.filter((f) => matchText(`${f.name} ${f.category} ${f.group} ${logoAliases(f.name).join(" ")}`));
           // Mutually exclusive: a data-source logo shows under Sources only;
           // everything else under Logos — so a match (e.g. Kafka) appears once.
-          const sources = vendor.filter((f) => logoMetaForKey(f.key).source).slice(0, 3);
-          const logos = vendor.filter((f) => !logoMetaForKey(f.key).source).slice(0, 3);
+          const sources = matched.filter((f) => logoMetaForKey(f.key).source);
+          const logos = matched.filter((f) => !logoMetaForKey(f.key).source);
           if (logos.length === 0 && sources.length === 0) return null;
           return (
             <>
@@ -143,16 +143,20 @@ export const LibraryPalette = memo(function LibraryPalette({
             </>
           );
         })()}
-        {/* Free-form annotations (not Databricks catalog components). */}
-        {!picking && !ql && (
+        {/* Free-form annotations (not Databricks catalog components). Filtered by
+            the search box so they stay findable while searching. */}
+        {!picking && (() => {
+          const annos = ([
+            { v: "text" as const, icon: <Type className="h-4 w-4" />, label: "Text" },
+            { v: "box" as const, icon: <Square className="h-4 w-4" />, label: "Box" },
+            { v: "logo" as const, icon: <Shapes className="h-4 w-4" />, label: "Logo" },
+            { v: "image" as const, icon: <ImageIcon className="h-4 w-4" />, label: "Image" },
+          ]).filter((it) => matchText(it.label));
+          if (annos.length === 0) return null;
+          return (
           <div className="mb-3">
             <div className="px-1 py-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Annotations</div>
-            {([
-              { v: "text" as const, icon: <Type className="h-4 w-4" />, label: "Text" },
-              { v: "box" as const, icon: <Square className="h-4 w-4" />, label: "Box" },
-              { v: "logo" as const, icon: <Shapes className="h-4 w-4" />, label: "Logo" },
-              { v: "image" as const, icon: <ImageIcon className="h-4 w-4" />, label: "Image" },
-            ]).map((it) => (
+            {annos.map((it) => (
               <button
                 key={it.v}
                 type="button"
@@ -168,41 +172,54 @@ export const LibraryPalette = memo(function LibraryPalette({
               </button>
             ))}
           </div>
-        )}
-        {/* Databricks Architecture — titled-box presets (Workspace / Metastore)
-            for framing the physical platform layout. Dragged as box annotations. */}
-        {!picking && !ql && (
+          );
+        })()}
+        {/* Databricks Architecture — ready-made presets: titled container boxes
+            (Workspace / Metastore) + logo+label tiles (Catalog / Schema / Table).
+            Filtered by the search box (matches label + default text). */}
+        {!picking && (() => {
+          const presets = DBX_ARCH_PRESETS.filter((p) => matchText(`${p.label} ${p.annotation.text ?? ""} ${p.annotation.title ?? ""}`));
+          if (presets.length === 0) return null;
+          return (
           <div className="mb-3">
             <div className="px-1 py-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Databricks Architecture</div>
-            {DBX_ARCH_PRESETS.map((p) => (
-              <button
-                key={p.id}
-                type="button"
-                draggable
-                onDragStart={(e) => { e.dataTransfer.setData("application/x-annotation-preset", p.id); e.dataTransfer.effectAllowed = "copy"; }}
-                onDoubleClick={() => onAddPreset(p.id)}
-                title={`Drag onto the canvas (or double-click to add): ${p.label}`}
-                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12.5px] text-foreground hover:bg-muted"
-              >
-                <GripVertical className="h-3 w-3 shrink-0 text-muted-foreground/40" />
-                {p.annotation.titleIcon ? (
-                  <AnyIcon iconKey={p.annotation.titleIcon} className="h-4 w-4 [&_svg]:h-4 [&_svg]:w-4" />
-                ) : (
-                  <Square className="h-4 w-4 text-muted-foreground" />
-                )}
-                <span className="truncate">{p.label}</span>
-              </button>
-            ))}
+            {presets.map((p) => {
+              const previewIcon = p.annotation.titleIcon ?? p.annotation.icon;
+              return (
+                <button
+                  key={p.id}
+                  type="button"
+                  draggable
+                  onDragStart={(e) => { e.dataTransfer.setData("application/x-annotation-preset", p.id); e.dataTransfer.effectAllowed = "copy"; }}
+                  onDoubleClick={() => onAddPreset(p.id)}
+                  title={`Drag onto the canvas (or double-click to add): ${p.label}`}
+                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12.5px] text-foreground hover:bg-muted"
+                >
+                  <GripVertical className="h-3 w-3 shrink-0 text-muted-foreground/40" />
+                  {previewIcon ? (
+                    <AnyIcon iconKey={previewIcon} className="h-4 w-4 [&_svg]:h-4 [&_svg]:w-4" />
+                  ) : (
+                    <Square className="h-4 w-4 text-muted-foreground" />
+                  )}
+                  <span className="truncate">{p.label}</span>
+                </button>
+              );
+            })}
           </div>
-        )}
+          );
+        })()}
         {catalogBands().map((band) => {
           // Render from the RAW global catalog, never the override-merged
           // schema — the palette is a catalog browser, so a demo relabeling a
           // component (e.g. "AI/BI Genie") must not change what it's called
           // here. Always list the FULL catalog (don't hide placed ones — it's
           // confusing). Placed components are just dimmed + marked "on canvas".
-          // The search box filters by label.
-          const items = band.components.filter((c) => matchText(c.label));
+          // Search matches label + sublabel + description + id + authoring
+          // synonyms, so "warehouse", "rag", "postgres", etc. surface the right
+          // tile even when the term isn't in the display label.
+          const items = band.components.filter((c) =>
+            matchText(`${c.label} ${c.sublabel ?? ""} ${c.desc ?? ""} ${c.id} ${c.authoring ?? ""}`),
+          );
           if (items.length === 0) return null;
           return (
             <div key={band.id} className="mb-3">
@@ -261,9 +278,10 @@ export const LibraryPalette = memo(function LibraryPalette({
           );
         })}
 
-        {/* Cloud — AWS / GCP / Azure logos (file icons). Each adds a logo
-            annotation pre-set to that mark. Grouped by provider. */}
-        {!picking && (() => {
+        {/* Cloud — AWS / GCP / Azure logos (file icons), grouped by provider.
+            Shown at rest only; while searching, cloud marks come through the
+            unified Logos search-results block above (no duplication). */}
+        {!picking && !ql && (() => {
           const cloud = FILE_ICONS.filter((f) => f.group === "cloud" && matchText(`${f.category} ${f.name}`));
           if (cloud.length === 0) return null;
           const byProvider = new Map<string, FileIcon[]>();

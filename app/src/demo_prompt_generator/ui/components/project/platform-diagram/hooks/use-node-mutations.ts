@@ -29,6 +29,10 @@ export interface NodeMutations {
   onResize: (id: string, w: number, h: number, scale?: number) => void;
   onRename: (id: string, label: string) => void;
   onAnnotate: (id: string, patch: Partial<AnnotationData>) => void;
+  /** Patch annotation props AND resize the box in ONE commit — avoids the
+   *  annotate→re-render→measure→resize→re-render double pass (the ~100ms lag on
+   *  flipping a logo's text position). Pass w/h to also set the box. */
+  onAnnotateResize: (id: string, patch: Partial<AnnotationData>, w?: number, h?: number) => void;
   /** Refresh the live setNodes/scheduleSave/edges the stable callbacks read. */
   bind: (live: { setNodes: SetNodes; scheduleSave: (nds: Node[], eds: Edge[]) => void; edges: Edge[] }) => void;
 }
@@ -99,5 +103,29 @@ export function useNodeMutations(): NodeMutations {
     });
   }, []);
 
-  return { onResize, onRename, onAnnotate, bind };
+  // Patch + resize in a SINGLE commit (see interface note).
+  const onAnnotateResize = useCallback((id: string, patch: Partial<AnnotationData>, w?: number, h?: number) => {
+    setNodesRef.current?.((nds) => {
+      const next = nds.map((n) => {
+        if (n.id !== id) return n;
+        const dd = n.data as AnnotationNodeData;
+        const sized = w !== undefined && h !== undefined
+          ? { width: w, height: h, style: { ...n.style, width: w, height: h } }
+          : {};
+        return {
+          ...n,
+          ...sized,
+          data: {
+            ...dd,
+            annotation: { ...dd.annotation, ...patch },
+            ...(w !== undefined && h !== undefined ? { w, h } : {}),
+          },
+        };
+      });
+      scheduleSaveRef.current?.(next, edgesRef.current);
+      return next;
+    });
+  }, []);
+
+  return { onResize, onRename, onAnnotate, onAnnotateResize, bind };
 }

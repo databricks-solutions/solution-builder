@@ -63,7 +63,7 @@ export function schemaToFlow(
           onSelect, onContext, onResize, onRename, onAnnotate,
           rot: pos.rot ?? 0,
           w: pos.w, h: pos.h, scale: pos.scale,
-          opacity: pos.opacity, fillColor: pos.fillColor, fontColor: pos.fontColor,
+          opacity: pos.opacity, fillColor: pos.fillColor, fontColor: pos.fontColor, iconColor: pos.iconColor,
           borderWidth: pos.borderWidth, borderStyle: pos.borderStyle, borderColor: pos.borderColor, borderRadius: pos.borderRadius, shadow: pos.shadow, groupId: pos.groupId,
         } satisfies AnnotationNodeData,
       });
@@ -222,6 +222,7 @@ export function flowToLayout(nds: Node[], eds: Edge[], schema: PlatformSchema): 
       ...(dd.opacity !== undefined ? { opacity: dd.opacity } : {}),
       ...(dd.fillColor !== undefined ? { fillColor: dd.fillColor } : {}),
       ...(dd.fontColor !== undefined ? { fontColor: dd.fontColor } : {}),
+      ...(dd.iconColor !== undefined ? { iconColor: dd.iconColor } : {}),
       ...(dd.borderWidth !== undefined ? { borderWidth: dd.borderWidth } : {}),
       ...(dd.borderStyle !== undefined ? { borderStyle: dd.borderStyle } : {}),
       ...(dd.borderColor !== undefined ? { borderColor: dd.borderColor } : {}),

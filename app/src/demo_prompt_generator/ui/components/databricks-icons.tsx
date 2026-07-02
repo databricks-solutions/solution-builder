@@ -27,6 +27,8 @@ export function AgentsIcon(props: IconProps) {
 }
 
 // ML Model icon
+// ML Model — connected-nodes glyph (filled; the shape is designed as a fill,
+// not a stroke, so outlining it inverts the read). It's a solid icon by design.
 export function MLModelIcon(props: IconProps) {
   return (
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" {...props}>
@@ -74,11 +76,11 @@ export function LakeflowConnectIcon(props: IconProps) {
 export function SQLWarehouseIcon(props: IconProps) {
   return (
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" {...props}>
-      <path d="M13 13.75C13 14.5784 11.6569 15.25 10 15.25C8.34315 15.25 7 14.5784 7 13.75" stroke="currentColor" strokeWidth="1.5" fill="none" />
+      <path d="M13 13.75C13 14.5784 11.6569 15.25 10 15.25C8.34315 15.25 7 14.5784 7 13.75" stroke="currentColor" strokeWidth="1" fill="none" />
       <path d="M3.39373 5.58639C3.91293 3.52534 5.77786 2 8 2C10.5504 2 12.6314 4.01005 12.7451 6.5324C14.1591 6.7189 15.3247 7.69323 15.7866 9H14.1211C13.7175 8.39701 13.0301 8 12.25 8H12C11.5858 8 11.25 7.66421 11.25 7.25V6.75C11.25 4.95507 9.79493 3.5 8 3.5C6.34131 3.5 4.97186 4.74324 4.7745 6.34833C4.73041 6.70685 4.43704 6.98301 4.07651 7.00536C2.63892 7.09448 1.5 8.28952 1.5 9.75C1.5 11.1845 2.59873 12.3629 4 12.4888V14C3.93845 14 3.87864 13.9926 3.8214 13.9786C1.67511 13.7633 0 11.9526 0 9.75C0 7.69604 1.45669 5.98279 3.39373 5.58639Z" fill="currentColor" />
-      <path d="M7 11.5V13.7769" stroke="currentColor" strokeWidth="1.5" fill="none" />
-      <path d="M13 11.5V13.7769" stroke="currentColor" strokeWidth="1.5" fill="none" />
-      <ellipse cx="10" cy="11.5" rx="3" ry="1.5" stroke="currentColor" strokeWidth="1.5" fill="none" />
+      <path d="M7 11.5V13.7769" stroke="currentColor" strokeWidth="1" fill="none" />
+      <path d="M13 11.5V13.7769" stroke="currentColor" strokeWidth="1" fill="none" />
+      <ellipse cx="10" cy="11.5" rx="3" ry="1.5" stroke="currentColor" strokeWidth="1" fill="none" />
     </svg>
   );
 }
@@ -133,13 +135,13 @@ export function UnstructuredDataIcon(props: IconProps) {
   return (
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" {...props}>
       {/* Back paper with folded corner - closed shape */}
-      <path d="M5 3V1h5.5l2.5 2.5v9.5a1 1 0 0 1-1 1H10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-      <path d="M10.5 1v2.5H13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+      <path d="M5 3V1h5.5l2.5 2.5v9.5a1 1 0 0 1-1 1H10" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+      <path d="M10.5 1v2.5H13" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" fill="none" />
       {/* Front paper with folded corner */}
-      <path d="M2 3h6l2 2v9a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" fill="none" />
-      <path d="M8 3v2h2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+      <path d="M2 3h6l2 2v9a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3z" stroke="currentColor" strokeWidth="1" strokeLinejoin="round" fill="none" />
+      <path d="M8 3v2h2" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" fill="none" />
       {/* Text lines */}
-      <path d="M4 9h4M4 12h3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+      <path d="M4 9h4M4 12h3" stroke="currentColor" strokeWidth="1" strokeLinecap="round" />
     </svg>
   );
 }
@@ -158,13 +160,50 @@ export function DataIcon(props: IconProps) {
   return (
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" {...props}>
       {/* Top ellipse */}
-      <ellipse cx="8" cy="3" rx="5.5" ry="2" stroke="currentColor" strokeWidth="1.5" fill="none" />
+      <ellipse cx="8" cy="3" rx="5.5" ry="2" stroke="currentColor" strokeWidth="1" fill="none" />
       {/* Left side */}
-      <path d="M2.5 3v10c0 1.1 2.46 2 5.5 2s5.5-.9 5.5-2V3" stroke="currentColor" strokeWidth="1.5" fill="none" />
+      <path d="M2.5 3v10c0 1.1 2.46 2 5.5 2s5.5-.9 5.5-2V3" stroke="currentColor" strokeWidth="1" fill="none" />
       {/* Middle ring 1 */}
-      <path d="M2.5 6.5c0 1.1 2.46 2 5.5 2s5.5-.9 5.5-2" stroke="currentColor" strokeWidth="1.5" fill="none" />
+      <path d="M2.5 6.5c0 1.1 2.46 2 5.5 2s5.5-.9 5.5-2" stroke="currentColor" strokeWidth="1" fill="none" />
       {/* Middle ring 2 */}
-      <path d="M2.5 10c0 1.1 2.46 2 5.5 2s5.5-.9 5.5-2" stroke="currentColor" strokeWidth="1.5" fill="none" />
+      <path d="M2.5 10c0 1.1 2.46 2 5.5 2s5.5-.9 5.5-2" stroke="currentColor" strokeWidth="1" fill="none" />
+    </svg>
+  );
+}
+
+// Catalog / Schema / Table — nested database cylinders. Same cylinder family,
+// distinguished by nesting depth (Catalog 3 rings → Schema 2 → Table 1) so the
+// hierarchy reads at a glance. Red/orange (the unified accent) by default; the
+// right-menu "Icon color" override can recolor them.
+const DB_ORANGE = "#FF5F46";
+const CYL_SW = 0.85; // thin, delicate cylinder lines (1.5 default read too heavy)
+// Catalog — cylinder with 3 rings (deepest nesting).
+export function DbCatalogIcon(props: IconProps) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" {...props} style={{ color: DB_ORANGE, ...props.style }}>
+      <ellipse cx="8" cy="3" rx="5.5" ry="2" stroke="currentColor" strokeWidth={CYL_SW} fill="none" />
+      <path d="M2.5 3v10c0 1.1 2.46 2 5.5 2s5.5-.9 5.5-2V3" stroke="currentColor" strokeWidth={CYL_SW} fill="none" />
+      <path d="M2.5 6.5c0 1.1 2.46 2 5.5 2s5.5-.9 5.5-2" stroke="currentColor" strokeWidth={CYL_SW} fill="none" />
+      <path d="M2.5 10c0 1.1 2.46 2 5.5 2s5.5-.9 5.5-2" stroke="currentColor" strokeWidth={CYL_SW} fill="none" />
+    </svg>
+  );
+}
+// Schema — cylinder with 2 rings.
+export function DbSchemaIcon(props: IconProps) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" {...props} style={{ color: DB_ORANGE, ...props.style }}>
+      <ellipse cx="8" cy="4" rx="5.5" ry="2" stroke="currentColor" strokeWidth={CYL_SW} fill="none" />
+      <path d="M2.5 4v8c0 1.1 2.46 2 5.5 2s5.5-.9 5.5-2V4" stroke="currentColor" strokeWidth={CYL_SW} fill="none" />
+      <path d="M2.5 8c0 1.1 2.46 2 5.5 2s5.5-.9 5.5-2" stroke="currentColor" strokeWidth={CYL_SW} fill="none" />
+    </svg>
+  );
+}
+// Table — a single plain cylinder (no inner rings).
+export function DbTableIcon(props: IconProps) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" {...props} style={{ color: DB_ORANGE, ...props.style }}>
+      <ellipse cx="8" cy="4.5" rx="5.5" ry="2" stroke="currentColor" strokeWidth={CYL_SW} fill="none" />
+      <path d="M2.5 4.5v7c0 1.1 2.46 2 5.5 2s5.5-.9 5.5-2v-7" stroke="currentColor" strokeWidth={CYL_SW} fill="none" />
     </svg>
   );
 }
@@ -174,11 +213,11 @@ export function DeltaTableIcon(props: IconProps) {
   return (
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" {...props}>
       {/* Top ellipse */}
-      <ellipse cx="8" cy="3" rx="5.5" ry="2" stroke="currentColor" strokeWidth="1.5" fill="none" />
+      <ellipse cx="8" cy="3" rx="5.5" ry="2" stroke="currentColor" strokeWidth="1" fill="none" />
       {/* Left side */}
-      <path d="M2.5 3v10c0 1.1 2.46 2 5.5 2s5.5-.9 5.5-2V3" stroke="currentColor" strokeWidth="1.5" fill="none" />
+      <path d="M2.5 3v10c0 1.1 2.46 2 5.5 2s5.5-.9 5.5-2V3" stroke="currentColor" strokeWidth="1" fill="none" />
       {/* Middle ring */}
-      <path d="M2.5 8c0 1.1 2.46 2 5.5 2s5.5-.9 5.5-2" stroke="currentColor" strokeWidth="1.5" fill="none" />
+      <path d="M2.5 8c0 1.1 2.46 2 5.5 2s5.5-.9 5.5-2" stroke="currentColor" strokeWidth="1" fill="none" />
       {/* Delta symbol inside */}
       <path d="M8 6l-2 4h4l-2-4z" fill="currentColor" />
     </svg>
@@ -189,8 +228,8 @@ export function DeltaTableIcon(props: IconProps) {
 export function BusinessUserIcon(props: IconProps) {
   return (
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" {...props}>
-      <circle cx="8" cy="4.5" r="2.5" stroke="currentColor" strokeWidth="1.5" fill="none" />
-      <path d="M3 14c0-2.76 2.24-5 5-5s5 2.24 5 5" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" />
+      <circle cx="8" cy="4.5" r="2.5" stroke="currentColor" strokeWidth="1" fill="none" />
+      <path d="M3 14c0-2.76 2.24-5 5-5s5 2.24 5 5" stroke="currentColor" strokeWidth="1" fill="none" strokeLinecap="round" />
     </svg>
   );
 }
@@ -199,7 +238,7 @@ export function BusinessUserIcon(props: IconProps) {
 export function InputDataIcon(props: IconProps) {
   return (
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" {...props}>
-      <rect x="1.5" y="2.5" width="10" height="11" rx="1" stroke="currentColor" strokeWidth="1.5" fill="none" />
+      <rect x="1.5" y="2.5" width="10" height="11" rx="1" stroke="currentColor" strokeWidth="1" fill="none" />
       {/* Table grid - horizontal lines */}
       <path d="M1.5 6h10M1.5 9h10" stroke="currentColor" strokeWidth="1" />
       {/* Table grid - vertical line */}
@@ -253,8 +292,8 @@ export function MultiAgentSupervisorIcon(props: IconProps) {
 export function VectorSearchIcon(props: IconProps) {
   return (
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" {...props}>
-      <circle cx="6.5" cy="6.5" r="4" stroke="currentColor" strokeWidth="1.5" fill="none" />
-      <path d="M10 10l4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+      <circle cx="6.5" cy="6.5" r="4" stroke="currentColor" strokeWidth="1" fill="none" />
+      <path d="M10 10l4 4" stroke="currentColor" strokeWidth="1" strokeLinecap="round" />
       <circle cx="5.5" cy="5.5" r="0.75" fill="currentColor" />
       <circle cx="7.5" cy="5" r="0.75" fill="currentColor" />
       <circle cx="6" cy="7.5" r="0.75" fill="currentColor" />
@@ -267,9 +306,9 @@ export function VectorSearchIcon(props: IconProps) {
 export function LakebaseIcon(props: IconProps) {
   return (
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" {...props}>
-      <ellipse cx="8" cy="3.5" rx="5" ry="1.75" stroke="currentColor" strokeWidth="1.5" fill="none" />
-      <path d="M3 3.5v9c0 .97 2.24 1.75 5 1.75s5-.78 5-1.75v-9" stroke="currentColor" strokeWidth="1.5" fill="none" />
-      <path d="M3 7.5c0 .97 2.24 1.75 5 1.75s5-.78 5-1.75" stroke="currentColor" strokeWidth="1.5" fill="none" />
+      <ellipse cx="8" cy="3.5" rx="5" ry="1.75" stroke="currentColor" strokeWidth="1" fill="none" />
+      <path d="M3 3.5v9c0 .97 2.24 1.75 5 1.75s5-.78 5-1.75v-9" stroke="currentColor" strokeWidth="1" fill="none" />
+      <path d="M3 7.5c0 .97 2.24 1.75 5 1.75s5-.78 5-1.75" stroke="currentColor" strokeWidth="1" fill="none" />
       <path d="M13 10.5c0 .97-2.24 1.75-5 1.75S3 11.47 3 10.5" stroke="currentColor" strokeWidth="1" strokeDasharray="2 1.5" fill="none" />
     </svg>
   );
@@ -279,8 +318,8 @@ export function LakebaseIcon(props: IconProps) {
 export function DatabricksAppsIcon(props: IconProps) {
   return (
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" {...props}>
-      <rect x="1" y="2" width="14" height="12" rx="1.5" stroke="currentColor" strokeWidth="1.5" fill="none" />
-      <path d="M1 5.5h14" stroke="currentColor" strokeWidth="1.5" />
+      <rect x="1" y="2" width="14" height="12" rx="1.5" stroke="currentColor" strokeWidth="1" fill="none" />
+      <path d="M1 5.5h14" stroke="currentColor" strokeWidth="1" />
       <circle cx="3" cy="3.75" r="0.5" fill="currentColor" />
       <circle cx="4.75" cy="3.75" r="0.5" fill="currentColor" />
       <circle cx="6.5" cy="3.75" r="0.5" fill="currentColor" />
@@ -307,9 +346,9 @@ export function DatabricksMetastoreIcon(props: IconProps) {
 export function StreamingIcon(props: IconProps) {
   return (
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" {...props}>
-      <path d="M2 4h3l2-2h3l2 2h2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-      <path d="M2 4v8l3-1.5L7 12l2-1.5L11 12l3-1.5V4" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" fill="none" />
-      <path d="M8.5 6L7 9h2l-1.5 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+      <path d="M2 4h3l2-2h3l2 2h2" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+      <path d="M2 4v8l3-1.5L7 12l2-1.5L11 12l3-1.5V4" stroke="currentColor" strokeWidth="1" strokeLinejoin="round" fill="none" />
+      <path d="M8.5 6L7 9h2l-1.5 3" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" fill="none" />
     </svg>
   );
 }
@@ -318,9 +357,9 @@ export function StreamingIcon(props: IconProps) {
 export function MetricViewsIcon(props: IconProps) {
   return (
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" {...props}>
-      <path d="M2 13V7l3-2 3 3 3-5 3 2v8H2z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" fill="none" />
-      <path d="M2 13h12" stroke="currentColor" strokeWidth="1.5" />
-      <path d="M10.5 9l1.5 1.5 3-3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+      <path d="M2 13V7l3-2 3 3 3-5 3 2v8H2z" stroke="currentColor" strokeWidth="1" strokeLinejoin="round" fill="none" />
+      <path d="M2 13h12" stroke="currentColor" strokeWidth="1" />
+      <path d="M10.5 9l1.5 1.5 3-3" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" fill="none" />
     </svg>
   );
 }
@@ -340,8 +379,8 @@ export function AIFunctionsIcon(props: IconProps) {
 export function DeltaSharingIcon(props: IconProps) {
   return (
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" {...props}>
-      <path d="M4 12l4-8 4 8H4z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" fill="none" />
-      <path d="M12 5l2.5-1M12 8l2.5 0M12 11l2.5 1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+      <path d="M4 12l4-8 4 8H4z" stroke="currentColor" strokeWidth="1" strokeLinejoin="round" fill="none" />
+      <path d="M12 5l2.5-1M12 8l2.5 0M12 11l2.5 1" stroke="currentColor" strokeWidth="1" strokeLinecap="round" />
     </svg>
   );
 }
@@ -645,6 +684,9 @@ export const DATABRICKS_ICONS = {
   lakebase: LakebaseIcon,
   databricksApps: DatabricksAppsIcon,
   databricksMetastore: DatabricksMetastoreIcon,
+  dbCatalog: DbCatalogIcon,
+  dbSchema: DbSchemaIcon,
+  dbTable: DbTableIcon,
   streaming: StreamingIcon,
   metricViews: MetricViewsIcon,
   aiFunctions: AIFunctionsIcon,
@@ -694,6 +736,9 @@ export const BRAND_ICONS = new Set<DatabricksIconName>([
   "databricksAppsBrand",
   "genieOneBrand",
   "databricksMetastore",
+  "dbCatalog",
+  "dbSchema",
+  "dbTable",
   "shopifyLogo",
   "zendeskLogo",
   "sapLogo",
