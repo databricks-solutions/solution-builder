@@ -95,7 +95,7 @@ Push back via chat until it matches your customer's environment.`,
 - **\`01-lakeflow.md\`** — synthetic data, schemas, and the bronze → silver → gold SDP pipeline
 - **\`02-uc-governance.md\`** — Unity Catalog ABAC policies and data-quality monitors
 - **\`03-ai-bi.md\`** — AI/BI dashboard layout and the Genie Space
-- **\`04-agent-bricks.md\`** — Knowledge Assistant, Multi-Agent Supervisor, and serving
+- **\`04-agent-bricks.md\`** — Knowledge Assistant, Supervisor Agent, and serving
 
 Together they're the precise functional spec the build stage executes.`,
   },

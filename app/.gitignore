@@ -73,3 +73,7 @@ run_server.py
 build-resources/*.icns
 *.dmg
 electron/config.json
+
+# architecture standalone build outputs
+dist-standalone/
+.arch-standalone-build/

@@ -8,7 +8,8 @@ import { BubbleBackground } from "@/components/backgrounds/bubble";
 import { ProjectTile } from "@/components/project/project-tile";
 import { TemplateTile } from "@/components/template/template-tile";
 import { TemplateDetailPopup } from "@/components/template/template-detail-popup";
-import { CapabilitiesPanel } from "@/components/capabilities-panel";
+import { CapabilitiesPanel, SIMPLE_BASELINE } from "@/components/capabilities-panel";
+import { ProductSelector } from "@/components/product-selector";
 import { DatabricksAnimatedLogo } from "@/components/databricks-animated-logo";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -77,7 +78,7 @@ export const Route = createFileRoute("/")({
 const DEFAULT_SELECTED_PRODUCTS = [
   "unity-catalog",       // Governance story
   "genie-code",          // AI coding assistant
-  "databricks-one",      // Business user experience
+  "genie-one",      // Business user experience
   "lakeflow-connect",    // Data ingestion
 ];
 
@@ -95,6 +96,12 @@ function Index() {
   // Always resets on successful project creation (per-session preference,
   // not sticky).
   const [proMode, setProMode] = useState(false);
+  // Top-level entry mode. "story" = the current story-suggestion flow.
+  // "architecture" = lead-with-architecture flow: the prompt + the capability
+  // picker (Simple-demo baseline by default — the agent draws exactly the
+  // selection) + a "Create my architecture" button (no story ideas, no
+  // templates). Defaults to "story" to preserve today's landing.
+  const [mode, setMode] = useState<"story" | "architecture">("story");
   const [selectedProducts, setSelectedProducts] = useState<Set<string>>(
     new Set(DEFAULT_SELECTED_PRODUCTS)
   );
@@ -257,6 +264,22 @@ function Index() {
     [],
   );
 
+  // Architecture mode shows the FULL picker (no Simple/Custom tabs) with the
+  // simple-demo baseline pre-selected. Seed ONCE on first entry — after that
+  // the user's toggles are theirs (switching story↔architecture doesn't wipe).
+  // The baseline is a SOFT default: the explicit map stays EMPTY so the
+  // capabilities-only LLM pass may adjust the whole selection as the user
+  // types; only actual user clicks pin ids (handleToggleProduct records them).
+  const archSeededRef = useRef(false);
+  useEffect(() => {
+    if (mode !== "architecture" || archSeededRef.current) return;
+    archSeededRef.current = true;
+    handleReplaceSelection(
+      new Set<string>(SIMPLE_BASELINE),
+      new Map<string, "selected" | "unselected">(),
+    );
+  }, [mode, handleReplaceSelection]);
+
   // Load projects and capabilities on mount
   useEffect(() => {
     listProjects()
@@ -269,9 +292,10 @@ function Index() {
       .catch(() => {});
   }, []);
 
-  // Debounced template search (500ms)
+  // Debounced template search (500ms). Story-tab only — the architecture
+  // tab doesn't surface templates, so skip the search there.
   useEffect(() => {
-    if (topic.trim().length < 3) {
+    if (mode !== "story" || topic.trim().length < 3) {
       setMatchingTemplates([]);
       setIsSearchingTemplates(false);
       return;
@@ -290,7 +314,7 @@ function Index() {
     }, 500);
 
     return () => clearTimeout(timer);
-  }, [topic]);
+  }, [topic, mode]);
 
   // Streaming suggestion helper.
   //
@@ -333,6 +357,9 @@ function Index() {
     /** The capability set the previousIdeas were generated against —
      *  needed so the prompt can describe the diff in plain English. */
     previousCapabilities?: string[],
+    /** Architecture mode: LLM selects matching capabilities only — no
+     *  use-case ideas. Story state (ideas/skeletons) is left untouched. */
+    capabilitiesOnly?: boolean,
   ) => {
     // Read latest values via refs (see RACE NOTE above).
     const caps = capabilitiesRef.current;
@@ -357,8 +384,11 @@ function Index() {
     // refresh we DON'T clear — the user is mid-decision, blanking the
     // panel to skeletons would defeat the whole point of the minimal
     // rewrite path. Ideas get replaced in-place as the LLM streams them.
+    // Capabilities-only (architecture mode) never touches story state.
     const isCapabilityChangeRefresh = !!previousIdeas && previousIdeas.length > 0;
-    if (!isCapabilityChangeRefresh) {
+    if (capabilitiesOnly) {
+      // No idea skeletons — the only visible effect is the picker's loading dim.
+    } else if (!isCapabilityChangeRefresh) {
       setIdeas([]);
       setExpectedIdeaCount(0);
       setSelectedIdeaIdx(0);
@@ -390,6 +420,8 @@ function Index() {
         previousIdeas,
         previousCapabilities,
         buildContextTextRef.current(),
+        undefined, // datasources — home page has no diagram yet
+        capabilitiesOnly,
       )) {
         // Check if aborted
         if (abortController.signal.aborted) return;
@@ -485,25 +517,32 @@ function Index() {
   const uploadedFilesKey = uploadedFiles.map((f) => f.filename).join("|");
   const lastUploadKeyRef = useRef("");
   const capabilitiesReady = capabilities.length > 0;
+  const lastModeRef = useRef<string>("");
   useEffect(() => {
     const trimmedTopic = topic.trim();
-    // Trigger if EITHER the topic OR the file set changed.
+    // Trigger if the topic, the file set, OR the entry mode changed (switching
+    // story ↔ architecture reruns the stream in the right shape — e.g. text
+    // typed in story mode should auto-select components on the arch tab).
     if (
       trimmedTopic === lastTopicRef.current
       && uploadedFilesKey === lastUploadKeyRef.current
+      && mode === lastModeRef.current
     ) {
       return;
     }
     lastTopicRef.current = trimmedTopic;
     lastUploadKeyRef.current = uploadedFilesKey;
+    lastModeRef.current = mode;
 
     const hasFiles = uploadedFiles.length > 0;
     // Need EITHER 3+ chars of topic OR at least one file. A file with no
     // typed text gets a generic prompt — the backend sees the file
     // content via context_text and picks ideas from it.
-    // Pro mode skips suggestion entirely — the user picks capabilities by
-    // hand and types their own prompt; no auto-generated story ideas.
-    if ((trimmedTopic.length < 3 && !hasFiles) || !capabilitiesReady || proMode) {
+    // Pro mode skips suggestion entirely (story tab only). The ARCHITECTURE
+    // tab streams too — but in capabilities-only mode: the LLM auto-selects
+    // the matching components in the picker, no story ideas.
+    const archMode = mode === "architecture";
+    if ((trimmedTopic.length < 3 && !hasFiles) || !capabilitiesReady || (!archMode && proMode)) {
       setIsSuggestingCapabilities(false);
       return;
     }
@@ -512,10 +551,19 @@ function Index() {
 
     const effectivePrompt = trimmedTopic.length >= 3
       ? trimmedTopic
-      : "Suggest demos based on the uploaded files.";
+      : archMode
+        ? "Suggest architecture components based on the uploaded files."
+        : "Suggest demos based on the uploaded files.";
 
     const timer = setTimeout(() => {
-      runSuggestionStream(effectivePrompt);
+      runSuggestionStream(
+        effectivePrompt,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        archMode, // capabilities-only in architecture mode
+      );
     }, 1000);
 
     return () => {
@@ -526,7 +574,7 @@ function Index() {
       // mid-stream cancel to the user.
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [topic, capabilitiesReady, uploadedFilesKey, proMode]);
+  }, [topic, capabilitiesReady, uploadedFilesKey, proMode, mode]);
 
   // Re-suggest when the user explicitly toggles a capability — so the
   // story/ideas regenerate to reflect what they want included. Skipped on
@@ -553,7 +601,9 @@ function Index() {
     }
     lastExplicitKeyRef.current = key;
 
-    if (topic.trim().length < 3 || !capabilitiesReady || proMode) {
+    // Story mode only: in architecture mode there are no stories to refresh —
+    // a toggle just pins the user's choice locally (the LLM already ran).
+    if (topic.trim().length < 3 || !capabilitiesReady || proMode || mode !== "story") {
       return;
     }
 
@@ -602,7 +652,7 @@ function Index() {
 
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [explicitSelections, capabilitiesReady, selectedProducts]);
+  }, [explicitSelections, capabilitiesReady, selectedProducts, mode]);
 
   // Manual regenerate handler
   const handleRegenerate = useCallback(() => {
@@ -619,6 +669,7 @@ function Index() {
   const handleCreateProject = async (
     e?: React.FormEvent,
     idea?: UseCaseIdea,
+    architectureFirst = false,
   ) => {
     e?.preventDefault();
     // In Pro mode the suggestion stream never ran, so there's no `idea` to
@@ -673,7 +724,24 @@ function Index() {
         : "";
 
       let initialPrompt: string;
-      if (effectiveIdea) {
+      if (architectureFirst) {
+        // Architecture-first entry: the user wants to START by laying out an
+        // architecture diagram — NOT a story. Their text can be anything
+        // (a tidy prompt, pasted meeting notes, a transcript). The agent
+        // should extract the platform components it implies and write ONLY
+        // `architecture.md`, then stop. SKILL.md has the matching path.
+        // The capability picker IS shown in architecture mode (defaulting to
+        // the Simple-demo baseline), so the selection is deliberate — the
+        // diagram must reflect exactly it, not resources.json defaults.
+        const archCapsLine = capabilityIds.length > 0
+          ? `\n\nThe user explicitly selected these capabilities for the diagram: ${capabilityIds.join(", ")}. The architecture must show exactly these (plus the data sources their text implies) — do not add other capabilities.`
+          : "";
+        initialPrompt =
+          `The user wants to START by creating an architecture diagram (architecture-first flow) — not a story yet.\n\n` +
+          `What they wrote (may be a tidy brief OR pasted notes / a transcript — extract intent from it):\n${topic.trim() || description}` +
+          archCapsLine +
+          `\n\nFollow the architecture-first path in SKILL.md: read the databricks-architecture skill (\`.claude/skills/databricks-architecture/SKILL.md\`), extract the main components, and write ONLY \`architecture.md\` at the project root. Do not design a story, write specs, or build resources yet — produce the diagram and stop so the user can review/edit it on the Architecture tab.`;
+      } else if (effectiveIdea) {
         initialPrompt = `Help me build a databricks solution.\n\nUser request:\n${topic.trim()}\n\n**${effectiveIdea.title}**\n\n${effectiveIdea.hook}${authoritativeCapsLine}`;
       } else {
         // Pro mode (or auto mode with no idea picked yet): just the user's
@@ -702,7 +770,9 @@ function Index() {
       // gives the agent its build subject — AUTO_BUILD_KICKOFF alone would
       // tell it to inspect existing project files, but on a fresh project
       // nothing exists yet.
-      if (autoMode) {
+      // Architecture-first stops after the diagram, so never append the
+      // full build kickoff there.
+      if (autoMode && !architectureFirst) {
         initialPrompt += `\n\n---\n\n${AUTO_BUILD_KICKOFF}`;
       }
 
@@ -717,6 +787,9 @@ function Index() {
         capabilityIds,
         initialPrompt,
         uploadedFiles.length > 0 ? uploadedFiles : undefined,
+        // Persisted flag: the workspace opens on the Architecture tab and shows
+        // the "Build the solution" CTA until the build is kicked off there.
+        architectureFirst,
       );
 
       // Per-session preference: Pro mode resets after each create so the
@@ -726,6 +799,10 @@ function Index() {
       navigate({
         to: "/project/$projectId",
         params: { projectId: project.id },
+        // Architecture-first: land straight on the Architecture tab so the
+        // user watches the diagram build there — not the "writing the pitch"
+        // overview waiting view.
+        search: architectureFirst ? { tab: "architecture" } : undefined,
       });
     } catch (error) {
       console.error("Failed to create project:", error);
@@ -815,6 +892,37 @@ function Index() {
             </p>
           </div>
 
+          {/* Tabs + input card as ONE unit (own wrapper) so the parent's
+              space-y-6 doesn't open a gap between the folder tabs and the card.
+              Real folder tabs on the top-left: the active tab shares the card's
+              surface + border with no bottom edge, so it reads as one connected
+              panel. "story" (current flow) vs "architecture" (lead-with-
+              architecture: prompt + button). */}
+          <div className="w-full">
+          <div className="flex w-full items-end pl-3">
+            {([
+              { v: "story" as const, label: "Describe your story" },
+              { v: "architecture" as const, label: "Describe your architecture" },
+            ]).map((t) => {
+              const active = mode === t.v;
+              return (
+                <button
+                  key={t.v}
+                  type="button"
+                  onClick={() => setMode(t.v)}
+                  className={cn(
+                    "relative -mb-px cursor-pointer rounded-t-lg border border-b-0 px-4 py-2 text-sm font-medium transition-colors",
+                    active
+                      ? "z-10 border-primary/10 bg-card/80 text-foreground backdrop-blur-md"
+                      : "border-border/60 bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground",
+                  )}
+                >
+                  {t.label}
+                </button>
+              );
+            })}
+          </div>
+
           {/* Input card. Drag-drop wraps the whole card so the user can
               drop files anywhere over the textarea / chip area. The
               isDragOver state pulses the border so the drop target is
@@ -854,7 +962,11 @@ function Index() {
                 <div className="flex items-end gap-2">
                   <Textarea
                     ref={textareaRef}
-                    placeholder='Describe your project... e.g. "predictive maintenance for wind turbines"'
+                    placeholder={
+                      mode === "architecture"
+                        ? 'Describe your architecture... e.g. "ingest ERP data to a final business application"'
+                        : 'Describe your project... e.g. "predictive maintenance for wind turbines"'
+                    }
                     value={topic}
                     onChange={(e) => {
                       setTopic(e.target.value);
@@ -895,6 +1007,16 @@ function Index() {
                   </button>
                 </div>
 
+                {/* Architecture-tab tip — the input accepts anything, not
+                    just a tidy brief. */}
+                {mode === "architecture" && (
+                  <p className="text-xs text-muted-foreground">
+                    💡 Paste anything — a rough idea, meeting notes, or a
+                    transcript. We'll pull out the components and lay out a
+                    starting architecture you can edit.
+                  </p>
+                )}
+
                 {/* Chips row — only renders when files are attached or an
                     upload error occurred, so the layout stays compact
                     on cold start. */}
@@ -923,8 +1045,10 @@ function Index() {
                 {/* Ideas section header — toggles row renders whenever the
                     hero is collapsed (user has typed or attached files).
                     In Pro mode the ideas grid below is skipped entirely
-                    and the header label switches to a "manual mode" hint. */}
-                {isHeroCollapsed && (
+                    and the header label switches to a "manual mode" hint.
+                    Story-tab only — the architecture tab shows just the
+                    prompt + a single "Create my architecture" button. */}
+                {isHeroCollapsed && mode === "story" && (
                   <div className="pt-2 pb-1">
                     <div className="flex items-center justify-between gap-3 mb-3">
                       <div className="flex items-center gap-2">
@@ -1264,24 +1388,64 @@ function Index() {
                     Databricks demo" baseline and the full "Custom solution"
                     selector. Both tabs write to the same selectedProducts
                     set so the downstream build CTA / confirm dialog are
-                    unchanged. */}
-                <CapabilitiesPanel
-                  capabilities={capabilities}
-                  selectedProducts={selectedProducts}
-                  onToggleProduct={handleToggleProduct}
-                  onReplaceSelection={handleReplaceSelection}
-                  expanded={isHeroCollapsed}
-                  isLoading={isSuggestingCapabilities}
-                  explicitSelections={explicitSelections}
-                />
+                    unchanged. Story-tab only. */}
+                {mode === "story" && (
+                  <CapabilitiesPanel
+                    capabilities={capabilities}
+                    selectedProducts={selectedProducts}
+                    onToggleProduct={handleToggleProduct}
+                    onReplaceSelection={handleReplaceSelection}
+                    expanded={isHeroCollapsed}
+                    isLoading={isSuggestingCapabilities}
+                    explicitSelections={explicitSelections}
+                  />
+                )}
+
+                {/* Architecture mode — the FULL component picker (no
+                    Simple/Custom tabs), with the simple-demo baseline
+                    pre-selected (see the seed effect). The selection is what
+                    the agent draws in the initial architecture.md. */}
+                {mode === "architecture" && (
+                  <ProductSelector
+                    capabilities={capabilities}
+                    selectedProducts={selectedProducts}
+                    onToggleProduct={handleToggleProduct}
+                    expanded={isHeroCollapsed}
+                    // Dim the tiles while the capabilities-only LLM pass is
+                    // auto-selecting components from the typed description.
+                    isLoading={isSuggestingCapabilities}
+                    explicitSelections={explicitSelections}
+                    title="Select the architecture components you want to see"
+                  />
+                )}
+
+                {/* Architecture tab — once the user has typed (or attached
+                    files), show the "Create my architecture" button below the
+                    capability picker. No story ideas, no templates. */}
+                {mode === "architecture" && isHeroCollapsed && (
+                  <div className="flex flex-col items-center gap-2 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => handleCreateProject(undefined, undefined, true)}
+                      disabled={
+                        isCreating ||
+                        (!topic.trim() && uploadedFiles.length === 0)
+                      }
+                      className="inline-flex items-center justify-center gap-2 px-6 py-2.5 rounded-md text-sm font-semibold transition-all bg-destructive text-destructive-foreground hover:bg-destructive/90 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer shadow-sm"
+                    >
+                      <Sparkles className="h-4 w-4" />
+                      Create my architecture
+                    </button>
+                  </div>
+                )}
 
                 {/* Primary CTA — direct create. Capability set is fully
                     user-visible (locked baseline in Simple, granular tile
                     in Custom), so no confirm dialog is needed.
                     Shows in Auto mode once at least one idea has streamed
                     in, OR in Pro mode as soon as the user has typed (no
-                    ideas exist in Pro). */}
-                {isHeroCollapsed && (proMode || ideas.length > 0) && (
+                    ideas exist in Pro). Story-tab only. */}
+                {mode === "story" && isHeroCollapsed && (proMode || ideas.length > 0) && (
                   <div className="flex flex-col items-center gap-2 pt-2">
                     <button
                       type="button"
@@ -1349,12 +1513,14 @@ function Index() {
               </form>
             </CardContent>
           </Card>
+          </div>
 
           {/* Research agent callout - hidden when collapsed */}
         </div>
 
-        {/* Matching templates section */}
-        {topic.trim().length >= 3 && (
+        {/* Matching templates section — story-tab only (the architecture
+            tab leads with a single create button, no templates). */}
+        {mode === "story" && topic.trim().length >= 3 && (
           <div className="relative z-10 mx-auto mt-12 w-full max-w-5xl">
             <div className="mb-4 flex items-start justify-between">
               <div>

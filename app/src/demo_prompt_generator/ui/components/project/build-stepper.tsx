@@ -245,6 +245,11 @@ export interface BuildStepperProps {
   /** Callbacks for stage actions */
   onCreateArchitecture?: () => void;
   onUpdateArchitecture?: () => void;
+  /** Architecture-first project awaiting its build: when set, the stepper's
+   *  primary action is "Build the solution for this architecture" (opens the
+   *  story/capabilities dialog) and the downstream create-actions are hidden
+   *  until the build kicks off. */
+  onBuildSolution?: () => void;
   onCreateSpec?: () => void;
   onUpdateSpec?: () => void;
   onBuildResources?: () => void;
@@ -266,6 +271,7 @@ export function BuildStepper({
   expectedResourceCount = 0,
   onCreateArchitecture,
   onUpdateArchitecture,
+  onBuildSolution,
   onCreateSpec,
   onUpdateSpec,
   onBuildResources,
@@ -297,15 +303,34 @@ export function BuildStepper({
     variant?: "default" | "primary";
   }> = [];
 
+  // Architecture-first: the ONLY sensible next steps are building the solution
+  // from the diagram (primary) or updating the diagram — the downstream
+  // create-actions (specs, resources) only make sense once the build ran.
+  if (onBuildSolution) {
+    actions.push({
+      label: "Build the solution for this architecture",
+      icon: Rocket,
+      onClick: onBuildSolution,
+      variant: "primary",
+    });
+    if (hasArch && onUpdateArchitecture) {
+      actions.push({
+        label: "Update Architecture Diagram",
+        icon: Network,
+        onClick: onUpdateArchitecture,
+      });
+    }
+  }
+
   // Architecture actions
-  if (!hasArch && onCreateArchitecture) {
+  if (!onBuildSolution && !hasArch && onCreateArchitecture) {
     actions.push({
       label: "Create Architecture Diagram",
       icon: Network,
       onClick: onCreateArchitecture,
       variant: "primary",
     });
-  } else if (hasArch && onUpdateArchitecture) {
+  } else if (!onBuildSolution && hasArch && onUpdateArchitecture) {
     actions.push({
       label: "Update Architecture Diagram",
       icon: Network,
@@ -314,14 +339,14 @@ export function BuildStepper({
   }
 
   // Specification actions
-  if (!hasSpecifications && onCreateSpec) {
+  if (!onBuildSolution && !hasSpecifications && onCreateSpec) {
     actions.push({
       label: "Create Specifications",
       icon: FileText,
       onClick: onCreateSpec,
       variant: !hasArch ? undefined : "primary",
     });
-  } else if (hasSpecifications && onUpdateSpec) {
+  } else if (!onBuildSolution && hasSpecifications && onUpdateSpec) {
     actions.push({
       label: "Update Specifications",
       icon: FileText,
@@ -386,7 +411,11 @@ export function BuildStepper({
 
   return (
     <div className="flex items-center gap-3">
-      {/* Stepper pills — 4 collapsed lifecycle stages */}
+      {/* Stepper pills — 4 collapsed lifecycle stages. HIDDEN while the
+          project is architecture-first (onBuildSolution set): the pipeline
+          hasn't started yet, so the pills read as noise next to the single
+          "Build the solution" CTA. They come back once the build kicks off. */}
+      {!onBuildSolution && (
       <div className="flex items-center gap-1">
         <TooltipProvider delayDuration={200}>
           {lifecycle.map((s, idx) => {
@@ -443,6 +472,7 @@ export function BuildStepper({
           })}
         </TooltipProvider>
       </div>
+      )}
 
       {/* Action button group: main button + dropdown for more options */}
       {isStreaming ? (

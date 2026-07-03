@@ -19,7 +19,7 @@ import type { DeployedResourceLink } from "./custom-api";
  *  resource tiles (talking-track only). Excluded from the build
  *  estimate so they never gate the "Ready" phase. Keep in sync with
  *  the HIDDEN_SLUGS set in project-overview.tsx. */
-const HIDDEN_SLUGS = new Set(["synthetic-data-gen", "databricks-one", "genie-code"]);
+const HIDDEN_SLUGS = new Set(["synthetic-data-gen", "genie-one", "genie-code"]);
 
 /** Rough build duration (minutes) per capability slug. Tuned for typical
  *  agent latency on a warm workspace — actual times will vary. */
@@ -54,7 +54,7 @@ const CAPABILITY_DURATION_MIN: Record<string, number> = {
   // Analyst Layer
   "databricks-apps": 12,
   "lakebase": 6,
-  "databricks-one": 2,
+  "genie-one": 2,
 
   // Foundation (lightweight)
   "unity-catalog": 1,

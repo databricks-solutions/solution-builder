@@ -27,6 +27,15 @@ The main loop lives in this file (SKILL.md) — it describes **the flow**: stage
 **Cross-cutting (not a stage):**
 - **App creation** — folded into stages 2 + 3: `DEMO_SKILL_DIR/app/app.md`
 
+### Architecture-first entry (alternate start)
+
+Sometimes the opening message says the user wants to **start by creating an architecture diagram** (architecture-first) rather than a story. Their text may be anything — a tidy brief, pasted meeting notes, or a transcript. When you see that:
+
+1. **Skip stages 0–1.** Do **not** design a story, write `resources.json`/`README.md`, write specs, or build resources.
+2. Read the **`databricks-architecture` skill** (`.claude/skills/databricks-architecture/SKILL.md`) — the flat `nodes`/`edges` schema + component catalog + reference diagrams.
+3. **Extract the main components** the user's text implies — source systems, pipeline, serving layer, dashboards/apps, agents — and map each to a real catalog component id. Start from the minimal example inlined in that skill's **The format** section (or its `reference/architecture-complete.jsonc` for the full platform shape) when the intent clearly matches one, then patch in the named sources.
+4. **Write ONLY `architecture.md`** at the project root (the schema in a fenced ```json block), then **stop** with a one-liner inviting the user to review/edit it on the Architecture tab. The story comes later — the user will click "Generate the solution from this architecture", which kicks off stage 1 *constrained to* the components they kept on the canvas.
+
 ## Paths
 
 Your system prompt defines `PROJECT`, `SKILLS`, `DEMO_SKILL_DIR`, and `DEMO_SKILL` as absolute paths. This skill refers to sibling files like `DEMO_SKILL_DIR/stages/*.md`, `DEMO_SKILL_DIR/app/app.md`, `DEMO_SKILL_DIR/references/*`.
@@ -131,7 +140,7 @@ When the user provides exact capabilities, use those directly — don't override
 
 ### Architecture Diagram
 
-Read `DEMO_SKILL_DIR/references/architecture.md` for the schema format (icons, tiers, columns, edges, groups). Generate the architecture as JSON in `./architecture.md` — the UI renders it automatically.
+Use the **`databricks-architecture` skill** (`.claude/skills/databricks-architecture/SKILL.md`) for the schema (the flat `nodes` + `edges` format, the component catalog, and the reference diagrams to start from). Generate the architecture as JSON in `./architecture.md` — the UI renders it automatically.
 
 ---
 
@@ -203,7 +212,7 @@ First, assess the user's input — how much is already decided?
    1. **Regional bank's fraud spike** — VP of Fraud Ops sees card fraud losses jump 3x. Traces it to compromised POS terminals at a merchant chain.
    2. **Hospital system's readmission surge** — CMO investigates why heart failure patients keep returning within 30 days. Uncovers a discharge protocol gap.
    3. **Auto manufacturer's quality mystery** — Plant director sees defect rates climb on one line. Traces it to a worn bearing in Station 7.
-   Suggested stack: synthetic-data-gen, sdp, aibi-dashboards, genie  + lakeflow-connect, genie-code, databricks-one, unity-catalog
+   Suggested stack: synthetic-data-gen, sdp, aibi-dashboards, genie  + lakeflow-connect, genie-code, genie-one, unity-catalog
    
    Pick one, combine ideas, or describe something else / add capabilities.
    ```

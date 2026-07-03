@@ -1,13 +1,13 @@
 ---
-name: Databricks One
+name: Genie One
 category: ai-bi
 disabled: false
 buildable: false
 ---
 
-# Databricks One
+# Genie One
 
-**Simplified interface** that makes data and AI accessible to business users without technical expertise.
+**The enterprise AI coworker** that makes data and AI accessible to business users without technical expertise. (Formerly "Databricks One.")
 
 ## Pain
 

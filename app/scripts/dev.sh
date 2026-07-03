@@ -131,6 +131,20 @@ echo -e "${CYAN}Syncing frontend dependencies (bun install)...${NC}"
 bun install --silent
 
 # ============================================================================
+# Recompile the architecture skill (catalog from code + standalone viewer/editor
+# HTML) so dev always starts with a FRESH skill. Backgrounded + non-fatal — a
+# failure here must never block the dev servers.
+# ============================================================================
+echo -e "${CYAN}Refreshing architecture skill (catalog + standalone)...${NC}"
+(
+    if ./scripts/refresh-arch-skill.sh >/dev/null 2>&1; then
+        echo -e "[${GREEN}ARCH-SKILL${NC}] compiled (catalog + standalone HTML)"
+    else
+        echo -e "[${YELLOW}ARCH-SKILL${NC}] compile failed (non-fatal)"
+    fi
+) &
+
+# ============================================================================
 # Check for .env file — auto-bootstrap from .env.example so a fresh clone
 # can just run ./scripts/dev.sh. The example sets DATABRICKS_CONFIG_PROFILE=DEFAULT
 # which works against ~/.databrickscfg.

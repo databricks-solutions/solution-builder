@@ -50,7 +50,9 @@ industry-demo-prompts/
 │   │   │   └── preview/                  # Subprocess runner that spawns generated app's start.sh
 │   │   └── ui/                           # React 19 + TanStack Router + Tailwind v4
 │   │       ├── routes/                   # project.$projectId.tsx is the workspace
-│   │       └── preview/                  # Preview iframe + log streaming UI
+│   │       ├── preview/                  # Preview iframe + log streaming UI
+│   │       ├── lib/platform-architecture.ts  # ★ Arch-diagram CATALOG + flat-file parse/serialize + computeLayout (see below)
+│   │       └── components/project/platform-diagram{.tsx,/}  # ★ ReactFlow arch-diagram editor (see below)
 │   ├── test/app_template_test/
 │   │   ├── app/                          # ★ Test fork of template (parallel-edit with template)
 │   │   └── src/                          # ★ Source-of-truth for THIS demo's Databricks assets
@@ -142,6 +144,48 @@ AppKit's server plugin defaults to `host=0.0.0.0`. In the prod Databricks Apps c
 Forcing the child to `127.0.0.1` turns that race into a hard `EADDRINUSE` at child start (`127.0.0.1:N` conflicts with `0.0.0.0:N` on bind). The child fails loudly, registry picks a new port, no silent shadowing. See the commit / comment in `registry.py:_do_start` for the full story.
 
 Same env in local dev — no behavior change there.
+
+## The architecture-diagram editor (`platform-diagram/`)
+
+The "Architecture" tab is a Lucidchart-style ReactFlow (`@xyflow/react`) editor for the demo's Databricks architecture. It reads/writes the project's `architecture.md` and auto-saves (debounced) on every change. A module DAG under `ui/components/project/platform-diagram/`:
+
+```
+platform-diagram.tsx                 # thin shell: PlatformDiagram (default export) + SaveChip + parse/deeplink/persist
+platform-diagram/
+├── canvas.tsx                       # ★ the stateful orchestrator (ReactFlow, panels, menu, drag-to-add, keys)
+├── shared.tsx                       # NodeData/EdgeData/StylePatch types, RotatableCard (resize/rotate shell),
+│                                    #   cardStyle (border/shadow/fill helper), baseSize→naturalSize, EditModeContext
+├── edge-routing.ts                  # pure edge geometry (sides, fan-out, EdgeOps context)
+├── flow-mapping.ts                  # schema↔ReactFlow: schemaToFlow / flowToEdge / flowToLayout (the save round-trip)
+├── node-types.ts                    # nodeTypes + edgeTypes registries
+├── nodes/component-node.tsx         # the standard product/source tile
+├── edges/{flow-edge,edge-flow}.tsx  # custom edge (arrows + inferred handles) + animated flow overlay
+├── panels/{detail-panel,edit-panel,library-palette,style-controls}.tsx
+├── menus/context-menu.tsx           # the EDGE edit panel (docked on click; flow/arrow/shape/label/delete)
+├── composite-{lakeflow,lakeflow-genie,genie-code,governance,agent-bricks,db-platform}.tsx  # rich composite kinds
+├── annotations.tsx                  # free-form text/box/logo/image annotations + IconPicker
+└── hooks/{use-diagram-history,use-node-mutations,use-edge-mutations,use-paste-image}.ts
+```
+
+Dependency direction is a strict leaf→root DAG (shared/edge-routing → edge-flow/composites → component-node/flow-edge → node-types/flow-mapping/panels/menus → canvas → platform-diagram). The custom Canvas hooks own the undo/redo burst machinery, the node/edge mutators, and paste. Selection comes from ReactFlow's `selected` NodeProp, edit mode from `EditModeContext`, draggability from `<ReactFlow nodesDraggable>` — node `data` identity stays stable so `React.memo` holds.
+
+### Two layers: the FILE format vs the ReactFlow binding (keep separate)
+
+- **`lib/platform-architecture.ts` — the file-format + catalog layer.** This is where most architecture logic lives. It owns:
+  - The **flat `architecture.md` format**: `{ name, story, options, columns?, nodes[], edges[] }`. A node is on the canvas iff it's in `nodes`. **No bands / state / hidden / catalog-diffing in the file** — that model was cut over (no `buildSchema`/`seedEdges`/overrides anymore).
+  - `parseArchitecture(content)` → the internal resolved `PlatformSchema` ({bands, layout}) the canvas consumes; `serializeArchitecture(schema, layout)` → writes the flat file back. (The internal `{bands, layout}` shape is kept ONLY so `flow-mapping.ts` + the node components didn't have to change.)
+  - The **`CATALOG`** (single source of truth): every component with `id`/`label`/`icon`/`desc`/`kind`/`sublabel` + authoring metadata (`authoring` one-liner, `ports` map). `CATALOG_BY_ID` is the lookup; `naturalSize(type)` gives each kind's [w,h]. The file lists only what's placed; the library palette renders the full catalog.
+  - **`computeLayout(file)`** — resolves SYMBOLIC placement → pixels. **Author structure, not coordinates:** `columns: [...]` + per-node `col`/`row` stack nodes in left→right lanes; `wraps: [ids]`+`pad` makes a `type:"box"` auto-size around children (recursive → cloud/VPC nesting); `bounds: {side:"<id>:<anchor>"}` cuts a box edge at a node/column midpoint; `pin: "bottom-left"`+`pinTo` docks banners into a box corner (non-`float` pins RESERVE a band so the box grows and they don't overlap content). **Explicit `at` always wins, and a user drag persists as `at`** — symbolic fields are author-time, consumed once at parse.
+  - Edges: `from`/`to` by node id; the `@handle` is **inferred** (source→Lakeflow picks the port from `ingest`; else L→R `@r`/`@l`). `arrow` (auto/none/end/start/both) — `auto` draws relationship arrows for user/Genie-One edges.
+- **`flow-mapping.ts` — the ReactFlow-binding layer.** `schemaToFlow` / `flowToEdge` (resolved schema → `Node[]`/`Edge[]`) and `flowToLayout` (live graph → persisted layout). No file parsing here.
+
+### Composite node kinds
+
+Beyond the plain `component` tile, each composite is its own node type + `composite-*.tsx`: `lakeflow` / `lakeflow-genie` (3-port ingest rail + medallion, `lakeflow-genie` adds a Genie Code footer — the preferred data block), `governance` (UC + AI Gateway + Genie Ontology bar), `agent-bricks` (supervisor tree), `genie-code`, `db-platform` (wordmark banner). A composite's `kind` lives on its catalog entry; `nodeTypeFor` maps kind→ReactFlow type; `cardStyle` lets border/shadow/fill controls apply uniformly (db-platform + governance default to no border/shadow).
+
+### The skill catalog is GENERATED from the code catalog
+
+The architecture skill's component reference (`.claude/skills/databricks-demo-generator/references/architecture/architecture.md`, between `<!-- BEGIN/END: generated-catalog -->`) is **derived from `CATALOG`** by `app/scripts/gen-architecture-skill.ts` (`bun run gen:arch-skill`). After changing a component's label/desc/`authoring`/`ports`, re-run it so the skill can't drift. The rest of that skill doc (format, the canonical-flow narrative, authoring rules, the Sources section) is hand-written.
 
 ## Template ↔ Test app parallel-edit workflow
 

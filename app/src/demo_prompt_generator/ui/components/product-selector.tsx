@@ -68,7 +68,7 @@ const HIDDEN_CAPABILITY_IDS = [
   "lakeflow-connect",
   "delta-sharing",
   "genie-code",
-  "databricks-one",
+  "genie-one",
 ];
 
 // Tier override per capability id — mirrors project-overview's CAPABILITY_TIER
@@ -95,7 +95,7 @@ const CAPABILITY_TIER: Partial<Record<string, TierType>> = {
   "aibi-dashboards": "analytics",
   "notebooks-eda": "analytics",
   "databricks-apps": "interface",
-  "databricks-one": "interface",
+  "genie-one": "interface",
   "lakebase": "ingest",
   "unity-catalog": "governance",
   "data-quality": "governance",
@@ -178,6 +178,10 @@ interface ProductSelectorProps {
   expanded: boolean;
   isLoading?: boolean;
   explicitSelections?: Map<string, "selected" | "unselected">;
+  /** Header title. Default = the AI-picked wording (story flow); pass null to
+   *  hide it (e.g. architecture mode, where nothing was AI-picked). The +N
+   *  advanced-capabilities toggle stays either way. */
+  title?: string | null;
 }
 
 // IDs that get merged into a single tile in the picker. The combined tile
@@ -393,6 +397,7 @@ export function ProductSelector({
   expanded,
   isLoading = false,
   explicitSelections = new Map(),
+  title = "Your AI-picked capabilities — adjust before you build",
 }: ProductSelectorProps) {
   const [showHidden, setShowHidden] = useState(false);
 
@@ -432,9 +437,11 @@ export function ProductSelector({
           <div className="border-t border-border/50 pt-4">
             <div className="flex flex-col items-center text-center mb-4 gap-1">
               <div className="flex items-center gap-2.5">
-                <p className="text-base font-semibold text-foreground">
-                  Your AI-picked capabilities — adjust before you build
-                </p>
+                {title && (
+                  <p className="text-base font-semibold text-foreground">
+                    {title}
+                  </p>
+                )}
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <button

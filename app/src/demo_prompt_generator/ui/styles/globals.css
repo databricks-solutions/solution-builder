@@ -204,3 +204,19 @@
 .animate-drafting-bar-1 { animation: drafting-bar 1.1s ease-in-out infinite; }
 .animate-drafting-bar-2 { animation: drafting-bar 1.1s ease-in-out infinite 0.18s; }
 .animate-drafting-bar-3 { animation: drafting-bar 1.1s ease-in-out infinite 0.36s; }
+
+/* --- Architecture diagram: let a NEW edge start from an already-connected
+ * anchor (fork). ReactFlow draws each edge's invisible ~10px hit stroke
+ * (`.react-flow__edge-interaction`) right over the endpoint, on top of the
+ * connection handle — so a press at a connected anchor hits the edge instead
+ * of the handle and no new connection begins. Lift the connection handles
+ * above the edges layer so the anchor always wins the press; the edge stripe
+ * still works along the BODY of the line (no handle there) for click-to-edit. */
+.react-flow__handle {
+  z-index: 20;
+}
+.react-flow .react-flow__edge .react-flow__edge-interaction {
+  /* Keep the visible edge selectable, but don't let the fat invisible hit
+   * stroke sit above handles — handles (z-index:20) now paint over it. */
+  pointer-events: stroke;
+}

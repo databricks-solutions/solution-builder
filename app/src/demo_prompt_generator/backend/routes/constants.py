@@ -68,6 +68,15 @@ class SuggestCapabilitiesRequest(BaseModel):
     # present, it's injected into the user prompt as a ground-truth
     # context block so the suggested ideas reflect the file's domain.
     context_text: str | None = None
+    # Architecture-first builds: the names of the data-source tiles the user
+    # placed in their architecture diagram. When present, the prompt tells the
+    # LLM to anchor each idea's `datasources` in these exact systems so the
+    # generated demo lines up with the architecture the user drew.
+    datasources: list[str] | None = None
+    # Capabilities-only mode (home page's ARCHITECTURE tab): select the
+    # capabilities that match the user's text — NO use-case ideas/story. The
+    # stream emits only `capabilities` (+ `reasoning`); never `count`/`idea`.
+    capabilities_only: bool = False
 
 
 class UseCaseIdea(BaseModel):
@@ -100,6 +109,31 @@ class CurrentUser(BaseModel):
 def get_industries():
     """Get list of available industries."""
     return INDUSTRIES
+
+
+@router.get(
+    "/constants/architecture-standalone-template",
+    operation_id="getArchitectureStandaloneTemplate",
+)
+def get_architecture_standalone_template():
+    """Serve the standalone architecture EDITOR html (the databricks-
+    architecture skill's renderer template). The frontend's "Download
+    standalone HTML" injects the current diagram JSON into its inline
+    `<script id="architecture">` block — giving the user a self-contained,
+    editable copy of their architecture."""
+    from fastapi import HTTPException
+    from fastapi.responses import FileResponse
+
+    from ..services.skills_manager import get_architecture_skill_path
+
+    skill = get_architecture_skill_path()
+    template = (skill / "renderer" / "architecture-editor.html") if skill else None
+    if not template or not template.exists():
+        raise HTTPException(
+            status_code=404,
+            detail="Standalone architecture template not available on this install",
+        )
+    return FileResponse(template, media_type="text/html")
 
 
 @router.get(
@@ -174,6 +208,44 @@ def _build_suggest_prompts(
     cap_list: str,
 ) -> tuple[str, str]:
     """Build system and user prompts for capability suggestion."""
+    # ---- Capabilities-only variant (architecture tab) -----------------------
+    # No use-case ideas — the LLM only maps the user's text to the capability
+    # catalog. Same selection rules + mandatory/excluded semantics; the output
+    # format drops the count/idea lines entirely.
+    if body.capabilities_only:
+        system_prompt = f"""You are a Databricks solution architect. Map the user's description to the platform capabilities their architecture needs. Do NOT invent a demo story — only select capabilities.
+
+## Platform Architecture
+{platform_context}
+
+## Capability Selection Rules
+- Pick capabilities based on the user's text — do not pre-bias toward any buildable capability.
+- Always include "synthetic-data-gen" — all demos need realistic fake data
+- Almost always include talking track: "lakeflow-connect", "unity-catalog", "genie-one", "genie-code"
+- Unity Catalog should almost always be included unless explicitly excluded
+- Match capabilities to what the text implies — each selected product should have a clear role in the architecture
+- Consider dependencies (dashboards need SDP data, apps need lakebase, etc.)
+
+## Output Format (LINE-DELIMITED JSON - ONE JSON OBJECT PER LINE)
+Output exactly two lines and nothing else:
+{{"type": "capabilities", "capabilities": [...]}}
+{{"type": "reasoning", "text": "1 sentence: how the selected capabilities fit the described architecture."}}"""
+
+        user_prompt = f"""User's architecture description:
+"{body.prompt}"
+
+=== USER CONSTRAINTS (MUST RESPECT) ===
+- User MANDATORY (always include): {mandatory_list}
+- User EXCLUDED (never include): {excluded_list}
+
+=== AVAILABLE CAPABILITIES ===
+{cap_list}
+
+Select the capabilities this architecture needs. Output the two JSON lines only."""
+
+        user_prompt = _append_shared_context(body, user_prompt)
+        return system_prompt, user_prompt
+
     system_prompt = f"""You are a Databricks demo architect. Your job is to help users design compelling demos.
 
 ## Platform Architecture
@@ -250,7 +322,7 @@ LuxeBeauty's canonical example for the action chain itself:
 ## Capability Selection Rules
 - Pick capabilities based on the user's prompt — do not pre-bias toward any buildable capability.
 - Always include "synthetic-data-gen" — all demos need realistic fake data
-- Almost always include talking track: "lakeflow-connect", "unity-catalog", "databricks-one", "genie-code"
+- Almost always include talking track: "lakeflow-connect", "unity-catalog", "genie-one", "genie-code"
 - Unity Catalog should almost always be included unless explicitly excluded
 - Match capabilities to the story — each product should have a clear moment in the demo
 - Consider dependencies (dashboards need SDP data, apps need lakebase, etc.)
@@ -263,7 +335,7 @@ LuxeBeauty's canonical example for the action chain itself:
   - sdp (data processing)
   - aibi-dashboards + genie (simple wow effect)
   - databricks-apps + lakebase (app mentioned, lakebase is dependency)
-  - unity-catalog, databricks-one, genie-code (talking track)
+  - unity-catalog, genie-one, genie-code (talking track)
 - "An IOT demo with sensor data streaming" →
   - synthetic-data-gen (always needed)
   - lakeflow-connect (data ingestion) + zerobus-ingest (realtime streaming)
@@ -406,21 +478,46 @@ Output line-delimited JSON: count line (count=1), then one idea line, then capab
 
 Output line-delimited JSON (idea lines first, then capabilities line)."""
 
+    user_prompt = _append_shared_context(body, user_prompt)
+
+    return system_prompt, user_prompt
+
+
+def _append_shared_context(body: SuggestCapabilitiesRequest, user_prompt: str) -> str:
+    """Append the uploaded-files + architecture-datasources context blocks.
+
+    Shared by every prompt shape (cold start / refine / capability refresh /
+    capabilities-only) so file content and diagram sources always reach the
+    LLM regardless of mode.
+    """
     # If the user uploaded files on the home page, inject their joined
     # extraction as a ground-truth block. Cap at 50 KB server-side as
     # belt-and-braces (frontend already caps).
     if body.context_text:
         ctx = body.context_text[:50_000]
-        ctx_block = (
+        user_prompt += (
             "\n\n=== UPLOADED FILES (user-shared context — treat as ground truth) ===\n"
             f"{ctx}\n"
             "Use the file content above to anchor the story domain, data shape, "
             "and any specific entities. The user wants the suggested demo to fit "
             "what's actually in these files."
         )
-        user_prompt = user_prompt + ctx_block
 
-    return system_prompt, user_prompt
+    # Architecture-first: the diagram already names the demo's data sources.
+    # Anchoring the ideas in those exact systems keeps the generated story
+    # consistent with the architecture the user drew.
+    if body.datasources:
+        names = ", ".join(n.strip() for n in body.datasources[:10] if n and n.strip())
+        if names:
+            user_prompt += (
+                "\n\n=== ARCHITECTURE DATA SOURCES (already defined in the user's diagram) ===\n"
+                f"{names}\n"
+                "Anchor each use-case idea in these systems — reuse these exact "
+                "names in the idea's `datasources` (add at most 1-2 extra sources "
+                "only if the story truly needs them)."
+            )
+
+    return user_prompt
 
 
 @router.post(
@@ -494,21 +591,31 @@ def suggest_capabilities(
             # refreshes (N ideas preserved) we already know the count —
             # send it immediately so the UI renders skeletons in the right
             # shape instead of flashing 3-then-1 (or 3-then-2).
-            if body.refine_idea and body.refine_comment:
+            # (Never in capabilities-only mode — there are no idea skeletons.)
+            if body.capabilities_only:
+                pass
+            elif body.refine_idea and body.refine_comment:
                 yield f"event: count\ndata: {json.dumps({'count': 1})}\n\n"
             elif body.previous_ideas:
                 yield f"event: count\ndata: {json.dumps({'count': len(body.previous_ideas)})}\n\n"
 
-            # Stream lines from LLM
+            # Stream lines from LLM. Capabilities-only answers are two short
+            # JSON lines — cap tokens accordingly.
             for line in llm.chat_stream_lines(
                 user_prompt,
                 system_prompt=system_prompt,
                 size=ModelSize.MINI,
-                max_tokens=2500,
+                max_tokens=600 if body.capabilities_only else 2500,
             ):
                 try:
                     data = json.loads(line)
                     event_type = data.get("type")
+
+                    # Capabilities-only: defensively drop any story events the
+                    # LLM might emit despite the prompt — the contract is
+                    # capabilities (+ reasoning) only.
+                    if body.capabilities_only and event_type in ("count", "idea"):
+                        continue
 
                     if event_type == "count":
                         # Forward count event to UI

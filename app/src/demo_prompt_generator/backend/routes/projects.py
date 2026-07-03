@@ -28,6 +28,7 @@ from ..models import (
     ProjectFile,
     ProjectListItem,
     ProjectOut,
+    ProjectProvisionRequest,
     ProjectResourcesUpdateRequest,
     ProjectShare,
     ProjectShareOut,
@@ -176,6 +177,22 @@ def _resolve_template_name(session, source_template_id: str | None) -> str | Non
         return None
     template = session.get(Template, source_template_id)
     return template.name if template else None
+
+
+def _quick_arch_name(description: str) -> str:
+    """Fast, local project name for architecture-first creation (no LLM call).
+
+    First line of the user's description, whitespace-collapsed and capped —
+    good enough for the project list until /provision replaces it with the
+    LLM-generated name when the user kicks off the build.
+    """
+    stripped = (description or "").strip()
+    first_line = stripped.splitlines()[0] if stripped else ""
+    name = re.sub(r"\s+", " ", first_line).strip(" .:-")
+    if len(name) > 60:
+        cut = name[:60]
+        name = (cut.rsplit(" ", 1)[0] if " " in cut else cut) + "…"
+    return name or "Architecture draft"
 
 
 def _resolve_unique_schema_name(
@@ -441,29 +458,41 @@ def create_project(
     """Create a new project with default resources."""
     user_email = _get_user_email(headers)
 
-    # LLM calls go through the SP client — Apps OBO tokens lack the model-serving
-    # scope vocabulary, so user-attributed serving-endpoint calls 403. The SP has
-    # CAN_QUERY on the LLM endpoints via the bundle resource bindings.
-    llm_service = LLMService(ws, config)
-    metadata = _generate_project_metadata(llm_service, body.description)
-    project_name = metadata["name"]
-    project_description = metadata.get("description") or body.description[:200]
-    base_schema = f"{DEFAULT_SCHEMA_PREFIX}{metadata['schema_name']}"
+    if body.architecture_first:
+        # Architecture-first: keep creation INSTANT — no LLM call, no workspace
+        # round-trips. All the remote work below (LLM name/schema generation,
+        # warehouse discovery, unique-schema resolution, CREATE SCHEMA) is
+        # deferred to POST /projects/{id}/provision, which the "Build the
+        # solution" dialog calls when the user actually kicks off the build.
+        project_name = _quick_arch_name(body.description)
+        project_description = body.description[:200]
+        warehouse_id, warehouse_name = None, None
+        default_schema = None
+    else:
+        # LLM calls go through the SP client — Apps OBO tokens lack the
+        # model-serving scope vocabulary, so user-attributed serving-endpoint
+        # calls 403. The SP has CAN_QUERY on the LLM endpoints via the bundle
+        # resource bindings.
+        llm_service = LLMService(ws, config)
+        metadata = _generate_project_metadata(llm_service, body.description)
+        project_name = metadata["name"]
+        project_description = metadata.get("description") or body.description[:200]
+        base_schema = f"{DEFAULT_SCHEMA_PREFIX}{metadata['schema_name']}"
 
-    # Find default resources (returns tuples of id, name)
-    warehouse_id, warehouse_name = _find_shared_warehouse(ws)
+        # Find default resources (returns tuples of id, name)
+        warehouse_id, warehouse_name = _find_shared_warehouse(ws)
 
-    # Pick a non-colliding schema name BEFORE the DB write so the project
-    # row records the final, unique value. Two SAs creating projects with
-    # similar themes (e.g. "fraud detection v1" and "fraud detection v2")
-    # would otherwise both resolve to `dbgen_fraud_detection` and write
-    # into each other's tables.
-    default_schema = _resolve_unique_schema_name(
-        user_ws,
-        warehouse_id=warehouse_id,
-        catalog=config.default_catalog,
-        base_schema=base_schema,
-    )
+        # Pick a non-colliding schema name BEFORE the DB write so the project
+        # row records the final, unique value. Two SAs creating projects with
+        # similar themes (e.g. "fraud detection v1" and "fraud detection v2")
+        # would otherwise both resolve to `dbgen_fraud_detection` and write
+        # into each other's tables.
+        default_schema = _resolve_unique_schema_name(
+            user_ws,
+            warehouse_id=warehouse_id,
+            catalog=config.default_catalog,
+            base_schema=base_schema,
+        )
 
     # Create DB record with default resources (cluster left empty - user sets it manually)
     project = Project(
@@ -476,6 +505,7 @@ def create_project(
         cluster_name=None,
         default_catalog=config.default_catalog,
         default_schema=default_schema,
+        architecture_first=body.architecture_first,
     )
     session.add(project)
     session.commit()
@@ -489,13 +519,15 @@ def create_project(
     # Soft-fails: if the create errors out (permission denied, network blip,
     # warehouse asleep), we log and continue — the agent can still try later
     # OR the user can change default_catalog in Settings.
-    _ensure_default_schema(
-        user_ws,
-        warehouse_id=warehouse_id,
-        catalog=config.default_catalog,
-        schema=default_schema,
-        project_id=project.id,
-    )
+    # Architecture-first projects have no schema yet (deferred to /provision).
+    if default_schema:
+        _ensure_default_schema(
+            user_ws,
+            warehouse_id=warehouse_id,
+            catalog=config.default_catalog,
+            schema=default_schema,
+            project_id=project.id,
+        )
 
     # Create project directory (no README yet - agent will create it).
     # Passing capabilities scopes the copied skills to what this demo needs.
@@ -613,6 +645,7 @@ def create_project(
         narrative_readme_hash=project.narrative_readme_hash,
         project_type=project.project_type,
         stage=project.stage,
+        architecture_first=project.architecture_first,
         created_at=project.created_at,
         updated_at=project.updated_at,
         message_count=message_count,
@@ -730,6 +763,7 @@ def get_project(
         narrative_readme_hash=project.narrative_readme_hash,
         project_type=project.project_type,
         stage=stage,
+        architecture_first=project.architecture_first,
         created_at=project.created_at,
         updated_at=project.updated_at,
         message_count=msg_count,
@@ -764,6 +798,8 @@ def update_project(
         project.name = body.name
     if body.description is not None:
         project.description = body.description
+    if body.architecture_first is not None:
+        project.architecture_first = body.architecture_first
 
     project.updated_at = datetime.now(timezone.utc)
     session.add(project)
@@ -790,6 +826,128 @@ def update_project(
         narrative_readme_hash=project.narrative_readme_hash,
         project_type=project.project_type,
         stage=project.stage,
+        architecture_first=project.architecture_first,
+        created_at=project.created_at,
+        updated_at=project.updated_at,
+        message_count=msg_count,
+        file_count=file_count,
+        cluster_id=project.cluster_id,
+        cluster_name=project.cluster_name,
+        warehouse_id=project.warehouse_id,
+        warehouse_name=project.warehouse_name,
+        default_catalog=project.default_catalog,
+        default_schema=project.default_schema,
+        source_template_id=project.source_template_id,
+        source_template_name=_resolve_template_name(session, project.source_template_id),
+    )
+
+
+@router.post(
+    "/projects/{project_id}/provision",
+    response_model=ProjectOut,
+    operation_id="provisionProject",
+)
+def provision_project(
+    project_id: str,
+    body: ProjectProvisionRequest,
+    session: Dependencies.Session,
+    headers: Dependencies.Headers,
+    request: Request,
+    ws: Dependencies.Client,
+    user_ws: Dependencies.UserClient,
+    config: Dependencies.Config,
+):
+    """Provision the remote assets an architecture-first project skipped at
+    creation: LLM name/schema generation, warehouse discovery and the
+    CREATE SCHEMA. Idempotent — the "Build the solution" dialog calls this
+    right before sending the build prompt, and it no-ops the pieces that
+    already exist (safe on any project)."""
+    user_email = _get_user_email(headers)
+    project = _get_authorized_project(session, project_id, user_email, config.template_admin_emails)
+
+    # 1. Name/schema/warehouse — only when creation deferred them (no schema
+    #    picked yet). The story description from the build dialog is richer
+    #    input for the LLM than the original architecture topic.
+    if not project.default_schema:
+        llm_service = LLMService(ws, config)
+        seed = body.description or project.description or project.name
+        metadata = _generate_project_metadata(llm_service, seed)
+        if body.description:
+            project.name = metadata["name"]
+            project.description = metadata.get("description") or body.description[:200]
+        if not project.warehouse_id:
+            project.warehouse_id, project.warehouse_name = _find_shared_warehouse(ws)
+        if not project.default_catalog:
+            project.default_catalog = config.default_catalog
+        base_schema = f"{DEFAULT_SCHEMA_PREFIX}{metadata['schema_name']}"
+        project.default_schema = _resolve_unique_schema_name(
+            user_ws,
+            warehouse_id=project.warehouse_id,
+            catalog=project.default_catalog,
+            base_schema=base_schema,
+        )
+        project.updated_at = datetime.now(timezone.utc)
+        session.add(project)
+        session.commit()
+        session.refresh(project)
+
+    # 2. Make sure the schema actually exists (soft-fails like create does —
+    #    the agent can retry later, the user can change Settings).
+    if project.default_schema:
+        _ensure_default_schema(
+            user_ws,
+            warehouse_id=project.warehouse_id,
+            catalog=project.default_catalog or config.default_catalog,
+            schema=project.default_schema,
+            project_id=project.id,
+        )
+
+    # 3. Final capability selection from the dialog: re-seed resources.json —
+    #    but NEVER clobber a file that already carries created-resource IDs
+    #    (the build already started). Skills are always the full set (see
+    #    create_project_directory); the only capability-scoped scaffold is the
+    #    app spec folder.
+    if body.capabilities:
+        project_dir = get_project_directory(project.id)
+        res_path = project_dir / "resources.json"
+        reseed = True
+        if res_path.exists():
+            try:
+                existing = json.loads(res_path.read_text(encoding="utf-8"))
+                created = existing.get("created_resources") or {}
+                if any(v for v in created.values()):
+                    reseed = False
+            except (json.JSONDecodeError, OSError):
+                pass  # unreadable → replace with a clean seed
+        if reseed:
+            res_path.write_text(
+                json.dumps(build_initial_resources_json(body.capabilities), indent=2),
+                encoding="utf-8",
+            )
+        if "databricks-apps" in body.capabilities:
+            (project_dir / "specifications" / "app").mkdir(parents=True, exist_ok=True)
+        file_sync: FileSyncService = request.app.state.file_sync
+        file_sync.full_sync_project(project.id, session=session)
+
+    msg_count = session.exec(
+        select(func.count()).select_from(Message).where(Message.project_id == project.id)
+    ).one()
+    file_count = session.exec(
+        select(func.count())
+        .select_from(ProjectFile)
+        .where(ProjectFile.project_id == project.id)
+    ).one()
+
+    return ProjectOut(
+        id=project.id,
+        name=project.name,
+        user_email=project.user_email,
+        description=project.description,
+        narrative=project.narrative,
+        narrative_readme_hash=project.narrative_readme_hash,
+        project_type=project.project_type,
+        stage=project.stage,
+        architecture_first=project.architecture_first,
         created_at=project.created_at,
         updated_at=project.updated_at,
         message_count=msg_count,
@@ -939,6 +1097,7 @@ def generate_project_narrative(
         narrative_readme_hash=project.narrative_readme_hash,
         project_type=project.project_type,
         stage=project.stage,
+        architecture_first=project.architecture_first,
         created_at=project.created_at,
         updated_at=project.updated_at,
         message_count=msg_count,
@@ -1009,6 +1168,7 @@ def update_project_resources(
         narrative_readme_hash=project.narrative_readme_hash,
         project_type=project.project_type,
         stage=project.stage,
+        architecture_first=project.architecture_first,
         created_at=project.created_at,
         updated_at=project.updated_at,
         message_count=msg_count,

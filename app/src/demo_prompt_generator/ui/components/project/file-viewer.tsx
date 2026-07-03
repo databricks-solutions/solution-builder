@@ -15,8 +15,8 @@ import type { ProjectFile, ProjectFileContent, DeployedResourceLink } from "../.
 import { AppPreviewTab } from "../../preview";
 import { cn } from "../../lib/utils";
 
-// Lazy load the architecture diagram (heavy — ReactFlow)
-const ArchitectureDiagram = lazy(() => import("./architecture-diagram"));
+// Lazy load the capability-layer platform diagram.
+const PlatformDiagram = lazy(() => import("./platform-diagram"));
 
 // Lazy load Monaco editor for code files
 const CodeViewer = lazy(() => import("./code-viewer").then(m => ({ default: m.CodeViewer })));
@@ -63,6 +63,8 @@ interface FileViewerProps {
    *  history records the navigation. */
   onTabChange?: (tab: ViewTab) => void;
   files: ProjectFile[];
+  /** True once the initial file list has loaded (guards auto-generate). */
+  filesLoaded?: boolean;
   selectedFile: string | null;
   fileContent: ProjectFileContent | null;
   /** README.md content for the overview's "About this demo" expander.
@@ -88,10 +90,13 @@ interface FileViewerProps {
   onRefresh?: () => void;
   isLoading?: boolean;
   architectureContent?: string | null;
+  architectureReloading?: boolean;
   onLoadArchitecture?: () => void;
   isCreatingArchitecture?: boolean;
   onCreateArchitecture?: () => void;
-  onArchitectureConnectionCreated?: (from: string, to: string) => void;
+  /** Architecture-first project awaiting its build: hide Overview + Story
+   *  tabs and default the workspace to the Architecture tab. */
+  architectureFirst?: boolean;
   isStreaming?: boolean; // Whether the agent is currently working
   resources?: ResourcesInfo;
   onResourcesClick?: () => void;
@@ -185,18 +190,24 @@ const StoryView = memo(function StoryView({ readmeContent, isStreaming }: StoryV
 
 interface ArchitectureViewProps {
   architectureContent: string | null;
+  architectureReloading?: boolean;
   hasArchitecture: boolean;
   isCreatingArchitecture: boolean;
   isStreaming: boolean;
-  onArchitectureConnectionCreated?: (from: string, to: string) => void;
+  capabilities?: { buildable: string[]; talking_track: string[] } | null;
+  deployedResources?: DeployedResourceLink[];
+  projectId: string;
 }
 
 const ArchitectureView = memo(function ArchitectureView({
   architectureContent,
+  architectureReloading,
   hasArchitecture,
   isCreatingArchitecture,
   isStreaming,
-  onArchitectureConnectionCreated,
+  capabilities,
+  deployedResources,
+  projectId,
 }: ArchitectureViewProps) {
   if (isCreatingArchitecture) {
     return (
@@ -209,20 +220,42 @@ const ArchitectureView = memo(function ArchitectureView({
       </div>
     );
   }
-  if (hasArchitecture && architectureContent) {
+  // The capability-layer diagram renders from the catalog + resources.json
+  // even before architecture.md exists — so show it whenever we have either
+  // an architecture file OR a capability set to seed component states.
+  const hasContent = (hasArchitecture && architectureContent) || !!capabilities;
+  if (hasContent) {
     return (
-      <Suspense
-        fallback={
-          <div className="flex-1 flex items-center justify-center">
-            <Loader2 className="h-6 w-6 animate-spin text-primary" />
-          </div>
-        }
-      >
-        <ArchitectureDiagram
-          content={architectureContent}
-          onConnectionCreated={onArchitectureConnectionCreated}
-        />
-      </Suspense>
+      <div className="flex flex-1 min-h-0 flex-col">
+        {/* (The architecture-first "Build the solution" CTA lives in the
+            BuildStepper in the workspace header, not here.) */}
+        <div className="relative flex flex-1 min-h-0">
+          <Suspense
+            fallback={
+              <div className="flex-1 flex items-center justify-center">
+                <Loader2 className="h-6 w-6 animate-spin text-primary" />
+              </div>
+            }
+          >
+            <PlatformDiagram
+              content={hasArchitecture ? architectureContent : null}
+              capabilities={capabilities ?? null}
+              deployedResources={deployedResources}
+              projectId={projectId}
+            />
+          </Suspense>
+          {/* Reload spinner: the agent rewrote architecture.md and we're
+              re-fetching it from disk. */}
+          {architectureReloading && (
+            <div className="pointer-events-none absolute inset-0 z-20 flex items-start justify-center bg-background/40 pt-6">
+              <div className="pointer-events-auto flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5 text-[12px] font-medium text-foreground shadow-md">
+                <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+                Updating diagram…
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
     );
   }
   if (isStreaming) {
@@ -622,6 +655,9 @@ interface TabBarProps {
   hasArchitecture: boolean;
   hasApp: boolean;
   showAppTab: boolean;
+  /** Architecture-first project awaiting its build → hide Overview + Story
+   *  (there's no story/build yet; the diagram is the whole workspace). */
+  architectureFirst?: boolean;
 }
 
 function tabClasses(isActive: boolean, isAvailable: boolean): string {
@@ -661,11 +697,13 @@ const TabBar = memo(function TabBar({
   hasArchitecture,
   hasApp,
   showAppTab,
+  architectureFirst = false,
 }: TabBarProps) {
   return (
     <div className="shrink-0 border-b border-border bg-muted/30">
       <div className="flex items-center px-4 py-2">
         <div className="flex items-center gap-1 bg-muted/50 rounded-md p-0.5" role="tablist" aria-label="View tabs">
+          {!architectureFirst && (
           <button
             role="tab"
             aria-selected={activeTab === "overview"}
@@ -676,7 +714,9 @@ const TabBar = memo(function TabBar({
             <TabIcon Icon={Sparkles} showDot={false} />
             Overview
           </button>
+          )}
 
+          {!architectureFirst && (
           <button
             role="tab"
             aria-selected={activeTab === "story"}
@@ -687,6 +727,7 @@ const TabBar = memo(function TabBar({
             <TabIcon Icon={BookOpen} showDot={hasReadme && activeTab !== "story"} />
             Story
           </button>
+          )}
 
           <button
             role="tab"
@@ -742,6 +783,7 @@ export const FileViewer = memo(function FileViewer({
   activeTab: activeTabProp,
   onTabChange,
   files,
+  filesLoaded = false,
   selectedFile,
   fileContent,
   readmeContent,
@@ -754,10 +796,11 @@ export const FileViewer = memo(function FileViewer({
   onRefresh,
   isLoading = false,
   architectureContent,
+  architectureReloading,
   onLoadArchitecture,
   isCreatingArchitecture = false,
   onCreateArchitecture,
-  onArchitectureConnectionCreated,
+  architectureFirst = false,
   isStreaming = false,
   resources,
   onResourcesClick,
@@ -819,8 +862,12 @@ export const FileViewer = memo(function FileViewer({
 
   // Auto-trigger generation if the user opens the Architecture tab and
   // no diagram exists yet (and the agent is idle so we don't stomp work).
+  // IMPORTANT: gate on filesLoaded — before the file list loads, `files` is
+  // empty so hasArchitecture is a false negative, which would ask the agent to
+  // create architecture.md even when it already exists.
   useEffect(() => {
     if (
+      filesLoaded &&
       activeTab === "architecture" &&
       !hasArchitecture &&
       !isCreatingArchitecture &&
@@ -829,7 +876,7 @@ export const FileViewer = memo(function FileViewer({
     ) {
       onCreateArchitecture();
     }
-  }, [activeTab, hasArchitecture, isCreatingArchitecture, isStreaming, onCreateArchitecture]);
+  }, [filesLoaded, activeTab, hasArchitecture, isCreatingArchitecture, isStreaming, onCreateArchitecture]);
 
   // Check if file is renderable (markdown, HTML, or PDF)
   const isMarkdown = selectedFile?.endsWith(".md");
@@ -855,6 +902,7 @@ export const FileViewer = memo(function FileViewer({
         hasArchitecture={hasArchitecture}
         hasApp={hasApp}
         showAppTab={showAppTab}
+        architectureFirst={architectureFirst}
       />
 
       <div className="flex flex-1 min-h-0">
@@ -910,10 +958,13 @@ export const FileViewer = memo(function FileViewer({
           ) : activeTab === "architecture" ? (
             <ArchitectureView
               architectureContent={architectureContent ?? null}
+              architectureReloading={architectureReloading}
               hasArchitecture={hasArchitecture}
               isCreatingArchitecture={isCreatingArchitecture}
               isStreaming={isStreaming}
-              onArchitectureConnectionCreated={onArchitectureConnectionCreated}
+              capabilities={capabilities}
+              deployedResources={deployedResources}
+              projectId={projectId}
             />
           ) : activeTab === "app" ? (
             <AppPreviewTab

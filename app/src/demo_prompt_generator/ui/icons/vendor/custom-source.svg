@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none">
+  <style>
+    @keyframes cs-a { 0%,100% { transform: translate(0,0); } 50% { transform: translate(0.6px,-0.9px); } }
+    @keyframes cs-b { 0%,100% { transform: translate(0,0); } 50% { transform: translate(-0.7px,0.6px); } }
+    @keyframes cs-c { 0%,100% { transform: translate(0,0); } 50% { transform: translate(0.5px,0.8px); } }
+    .cs-a { animation: cs-a 3.2s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+    .cs-b { animation: cs-b 3.8s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+    .cs-c { animation: cs-c 3.5s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+  </style>
+  <circle class="cs-a" cx="6.5" cy="6.5" r="3" fill="#FF5F46"/>
+  <rect class="cs-b" x="14" y="3.5" width="6" height="6" rx="1" fill="#FF5F46"/>
+  <path class="cs-c" d="M12 14l4 6H8z" fill="#FF5F46"/>
+</svg>

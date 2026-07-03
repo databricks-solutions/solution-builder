@@ -38,17 +38,17 @@ const SIMPLE_VISIBLE_TILES = [
 ] as const;
 const SIMPLE_TALK_TRACK = [
   "lakeflow-connect",
-  "databricks-one",
+  "genie-one",
   "genie-code",
 ] as const;
-const SIMPLE_BASELINE = [
+export const SIMPLE_BASELINE = [
   ...SIMPLE_VISIBLE_TILES,
   ...SIMPLE_TALK_TRACK,
 ] as const;
 
 // Optional toggle in the simple view: flip on the App + Lakebase pair
 // together (matches the merged bundle in the custom view).
-const APP_BUNDLE = ["databricks-apps", "lakebase"] as const;
+export const APP_BUNDLE = ["databricks-apps", "lakebase"] as const;
 
 // Tier override per capability id — must mirror the same map in
 // product-selector.tsx so a capability tile reads the same color across
@@ -78,6 +78,9 @@ interface Props {
   expanded: boolean;
   isLoading?: boolean;
   explicitSelections?: Map<string, "selected" | "unselected">;
+  /** Which tab to open on. The build-from-architecture dialog passes "custom"
+   *  when the diagram doesn't fit the simple baseline. Default "simple". */
+  initialTab?: "simple" | "custom";
 }
 
 // Build the explicit-status map for Simple mode: every baseline id (+ app
@@ -110,8 +113,9 @@ export function CapabilitiesPanel({
   expanded,
   isLoading = false,
   explicitSelections = new Map(),
+  initialTab = "simple",
 }: Props) {
-  const [tab, setTab] = useState<"simple" | "custom">("simple");
+  const [tab, setTab] = useState<"simple" | "custom">(initialTab);
 
   // Per-tab memory. Each entry stores (selectedProducts, explicitSelections)
   // for that tab so the user can switch back and forth without losing
