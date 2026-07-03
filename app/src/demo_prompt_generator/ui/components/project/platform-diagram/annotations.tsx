@@ -186,7 +186,7 @@ export const AnnotationNode = memo(function AnnotationNode({ data, selected }: N
       editMode={editMode}
       selected={!!selected}
       forceDots={isDropTarget}
-      onResize={(w, h) => d.onResize(d.nodeId, w, h)}
+      onResize={(w, h, center) => d.onResize(d.nodeId, w, h, undefined, center)}
       onContext={(e) => { e.preventDefault(); d.onContext(d.nodeId, e.clientX, e.clientY); }}
     >
       {(a.variant === "text" || a.variant === "box") && (() => {

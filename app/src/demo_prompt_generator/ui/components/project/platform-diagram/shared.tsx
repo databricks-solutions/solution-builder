@@ -33,7 +33,7 @@ export interface NodeData {
   onSetDescription?: (id: string, desc: string) => void;
   /** Resize callback (from NodeResizer) — w/h are the un-rotated card size.
    *  Optional `scale` (corner-drag) is stored so content scales with the box. */
-  onResize: (id: string, w: number, h: number, scale?: number) => void;
+  onResize: (id: string, w: number, h: number, scale?: number, center?: { x: number; y: number }) => void;
   /** Rotation in degrees (0/90/180/270). */
   rot: number;
   /** User-resized footprint (px); undefined → natural size. */
@@ -354,8 +354,12 @@ export function RotatableCard({
    *  named ports instead and don't want the generic dots. */
   hideHandles?: boolean;
   onContext: (e: React.MouseEvent) => void;
-  /** Side-drag: stretch the box on one axis (content stays its scaled size). */
-  onResize: (w: number, h: number) => void;
+  /** Side-drag: stretch the box on one axis (content stays its scaled size).
+   *  `center` (optional) is the node's new CENTER position — passed when a
+   *  grid-snap shifted the box so the PINNED edge stays put (RF pins the
+   *  opposite edge, but snapping the dimension moves the box, so we recompute
+   *  the center to keep the pinned edge on-grid). Callers persist it. */
+  onResize: (w: number, h: number, center?: { x: number; y: number }) => void;
   /** Corner-drag (fit mode): uniform scale of the whole element. Given the new
    *  width, the caller derives scale = w / naturalW and resizes the box to
    *  natural × scale. Omitted → corner behaves like onResize (legacy). */
@@ -400,15 +404,10 @@ export function RotatableCard({
   const onSizeStart = (_: unknown, p: { width: number; height: number }) => {
     ratioRef.current = p.height > 0 ? p.width / p.height : 1;
   };
-  // Given a raw resize result, lock the aspect ratio when Shift is down. Drives
-  // h from w (the primary drag axis) using the start ratio.
+
+  // Shift-lock: keep the aspect ratio when Shift is down (drives h from w).
   const lockRatio = (e: { shiftKey?: boolean } | undefined, w: number, h: number): [number, number] =>
     e?.shiftKey ? [w, Math.round(w / (ratioRef.current || 1))] : [w, h];
-  // Snap a box dimension to the 16px grid — applied LIVE (every resize frame),
-  // so the box visibly steps in 16s while you drag and mouse-up changes nothing
-  // (no release "jump"). The opposite edge is grid-aligned by the position
-  // magnet, so snapping the dimension keeps the moving edge on-grid too.
-  const snapDim = (v: number) => Math.round(v / 16) * 16;
   return (
     <div className="group relative h-full w-full" onContextMenu={onContext}>
       {/* Resize grips — ONE code path for every node (plain tiles, composites,
@@ -435,16 +434,16 @@ export function RotatableCard({
             minWidth={minW}
             minHeight={minH}
             onResizeStart={onSizeStart}
-            // Snap w/h to the grid LIVE (both frames + release) so resize has
-            // the same magnet as drag and never jumps on release. The Shift
-            // (scale) path stays continuous — scaling is naturally smooth.
+            // RF owns the geometry: it snaps the pointer to the grid (snapToGrid)
+            // and pins the diagonal-opposite corner via nodeOrigin. We just
+            // persist the size. Shift → uniform scale (continuous).
             onResize={(e, p) => {
               if ((e as { shiftKey?: boolean })?.shiftKey) { const r = shiftResize(p); if (r) onResize(r[0], r[1]); }
-              else onResize(snapDim(p.width), snapDim(p.height));
+              else onResize(p.width, p.height);
             }}
             onResizeEnd={(e, p) => {
               if ((e as { shiftKey?: boolean })?.shiftKey) { const r = shiftResize(p); if (r) onResize(r[0], r[1]); }
-              else onResize(snapDim(p.width), snapDim(p.height));
+              else onResize(p.width, p.height);
             }}
             style={{ background: "transparent", border: "none", zIndex: 21, transform: `translate(${dx}px, ${dy}px)` }}
           >
@@ -477,9 +476,10 @@ export function RotatableCard({
             minWidth={minW}
             minHeight={minH}
             onResizeStart={onSizeStart}
-            // Snap live to the grid (see corner note) — stretch one axis in 16s.
-            onResize={(e, p) => { const [w, h] = lockRatio(e as { shiftKey?: boolean }, p.width, p.height); onResize(snapDim(w), snapDim(h)); }}
-            onResizeEnd={(e, p) => { const [w, h] = lockRatio(e as { shiftKey?: boolean }, p.width, p.height); onResize(snapDim(w), snapDim(h)); }}
+            // RF snaps the pointer to the grid + pins the opposite edge; we just
+            // persist the resulting size (one axis stretches, content unscaled).
+            onResize={(e, p) => { const [w, h] = lockRatio(e as { shiftKey?: boolean }, p.width, p.height); onResize(w, h); }}
+            onResizeEnd={(e, p) => { const [w, h] = lockRatio(e as { shiftKey?: boolean }, p.width, p.height); onResize(w, h); }}
             style={{ background: "transparent", border: "none", zIndex: 21, transform }}
           >
             <GripStroke shape={sideAxis ? "v" : "h"} />

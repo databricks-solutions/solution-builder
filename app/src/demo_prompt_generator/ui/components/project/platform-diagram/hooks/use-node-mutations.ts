@@ -58,8 +58,11 @@ export function useNodeMutations(): NodeMutations {
 
   // w/h here are the FOOTPRINT (on-canvas) dims from NodeResizer. Store them
   // back as CARD dims (un-swap for rotation) and keep node.width/height in sync
-  // so the box, selection frame, and visual all stay the same size.
-  const onResize = useCallback((id: string, w: number, h: number, scale?: number) => {
+  // so the box, selection frame, and visual all stay the same size. `center`
+  // (optional) is the new node position — passed by a grid-snapped resize that
+  // shifted the box to keep the pinned edge fixed; without it position is left
+  // as RF set it.
+  const onResize = useCallback((id: string, w: number, h: number, scale?: number, center?: { x: number; y: number }) => {
     setNodesRef.current?.((nds) => {
       const next = nds.map((n) => {
         if (n.id !== id) return n;
@@ -72,6 +75,7 @@ export function useNodeMutations(): NodeMutations {
           ...n,
           width: w,
           height: h,
+          ...(center ? { position: { x: center.x, y: center.y } } : {}),
           style: { ...n.style, width: w, height: h },
           data: { ...dd, w: Math.round(cardW), h: Math.round(cardH), ...(scale !== undefined ? { scale } : {}) },
         };

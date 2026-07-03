@@ -77,7 +77,7 @@ export const AgentBricksBlock = memo(function AgentBricksBlock({ data, selected 
       editMode={editMode}
       selected={!!selected}
       forceDots={isDropTarget}
-      onResize={(w, h) => d.onResize(d.nodeId, w, h)}
+      onResize={(w, h, center) => d.onResize(d.nodeId, w, h, undefined, center)}
       onScale={(w) => d.onResize(d.nodeId, w, Math.round((w * nat.h) / nat.w), w / nat.w)}
       onContext={(e) => { e.preventDefault(); d.onContext(d.nodeId, e.clientX, e.clientY); }}
     >

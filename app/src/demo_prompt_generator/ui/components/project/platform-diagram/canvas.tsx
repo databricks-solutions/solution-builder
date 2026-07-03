@@ -1462,6 +1462,12 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
           nodesConnectable={editMode}
           nodesDraggable={editMode}
           elementsSelectable
+          // snapToGrid drives ReactFlow's RESIZE pointer snapping (the grip
+          // steps in 16s and RF pins the opposite edge correctly). It also
+          // center-snaps a position drag, but handleNodesChange re-snaps the
+          // TOP-LEFT edge afterward, so drag ends up edge-aligned regardless.
+          snapToGrid
+          snapGrid={SNAP_GRID}
         >
           <Background variant={BackgroundVariant.Dots} gap={16} size={1.6} color="#94a3b8" className="opacity-40" />
           <Controls className="!bg-background !border-border !shadow-sm [&>button]:!bg-background [&>button]:!border-border [&>button]:!text-foreground" showInteractive={false} />

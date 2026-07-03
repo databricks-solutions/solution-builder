@@ -107,7 +107,7 @@ export interface NodeCardProps {
   styleVariant: "tile" | "logo";
 
   onSelect: (id: string) => void;
-  onResize: (id: string, w: number, h: number, scale?: number) => void;
+  onResize: (id: string, w: number, h: number, scale?: number, center?: { x: number; y: number }) => void;
   /** Corner uniform-scale (product tiles). Omit → corner behaves like resize. */
   onScale?: (id: string, w: number) => void;
   onContext: (id: string, clientX: number, clientY: number) => void;
@@ -317,7 +317,7 @@ export function NodeCard(p: NodeCardProps) {
       editMode={p.editMode}
       selected={p.selected}
       forceDots={p.isDropTarget}
-      onResize={(w, h) => p.onResize(p.nodeId, w, h)}
+      onResize={(w, h, center) => p.onResize(p.nodeId, w, h, undefined, center)}
       {...(p.onScale ? { onScale: (w: number) => p.onScale!(p.nodeId, w) } : {})}
       onContext={(e) => { e.preventDefault(); p.onContext(p.nodeId, e.clientX, e.clientY); }}
     >
