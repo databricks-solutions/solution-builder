@@ -67,11 +67,7 @@ export const LibraryPalette = memo(function LibraryPalette({
             <X className="h-3.5 w-3.5" />
           </button>
         </div>
-      ) : (
-        <div className="border-b border-border px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
-          Components
-        </div>
-      )}
+      ) : null}
       {/* Search box shown in both modes — incl. "pick the new type" (change
           type), so you can filter the replacement options too. */}
       <div className="border-b border-border p-2">
@@ -232,7 +228,7 @@ export const LibraryPalette = memo(function LibraryPalette({
                     type="button"
                     onClick={() => onToggleTrademark?.()}
                     title="Show real third-party brand logos (requires permission)"
-                    className={`ml-auto rounded px-1.5 py-0.5 text-[8px] font-bold normal-case tracking-normal ${schema.enableTrademarkLogos ? "bg-primary/15 text-primary" : "border border-border text-muted-foreground hover:bg-muted"}`}
+                    className={`ml-auto cursor-pointer rounded px-1.5 py-0.5 text-[8px] font-bold normal-case tracking-normal ${schema.enableTrademarkLogos ? "bg-primary/15 text-primary" : "border border-border text-muted-foreground hover:bg-muted"}`}
                   >
                     Logos {schema.enableTrademarkLogos ? "on" : "off"}
                   </button>

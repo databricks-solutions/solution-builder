@@ -25,7 +25,7 @@ An architecture lives in **one self-contained HTML file** with its data in an in
    </script>
    ```
    Put your `nodes`/`edges` (schema below) inside that block. Plain JSON — no `//` comments.
-3. **View it**: open the HTML in any browser (double-click — no server). The editor variant can Download a PNG/SVG or a fresh standalone HTML with edits baked in.
+3. **View it**: the end user can open the HTML in any browser (double-click — no server). The editor variant can Download a PNG/SVG.
 
 Start from the minimal example in **The format** below (copy its `nodes`/`edges` into the inline block and adapt), or from `reference/architecture-complete.jsonc` — the flagship end-to-end shape — when the demo needs the full platform story. **Strip the `//` comments** when you paste (the inline block is parsed as JSON).
 
@@ -43,9 +43,10 @@ Then **read `my-arch.png`**, check the diagram is right (components present, wir
 
 ## The format
 
-The minimal end-to-end shape — **use this as your starting point** (it's JSONC
-so you can read the comments; **strip the `//` comments** when you emit into
-the inline block, which is parsed as plain JSON):
+The minimal end-to-end shape of ONE architecture (one tab) — **use this as your
+starting point**, and wrap it in an array `[ … ]` when you emit (see *Tabs*
+below). It's JSONC so you can read the comments; **strip the `//` comments**
+when you emit into the inline block, which is parsed as plain JSON:
 
 ```jsonc
 {
@@ -95,11 +96,31 @@ you almost never write `at`. Edges are by node id; the `@handle` is inferred.
 `options.trademarkLogos` and `custom_logos` are covered in the tables +
 sections below.
 
-### Top level
+### Tabs — the file is an ARRAY of architectures
+
+The top level is a JSON **array**, one element per **tab**. Each element is a
+full architecture object (exactly the shape above); its `name` becomes the tab
+label. This lets one diagram hold several views (e.g. "Ingestion", "Serving",
+"Governance") the user switches between.
+
+```jsonc
+[
+  { "name": "Ingestion", "columns": [...], "nodes": [...], "edges": [...] },
+  { "name": "Serving",   "columns": [...], "nodes": [...], "edges": [...] }
+]
+```
+
+- **Always emit an array**, even for a single architecture: `[ { … } ]`.
+- A bare single object `{ … }` is still accepted (auto-wrapped as one tab), but
+  the canonical, written-back form is the array.
+- The user's `+` / `×` add and remove tabs; renaming a tab rewrites that
+  element's `name`. You normally emit the whole array at once.
+
+### Top level  *(each element of the tabs array)*
 | Field | Required | Description |
 |-------|----------|-------------|
-| `name` | No | Toolbar title. Defaults to "Solution architecture". |
-| `story` | No | One-line caption under the title. |
+| `name` | No | The **tab label** for this architecture. Defaults to "Architecture N". |
+| `story` | No | One-line description of this architecture. Metadata (kept in the file); not rendered on the canvas. |
 | `options.trademarkLogos` | No | `true` → render real third-party brand logos. Default `false` (neutral badges). |
 | `columns` | No | Ordered left→right **lane names**. Nodes reference one via `col`. Add/rename/insert lanes freely for a different shape — no fixed taxonomy. |
 | `custom_logos` | No | `[{ id, svg }]` — inline SVG logos. Reference one from any node's `icon` as `"custom:<id>"`. See *Custom logos & images*. |
@@ -120,9 +141,13 @@ sections below.
 | `size` | No | `[w, h]` if resized from the natural size. |
 | `rot` · `scale` · `z` · `pad` | No | Rotation° (0/90/180/270), content scale, stacking order (negative = behind), container padding. |
 | `group` | No | A shared string id stamped on several nodes → they form a GROUP: selecting one selects all, and they move together on the canvas. |
-| `label` · `desc` · `icon` | No | Override the catalog default copy/icon (only when it differs). `icon` may be a built-in name, a `file:vendor/…`/`file:cloud/…` key, or a `custom:<id>` (see *Custom logos & images*). |
+| `label` · `icon` | No | Override the catalog default label/icon (only when it differs). `icon` may be a built-in name, a `file:vendor/…`/`file:cloud/…` key, or a `custom:<id>` (see *Custom logos & images*). |
+| `desc` | No | The node's **description line** — one line under the label. On a catalog tile it overrides the default blurb; on a `source`/`logo` it's the tile's only descriptive text. `""` (empty string) deliberately CLEARS it (renders nothing); omit to keep the catalog default. See *Node text: title · description · caption*. |
+| `showDesc` | No | `true`/`false` to force the description line on/off. **Default:** a catalog tile shows its description when it has one; a `source`/`logo` shows it only when you set `desc`. |
+| `caption` | source · logo | Where the label sits relative to the icon: `right` · `left` · `top` · `bottom`. **Default:** `right` for a source, below (`bottom`) for a logo. |
+| `fontSize` | source · logo · text/box | Label font size in px. Applies to source/logo captions and to `text`/`box` annotations. |
 | `ingest` | source only | `lakeflow-connect` (default) · `zerobus` · `direct`. |
-| `text`·`fontSize`·`bold`·`vAlign`·`hAlign`·`src` | box/text/logo/image | Annotation props — see *Annotations*. |
+| `text`·`bold`·`vAlign`·`hAlign`·`src` | box/text/logo/image | Annotation props — see *Annotations*. (`fontSize` and `caption` are in the rows above.) |
 | `style` | No | `{ border, borderStyle, borderColor, radius, shadow, fill, font, opacity }` — visual overrides; emit only what differs. `border` = width px (0 = none); `borderStyle` = `solid`/`dashed`; `borderColor`/`fill`/`font` = hex; `radius` = corner px; `shadow` = 0–100 intensity (0 = none); `opacity` = 0–1. |
 
 The **band** a component belongs to (which sets its tile color) is derived from its `type` — you never write it.
@@ -157,10 +182,52 @@ Four `type`s let you add labels and marks that aren't Databricks components:
 |------|-------|-----|
 | `text` | `text`, `fontSize`, `bold`, `vAlign`/`hAlign` | a free-floating text label. |
 | `box` | `text`, `fontSize`, `vAlign`/`hAlign`, + `wraps`/`bounds`/`pad` | a labeled rectangle / container (the platform box, cloud/VPC boxes). |
-| `logo` | `icon` (any icon key, incl. `file:…` or `custom:<id>`), `text` (caption below) | a standalone logo — e.g. the `file:persona/user` end-user marker. |
+| `logo` | `icon` (any icon key, incl. `file:…` or `custom:<id>`), `text` (the caption), `caption` (right/left/top/bottom — default below), `fontSize`, `desc`/`showDesc` | a standalone logo — e.g. the `file:persona/user` end-user marker. |
 | `image` | `src` | a standalone image (URL or base64 — see below). |
 
 > A `box` shows a 1px border by default; `text` shows none. The border is controlled ONLY by `style` — set `style.border` (px width, `0` = none), `style.borderColor`, `style.borderStyle` (`solid`/`dashed`). There is no separate border boolean.
+
+### Node text: title · description · caption
+
+Every icon-and-label node (catalog **tiles**, data **sources**, and **logo** annotations) share one anatomy: an **icon**, a **title** (the label), and an optional **description** line. Sources and logos add a **caption position** — where the title sits relative to the icon.
+
+```
+Catalog tile / source (caption "right", the default):
+   ┌────────────────────────────┐
+   │  [icon]  Title              │   ← label
+   │          description line   │   ← desc (one line, truncates)
+   └────────────────────────────┘
+
+Source / logo caption positions (icon ↔ label):
+   right:  [icon] Label      left:  Label [icon]
+   top:      Label           bottom:   [icon]
+            [icon]                     Label
+```
+
+- **title** = `label` (overrides the catalog default). A source/logo with an empty title renders no text.
+- **description** = `desc`, one line under the title. Shown by default when present (a tile with a catalog blurb shows it; a source/logo shows it once you set `desc`). Force it with `showDesc: true`/`false`. `desc: ""` clears it.
+- **caption** (source/logo) = `right`·`left`·`top`·`bottom`; **fontSize** sizes the label. A vertical caption (`top`/`bottom`) uses a taller box.
+
+Example — a source tile with the label under the icon, sized, with a description:
+```json
+{ "id": "src-crm", "type": "source", "icon": "file:vendor/salesforce",
+  "label": "Salesforce", "caption": "bottom", "fontSize": 12,
+  "desc": "Nightly account + opportunity export", "showDesc": true }
+```
+
+### Default look per node kind (what's actually drawn)
+
+The renderer gives each kind a different **default** chrome, so the same `style` fields land differently. Set `style` only to deviate:
+
+| kind | border | shadow | fill | notes |
+|------|--------|--------|------|-------|
+| catalog **tile** (product/source) | thin band-tinted border | subtle drop shadow | `bg-card` (theme surface) | the standard boxed tile; band color comes from its `type`. |
+| **logo** annotation | **none** | **none** | **transparent** | just the mark + caption, no box. Add `style.border`/`style.fill` to turn it INTO a boxed tile (a border/fill auto-adds a default shadow). |
+| **box** annotation | 1px | none | transparent (a `box` used as a plain rectangle is solid white; a `wraps` container is transparent) | labeled container. |
+| **text** annotation | none | none | none | bare text. |
+| composite (`lakeflow`, `governance`, `agent-bricks`, `db-platform`, …) | own internal chrome | varies | own | self-contained blocks; `db-platform`/`governance` default to no outer border. |
+
+So: a **data source** reads as a bordered tile out of the box, while a **logo** is a naked mark until you give it a border/fill — that's the intended contrast.
 
 ### Custom logos & images
 

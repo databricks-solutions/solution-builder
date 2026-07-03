@@ -26,12 +26,14 @@ import { ReactFlowProvider } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import {
   parseArchitecture,
+  parseArchitectureTabs,
   resolveDeepLink,
   serializeArchitecture,
+  serializeArchitectureTabs,
   type PlatformSchema,
 } from "@/lib/platform-architecture";
 import { saveProjectFile, getArchitectureStandaloneTemplate, type DeployedResourceLink } from "@/lib/custom-api";
-import { Check, ChevronDown, Download, Loader2 } from "lucide-react";
+import { Check, ChevronDown, Download, Loader2, X } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -41,6 +43,7 @@ import {
 import { Canvas } from "./platform-diagram/canvas";
 import { CustomLogosContext } from "./platform-diagram/shared";
 import { exportDiagramImage } from "./platform-diagram/export-image";
+import { TabBar } from "./platform-diagram/tab-bar";
 
 // ---------------------------------------------------------------------------
 // Top-level component — owns parse, deep-link resolution, save
@@ -60,13 +63,18 @@ interface PlatformDiagramProps {
    *  standalone keeps the serialized markdown in memory for "Download HTML")
    *  instead of saving to the backend. Receives the full architecture.md string. */
   onSave?: (md: string) => void;
-  /** Hide the top save-status bar (the standalone has its own chrome). */
+  /** Skip the built-in in-app save-status + Download in the floating toolbar.
+   *  The standalone passes this (it injects its OWN controls via toolbarExtras). */
   hideChrome?: boolean;
+  /** Caller-supplied controls for the RIGHT end of the canvas floating toolbar.
+   *  When provided, these are used INSTEAD of the built-in in-app save+Download
+   *  (the standalone passes its file-linking Save + Download here). */
+  toolbarExtras?: React.ReactNode;
 }
 
 type SaveStatus = "idle" | "saving" | "saved" | "error";
 
-function PlatformDiagram({ content, deployedResources, projectId, defaultEditMode = true, readOnly, onSave, hideChrome }: PlatformDiagramProps) {
+function PlatformDiagram({ content, deployedResources, projectId, defaultEditMode = true, readOnly, onSave, hideChrome, toolbarExtras: toolbarExtrasProp }: PlatformDiagramProps) {
   // --- Guard against the diagram's own auto-save echoing back and reverting
   //     the canvas to a stale version. -------------------------------------
   // The canvas auto-saves architecture.md (debounced). That write trips the
@@ -97,11 +105,33 @@ function PlatformDiagram({ content, deployedResources, projectId, defaultEditMod
     setAcceptedContent(content);
   }, [content]);
 
-  // Parse the ACCEPTED flat architecture.md into the internal schema. The file
-  // is the sole source of truth for what's shown (no capability-state seeding).
+  // --- Multi-tab: the file is an ARRAY of architectures (one per tab). ------
+  // `tabBodies` is the live source of truth for every tab's single-architecture
+  // JSON body; `tabNames` the labels. Re-derived whenever accepted content
+  // changes (a genuine external load — own echoes are already filtered above).
+  // The ACTIVE tab's body feeds the existing single-architecture pipeline
+  // unchanged; a save splices that tab's new body back into the array.
+  const [tabBodies, setTabBodies] = useState<string[]>(() =>
+    parseArchitectureTabs(acceptedContent ?? "").map((t) => t.body),
+  );
+  const [tabNames, setTabNames] = useState<string[]>(() =>
+    parseArchitectureTabs(acceptedContent ?? "").map((t) => t.name),
+  );
+  const [activeIndex, setActiveIndex] = useState(0);
+  useEffect(() => {
+    const tabs = parseArchitectureTabs(acceptedContent ?? "");
+    setTabBodies(tabs.map((t) => t.body));
+    setTabNames(tabs.map((t) => t.name));
+    setActiveIndex((i) => Math.min(i, Math.max(0, tabs.length - 1)));
+  }, [acceptedContent]);
+
+  const activeBody = tabBodies[activeIndex] ?? "";
+
+  // Parse the ACTIVE tab's body into the internal schema. The file is the sole
+  // source of truth for what's shown (no capability-state seeding).
   const built = useMemo(
-    () => parseArchitecture(acceptedContent ?? ""),
-    [acceptedContent],
+    () => parseArchitecture(activeBody),
+    [activeBody],
   );
   // Trademark-logo opt-in is editable on the canvas; keep it as local state
   // seeded from the file, and fold it back onto the schema so both render and
@@ -126,29 +156,22 @@ function PlatformDiagram({ content, deployedResources, projectId, defaultEditMod
   // never from the parsed override — so a save can't strip the file.
   const schemaRef = useRef(schema);
   schemaRef.current = schema;
+  // Refs so the save helpers read the CURRENT tab set without being re-created
+  // on every tab edit (keeps onPersist/onSetTrademark stable for the Canvas).
+  const tabBodiesRef = useRef(tabBodies);
+  tabBodiesRef.current = tabBodies;
+  const tabNamesRef = useRef(tabNames);
+  tabNamesRef.current = tabNames;
+  const activeIndexRef = useRef(activeIndex);
+  activeIndexRef.current = activeIndex;
 
-  const onPersist = useCallback(
-    (layout: PlatformSchema["layout"]) => {
-      const md = serializeArchitecture(schemaRef.current, layout);
-      lastAuthoredMd.current = md; // so the watcher echo of this write is ignored
-      if (onSave) { onSave(md); return; } // standalone: host owns persistence
-      setStatus("saving");
-      savePending.current = true; // ignore any refetch until this lands on disk
-      saveProjectFile(projectId, "architecture.md", md)
-        .then(() => setStatus("saved"))
-        .catch(() => setStatus("error"))
-        .finally(() => { savePending.current = false; });
-    },
-    [projectId, onSave],
-  );
-
-  // Toggle the trademark-logo opt-in and persist (re-serializes with the flag).
-  const onSetTrademark = useCallback((on: boolean) => {
-    setTrademark(on);
-    const next: PlatformSchema = { ...schemaRef.current, enableTrademarkLogos: on };
-    const md = serializeArchitecture(next, next.layout);
-    lastAuthoredMd.current = md; // ignore this write's own watcher echo
-    if (onSave) { onSave(md); return; } // standalone: host owns persistence
+  // Write the whole multi-tab file (array of every tab's body). Sets the echo
+  // guard to the full-array string so the watcher re-fetch of our own write is
+  // ignored. Standalone (onSave) vs in-app (saveProjectFile) split preserved.
+  const writeTabs = useCallback((bodies: string[]) => {
+    const md = serializeArchitectureTabs(bodies);
+    lastAuthoredMd.current = md;
+    if (onSave) { onSave(md); return; }
     setStatus("saving");
     savePending.current = true;
     saveProjectFile(projectId, "architecture.md", md)
@@ -157,6 +180,69 @@ function PlatformDiagram({ content, deployedResources, projectId, defaultEditMod
       .finally(() => { savePending.current = false; });
   }, [projectId, onSave]);
 
+  // Splice a new body for the ACTIVE tab into the array + write. Keeps the tab's
+  // display name in sync with the body's `name` (in case a rename rode along).
+  const persistActive = useCallback((body: string) => {
+    const bodies = tabBodiesRef.current.slice();
+    bodies[activeIndexRef.current] = body;
+    setTabBodies(bodies);
+    writeTabs(bodies);
+  }, [writeTabs]);
+
+  const onPersist = useCallback(
+    (layout: PlatformSchema["layout"]) => {
+      persistActive(serializeArchitecture(schemaRef.current, layout));
+    },
+    [persistActive],
+  );
+
+  // Toggle the trademark-logo opt-in and persist (re-serializes with the flag).
+  const onSetTrademark = useCallback((on: boolean) => {
+    setTrademark(on);
+    const next: PlatformSchema = { ...schemaRef.current, enableTrademarkLogos: on };
+    persistActive(serializeArchitecture(next, next.layout));
+  }, [persistActive]);
+
+  // --- Tab operations -------------------------------------------------------
+  const onSelectTab = useCallback((i: number) => setActiveIndex(i), []);
+
+  const onAddTab = useCallback(() => {
+    // Next free "Architecture N" name, then a blank body carrying it.
+    const names = tabNamesRef.current;
+    let n = names.length + 1;
+    const used = new Set(names);
+    while (used.has(`Architecture ${n}`)) n++;
+    const name = `Architecture ${n}`;
+    const body = "```json\n" + JSON.stringify({ name, nodes: [], edges: [] }, null, 2) + "\n```\n";
+    const bodies = [...tabBodiesRef.current, body];
+    setTabBodies(bodies);
+    setTabNames([...names, name]);
+    setActiveIndex(bodies.length - 1);
+    writeTabs(bodies);
+  }, [writeTabs]);
+
+  const onRenameTab = useCallback((i: number, name: string) => {
+    // Rewrite that tab's body with the new `name`, preserving everything else.
+    const bodies = tabBodiesRef.current.slice();
+    const fence = (bodies[i] ?? "").match(/```(?:json)?\s*\n([\s\S]*?)\n```/);
+    let parsed: Record<string, unknown> = {};
+    try { parsed = JSON.parse(fence ? fence[1] : "{}"); } catch { parsed = {}; }
+    parsed.name = name;
+    bodies[i] = "```json\n" + JSON.stringify(parsed, null, 2) + "\n```\n";
+    setTabBodies(bodies);
+    setTabNames((names) => names.map((nm, j) => (j === i ? name : nm)));
+    writeTabs(bodies);
+  }, [writeTabs]);
+
+  const onDeleteTab = useCallback((i: number) => {
+    const bodies = tabBodiesRef.current.filter((_, j) => j !== i);
+    if (bodies.length === 0) return; // never delete the last tab
+    setTabBodies(bodies);
+    setTabNames((names) => names.filter((_, j) => j !== i));
+    setActiveIndex((cur) => (cur > i ? cur - 1 : cur === i ? Math.min(i, bodies.length - 1) : cur));
+    writeTabs(bodies);
+  }, [writeTabs]);
+
   // Reset "saved" → "idle" after a moment so the chip doesn't linger.
   useEffect(() => {
     if (status !== "saved") return;
@@ -164,61 +250,89 @@ function PlatformDiagram({ content, deployedResources, projectId, defaultEditMod
     return () => clearTimeout(t);
   }, [status]);
 
+  // Save status + Download menu — rendered INTO the canvas's floating action bar
+  // (Canvas places it at the right end). No separate header row; the diagram
+  // name isn't shown. A caller-supplied `toolbarExtras` (the standalone's own
+  // Save/Download) takes precedence; otherwise `hideChrome` omits the built-in
+  // in-app controls entirely.
+  // The save-status icon is rendered SEPARATELY at the LEFT of the bar (see
+  // `toolbarStatus` on Canvas) so it doesn't leave a gap on the right.
+  const builtInExtras = hideChrome ? undefined : (
+    <div className="flex items-center gap-2">
+      {/* Download menu — PNG/SVG capture, or a self-contained standalone HTML
+          (the architecture-skill editor template with THIS diagram baked into
+          its inline JSON block). */}
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            className="flex cursor-pointer items-center gap-1 rounded-md px-2 py-1 text-[11.5px] font-medium text-foreground hover:bg-muted"
+          >
+            <Download className="h-3.5 w-3.5" /> Download <ChevronDown className="h-3 w-3 text-muted-foreground" />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem className="cursor-pointer" onClick={() => void exportDiagramImage("png")}>Image (PNG)</DropdownMenuItem>
+          <DropdownMenuItem className="cursor-pointer" onClick={() => void exportDiagramImage("svg")}>Image (SVG)</DropdownMenuItem>
+          <DropdownMenuItem
+            className="cursor-pointer"
+            onClick={async () => {
+              try {
+                const template = await getArchitectureStandaloneTemplate();
+                let json = (lastAuthoredMd.current ?? acceptedContent ?? "").trim();
+                const fence = json.match(/```(?:json)?\s*\n([\s\S]*?)\n```/);
+                if (fence) json = fence[1].trim();
+                try { json = JSON.stringify(JSON.parse(json), null, 2); } catch { /* keep as-is */ }
+                const replaced = template.replace(
+                  /(<script[^>]*id="architecture"[^>]*>)([\s\S]*?)(<\/script>)/,
+                  (_all, open, _body, close) => `${open}\n${json}\n${close}`,
+                );
+                const blob = new Blob([replaced], { type: "text/html" });
+                const a = document.createElement("a");
+                a.href = URL.createObjectURL(blob);
+                a.download = "architecture.html";
+                a.click();
+              } catch (e) {
+                console.error("standalone HTML export failed:", e);
+              }
+            }}
+          >
+            Standalone HTML (editable page)
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
+  );
+
+  // The tab strip — hidden in hard read-only (the standalone viewer shows only
+  // the active diagram). Keyed by nothing; it's controlled by PlatformDiagram.
+  const tabBar = readOnly ? undefined : (
+    <TabBar
+      names={tabNames}
+      activeIndex={activeIndex}
+      onSelect={onSelectTab}
+      onAdd={onAddTab}
+      onRename={onRenameTab}
+      onDelete={onDeleteTab}
+    />
+  );
+
   return (
     <div className="flex h-full w-full flex-col">
-      {!hideChrome && (
-        <div className="flex items-center justify-between gap-2 border-b border-border bg-muted/30 px-3 py-2">
-          <div className="text-sm font-medium text-foreground">{schema.name}</div>
-          <div className="flex items-center gap-2">
-            <SaveChip status={status} />
-            {/* Download menu — PNG/SVG capture, or a self-contained standalone
-                HTML (the architecture-skill editor template with THIS diagram
-                baked into its inline JSON block). */}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button
-                  type="button"
-                  className="flex cursor-pointer items-center gap-1 rounded-md border border-border bg-background px-2 py-1 text-[11.5px] font-medium text-foreground hover:bg-muted"
-                >
-                  <Download className="h-3.5 w-3.5" /> Download <ChevronDown className="h-3 w-3 text-muted-foreground" />
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem className="cursor-pointer" onClick={() => void exportDiagramImage("png")}>Image (PNG)</DropdownMenuItem>
-                <DropdownMenuItem className="cursor-pointer" onClick={() => void exportDiagramImage("svg")}>Image (SVG)</DropdownMenuItem>
-                <DropdownMenuItem
-                  className="cursor-pointer"
-                  onClick={async () => {
-                    try {
-                      const template = await getArchitectureStandaloneTemplate();
-                      let json = (lastAuthoredMd.current ?? acceptedContent ?? "").trim();
-                      const fence = json.match(/```(?:json)?\s*\n([\s\S]*?)\n```/);
-                      if (fence) json = fence[1].trim();
-                      try { json = JSON.stringify(JSON.parse(json), null, 2); } catch { /* keep as-is */ }
-                      const replaced = template.replace(
-                        /(<script[^>]*id="architecture"[^>]*>)([\s\S]*?)(<\/script>)/,
-                        (_all, open, _body, close) => `${open}\n${json}\n${close}`,
-                      );
-                      const blob = new Blob([replaced], { type: "text/html" });
-                      const a = document.createElement("a");
-                      a.href = URL.createObjectURL(blob);
-                      a.download = "architecture.html";
-                      a.click();
-                    } catch (e) {
-                      console.error("standalone HTML export failed:", e);
-                    }
-                  }}
-                >
-                  Standalone HTML (editable page)
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
-        </div>
-      )}
       <CustomLogosContext.Provider value={schema.customLogos ?? {}}>
         <ReactFlowProvider>
-          <Canvas schema={schema} deepLinks={deepLinks} onPersist={onPersist} onSetTrademark={onSetTrademark} defaultEditMode={defaultEditMode} readOnly={readOnly} />
+          <Canvas
+            key={activeIndex}
+            schema={schema}
+            deepLinks={deepLinks}
+            onPersist={onPersist}
+            onSetTrademark={onSetTrademark}
+            defaultEditMode={defaultEditMode}
+            readOnly={readOnly}
+            toolbarExtras={toolbarExtrasProp ?? builtInExtras}
+            toolbarStatus={hideChrome ? undefined : <SaveChip status={status} />}
+            tabBar={tabBar}
+          />
         </ReactFlowProvider>
       </CustomLogosContext.Provider>
     </div>
@@ -226,20 +340,20 @@ function PlatformDiagram({ content, deployedResources, projectId, defaultEditMod
 }
 
 const SaveChip = memo(function SaveChip({ status }: { status: SaveStatus }) {
-  if (status === "idle") return <span className="text-[11px] text-muted-foreground">Drag to arrange · auto-saves</span>;
-  if (status === "saving")
-    return (
-      <span className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-        <Loader2 className="h-3 w-3 animate-spin" /> Saving…
-      </span>
-    );
-  if (status === "saved")
-    return (
-      <span className="flex items-center gap-1.5 text-[11px] text-emerald-600">
-        <Check className="h-3 w-3" /> Saved
-      </span>
-    );
-  return <span className="text-[11px] text-destructive">Save failed</span>;
+  // Icon-only, and the slot is ALWAYS rendered (fixed size) so the toolbar
+  // never resizes as the status flips — idle just shows an empty box. `title`
+  // still carries the word for hover/accessibility.
+  const icon =
+    status === "saving" ? <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+    : status === "saved" ? <Check className="h-3.5 w-3.5 text-emerald-600" />
+    : status === "error" ? <X className="h-3.5 w-3.5 text-destructive" />
+    : null;
+  const label = status === "saving" ? "Saving…" : status === "saved" ? "Saved" : status === "error" ? "Save failed" : "";
+  return (
+    <span className="grid h-5 w-5 shrink-0 place-items-center" title={label} aria-label={label}>
+      {icon}
+    </span>
+  );
 });
 
 export default memo(PlatformDiagram);

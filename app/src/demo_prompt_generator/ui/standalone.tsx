@@ -234,61 +234,66 @@ function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, [writeToFile, linkAndSave, downloadHtml]);
 
+  // Compact button styled to sit in the canvas floating toolbar (matches the
+  // in-app Download trigger).
   const Btn = (p: { onClick: () => void; children: React.ReactNode }) => (
     <button
       type="button"
       onClick={p.onClick}
-      className="cursor-pointer rounded-md border border-border bg-background px-2.5 py-1 text-[12px] font-medium text-foreground hover:bg-muted"
+      className="flex cursor-pointer items-center gap-1 rounded-md border border-border bg-background px-2 py-1 text-[11.5px] font-medium text-foreground hover:bg-muted"
     >
       {p.children}
     </button>
   );
 
+  // Standalone EDITOR controls, injected into the canvas floating toolbar (no
+  // separate header) — Save (file-linking on Chromium, else download), Download
+  // image, auto-save status, and the "restored unsaved edits" chip. Viewer mode
+  // renders no chrome at all (the floating bar is hidden by readOnly).
+  const standaloneToolbar = MODE === "editor" ? (
+    <div className="flex items-center gap-2">
+      {/* Save (⌘S): Chromium links THIS html file once via the file picker,
+          then every edit auto-writes back to it. Elsewhere → download (the
+          downloaded html IS the save — this file is already standalone). */}
+      {FSA_SUPPORTED ? (
+        <Btn onClick={() => (fileHandle.current ? void writeToFile() : void linkAndSave())}>
+          {saveState === "unlinked" ? "Save…" : "Save"}
+        </Btn>
+      ) : (
+        <Btn onClick={downloadHtml}>Save (download)</Btn>
+      )}
+      {/* Download as image — one button, pick the format. The gap below the
+          trigger is PADDING inside the hover element (not a margin) so moving
+          the cursor down to the list never leaves the hover group. */}
+      <div className="group relative">
+        <Btn onClick={() => {}}>Download ▾</Btn>
+        <div className="invisible absolute right-0 top-full z-50 pt-1 group-hover:visible">
+          <div className="min-w-[140px] rounded-md border border-border bg-card py-1 shadow-lg">
+            <button type="button" onClick={() => void exportDiagramImage("png")} className="block w-full cursor-pointer px-3 py-1.5 text-left text-[12px] text-foreground hover:bg-muted">Image (PNG)</button>
+            <button type="button" onClick={() => void exportDiagramImage("svg")} className="block w-full cursor-pointer px-3 py-1.5 text-left text-[12px] text-foreground hover:bg-muted">Image (SVG)</button>
+          </div>
+        </div>
+      </div>
+      {/* Auto-save status once the file is linked. */}
+      {saveState !== "unlinked" && (
+        <span className={`text-[11px] ${saveState === "error" ? "text-destructive" : "text-muted-foreground"}`}>
+          {saveState === "saving" ? "Saving…" : saveState === "error" ? "Save failed" : "Saved ✓"}
+        </span>
+      )}
+      {/* Unsaved edits restored from this browser's snapshot of the file. */}
+      {showRestored && (
+        <span className="flex items-center gap-1.5 rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[11px] text-amber-800">
+          Restored edits
+          <button type="button" onClick={discardRestored} className="cursor-pointer underline underline-offset-2 hover:text-amber-950">
+            discard
+          </button>
+        </span>
+      )}
+    </div>
+  ) : undefined;
+
   return (
     <div className="flex h-screen w-screen flex-col">
-      {MODE === "editor" && (
-        <div className="flex shrink-0 items-center gap-2 border-b border-border bg-muted/30 px-3 py-2">
-          <span className="mr-1 text-[12px] font-semibold text-foreground">Architecture editor</span>
-          {/* Save (⌘S): Chromium links THIS html file once via the file picker,
-              then every edit auto-writes back to it. Elsewhere → download (the
-              downloaded html IS the save — this file is already standalone). */}
-          {FSA_SUPPORTED ? (
-            <Btn onClick={() => (fileHandle.current ? void writeToFile() : void linkAndSave())}>
-              {saveState === "unlinked" ? "Save…" : "Save"}
-            </Btn>
-          ) : (
-            <Btn onClick={downloadHtml}>Save (download)</Btn>
-          )}
-          {/* Download as image — one button, pick the format. The visual gap
-              below the trigger is PADDING inside the hover element (not a
-              margin) so moving the cursor down to the list never leaves the
-              hover group — a margin gap was closing the menu mid-travel. */}
-          <div className="group relative">
-            <Btn onClick={() => {}}>Download ▾</Btn>
-            <div className="invisible absolute left-0 top-full z-50 pt-1 group-hover:visible">
-              <div className="min-w-[140px] rounded-md border border-border bg-card py-1 shadow-lg">
-                <button type="button" onClick={() => void exportDiagramImage("png")} className="block w-full cursor-pointer px-3 py-1.5 text-left text-[12px] text-foreground hover:bg-muted">Image (PNG)</button>
-                <button type="button" onClick={() => void exportDiagramImage("svg")} className="block w-full cursor-pointer px-3 py-1.5 text-left text-[12px] text-foreground hover:bg-muted">Image (SVG)</button>
-              </div>
-            </div>
-          </div>
-          {/* Auto-save status once the file is linked. */}
-          {saveState !== "unlinked" && (
-            <span className={`text-[11px] ${saveState === "error" ? "text-destructive" : "text-muted-foreground"}`}>
-              {saveState === "saving" ? "Saving…" : saveState === "error" ? "Save failed" : "Auto-saving to file ✓"}
-            </span>
-          )}
-          {/* Unsaved edits restored from this browser's snapshot of the file. */}
-          {showRestored && (
-            <span className="ml-auto flex items-center gap-1.5 rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[11px] text-amber-800">
-              Restored unsaved edits
-              <button type="button" onClick={discardRestored} className="cursor-pointer underline underline-offset-2 hover:text-amber-950">
-                discard
-              </button>
-            </span>
-          )}
-        </div>
-      )}
       <div className="relative min-h-0 flex-1">
         <PlatformDiagram
           content={content || null}
@@ -298,6 +303,7 @@ function App() {
           readOnly={MODE === "viewer"}
           onSave={onSave}
           hideChrome
+          toolbarExtras={standaloneToolbar}
         />
 
         {/* Almost-hidden JSON debug toggle (bottom-right, clear of the zoom
