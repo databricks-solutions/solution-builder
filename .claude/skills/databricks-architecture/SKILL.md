@@ -25,7 +25,7 @@ An architecture lives in **one self-contained HTML file** with its data in an in
    </script>
    ```
    Put your `nodes`/`edges` (schema below) inside that block. Plain JSON — no `//` comments.
-3. **View it**: open the HTML in any browser (double-click — no server). The editor variant can Download a PNG/SVG or a fresh standalone HTML with edits baked in.
+3. **View it**: the end user can open the HTML in any browser (double-click — no server). The editor variant can Download a PNG/SVG.
 
 Start from the minimal example in **The format** below (copy its `nodes`/`edges` into the inline block and adapt), or from `reference/architecture-complete.jsonc` — the flagship end-to-end shape — when the demo needs the full platform story. **Strip the `//` comments** when you paste (the inline block is parsed as JSON).
 

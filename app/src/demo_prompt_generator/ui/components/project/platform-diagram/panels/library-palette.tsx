@@ -228,7 +228,7 @@ export const LibraryPalette = memo(function LibraryPalette({
                     type="button"
                     onClick={() => onToggleTrademark?.()}
                     title="Show real third-party brand logos (requires permission)"
-                    className={`ml-auto rounded px-1.5 py-0.5 text-[8px] font-bold normal-case tracking-normal ${schema.enableTrademarkLogos ? "bg-primary/15 text-primary" : "border border-border text-muted-foreground hover:bg-muted"}`}
+                    className={`ml-auto cursor-pointer rounded px-1.5 py-0.5 text-[8px] font-bold normal-case tracking-normal ${schema.enableTrademarkLogos ? "bg-primary/15 text-primary" : "border border-border text-muted-foreground hover:bg-muted"}`}
                   >
                     Logos {schema.enableTrademarkLogos ? "on" : "off"}
                   </button>

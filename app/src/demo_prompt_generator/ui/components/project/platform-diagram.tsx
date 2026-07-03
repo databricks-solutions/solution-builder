@@ -33,7 +33,7 @@ import {
   type PlatformSchema,
 } from "@/lib/platform-architecture";
 import { saveProjectFile, getArchitectureStandaloneTemplate, type DeployedResourceLink } from "@/lib/custom-api";
-import { Check, ChevronDown, Download, Loader2 } from "lucide-react";
+import { Check, ChevronDown, Download, Loader2, X } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -255,9 +255,10 @@ function PlatformDiagram({ content, deployedResources, projectId, defaultEditMod
   // name isn't shown. A caller-supplied `toolbarExtras` (the standalone's own
   // Save/Download) takes precedence; otherwise `hideChrome` omits the built-in
   // in-app controls entirely.
+  // The save-status icon is rendered SEPARATELY at the LEFT of the bar (see
+  // `toolbarStatus` on Canvas) so it doesn't leave a gap on the right.
   const builtInExtras = hideChrome ? undefined : (
     <div className="flex items-center gap-2">
-      <SaveChip status={status} />
       {/* Download menu — PNG/SVG capture, or a self-contained standalone HTML
           (the architecture-skill editor template with THIS diagram baked into
           its inline JSON block). */}
@@ -265,7 +266,7 @@ function PlatformDiagram({ content, deployedResources, projectId, defaultEditMod
         <DropdownMenuTrigger asChild>
           <button
             type="button"
-            className="flex cursor-pointer items-center gap-1 rounded-md border border-border bg-background px-2 py-1 text-[11.5px] font-medium text-foreground hover:bg-muted"
+            className="flex cursor-pointer items-center gap-1 rounded-md px-2 py-1 text-[11.5px] font-medium text-foreground hover:bg-muted"
           >
             <Download className="h-3.5 w-3.5" /> Download <ChevronDown className="h-3 w-3 text-muted-foreground" />
           </button>
@@ -329,6 +330,7 @@ function PlatformDiagram({ content, deployedResources, projectId, defaultEditMod
             defaultEditMode={defaultEditMode}
             readOnly={readOnly}
             toolbarExtras={toolbarExtrasProp ?? builtInExtras}
+            toolbarStatus={hideChrome ? undefined : <SaveChip status={status} />}
             tabBar={tabBar}
           />
         </ReactFlowProvider>
@@ -338,22 +340,20 @@ function PlatformDiagram({ content, deployedResources, projectId, defaultEditMod
 }
 
 const SaveChip = memo(function SaveChip({ status }: { status: SaveStatus }) {
-  // Idle → render nothing (no "Drag to arrange" hint); only surface the
-  // transient saving / saved / failed states.
-  if (status === "idle") return null;
-  if (status === "saving")
-    return (
-      <span className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-        <Loader2 className="h-3 w-3 animate-spin" /> Saving…
-      </span>
-    );
-  if (status === "saved")
-    return (
-      <span className="flex items-center gap-1.5 text-[11px] text-emerald-600">
-        <Check className="h-3 w-3" /> Saved
-      </span>
-    );
-  return <span className="text-[11px] text-destructive">Save failed</span>;
+  // Icon-only, and the slot is ALWAYS rendered (fixed size) so the toolbar
+  // never resizes as the status flips — idle just shows an empty box. `title`
+  // still carries the word for hover/accessibility.
+  const icon =
+    status === "saving" ? <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+    : status === "saved" ? <Check className="h-3.5 w-3.5 text-emerald-600" />
+    : status === "error" ? <X className="h-3.5 w-3.5 text-destructive" />
+    : null;
+  const label = status === "saving" ? "Saving…" : status === "saved" ? "Saved" : status === "error" ? "Save failed" : "";
+  return (
+    <span className="grid h-5 w-5 shrink-0 place-items-center" title={label} aria-label={label}>
+      {icon}
+    </span>
+  );
 });
 
 export default memo(PlatformDiagram);

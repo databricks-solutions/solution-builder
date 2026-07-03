@@ -2,10 +2,11 @@
  * platform-diagram/tab-bar — the multi-architecture tab strip.
  *
  * The architecture file is an ARRAY of architectures (one per tab). This bar
- * sits at the TOP-LEFT of the canvas (the floating action bar is top-right; the
- * component-library palette is a separate flex column further left, so they
- * don't overlap). It offers:
- *   • a pill per tab (active one highlighted), click to switch;
+ * sits flush at the TOP-LEFT of the canvas as a row of rectangular, browser-
+ * style tabs (the floating action bar is top-right; the component-library
+ * palette is a separate flex column further left, so they don't overlap). It
+ * offers:
+ *   • a rectangular tab per architecture (active one highlighted), click to switch;
  *   • double-click a tab → rename inline (Enter/blur commits, Esc cancels);
  *   • `×` on a tab → a confirm modal before deleting (disabled when only one);
  *   • `+` → add a new blank tab.
@@ -53,14 +54,14 @@ export const TabBar = memo(function TabBar({
 
   return (
     <>
-      <div className="absolute left-3 top-3 z-10 flex max-w-[calc(100%-13rem)] items-center gap-1 overflow-x-auto rounded-lg border border-border bg-card/95 p-1 shadow-sm backdrop-blur">
+      <div className="absolute left-0 top-0 z-10 flex max-w-[calc(100%-13rem)] items-stretch gap-px overflow-x-auto border-b border-r border-border bg-card/95 backdrop-blur">
         {names.map((name, i) => {
           const active = i === activeIndex;
           return (
             <div
               key={i}
-              className={`group flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[12px] font-medium ${
-                active ? "bg-muted text-foreground shadow-sm" : "text-muted-foreground hover:bg-muted/60"
+              className={`group flex shrink-0 items-center gap-1 border-r border-border px-3 py-1.5 text-[12px] font-medium ${
+                active ? "bg-card text-foreground" : "bg-muted/40 text-muted-foreground hover:bg-muted/70"
               }`}
             >
               {editing === i ? (
@@ -90,7 +91,7 @@ export const TabBar = memo(function TabBar({
                 <button
                   type="button"
                   onClick={(e) => { e.stopPropagation(); setConfirmDelete(i); }}
-                  className="grid h-4 w-4 shrink-0 place-items-center rounded text-muted-foreground/50 hover:bg-background hover:text-destructive"
+                  className="grid h-4 w-4 shrink-0 cursor-pointer place-items-center rounded text-muted-foreground/50 hover:bg-background hover:text-destructive"
                   title="Delete this architecture"
                 >
                   <X className="h-3 w-3" />
@@ -102,7 +103,7 @@ export const TabBar = memo(function TabBar({
         <button
           type="button"
           onClick={onAdd}
-          className="grid h-6 w-6 shrink-0 cursor-pointer place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+          className="grid w-8 shrink-0 cursor-pointer place-items-center text-muted-foreground hover:bg-muted hover:text-foreground"
           title="New architecture"
         >
           <Plus className="h-4 w-4" />
@@ -124,14 +125,14 @@ export const TabBar = memo(function TabBar({
               <button
                 type="button"
                 onClick={() => setConfirmDelete(null)}
-                className="rounded-md border border-border px-3 py-1.5 text-[12px] hover:bg-muted"
+                className="cursor-pointer rounded-md border border-border px-3 py-1.5 text-[12px] hover:bg-muted"
               >
                 Cancel
               </button>
               <button
                 type="button"
                 onClick={() => { onDelete(confirmDelete); setConfirmDelete(null); }}
-                className="rounded-md bg-destructive px-3 py-1.5 text-[12px] font-medium text-white hover:opacity-90"
+                className="cursor-pointer rounded-md bg-destructive px-3 py-1.5 text-[12px] font-medium text-white hover:opacity-90"
               >
                 Delete
               </button>

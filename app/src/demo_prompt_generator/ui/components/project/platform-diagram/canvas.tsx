@@ -69,7 +69,6 @@ import {
   Pencil,
   Undo2,
   Redo2,
-  Image as ImageIcon,
   Copy,
 } from "lucide-react";
 import { nodeTypes, edgeTypes } from "./node-types";
@@ -96,9 +95,12 @@ interface CanvasProps {
    *  shows ONLY the diagram — no edit affordances at all. */
   readOnly?: boolean;
   /** Extra controls rendered at the RIGHT end of the floating action bar (the
-   *  save-status chip + Download menu, whose logic + deps live in the parent
-   *  PlatformDiagram). Kept as a node so the parent owns their behavior. */
+   *  Download menu, whose logic + deps live in the parent PlatformDiagram).
+   *  Kept as a node so the parent owns their behavior. */
   toolbarExtras?: React.ReactNode;
+  /** Status indicator rendered at the LEFT end of the floating action bar (the
+   *  save-status icon), so it doesn't leave a gap on the right. */
+  toolbarStatus?: React.ReactNode;
   /** The multi-tab strip, rendered at the TOP-LEFT of the canvas (the parent
    *  PlatformDiagram owns the tab state). Node so the parent controls it. */
   tabBar?: React.ReactNode;
@@ -132,7 +134,7 @@ const MULTI_SELECT_KEYS = ["Shift"];
 // (memoized schema/deepLinks, useCallback'd handlers), so the memo drops those
 // parent-driven full re-renders entirely — they'd otherwise re-run the whole
 // render body for a status chip the Canvas doesn't even show.
-export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSetTrademark, defaultEditMode = true, readOnly = false, toolbarExtras, tabBar }: CanvasProps) {
+export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSetTrademark, defaultEditMode = true, readOnly = false, toolbarExtras, toolbarStatus, tabBar }: CanvasProps) {
   const [confirmTrademark, setConfirmTrademark] = useState(false);
   const [sourcePicker, setSourcePicker] = useState(false);
   // Turning logos ON requires a permission ack; turning OFF is immediate.
@@ -1356,13 +1358,17 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
         {/* floating action bar — hidden entirely in hard read-only (the
             standalone viewer shows only the diagram). */}
         {!readOnly && (
-        <div className="absolute right-3 top-3 z-10 flex items-center gap-1 rounded-lg border border-border bg-card/95 p-1 shadow-sm backdrop-blur">
+        <div className="absolute right-3 top-3 z-10 flex items-center gap-1.5">
+          {/* Save-status icon OUTSIDE the bar, to its left — so an idle/empty
+              status leaves no gap inside the bar. */}
+          {toolbarStatus}
+          <div className="flex items-center gap-1 rounded-lg border border-border bg-card/95 p-1 shadow-sm backdrop-blur">
           {/* View / Edit mode toggle */}
           <div className="flex items-center rounded-md bg-muted/60 p-0.5">
             <button
               type="button"
               onClick={() => setEditMode(false)}
-              className={`flex items-center gap-1 rounded px-2 py-1 text-[11px] font-medium ${
+              className={`flex cursor-pointer items-center gap-1 rounded px-2 py-1 text-[11px] font-medium ${
                 !editMode ? "bg-card text-foreground shadow-sm" : "text-muted-foreground"
               }`}
             >
@@ -1371,7 +1377,7 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
             <button
               type="button"
               onClick={() => setEditMode(true)}
-              className={`flex items-center gap-1 rounded px-2 py-1 text-[11px] font-medium ${
+              className={`flex cursor-pointer items-center gap-1 rounded px-2 py-1 text-[11px] font-medium ${
                 editMode ? "bg-card text-foreground shadow-sm" : "text-muted-foreground"
               }`}
             >
@@ -1384,7 +1390,7 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
               <Button
                 variant="ghost"
                 size="sm"
-                className="h-7 w-7 px-0"
+                className="h-7 w-7 cursor-pointer px-0"
                 disabled={!canUndo}
                 onClick={undo}
                 title="Undo (⌘Z)"
@@ -1394,25 +1400,13 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
               <Button
                 variant="ghost"
                 size="sm"
-                className="h-7 w-7 px-0"
+                className="h-7 w-7 cursor-pointer px-0"
                 disabled={!canRedo}
                 onClick={redo}
                 title="Redo (⇧⌘Z)"
               >
                 <Redo2 className="h-3.5 w-3.5" />
               </Button>
-              <div className="mx-0.5 h-5 w-px bg-border" />
-              {/* Trademark-logo toggle: on requires a permission ack. */}
-              <button
-                type="button"
-                onClick={toggleTrademark}
-                title="Show real third-party brand logos (requires permission)"
-                className={`flex items-center gap-1 rounded px-2 py-1 text-[11px] font-medium ${
-                  schema.enableTrademarkLogos ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted"
-                }`}
-              >
-                <ImageIcon className="h-3.5 w-3.5" /> Logos {schema.enableTrademarkLogos ? "on" : "off"}
-              </button>
             </>
           )}
           {/* Save status + Download (from the parent PlatformDiagram) at the
@@ -1423,6 +1417,7 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
               {toolbarExtras}
             </>
           )}
+          </div>
         </div>
         )}
 
@@ -1435,8 +1430,8 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
                 Logos like Shopify, Snowflake, or SAP are trademarks of their owners. Only enable this if you have permission to use them in this material. Cloud and Databricks marks are always shown. You can turn this off anytime.
               </p>
               <div className="flex justify-end gap-2">
-                <button type="button" onClick={() => setConfirmTrademark(false)} className="rounded-md border border-border px-3 py-1.5 text-[12px] hover:bg-muted">Cancel</button>
-                <button type="button" onClick={() => { onSetTrademark(true); setConfirmTrademark(false); }} className="rounded-md bg-primary px-3 py-1.5 text-[12px] font-medium text-primary-foreground hover:opacity-90">I have permission — show logos</button>
+                <button type="button" onClick={() => setConfirmTrademark(false)} className="cursor-pointer rounded-md border border-border px-3 py-1.5 text-[12px] hover:bg-muted">Cancel</button>
+                <button type="button" onClick={() => { onSetTrademark(true); setConfirmTrademark(false); }} className="cursor-pointer rounded-md bg-primary px-3 py-1.5 text-[12px] font-medium text-primary-foreground hover:opacity-90">I have permission — show logos</button>
               </div>
             </div>
           </div>
