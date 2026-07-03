@@ -34,10 +34,12 @@ import {
   AlertCircle,
   Zap,
   Check,
+  Star,
 } from "lucide-react";
 import {
   listProjects,
   createProject,
+  toggleProjectStar,
   extractFiles,
   searchTemplates,
   getConfigStatus,
@@ -837,6 +839,25 @@ function Index() {
     navigate({ to: "/project/$projectId", params: { projectId } });
   };
 
+  const handleToggleStar = async (
+    e: React.MouseEvent,
+    project: ProjectListItem
+  ) => {
+    e.stopPropagation();
+    try {
+      const result = await toggleProjectStar(project.id);
+      setProjects((prev) =>
+        prev.map((p) =>
+          p.id === project.id ? { ...p, is_starred: result.starred } : p
+        )
+      );
+    } catch (err) {
+      console.error("Failed to toggle star:", err);
+    }
+  };
+
+  const starredProjects = projects.filter((p) => p.is_starred);
+
   return (
     <div className="relative flex min-h-screen flex-col overflow-hidden">
       {/* Full-page overlay while creating a project (or after a creation error) */}
@@ -1569,6 +1590,34 @@ function Index() {
           </div>
         )}
 
+        {/* Starred projects */}
+        {starredProjects.length > 0 && (
+          <div className="relative z-10 mx-auto mt-12 w-full max-w-5xl">
+            <div className="mb-4 flex items-end justify-between">
+              <div>
+                <h2 className="flex items-center gap-2 text-lg font-semibold tracking-tight">
+                  <Star className="h-4 w-4 fill-amber-400 text-amber-400" />
+                  Starred Projects
+                </h2>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Your pinned projects, always one click away
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {starredProjects.map((project) => (
+                <ProjectTile
+                  key={project.id}
+                  project={project}
+                  onClick={() => handleOpenProject(project.id)}
+                  onToggleStar={(e) => handleToggleStar(e, project)}
+                />
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Recent projects */}
         {projects.length > 0 && (
           <div className="relative z-10 mx-auto mt-12 w-full max-w-5xl">
@@ -1598,6 +1647,7 @@ function Index() {
                   key={project.id}
                   project={project}
                   onClick={() => handleOpenProject(project.id)}
+                  onToggleStar={(e) => handleToggleStar(e, project)}
                 />
               ))}
             </div>
