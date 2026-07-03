@@ -387,10 +387,23 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
       // here (rather than via RF's snapToGrid, which snaps the CENTER because
       // nodeOrigin=[0.5,0.5]) both aligns the left/top edges of differently-
       // sized tiles AND keeps the magnet VISIBLE during the drag.
+      //
+      // BUT a RESIZE also emits `position` changes (RF moves the node's center
+      // to keep the diagonal-opposite corner pinned while a size handle drags).
+      // Those must NOT go through the top-left magnet: re-snapping the top-left
+      // fights RF's opposite-corner pin (the far corner drifts) and, because the
+      // node's committed w/h still lags a frame, recomputes the center against a
+      // STALE size — so the box jumps on release. During a resize RF already
+      // snaps the pointer to the grid via snapToGrid, so we let it own geometry
+      // and skip the magnet for any node that's resizing in this same batch.
       const g = SNAP_GRID[0];
       const byId = nodesRef.current;
+      const resizingIds = new Set(
+        changes.flatMap((c) => (c.type === "dimensions" && c.resizing ? [c.id] : [])),
+      );
       const snappedChanges = changes.map((c) => {
         if (c.type !== "position" || !c.position) return c;
+        if (resizingIds.has(c.id)) return c; // resize repositioning — RF owns it
         const n = byId.find((x) => x.id === c.id);
         if (!n) return c;
         const w = (n.width ?? (n.data as NodeData).w ?? 200) as number;

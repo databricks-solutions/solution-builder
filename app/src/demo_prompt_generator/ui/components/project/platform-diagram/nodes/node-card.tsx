@@ -223,7 +223,7 @@ export function NodeCard(p: NodeCardProps) {
       } ${p.fontColor ? "" : "text-foreground"}`}
       style={p.fontColor ? { color: p.fontColor, fontSize, ...(bold ? { fontWeight: 700 } : {}) } : { fontSize, ...(bold ? { fontWeight: 700 } : {}) }}
     />
-  ) : (p.title || !p.hideEmptyTitle) ? (
+  ) : p.title ? (
     <span
       className={`min-w-0 truncate ${autoFit ? "whitespace-nowrap font-medium" : "font-semibold"} text-[13px] ${p.fontColor ? "" : "text-foreground"}`}
       style={{ fontSize, ...(bold ? { fontWeight: 700 } : {}), ...(p.fontColor ? { color: p.fontColor } : {}) }}
@@ -232,7 +232,20 @@ export function NodeCard(p: NodeCardProps) {
     >
       {p.title}
     </span>
-  ) : null;
+  ) : p.hideEmptyTitle && !p.editMode ? null : (
+    // Empty title. In edit mode always render a faint, double-clickable
+    // placeholder (even for logos, which hide an empty title when NOT editing)
+    // so there's a visible target to double-click and type a caption. Outside
+    // edit mode a hideEmptyTitle node still renders nothing.
+    <span
+      className={`min-w-0 truncate text-[13px] italic ${autoFit ? "whitespace-nowrap" : ""} text-muted-foreground/50`}
+      style={{ fontSize }}
+      title="Double-click to add a label"
+      onDoubleClick={(e) => { e.stopPropagation(); setEditing(""); }}
+    >
+      {p.titlePlaceholder ?? "Add label…"}
+    </span>
+  );
 
   // Editable description line — double-click to edit, Enter/blur commit, Esc
   // cancel. Truncates. Distinct from the static `subtitle` above.

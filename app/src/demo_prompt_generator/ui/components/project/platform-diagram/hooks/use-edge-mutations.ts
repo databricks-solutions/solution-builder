@@ -105,16 +105,14 @@ export function useEdgeMutations({
     [mutateEdge],
   );
 
-  // Set the arrowhead mode. An explicit arrow (end/start/both) is a relationship
-  // line, so it also turns OFF the data-flow animation (mutually exclusive).
-  // "auto" / "none" leave animation as-is (auto may still render an arrow for
-  // user/Genie-One edges, but that's a render-time decision, not stored state).
+  // Set the arrowhead mode. Arrow and flow are NO LONGER mutually exclusive —
+  // the arrowhead paints on its own overlay path on top of any line style, so an
+  // arrow can sit on top of a running flow animation. We therefore leave
+  // `animated` untouched (setting an arrow used to force it off, which silently
+  // killed a laser/flow source edge's beam the moment you added an arrow).
   const setEdgeArrow = useCallback(
     (id: string, arrow: "auto" | "none" | "end" | "start" | "both") =>
-      mutateEdge(id, (e) => ({
-        ...e,
-        data: { ...e.data, arrow, ...(arrow === "end" || arrow === "start" || arrow === "both" ? { animated: false } : {}) },
-      })),
+      mutateEdge(id, (e) => ({ ...e, data: { ...e.data, arrow } })),
     [mutateEdge],
   );
 

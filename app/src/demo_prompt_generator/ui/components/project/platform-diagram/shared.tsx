@@ -280,7 +280,7 @@ export function nodeFootprint(
 // Resize-grip geometry — ONE source of truth for how far every grip (corners
 // AND sides) floats outside the box and how big it is, so they can't drift.
 const GRIP_LEN = 15; // grip box size (px)
-const GRIP_OUT = 15; // distance the grip's OUTER edge sits past the border (px)
+const GRIP_OUT = 9; // distance the grip's OUTER edge sits past the border (px)
 
 /** A resize grip drawn as a single SVG stroke (fat background line under a thin
  *  primary line → the "outlined" look), round caps + joints. ONE primitive for

@@ -78,6 +78,21 @@ const FlowEdge = memo(function FlowEdge(props: EdgeProps) {
   const tPos = drag?.end === "target" ? POS_OF[drag.side ?? "l"] : targetPos;
 
   const shape = d?.shape ?? "smooth";
+  // getSmoothStepPath extends a fixed stub (default 20px) straight out of each
+  // side before it's allowed to turn. When two connected tiles sit CLOSE
+  // together, the source stub and the target stub overshoot past each other and
+  // the path has to double back — the "S" wiggle. Shrink the stub so it never
+  // eats more than its share of the gap between the exit and entry points: the
+  // two stubs together stay within the available run, so the line turns once and
+  // reads as a single gentle curve instead of an S. Only the facing axis matters
+  // (horizontal sides → the x-gap; vertical sides → the y-gap).
+  const horiz = (fan.sSide === "l" || fan.sSide === "r") && (fan.tSide === "l" || fan.tSide === "r");
+  const vert = (fan.sSide === "t" || fan.sSide === "b") && (fan.tSide === "t" || fan.tSide === "b");
+  const facingGap = horiz ? Math.abs(tp.x - sp.x) : vert ? Math.abs(tp.y - sp.y) : Infinity;
+  // Cap each stub at ~40% of the gap (leaves 20% in the middle for the turn),
+  // never above the default 20. Below the default only when tiles are within
+  // ~50px — normal spacing is untouched.
+  const stepOffset = Math.max(4, Math.min(20, facingGap * 0.4));
   // Vertical-elbow X: while dragging the center handle use that; else a manual
   // saved centerX (d.centerX) wins; else the auto-stagger (fan.centerX). Skip
   // entirely while dragging an endpoint (path tracks the cursor).
@@ -92,7 +107,7 @@ const FlowEdge = memo(function FlowEdge(props: EdgeProps) {
   // least OFFSET beyond BOTH the source exit and the target entry, on the
   // correct outbound side. Only meaningful when both ends are horizontal sides.
   if (centerX !== undefined && (fan.sSide === "l" || fan.sSide === "r") && (fan.tSide === "l" || fan.tSide === "r")) {
-    const OFFSET = 20; // smooth-step's built-in exit stub
+    const OFFSET = stepOffset; // smooth-step's exit stub (shrunk when tiles are close)
     // Source side: elbow must be ≥ OFFSET past the source exit.
     if (fan.sSide === "r") centerX = Math.max(centerX, sp.x + OFFSET);
     else centerX = Math.min(centerX, sp.x - OFFSET);
@@ -109,8 +124,8 @@ const FlowEdge = memo(function FlowEdge(props: EdgeProps) {
     shape === "straight"
       ? getStraightPath({ sourceX: sPt.x, sourceY: sPt.y, targetX: tPt.x, targetY: tPt.y })
       : shape === "step"
-      ? getSmoothStepPath({ ...args, borderRadius: 0 })
-      : getSmoothStepPath({ ...args, borderRadius: 14 });
+      ? getSmoothStepPath({ ...args, offset: stepOffset, borderRadius: 0 })
+      : getSmoothStepPath({ ...args, offset: stepOffset, borderRadius: Math.min(14, stepOffset) });
 
   const start = (end: "source" | "target") => (e: React.PointerEvent) => {
     e.stopPropagation();
@@ -194,13 +209,11 @@ const FlowEdge = memo(function FlowEdge(props: EdgeProps) {
   // The flowing-data animation: a single dot (default), streaming particles
   // (dots + red squares), or moving documents.
   // Flow style: an explicit user choice wins; otherwise derived from the SOURCE
-  // node's ingest — but ONLY when the source is an actual data source (it has
-  // an `ingest`). zerobus (realtime) → particles; direct (file landing) → docs;
-  // lakeflow-connect (managed connectors) and everything else → plain dot. This
-  // mirrors `seedEdges` exactly (laser is an explicit-choice-only style).
+  // node. Any actual data SOURCE (a node with an `ingest`) defaults to `laser` —
+  // the ingest lines read as bright beams pulling data into the platform. Only a
+  // non-source origin falls back to a plain `dot`.
   const srcIngest = (sNode?.data as { component?: { ingest?: string } } | undefined)?.component?.ingest;
-  const autoStyle: FlowStyle =
-    srcIngest === "zerobus" ? "particles" : srcIngest === "direct" ? "docs" : "dot";
+  const autoStyle: FlowStyle = srcIngest ? "laser" : "dot";
   const flowStyle = d?.flowStyle ?? autoStyle;
   // Arrowheads. "auto" (the default / empty) → a static arrow for RELATIONSHIP
   // edges: any edge touching the user persona or Genie One. Explicit
@@ -231,19 +244,23 @@ const FlowEdge = memo(function FlowEdge(props: EdgeProps) {
     arrow = "none";
   }
   const isArrow = arrow !== "none";
-  const flowing = d?.animated && !isArrow && !drag && centerDrag === null;
+  // An arrow no longer suppresses the flow animation — the arrowhead is drawn on
+  // its OWN overlay path (below) so it sits on top of ANY line style, including
+  // an animated laser/particles beam. Flow keeps running underneath.
+  const flowing = d?.animated && !drag && centerDrag === null;
   // Below ~35% zoom the per-particle glyphs are sub-pixel; skip the (expensive)
   // animation entirely and let the base line carry the edge. Primitive return →
   // no comparator, re-renders only when crossing the threshold.
   const showFlow = useStore((s) => s.transform[2] >= 0.35);
 
-  // The base line + arrow are styled by the RESOLVED flowStyle (which may be
+  // The base line is styled by the RESOLVED flowStyle (which may be
   // auto-derived). When the animation is ON: particles/laser ARE the line
-  // (transparent base, no arrow); docs ride a faint line; dot keeps the grey
-  // line. When flow is OFF, always show the normal grey line so the edge reads.
-  // "beamish" styles (particles/laser) ARE the line, so the base goes
-  // transparent — but only while the animation is actually rendered. When it's
-  // suppressed (zoomed out), fall back to a visible base line.
+  // (transparent base); docs ride a faint line; dot keeps the grey line. When
+  // flow is OFF, always show the normal grey line so the edge reads. Any
+  // arrowhead is drawn separately on the overlay path, so a transparent base
+  // here never hides it. "beamish" styles (particles/laser) ARE the line, so the
+  // base goes transparent — but only while the animation is actually rendered.
+  // When it's suppressed (zoomed out), fall back to a visible base line.
   const beamish = flowing && showFlow && (flowStyle === "particles" || flowStyle === "laser");
   const baseStyle = !flowing
     ? { ...style, stroke: "var(--muted-foreground)", opacity: 0.55 }
@@ -252,10 +269,11 @@ const FlowEdge = memo(function FlowEdge(props: EdgeProps) {
       : flowStyle === "docs"
         ? { ...style, stroke: "var(--muted-foreground)", strokeWidth: 1, opacity: 0.3 }
         : { ...style, stroke: "var(--muted-foreground)", opacity: 0.55 };
-  // Static arrowheads come from the resolved `arrow` (end/start/both). We define
-  // the marker INLINE in this edge's own SVG output (unique id per edge) so it's
-  // always in the same SVG document as the path — a shared <defs> in a sibling
-  // SVG isn't reliably resolvable by ReactFlow's edge paths.
+  // Arrowheads come from the resolved `arrow` (end/start/both) and paint via a
+  // dedicated overlay path (below) so they sit on top of any line style. We
+  // define the marker INLINE in this edge's own SVG output (unique id per edge)
+  // so it's always in the same SVG document as the path — a shared <defs> in a
+  // sibling SVG isn't reliably resolvable by ReactFlow's edge paths.
   const arrowEnd = arrow === "end" || arrow === "both";
   const arrowStart = arrow === "start" || arrow === "both";
   const mid = `arrowhead-${id}`;
@@ -274,12 +292,20 @@ const FlowEdge = memo(function FlowEdge(props: EdgeProps) {
       {/* interactionWidth kept modest: a fat stripe blankets the source/target
           anchors and steals the pointer, so you can't start a NEW link (fork)
           from an already-connected anchor. 10px still clicks the line easily. */}
-      <BaseEdge path={path} markerEnd={markerEndUrl} markerStart={markerStartUrl} style={baseStyle} interactionWidth={10} />
+      <BaseEdge path={path} style={baseStyle} interactionWidth={10} />
       {/* Key by edge id (NOT path): a drag/resize changes `path`, but keying by
           it would unmount + remount the whole SMIL subtree every frame. Keyed
           by id, the animated elements stay mounted and just re-read the updated
           `path` attribute. Hidden below a zoom threshold (sub-pixel anyway). */}
       {flowing && showFlow && <EdgeFlow key={id} style={flowStyle} path={path} />}
+
+      {/* Arrowhead overlay — its OWN transparent path so the arrow sits on top of
+          ANY line style (incl. a beamish laser/particles base that's transparent
+          or an animated flow). Drawn AFTER the flow so it's never occluded; the
+          stroke is transparent so it adds no visible line, only the marker. */}
+      {isArrow && (
+        <path d={path} fill="none" stroke="transparent" markerEnd={markerEndUrl} markerStart={markerStartUrl} style={{ pointerEvents: "none" }} />
+      )}
 
       {/* Optional mid-line label (right-click → Add label). Pill sits on the
           vertical elbow centre; a backing rect keeps it readable over the line. */}

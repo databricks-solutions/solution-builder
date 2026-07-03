@@ -243,9 +243,9 @@ export interface PlatformEdge {
   dashed?: boolean;
   /** Routing shape. */
   shape?: "smooth" | "straight" | "step";
-  /** Flowing-data animation style. Unset → auto-derived from the source's
-   *  ingest (zerobus → particles, direct → docs, else dot). An explicit value
-   *  overrides that default (this is the only way to get `laser`). */
+  /** Flowing-data animation style. Unset → auto-derived from the origin: any
+   *  data SOURCE (a node with an `ingest`) defaults to `laser`; a non-source
+   *  origin defaults to `dot`. An explicit value overrides that default. */
   flowStyle?: FlowStyle;
   /** Static arrowheads. Unset/"auto" → auto (arrow for user/Genie-One
    *  relationship edges, else flow). "none" | "end" | "start" | "both" force it.
