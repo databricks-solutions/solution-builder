@@ -47,7 +47,8 @@
     // matching Lakeflow port (no @handle needed on the edge).
     { "id": "src-erp",      "type": "source", "col": "sources", "row": 1, "label": "ERP System",  "icon": "file:vendor/sap",        "ingest": "lakeflow-connect" },
     { "id": "src-postgres", "type": "source", "col": "sources", "row": 2, "label": "Postgres",    "icon": "file:vendor/postgresql", "ingest": "lakeflow-connect" },
-    { "id": "src-sensors",  "type": "source", "col": "sources", "row": 3, "label": "Sensor data", "icon": "sensorSource",           "ingest": "zerobus" },
+    // A source can position + size its caption; `desc` adds a one-line blurb.
+    { "id": "src-sensors",  "type": "source", "col": "sources", "row": 3, "label": "Sensor data", "icon": "sensorSource",           "ingest": "zerobus", "caption": "bottom", "fontSize": 12, "desc": "Realtime IoT stream" },
 
     // The ONE processing block (ingest + bronze→silver→gold, built by Genie Code).
     { "id": "lakeflow-genie-block", "type": "lakeflow-genie-block", "col": "pipeline", "desc": "Declarative bronze → silver → gold pipeline — Genie Code describes the transformations, Lakeflow runs them reliably at scale." },
@@ -65,7 +66,7 @@
     // It's a wide banner, so rotate it 90° to stand vertically — a slim lane
     // that saves horizontal space. Then the end user.
     { "id": "genie-one", "type": "genie-one", "col": "entry", "rot": 90 },
-    { "id": "user",      "type": "logo",      "col": "user", "icon": "file:persona/user" },
+    { "id": "user",      "type": "logo",      "col": "user", "icon": "file:persona/user", "text": "End user", "caption": "bottom" },
 
     // Top band — banners PINNED to the platform box's corners (never absolute
     // `at`: those coordinates only hold for one node set; change the sources

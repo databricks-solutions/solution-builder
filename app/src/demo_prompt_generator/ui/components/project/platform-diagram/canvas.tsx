@@ -95,6 +95,13 @@ interface CanvasProps {
    *  …) entirely and lock to view mode. The standalone VIEWER passes this so it
    *  shows ONLY the diagram — no edit affordances at all. */
   readOnly?: boolean;
+  /** Extra controls rendered at the RIGHT end of the floating action bar (the
+   *  save-status chip + Download menu, whose logic + deps live in the parent
+   *  PlatformDiagram). Kept as a node so the parent owns their behavior. */
+  toolbarExtras?: React.ReactNode;
+  /** The multi-tab strip, rendered at the TOP-LEFT of the canvas (the parent
+   *  PlatformDiagram owns the tab state). Node so the parent controls it. */
+  tabBar?: React.ReactNode;
 }
 
 /** Stable empty-selection sentinel so `groupTargets` keeps one identity when
@@ -125,7 +132,7 @@ const MULTI_SELECT_KEYS = ["Shift"];
 // (memoized schema/deepLinks, useCallback'd handlers), so the memo drops those
 // parent-driven full re-renders entirely — they'd otherwise re-run the whole
 // render body for a status chip the Canvas doesn't even show.
-export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSetTrademark, defaultEditMode = true, readOnly = false }: CanvasProps) {
+export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSetTrademark, defaultEditMode = true, readOnly = false, toolbarExtras, tabBar }: CanvasProps) {
   const [confirmTrademark, setConfirmTrademark] = useState(false);
   const [sourcePicker, setSourcePicker] = useState(false);
   // Turning logos ON requires a permission ack; turning OFF is immediate.
@@ -1333,6 +1340,10 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
             </button>
           </div>
         )}
+        {/* Multi-tab strip (top-left; self-positioned absolute). Sits clear of
+            the top-right floating action bar and the left library palette. */}
+        {tabBar}
+
         {/* arrow marker def */}
         <svg className="pointer-events-none absolute h-0 w-0">
           <defs>
@@ -1373,22 +1384,22 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
               <Button
                 variant="ghost"
                 size="sm"
-                className="h-7 gap-1.5 px-2 text-xs"
+                className="h-7 w-7 px-0"
                 disabled={!canUndo}
                 onClick={undo}
                 title="Undo (⌘Z)"
               >
-                <Undo2 className="h-3.5 w-3.5" /> Undo
+                <Undo2 className="h-3.5 w-3.5" />
               </Button>
               <Button
                 variant="ghost"
                 size="sm"
-                className="h-7 gap-1.5 px-2 text-xs"
+                className="h-7 w-7 px-0"
                 disabled={!canRedo}
                 onClick={redo}
                 title="Redo (⇧⌘Z)"
               >
-                <Redo2 className="h-3.5 w-3.5" /> Redo
+                <Redo2 className="h-3.5 w-3.5" />
               </Button>
               <div className="mx-0.5 h-5 w-px bg-border" />
               {/* Trademark-logo toggle: on requires a permission ack. */}
@@ -1402,6 +1413,14 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
               >
                 <ImageIcon className="h-3.5 w-3.5" /> Logos {schema.enableTrademarkLogos ? "on" : "off"}
               </button>
+            </>
+          )}
+          {/* Save status + Download (from the parent PlatformDiagram) at the
+              right end — visible in both View and Edit mode. */}
+          {toolbarExtras && (
+            <>
+              <div className="mx-0.5 h-5 w-px bg-border" />
+              {toolbarExtras}
             </>
           )}
         </div>

@@ -1053,6 +1053,61 @@ export function parseArchitectureFile(content: string): ArchitectureFile | null 
 }
 
 // =============================================================================
+// Multi-tab — the top-level file is an ARRAY of architectures (one per tab).
+// This layer sits ABOVE the single-architecture parse/serialize: it splits the
+// array into per-tab bodies (each a bare JSON object the existing
+// parseArchitecture consumes) and joins them back into one fenced array.
+// =============================================================================
+
+/** One tab: a display `name` + `body` — the single-architecture JSON string
+ *  (fenced, exactly what serializeArchitecture emits) that the existing
+ *  parse/serialize pipeline round-trips. */
+export interface ArchitectureTab {
+  name: string;
+  body: string;
+}
+
+/** Extract the raw top-level value (array OR single object) from architecture.md
+ *  — unwrapping the ```json fence when present. Returns the parsed JS value, or
+ *  null if absent/unparseable. */
+function parseTopLevel(content: string): unknown {
+  try {
+    const block = content.match(/```(?:json)?\s*\n([\s\S]*?)\n```/);
+    const raw = (block ? block[1] : content).trim();
+    if (!raw.startsWith("[") && !raw.startsWith("{")) return null;
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+/** Split architecture.md into tabs. A top-level ARRAY → one tab per element; a
+ *  single OBJECT → one tab (auto-wrap, so existing single-architecture files
+ *  keep working). Each tab's `body` is that element re-stringified as a fenced
+ *  ```json object, so it feeds straight into parseArchitecture. Empty/absent →
+ *  a single blank tab so there's always at least one. */
+export function parseArchitectureTabs(content: string): ArchitectureTab[] {
+  const top = parseTopLevel(content ?? "");
+  const objs: ArchitectureFile[] = Array.isArray(top)
+    ? (top as ArchitectureFile[])
+    : top && typeof top === "object"
+      ? [top as ArchitectureFile]
+      : [];
+  if (objs.length === 0) return [{ name: "Architecture", body: "" }];
+  return objs.map((obj, i) => ({
+    name: (typeof obj?.name === "string" && obj.name.trim()) || `Architecture ${i + 1}`,
+    body: "```json\n" + JSON.stringify(obj, null, 2) + "\n```\n",
+  }));
+}
+
+/** Join per-tab bodies (each the fenced ```json a tab's serializeArchitecture
+ *  produced) into ONE fenced ```json ARRAY — the on-disk multi-tab format. */
+export function serializeArchitectureTabs(bodies: string[]): string {
+  const objs = bodies.map((b) => parseArchitectureFile(b) ?? {});
+  return "```json\n" + JSON.stringify(objs, null, 2) + "\n```\n";
+}
+
+// =============================================================================
 // Serialize — write the editor's live layout back into the flat file format
 // =============================================================================
 

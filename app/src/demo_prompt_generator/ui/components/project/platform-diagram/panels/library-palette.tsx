@@ -67,11 +67,7 @@ export const LibraryPalette = memo(function LibraryPalette({
             <X className="h-3.5 w-3.5" />
           </button>
         </div>
-      ) : (
-        <div className="border-b border-border px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
-          Components
-        </div>
-      )}
+      ) : null}
       {/* Search box shown in both modes — incl. "pick the new type" (change
           type), so you can filter the replacement options too. */}
       <div className="border-b border-border p-2">
