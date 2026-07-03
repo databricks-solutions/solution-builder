@@ -1,20 +1,23 @@
 /**
- * platform-diagram/nodes/component-node — the standard product/source node:
- * a brand-icon tile + label, with inline rename, an optional "live" dot,
- * badges, and the SDP medallion sub-tables.
+ * platform-diagram/nodes/component-node — the standard product/source node.
+ * A thin adapter over the shared <NodeCard>: it resolves the product-tile vs
+ * source props (icon via BrandMark with the trademark gate, subtitle/badge/
+ * live-dot/SDP medallion for product tiles; caption position + auto-fit for
+ * sources) and hands them to NodeCard, which owns the actual rendering.
  */
-import { memo, useState, useContext } from "react";
+import { memo, useContext } from "react";
 import { type NodeProps } from "@xyflow/react";
 import {
   type NodeData,
-  RotatableCard,
   DropTargetContext,
   EditModeContext,
   baseSize,
-  cardStyle,
+  VERTICAL_SOURCE_SIZE,
 } from "../shared";
 import { BrandMark, isTrademarkMark } from "../brand-mark";
 import { MedallionRow } from "../composite-lakeflow";
+import { baseId } from "@/lib/platform-architecture";
+import { NodeCard, type CaptionPosition } from "./node-card";
 
 /** The standard product/source node — brand icon tile + label. */
 export const ComponentNode = memo(function ComponentNode({ data, selected }: NodeProps) {
@@ -23,130 +26,95 @@ export const ComponentNode = memo(function ComponentNode({ data, selected }: Nod
   // Lakebase is app state, not a user-facing live surface — no "live" dot.
   const live = !!d.deepLink && c.id !== "lakebase";
   const muted = c.state === "mentioned";
-  // Lit up when a dragged edge endpoint is hovering this tile (magnet).
   const isDropTarget = useContext(DropTargetContext) === d.nodeId;
   const editMode = useContext(EditModeContext);
 
-  // SDP renders bronze/silver/gold as little tables inside the node.
   const isSdp = c.id === "sdp";
+  // A source tile can position its label + auto-fit; product tiles are fixed.
+  const isSource = !!d.sourceKey || baseId(d.nodeId).startsWith("src-");
+  const cap: CaptionPosition = isSource ? (d.sourceCaption ?? "right") : "right";
+  const vertical = isSource && (cap === "top" || cap === "bottom");
+
+  // Default box: sources with a vertical caption use the taller box (matches
+  // nodeFootprint so the node box + edge anchors track the card); everything
+  // else uses the component's natural size.
   const nat = baseSize(c);
+  const defaultSize = vertical ? VERTICAL_SOURCE_SIZE : nat;
 
-  // Per-node style (border w/style/color/radius, fill, opacity) — shared with
-  // the composites so the right-click controls behave the same everywhere.
-  const card = cardStyle(d, {
-    borderColor: muted ? "transparent" : `${bandColor}66`,
-    radius: 12, // matches the old rounded-xl
-    opacity: muted ? 0.6 : 1,
-  });
-
-  // Inline label editing (double-click). `editing` holds the draft text.
-  const [editing, setEditing] = useState<string | null>(null);
-  const commitRename = () => {
-    if (editing !== null) {
-      const v = editing.trim();
-      if (v && v !== c.label) d.onRename(d.nodeId, v);
-      setEditing(null);
-    }
-  };
+  // Icon: real logo, or a full-name brand badge when the logo is trademark-
+  // gated and not enabled.
+  const icon = isTrademarkMark(c.icon) && !d.allowTrademark ? (
+    <BrandMark iconKey={c.icon} label={c.label} bandColor={bandColor} allowTrademark={false} />
+  ) : (
+    <span
+      className="grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-lg bg-background"
+      style={{ boxShadow: `inset 0 0 0 1px ${bandColor}22` }}
+    >
+      <BrandMark iconKey={c.icon} label={c.label} bandColor={bandColor} allowTrademark={!!d.allowTrademark} className="h-5 w-5" />
+    </span>
+  );
 
   return (
-    <RotatableCard
-      rot={d.rot}
-      w={d.w ?? nat.w}
-      h={d.h ?? nat.h}
-      scale={d.scale ?? 1}
-      baseW={nat.w}
-      baseH={nat.h}
-      editMode={editMode}
+    <NodeCard
+      nodeId={d.nodeId}
       selected={!!selected}
-      forceDots={isDropTarget}
-      onResize={(w, h) => d.onResize(d.nodeId, w, h)}
-      onScale={(w) => d.onResize(d.nodeId, w, Math.round((w * nat.h) / nat.w), w / nat.w)}
-      onContext={(e) => {
-        e.preventDefault();
-        d.onContext(d.nodeId, e.clientX, e.clientY);
-      }}
-    >
-    <div
-      onClick={() => d.onSelect(d.nodeId)}
-      className={`group relative flex h-full w-full flex-col overflow-hidden transition-shadow ${
-        card.hasFill ? "" : "bg-card"
-      } ${selected ? "ring-2 ring-primary/60" : ""}`}
-      style={card.style}
-    >
-      <div
-        className="flex min-h-0 w-full flex-1 items-center gap-2.5 px-3 py-2.5"
-        style={{ transform: "scale(var(--cs, 1))", transformOrigin: "left center" }}
-      >
-        {/* Icon slot. Real logo (or a full-name brand badge when the logo is
-            trademark-gated and not enabled). The text label still stays. */}
-        {isTrademarkMark(c.icon) && !d.allowTrademark ? (
-          <BrandMark iconKey={c.icon} label={c.label} bandColor={bandColor} allowTrademark={false} />
-        ) : (
-          <span
-            className="grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-lg bg-background"
-            style={{ boxShadow: `inset 0 0 0 1px ${bandColor}22` }}
-          >
-            <BrandMark iconKey={c.icon} label={c.label} bandColor={bandColor} allowTrademark={!!d.allowTrademark} className="h-5 w-5" />
-          </span>
-        )}
-        <span className="flex min-w-0 flex-1 flex-col">
-          <span className={`flex min-w-0 items-center gap-1.5 text-[13px] font-semibold leading-tight ${d.fontColor ? "" : "text-foreground"}`} style={d.fontColor ? { color: d.fontColor } : undefined}>
-            {editing !== null ? (
-              <input
-                autoFocus
-                value={editing}
-                onChange={(e) => setEditing(e.target.value)}
-                onBlur={commitRename}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") commitRename();
-                  else if (e.key === "Escape") setEditing(null);
-                }}
-                onClick={(e) => e.stopPropagation()}
-                onDoubleClick={(e) => e.stopPropagation()}
-                className="w-full min-w-0 rounded border border-primary/50 bg-background px-1 text-[13px] font-semibold text-foreground outline-none"
-              />
-            ) : (
-              <span
-                className="min-w-0 truncate"
-                title="Double-click to rename"
-                onDoubleClick={(e) => { e.stopPropagation(); setEditing(c.label); }}
-              >
-                {c.label}
-              </span>
-            )}
-            {c.badge && editing === null && (
-              <span
-                className="inline-flex shrink-0 items-center gap-0.5 rounded px-1 py-0.5 text-[8px] font-bold uppercase tracking-wide text-white"
-                style={{ background: "#EF5B3F", lineHeight: 1 }}
-                title={`${c.label} — ${c.badge}`}
-              >
-                {c.badge === "RT" && (
-                  <svg viewBox="0 0 24 24" fill="currentColor" width="8" height="8"><path d="M13 2 4 14h6l-1 8 9-12h-6l1-8z" /></svg>
-                )}
-                {c.badge}
-              </span>
-            )}
-            {live && editing === null && (
-              <span
-                className="h-1.5 w-1.5 shrink-0 rounded-full"
-                style={{ background: "var(--primary)", boxShadow: "0 0 6px var(--primary)" }}
-              />
-            )}
-          </span>
-          {c.sublabel && (
-            <span className="mt-0.5 block truncate text-[9.5px] font-normal leading-tight text-muted-foreground">{c.sublabel}</span>
-          )}
-        </span>
-      </div>
-
-      {/* SDP medallion databases */}
-      {isSdp && (
-        <div className="border-t border-border/60 px-3 py-2" style={{ minHeight: 44 }}>
-          <MedallionRow />
-        </div>
-      )}
-    </div>
-    </RotatableCard>
+      editMode={editMode}
+      isDropTarget={isDropTarget}
+      rot={d.rot}
+      scale={d.scale ?? 1}
+      w={d.w}
+      h={d.h}
+      icon={icon}
+      title={c.label}
+      // Sources behave like logos: an empty label commits "" (renders nothing,
+      // no re-derive). Product tiles keep the guard — a blank label is
+      // meaningless there, so ignore empty commits.
+      onCommitTitle={
+        isSource
+          ? (v) => { if (v !== c.label) d.onRename(d.nodeId, v); }
+          : (v) => { if (v && v !== c.label) d.onRename(d.nodeId, v); }
+      }
+      hideEmptyTitle={isSource}
+      // Product tiles: badge/live-dot + the SDP medallion. There's no separate
+      // subtitle line — a tile is title + ONE description (the old sublabel and
+      // desc were redundant), so the subtitle slot is unused here.
+      subtitle={undefined}
+      // Description line: sources carry it on d.desc; product tiles use the
+      // catalog desc, falling back to the sublabel for tiles that only have one.
+      // Default ON for a tile that has any description text (the toggle can hide
+      // it); sources stay opt-in (default off).
+      description={isSource ? d.desc : (c.desc ?? c.sublabel)}
+      showDescription={isSource ? d.showDesc : (d.showDesc ?? !!(c.desc ?? c.sublabel))}
+      onCommitDescription={(v) => d.onSetDescription?.(d.nodeId, v)}
+      badge={!isSource && c.badge ? {
+        text: c.badge,
+        icon: c.badge === "RT"
+          ? <svg viewBox="0 0 24 24" fill="currentColor" width="8" height="8"><path d="M13 2 4 14h6l-1 8 9-12h-6l1-8z" /></svg>
+          : undefined,
+      } : undefined}
+      liveLink={!isSource && live}
+      extraContent={isSdp ? <MedallionRow /> : undefined}
+      caption={cap}
+      // Sources auto-fit their box to icon + label; product tiles are fixed.
+      contentMode={isSource ? "autoFit" : "fixed"}
+      defaultSize={defaultSize}
+      styleVariant="tile"
+      muted={muted}
+      bandBorderColor={muted ? "transparent" : `${bandColor}66`}
+      // Sources can size their label; product tiles keep the brand-tile default.
+      fontSize={isSource ? d.fontSize : undefined}
+      fontColor={d.fontColor}
+      fillColor={d.fillColor}
+      borderWidth={d.borderWidth}
+      borderStyle={d.borderStyle}
+      borderColor={d.borderColor}
+      borderRadius={d.borderRadius}
+      shadow={d.shadow}
+      opacity={d.opacity}
+      onSelect={d.onSelect}
+      onResize={d.onResize}
+      onScale={(id, w) => d.onResize(id, w, Math.round((w * defaultSize.h) / defaultSize.w), w / defaultSize.w)}
+      onContext={d.onContext}
+    />
   );
 });

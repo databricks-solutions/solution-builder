@@ -12,7 +12,8 @@ import { FILE_ICONS, FileSvgIcon, isFileIconKey, logoMetaByName, logoAliases } f
 import INDUSTRY_MAP from "../../../icons/industry-map.json";
 import { BrandMark } from "./brand-mark";
 import { type AnnotationData, type AnnotationVariant, isCustomIconKey, customLogoId } from "@/lib/platform-architecture";
-import { RotatableCard, DropTargetContext, EditModeContext, CustomLogosContext, InlineSvgIcon, shadowLevel, shadowCss, SHADOW_DEFAULT, type NodeData } from "./shared";
+import { RotatableCard, DropTargetContext, EditModeContext, CustomLogosContext, InlineSvgIcon, type NodeData } from "./shared";
+import { NodeCard } from "./nodes/node-card";
 
 /** Render any icon key — a built-in DatabricksIconName, a file-icon key
  *  ("file:…"), or a custom inline-SVG logo ("custom:<id>") — at a given size.
@@ -47,29 +48,10 @@ export const ANNOTATION_DEFAULT_SIZE: Record<AnnotationVariant, { w: number; h: 
   image: { w: 200, h: 140 },
 };
 
-// --- Positioned-logo (icon + label tile) sizing -----------------------------
-// The icon is a fixed square; the tile hugs icon + caption on the chosen side.
-export const LOGO_ICON = 30; // fixed icon square (px)
-export const LOGO_GAP = 8;
-export const LOGO_PAD = 9;   // inner padding so a filled/bordered tile breathes
-
-/** Natural (scale-1) size of a positioned logo tile for a given caption text.
- *  Uses canvas measureText (same font as the rendered caption) — synchronous,
- *  so callers can size the node in the SAME commit as the change (no
- *  measure-after-render pass). */
-export function logoFitSize(text: string, horizontal: boolean, fontSize = 13, bold = false): { w: number; h: number } {
-  const ctx = document.createElement("canvas").getContext("2d");
-  let tw = 40;
-  if (ctx) {
-    // Mirrors the caption: text-[13px] font-medium on the app's sans stack.
-    ctx.font = `${bold ? 700 : 500} ${fontSize}px ui-sans-serif, system-ui, -apple-system, sans-serif`;
-    tw = Math.ceil(ctx.measureText(text || " ").width);
-  }
-  const th = Math.ceil(fontSize * 1.3);
-  const w = horizontal ? LOGO_ICON + LOGO_GAP + tw + LOGO_PAD * 2 : Math.max(LOGO_ICON, tw) + LOGO_PAD * 2;
-  const h = horizontal ? Math.max(LOGO_ICON, th) + LOGO_PAD * 2 : LOGO_ICON + LOGO_GAP + th + LOGO_PAD * 2;
-  return { w: Math.max(28, w), h: Math.max(24, h) };
-}
+// The positioned-icon-tile sizing helpers now live in shared.tsx (used by the
+// shared NodeCard). Re-exported here so existing importers (canvas.tsx) keep
+// working through `./annotations`.
+export { LOGO_ICON, LOGO_GAP, LOGO_PAD, logoFitSize } from "./shared";
 
 const V_CLASS = { top: "items-start", middle: "items-center", bottom: "items-end" } as const;
 const H_CLASS = { left: "justify-start text-left", center: "justify-center text-center", right: "justify-end text-right" } as const;
@@ -135,32 +117,65 @@ export const AnnotationNode = memo(function AnnotationNode({ data, selected }: N
     }
   }, [isTextVariant, sizingText, fontSize, fontWeight, scale, d]);
 
-  // --- Auto-fit for a LOGO with a POSITIONED caption (right/left/top/bottom) --
-  // The tile hugs icon + text — but ONLY when the CONTENT changes (typing, font
-  // size, position flip). It never fires on mount/reload (the persisted size —
-  // including a manual resize — wins) and never fights a manual handle drag
-  // (a resize doesn't change the content signature). This is what makes a
-  // Catalog/Schema/Table tile resizable exactly like any other logo.
+  // The LOGO variant renders via the shared <NodeCard> (icon + caption tile,
+  // auto-fit, box styling) — see the short-circuit right below. Its normalize:
+  // legacy caption "side"→right, "below"→bottom; unset → the old "below" look.
   const isLogo = a.variant === "logo";
   const capNorm = a.caption === "side" ? "right" : a.caption === "below" ? "bottom" : a.caption;
   const logoPositioned = isLogo && (capNorm === "right" || capNorm === "left" || capNorm === "top" || capNorm === "bottom");
-  const logoHorizontal = capNorm === "right" || capNorm === "left";
-  const logoSizingText = editing !== null ? editing : (a.text ?? "");
-  const logoFitSig = useRef<string | null>(null);
-  useLayoutEffect(() => {
-    if (!logoPositioned) { logoFitSig.current = null; return; }
-    const sig = `${logoSizingText}|${fontSize}|${fontWeight}|${logoHorizontal}`;
-    if (logoFitSig.current === sig) return; // content unchanged (e.g. a manual resize) → don't fight
-    const first = logoFitSig.current === null;
-    logoFitSig.current = sig;
-    if (first) return; // mount/reload → keep the persisted (possibly manual) size
-    const { w, h } = logoFitSize(logoSizingText, logoHorizontal, fontSize, a.bold);
-    const W = Math.ceil(w * scale);
-    const H = Math.ceil(h * scale);
-    if (Math.abs((d.w ?? 0) - W) > 1 || Math.abs((d.h ?? 0) - H) > 1) {
-      d.onResize(d.nodeId, W, H);
-    }
-  }, [logoPositioned, logoHorizontal, logoSizingText, fontSize, fontWeight, scale, a.bold, d]);
+
+  if (a.variant === "logo") {
+    const pos = capNorm ?? "bottom";
+    // Positioned → fixed icon square that NodeCard wraps + auto-fits; legacy
+    // unpositioned → icon fills the box (the old p-2.5 look).
+    const iconEl = logoPositioned ? (
+      <AnyIcon iconKey={a.icon ?? "data"} className="h-full w-full [&_svg]:h-full [&_svg]:w-full" style={d.iconColor ? { color: d.iconColor } : undefined} />
+    ) : (
+      <AnyIcon iconKey={a.icon ?? "data"} className="min-h-0 w-full flex-1 p-2.5 [&_svg]:h-full [&_svg]:w-full" style={d.iconColor ? { color: d.iconColor } : undefined} />
+    );
+    return (
+      <NodeCard
+        nodeId={d.nodeId}
+        selected={!!selected}
+        editMode={editMode}
+        isDropTarget={isDropTarget}
+        rot={d.rot}
+        scale={d.scale ?? 1}
+        w={d.w}
+        h={d.h}
+        icon={iconEl}
+        title={a.text ?? ""}
+        onCommitTitle={(v) => d.onAnnotate(d.nodeId, { text: v })}
+        hideEmptyTitle
+        // Editable description line — opt-in via the persisted showDesc flag.
+        description={a.desc}
+        showDescription={a.showDesc}
+        onCommitDescription={(v) => d.onAnnotate(d.nodeId, { desc: v })}
+        caption={pos}
+        contentMode={logoPositioned ? "autoFit" : "fixed"}
+        defaultSize={ANNOTATION_DEFAULT_SIZE.logo}
+        styleVariant="logo"
+        fontColor={d.fontColor}
+        fontSize={a.fontSize}
+        bold={a.bold}
+        iconColor={d.iconColor}
+        fillColor={d.fillColor}
+        borderWidth={d.borderWidth}
+        borderStyle={d.borderStyle}
+        borderColor={d.borderColor}
+        borderRadius={d.borderRadius}
+        shadow={d.shadow}
+        opacity={d.opacity}
+        onSelect={d.onSelect}
+        onResize={d.onResize}
+        // Give logos the 4 side resize rectangles (+ corners) that sources and
+        // product tiles get — RotatableCard only renders the side controls in
+        // its onScale branch. Auto-fit respects a manual w/h (same as sources).
+        onScale={(id, w) => d.onResize(id, w, Math.round((w * ANNOTATION_DEFAULT_SIZE.logo.h) / ANNOTATION_DEFAULT_SIZE.logo.w), w / ANNOTATION_DEFAULT_SIZE.logo.w)}
+        onContext={d.onContext}
+      />
+    );
+  }
 
   return (
     <RotatableCard
@@ -296,106 +311,6 @@ export const AnnotationNode = memo(function AnnotationNode({ data, selected }: N
         );
       })()}
 
-      {a.variant === "logo" && (() => {
-        // Caption placement: right | left | top | bottom (legacy side==right,
-        // below==bottom). Unset → the original "below" caption look.
-        const pos = capNorm ?? "bottom";
-        const horizontal = logoHorizontal;
-        const iconFirst = pos === "right" || pos === "bottom";
-        // A POSITIONED caption (right/left/top/bottom-explicit) hugs a fixed-size
-        // icon and the box auto-fits (logoPositioned). The legacy default logo
-        // (no caption set) keeps the old fill-the-box look.
-        const captionEl = editing !== null ? (
-          <input
-            autoFocus
-            value={editing}
-            // Content-sized while positioned so the input matches the display
-            // span's width and the parent flex keeps it centered (a plain w-auto
-            // input keeps its wide default size → looked left-shifted).
-            {...(logoPositioned ? { size: Math.max(3, editing.length) } : {})}
-            onChange={(e) => setEditing(e.target.value)}
-            onBlur={commit}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") commit();
-              else if (e.key === "Escape") setEditing(null);
-              e.stopPropagation();
-            }}
-            onClick={(e) => e.stopPropagation()}
-            className={`min-w-0 bg-transparent text-[13px] font-medium outline-none ${logoPositioned ? (horizontal ? "text-left" : "text-center") : horizontal ? "flex-1 text-left" : "w-full text-center"} ${d.fontColor ? "" : "text-foreground"}`}
-            style={{ ...(a.fontSize ? { fontSize: a.fontSize } : {}), ...(a.bold ? { fontWeight: 700 } : {}), ...(d.fontColor ? { color: d.fontColor } : {}) }}
-          />
-        ) : a.text ? (
-          // Only render a caption when there's actual text — no "Label"
-          // placeholder. (Double-click anywhere on the tile adds/edits text.)
-          <span
-            onDoubleClick={(e) => { e.stopPropagation(); setEditing(a.text ?? ""); }}
-            className={`min-w-0 whitespace-nowrap text-[13px] font-medium ${logoPositioned ? "" : horizontal ? "flex-1 truncate text-left" : "w-full truncate text-center"} ${d.fontColor ? "" : "text-foreground"}`}
-            style={{ ...(a.fontSize ? { fontSize: a.fontSize } : {}), ...(a.bold ? { fontWeight: 700 } : {}), ...(d.fontColor ? { color: d.fontColor } : {}) }}
-            title="Double-click to edit"
-          >
-            {a.text}
-          </span>
-        ) : null;
-        const iconEl = logoPositioned ? (
-          // Icon derives from the BOX (not a fixed px): fills the tile height
-          // (horizontal) / the leftover column space (vertical), so resizing the
-          // tile scales the logo with it — same feel as a standalone logo.
-          // LOGO_ICON only remains the auto-fit target when sizing to content.
-          <span
-            key="icon"
-            className={`grid place-items-center ${horizontal ? "h-full shrink-0" : "min-h-0 w-full flex-1"}`}
-            style={horizontal ? { aspectRatio: "1 / 1" } : undefined}
-          >
-            <AnyIcon iconKey={a.icon ?? "data"} className="h-full w-full [&_svg]:h-full [&_svg]:w-full" style={d.iconColor ? { color: d.iconColor } : undefined} />
-          </span>
-        ) : (
-          <AnyIcon
-            key="icon"
-            iconKey={a.icon ?? "data"}
-            // ~10px inner margin so the glyph doesn't crowd the box edge.
-            className="min-h-0 w-full flex-1 p-2.5 [&_svg]:h-full [&_svg]:w-full"
-            style={d.iconColor ? { color: d.iconColor } : undefined}
-          />
-        );
-        return (
-          <div
-            onClick={() => d.onSelect(d.nodeId)}
-            // Double-click anywhere on the tile (icon included) → add/edit the
-            // caption. Works even for an empty logo with no caption span yet.
-            onDoubleClick={(e) => { e.stopPropagation(); setEditing(a.text ?? ""); }}
-            // Positioned → the icon+text cluster is centered as a group so the
-            // text sits right next to the logo (not pinned to the box edge).
-            // Fill / border / shadow DEFAULT to none (a bare logo has no box);
-            // set any of them in the right menu to turn the logo into a tile.
-            className={`flex h-full w-full rounded-md ${horizontal ? "flex-row" : "flex-col"} items-center justify-center ${logoPositioned ? "gap-1.5 px-2 py-2" : horizontal ? "gap-2 px-1" : ""} ${selected ? "ring-2 ring-primary/60" : ""}`}
-            style={(() => {
-              const bw = d.borderWidth ?? 0; // logos: no border by default
-              const hasFill = !!(d.fillColor && d.fillColor !== "transparent");
-              const isTile = bw > 0 || hasFill; // a logo with a border/fill = a tile
-              // Shadow: honor an explicit setting; otherwise a tile gets a soft
-              // default shadow (so adding a border/fill lifts it), a bare logo
-              // gets none.
-              const lvl = d.shadow !== undefined ? shadowLevel(d.shadow) : isTile ? SHADOW_DEFAULT : 0;
-              const s: React.CSSProperties = {
-                background: hasFill ? d.fillColor : undefined,
-                opacity: d.opacity ?? 1,
-                borderRadius: d.borderRadius ?? 8,
-              };
-              if (bw > 0) {
-                s.borderStyle = d.borderStyle ?? "solid";
-                s.borderWidth = bw;
-                s.borderColor = d.borderColor ?? "var(--border)";
-              }
-              const sh = shadowCss(lvl);
-              if (sh) s.boxShadow = sh;
-              return s;
-            })()}
-            title="Double-click to add text · right-click to pick logo"
-          >
-            {iconFirst ? <>{iconEl}{captionEl}</> : <>{captionEl}{iconEl}</>}
-          </div>
-        );
-      })()}
 
       {a.variant === "image" && (
         <div

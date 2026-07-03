@@ -33,6 +33,7 @@ export function schemaToFlow(
   onContext: (id: string, x: number, y: number) => void,
   onResize: (id: string, w: number, h: number) => void,
   onRename: (id: string, label: string) => void,
+  onSetDescription: (id: string, desc: string) => void,
   onAnnotate: (id: string, patch: Partial<AnnotationData>) => void,
 ): { nodes: Node[]; edges: Edge[] } {
   const lookup = componentLookup(schema);
@@ -60,7 +61,7 @@ export function schemaToFlow(
           bandId: "sources" as BandId,
           bandColor: "#64748b",
           deepLink: null,
-          onSelect, onContext, onResize, onRename, onAnnotate,
+          onSelect, onContext, onResize, onRename, onSetDescription, onAnnotate,
           rot: pos.rot ?? 0,
           w: pos.w, h: pos.h, scale: pos.scale,
           opacity: pos.opacity, fillColor: pos.fillColor, fontColor: pos.fontColor, iconColor: pos.iconColor,
@@ -84,9 +85,13 @@ export function schemaToFlow(
         width: fp.w, height: fp.h, zIndex: pos.z ?? 0, style: { width: fp.w, height: fp.h },
         data: {
           nodeId: id, component, bandId: "sources" as BandId, bandColor: BAND_COLOR.sources,
-          deepLink: null, onSelect, onContext, onResize, onRename,
+          deepLink: null, onSelect, onContext, onResize, onRename, onSetDescription,
           allowTrademark: schema.enableTrademarkLogos ?? false,
           sourceKey: pos.source.key,
+          sourceCaption: pos.sourceCaption,
+          fontSize: pos.fontSize,
+          desc: pos.desc,
+          showDesc: pos.showDesc,
           rot: pos.rot ?? 0,
           w: pos.w, h: pos.h, scale: pos.scale,
           opacity: pos.opacity, fillColor: pos.fillColor, fontColor: pos.fontColor,
@@ -100,11 +105,16 @@ export function schemaToFlow(
     const found = lookup.get(baseId(id));
     if (!found || hidden.has(id)) continue;
     const { bandId } = found;
-    // Apply canvas-edited overrides (double-click rename / change-type) saved in
-    // the layout: label + icon win over the catalog component for this node.
+    // Apply canvas-edited overrides (double-click rename / change-type / desc)
+    // saved in the layout: label + icon + desc win over the catalog component.
     const component =
-      pos.label !== undefined || pos.icon !== undefined
-        ? { ...found.component, ...(pos.label !== undefined ? { label: pos.label } : {}), ...(pos.icon !== undefined ? { icon: pos.icon } : {}) }
+      pos.label !== undefined || pos.icon !== undefined || pos.desc !== undefined
+        ? {
+            ...found.component,
+            ...(pos.label !== undefined ? { label: pos.label } : {}),
+            ...(pos.icon !== undefined ? { icon: pos.icon } : {}),
+            ...(pos.desc !== undefined ? { desc: pos.desc } : {}),
+          }
         : found.component;
     const fp = nodeFootprint(component, pos);
     nodes.push({
@@ -127,6 +137,7 @@ export function schemaToFlow(
         onContext,
         onResize,
         onRename,
+        onSetDescription,
         rot: pos.rot ?? 0,
         w: pos.w,
         h: pos.h,
@@ -140,6 +151,10 @@ export function schemaToFlow(
         borderRadius: pos.borderRadius,
         shadow: pos.shadow,
         groupId: pos.groupId,
+        sourceCaption: pos.sourceCaption,
+        fontSize: pos.fontSize,
+        desc: pos.desc,
+        showDesc: pos.showDesc,
         allowTrademark: schema.enableTrademarkLogos ?? false,
       } satisfies NodeData,
     });
@@ -206,6 +221,14 @@ export function flowToLayout(nds: Node[], eds: Edge[], schema: PlatformSchema): 
     const defLabel = base ? base.label : dd.sourceKey ? logoLabel(dd.sourceKey) : undefined;
     const labelOv = defLabel !== undefined && dd.component.label !== defLabel ? dd.component.label : undefined;
     const iconOv = base && dd.component.icon !== base.icon ? dd.component.icon : undefined;
+    // Description: sources carry it directly on dd.desc; catalog tiles carry it
+    // on dd.component.desc and only persist it when it differs from the catalog
+    // default (mirrors labelOv). Logos round-trip via `annotation`.
+    const descOv = dd.sourceKey
+      ? dd.desc
+      : base && dd.component.desc !== base.desc
+        ? dd.component.desc
+        : undefined;
     // Annotation nodes carry their full props (text/icon/src/alignment).
     const anno = (dd as Partial<AnnotationNodeData>).annotation;
     positions[n.id] = {
@@ -217,8 +240,12 @@ export function flowToLayout(nds: Node[], eds: Edge[], schema: PlatformSchema): 
       ...(dd.scale && dd.scale !== 1 ? { scale: Math.round(dd.scale * 100) / 100 } : {}),
       ...(labelOv !== undefined ? { label: labelOv } : {}),
       ...(iconOv !== undefined ? { icon: iconOv } : {}),
+      ...(descOv !== undefined ? { desc: descOv } : {}),
+      ...(dd.showDesc !== undefined ? { showDesc: dd.showDesc } : {}),
       ...(anno ? { annotation: anno } : {}),
       ...(dd.sourceKey ? { source: { key: dd.sourceKey, icon: dd.component.icon } } : {}),
+      ...(dd.sourceCaption !== undefined ? { sourceCaption: dd.sourceCaption } : {}),
+      ...(dd.fontSize !== undefined ? { fontSize: dd.fontSize } : {}),
       ...(dd.opacity !== undefined ? { opacity: dd.opacity } : {}),
       ...(dd.fillColor !== undefined ? { fillColor: dd.fillColor } : {}),
       ...(dd.fontColor !== undefined ? { fontColor: dd.fontColor } : {}),

@@ -29,6 +29,11 @@ import {
   Copy,
   Group,
   Ungroup,
+  ArrowLeft,
+  ArrowRight,
+  ArrowUp,
+  ArrowDown,
+  Type,
 } from "lucide-react";
 
 export const EditPanel = memo(function EditPanel({
@@ -39,6 +44,12 @@ export const EditPanel = memo(function EditPanel({
   isGroup = false,
   canGroup = false,
   isAgentBricks = false,
+  sourceCaption,
+  onSetSourceCaption,
+  sourceFontSize,
+  onSetSourceFontSize,
+  showDescription,
+  onSetShowDescription,
   onClose,
   onRotate,
   onRemove,
@@ -66,6 +77,18 @@ export const EditPanel = memo(function EditPanel({
   canGroup?: boolean;
   /** Selection is a single Agent Bricks composite → Ungroup explodes it. */
   isAgentBricks?: boolean;
+  /** Set when the single selected node is a data SOURCE tile → show the
+   *  label-position control. The current placement (right default). */
+  sourceCaption?: "right" | "left" | "top" | "bottom";
+  onSetSourceCaption?: (pos: "right" | "left" | "top" | "bottom") => void;
+  /** Source label font size (px) + its setter — shown alongside Text position. */
+  sourceFontSize?: number;
+  onSetSourceFontSize?: (px: number) => void;
+  /** Description-line toggle — set when the single selection is a source, logo,
+   *  or product tile. `showDescription` is the resolved on/off state; the setter
+   *  writes an explicit true/false. Undefined → no toggle for this selection. */
+  showDescription?: boolean;
+  onSetShowDescription?: (show: boolean) => void;
   onClose: () => void;
   onRotate: () => void;
   onRemove: () => void;
@@ -99,6 +122,19 @@ export const EditPanel = memo(function EditPanel({
     </>
   );
   const Divider = () => <div className="my-1 border-t border-border/60" />;
+
+  // "Show description" toggle — a checkable Item, shown for source / logo /
+  // product-tile single selection. Editing the text itself is inline (double-
+  // click the node), so the panel only owns the visibility toggle.
+  const DescToggle =
+    onSetShowDescription !== undefined ? (
+      <Item
+        icon={<Type className="h-3.5 w-3.5" />}
+        label="Show description"
+        onClick={() => onSetShowDescription(!showDescription)}
+        active={!!showDescription}
+      />
+    ) : null;
 
   const title =
     selectionCount > 1
@@ -143,6 +179,7 @@ export const EditPanel = memo(function EditPanel({
         ) : annotation ? (
           <>
             <AnnotationMenu a={annotation} Item={Item} onAnno={onAnno} onPickLogo={onPickLogo} onSetImageUrl={onSetImageUrl} onRotate={onRotate} onRemove={onRemove} />
+            {DescToggle}
             <Divider />
             <StyleControls style={style} onStyle={onStyle} showIconColor={annotation.variant === "logo"} noBoxDefaults={annotation.variant === "logo"} />
             <Item icon={<Copy className="h-3.5 w-3.5" />} label="Copy style" onClick={onCopyStyle} />
@@ -154,6 +191,42 @@ export const EditPanel = memo(function EditPanel({
             <Item icon={<Replace className="h-3.5 w-3.5" />} label="Change type…" onClick={onChangeType} />
             {(isGroup || isAgentBricks) && <Item icon={<Ungroup className="h-3.5 w-3.5" />} label="Ungroup" onClick={onUngroup} hint="⇧⌘G" />}
             <Item icon={<RotateCw className="h-3.5 w-3.5" />} label="Rotate 90°" onClick={onRotate} hint="R" />
+            {/* Source tiles: where the label sits relative to the icon. */}
+            {onSetSourceCaption && (() => {
+              const cur = sourceCaption ?? "right";
+              const opts = [
+                ["left", <ArrowLeft className="h-3.5 w-3.5" />],
+                ["top", <ArrowUp className="h-3.5 w-3.5" />],
+                ["right", <ArrowRight className="h-3.5 w-3.5" />],
+                ["bottom", <ArrowDown className="h-3.5 w-3.5" />],
+              ] as const;
+              return (
+                <div className="flex items-center gap-1 px-2 py-1.5">
+                  <span className="mr-auto text-[11px] text-muted-foreground">Text</span>
+                  {opts.map(([p, ico]) => (
+                    <button key={p} type="button" onClick={() => onSetSourceCaption(p)}
+                      title={`Text ${p}`}
+                      className={`grid h-6 w-6 cursor-pointer place-items-center rounded ${cur === p ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}>
+                      {ico}
+                    </button>
+                  ))}
+                </div>
+              );
+            })()}
+            {/* Source label size (same control the logo caption has). */}
+            {onSetSourceFontSize && (
+              <div className="px-2 py-1.5">
+                <div className="mb-1 flex items-center justify-between text-[11px] text-muted-foreground">
+                  <span className="flex items-center gap-1.5"><Type className="h-3.5 w-3.5" /> Text size</span>
+                  <span>{sourceFontSize ?? 13}px</span>
+                </div>
+                <input type="range" min={9} max={28} step={1} value={sourceFontSize ?? 13}
+                  onChange={(e) => onSetSourceFontSize(Number(e.target.value))}
+                  onClick={(e) => e.stopPropagation()} className="h-1.5 w-full cursor-pointer accent-primary" />
+              </div>
+            )}
+            {/* Description-line visibility (source + product tile). */}
+            {DescToggle}
             {/* Content scale slider — shrink/grow the icon+label inside the box. */}
             <div className="px-2 py-1.5">
               <div className="mb-1 flex items-center justify-between text-[11px] text-muted-foreground">

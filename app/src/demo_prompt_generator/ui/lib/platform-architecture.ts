@@ -174,6 +174,20 @@ export interface NodePosition {
    *  logo-catalog key + icon; label/ingest defaults come from the unified
    *  logo-catalog.json. Present only for such nodes. */
   source?: { key: string; icon: IconKey; ingest?: IngestPath };
+  /** Source tiles only: label placement relative to the icon (right default |
+   *  left | top | bottom). Persisted via the shared FileNode `caption`. */
+  sourceCaption?: "right" | "left" | "top" | "bottom";
+  /** Source tiles only: label font size (px). Persisted via FileNode `fontSize`. */
+  fontSize?: number;
+  /** Editable description line shown under the title. For catalog product tiles
+   *  this OVERRIDES the CATALOG default `desc`; for sources/logos it's the only
+   *  source. Distinguish `undefined` (use default) from `""` (deliberately
+   *  cleared). */
+  desc?: string;
+  /** Whether the description line is shown. `undefined` → default resolution
+   *  (product tile with a non-empty desc → shown; source/logo → shown only when
+   *  a desc exists); explicit `true`/`false` = user toggled it. */
+  showDesc?: boolean;
   /** Group membership — a shared id stamped on every member of a group
    *  (right-click → Group). Selecting one member selects the whole group so
    *  they move together. Cleared on Ungroup. No container node — just a tag. */
@@ -209,6 +223,10 @@ export interface AnnotationData {
   caption?: "right" | "left" | "top" | "bottom" | "side" | "below";
   /** image: a URL, or a `data:` base64 string for pasted images. */
   src?: string;
+  /** logo: an editable description line under the caption (opt-in via showDesc). */
+  desc?: string;
+  /** logo: whether the description line is shown. */
+  showDesc?: boolean;
 }
 
 export interface PlatformEdge {
@@ -300,6 +318,8 @@ export interface FileNode {
   /** Copy overrides (only when they differ from the catalog default). */
   label?: string;
   desc?: string;
+  /** Whether the description line is shown (undefined → default resolution). */
+  showDesc?: boolean;
   icon?: IconKey;
   /** source nodes: ingest path. */
   ingest?: IngestPath;
@@ -861,6 +881,8 @@ export function parseArchitecture(content: string): PlatformSchema {
       ...(n.z !== undefined ? { z: n.z } : {}),
       ...(n.group !== undefined ? { groupId: n.group } : {}),
       ...(n.label !== undefined ? { label: n.label } : {}),
+      ...(n.desc !== undefined ? { desc: n.desc } : {}),
+      ...(n.showDesc !== undefined ? { showDesc: n.showDesc } : {}),
       ...(n.icon !== undefined ? { icon: n.icon } : {}),
       ...(st.opacity !== undefined ? { opacity: st.opacity } : {}),
       ...(st.fill !== undefined ? { fillColor: st.fill } : {}),
@@ -886,6 +908,8 @@ export function parseArchitecture(content: string): PlatformSchema {
         ...(n.hAlign !== undefined ? { hAlign: n.hAlign } : {}),
         ...(n.icon !== undefined ? { icon: n.icon } : {}),
         ...(n.caption !== undefined ? { caption: n.caption } : {}),
+        ...(n.desc !== undefined ? { desc: n.desc } : {}),
+        ...(n.showDesc !== undefined ? { showDesc: n.showDesc } : {}),
         ...(n.src !== undefined ? { src: n.src } : {}),
       };
     } else if (n.type === "source") {
@@ -894,6 +918,13 @@ export function parseArchitecture(content: string): PlatformSchema {
       const key = (n.icon ?? "").replace(/^file:.*\//, "").replace(/^file:/, "").toLowerCase() || baseId(n.id).replace(/^src-/, "");
       pos.source = { key, icon: (n.icon ?? "inputData") as IconKey, ...(n.ingest ? { ingest: n.ingest } : {}) };
       if (n.label !== undefined) pos.label = n.label;
+      // Source label placement (right default | left | top | bottom). Reuse the
+      // shared FileNode `caption`; ignore the legacy logo values (side/below).
+      if (n.caption === "right" || n.caption === "left" || n.caption === "top" || n.caption === "bottom") {
+        pos.sourceCaption = n.caption;
+      }
+      // Source label size (reuse the shared FileNode `fontSize`).
+      if (n.fontSize !== undefined) pos.fontSize = n.fontSize;
     }
     // else: a catalog component. flow-mapping resolves it by baseId(node id), so
     // the node id MUST baseId-resolve to `type`. The file id usually IS the type
@@ -1074,6 +1105,8 @@ export function serializeArchitecture(
         ...(a.hAlign !== undefined ? { hAlign: a.hAlign } : {}),
         ...(a.icon !== undefined ? { icon: a.icon } : {}),
         ...(a.caption !== undefined ? { caption: a.caption } : {}),
+        ...(a.desc !== undefined ? { desc: a.desc } : {}),
+        ...(a.showDesc !== undefined ? { showDesc: a.showDesc } : {}),
         ...(a.src !== undefined ? { src: a.src } : {}),
         ...(style ? { style } : {}),
       });
@@ -1082,9 +1115,15 @@ export function serializeArchitecture(
     if (pos.source) {
       nodes.push({
         id, type: "source", at, ...common,
+        // label: `undefined` → OMIT (stays auto-derived on reload); `""` →
+        // EMIT (user deliberately cleared it → renders nothing).
         ...(pos.label !== undefined ? { label: pos.label } : {}),
         icon: (pos.icon ?? pos.source.icon) as IconKey,
         ...(pos.source.ingest ? { ingest: pos.source.ingest } : {}),
+        ...(pos.sourceCaption !== undefined ? { caption: pos.sourceCaption } : {}),
+        ...(pos.fontSize !== undefined ? { fontSize: pos.fontSize } : {}),
+        ...(pos.desc !== undefined ? { desc: pos.desc } : {}),
+        ...(pos.showDesc !== undefined ? { showDesc: pos.showDesc } : {}),
         ...(style ? { style } : {}),
       });
       continue;
@@ -1096,6 +1135,8 @@ export function serializeArchitecture(
     nodes.push({
       id, type, at, ...common,
       ...(pos.label !== undefined && pos.label !== def?.label ? { label: pos.label } : {}),
+      ...(pos.desc !== undefined && pos.desc !== def?.desc ? { desc: pos.desc } : {}),
+      ...(pos.showDesc !== undefined ? { showDesc: pos.showDesc } : {}),
       ...(pos.icon !== undefined && pos.icon !== def?.icon ? { icon: pos.icon } : {}),
       ...(style ? { style } : {}),
     });

@@ -17,6 +17,7 @@ import { useCallback, useRef } from "react";
 import { type Node, type Edge } from "@xyflow/react";
 import {
   type AnnotationData,
+  baseId,
 } from "@/lib/platform-architecture";
 import { type NodeData } from "../shared";
 import { type AnnotationNodeData } from "../annotations";
@@ -28,6 +29,10 @@ export interface NodeMutations {
    *  content scales with it; omit for a side-drag (box stretch, content fixed). */
   onResize: (id: string, w: number, h: number, scale?: number) => void;
   onRename: (id: string, label: string) => void;
+  /** Commit an edited description line (double-click the description). Writes to
+   *  the right target by kind: logo → annotation.desc; source → dd.desc; catalog
+   *  tile → dd.component.desc. "" is preserved (deliberately cleared). */
+  onSetDescription: (id: string, desc: string) => void;
   onAnnotate: (id: string, patch: Partial<AnnotationData>) => void;
   /** Patch annotation props AND resize the box in ONE commit — avoids the
    *  annotate→re-render→measure→resize→re-render double pass (the ~100ms lag on
@@ -90,6 +95,29 @@ export function useNodeMutations(): NodeMutations {
     });
   }, []);
 
+  // Commit an edited description line. Writes to the right target by kind:
+  //   • logo annotation → annotation.desc
+  //   • source tile      → dd.desc (carried directly on the node)
+  //   • catalog tile     → dd.component.desc (override vs the catalog default)
+  // "" is preserved (deliberately cleared); flowToLayout diffs vs the catalog.
+  const onSetDescription = useCallback((id: string, desc: string) => {
+    setNodesRef.current?.((nds) => {
+      const next = nds.map((n) => {
+        if (n.id !== id) return n;
+        const dd = n.data as NodeData & { annotation?: AnnotationData };
+        if (dd.annotation) {
+          return { ...n, data: { ...dd, annotation: { ...dd.annotation, desc } } };
+        }
+        const isSrc = !!dd.sourceKey || baseId(id).startsWith("src-");
+        return isSrc
+          ? { ...n, data: { ...dd, desc } }
+          : { ...n, data: { ...dd, component: { ...dd.component, desc } } };
+      });
+      scheduleSaveRef.current?.(next, edgesRef.current);
+      return next;
+    });
+  }, []);
+
   // Patch an annotation node's props (text/icon/src/alignment/fontSize/border).
   const onAnnotate = useCallback((id: string, patch: Partial<AnnotationData>) => {
     setNodesRef.current?.((nds) => {
@@ -127,5 +155,5 @@ export function useNodeMutations(): NodeMutations {
     });
   }, []);
 
-  return { onResize, onRename, onAnnotate, onAnnotateResize, bind };
+  return { onResize, onRename, onSetDescription, onAnnotate, onAnnotateResize, bind };
 }

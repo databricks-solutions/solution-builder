@@ -5,9 +5,9 @@
  * left-side input ports. First of several composite blocks.
  */
 import { memo, useContext, Fragment, type ReactNode } from "react";
-import { Handle, Position, type NodeProps } from "@xyflow/react";
+import { type NodeProps } from "@xyflow/react";
 import { DATABRICKS_ICONS, type DatabricksIconName } from "../../databricks-icons";
-import { RotatableCard, baseSize, DropTargetContext, EditModeContext, cardStyle, type NodeData } from "./shared";
+import { RotatableCard, baseSize, DropTargetContext, EditModeContext, cardStyle, ConnectionDot, dotsOn, type DotSpec, type NodeData } from "./shared";
 import { type Side } from "./edge-routing";
 
 export const MEDALLION = [
@@ -156,33 +156,40 @@ export const LakeflowBlock = memo(function LakeflowBlock({ data, selected }: Nod
   );
 });
 
-/** The Lakeflow input/output handles. Hidden at rest, fade in on hover (edit
- *  mode), forced visible when this block is a reconnect drop target — so they
- *  replace the generic 4-side dots, not coexist with them. Shared by the
+/** The Lakeflow input/output handles — the composite's answer to the generic
+ *  4-side dots. These ARE the connection anchors: named input ports on the left
+ *  (Connect / Zerobus / direct) plus generic anchors on right / top / bottom /
+ *  bottom-left, so you can draw a fresh edge from any side. "Ports take priority,
+ *  dedup by side" falls out naturally — each side already has exactly one handle.
+ *
+ *  Visibility mirrors the plain node's dots: hidden at rest, fade in on hover in
+ *  edit mode, and forced ON when the block is SELECTED or a reconnect drop
+ *  target — so selecting a composite shows the same "here's where to pull from"
+ *  affordance a plain tile does. Connectable whenever we're in edit mode (a
+ *  selected node must still be draggable-from, like NodeHandles). Shared by the
  *  standalone Lakeflow block and the combined Lakeflow + Genie block. */
 export function LakeflowPorts({ editMode, selected, isDropTarget }: { editMode: boolean; selected: boolean; isDropTarget: boolean }) {
-  const show = editMode && !selected;
-  const vis = isDropTarget
-    ? "opacity-100"
-    : show
-      ? "opacity-0 transition-opacity duration-150 group-hover:opacity-100"
-      : "opacity-0 pointer-events-none";
-  const cls = `!h-2.5 !w-2.5 !border-2 !border-primary !bg-background ${vis}`;
+  const on = dotsOn(selected, isDropTarget);
   return (
     <>
-      {LF_PORTS.map((p) => (
-        <Handle key={p.port} type="source" position={Position.Left} id={`in-${p.port}`}
-          isConnectable={show} className={cls} style={{ top: `${p.frac * 100}%` }} />
+      {LAKEFLOW_DOTS.map((s) => (
+        <ConnectionDot key={s.id} {...s} editMode={editMode} dotOn={on} />
       ))}
-      <Handle type="source" position={Position.Right} id="r" isConnectable={show} className={cls} />
-      {/* Extra anchors: top-center, bottom-center, and bottom-left (under
-          the files zone, ~center of the 36px left rail). */}
-      <Handle type="source" position={Position.Top} id="t" isConnectable={show} className={cls} />
-      <Handle type="source" position={Position.Bottom} id="b" isConnectable={show} className={cls} />
-      <Handle type="source" position={Position.Bottom} id="bl" isConnectable={show} className={cls} style={{ left: 18 }} />
     </>
   );
 }
+
+/** The Lakeflow block's anchors, as ConnectionDot specs (same dots as a plain
+ *  node): 3 named input ports on the LEFT at their rail fractions, plus generic
+ *  right / top / bottom / bottom-left anchors so an edge can start from any side.
+ *  Frac for `bl` matches portAnchor's bottom:0.08 (under the files zone). */
+const LAKEFLOW_DOTS: DotSpec[] = [
+  ...LF_PORTS.map((p) => ({ id: `in-${p.port}`, side: "l" as const, frac: p.frac })),
+  { id: "r", side: "r" },
+  { id: "t", side: "t" },
+  { id: "b", side: "b" },
+  { id: "bl", side: "b", frac: 0.08 },
+];
 
 /** The Lakeflow inner content (ingest rail + SDP/medallion panel), WITHOUT the
  *  card chrome — so it can be embedded standalone or stacked above Genie Code

@@ -47,6 +47,7 @@ import {
   nodeFootprint,
   nodeTypeFor,
   baseSize,
+  VERTICAL_SOURCE_SIZE,
 } from "./shared";
 import {
   type Rect,
@@ -201,12 +202,12 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
   // setNodes/scheduleSave/edges refs internally (kept live via `bind` once those
   // values exist), which is what used to be Canvas's setNodesRef/scheduleSaveRef/
   // edgesRef trio.
-  const { onResize, onRename, onAnnotate, onAnnotateResize, bind: bindNodeMutations } = useNodeMutations();
+  const { onResize, onRename, onSetDescription, onAnnotate, onAnnotateResize, bind: bindNodeMutations } = useNodeMutations();
 
   const initial = useMemo(
-    () => schemaToFlow(schema, deepLinks, onSelect, onContext, onResize, onRename, onAnnotate),
+    () => schemaToFlow(schema, deepLinks, onSelect, onContext, onResize, onRename, onSetDescription, onAnnotate),
     // Rebuild only when schema identity changes (not on every selection).
-    [schema, deepLinks, onSelect, onContext, onResize, onRename, onAnnotate],
+    [schema, deepLinks, onSelect, onContext, onResize, onRename, onSetDescription, onAnnotate],
   );
 
   const [nodes, setNodes, onNodesChange] = useNodesState(initial.nodes);
@@ -381,11 +382,27 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
   // per drag and undo barely moves.
   const handleNodesChange = useCallback(
     (changes: NodeChange[]) => {
-      onNodesChange(changes);
+      // Edge-based magnet: rewrite every position change (live drag frames AND
+      // the drop) so the node's TOP-LEFT edge snaps to the 16px grid. Doing it
+      // here (rather than via RF's snapToGrid, which snaps the CENTER because
+      // nodeOrigin=[0.5,0.5]) both aligns the left/top edges of differently-
+      // sized tiles AND keeps the magnet VISIBLE during the drag.
+      const g = SNAP_GRID[0];
+      const byId = nodesRef.current;
+      const snappedChanges = changes.map((c) => {
+        if (c.type !== "position" || !c.position) return c;
+        const n = byId.find((x) => x.id === c.id);
+        if (!n) return c;
+        const w = (n.width ?? (n.data as NodeData).w ?? 200) as number;
+        const h = (n.height ?? (n.data as NodeData).h ?? 56) as number;
+        const left = Math.round((c.position.x - w / 2) / g) * g;
+        const top = Math.round((c.position.y - h / 2) / g) * g;
+        return { ...c, position: { x: left + w / 2, y: top + h / 2 } };
+      });
+      onNodesChange(snappedChanges);
+      // Commit (save + history) on the drop frame or a removal.
       const committed = changes.some(
-        (c) =>
-          (c.type === "position" && c.dragging === false) ||
-          c.type === "remove",
+        (c) => (c.type === "position" && c.dragging === false) || c.type === "remove",
       );
       if (committed) {
         setNodes((nds) => {
@@ -540,6 +557,7 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
               onContext,
               onResize,
               onRename,
+              onSetDescription,
               rot: 0,
             } satisfies NodeData,
           } as Node,
@@ -548,7 +566,7 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
         return next;
       });
     },
-    [rawCatalog, deepLinks, onSelect, onContext, onResize, onRename, setNodes, scheduleSave, edges],
+    [rawCatalog, deepLinks, onSelect, onContext, onResize, onRename, onSetDescription, setNodes, scheduleSave, edges],
   );
 
   // Add a free-form annotation node (text / box / logo / image). Returns the
@@ -595,7 +613,7 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
               bandId: "sources" as BandId,
               bandColor: "#64748b",
               deepLink: null,
-              onSelect, onContext, onResize, onRename, onAnnotate,
+              onSelect, onContext, onResize, onRename, onSetDescription, onAnnotate,
               rot: 0,
               ...dataExtra,
             } satisfies AnnotationNodeData,
@@ -606,7 +624,7 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
       });
       return id;
     },
-    [onSelect, onContext, onResize, onRename, onAnnotate, setNodes, scheduleSave, edges],
+    [onSelect, onContext, onResize, onRename, onSetDescription, onAnnotate, setNodes, scheduleSave, edges],
   );
 
   // Ctrl/Cmd+V pastes an image as a centered image annotation. The hook takes
@@ -637,7 +655,7 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
           id, type: "component", position: { x: 0, y }, width: fp.w, height: fp.h, style: { width: fp.w, height: fp.h },
           data: {
             nodeId: id, component, bandId: "sources" as BandId, bandColor: BAND_COLOR.sources,
-            deepLink: null, onSelect, onContext, onResize, onRename,
+            deepLink: null, onSelect, onContext, onResize, onRename, onSetDescription,
             allowTrademark: !!schema.enableTrademarkLogos,
             sourceKey: key,
             rot: 0,
@@ -647,7 +665,7 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
       scheduleSave(next, edges);
       return next;
     });
-  }, [onSelect, onContext, onResize, onRename, schema.enableTrademarkLogos, setNodes, scheduleSave, edges]);
+  }, [onSelect, onContext, onResize, onRename, onSetDescription, schema.enableTrademarkLogos, setNodes, scheduleSave, edges]);
 
   const onDrop = useCallback(
     (e: React.DragEvent) => {
@@ -700,7 +718,20 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
   const styleNodes = useCallback((ids: string[], patch: StylePatch) => {
     const idset = new Set(ids);
     setNodes((nds) => {
-      const next = nds.map((n) => (idset.has(n.id) ? { ...n, data: { ...n.data, ...patch } } : n));
+      const next = nds.map((n) => {
+        if (!idset.has(n.id)) return n;
+        const dd = n.data as NodeData;
+        // A pasted sourceCaption must snap the box the same way the panel
+        // control does (vertical caption → taller box), so a top/bottom label
+        // doesn't clip — unless this node was manually resized (w/h set).
+        let sized = {};
+        if (patch.sourceCaption !== undefined && dd.w === undefined && dd.h === undefined) {
+          const vertical = patch.sourceCaption === "top" || patch.sourceCaption === "bottom";
+          const size = vertical ? VERTICAL_SOURCE_SIZE : baseSize(dd.component);
+          sized = { width: size.w, height: size.h, style: { ...n.style, width: size.w, height: size.h } };
+        }
+        return { ...n, ...sized, data: { ...dd, ...patch } };
+      });
       scheduleSave(next, edges);
       return next;
     });
@@ -780,6 +811,62 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
           width: fp.w, height: fp.h, style: { ...n.style, width: fp.w, height: fp.h },
           data: { ...dd, scale, w: cardW, h: cardH },
         };
+      });
+      scheduleSave(next, edges);
+      return next;
+    });
+  }, [setNodes, scheduleSave, edges]);
+
+  // Set a SOURCE tile's label position (right/left/top/bottom) — mirrors the
+  // logo caption option. Just patches node data + persists.
+  const setSourceCaption = useCallback((id: string, pos: "right" | "left" | "top" | "bottom") => {
+    setNodes((nds) => {
+      const next = nds.map((n) => {
+        if (n.id !== id) return n;
+        const dd = n.data as NodeData;
+        // The vertical (top/bottom) layout uses a taller/narrower box; the
+        // horizontal one the default wide box. Snap the ReactFlow node box to
+        // match so the selection frame + edge anchors track the caption change
+        // — UNLESS the user resized this node (d.w/d.h set), which we respect.
+        const vertical = pos === "top" || pos === "bottom";
+        const size = dd.w === undefined && dd.h === undefined
+          ? (vertical ? VERTICAL_SOURCE_SIZE : baseSize(dd.component))
+          : null;
+        return {
+          ...n,
+          ...(size ? { width: size.w, height: size.h, style: { ...n.style, width: size.w, height: size.h } } : {}),
+          data: { ...dd, sourceCaption: pos },
+        };
+      });
+      scheduleSave(next, edges);
+      return next;
+    });
+  }, [setNodes, scheduleSave, edges]);
+
+  // Source label font size (px). The card auto-fits to it (NodeCard reads
+  // fontSize + re-fits on change), so no manual box resize needed here.
+  const setSourceFontSize = useCallback((id: string, px: number) => {
+    setNodes((nds) => {
+      const next = nds.map((n) =>
+        n.id === id ? { ...n, data: { ...(n.data as NodeData), fontSize: px } } : n,
+      );
+      scheduleSave(next, edges);
+      return next;
+    });
+  }, [setNodes, scheduleSave, edges]);
+
+  // Toggle whether the description line is shown. Logos + sources store the flag
+  // on the annotation / node data; catalog tiles store it on node data too
+  // (their default-on is resolved in component-node.tsx, so an explicit false is
+  // what turns it off).
+  const setShowDescription = useCallback((id: string, show: boolean) => {
+    setNodes((nds) => {
+      const next = nds.map((n) => {
+        if (n.id !== id) return n;
+        const dd = n.data as NodeData & { annotation?: AnnotationData };
+        return dd.annotation
+          ? { ...n, data: { ...dd, annotation: { ...dd.annotation, showDesc: show } } }
+          : { ...n, data: { ...dd, showDesc: show } };
       });
       scheduleSave(next, edges);
       return next;
@@ -1032,7 +1119,11 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
     borderColor: ps?.borderColor,
     borderRadius: ps?.borderRadius,
     shadow: ps?.shadow,
-  }), [ps?.opacity, ps?.fillColor, ps?.fontColor, ps?.iconColor, ps?.borderWidth, ps?.borderStyle, ps?.borderColor, ps?.borderRadius, ps?.shadow]);
+    // Presentation, carried by copy-style too (ignored where inapplicable).
+    sourceCaption: ps?.sourceCaption,
+    fontSize: ps?.fontSize as number | undefined,
+    showDesc: ps?.showDesc,
+  }), [ps?.opacity, ps?.fillColor, ps?.fontColor, ps?.iconColor, ps?.borderWidth, ps?.borderStyle, ps?.borderColor, ps?.borderRadius, ps?.shadow, ps?.sourceCaption, ps?.fontSize, ps?.showDesc]);
   // Clear the live ReactFlow selection (closes the panel). Used by the panel's
   // X, the Escape key, and the pane click.
   const clearSelection = useCallback(() => {
@@ -1052,10 +1143,14 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
       const next = nds.map((n) => {
         if (!n.selected) return n;
         if (!snap) return { ...n, position: { x: n.position.x + ux, y: n.position.y + uy } };
-        // Snap each axis to the grid, then step one cell in the arrow direction.
-        const sx = Math.round(n.position.x / GRID) * GRID + ux * GRID;
-        const sy = Math.round(n.position.y / GRID) * GRID + uy * GRID;
-        return { ...n, position: { x: sx, y: sy } };
+        // Snap the TOP-LEFT edge to the grid (matching drag-drop), then step one
+        // cell in the arrow direction. position is the center (nodeOrigin 0.5),
+        // so snap (center − size/2) and convert back.
+        const w = (n.width ?? (n.data as NodeData).w ?? 200) as number;
+        const h = (n.height ?? (n.data as NodeData).h ?? 56) as number;
+        const left = Math.round((n.position.x - w / 2) / GRID) * GRID + ux * GRID;
+        const top = Math.round((n.position.y - h / 2) / GRID) * GRID + uy * GRID;
+        return { ...n, position: { x: left + w / 2, y: top + h / 2 } };
       });
       scheduleSave(next, edges);
       return next;
@@ -1114,6 +1209,34 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
   const panelOnGroup = useCallback(() => groupNodes(groupTargets), [groupNodes, groupTargets]);
   const panelOnUngroup = useCallback(() => { if (panelPrimaryId) ungroupNode(panelPrimaryId); }, [panelPrimaryId, ungroupNode]);
   const panelOnZ = useCallback((dir: "front" | "back") => setNodeZ(styleTargets, dir), [setNodeZ, styleTargets]);
+  // Source tiles get a label-position control in the panel.
+  const panelIsSource = !!panelPrimaryData?.sourceKey || (!!panelPrimaryId && baseId(panelPrimaryId).startsWith("src-"));
+  const panelOnSetSourceCaption = useCallback(
+    (pos: "right" | "left" | "top" | "bottom") => { if (panelPrimaryId) setSourceCaption(panelPrimaryId, pos); },
+    [panelPrimaryId, setSourceCaption],
+  );
+  const panelOnSetSourceFontSize = useCallback(
+    (px: number) => { if (panelPrimaryId) setSourceFontSize(panelPrimaryId, px); },
+    [panelPrimaryId, setSourceFontSize],
+  );
+
+  // Description toggle — shown for a single source / logo / product tile. Its
+  // resolved on/off state mirrors what the node renders: sources + logos are
+  // opt-in (default off); product tiles default ON when the catalog supplies a
+  // desc. The checkbox writes an explicit true/false via setShowDescription.
+  const panelIsLogo = panelAnno?.variant === "logo";
+  const panelIsPlainTile =
+    selectedIds.length === 1 && !!panelPrimaryId && !panelIsSource && !panelAnno;
+  const panelCanToggleDesc = selectedIds.length === 1 && (panelIsSource || panelIsLogo || panelIsPlainTile);
+  const panelShowDescription = panelIsLogo
+    ? !!panelAnno?.showDesc
+    : panelIsPlainTile
+      ? (panelPrimaryData?.showDesc ?? !!(panelPrimaryData?.component?.desc ?? panelPrimaryData?.component?.sublabel))
+      : !!panelPrimaryData?.showDesc;
+  const panelOnSetShowDescription = useCallback(
+    (show: boolean) => { if (panelPrimaryId) setShowDescription(panelPrimaryId, show); },
+    [panelPrimaryId, setShowDescription],
+  );
 
   // Stable ReactFlow pane/node click handlers (avoid a fresh closure each frame).
   const onPaneClick = useCallback(() => { setSelectedId(null); setMenu(null); }, []);
@@ -1339,10 +1462,8 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
           nodesConnectable={editMode}
           nodesDraggable={editMode}
           elementsSelectable
-          snapToGrid
-          snapGrid={SNAP_GRID}
         >
-          <Background variant={BackgroundVariant.Dots} gap={16} size={1} color="#94a3b8" className="opacity-30" />
+          <Background variant={BackgroundVariant.Dots} gap={16} size={1.6} color="#94a3b8" className="opacity-40" />
           <Controls className="!bg-background !border-border !shadow-sm [&>button]:!bg-background [&>button]:!border-border [&>button]:!text-foreground" showInteractive={false} />
         </ReactFlow>
 
@@ -1395,6 +1516,12 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
           style={panelNodeStyle}
           isGroup={isGroup}
           canGroup={canGroup}
+          sourceFontSize={panelIsSource ? (panelPrimaryData?.fontSize as number | undefined) : undefined}
+          onSetSourceFontSize={panelIsSource ? panelOnSetSourceFontSize : undefined}
+          sourceCaption={panelIsSource ? (panelPrimaryData?.sourceCaption as "right" |"left" | "top" | "bottom" | undefined) : undefined}
+          onSetSourceCaption={panelIsSource ? panelOnSetSourceCaption : undefined}
+          showDescription={panelCanToggleDesc ? panelShowDescription : undefined}
+          onSetShowDescription={panelCanToggleDesc ? panelOnSetShowDescription : undefined}
           onClose={clearSelection}
           onRotate={panelOnRotate}
           onRemove={panelOnRemove}
