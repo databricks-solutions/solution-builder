@@ -219,12 +219,13 @@ def _build_suggest_prompts(
 {platform_context}
 
 ## Capability Selection Rules
-- Pick capabilities based on the user's text — do not pre-bias toward any buildable capability.
-- Always include "synthetic-data-gen" — all demos need realistic fake data
-- Almost always include talking track: "lakeflow-connect", "unity-catalog", "genie-one", "genie-code"
-- Unity Catalog should almost always be included unless explicitly excluded
-- Match capabilities to what the text implies — each selected product should have a clear role in the architecture
-- Consider dependencies (dashboards need SDP data, apps need lakebase, etc.)
+- **Keep it LEAN — a simple demo is the default.** Start from the minimal coherent path and only add a capability when the user's text clearly calls for it. Each selected product must earn its place with an obvious role.
+- The simple default backbone is: "synthetic-data-gen" + "lakeflow-connect" + "sdp" + "unity-catalog" + "aibi-dashboards" + "genie" + "genie-one" + "genie-code". That is a complete, compelling demo on its own — do NOT pad beyond it without a reason in the text.
+- Add heavier capabilities ONLY when the text implies them, e.g.: "lakeflow-jobs" (an explicit orchestration/scheduling need), "metric-views" (a governed-metrics / semantic-layer ask), model training/serving (an ML/prediction story), "databricks-apps"+"lakebase" (an app), "zerobus-ingest" (realtime streaming). If the text or the story doesn't imply it, leave it out.
+- **"knowledge-assistant" (KA) and "supervisor-agent" (MAS) are the expensive ones** — they need UNSTRUCTURED documents and take several minutes to set up. Default to a **tabular-data** story that needs neither. Only add KA/MAS when the user's text clearly involves document Q&A, policy/manual lookup, or multi-agent investigation over unstructured content. When in doubt, leave them out.
+- Always include "synthetic-data-gen" — all demos need realistic fake data.
+- Almost always include talking track: "lakeflow-connect", "unity-catalog", "genie-one", "genie-code". Unity Catalog unless explicitly excluded.
+- Consider dependencies (dashboards need SDP data, apps need lakebase, etc.) — but a dependency is not a reason to add the heavier parent unless the parent is itself warranted.
 
 ## Output Format (LINE-DELIMITED JSON - ONE JSON OBJECT PER LINE)
 Output exactly two lines and nothing else:
@@ -311,8 +312,8 @@ LuxeBeauty's canonical example for the action chain itself:
      Keep them short (2-3 words max).
      BAD: ["SCADA telemetry", "Vibration sensors"] — these are data types, not systems
      GOOD: ["OSIsoft PI", "SAP PM", "Weather API"] — these are actual source systems
-     Include both structured (transactions, metrics) AND unstructured (docs, manuals, policies) sources.
-     The datasources must support the ENTIRE demo story — dashboards, Genie, KA, ML models, apps all draw from them.
+     Default to STRUCTURED/tabular sources (transactions, metrics, logs, sensor data). Add unstructured sources (docs, manuals, policies) ONLY when the story genuinely needs document Q&A — those pull in KA/MAS, which are slow to set up (see Capability Selection Rules).
+     The datasources must support the ENTIRE demo story — dashboards, Genie, ML models, apps all draw from them.
    - Always follow the user's request for what to demo; the rest are guidelines.
 
    NOTE: All ideas share the SAME capabilities. The capabilities are selected globally based on the topic, not per-idea.
@@ -320,13 +321,14 @@ LuxeBeauty's canonical example for the action chain itself:
 3. **Select capabilities** that apply to ALL the story ideas (they're exploring different angles of the same topic).
 
 ## Capability Selection Rules
-- Pick capabilities based on the user's prompt — do not pre-bias toward any buildable capability.
+- **Keep it LEAN — a simple demo is the default.** Start from the minimal coherent path and only add a capability when the story clearly needs it. Each selected product must earn a clear moment in the demo.
+- The simple default backbone is: "synthetic-data-gen" + "lakeflow-connect" + "sdp" + "unity-catalog" + "aibi-dashboards" + "genie" + "genie-one" + "genie-code" — a complete, compelling demo on its own. Don't pad beyond it without a reason in the story.
+- Add heavier capabilities ONLY when the story implies them: "lakeflow-jobs" (explicit orchestration), "metric-views" (governed metrics / semantic layer), model training/serving (an ML/prediction beat), "databricks-apps"+"lakebase" (an app), "zerobus-ingest" (realtime streaming).
+- **"knowledge-assistant" (KA) and "supervisor-agent" (MAS) are the expensive ones** — they need UNSTRUCTURED documents and take several minutes to set up. **Prefer a tabular-data story** that needs neither, and default your generated ideas toward structured/tabular sources. Only reach for KA/MAS (and unstructured datasources like manuals/policies/PDFs) when the topic genuinely centers on document Q&A or multi-agent investigation over unstructured content.
 - Always include "synthetic-data-gen" — all demos need realistic fake data
-- Almost always include talking track: "lakeflow-connect", "unity-catalog", "genie-one", "genie-code"
-- Unity Catalog should almost always be included unless explicitly excluded
-- Match capabilities to the story — each product should have a clear moment in the demo
-- Consider dependencies (dashboards need SDP data, apps need lakebase, etc.)
-- CRITICAL: the demo must be used to showcase Databricks capabilities and the whole must be coherent (input data is what we leverage at the end for apps / dash / genie... in the story)
+- Almost always include talking track: "lakeflow-connect", "unity-catalog", "genie-one", "genie-code". Unity Catalog unless explicitly excluded.
+- Consider dependencies (dashboards need SDP data, apps need lakebase, etc.) — but a dependency isn't a reason to add the heavier parent unless the parent is itself warranted.
+- CRITICAL: the demo must showcase Databricks capabilities coherently (input data is what we leverage at the end for apps / dash / genie... in the story)
 
 ## Examples
 - "Demo about customer 360 with an app" →
