@@ -1,4 +1,4 @@
-import { createFileRoute, useNavigate, Link, redirect } from "@tanstack/react-router";
+import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -34,7 +34,6 @@ import {
   AlertCircle,
   Zap,
   Check,
-  Star,
 } from "lucide-react";
 import {
   listProjects,
@@ -58,21 +57,11 @@ import { AUTO_BUILD_KICKOFF } from "@/lib/auto-build-prompt";
 import { cn } from "@/lib/utils";
 export const Route = createFileRoute("/")({
   component: Index,
-  beforeLoad: async () => {
-    try {
-      const status = await getConfigStatus();
-      if (!status.is_configured) {
-        throw redirect({ to: "/setup" });
-      }
-    } catch (error) {
-      // If it's a redirect, re-throw it
-      if (error instanceof Error && "to" in error) {
-        throw error;
-      }
-      // On error (e.g., backend down), don't redirect - let the page handle it
-      console.warn("Failed to check config status:", error);
-    }
-  },
+  // NOTE: the "is configured?" gate used to live in a blocking `beforeLoad`,
+  // which awaited a backend round-trip on every navigation to "/" — so on a
+  // slow DB, clicking "Home" from a project hung ~1s before anything rendered.
+  // It now runs as a non-blocking effect in the component (see below): the
+  // page paints instantly and redirects to /setup only if truly unconfigured.
 });
 
 // Default selected capabilities — talking-track only.
@@ -293,6 +282,16 @@ function Index() {
       .then(setCapabilities)
       .catch(() => {});
   }, []);
+
+  // Non-blocking setup gate: send first-run (unconfigured) users to /setup,
+  // but don't block rendering — the home page paints immediately either way.
+  useEffect(() => {
+    getConfigStatus()
+      .then((status) => {
+        if (!status.is_configured) navigate({ to: "/setup" });
+      })
+      .catch((err) => console.warn("Failed to check config status:", err));
+  }, [navigate]);
 
   // Debounced template search (500ms). Story-tab only — the architecture
   // tab doesn't surface templates, so skip the search there.
@@ -856,7 +855,10 @@ function Index() {
     }
   };
 
-  const starredProjects = projects.filter((p) => p.is_starred);
+  // Starred projects float to the top of the recent list (stable otherwise).
+  const sortedProjects = [...projects].sort(
+    (a, b) => Number(b.is_starred) - Number(a.is_starred)
+  );
 
   return (
     <div className="relative flex min-h-screen flex-col overflow-hidden">
@@ -1590,35 +1592,7 @@ function Index() {
           </div>
         )}
 
-        {/* Starred projects */}
-        {starredProjects.length > 0 && (
-          <div className="relative z-10 mx-auto mt-12 w-full max-w-5xl">
-            <div className="mb-4 flex items-end justify-between">
-              <div>
-                <h2 className="flex items-center gap-2 text-lg font-semibold tracking-tight">
-                  <Star className="h-4 w-4 fill-amber-400 text-amber-400" />
-                  Starred Projects
-                </h2>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  Your pinned projects, always one click away
-                </p>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {starredProjects.map((project) => (
-                <ProjectTile
-                  key={project.id}
-                  project={project}
-                  onClick={() => handleOpenProject(project.id)}
-                  onToggleStar={(e) => handleToggleStar(e, project)}
-                />
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Recent projects */}
+        {/* Recent projects (starred first) */}
         {projects.length > 0 && (
           <div className="relative z-10 mx-auto mt-12 w-full max-w-5xl">
             <div className="mb-4 flex items-end justify-between">
@@ -1642,7 +1616,7 @@ function Index() {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {projects.slice(0, 3).map((project) => (
+              {sortedProjects.slice(0, 3).map((project) => (
                 <ProjectTile
                   key={project.id}
                   project={project}
