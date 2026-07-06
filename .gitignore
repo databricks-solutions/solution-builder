@@ -59,3 +59,6 @@ app/src/demo_prompt_generator/ui/public/the_vision/
 
 # Internal FE ops tool — not part of the public repo (kept locally)
 add_team_to_workspace.py
+
+# Internal vibe-marketplace sync helper — kept local, not for the public repo
+scripts/publish-skill-to-vibe.sh
