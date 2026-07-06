@@ -2,7 +2,9 @@
 
 Run this after Stage 0 (Capture Intent) has settled on a story direction, and before the stage-1 user-review gate.
 
-Produces three files at the project root: `resources.json`, `README.md`, `architecture.md`.
+Produces two files at the project root: `resources.json` and `README.md`.
+
+> Don't write `architecture.md` here — it's not a default Stage 1 output. Build it **on demand** (when the user asks for an architecture diagram, or starts architecture-first) by reading the `databricks-architecture` skill. See `SKILL.md` → "Architecture Diagram".
 
 ## Design the story
 
@@ -25,16 +27,15 @@ Nail down the specifics. The exact structure depends on the story pattern, but d
 
 Before writing any file, load all references in a single response. All reads in ONE turn.
 
-- the `databricks-architecture` skill (`.claude/skills/databricks-architecture/SKILL.md`) — diagram schema
 - **Style reference (pick one based on capabilities)** — read at most one for README format:
   - **Simple demo** (capabilities ⊆ {`synthetic-data-gen`, `aibi-dashboards`, `genie`, `databricks-apps`, `lakebase`} plus talking-track): `DEMO_SKILL_DIR/references/example-luxebeauty-simple/README.md`
   - **Full demo** (any of `sdp`, `metric-views`, `ml-training-serving`, `knowledge-assistant`, `supervisor-agent`): `DEMO_SKILL_DIR/references/example-luxebeauty/README.md`
 - `DEMO_SKILL_DIR/references/platform_architecture.md` — if not already in context
 - Any capability blocks you need for product positioning (skip if obvious from common knowledge; dashboard/KA blocks are often worth reading)
 
-## Write the three files (single batched turn)
+## Write the two files (single batched turn)
 
-Emit `Write` calls for `resources.json`, `architecture.md`, and `README.md` **in one assistant message** — three `Write` tool uses, one after the other in your output, sent together. The harness runs them concurrently once your turn ends, so you save LLM round-trips (you still generate each file's content token-by-token). The files are independent; coherence comes from your plan, not from reading one file to write the next.
+Emit `Write` calls for `resources.json` and `README.md` **in one assistant message** — two `Write` tool uses, one after the other in your output, sent together. The harness runs them concurrently once your turn ends, so you save LLM round-trips (you still generate each file's content token-by-token). The files are independent; coherence comes from your plan, not from reading one file to write the next. (No `architecture.md` — see the note at the top of this stage.)
 
 ### `./resources.json`
 
@@ -55,10 +56,6 @@ Structure (the matching example — `example-luxebeauty-simple/resources.json` f
 
 Capability IDs come from `DEMO_SKILL_DIR/references/platform_architecture.md`.
 
-### `./architecture.md`
-
-Platform-architecture diagram following the schema in the `databricks-architecture` skill (`.claude/skills/databricks-architecture/SKILL.md`). It's a flat `nodes`/`edges` JSON (in a ```json fence) listing the components shown + the lines between them — place nodes by `col` (lanes), wire edges by id. Show the demo's real source systems + the headline components with story-tied `desc`s; the set shown must match the products in README and `resources.json`.
-
 ### `./README.md`
 
 Same structure as the matching example README (see "Style reference" above — the Simple example shows the shorter walkthrough you want when capabilities are minimal; the Full example shows the deeper KA/MAS/ML beats):
@@ -75,7 +72,7 @@ Same structure as the matching example README (see "Style reference" above — t
 
 You're writing all files:
 
-- **Products Showcased** in README ↔ **architecture components** ↔ **`resources.json` capabilities** must name the same set of products. Every product in the story earns a narrative beat AND an active/mentioned architecture component AND a capability entry.
+- **Products Showcased** in README ↔ **`resources.json` capabilities** must name the same set of products. Every product in the story earns a narrative beat AND a capability entry.
 - **The story** must be coherent with all the capabilities, for example: the data must serve the story, the dashboard / genie and the data must all work together, the app must use the same component / the data must be 
 
 ### If the demo includes an app AND (Genie or MAS)

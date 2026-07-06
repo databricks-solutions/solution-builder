@@ -80,7 +80,7 @@ Real thinking (surprising results, tradeoffs, ambiguity, errors) is welcome. Fil
 
 ```
 ./README.md           # Story overview, products showcased, walkthrough
-./architecture.md     # Architecture diagram schema (JSON) for visual rendering
+./architecture.md     # Architecture diagram schema (JSON) — built on demand (see Architecture Diagram), not by default
 ./META-PROMPT.md      # Build instructions for the AI (generic, do not write it, copy it from template)
 ./resources.json      # Selected capabilities + created resource IDs
 ./specifications/     # Detailed specs per component — the exact files depend on what the demo includes; there is no fixed list
@@ -140,7 +140,7 @@ When the user provides exact capabilities, use those directly — don't override
 
 ### Architecture Diagram
 
-Use the **`databricks-architecture` skill** (`.claude/skills/databricks-architecture/SKILL.md`) for the schema (the flat `nodes` + `edges` format, the component catalog, and the reference diagrams to start from). Generate the architecture as JSON in `./architecture.md` — the UI renders it automatically.
+Don't write `./architecture.md` by default. Build it **on demand** — when the user asks for an architecture diagram (or starts architecture-first) — by reading the **`databricks-architecture` skill** (`.claude/skills/databricks-architecture/SKILL.md`) for the flat `nodes`/`edges` schema, component catalog, and reference diagrams. Otherwise leave the Architecture tab alone.
 
 ---
 

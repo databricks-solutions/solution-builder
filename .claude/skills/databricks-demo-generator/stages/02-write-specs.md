@@ -1,6 +1,6 @@
 # Stage 02 — Generate Detailed Specs + Coherence Review
 
-Runs after stage 1 (`README.md` + `resources.json` + `architecture.md` approved by user). Produces functional specs that the stage-3 build agent can execute without ambiguity to create the Databricks resources.
+Runs after stage 1 (`README.md` + `resources.json` approved by user). Produces functional specs that the stage-3 build agent can execute without ambiguity to create the Databricks resources.
 
 ## What you're producing
 
