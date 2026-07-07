@@ -1338,7 +1338,7 @@ function ProjectPage() {
   const handleCreateArchitecture = useCallback(() => {
     if (isCreatingArchitecture || isStreaming) return;
     setIsCreatingArchitecture(true);
-    handleSendMessage("Create an /architecture.md file at the project root level with the architecture diagram - read the solution generator skill architecture reference");
+    handleSendMessage("Create an /architecture.md file at the project root level with an architecture diagram matching our solution - read the databricks-architecture skill reference");
   }, [isCreatingArchitecture, isStreaming, handleSendMessage]);
 
   // Handle Package as DAB button click - sends message to agent
