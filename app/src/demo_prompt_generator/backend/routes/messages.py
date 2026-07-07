@@ -60,6 +60,7 @@ def list_project_messages(
             Message.project_id,
             Message.role,
             Message.content,
+            Message.context_hint,
             Message.is_error,
             Message.is_cancelled,
             (Message.reasoning_data.isnot(None)).label("has_reasoning"),  # type: ignore[attr-defined]
@@ -77,6 +78,7 @@ def list_project_messages(
             project_id=row.project_id,
             role=row.role,
             content=row.content,
+            context_hint=row.context_hint,
             is_error=row.is_error,
             is_cancelled=row.is_cancelled,
             has_reasoning=bool(row.has_reasoning),
@@ -152,6 +154,7 @@ def add_project_message(
         project_id=msg.project_id,
         role=msg.role,
         content=msg.content,
+        context_hint=msg.context_hint,
         is_error=msg.is_error,
         is_cancelled=msg.is_cancelled,
         created_at=msg.created_at,

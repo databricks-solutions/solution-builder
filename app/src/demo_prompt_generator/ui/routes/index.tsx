@@ -41,7 +41,7 @@ import {
   toggleProjectStar,
   extractFiles,
   searchTemplates,
-  getConfigStatus,
+  getMe,
   getCapabilities,
   streamSuggestCapabilities,
   type ProjectListItem,
@@ -285,12 +285,18 @@ function Index() {
 
   // Non-blocking setup gate: send first-run (unconfigured) users to /setup,
   // but don't block rendering — the home page paints immediately either way.
+  //
+  // Gate on /api/me (whoami), NOT /api/config/status: whoami's `is_configured`
+  // is mode-aware (always true in deployed mode — the header IS the auth),
+  // whereas config-status only checks for a local User row, which never exists
+  // in deployed mode. Using config-status here caused a /setup ⇄ / flash loop:
+  // home bounced deployed users to /setup, and setup.tsx bounced them back.
   useEffect(() => {
-    getConfigStatus()
-      .then((status) => {
-        if (!status.is_configured) navigate({ to: "/setup" });
+    getMe()
+      .then((me) => {
+        if (!me.is_configured) navigate({ to: "/setup" });
       })
-      .catch((err) => console.warn("Failed to check config status:", err));
+      .catch((err) => console.warn("Failed to check identity:", err));
   }, [navigate]);
 
   // Debounced template search (500ms). Story-tab only — the architecture

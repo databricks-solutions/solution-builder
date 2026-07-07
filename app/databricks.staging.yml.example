@@ -36,12 +36,13 @@ targets:
       lakebase_project_id: <your-project-id>
       lakebase_branch_id: <your-branch-id>
       lakebase_database_name: <your-staging-db-name>
-      anthropic_llm_endpoint: databricks-claude-sonnet-4-6
-      # URL path Claude Code uses for ANTHROPIC_BASE_URL:
-      #   `serving-endpoints/anthropic` → FMAPI default Anthropic bridge
-      #                                   (works with built-in databricks-claude-*)
-      #   `ai-gateway/anthropic`        → AI Gateway Anthropic shim
-      #                                   (works with custom AI Gateway endpoints)
+      # anthropic_llm_endpoint + anthropic_base_path MUST match (they name an
+      # endpoint AND the shim that resolves it):
+      #   serving-endpoints/anthropic → FMAPI default Anthropic bridge. Use a
+      #       built-in name, e.g. `databricks-claude-sonnet-4-8`.
+      #   ai-gateway/anthropic        → AI Gateway Anthropic shim. Use your
+      #       custom AI Gateway endpoint name, e.g. `demo-generator-do-not-delete`.
+      anthropic_llm_endpoint: databricks-claude-sonnet-4-8
       anthropic_base_path: serving-endpoints/anthropic
       ai_gateway: databricks-claude-opus-4-7
       ai_gateway_mini: databricks-gpt-5-4-mini

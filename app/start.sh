@@ -55,6 +55,32 @@ fi
 
 export PATH="$DBCLI_DIR:$PATH"
 
+# ── jq ────────────────────────────────────────────────────────────────────
+# Apps containers don't ship jq either, but the demo-generator skills tell the
+# agent to pipe `databricks ... -o json | jq -r .field`. Without jq those
+# commands fail only in the deployed container (dev laptops have jq), so the
+# agent silently can't read resource IDs. Fetch the official static binary
+# (single file, no unzip) and cache it, same pattern as the CLI above.
+JQ_VERSION="1.7.1"
+JQ_DIR="/tmp/jq-v${JQ_VERSION}"
+JQ_BIN="$JQ_DIR/jq"
+
+if [[ ! -x "$JQ_BIN" ]]; then
+    echo "[start.sh] Downloading jq v$JQ_VERSION ..."
+    mkdir -p "$JQ_DIR"
+    JQ_URL="https://github.com/jqlang/jq/releases/download/jq-${JQ_VERSION}/jq-linux-amd64"
+    if curl -fsSL "$JQ_URL" -o "$JQ_BIN"; then
+        chmod +x "$JQ_BIN"
+        echo "[start.sh] Installed: jq $("$JQ_BIN" --version)"
+    else
+        echo "[start.sh] WARNING: failed to download jq from $JQ_URL — agent jq calls may fail" >&2
+    fi
+else
+    echo "[start.sh] jq cached: $("$JQ_BIN" --version)"
+fi
+
+export PATH="$JQ_DIR:$PATH"
+
 # Front the venv on PATH so subprocesses (the agent's Bash tool, any `python`
 # / `python3` invocation in start scripts, etc.) inherit our 3.12 venv
 # interpreter instead of the OS-level /usr/bin/python3 (3.10 on Ubuntu 22.04).

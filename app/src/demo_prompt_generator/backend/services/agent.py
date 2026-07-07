@@ -283,6 +283,7 @@ async def stream_agent_response(
     message: str,
     stream: ActiveStream,
     mode: Mode,
+    context_hint: str | None = None,
     cluster_id: str | None = None,
     warehouse_id: str | None = None,
     default_catalog: str | None = None,
@@ -543,8 +544,17 @@ async def stream_agent_response(
             # Register in pool
             pooled = await pool.register_client(project_id, client, session_id)
 
-        # Send the message
-        await client.query(message)
+        # Send the message. If the UI told us what the user has open, prepend a
+        # one-line context hint for the SDK ONLY — the persisted user Message row
+        # (saved upstream in the route) keeps the raw `message`, so chat history
+        # stays clean. See system_prompt.py "## Context hints" for how the agent
+        # is told to interpret this prefix.
+        query_text = (
+            f"Context hint: the user has {context_hint} open and asks:\n\n{message}"
+            if context_hint
+            else message
+        )
+        await client.query(query_text)
         logger.info(f"Sent query to agent for project {project_id}")
 
         # Heartbeat task — adds a keepalive event to the in-memory stream every

@@ -174,7 +174,11 @@ export function getLifecycleStages(
   liveResourceCount: number,
   expectedResourceCount: number,
 ): LifecycleStageInfo[] {
-  const storyArchDone = info.hasReadme && info.hasArch;
+  // Story is done once the README exists. Architecture is no longer written
+  // by default (built on demand), so it must NOT gate this stage — requiring
+  // hasArch here left the step stuck "active" forever even after README +
+  // specs were done.
+  const storyArchDone = info.hasReadme;
   const specDone = info.hasSpecifications;
   const resourcesDone =
     expectedResourceCount > 0
@@ -198,9 +202,9 @@ export function getLifecycleStages(
   return [
     {
       key: "STORY_AND_ARCH",
-      label: "Story & Architecture",
+      label: "Story",
       shortLabel: "Story",
-      blurb: "Customer narrative, pitch, and architecture diagram.",
+      blurb: "Customer narrative and pitch.",
       status: status("STORY_AND_ARCH", storyArchDone),
     },
     {
@@ -400,10 +404,10 @@ export function BuildStepper({
   // Find the primary action (next step to do)
   const primaryAction = actions.find((a) => a.variant === "primary") || actions[0];
 
-  // Icon per lifecycle stage. Story+Arch uses Network (architecture beats
-  // out story alone visually); Resources uses Hammer; DAB uses Rocket.
+  // Icon per lifecycle stage. Story uses FileText (the README narrative);
+  // Resources uses Hammer; DAB uses Rocket.
   const LIFECYCLE_ICONS: Record<LifecycleStageKey, React.ElementType> = {
-    STORY_AND_ARCH: Network,
+    STORY_AND_ARCH: FileText,
     SPECIFICATION: FileText,
     RESOURCES: Hammer,
     DAB: Rocket,

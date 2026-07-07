@@ -180,6 +180,7 @@ async def invoke_agent(
                     project_id=body.project_id,
                     role="user",
                     content=body.message,
+                    context_hint=body.context_hint,
                 )
                 session.add(user_msg)
                 session.commit()
@@ -206,6 +207,7 @@ async def invoke_agent(
                 async for event in stream_agent_response(
                     project_id=body.project_id,
                     message=body.message,
+                    context_hint=body.context_hint,
                     stream=stream,
                     mode=mode,
                     cluster_id=project.cluster_id,

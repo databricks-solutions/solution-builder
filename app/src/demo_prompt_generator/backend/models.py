@@ -398,6 +398,11 @@ class Message(SQLModel, table=True):
     )
     role: str = SQLField(max_length=20)  # "user" | "assistant" | "system"
     content: str = SQLField(sa_column=Column(Text, nullable=False))
+    # What the user had open in the UI when they sent this message (e.g. "the
+    # architecture diagram", "the file `README.md`"). Prepended to the agent
+    # query as a context hint; stored so the UI can show it on refresh. Null for
+    # messages sent with no active context (overview/story) and for non-user roles.
+    context_hint: Optional[str] = SQLField(default=None, sa_column=Column(Text, nullable=True))
     is_error: bool = SQLField(default=False)
     is_cancelled: bool = SQLField(default=False)
     # Reasoning data for assistant messages - zlib compressed bytes
@@ -735,6 +740,7 @@ class MessageOut(BaseModel):
     project_id: str
     role: str
     content: str
+    context_hint: Optional[str] = None
     is_error: bool
     is_cancelled: bool = False
     has_reasoning: bool = False
@@ -756,6 +762,10 @@ class InvokeAgentRequest(BaseModel):
     save_user_message: bool = Field(
         True,
         description="Persist a new user Message row for `message`. Set false when the message is already in the DB (e.g. auto-kicking the agent from a project's opening prompt).",
+    )
+    context_hint: str | None = Field(
+        None,
+        description="What the user has open in the UI right now (active view / file / preview route). Prepended to the message for the SDK call only; NOT persisted to the Message row.",
     )
 
 
