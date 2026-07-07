@@ -60,6 +60,7 @@ def list_project_messages(
             Message.project_id,
             Message.role,
             Message.content,
+            Message.context_hint,
             Message.is_error,
             Message.is_cancelled,
             (Message.reasoning_data.isnot(None)).label("has_reasoning"),  # type: ignore[attr-defined]
