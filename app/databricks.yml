@@ -161,13 +161,14 @@ targets:
   prod:
     mode: production
     default: true
-    # Bundle-CLI recommends an explicit root_path for production targets
-    # so a re-deploy from a different machine / user / CI overwrites the
-    # SAME workspace tree instead of creating a shadow copy under the
-    # other user. The CLI lays out files/, state/, artifacts/ as subdirs
-    # under this path itself — don't include any of those segments here.
+    # SHARED root_path (not per-user) so a re-deploy from a different machine /
+    # user / CI overwrites the SAME workspace tree instead of creating a shadow
+    # copy under each deployer's home — better for multi-user deploys. The CLI
+    # lays out files/, state/, artifacts/ as subdirs under this path itself —
+    # don't include any of those segments here. (Requires deployers to have
+    # write access to the shared folder.)
     workspace:
-      root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}
+      root_path: /Workspace/solution_builder/.bundle/${bundle.name}/${bundle.target}
   # Staging target. Use `databricks bundle deploy -t staging` (no default).
   # `mode: development` is the canonical setting for non-prod targets — it
   # relaxes some bundle-CLI checks. We override `presets.name_prefix` to
@@ -178,11 +179,4 @@ targets:
     presets:
       name_prefix: ""
     workspace:
-      root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.name}_staging/${bundle.target}
-  # FEVM Solution Builder workspace. Non-default — deploy explicitly with
-  # `databricks bundle deploy -t prod-fevm`. Profile + vars + app_env live in
-  # databricks.prod-fevm.yml (gitignored). Same production layout as `prod`.
-  prod-fevm:
-    mode: production
-    workspace:
-      root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}
+      root_path: /Workspace/solution_builder/.bundle/${bundle.name}_staging/${bundle.target}
