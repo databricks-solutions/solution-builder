@@ -55,7 +55,10 @@ when you emit into the inline block, which is parsed as plain JSON:
   "columns": ["sources", "pipeline", "compute", "work", "entry"],
   "nodes": [
     // A real, named source. `ingest` decides which Lakeflow port it lands on.
-    { "id": "src-postgres", "type": "source", "col": "sources", "label": "Postgres", "icon": "file:vendor/postgresql", "ingest": "lakeflow-connect" },
+    { "id": "src-postgres", "type": "source", "col": "sources", "row": 1, "label": "Postgres", "icon": "file:vendor/postgresql", "ingest": "lakeflow-connect" },
+    // A source we have NO logo for → `icon:"text"` renders the label as a
+    // brand-colored text badge (no icon file). Use this for niche/internal systems.
+    { "id": "src-erp", "type": "source", "col": "sources", "row": 2, "label": "Acme ERP", "icon": "text", "ingest": "lakeflow-connect" },
     // The one data-layer block (ingest + bronze→silver→gold, built by Genie Code).
     { "id": "lakeflow-genie-block", "type": "lakeflow-genie-block", "col": "pipeline" },
     { "id": "lakehouse", "type": "lakehouse", "col": "compute" },
@@ -73,10 +76,11 @@ when you emit into the inline block, which is parsed as plain JSON:
     { "id": "governance-block", "type": "governance-block", "pin": { "at": "top", "to": "platform-box" } },
     // One white box wrapping the whole flow = "all of this is the platform".
     { "id": "platform-box", "type": "box", "z": -1,
-      "wraps": ["src-postgres", "lakeflow-genie-block", "lakehouse", "aibi-dashboards", "genie", "databricks-apps-work", "genie-one"] }
+      "wraps": ["src-postgres", "src-erp", "lakeflow-genie-block", "lakehouse", "aibi-dashboards", "genie", "databricks-apps-work", "genie-one"] }
   ],
   "edges": [
     { "id": "e1", "from": "src-postgres", "to": "lakeflow-genie-block", "flow": true },
+    { "id": "e1b", "from": "src-erp", "to": "lakeflow-genie-block", "flow": true },
     { "id": "e2", "from": "lakeflow-genie-block", "to": "lakehouse", "flow": true },
     { "id": "e3", "from": "lakehouse", "to": "aibi-dashboards", "flow": true },
     { "id": "e4", "from": "lakehouse", "to": "genie", "flow": true },
