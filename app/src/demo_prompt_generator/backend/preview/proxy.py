@@ -274,6 +274,30 @@ def _shim_script(project_id: str) -> str:
   // `basename` on createBrowserRouter; other routers have similar options.
   window.__PREVIEW_BASENAME__ = PREFIX;
 
+  // ---- Route reporter (preview-only) -------------------------------------
+  // Tell the parent (the generator UI) which page of the demo the user is
+  // currently looking at, so a chat message can carry a "context hint"
+  // (e.g. preview-app/operations). Fires on every client-side navigation.
+  // We report the CHILD-app route (PREFIX stripped), not the proxied path.
+  function _previewReportRoute() {{
+    try {{
+      var p = location.pathname;
+      if (p.indexOf(PREFIX) === 0) p = p.slice(PREFIX.length) || "/";
+      parent.postMessage({{ type: "preview-route", path: p }}, "*");
+    }} catch (_) {{}}
+  }}
+  ["pushState", "replaceState"].forEach(function (m) {{
+    var orig = history[m];
+    history[m] = function () {{
+      var r = orig.apply(this, arguments);
+      _previewReportRoute();
+      return r;
+    }};
+  }});
+  window.addEventListener("popstate", _previewReportRoute);
+  window.addEventListener("load", _previewReportRoute);
+  _previewReportRoute(); // initial route, before the child router mounts
+
   // ---- @vitejs/plugin-react preamble fallback ----------------------------
   // Pre-seed the React-Refresh globals as no-ops so the plugin's boundary
   // check ("can't detect preamble") doesn't throw when the real preamble

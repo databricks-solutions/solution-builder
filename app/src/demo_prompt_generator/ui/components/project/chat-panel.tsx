@@ -388,6 +388,10 @@ interface ChatPanelProps {
   canAutoBuild?: boolean;
   placeholder?: string;
   title?: string;
+  /** What the user currently has open (active view / file / preview page).
+   *  When set, a "C" badge in the composer shows the exact hint that will be
+   *  prepended to the next message. Undefined on overview/story tabs. */
+  contextHint?: string;
 }
 
 interface MessageBubbleProps {
@@ -521,12 +525,38 @@ const MessageBubble = memo(function MessageBubble({
   const isError = "is_error" in message && message.is_error;
   const isCancelled = "is_cancelled" in message && message.is_cancelled;
 
+  const contextHint =
+    "context_hint" in message ? (message.context_hint ?? null) : null;
+
   if (isUser) {
     return (
-      <div className="flex justify-end">
+      <div className="flex flex-col items-end gap-1">
         <div className="max-w-[85%] rounded-2xl rounded-br-md px-3.5 py-1.5 bg-primary text-primary-foreground shadow-sm">
           <CollapsibleBody content={message.content} mode="markdown" tone="user" />
         </div>
+        {contextHint && (
+          <TooltipProvider delayDuration={150}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span
+                  className="flex items-center gap-1 text-[10px] text-muted-foreground/60 cursor-default select-none pr-1"
+                  aria-label="Context sent with this message"
+                >
+                  <span className="flex items-center justify-center h-3.5 w-3.5 rounded bg-primary/10 text-primary text-[9px] font-semibold">
+                    C
+                  </span>
+                  {contextHint}
+                </span>
+              </TooltipTrigger>
+              <TooltipContent side="left" align="end" className="max-w-xs">
+                <p className="text-xs">Context sent with this message:</p>
+                <p className="mt-1 text-xs font-mono text-muted-foreground">
+                  Context hint: the user has {contextHint} open and asks:
+                </p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        )}
       </div>
     );
   }
@@ -1385,6 +1415,7 @@ export const ChatPanel = memo(function ChatPanel({
   canAutoBuild = true,
   placeholder = "Ask the AI to help build your solution...",
   title = "Your AI Assistant",
+  contextHint,
 }: ChatPanelProps) {
   const [input, setInput] = useState("");
   const [userHasScrolledChat, setUserHasScrolledChat] = useState(false);
@@ -1622,9 +1653,33 @@ export const ChatPanel = memo(function ChatPanel({
             rows={1}
           />
           <div className="flex items-center justify-between px-2 pb-2">
-            <span className="text-[10px] text-muted-foreground/40 select-none pl-1.5">
-              {isStreaming ? "Generating..." : "Enter to send"}
-            </span>
+            <div className="flex items-center gap-1.5 pl-1.5">
+              {contextHint && (
+                <TooltipProvider delayDuration={150}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span
+                        className="flex items-center justify-center h-5 w-5 rounded-md bg-primary/10 text-primary text-[10px] font-semibold cursor-default select-none"
+                        aria-label="Context attached to your next message"
+                      >
+                        C
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent side="top" align="start" className="max-w-xs">
+                      <p className="text-xs">
+                        This context is sent with your message:
+                      </p>
+                      <p className="mt-1 text-xs font-mono text-muted-foreground">
+                        Context hint: the user has {contextHint} open and asks:
+                      </p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              )}
+              <span className="text-[10px] text-muted-foreground/40 select-none">
+                {isStreaming ? "Generating..." : "Enter to send"}
+              </span>
+            </div>
             <div className="flex items-center gap-1.5">
               {isStreaming ? (
                 <button

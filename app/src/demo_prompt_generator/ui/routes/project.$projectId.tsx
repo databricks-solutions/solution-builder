@@ -96,6 +96,24 @@ const PROJECT_TABS = [
 ] as const;
 export type ProjectTab = (typeof PROJECT_TABS)[number];
 
+/** Build the "context hint" describing what the user currently has open, sent
+ *  alongside a chat message so the agent can resolve vague references. Returns
+ *  undefined for the main pages (overview/story) — no hint worth sending there.
+ *  Pure so it's shared by the send path (via refs) and the C-badge display. */
+export function buildContextHint(
+  activeTab: ProjectTab,
+  selectedFile: string | null,
+  previewPath: string | null,
+): string | undefined {
+  if (activeTab === "architecture") return "the architecture diagram";
+  if (activeTab === "files" && selectedFile) return `the file \`${selectedFile}\``;
+  if (activeTab === "app") {
+    const path = (previewPath ?? "/").replace(/\/+$/, "");
+    return path ? `the live preview app open at preview-app${path}` : "the live preview app";
+  }
+  return undefined;
+}
+
 export const Route = createFileRoute("/project/$projectId")({
   component: ProjectPage,
   /** URL-synced active tab so the browser back/forward arrows walk the
@@ -229,6 +247,10 @@ function ProjectPage() {
   const [isLoadingFile, setIsLoadingFile] = useState(false);
   const [fileContentKey, setFileContentKey] = useState(0);
   const [architectureContent, setArchitectureContent] = useState<string | null>(null);
+  // Current route INSIDE the live preview iframe (child-app path, e.g.
+  // "/operations"), reported by the preview shim via postMessage. Drives the
+  // "app" context hint. Null until the preview reports (or no preview open).
+  const [previewCurrentPath, setPreviewCurrentPath] = useState<string | null>(null);
   // True while re-fetching architecture.md after a watcher file_changed (agent
   // rewrote it) — drives a reload spinner over the diagram.
   const [architectureReloading, setArchitectureReloading] = useState(false);
@@ -443,6 +465,34 @@ function ProjectPage() {
   // Ref to track selectedFile without causing handleSendMessage to recreate
   const selectedFileRef = useRef(selectedFile);
   selectedFileRef.current = selectedFile;
+  // Send-time snapshots for the context hint (read inside handleSendMessage,
+  // which is a stable callback and must not close over stale state).
+  const activeTabRef = useRef(activeTab);
+  activeTabRef.current = activeTab;
+  const previewPathRef = useRef(previewCurrentPath);
+  previewPathRef.current = previewCurrentPath;
+
+  // Listen for route changes reported by the preview iframe's shim (see
+  // backend/preview/proxy.py _shim_script). The child app postMessages its
+  // current route on every client-side navigation; we track it so the "app"
+  // context hint can name the exact page the user is viewing.
+  useEffect(() => {
+    const onMessage = (ev: MessageEvent) => {
+      const data = ev.data;
+      if (data && data.type === "preview-route" && typeof data.path === "string") {
+        setPreviewCurrentPath(data.path);
+      }
+    };
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, []);
+
+  // Reactive hint for the composer's "C" badge — updates live as the user
+  // switches tab / file / preview page (the send path uses refs instead).
+  const contextHint = useMemo(
+    () => buildContextHint(activeTab, selectedFile, previewCurrentPath),
+    [activeTab, selectedFile, previewCurrentPath],
+  );
 
   // Abort controller for cancellation
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -629,6 +679,13 @@ function ProjectPage() {
         // persisted in the DB — tell the backend not to save it again.
         const response = await invokeAgent(projectId, message, {
           saveUserMessage: !skipOptimistic,
+          // What the user has open right now (read from refs — this callback is
+          // stable and must not close over stale state).
+          contextHint: buildContextHint(
+            activeTabRef.current,
+            selectedFileRef.current,
+            previewPathRef.current,
+          ),
         });
         setExecutionId(response.execution_id);
 
@@ -2079,6 +2136,7 @@ function ProjectPage() {
               onClose={handleToggleChat}
               onAutoBuild={handleAutoBuild}
               canAutoBuild={!isStreaming}
+              contextHint={contextHint}
             />
           </div>
         )}

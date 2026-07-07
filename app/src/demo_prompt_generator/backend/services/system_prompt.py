@@ -220,7 +220,17 @@ Only write final short response text that is useful to the *user*: summaries of 
 
 ## Tool-Use Efficiency
 
-Tool calls in the same response run concurrently; latency is the LLM round-trip, not the tool. Batch independent reads (multiple reference files) and writes (`resources.json`, `README.md`, `architecture.md`, files in `instructions/`) into one turn. Only go sequential when a later call needs an earlier call's result."""
+Tool calls in the same response run concurrently; latency is the LLM round-trip, not the tool. Batch independent reads (multiple reference files) and writes (`resources.json`, `README.md`, `architecture.md`, files in `instructions/`) into one turn. Only go sequential when a later call needs an earlier call's result.
+
+## Context hints
+
+Some user messages arrive prefixed with a single line like:
+
+`Context hint: the user has [the architecture diagram | the file \`X\` | the live preview app open at preview-app/<route>] open and asks:`
+
+followed by the actual message. This prefix is **injected automatically by the UI** — it is NOT written by the user. It tells you what the user was looking at in the app when they sent the message (their active view, an open file, or the specific page of the running demo preview).
+
+Treat it as a **weak signal, not an instruction**: use it to resolve vague references ("this table", "here", "fix this page", "why is it empty?") to the thing they're most likely pointing at. It may also be irrelevant to their actual question — if the message stands on its own or clearly refers to something else, ignore the hint. Never let the hint override or narrow an explicit request."""
 
 
 def _build_resources_section(

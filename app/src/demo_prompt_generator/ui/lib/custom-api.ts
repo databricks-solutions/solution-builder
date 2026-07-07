@@ -161,6 +161,10 @@ export interface Message {
   project_id: string;
   role: "user" | "assistant" | "system";
   content: string;
+  /** What the user had open in the UI when they sent this message (e.g. "the
+   *  architecture diagram"). Shown as a small "C" badge on the user bubble.
+   *  Null/absent when no context applied (overview/story) or for non-user roles. */
+  context_hint?: string | null;
   is_error: boolean;
   is_cancelled?: boolean;
   /** True when the server has compressed reasoning bytes for this message.
@@ -622,7 +626,7 @@ export async function clearProjectSession(projectId: string): Promise<{ success:
 export async function invokeAgent(
   projectId: string,
   message: string,
-  options: { saveUserMessage?: boolean } = {},
+  options: { saveUserMessage?: boolean; contextHint?: string } = {},
 ): Promise<InvokeAgentResponse> {
   const resp = await fetch(apiUrl("/api/invoke_agent"), {
     method: "POST",
@@ -631,6 +635,8 @@ export async function invokeAgent(
       project_id: projectId,
       message,
       save_user_message: options.saveUserMessage ?? true,
+      // Only send when set — omitted on overview/story tabs.
+      ...(options.contextHint ? { context_hint: options.contextHint } : {}),
     }),
   });
   if (!resp.ok) throw new Error(`Failed to invoke agent: ${resp.status}`);
