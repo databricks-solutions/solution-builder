@@ -1,72 +1,53 @@
 ```json
-{
-  "name": "Harvestly Loyalty Segmentation",
-  "columns": [
-    {
-      "nodes": [
-        { "id": "src-shopify", "label": "Shopify", "icon": "inputData", "tier": "source", "desc": "Orders" },
-        { "id": "src-loyalty", "label": "Loyalty Platform", "icon": "inputData", "tier": "source", "desc": "Members + Tier" },
-        { "id": "src-klaviyo", "label": "Klaviyo", "icon": "inputData", "tier": "source", "desc": "Email + Redemptions" },
-        { "id": "src-docs", "label": "Marketing Playbook", "icon": "unstructuredData", "tier": "source", "desc": "PDF Memos", "row": 3.5 }
-      ]
-    },
-    {
-      "group": { "label": "SDP Pipeline", "tier": "sdp" },
-      "nodes": [
-        { "id": "bronze", "label": "Bronze Layer", "icon": "deltaTable", "tier": "bronze", "desc": "Raw" },
-        { "id": "silver", "label": "Silver Layer", "icon": "deltaTable", "tier": "silver", "desc": "Joined" },
-        { "id": "gold", "label": "Gold Layer", "icon": "deltaTable", "tier": "gold", "desc": "Segmented" },
-        { "id": "volume", "label": "Playbook Volume", "icon": "unstructuredData", "tier": "bronze", "desc": "Unstructured", "row": 3.5 }
-      ]
-    },
-    {
-      "nodes": [
-        { "id": "warehouse", "label": "SQL Warehouse", "icon": "sqlWarehouse", "tier": "compute", "desc": "Serverless" }
-      ]
-    },
-    {
-      "nodes": [
-        { "id": "dashboard", "label": "AI/BI Dashboard", "icon": "dashboard", "tier": "analytics", "desc": "Loyalty Cockpit" },
-        { "id": "genie", "label": "AI/BI Genie", "icon": "genie", "tier": "ai", "desc": "Segment Q&A", "row": 1.5 },
-        { "id": "ka", "label": "Knowledge Assistant", "icon": "knowledgeAssistant", "tier": "ai", "desc": "Playbook", "row": 2.5 }
-      ]
-    },
-    {
-      "nodes": [
-        { "id": "mas", "label": "Multi-Agent Supervisor", "icon": "multiAgentSupervisor", "tier": "ai", "desc": "Routing", "row": 1 }
-      ]
-    },
-    {
-      "bars": [
-        { "id": "db-one", "label": "Databricks One", "tier": "interface", "vertical": true }
-      ]
-    },
-    {
-      "nodes": [
-        { "id": "user", "label": "Users", "icon": "businessUser", "tier": "consumer", "desc": "End Users", "row": 1 }
-      ]
-    }
-  ],
-  "edges": [
-    { "from": "src-shopify", "to": "bronze", "label": "Lakeflow Connect", "animated": true },
-    { "from": "src-loyalty", "to": "bronze", "animated": true },
-    { "from": "src-klaviyo", "to": "bronze", "animated": true },
-    { "from": "src-docs", "to": "volume", "label": "Auto Loader", "animated": true },
-    { "from": "bronze", "to": "silver", "animated": true },
-    { "from": "silver", "to": "gold", "animated": true },
-    { "from": "gold", "to": "warehouse" },
-    { "from": "warehouse", "to": "dashboard" },
-    { "from": "warehouse", "to": "genie" },
-    { "from": "volume", "to": "ka" },
-    { "from": "genie", "to": "mas" },
-    { "from": "ka", "to": "mas" },
-    { "from": "dashboard", "to": "db-one" },
-    { "from": "mas", "to": "db-one" },
-    { "from": "db-one", "to": "user" }
-  ],
-  "bars": [
-    { "label": "Databricks Workflows — Orchestration", "tier": "orchestration", "startColumn": 1, "endColumn": 4 },
-    { "label": "Unity Catalog — Governance & Security", "tier": "governance", "startColumn": 0, "endColumn": 6 }
-  ]
-}
+[
+  {
+    "name": "Harvestly Loyalty Segmentation",
+    "story": "Shopify, the loyalty platform and Klaviyo flow through one governed Lakeflow + Genie pipeline into the lakehouse; the Marketing Playbook PDFs land on a UC Volume. A dashboard, Genie and a Knowledge Assistant sit on top, and a Supervisor Agent composes a per-segment campaign plan the VP of Customer Marketing reaches through Genie One.",
+    "columns": ["sources", "pipeline", "compute", "work", "agents", "entry", "user"],
+    "nodes": [
+      { "id": "src-shopify", "type": "source", "col": "sources", "row": 1, "label": "Shopify", "ingest": "lakeflow-connect", "desc": "Orders" },
+      { "id": "src-loyalty", "type": "source", "col": "sources", "row": 2, "label": "Loyalty Platform", "ingest": "lakeflow-connect", "desc": "Members + Tier" },
+      { "id": "src-klaviyo", "type": "source", "col": "sources", "row": 3, "label": "Klaviyo", "ingest": "lakeflow-connect", "desc": "Email + Redemptions" },
+      { "id": "src-playbook", "type": "source", "col": "sources", "row": 4, "label": "Marketing Playbook", "icon": "pdfLogo", "ingest": "direct", "desc": "PDF memos" },
+
+      { "id": "lakeflow-genie-block", "type": "lakeflow-genie-block", "col": "pipeline", "desc": "Declarative bronze → silver → gold — Genie Code describes the segmentation transforms, Lakeflow runs them at scale." },
+
+      { "id": "lakehouse", "type": "lakehouse", "col": "compute", "row": 1, "desc": "One governed copy of the segmented 800K-member base for BI + AI." },
+      { "id": "playbook-volume", "type": "uc-volume", "col": "compute", "row": 2, "label": "Playbook Volume", "desc": "Where the raw Marketing Playbook PDFs land." },
+
+      { "id": "aibi-dashboards", "type": "aibi-dashboards", "col": "work", "row": 1, "desc": "Loyalty Cockpit — margin vs. incremental revenue by segment." },
+      { "id": "genie", "type": "genie", "col": "work", "row": 2, "desc": "Segment Q&A — Champions / New Loyalists / Cooling Off / Win-Back." },
+      { "id": "knowledge-assistant", "type": "knowledge-assistant", "col": "work", "row": 3, "desc": "Grounded, cited tactics from the Customer Marketing Playbook." },
+
+      { "id": "supervisor-agent", "type": "supervisor-agent", "col": "agents", "desc": "Routes to Genie + the Knowledge Assistant and composes a per-segment campaign plan." },
+
+      { "id": "genie-one", "type": "genie-one", "col": "entry", "rot": 90 },
+      { "id": "user", "type": "logo", "col": "user", "icon": "file:persona/user", "text": "End user", "caption": "bottom" },
+
+      { "id": "db-platform", "type": "db-platform", "pin": { "at": "top-left", "to": "platform-box" }, "desc": "The Databricks Data Intelligence Platform — one governed foundation for all data + AI." },
+      { "id": "governance-block", "type": "governance-block", "pin": { "at": "top-right", "to": "platform-box" }, "desc": "Unity Catalog governs access, lineage and quality across every table and volume." },
+
+      { "id": "platform-box", "type": "box", "z": -1, "pad": 40,
+        "wraps": ["src-shopify", "src-loyalty", "src-klaviyo", "src-playbook", "lakeflow-genie-block", "lakehouse", "playbook-volume", "aibi-dashboards", "genie", "knowledge-assistant", "supervisor-agent", "genie-one", "user"] }
+    ],
+    "edges": [
+      { "id": "e1", "from": "src-shopify", "to": "lakeflow-genie-block", "flow": true },
+      { "id": "e2", "from": "src-loyalty", "to": "lakeflow-genie-block", "flow": true },
+      { "id": "e3", "from": "src-klaviyo", "to": "lakeflow-genie-block", "flow": true },
+      { "id": "e4", "from": "src-playbook", "to": "playbook-volume", "flow": true },
+
+      { "id": "e5", "from": "lakeflow-genie-block", "to": "lakehouse", "flow": true },
+      { "id": "e6", "from": "lakehouse", "to": "aibi-dashboards", "flow": true },
+      { "id": "e7", "from": "lakehouse", "to": "genie", "flow": true },
+      { "id": "e8", "from": "playbook-volume", "to": "knowledge-assistant", "flow": true },
+
+      { "id": "e9", "from": "genie", "to": "supervisor-agent", "flow": true },
+      { "id": "e10", "from": "knowledge-assistant", "to": "supervisor-agent", "flow": true },
+
+      { "id": "e11", "from": "user", "to": "genie-one" },
+      { "id": "e12", "from": "genie-one", "to": "supervisor-agent" },
+      { "id": "e13", "from": "genie-one", "to": "aibi-dashboards" }
+    ]
+  }
+]
 ```

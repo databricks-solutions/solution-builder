@@ -32,6 +32,9 @@ export interface Project {
   name: string;
   user_email: string;
   description: string | null;
+  /** Real customer/account this demo is for (chat-inferred, editable).
+   *  Null → render "Not specified". */
+  customer?: string | null;
   /** LLM-generated 1-2 paragraph storytelling summary used by the
    *  Overview hero. Distinct from `description` (the short one-liner). */
   narrative?: string | null;
@@ -63,6 +66,8 @@ export interface ProjectListItem {
   id: string;
   name: string;
   description?: string | null;
+  /** Customer/account this project is for (null → "Not specified"). */
+  customer?: string | null;
   project_type: string;
   stage: ProjectStage;
   created_at: string;
@@ -332,7 +337,7 @@ export async function getProject(projectId: string): Promise<Project> {
 
 export async function updateProject(
   projectId: string,
-  updates: { name?: string; description?: string; architecture_first?: boolean }
+  updates: { name?: string; description?: string; customer?: string; architecture_first?: boolean }
 ): Promise<Project> {
   const resp = await fetch(apiUrl(`/api/projects/${projectId}`), {
     method: "PATCH",
@@ -1037,6 +1042,8 @@ export interface TemplateListItem {
   owner_email: string;
   industry: string | null;
   description: string | null;
+  /** Customer the source demo was built for (null → "Not specified"). */
+  customer?: string | null;
   capabilities: string[] | null;
   submitted_at: string;
   reviewed_at: string | null;

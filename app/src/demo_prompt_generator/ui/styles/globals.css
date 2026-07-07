@@ -158,6 +158,19 @@
   animation: progress-pulse 1.5s ease-in-out infinite;
 }
 
+/* A dot travelling left→right along a connector track — used in the
+   "publish as template" flow illustration to convey the demo flowing out
+   into the shared gallery and on to teammates. */
+@keyframes flow-dot {
+  0% { left: 0%; opacity: 0; }
+  12% { opacity: 1; }
+  88% { opacity: 1; }
+  100% { left: 100%; opacity: 0; }
+}
+.animate-flow-dot {
+  animation: flow-dot 2.6s ease-in-out infinite;
+}
+
 /* Rotating gradient ring for newly-deployed resource pills */
 @keyframes resource-shimmer {
   0%   { background-position: 0% 50%; }

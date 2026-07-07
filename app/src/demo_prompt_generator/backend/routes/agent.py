@@ -47,6 +47,10 @@ router = create_router()
 SSE_WINDOW_SECONDS = 50  # Reconnect before 60s HTTP timeout
 POLL_INTERVAL = 0.1  # seconds between event checks
 
+# Strong refs to fire-and-forget background tasks (e.g. customer inference) so
+# the event loop doesn't garbage-collect them mid-flight.
+_CUSTOMER_TASKS: set[asyncio.Task] = set()
+
 
 def _get_user_email(headers) -> str:
     """Extract user email from Databricks Apps headers."""
@@ -344,6 +348,21 @@ async def invoke_agent(
                     db.commit()
 
             await asyncio.to_thread(_persist_completion)
+
+            # Fire-and-forget: infer the customer/account this demo is for from
+            # the conversation (mini model, only while still unset). Kept in a
+            # tracked task set so it isn't GC'd; never blocks the chat flow.
+            try:
+                from ..services.customer_extraction import maybe_update_project_customer
+                _t = asyncio.create_task(
+                    asyncio.to_thread(
+                        maybe_update_project_customer, body.project_id, engine, config
+                    )
+                )
+                _CUSTOMER_TASKS.add(_t)
+                _t.add_done_callback(_CUSTOMER_TASKS.discard)
+            except Exception:
+                logger.debug("failed to schedule customer inference", exc_info=True)
 
             if full_response:
                 logger.info(f"Saved assistant message for project {body.project_id} ({len(full_response)} chars)")

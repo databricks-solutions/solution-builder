@@ -4,7 +4,7 @@
  */
 
 import { memo } from "react";
-import { ArrowUpRight, Star, Share2, User, LayoutTemplate, Check, FileText, MessageSquare } from "lucide-react";
+import { ArrowUpRight, Star, Share2, User, LayoutTemplate, Check, FileText, MessageSquare, Building2 } from "lucide-react";
 import type { ProjectListItem } from "../../lib/custom-api";
 import { projectStatusFromStage, STATUS_META } from "../../lib/project-status";
 
@@ -149,6 +149,18 @@ export const ProjectTile = memo(function ProjectTile({
         <p className="text-xs text-muted-foreground line-clamp-2 mt-1">
           {project.description || "No description"}
         </p>
+
+        {/* Customer — always shown so reviewers can see who each project is for
+            at a glance ("Not specified" until inferred from chat or set). */}
+        <div className="flex items-center gap-1.5 mt-2">
+          <Building2 className="h-3 w-3 text-muted-foreground/50 shrink-0" />
+          <span className="text-xs truncate">
+            <span className="text-muted-foreground/70">Customer: </span>
+            <span className={project.customer ? "text-foreground/80 font-medium" : "text-muted-foreground/60 italic"}>
+              {project.customer || "Not specified"}
+            </span>
+          </span>
+        </div>
 
         {/* Owner (shared OR admin-browsing-other-people's-projects) */}
         {showOwner && (project.shared_by || project.owner_email) && (

@@ -36,12 +36,11 @@ import {
   RefreshCw,
   Trash2,
   AlertTriangle,
-  Upload,
   Loader2,
   Pencil,
   Check,
   X,
-  FileEdit,
+  Building2,
   GitFork,
   MessageSquare,
   MoreHorizontal,
@@ -52,7 +51,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Badge } from "@/components/ui/badge";
@@ -303,6 +301,9 @@ function ProjectPage() {
   const [isEditingName, setIsEditingName] = useState(false);
   const [editedName, setEditedName] = useState("");
   const [isSavingName, setIsSavingName] = useState(false);
+  const [isEditingCustomer, setIsEditingCustomer] = useState(false);
+  const [editedCustomer, setEditedCustomer] = useState("");
+  const [isSavingCustomer, setIsSavingCustomer] = useState(false);
 
   // Project description editing state — opens a modal that supports both
   // manual edits and an AI-assist rewrite.
@@ -1726,6 +1727,32 @@ function ProjectPage() {
     setEditedName("");
   }, []);
 
+  // Handle project customer editing (correct a wrong chat-inferred guess, or
+  // set it manually). Empty string clears back to "Not specified".
+  const handleStartEditCustomer = useCallback(() => {
+    setEditedCustomer(project?.customer || "");
+    setIsEditingCustomer(true);
+  }, [project?.customer]);
+
+  const handleSaveCustomer = useCallback(async () => {
+    if (isSavingCustomer) return;
+    setIsSavingCustomer(true);
+    try {
+      const updated = await updateProject(projectId, { customer: editedCustomer.trim() });
+      setProject(updated);
+      setIsEditingCustomer(false);
+    } catch (error) {
+      console.error("Failed to update customer:", error);
+    } finally {
+      setIsSavingCustomer(false);
+    }
+  }, [projectId, editedCustomer, isSavingCustomer]);
+
+  const handleCancelEditCustomer = useCallback(() => {
+    setIsEditingCustomer(false);
+    setEditedCustomer("");
+  }, []);
+
   // Handle project description save (called from the modal). The modal
   // owns the textarea state; we only need the persisted side here.
   const handleSaveDescription = useCallback(
@@ -1885,6 +1912,43 @@ function ProjectPage() {
                       {linkedTemplate.status === "REVIEW_REQUESTED" ? "Pending" : linkedTemplate.status.toLowerCase()}
                     </Badge>
                   )}
+
+                  {/* Customer chip — chat-inferred, click to edit/correct. */}
+                  {isEditingCustomer ? (
+                    <span className="inline-flex items-center gap-1 shrink-0">
+                      <Building2 className="h-3.5 w-3.5 text-muted-foreground" />
+                      <input
+                        autoFocus
+                        value={editedCustomer}
+                        onChange={(e) => setEditedCustomer(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") handleSaveCustomer();
+                          if (e.key === "Escape") handleCancelEditCustomer();
+                        }}
+                        placeholder="Customer name"
+                        className="h-6 w-40 rounded border bg-background px-1.5 text-xs outline-none focus:ring-1 focus:ring-ring"
+                        disabled={isSavingCustomer}
+                      />
+                      <button onClick={handleSaveCustomer} disabled={isSavingCustomer} className="p-0.5 rounded hover:bg-muted" title="Save customer">
+                        <Check className="h-3.5 w-3.5 text-primary" />
+                      </button>
+                      <button onClick={handleCancelEditCustomer} disabled={isSavingCustomer} className="p-0.5 rounded hover:bg-muted" title="Cancel">
+                        <X className="h-3.5 w-3.5 text-muted-foreground" />
+                      </button>
+                    </span>
+                  ) : (
+                    <button
+                      onClick={handleStartEditCustomer}
+                      className="inline-flex items-center gap-1 shrink-0 rounded-full border border-primary/10 bg-primary/[0.03] px-2 py-0.5 text-[11px] text-muted-foreground hover:bg-primary/[0.06] hover:text-foreground transition-colors"
+                      title="Set the customer this demo is for"
+                    >
+                      <Building2 className="h-3 w-3 text-primary/70" />
+                      <span className="text-muted-foreground/70">Customer:</span>
+                      <span className={project?.customer ? "font-medium text-foreground/80" : "italic text-muted-foreground/60"}>
+                        {project?.customer || "Not specified"}
+                      </span>
+                    </button>
+                  )}
                 </div>
               )}
             </div>
@@ -1915,6 +1979,7 @@ function ProjectPage() {
               onUpdateDAB={handleUpdateDAB}
               onDownloadDAB={handleDownloadDAB}
               onPublishTemplate={() => setIsTemplateDialogOpen(true)}
+              templateStatus={linkedTemplate?.status ?? null}
             />
 
             <div className="h-5 w-px bg-border" />
@@ -1941,18 +2006,9 @@ function ProjectPage() {
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-56">
-                  <DropdownMenuItem
-                    onClick={() => setIsTemplateDialogOpen(true)}
-                    disabled={files.length === 0}
-                  >
-                    {linkedTemplate ? (
-                      <FileEdit className="h-4 w-4 mr-2" />
-                    ) : (
-                      <Upload className="h-4 w-4 mr-2" />
-                    )}
-                    {linkedTemplate ? "Update template" : "Save as template"}
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
+                  {/* "Save as template" now lives as a prominent button in the
+                      build stepper (see BuildStepper templateStatus). This menu
+                      keeps only project-level actions. */}
                   <DropdownMenuItem
                     onClick={() => setIsDeleteDialogOpen(true)}
                     className="text-destructive focus:text-destructive focus:bg-destructive/10"

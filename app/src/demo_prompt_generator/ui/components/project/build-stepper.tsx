@@ -9,6 +9,7 @@
 
 import { useMemo } from "react";
 import { Button } from "../ui/button";
+import { Badge } from "../ui/badge";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../ui/tooltip";
 import {
   DropdownMenu,
@@ -262,6 +263,11 @@ export interface BuildStepperProps {
   onUpdateDAB?: () => void;
   onDownloadDAB?: () => void;
   onPublishTemplate?: () => void;
+  /** Status of the template this project is already published as (if any).
+   *  Drives the end-of-pipeline "Share/Update template" button: null → not yet
+   *  shared ("Share as template"); a status → already linked ("Update template"
+   *  + a Pending/Approved badge). */
+  templateStatus?: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -284,6 +290,7 @@ export function BuildStepper({
   onUpdateDAB,
   onDownloadDAB,
   onPublishTemplate,
+  templateStatus,
 }: BuildStepperProps) {
   // Auto-detect stage from files + live deploy state. The 6-state result
   // drives action-button logic (which "next step" button to surface);
@@ -529,28 +536,62 @@ export function BuildStepper({
                 );
               })}
 
-              {/* Download (when not already primary) and Publish */}
-              {((!allDone && onDownloadDAB) || onPublishTemplate) && (
+              {/* Download ZIP when it isn't already the primary action.
+                  (Sharing as a template is surfaced as its own prominent
+                  end-of-pipeline button, not buried here.) */}
+              {!allDone && onDownloadDAB && (
                 <>
                   <DropdownMenuSeparator />
-                  {!allDone && onDownloadDAB && (
-                    <DropdownMenuItem onClick={onDownloadDAB} className="cursor-pointer">
-                      <Download className="h-4 w-4 mr-2" />
-                      Download ZIP
-                    </DropdownMenuItem>
-                  )}
-                  {onPublishTemplate && (
-                    <DropdownMenuItem onClick={onPublishTemplate} className="cursor-pointer">
-                      <Upload className="h-4 w-4 mr-2" />
-                      Publish as Template
-                    </DropdownMenuItem>
-                  )}
+                  <DropdownMenuItem onClick={onDownloadDAB} className="cursor-pointer">
+                    <Download className="h-4 w-4 mr-2" />
+                    Download ZIP
+                  </DropdownMenuItem>
                 </>
               )}
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
       ) : null}
+
+      {/* Share as template — a prominent finishing step. Appears once the demo
+          has a story (README exists — the real precondition for a template,
+          which carries the narrative .md files; note valid templates can be
+          spec-stage, not just fully built), or whenever the project is already
+          linked to a template (so it can always be updated). This is the ONE
+          entry point for sharing; the old buried dropdown/overflow items are
+          removed. */}
+      {onPublishTemplate && !isStreaming && (hasReadme || templateStatus) && (
+        <>
+          <div className="h-5 w-px bg-border" />
+          <Button
+            variant={templateStatus ? "outline" : "default"}
+            className="h-9 gap-2 px-4 text-sm cursor-pointer whitespace-nowrap"
+            onClick={onPublishTemplate}
+            title={
+              templateStatus
+                ? "Update the published template from this project"
+                : "Publish this demo as a reusable template others can fork"
+            }
+          >
+            <Upload className="h-4 w-4" />
+            {templateStatus ? "Update template" : "Share as template"}
+            {templateStatus && (
+              <Badge
+                variant="secondary"
+                className="ml-0.5 h-4 px-1.5 text-[10px] font-medium"
+              >
+                {templateStatus === "REVIEW_REQUESTED"
+                  ? "Pending"
+                  : templateStatus === "APPROVED"
+                    ? "Approved"
+                    : templateStatus === "REJECTED"
+                      ? "Rejected"
+                      : templateStatus.toLowerCase()}
+              </Badge>
+            )}
+          </Button>
+        </>
+      )}
     </div>
   );
 }

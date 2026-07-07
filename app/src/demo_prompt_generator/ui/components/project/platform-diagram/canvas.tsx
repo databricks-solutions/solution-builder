@@ -1463,8 +1463,12 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
           // Don't raise a node above the others just because it's selected —
           // keep its stacking order (only Bring-to-front/Send-to-back change z).
           elevateNodesOnSelect={false}
-          selectionOnDrag
-          panOnDrag={PAN_ON_DRAG}
+          // VIEW mode (read-only preview / the editor's "View" toggle): left-drag
+          // PANS the canvas and there's no lasso — so you can freely scroll/move
+          // around after zooming in. EDIT mode keeps left-drag lasso-select and
+          // pans with the middle/right button (PAN_ON_DRAG).
+          selectionOnDrag={editMode}
+          panOnDrag={editMode ? PAN_ON_DRAG : true}
           selectNodesOnDrag={false}
           // Shift = additive multi-select (shift-click toggles a node in/out of
           // the selection). selectionKeyCode is DISABLED: ReactFlow's default is

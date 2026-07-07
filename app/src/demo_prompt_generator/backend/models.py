@@ -261,6 +261,10 @@ class Project(SQLModel, table=True):
     user_email: str = SQLField(index=True, max_length=255)
     name: str = SQLField(max_length=255)
     description: Optional[str] = SQLField(default=None, sa_column=Column(Text))
+    # The real customer/account this demo is being built FOR. Inferred by a mini
+    # model from the chat conversation (see services/customer_extraction.py) and
+    # user-editable. Null = not yet known; the UI renders "Not specified".
+    customer: Optional[str] = SQLField(default=None, max_length=255)
     # LLM-generated 1-2 paragraph storytelling summary of the demo, distinct
     # from `description` (which is the short one-liner the user can edit).
     # Regenerated when the README changes — see /projects/{id}/narrative.
@@ -470,6 +474,7 @@ class Template(SQLModel, table=True):
     description: Optional[str] = SQLField(default=None, sa_column=Column(Text))  # Short summary
     full_description: Optional[str] = SQLField(default=None, sa_column=Column(Text))  # Full README
     capabilities: Optional[str] = SQLField(default=None, sa_column=Column(Text))  # JSON array
+    customer: Optional[str] = SQLField(default=None, max_length=255)  # Inherited from source project
 
     # Note: embedding column is created via migration (vector type not supported in SQLModel)
 
@@ -575,6 +580,8 @@ class ProjectUpdateRequest(BaseModel):
     """Request to update a project."""
     name: Optional[str] = None
     description: Optional[str] = None
+    # Manual override of the chat-inferred customer/account (correct a bad guess).
+    customer: Optional[str] = None
     # Flipped to False when the user builds the solution from the architecture.
     architecture_first: Optional[bool] = None
 
@@ -621,6 +628,9 @@ class ProjectOut(BaseModel):
     name: str
     user_email: str
     description: Optional[str]
+    # The customer/account this demo is for (chat-inferred, editable). Null → UI
+    # shows "Not specified".
+    customer: Optional[str] = None
     # LLM-generated storytelling narrative (1-2 paragraphs). Distinct from
     # `description`. Drives the Overview hero on the frontend.
     narrative: Optional[str] = None
@@ -649,6 +659,8 @@ class ProjectListItem(BaseModel):
     id: str
     name: str
     description: Optional[str] = None
+    # Customer/account this project is for (or null → "Not specified" in the UI).
+    customer: Optional[str] = None
     project_type: str
     stage: str = ProjectStage.DRAFTING.value
     created_at: datetime
@@ -799,6 +811,7 @@ class TemplateListItem(BaseModel):
     owner_email: str
     industry: Optional[str]
     description: Optional[str]
+    customer: Optional[str] = None  # Customer the source demo was built for
     capabilities: Optional[list[str]] = None  # Parsed from JSON
     submitted_at: datetime
     reviewed_at: Optional[datetime] = None
@@ -813,6 +826,7 @@ class TemplateDetail(BaseModel):
     industry: Optional[str]
     description: Optional[str]
     full_description: Optional[str]
+    customer: Optional[str] = None  # Customer the source demo was built for
     capabilities: Optional[list[str]] = None
     submitted_at: datetime
     reviewed_at: Optional[datetime] = None

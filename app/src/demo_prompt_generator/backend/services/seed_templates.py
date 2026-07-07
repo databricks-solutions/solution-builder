@@ -144,6 +144,7 @@ def seed_default_templates(engine: Engine) -> None:
                     description=entry.get("description"),
                     full_description=full_description,
                     capabilities=json.dumps(entry.get("capabilities", [])),
+                    customer=entry.get("customer"),
                     submitted_at=now,
                     reviewed_at=now,
                     reviewed_by=owner_email,

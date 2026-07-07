@@ -424,6 +424,7 @@ def list_projects(
                 id=p.id,
                 name=p.name,
                 description=p.description,
+                customer=p.customer,
                 project_type=p.project_type,
                 stage=stage,
                 created_at=p.created_at,
@@ -641,6 +642,7 @@ def create_project(
         name=project.name,
         user_email=project.user_email,
         description=project.description,
+        customer=project.customer,
         narrative=project.narrative,
         narrative_readme_hash=project.narrative_readme_hash,
         project_type=project.project_type,
@@ -759,6 +761,7 @@ def get_project(
         name=project.name,
         user_email=project.user_email,
         description=project.description,
+        customer=project.customer,
         narrative=project.narrative,
         narrative_readme_hash=project.narrative_readme_hash,
         project_type=project.project_type,
@@ -798,6 +801,9 @@ def update_project(
         project.name = body.name
     if body.description is not None:
         project.description = body.description
+    if body.customer is not None:
+        # Empty string clears back to "unknown" (→ "Not specified" in the UI).
+        project.customer = body.customer.strip() or None
     if body.architecture_first is not None:
         project.architecture_first = body.architecture_first
 
@@ -822,6 +828,7 @@ def update_project(
         name=project.name,
         user_email=project.user_email,
         description=project.description,
+        customer=project.customer,
         narrative=project.narrative,
         narrative_readme_hash=project.narrative_readme_hash,
         project_type=project.project_type,
@@ -943,6 +950,7 @@ def provision_project(
         name=project.name,
         user_email=project.user_email,
         description=project.description,
+        customer=project.customer,
         narrative=project.narrative,
         narrative_readme_hash=project.narrative_readme_hash,
         project_type=project.project_type,
@@ -1093,6 +1101,7 @@ def generate_project_narrative(
         name=project.name,
         user_email=project.user_email,
         description=project.description,
+        customer=project.customer,
         narrative=project.narrative,
         narrative_readme_hash=project.narrative_readme_hash,
         project_type=project.project_type,
@@ -1164,6 +1173,7 @@ def update_project_resources(
         name=project.name,
         user_email=project.user_email,
         description=project.description,
+        customer=project.customer,
         narrative=project.narrative,
         narrative_readme_hash=project.narrative_readme_hash,
         project_type=project.project_type,
@@ -1493,6 +1503,7 @@ def list_shared_projects(session: Dependencies.Session, headers: Dependencies.He
                 id=project.id,
                 name=project.name,
                 description=project.description,
+                customer=project.customer,
                 project_type=project.project_type,
                 stage=stage,
                 created_at=project.created_at,

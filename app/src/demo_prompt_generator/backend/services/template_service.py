@@ -167,6 +167,7 @@ class TemplateService:
             description=extracted.get("description"),
             full_description=readme_content,
             capabilities=json.dumps(extracted.get("capabilities", [])),
+            customer=project.customer,
             submitted_at=utc_now(),
             source_project_id=project_id,
         )
@@ -423,6 +424,7 @@ class TemplateService:
             default_catalog=default_catalog,
             default_schema=default_schema,
             source_template_id=template_id,
+            customer=template.customer,
         )
         session.add(project)
 
@@ -584,6 +586,7 @@ class TemplateService:
         template.description = extracted.get("description")
         template.full_description = readme_content
         template.capabilities = json.dumps(extracted.get("capabilities", []))
+        template.customer = project.customer
         template.source_project_id = project_id
 
         # Update embedding (gracefully skips on PGLite)

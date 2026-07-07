@@ -5,6 +5,7 @@
       "id": "00000000-seed-4000-a001-000000000010",
       "directory": "retail/loyalty-segmentation",
       "name": "Harvestly Co. — Loyalty Segmentation",
+      "customer": "Harvestly Co.",
       "description": "Loyalty segmentation demo: a VP of Customer Marketing investigates why a mass-blast 15% off coupon cost $4.2M in margin to generate only $1.8M in incremental revenue. Genie segments the 800K-member base into Champions / New Loyalists / Cooling Off / Win-Back; Knowledge Assistant returns the Customer Marketing Playbook's segment-specific tactics; Multi-Agent Supervisor synthesizes a per-segment campaign plan.",
       "industry": "Retail & CPG",
       "capabilities": ["synthetic-data-gen", "sdp", "aibi-dashboards", "genie", "knowledge-assistant", "supervisor-agent"]
