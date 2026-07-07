@@ -775,8 +775,8 @@ const LIFECYCLE_DISPLAY: Record<
   { title: string; blurb: string; icon: React.ElementType }
 > = {
   STORY_AND_ARCH: {
-    title: "Story & Architecture",
-    blurb: "Drafting the customer narrative, pitch, and architecture diagram.",
+    title: "Story",
+    blurb: "Drafting the customer narrative and pitch.",
     icon: BookOpen,
   },
   SPECIFICATION: {
@@ -1436,12 +1436,12 @@ export const ProjectOverview = memo(function ProjectOverview({
               <Loader2 className="h-5 w-5 animate-spin text-primary shrink-0" />
               <div>
                 <h2 className="text-[14px] font-semibold text-foreground">
-                  Writing your story and architecture
+                  Writing your story
                 </h2>
                 <p className="mt-1 text-[12.5px] text-muted-foreground">
                   The assistant is picking the Databricks capabilities for
-                  your solution. Once the architecture is ready, the
-                  resources grid will appear here.
+                  your solution. Once the story is ready, the resources grid
+                  will appear here.
                 </p>
               </div>
             </div>
