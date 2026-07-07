@@ -231,6 +231,7 @@ So: a **data source** reads as a bordered tile out of the box, while a **logo** 
 
 ### Custom logos & images
 
+- **Label-only source (no logo)** — for a source or partner you have no logo for, set `"icon": "text"` (or omit `icon`) on a `type:"source"` node. It renders the `label` as a brand-colored text badge (the same style as a trademark-gated logo) — no icon file needed. Prefer this over an unrelated logo when there's no real mark.
 - **Custom SVG logos** — add inline SVGs in the top-level `custom_logos` array and reference them by id from ANY node's `icon`:
   ```json
   "custom_logos": [

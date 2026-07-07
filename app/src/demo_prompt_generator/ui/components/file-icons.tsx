@@ -13,6 +13,8 @@
 // hashed file served on demand, so a few hundred icons don't bloat the bundle.
 // We only need metadata (path) eagerly for search/tabs; the bytes load via
 // <img src> when an icon actually renders.
+import { REMOTE_VENDOR_LOGOS } from "../icons/remote-logos";
+
 const urls = import.meta.glob("../icons/**/*.svg", { query: "?url", import: "default", eager: true }) as Record<string, string>;
 
 // STANDALONE build (`__ARCH_STANDALONE__`): the single-file HTML has no asset
@@ -49,12 +51,21 @@ function parse(path: string): Omit<FileIcon, "url"> {
   return { key: `file:${rel}`, group, category, name };
 }
 
-export const FILE_ICONS: FileIcon[] = Object.entries(urls)
-  .map(([path, url]) => ({
+// Trademarked partner logos are NOT self-hosted (legal: don't serve the bytes).
+// They live as remote URLs in REMOTE_VENDOR_LOGOS; synthesize FileIcon entries
+// for them here so their `file:vendor/<name>` keys resolve exactly like local
+// ones — only `url` points off-origin. OSS + cloud logos remain local (globbed).
+const REMOTE_FILE_ICONS: FileIcon[] = Object.entries(REMOTE_VENDOR_LOGOS).map(
+  ([name, url]) => ({ key: `file:vendor/${name}`, group: "vendor", category: "", name, url }),
+);
+
+export const FILE_ICONS: FileIcon[] = [
+  ...Object.entries(urls).map(([path, url]) => ({
     ...parse(path),
     url: IS_STANDALONE && raws[path] ? svgDataUri(raws[path]) : url,
-  }))
-  .sort((a, b) => a.key.localeCompare(b.key));
+  })),
+  ...REMOTE_FILE_ICONS,
+].sort((a, b) => a.key.localeCompare(b.key));
 
 const BY_KEY = new Map(FILE_ICONS.map((i) => [i.key, i]));
 

@@ -98,6 +98,17 @@ export function BrandMark({
     return <Data className={className} style={{ color: bandColor, ...style }} />;
   }
 
+  // Label-as-logo: `icon:"text"` (or no icon) renders the name as a brand-colored
+  // text badge — same visual as a trademark-gated logo with the toggle off. For
+  // sources/partners we have no logo for. Nothing to fetch, no icon file.
+  if (iconKey === "text" || !iconKey) {
+    return mono ? (
+      <Monogram label={label} color={bandColor} className={className} />
+    ) : (
+      <TextBadge label={label} color={bandColor} />
+    );
+  }
+
   if (!gated || allowTrademark) {
     // Show the real mark.
     if (isFileIconKey(iconKey)) return <FileSvgIcon iconKey={iconKey} className={className} style={style} />;
