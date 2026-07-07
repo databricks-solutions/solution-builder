@@ -35,12 +35,12 @@ class AppConfig(BaseSettings):
     # Endpoint name passed as Anthropic `model` field by Claude Code
     # (Agent SDK). For FMAPI default endpoints this is the
     # workspace-shipped Anthropic-shape model name (e.g.
-    # databricks-claude-sonnet-4-6); for custom AI Gateway endpoints
+    # databricks-claude-sonnet-4-8); for custom AI Gateway endpoints
     # this is the AI Gateway endpoint name (e.g. demo-generator-do-not-delete).
     # The model is dispatched by whatever bridge anthropic_base_path
     # resolves to.
     anthropic_llm_endpoint: str = Field(
-        default="databricks-claude-sonnet-4-6",
+        default="databricks-claude-sonnet-4-8",
         validation_alias="ANTHROPIC_LLM_ENDPOINT",
     )
 
