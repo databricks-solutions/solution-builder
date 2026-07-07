@@ -33,7 +33,7 @@ if [[ "$(uname -s)" != "Linux" ]]; then
     exit 1
 fi
 
-DBCLI_VERSION="0.299.0"
+DBCLI_VERSION="1.6.0"
 DBCLI_DIR="/tmp/databricks-cli-v${DBCLI_VERSION}"
 DBCLI_BIN="$DBCLI_DIR/databricks"
 

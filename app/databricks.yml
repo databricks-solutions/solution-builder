@@ -179,3 +179,10 @@ targets:
       name_prefix: ""
     workspace:
       root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.name}_staging/${bundle.target}
+  # FEVM Solution Builder workspace. Non-default — deploy explicitly with
+  # `databricks bundle deploy -t prod-fevm`. Profile + vars + app_env live in
+  # databricks.prod-fevm.yml (gitignored). Same production layout as `prod`.
+  prod-fevm:
+    mode: production
+    workspace:
+      root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}
