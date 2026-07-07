@@ -98,13 +98,14 @@ export type ProjectTab = (typeof PROJECT_TABS)[number];
 
 /** Build the "context hint" describing what the user currently has open, sent
  *  alongside a chat message so the agent can resolve vague references. Returns
- *  undefined for the main pages (overview/story) — no hint worth sending there.
- *  Pure so it's shared by the send path (via refs) and the C-badge display. */
+ *  undefined for the overview tab (the resource grid — no single artifact worth
+ *  naming). Pure so it's shared by the send path (via refs) and the C-badge display. */
 export function buildContextHint(
   activeTab: ProjectTab,
   selectedFile: string | null,
   previewPath: string | null,
 ): string | undefined {
+  if (activeTab === "story") return "the demo story (README)";
   if (activeTab === "architecture") return "the architecture diagram";
   if (activeTab === "files" && selectedFile) return `the file \`${selectedFile}\``;
   if (activeTab === "app") {

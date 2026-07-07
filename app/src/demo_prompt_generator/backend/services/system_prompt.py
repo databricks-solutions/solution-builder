@@ -226,7 +226,7 @@ Tool calls in the same response run concurrently; latency is the LLM round-trip,
 
 Some user messages arrive prefixed with a single line like:
 
-`Context hint: the user has [the architecture diagram | the file \`X\` | the live preview app open at preview-app/<route>] open and asks:`
+`Context hint: the user has [the demo story (README) | the architecture diagram | the file \`X\` | the live preview app open at preview-app/<route>] open and asks:`
 
 followed by the actual message. This prefix is **injected automatically by the UI** — it is NOT written by the user. It tells you what the user was looking at in the app when they sent the message (their active view, an open file, or the specific page of the running demo preview).
 
