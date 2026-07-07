@@ -54,6 +54,16 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# Any bundle deploy (--target set) rewrites the lock's internal-proxy URLs to
+# public PyPI: the proxy mirrors PyPI with identical /packages/<hash>/ paths so
+# hashes stay valid, and some Apps containers (e.g. field-eng / prod-fevm) can't
+# reach pypi-proxy.dev.databricks.com. Local dev builds (no --target) skip it —
+# on the Databricks network the proxy is the faster path. Overridable via the
+# REWRITE_LOCK_TO_PUBLIC_PYPI env var.
+if [[ -n "$TARGET" && -z "${REWRITE_LOCK_TO_PUBLIC_PYPI:-}" ]]; then
+    REWRITE_LOCK_TO_PUBLIC_PYPI=1
+fi
+
 # --- 1. Build frontend ---
 if [[ -z "$SKIP_FRONTEND" ]]; then
     if [[ ! -d node_modules ]]; then

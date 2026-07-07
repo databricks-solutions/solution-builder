@@ -249,6 +249,10 @@ def _build_resources_section(
 
     if warehouse_id:
         parts.append(f"- **SQL Warehouse ID:** `{warehouse_id}`")
+        parts.append(
+            f"  - To run SQL: `databricks sql execute-statement` is NOT available — use "
+            f"`DATABRICKS_WAREHOUSE_ID={warehouse_id} databricks experimental aitools tools query \"SQL\"` instead."
+        )
 
     if default_catalog:
         parts.append(f"- **Catalog:** `{default_catalog}`")
