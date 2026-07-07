@@ -1,11 +1,12 @@
 /**
- * remote-logos — trademarked partner logos referenced from public CDNs
- * instead of self-hosted SVG files. Legal asked us not to serve the bytes
- * for trademarked marks; referencing an off-our-server URL resolves it.
+ * remote-logos — partner/product logos referenced from public CDNs instead of
+ * self-hosted SVG files. Two reasons a logo lives here rather than on disk:
+ *   1. Trademarked marks (Snowflake, Salesforce, …) — legal asked us not to
+ *      serve the bytes; an off-our-server URL resolves it.
+ *   2. Extra data/AI/dev logos we want available without bloating the repo.
  *
  * OSS logos (Apache*, Postgres, Redis, …) and cloud marks stay local under
- * ui/icons/. Only these trademarked names moved to remote sources. Every URL
- * was curl-verified (HTTP 200 + SVG body) and serves a full-color logo.
+ * ui/icons/. Every URL was curl-verified (HTTP 200 + SVG body), full-color.
  *
  * Sources: cdn.svglogos.dev (bulk, full-color), vectorlogo.zone, Wikimedia
  * Commons, worldvectorlogo. file-icons.tsx merges these into FILE_ICONS so
@@ -82,6 +83,35 @@ export const REMOTE_VENDOR_LOGOS: Record<string, string> = {
   zapier: "https://cdn.svglogos.dev/logos/zapier.svg",
   zendesk: "https://cdn.svglogos.dev/logos/zendesk.svg",
   zoho: "https://cdn.svglogos.dev/logos/zoho.svg",
+
+  // ── Data / AI / dev-tool logos (not trademark-driven — just useful) ──────
+  // All verified 200 + SVG on cdn.svglogos.dev. `-icon` variant preferred for
+  // brands that have one (square/compact, better as a diagram tile).
+  // AI / LLM:
+  mcp: "https://cdn.svglogos.dev/logos/model-context-protocol.svg",
+  "hugging-face": "https://cdn.svglogos.dev/logos/hugging-face.svg",
+  mistral: "https://cdn.svglogos.dev/logos/mistral-ai.svg",
+  perplexity: "https://cdn.svglogos.dev/logos/perplexity-icon.svg",
+  pinecone: "https://cdn.svglogos.dev/logos/pinecone.svg",
+  chroma: "https://cdn.svglogos.dev/logos/chroma.svg",
+  qdrant: "https://cdn.svglogos.dev/logos/qdrant.svg",
+  milvus: "https://cdn.svglogos.dev/logos/milvus.svg",
+  // Dev / deploy / runtime:
+  vercel: "https://cdn.svglogos.dev/logos/vercel-icon.svg",
+  netlify: "https://cdn.svglogos.dev/logos/netlify-icon.svg",
+  cloudflare: "https://cdn.svglogos.dev/logos/cloudflare-icon.svg",
+  docker: "https://cdn.svglogos.dev/logos/docker-icon.svg",
+  kubernetes: "https://cdn.svglogos.dev/logos/kubernetes.svg",
+  terraform: "https://cdn.svglogos.dev/logos/terraform-icon.svg",
+  fastapi: "https://cdn.svglogos.dev/logos/fastapi-icon.svg",
+  react: "https://cdn.svglogos.dev/logos/react.svg",
+  nextjs: "https://cdn.svglogos.dev/logos/nextjs-icon.svg",
+  nodejs: "https://cdn.svglogos.dev/logos/nodejs-icon.svg",
+  python: "https://cdn.svglogos.dev/logos/python.svg",
+  streamlit: "https://cdn.svglogos.dev/logos/streamlit.svg",
+  gradio: "https://cdn.svglogos.dev/logos/gradio.svg",
+  // Data warehouse:
+  "aws-redshift": "https://cdn.svglogos.dev/logos/aws-redshift.svg",
 };
 
-// 70 trademarked logos referenced remotely.
+// Trademarked partner logos (70) + data/AI/dev logos, all referenced remotely.
