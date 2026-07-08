@@ -219,7 +219,7 @@ export function NodeCard(p: NodeCardProps) {
       onDoubleClick={(e) => e.stopPropagation()}
       placeholder={p.titlePlaceholder}
       className={`min-w-0 bg-transparent text-[13px] font-semibold outline-none ${
-        autoFit ? (horizontal ? "text-left" : "text-center") : "w-full"
+        autoFit ? (horizontal ? (cap === "left" ? "text-right" : "text-left") : "text-center") : "w-full"
       } ${p.fontColor ? "" : "text-foreground"}`}
       style={p.fontColor ? { color: p.fontColor, fontSize, ...(bold ? { fontWeight: 700 } : {}) } : { fontSize, ...(bold ? { fontWeight: 700 } : {}) }}
     />
@@ -279,9 +279,12 @@ export function NodeCard(p: NodeCardProps) {
 
   // Header text column: title (+ badge + live dot), optional subtitle, and the
   // optional editable description line.
+  // Left caption: the text sits BEFORE the icon, so right-align it to hug the
+  // logo. Right caption already hugs (left-aligned next to the icon).
+  const leftCaption = cap === "left";
   const labelCol = (
-    <span className={`flex min-w-0 flex-col ${horizontal ? "flex-1" : "items-center text-center"}`}>
-      <span className={`flex min-w-0 items-center gap-1.5 leading-tight ${horizontal ? "" : "justify-center"}`}>
+    <span className={`flex min-w-0 flex-col ${horizontal ? `flex-1 ${leftCaption ? "items-end text-right" : ""}` : "items-center text-center"}`}>
+      <span className={`flex min-w-0 items-center gap-1.5 leading-tight ${horizontal ? (leftCaption ? "justify-end" : "") : "justify-center"}`}>
         {titleEl}
         {p.badge && editing === null && (
           <span
