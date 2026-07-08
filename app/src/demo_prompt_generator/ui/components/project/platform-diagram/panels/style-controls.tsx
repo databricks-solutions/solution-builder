@@ -39,7 +39,6 @@ export function AnnotationMenu({
   Item,
   onAnno,
   onPickLogo,
-  onSetImageUrl,
   onRotate,
   onRemove,
 }: {
@@ -47,7 +46,6 @@ export function AnnotationMenu({
   Item: MenuItemFn;
   onAnno: (patch: Partial<AnnotationData>) => void;
   onPickLogo: () => void;
-  onSetImageUrl: () => void;
   onRotate: () => void;
   onRemove: () => void;
 }) {
@@ -92,7 +90,21 @@ export function AnnotationMenu({
             onClick={(e) => e.stopPropagation()} className="h-1.5 w-full cursor-pointer accent-primary" />
         </div>
       )}
-      {a.variant === "image" && <Item icon={<ImageIcon className="h-3.5 w-3.5" />} label="Set image URL…" onClick={onSetImageUrl} />}
+      {a.variant === "image" && (
+        <div className="px-2 py-1.5">
+          <div className="mb-1 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+            <ImageIcon className="h-3.5 w-3.5" /> Image URL
+          </div>
+          <input
+            type="text"
+            defaultValue={a.src ?? ""}
+            placeholder="https://…"
+            onClick={(e) => e.stopPropagation()}
+            onChange={(e) => onAnno({ src: e.target.value })}
+            className="w-full rounded border border-border bg-background px-2 py-1 text-[11px] outline-none focus:border-primary"
+          />
+        </div>
+      )}
       {isTextual && (
         <>
           {/* Font size */}

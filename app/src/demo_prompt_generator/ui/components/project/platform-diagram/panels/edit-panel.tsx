@@ -57,7 +57,6 @@ export const EditPanel = memo(function EditPanel({
   onSetScale,
   onAnno,
   onPickLogo,
-  onSetImageUrl,
   onStyle,
   onCopyStyle,
   onGroup,
@@ -96,7 +95,6 @@ export const EditPanel = memo(function EditPanel({
   onSetScale: (s: number) => void;
   onAnno: (patch: Partial<AnnotationData>) => void;
   onPickLogo: () => void;
-  onSetImageUrl: () => void;
   onStyle: (patch: StylePatch) => void;
   onCopyStyle: () => void;
   onGroup: () => void;
@@ -178,7 +176,7 @@ export const EditPanel = memo(function EditPanel({
           </>
         ) : annotation ? (
           <>
-            <AnnotationMenu a={annotation} Item={Item} onAnno={onAnno} onPickLogo={onPickLogo} onSetImageUrl={onSetImageUrl} onRotate={onRotate} onRemove={onRemove} />
+            <AnnotationMenu a={annotation} Item={Item} onAnno={onAnno} onPickLogo={onPickLogo} onRotate={onRotate} onRemove={onRemove} />
             {DescToggle}
             <Divider />
             <StyleControls style={style} onStyle={onStyle} showIconColor={annotation.variant === "logo"} noBoxDefaults={annotation.variant === "logo"} />

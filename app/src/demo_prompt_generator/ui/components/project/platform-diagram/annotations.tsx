@@ -44,7 +44,7 @@ export interface AnnotationNodeData extends NodeData {
 export const ANNOTATION_DEFAULT_SIZE: Record<AnnotationVariant, { w: number; h: number }> = {
   text: { w: 160, h: 40 },
   box: { w: 320, h: 180 },
-  logo: { w: 64, h: 64 },
+  logo: { w: 60, h: 60 },
   image: { w: 200, h: 140 },
 };
 
@@ -127,11 +127,12 @@ export const AnnotationNode = memo(function AnnotationNode({ data, selected }: N
   if (a.variant === "logo") {
     const pos = capNorm ?? "bottom";
     // Positioned → fixed icon square that NodeCard wraps + auto-fits; legacy
-    // unpositioned → icon fills the box (the old p-2.5 look).
+    // unpositioned → icon fills the box. Minimal padding so the glyph fills the
+    // tile (node-card already adds its own px-3 py-2.5 around the content).
     const iconEl = logoPositioned ? (
       <AnyIcon iconKey={a.icon ?? "data"} className="h-full w-full [&_svg]:h-full [&_svg]:w-full" style={d.iconColor ? { color: d.iconColor } : undefined} />
     ) : (
-      <AnyIcon iconKey={a.icon ?? "data"} className="min-h-0 w-full flex-1 p-2.5 [&_svg]:h-full [&_svg]:w-full" style={d.iconColor ? { color: d.iconColor } : undefined} />
+      <AnyIcon iconKey={a.icon ?? "data"} className="min-h-0 w-full flex-1 [&_svg]:h-full [&_svg]:w-full" style={d.iconColor ? { color: d.iconColor } : undefined} />
     );
     return (
       <NodeCard
@@ -320,7 +321,7 @@ export const AnnotationNode = memo(function AnnotationNode({ data, selected }: N
           {a.src ? (
             <img src={a.src} alt="" className="h-full w-full object-contain" draggable={false} />
           ) : (
-            <span className="px-2 text-center text-[11px] text-muted-foreground">Right-click → Set image URL</span>
+            <span className="px-2 text-center text-[11px] text-muted-foreground">Set the image url in the right menu</span>
           )}
         </div>
       )}

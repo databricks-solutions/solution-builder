@@ -42,8 +42,11 @@ export const ComponentNode = memo(function ComponentNode({ data, selected }: Nod
   const defaultSize = vertical ? VERTICAL_SOURCE_SIZE : nat;
 
   // Icon: real logo, or a full-name brand badge when the logo is trademark-
-  // gated and not enabled.
-  const icon = isTrademarkMark(c.icon) && !d.allowTrademark ? (
+  // gated and not enabled — OR when the node opts into a label-only text badge
+  // (`icon:"text"` / no icon, e.g. a partner we have no logo for). Both render
+  // the bare BrandMark (a TextBadge) with no icon-tile box around it.
+  const isTextBadge = c.icon === "text" || !c.icon;
+  const icon = isTextBadge || (isTrademarkMark(c.icon) && !d.allowTrademark) ? (
     <BrandMark iconKey={c.icon} label={c.label} bandColor={bandColor} allowTrademark={false} />
   ) : (
     <span

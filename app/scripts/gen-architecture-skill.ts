@@ -16,6 +16,7 @@ import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { readdirSync } from "node:fs";
 import { CATALOG, BAND_ORDER, BAND_META, naturalSize } from "@/lib/platform-architecture";
+import { REMOTE_VENDOR_LOGOS } from "@/icons/remote-logos";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 // HERE = app/scripts → repo root is two levels up.
@@ -90,8 +91,13 @@ function renderIcons(): string {
 
   const svgs = listSvgs(ICONS_DIR).map((p) => p.replace(/\.svg$/, "")); // e.g. "cloud/aws/storage/s3"
 
-  // Vendor logos → one dense comma list of `file:vendor/<name>`.
-  const vendor = svgs.filter((p) => p.startsWith("vendor/")).map((p) => p.slice("vendor/".length)).sort();
+  // Vendor logos → one dense comma list of `file:vendor/<name>`. Local OSS/brand
+  // SVGs live on disk; trademarked partner logos are referenced remotely (see
+  // icons/remote-logos.ts — not self-hosted). Both use the same `file:vendor/<name>`
+  // key, so merge both sources into the list the agent can pick from.
+  const localVendor = svgs.filter((p) => p.startsWith("vendor/")).map((p) => p.slice("vendor/".length));
+  const remoteVendor = Object.keys(REMOTE_VENDOR_LOGOS);
+  const vendor = [...new Set([...localVendor, ...remoteVendor])].sort();
   lines.push("**Vendor / product logos** — `file:vendor/<name>`:");
   lines.push("");
   lines.push(vendor.map((n) => `\`${n}\``).join(", "));

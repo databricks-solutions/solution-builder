@@ -219,7 +219,7 @@ export function NodeCard(p: NodeCardProps) {
       onDoubleClick={(e) => e.stopPropagation()}
       placeholder={p.titlePlaceholder}
       className={`min-w-0 bg-transparent text-[13px] font-semibold outline-none ${
-        autoFit ? (horizontal ? "text-left" : "text-center") : "w-full"
+        autoFit ? (horizontal ? (cap === "left" ? "text-right" : "text-left") : "text-center") : "w-full"
       } ${p.fontColor ? "" : "text-foreground"}`}
       style={p.fontColor ? { color: p.fontColor, fontSize, ...(bold ? { fontWeight: 700 } : {}) } : { fontSize, ...(bold ? { fontWeight: 700 } : {}) }}
     />
@@ -232,11 +232,11 @@ export function NodeCard(p: NodeCardProps) {
     >
       {p.title}
     </span>
-  ) : p.hideEmptyTitle && !p.editMode ? null : (
-    // Empty title. In edit mode always render a faint, double-clickable
-    // placeholder (even for logos, which hide an empty title when NOT editing)
-    // so there's a visible target to double-click and type a caption. Outside
-    // edit mode a hideEmptyTitle node still renders nothing.
+  ) : p.hideEmptyTitle ? null : (
+    // Empty title (non-logo). In edit mode render a faint, double-clickable
+    // placeholder so there's a visible target to double-click and type a label.
+    // Logos (hideEmptyTitle) render NOTHING here — the mark fills the tile and
+    // double-clicking the icon adds a label (see the icon wrapper below).
     <span
       className={`min-w-0 truncate text-[13px] italic ${autoFit ? "whitespace-nowrap" : ""} text-muted-foreground/50`}
       style={{ fontSize }}
@@ -279,9 +279,12 @@ export function NodeCard(p: NodeCardProps) {
 
   // Header text column: title (+ badge + live dot), optional subtitle, and the
   // optional editable description line.
+  // Left caption: the text sits BEFORE the icon, so right-align it to hug the
+  // logo. Right caption already hugs (left-aligned next to the icon).
+  const leftCaption = cap === "left";
   const labelCol = (
-    <span className={`flex min-w-0 flex-col ${horizontal ? "flex-1" : "items-center text-center"}`}>
-      <span className={`flex min-w-0 items-center gap-1.5 leading-tight ${horizontal ? "" : "justify-center"}`}>
+    <span className={`flex min-w-0 flex-col ${horizontal ? `flex-1 ${leftCaption ? "items-end text-right" : ""}` : "items-center text-center"}`}>
+      <span className={`flex min-w-0 items-center gap-1.5 leading-tight ${horizontal ? (leftCaption ? "justify-end" : "") : "justify-center"}`}>
         {titleEl}
         {p.badge && editing === null && (
           <span
@@ -336,7 +339,15 @@ export function NodeCard(p: NodeCardProps) {
     >
       <div
         onClick={() => p.onSelect(p.nodeId)}
-        onDoubleClick={autoFit ? (e) => { e.stopPropagation(); setEditing(p.title); } : undefined}
+        // Double-click starts label editing. For autoFit tiles AND for logos
+        // (which hide the empty-title placeholder), so a labelless logo can get
+        // a caption by double-clicking it. `?? ""` so an undefined title still
+        // opens a controlled (focusable) input.
+        onDoubleClick={
+          (autoFit || p.hideEmptyTitle) && p.editMode
+            ? (e) => { e.stopPropagation(); setEditing(p.title ?? ""); }
+            : undefined
+        }
         className={`group relative flex h-full w-full flex-col overflow-hidden transition-shadow ${
           p.styleVariant === "tile" && !hasFill ? "bg-card" : ""
         } ${selectedRing(p.selected)}`}
@@ -344,7 +355,7 @@ export function NodeCard(p: NodeCardProps) {
         title={autoFit ? "Double-click to edit text · right-click for options" : undefined}
       >
         <div
-          className={`flex min-h-0 w-full flex-1 ${horizontal ? "flex-row items-center gap-2.5" : "flex-col items-center justify-center gap-1.5"} px-3 py-2.5`}
+          className={`flex min-h-0 w-full flex-1 ${horizontal ? "flex-row items-center gap-2.5" : "flex-col items-center justify-center gap-1.5"} ${p.styleVariant === "logo" ? "px-1.5 py-1.5" : "px-3 py-2.5"}`}
           style={{ transform: "scale(var(--cs, 1))", transformOrigin: horizontal ? "left center" : "center" }}
         >
           {iconFirst ? <>{iconEl}{labelCol}</> : <>{labelCol}{iconEl}</>}

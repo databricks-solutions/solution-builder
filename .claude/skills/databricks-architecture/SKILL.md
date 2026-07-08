@@ -55,7 +55,10 @@ when you emit into the inline block, which is parsed as plain JSON:
   "columns": ["sources", "pipeline", "compute", "work", "entry"],
   "nodes": [
     // A real, named source. `ingest` decides which Lakeflow port it lands on.
-    { "id": "src-postgres", "type": "source", "col": "sources", "label": "Postgres", "icon": "file:vendor/postgresql", "ingest": "lakeflow-connect" },
+    { "id": "src-postgres", "type": "source", "col": "sources", "row": 1, "label": "Postgres", "icon": "file:vendor/postgresql", "ingest": "lakeflow-connect" },
+    // A source we have NO logo for → `icon:"text"` renders the label as a
+    // brand-colored text badge (no icon file). Use this for niche/internal systems.
+    { "id": "src-erp", "type": "source", "col": "sources", "row": 2, "label": "Acme ERP", "icon": "text", "ingest": "lakeflow-connect" },
     // The one data-layer block (ingest + bronze→silver→gold, built by Genie Code).
     { "id": "lakeflow-genie-block", "type": "lakeflow-genie-block", "col": "pipeline" },
     { "id": "lakehouse", "type": "lakehouse", "col": "compute" },
@@ -73,10 +76,11 @@ when you emit into the inline block, which is parsed as plain JSON:
     { "id": "governance-block", "type": "governance-block", "pin": { "at": "top", "to": "platform-box" } },
     // One white box wrapping the whole flow = "all of this is the platform".
     { "id": "platform-box", "type": "box", "z": -1,
-      "wraps": ["src-postgres", "lakeflow-genie-block", "lakehouse", "aibi-dashboards", "genie", "databricks-apps-work", "genie-one"] }
+      "wraps": ["src-postgres", "src-erp", "lakeflow-genie-block", "lakehouse", "aibi-dashboards", "genie", "databricks-apps-work", "genie-one"] }
   ],
   "edges": [
     { "id": "e1", "from": "src-postgres", "to": "lakeflow-genie-block", "flow": true },
+    { "id": "e1b", "from": "src-erp", "to": "lakeflow-genie-block", "flow": true },
     { "id": "e2", "from": "lakeflow-genie-block", "to": "lakehouse", "flow": true },
     { "id": "e3", "from": "lakehouse", "to": "aibi-dashboards", "flow": true },
     { "id": "e4", "from": "lakehouse", "to": "genie", "flow": true },
@@ -231,6 +235,7 @@ So: a **data source** reads as a bordered tile out of the box, while a **logo** 
 
 ### Custom logos & images
 
+- **Label-only source (no logo)** — for a source or partner you have no logo for, set `"icon": "text"` (or omit `icon`) on a `type:"source"` node. It renders the `label` as a brand-colored text badge (the same style as a trademark-gated logo) — no icon file needed. Prefer this over an unrelated logo when there's no real mark.
 - **Custom SVG logos** — add inline SVGs in the top-level `custom_logos` array and reference them by id from ANY node's `icon`:
   ```json
   "custom_logos": [
@@ -362,7 +367,7 @@ Logos you can set as a node `icon`. Keys are self-explanatory; use them verbatim
 
 **Vendor / product logos** — `file:vendor/<name>`:
 
-`adyen`, `agent-bricks`, `airbyte`, `airtable`, `amplitude`, `anthropic`, `apache-airflow`, `apache-couchdb`, `apache-flink`, `apache-hbase`, `apache-nifi`, `apache-spark`, `atlassian`, `bigcommerce`, `box`, `braze`, `brevo`, `cassandra`, `clickhouse`, `cockroachdb`, `confluence`, `couchbase`, `custom-source`, `databricks`, `databricks-wordmark`, `dbt`, `dropbox`, `duckdb`, `elasticsearch`, `gemini`, `genie-ontology`, `github`, `gitlab`, `glean`, `google-ads`, `google-analytics`, `google-docs`, `google-drive`, `google-sheets`, `grafana`, `hootsuite`, `hubspot`, `ibm`, `influxdb`, `informatica`, `intercom`, `jira`, `kafka`, `klarna`, `looker`, `mailchimp`, `mariadb`, `marketo`, `mastercard`, `meta`, `metabase`, `microsoft`, `microsoft-sql-server`, `mixpanel`, `mongodb`, `mqtt`, `mysql`, `neo4j`, `node-red`, `notion`, `openai`, `oracle`, `paypal`, `planetscale`, `postgresql`, `power-bi`, `prestashop`, `presto`, `pulsar`, `qlik`, `quickbooks`, `rabbitmq`, `redis`, `salesforce`, `sap`, `scylladb`, `segment`, `sendgrid`, `shopify`, `shopware`, `siemens`, `singlestore`, `slack`, `snapchat`, `snowflake`, `sqlite`, `square`, `stripe`, `supabase`, `superset`, `tableau`, `talend`, `teradata`, `tiktok`, `trino`, `twilio`, `visa`, `woocommerce`, `xero`, `youtube`, `zapier`, `zendesk`, `zeroops`, `zoho`
+`adyen`, `agent-bricks`, `airbyte`, `airtable`, `amplitude`, `anthropic`, `apache-airflow`, `apache-couchdb`, `apache-flink`, `apache-hbase`, `apache-nifi`, `apache-spark`, `atlassian`, `aws-redshift`, `bigcommerce`, `box`, `braze`, `brevo`, `cassandra`, `chroma`, `clickhouse`, `cloudflare`, `cockroachdb`, `confluence`, `couchbase`, `custom-source`, `databricks`, `databricks-wordmark`, `dbt`, `docker`, `dropbox`, `duckdb`, `elasticsearch`, `fastapi`, `gemini`, `genie-ontology`, `github`, `gitlab`, `glean`, `google-ads`, `google-analytics`, `google-docs`, `google-drive`, `google-sheets`, `gradio`, `grafana`, `hootsuite`, `hubspot`, `hugging-face`, `ibm`, `influxdb`, `informatica`, `intercom`, `jira`, `kafka`, `klarna`, `kubernetes`, `looker`, `mailchimp`, `mariadb`, `marketo`, `mastercard`, `mcp`, `meta`, `metabase`, `microsoft`, `microsoft-sql-server`, `milvus`, `mistral`, `mixpanel`, `mongodb`, `mqtt`, `mysql`, `neo4j`, `netlify`, `nextjs`, `node-red`, `nodejs`, `notion`, `openai`, `oracle`, `paypal`, `perplexity`, `pinecone`, `planetscale`, `postgresql`, `power-bi`, `prestashop`, `presto`, `pulsar`, `python`, `qdrant`, `qlik`, `quickbooks`, `rabbitmq`, `react`, `redis`, `salesforce`, `sap`, `scylladb`, `segment`, `sendgrid`, `shopify`, `shopware`, `siemens`, `singlestore`, `slack`, `snapchat`, `snowflake`, `sqlite`, `square`, `streamlit`, `stripe`, `supabase`, `superset`, `tableau`, `talend`, `teradata`, `terraform`, `tiktok`, `trino`, `twilio`, `vercel`, `visa`, `woocommerce`, `xero`, `youtube`, `zapier`, `zendesk`, `zeroops`, `zoho`
 
 **Cloud logos** — `file:cloud/<provider>/<category>/<name>` (e.g. `file:cloud/aws/storage/s3`):
 
