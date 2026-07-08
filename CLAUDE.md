@@ -266,6 +266,52 @@ The template lives inside the skill and is **shipped** to every generated demo. 
 
 **LuxeBeauty assets** (deployed by hand for the test app, source-controlled in `app/test/app_template_test/src/`) include: SDP pipeline, AI/BI dashboard, Genie space, Knowledge Assistant, Multi-Agent Supervisor, metric view, ML model. IDs land in `app/test/app_template_test/resources.json`. Source files for each asset live under `src/<asset_type>/` so the whole demo can be re-created from scratch (see `app/test/app_template_test/src/README.md`).
 
+## App development (`app/`) — backend + frontend patterns
+
+Full-stack: **FastAPI + SQLModel + Lakebase** backend, **React 19 + TanStack Router + Tailwind v4 + shadcn/ui** frontend. Frontend calls `/api/*`; in dev Vite proxies to uvicorn, in prod FastAPI serves the built frontend statically.
+
+### Backend (`src/demo_prompt_generator/backend/`)
+
+```
+app.py       # create_app() + router
+models.py    # ALL SQLModel tables + Pydantic schemas (single file)
+router.py    # imports + registers all route modules
+core/        # _factory (app+lifespan+static), _config (AppConfig), _headers,
+             #   dependencies (DI aliases), lakebase (engine, migrations, session)
+routes/      # one module per resource: agent, projects, project_files (incl
+             #   architecture-snapshot PNG), messages, templates, resources,
+             #   skills, config, constants, block_factory
+services/    # agent (SDK+streaming), llm_service (FMAPI), file_sync, file_watcher,
+             #   skills_manager, template_service, block_factory, system_prompt, active_stream
+```
+
+- **DI:** use the `Dependencies` class in handlers, never build clients manually — `Dependencies.{Session, Client (app SP), UserClient (OBO), Config, Headers}`.
+- **New route:** file in `routes/`, `create_router()`, endpoints with **`response_model` + `operation_id` (both required** — drive client codegen), register in `router.py`.
+- **Models — 3-model pattern** in `models.py`: `Entity` (SQLModel `table=True`) / `EntityCreate|In` (Pydantic input) / `EntityOut` (Pydantic output).
+
+### Frontend (`src/demo_prompt_generator/ui/`)
+
+```
+main.tsx                 # entry (React Query + Router)
+routeTree.gen.ts         # AUTO-GENERATED — never edit
+routes/                  # file-based (TanStack): index, project.$projectId (the
+                         #   workspace), projects, gallery, templates, profile, setup…
+components/{ui,project,layout}/   # shadcn primitives / workspace / app shell
+lib/custom-api.ts        # ★ hand-written API client (types + fetch + SSE) — the primary client
+lib/{config,utils}.ts    # apiUrl() base resolution; cn() class merge
+styles/globals.css       # Tailwind + oklch CSS custom properties
+```
+
+- **Routing:** file-based; `project.$projectId.tsx` → `/project/:projectId`. Don't edit `routeTree.gen.ts`.
+- **API client:** `lib/custom-api.ts` (hand-written, fully typed). `invokeAgent()` returns an `execution_id`, then `streamAgentProgress(id, signal)` yields typed SSE events. `lib/api.ts` is an auto-generated OpenAPI backup.
+- **State:** local `useState`/`useRef` (no global store; Zustand present but unused; React Query available but the workspace page fetches manually).
+- **Workspace page** (`routes/project.$projectId.tsx`): two panels — left file-viewer (tabs: overview/story/architecture/files/app), right resizable ChatPanel (SSE streaming + reasoning). Owns the legacy-migration nudge + the architecture-snapshot capture (see arch section above).
+
+- **shadcn/ui:** add primitives manually from the shadcn registry into `components/ui/`.
+- **Testing:** Playwright E2E in `tests/` (repo root) targets `http://localhost:9000` (prod-mode server, not the split dev ports).
+
+(Run/build commands live under **Quick commands** below.)
+
 ## Key concepts
 
 - **Block** — Markdown file with YAML frontmatter under `references/blocks/{domains,capabilities,patterns}/`. The agent composes these to build a demo's context.
@@ -284,8 +330,13 @@ uv run mypy src               # Backend types
 bun run build                 # Frontend → src/demo_prompt_generator/ui/__dist__/
 npx playwright test           # E2E (needs :9000)
 bun run build:arch-skill      # Rebuild the architecture skill (SKILL.md catalog + renderer/) from app code
+uv run uvicorn demo_prompt_generator.backend.app:app --host 127.0.0.1 --port 9000  # prod-mode locally (needs bun run build)
 
 # Generator deployment (NOT staging-then-prod by default — staging only unless user asks)
+# One-time: cp databricks.prod.yml.example databricks.prod.yml + fill 3 sections (gitignored).
+# `databricks bundle deploy` resolves it + invokes build.sh; build.sh --target prod reads
+# targets.prod.env from `databricks bundle summary --output json` → .build/app.yml
+# (no on-disk app.yml placeholder — databricks.prod.yml is the single source of truth).
 databricks bundle deploy -t staging
 ```
 
@@ -337,6 +388,6 @@ This document is loaded into context at the start of every session. **It is your
 
 Don't update for: in-flight feature work, bug fixes, refactors that don't move files. Memory entries under `~/.claude/projects/.../memory/` cover transient feedback.
 
-**Two CLAUDE.md files:** this **root** file always loads and holds the whole-system picture + anything dangerous or cross-cutting. `app/CLAUDE.md` holds app-dev detail (backend/frontend patterns, DI, models, routes) and loads only when you're working under `app/` — so **never put must-always-know facts (danger, cross-cutting architecture) only in `app/CLAUDE.md`; those belong here.** When you update one, check whether the other now contradicts it.
+**One CLAUDE.md, at the repo root.** There is deliberately no nested `app/CLAUDE.md` — a nested file only loads when you're working under that subtree, so facts would silently go missing. Everything (whole-system picture, app-dev patterns, dangers) lives in this one root file. Keep it that way: don't create per-directory CLAUDE.md files; add to the relevant section here instead.
 
 When in doubt, **read this file again from disk before relying on it** — code drifts faster than memory.
