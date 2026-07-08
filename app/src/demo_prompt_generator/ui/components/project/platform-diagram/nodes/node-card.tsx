@@ -352,7 +352,7 @@ export function NodeCard(p: NodeCardProps) {
         title={autoFit ? "Double-click to edit text · right-click for options" : undefined}
       >
         <div
-          className={`flex min-h-0 w-full flex-1 ${horizontal ? "flex-row items-center gap-2.5" : "flex-col items-center justify-center gap-1.5"} px-3 py-2.5`}
+          className={`flex min-h-0 w-full flex-1 ${horizontal ? "flex-row items-center gap-2.5" : "flex-col items-center justify-center gap-1.5"} ${p.styleVariant === "logo" ? "px-1.5 py-1.5" : "px-3 py-2.5"}`}
           style={{ transform: "scale(var(--cs, 1))", transformOrigin: horizontal ? "left center" : "center" }}
         >
           {iconFirst ? <>{iconEl}{labelCol}</> : <>{labelCol}{iconEl}</>}

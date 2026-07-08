@@ -127,11 +127,12 @@ export const AnnotationNode = memo(function AnnotationNode({ data, selected }: N
   if (a.variant === "logo") {
     const pos = capNorm ?? "bottom";
     // Positioned → fixed icon square that NodeCard wraps + auto-fits; legacy
-    // unpositioned → icon fills the box (the old p-2.5 look).
+    // unpositioned → icon fills the box. Minimal padding so the glyph fills the
+    // tile (node-card already adds its own px-3 py-2.5 around the content).
     const iconEl = logoPositioned ? (
       <AnyIcon iconKey={a.icon ?? "data"} className="h-full w-full [&_svg]:h-full [&_svg]:w-full" style={d.iconColor ? { color: d.iconColor } : undefined} />
     ) : (
-      <AnyIcon iconKey={a.icon ?? "data"} className="min-h-0 w-full flex-1 p-2.5 [&_svg]:h-full [&_svg]:w-full" style={d.iconColor ? { color: d.iconColor } : undefined} />
+      <AnyIcon iconKey={a.icon ?? "data"} className="min-h-0 w-full flex-1 [&_svg]:h-full [&_svg]:w-full" style={d.iconColor ? { color: d.iconColor } : undefined} />
     );
     return (
       <NodeCard
