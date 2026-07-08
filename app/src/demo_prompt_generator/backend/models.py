@@ -327,12 +327,29 @@ class ProjectStar(SQLModel, table=True):
     )
 
 
+class ShareRole(str, Enum):
+    """Access level a share grants to the recipient."""
+    VIEWER = "viewer"   # read-only: view + clone, cannot mutate the original
+    EDITOR = "editor"   # can modify (agent/files), but not delete or manage shares
+
+
+class ShareStatus(str, Enum):
+    """Where a share sits in the accept/decline handshake."""
+    PENDING = "pending"     # awaiting the recipient's response — grants no access yet
+    ACCEPTED = "accepted"   # recipient accepted — grants access at the share's role
+    DECLINED = "declined"   # recipient declined — grants nothing
+
+
 class ProjectShare(SQLModel, table=True):
     """
     Tracks project sharing between users.
 
-    The owner shares a project with another user via email.
-    Shared users get read-only access to view and fork the project.
+    The owner shares a project with another user via email at a given ``role``
+    (viewer = read-only, editor = can modify). The recipient must accept the
+    share (``status`` transitions pending -> accepted) before it grants any
+    access; a declined share grants nothing. Enforcement lives in
+    ``routes/projects.py`` (_get_project_access / _require_write_access /
+    _require_owner).
     """
     __tablename__ = "project_shares"
 
@@ -341,7 +358,12 @@ class ProjectShare(SQLModel, table=True):
     owner_email: str = SQLField(max_length=255)
     shared_with_email: str = SQLField(max_length=255)
     message: Optional[str] = SQLField(default=None, sa_column=Column(Text))
+    # Safe-by-default: a new share is a pending viewer grant until the owner
+    # picks otherwise and the recipient accepts. See migration v8 for backfill.
+    role: str = SQLField(default=ShareRole.VIEWER.value, max_length=20)
+    status: str = SQLField(default=ShareStatus.PENDING.value, max_length=20)
     created_at: datetime = SQLField(default_factory=utc_now)
+    responded_at: Optional[datetime] = SQLField(default=None)
 
     __table_args__ = (
         Index("ix_project_shares_unique", "project_id", "shared_with_email", unique=True),
@@ -652,6 +674,10 @@ class ProjectOut(BaseModel):
     # Template lineage
     source_template_id: Optional[str] = None
     source_template_name: Optional[str] = None
+    # Caller's access level on THIS project: "owner" | "admin" | "editor" |
+    # "viewer". Drives the read-only UI. Only populated by get_project; other
+    # (write) endpoints leave it None since their caller is never a viewer.
+    my_role: Optional[str] = None
 
 
 class ProjectListItem(BaseModel):
@@ -671,6 +697,8 @@ class ProjectListItem(BaseModel):
     # Populated only for "shared with me" views
     shared_by: Optional[str] = None
     shared_message: Optional[str] = None
+    # Caller's access on a shared project: 'viewer' | 'editor' (None if owner).
+    shared_role: Optional[str] = None
     owner_email: Optional[str] = None
     # Template lineage
     source_template_id: Optional[str] = None
@@ -681,6 +709,10 @@ class ProjectShareRequest(BaseModel):
     """Request to share a project with another user."""
     email: str = Field(..., description="Email of the user to share with")
     message: Optional[str] = Field(None, description="Optional message to include")
+    role: str = Field(
+        ShareRole.VIEWER.value,
+        description="Access to grant: 'viewer' (read-only) or 'editor' (can modify)",
+    )
 
 
 class ProjectShareOut(BaseModel):
@@ -690,7 +722,28 @@ class ProjectShareOut(BaseModel):
     owner_email: str
     shared_with_email: str
     message: Optional[str]
+    role: str = ShareRole.VIEWER.value
+    status: str = ShareStatus.PENDING.value
     created_at: datetime
+    responded_at: Optional[datetime] = None
+    # Project context — populated on the recipient's "invitations" view so the
+    # invite can be shown without a second fetch. Null on owner-side share lists.
+    project_name: Optional[str] = None
+
+
+class ShareRoleUpdateRequest(BaseModel):
+    """Owner changes an existing share's role (viewer/editor)."""
+    role: str = Field(..., description="New access level: 'viewer' or 'editor'")
+
+
+class ShareResponseRequest(BaseModel):
+    """Recipient's response to a pending share invitation."""
+    accept: bool = Field(..., description="True to accept the share, False to decline")
+
+
+class SuccessResponse(BaseModel):
+    """Generic {success: bool} response for delete-style endpoints."""
+    success: bool
 
 
 class ProjectFileOut(BaseModel):

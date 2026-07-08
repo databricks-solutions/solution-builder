@@ -28,6 +28,7 @@ import {
   Rocket,
   Download,
   Upload,
+  LayoutTemplate,
   ChevronDown,
   Play,
   RefreshCw,
@@ -565,16 +566,24 @@ export function BuildStepper({
           <div className="h-5 w-px bg-border" />
           <Button
             variant={templateStatus ? "outline" : "default"}
-            className="h-9 gap-2 px-4 text-sm cursor-pointer whitespace-nowrap"
+            className={
+              templateStatus
+                ? "h-9 gap-2 px-4 text-sm cursor-pointer whitespace-nowrap border-violet-300 text-violet-700 hover:bg-violet-50 hover:text-violet-800 dark:border-violet-800/70 dark:text-violet-300 dark:hover:bg-violet-950/50"
+                : "h-9 gap-2 px-4 text-sm cursor-pointer whitespace-nowrap bg-violet-600 text-white hover:bg-violet-700 dark:bg-violet-500 dark:hover:bg-violet-600"
+            }
             onClick={onPublishTemplate}
             title={
               templateStatus
-                ? "Update the published template from this project"
-                : "Publish this demo as a reusable template others can fork"
+                ? "Update the published gallery template from this project"
+                : "Publish this demo to the Gallery as a reusable template others can fork"
             }
           >
-            <Upload className="h-4 w-4" />
-            {templateStatus ? "Update template" : "Share as template"}
+            {templateStatus ? (
+              <Upload className="h-4 w-4" />
+            ) : (
+              <LayoutTemplate className="h-4 w-4" />
+            )}
+            {templateStatus ? "Update template" : "Publish to Gallery"}
             {templateStatus && (
               <Badge
                 variant="secondary"

@@ -10,14 +10,15 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { ProjectTile } from "@/components/project/project-tile";
+import { ShareDialog } from "@/components/project/share-dialog";
 import { AppLayout } from "@/components/layout/app-layout";
 import {
   listProjects,
   listSharedProjects,
+  listShareInvitations,
+  respondToShare,
+  cloneProject,
   toggleProjectStar,
-  shareProject,
-  listProjectShares,
-  unshareProject,
   deleteProject,
   getCurrentUser,
   type ProjectListItem,
@@ -30,11 +31,12 @@ import {
   Loader2,
   Star,
   Users,
-  Share2,
   X,
   Trash2,
   Shield,
   CheckSquare,
+  Check,
+  Mail,
 } from "lucide-react";
 
 function ProjectsWithLayout() {
@@ -51,6 +53,11 @@ export const Route = createFileRoute("/projects")({
 
 type SortOption = "most-recent" | "oldest";
 
+function formatEmailShort(email: string): string {
+  const name = email.split("@")[0];
+  return name.replace(/[._-]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
 function ProjectsPage() {
   const navigate = useNavigate();
   const [projects, setProjects] = useState<ProjectListItem[]>([]);
@@ -64,15 +71,14 @@ function ProjectsPage() {
   const [adminViewAll, setAdminViewAll] = useState(false);
   const [currentUserEmail, setCurrentUserEmail] = useState<string>("");
 
-  // Share dialog state
+  // Which project the <ShareDialog> is open for (null = closed).
   const [shareDialogProject, setShareDialogProject] =
     useState<ProjectListItem | null>(null);
-  const [shareEmail, setShareEmail] = useState("");
-  const [shareMessage, setShareMessage] = useState("");
-  const [isSharing, setIsSharing] = useState(false);
-  const [shareError, setShareError] = useState<string | null>(null);
-  const [existingShares, setExistingShares] = useState<ProjectShareOut[]>([]);
-  const [isLoadingShares, setIsLoadingShares] = useState(false);
+
+  // Incoming share invitations (pending) + clone-in-flight tracking.
+  const [invitations, setInvitations] = useState<ProjectShareOut[]>([]);
+  const [respondingId, setRespondingId] = useState<string | null>(null);
+  const [cloningId, setCloningId] = useState<string | null>(null);
 
   // Multi-select / bulk delete state
   const [selectionMode, setSelectionMode] = useState(false);
@@ -100,10 +106,12 @@ function ProjectsPage() {
     Promise.all([
       listProjects({ includeAll: adminViewAll }),
       listSharedProjects(),
+      listShareInvitations().catch(() => [] as ProjectShareOut[]),
     ])
-      .then(([own, shared]) => {
+      .then(([own, shared, invites]) => {
         setProjects(own);
         setSharedProjects(shared);
+        setInvitations(invites);
       })
       .catch((err) => setError(err.message))
       .finally(() => setIsLoading(false));
@@ -249,51 +257,40 @@ function ProjectsPage() {
     }
   };
 
-  const handleOpenShareDialog = async (project: ProjectListItem) => {
+  // The share form + existing-shares management now live in <ShareDialog>;
+  // this page just picks which project to open it for.
+  const handleOpenShareDialog = (project: ProjectListItem) => {
     setShareDialogProject(project);
-    setShareEmail("");
-    setShareMessage("");
-    setShareError(null);
-    setIsLoadingShares(true);
+  };
+
+  const handleRespondInvitation = async (
+    projectId: string,
+    accept: boolean
+  ) => {
+    setRespondingId(projectId);
     try {
-      const shares = await listProjectShares(project.id);
-      setExistingShares(shares);
-    } catch {
-      setExistingShares([]);
+      await respondToShare(projectId, accept);
+      // Drop the invite; on accept, pull it into the shared-with-me list.
+      setInvitations((prev) => prev.filter((i) => i.project_id !== projectId));
+      if (accept) {
+        const shared = await listSharedProjects();
+        setSharedProjects(shared);
+      }
+    } catch (err) {
+      console.error("Failed to respond to invitation:", err);
     } finally {
-      setIsLoadingShares(false);
+      setRespondingId(null);
     }
   };
 
-  const handleShare = async () => {
-    if (!shareDialogProject || !shareEmail.trim()) return;
-    setIsSharing(true);
-    setShareError(null);
+  const handleClone = async (projectId: string) => {
+    setCloningId(projectId);
     try {
-      const newShare = await shareProject(
-        shareDialogProject.id,
-        shareEmail.trim(),
-        shareMessage.trim() || undefined
-      );
-      setExistingShares((prev) => [...prev, newShare]);
-      setShareEmail("");
-      setShareMessage("");
+      const clone = await cloneProject(projectId);
+      navigate({ to: "/project/$projectId", params: { projectId: clone.id } });
     } catch (err) {
-      setShareError(
-        err instanceof Error ? err.message : "Failed to share project"
-      );
-    } finally {
-      setIsSharing(false);
-    }
-  };
-
-  const handleUnshare = async (shareId: number) => {
-    if (!shareDialogProject) return;
-    try {
-      await unshareProject(shareDialogProject.id, shareId);
-      setExistingShares((prev) => prev.filter((s) => s.id !== shareId));
-    } catch (err) {
-      console.error("Failed to unshare:", err);
+      console.error("Failed to clone project:", err);
+      setCloningId(null);
     }
   };
 
@@ -341,8 +338,13 @@ function ProjectsPage() {
     );
   }
 
-  // Empty state: no projects at all
-  if (projects.length === 0 && sharedProjects.length === 0) {
+  // Empty state: no projects at all. Pending invitations still count — a brand
+  // new user whose only item is an invite must be able to see and accept it.
+  if (
+    projects.length === 0 &&
+    sharedProjects.length === 0 &&
+    invitations.length === 0
+  ) {
     return (
       <div className="flex flex-1 items-center justify-center py-32">
         <div className="text-center space-y-4">
@@ -508,6 +510,67 @@ function ProjectsPage() {
         </section>
       )}
 
+      {/* Pending share invitations */}
+      {invitations.length > 0 && (
+        <section>
+          <div className="flex items-center gap-2 mb-3">
+            <Mail className="h-4 w-4 text-primary" />
+            <h2 className="text-sm font-semibold text-foreground">
+              Invitations
+            </h2>
+            <span className="text-xs text-muted-foreground">
+              ({invitations.length})
+            </span>
+          </div>
+          <div className="space-y-2">
+            {invitations.map((inv) => (
+              <div
+                key={inv.id}
+                className="flex items-center justify-between gap-3 rounded-xl border border-primary/20 bg-primary/[0.03] px-4 py-3"
+              >
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-foreground truncate">
+                    {inv.project_name || "A project"}
+                  </p>
+                  <p className="text-xs text-muted-foreground truncate">
+                    {formatEmailShort(inv.owner_email)} shared this with you as{" "}
+                    <span className="font-medium">
+                      {inv.role === "editor" ? "an editor" : "a viewer"}
+                    </span>
+                    {inv.message ? ` — “${inv.message}”` : ""}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={respondingId === inv.project_id}
+                    onClick={() =>
+                      handleRespondInvitation(inv.project_id, false)
+                    }
+                  >
+                    Decline
+                  </Button>
+                  <Button
+                    size="sm"
+                    disabled={respondingId === inv.project_id}
+                    onClick={() => handleRespondInvitation(inv.project_id, true)}
+                  >
+                    {respondingId === inv.project_id ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <>
+                        <Check className="h-3.5 w-3.5 mr-1" /> Accept
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
       {/* Shared with me section */}
       {hasShared && (
         <section>
@@ -527,6 +590,8 @@ function ProjectsPage() {
                 project={project}
                 onClick={() => handleTileClick(project)}
                 onToggleStar={() => handleToggleStar(project)}
+                onClone={() => handleClone(project.id)}
+                cloning={cloningId === project.id}
                 showOwner
                 selectable={selectionMode && canSelect(project)}
                 selected={selectedIds.has(project.id)}
@@ -592,124 +657,16 @@ function ProjectsPage() {
       </section>
 
       {/* Share Dialog */}
-      <Dialog
-        open={!!shareDialogProject}
-        onOpenChange={(open) => {
-          if (!open) setShareDialogProject(null);
-        }}
-      >
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Share2 className="h-5 w-5" />
-              Share Project
-            </DialogTitle>
-            <DialogDescription>
-              Share &ldquo;{shareDialogProject?.name}&rdquo; with a teammate via
-              their email.
-            </DialogDescription>
-          </DialogHeader>
-
-          {/* Share form */}
-          <div className="space-y-3">
-            <div>
-              <label
-                htmlFor="share-email"
-                className="text-sm font-medium text-foreground"
-              >
-                Email address
-              </label>
-              <input
-                id="share-email"
-                type="email"
-                placeholder="colleague@databricks.com"
-                value={shareEmail}
-                onChange={(e) => setShareEmail(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") handleShare();
-                }}
-                className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background"
-              />
-            </div>
-            <div>
-              <label
-                htmlFor="share-message"
-                className="text-sm font-medium text-foreground"
-              >
-                Message{" "}
-                <span className="text-muted-foreground font-normal">
-                  (optional)
-                </span>
-              </label>
-              <input
-                id="share-message"
-                type="text"
-                placeholder="Check out this solution..."
-                value={shareMessage}
-                onChange={(e) => setShareMessage(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") handleShare();
-                }}
-                className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background"
-              />
-            </div>
-
-            {shareError && (
-              <p className="text-sm text-destructive">{shareError}</p>
-            )}
-
-            <Button
-              onClick={handleShare}
-              disabled={!shareEmail.trim() || isSharing}
-              className="w-full"
-            >
-              {isSharing ? (
-                <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Sharing...
-                </>
-              ) : (
-                "Share"
-              )}
-            </Button>
-          </div>
-
-          {/* Existing shares */}
-          {(existingShares.length > 0 || isLoadingShares) && (
-            <div className="border-t border-border pt-4 mt-2">
-              <h4 className="text-sm font-medium text-foreground mb-2">
-                Shared with
-              </h4>
-              {isLoadingShares ? (
-                <div className="flex items-center gap-2 text-muted-foreground py-2">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  <span className="text-sm">Loading...</span>
-                </div>
-              ) : (
-                <ul className="space-y-2">
-                  {existingShares.map((share) => (
-                    <li
-                      key={share.id}
-                      className="flex items-center justify-between text-sm"
-                    >
-                      <span className="text-foreground truncate">
-                        {share.shared_with_email}
-                      </span>
-                      <button
-                        onClick={() => handleUnshare(share.id)}
-                        className="text-muted-foreground hover:text-destructive transition-colors p-1"
-                        title="Remove access"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
+      {shareDialogProject && (
+        <ShareDialog
+          projectId={shareDialogProject.id}
+          projectName={shareDialogProject.name}
+          open={!!shareDialogProject}
+          onOpenChange={(open) => {
+            if (!open) setShareDialogProject(null);
+          }}
+        />
+      )}
 
       {/* Bulk delete confirmation */}
       <Dialog

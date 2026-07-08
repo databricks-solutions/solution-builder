@@ -4,7 +4,7 @@
  */
 
 import { memo } from "react";
-import { ArrowUpRight, Star, Share2, User, LayoutTemplate, Check, FileText, MessageSquare, Building2 } from "lucide-react";
+import { ArrowUpRight, Star, Share2, User, LayoutTemplate, Check, FileText, MessageSquare, Building2, Copy, Eye, Pencil } from "lucide-react";
 import type { ProjectListItem } from "../../lib/custom-api";
 import { projectStatusFromStage, STATUS_META } from "../../lib/project-status";
 
@@ -13,6 +13,8 @@ interface ProjectTileProps {
   onClick: () => void;
   onToggleStar?: (e: React.MouseEvent) => void;
   onShare?: (e: React.MouseEvent) => void;
+  onClone?: (e: React.MouseEvent) => void;
+  cloning?: boolean;
   showOwner?: boolean;
   selectable?: boolean;
   selected?: boolean;
@@ -57,12 +59,15 @@ export const ProjectTile = memo(function ProjectTile({
   onClick,
   onToggleStar,
   onShare,
+  onClone,
+  cloning = false,
   showOwner = false,
   selectable = false,
   selected = false,
 }: ProjectTileProps) {
   const status = projectStatusFromStage(project.stage);
   const statusMeta = STATUS_META[status];
+  const role = project.shared_role;
   return (
     <button
       type="button"
@@ -141,6 +146,27 @@ export const ProjectTile = memo(function ProjectTile({
                 <Share2 className="h-3.5 w-3.5" />
               </span>
             )}
+            {onClone && (
+              <span
+                role="button"
+                tabIndex={0}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (!cloning) onClone(e);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.stopPropagation();
+                    if (!cloning) onClone(e as unknown as React.MouseEvent);
+                  }
+                }}
+                className="p-1 rounded-md text-muted-foreground/40 hover:text-primary transition-colors"
+                aria-label="Make a copy"
+                title="Make my own editable copy"
+              >
+                <Copy className={`h-3.5 w-3.5 ${cloning ? "animate-pulse" : ""}`} />
+              </span>
+            )}
             <ArrowUpRight className="h-3.5 w-3.5 text-muted-foreground/0 group-hover:text-primary transition-all mt-0.5" />
           </div>
         </div>
@@ -164,13 +190,33 @@ export const ProjectTile = memo(function ProjectTile({
 
         {/* Owner (shared OR admin-browsing-other-people's-projects) */}
         {showOwner && (project.shared_by || project.owner_email) && (
-          <div className="flex items-center gap-1.5 mt-2">
+          <div className="flex items-center gap-1.5 mt-2 flex-wrap">
             <User className="h-3 w-3 text-muted-foreground/50" />
             <span className="text-xs text-muted-foreground">
               {project.shared_by
                 ? `Shared by ${formatEmail(project.shared_by)}`
                 : `Owned by ${formatEmail(project.owner_email!)}`}
             </span>
+            {role && (
+              <span
+                className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
+                  role === "editor"
+                    ? "bg-primary/10 text-primary"
+                    : "bg-muted text-muted-foreground"
+                }`}
+                title={
+                  role === "editor"
+                    ? "You can edit this project"
+                    : "You have read-only access — make a copy to edit"
+                }
+              >
+                {role === "editor" ? (
+                  <><Pencil className="h-2.5 w-2.5" /> Can edit</>
+                ) : (
+                  <><Eye className="h-2.5 w-2.5" /> View only</>
+                )}
+              </span>
+            )}
           </div>
         )}
 

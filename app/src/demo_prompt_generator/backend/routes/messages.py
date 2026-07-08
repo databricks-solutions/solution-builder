@@ -13,7 +13,7 @@ from ..models import (
     decompress_reasoning,
 )
 from ..services.agent import get_client_pool
-from .projects import _get_authorized_project
+from .projects import _get_authorized_project, _require_write_access
 
 router = create_router()
 
@@ -135,7 +135,7 @@ def add_project_message(
 ):
     """Add a new message to a project."""
     user_email = _get_user_email(headers)
-    _get_authorized_project(
+    _require_write_access(
         session, project_id, user_email, config.template_admin_emails
     )
 
@@ -173,7 +173,7 @@ def clear_project_messages(
 ):
     """Delete all messages for a project."""
     user_email = _get_user_email(headers)
-    _get_authorized_project(
+    _require_write_access(
         session, project_id, user_email, config.template_admin_emails
     )
 
@@ -216,7 +216,7 @@ async def clear_project_session(
 
     # DB work on a worker thread — sync psycopg would otherwise block the loop.
     def _reset_db_state() -> int:
-        project = _get_authorized_project(
+        project = _require_write_access(
             session, project_id, user_email, config.template_admin_emails
         )
         messages = session.exec(

@@ -27,6 +27,7 @@ import { TemplatePublishDialog } from "@/components/project/template-publish-dia
 import { BuildSolutionDialog } from "@/components/project/build-solution-dialog";
 import { extractArchitectureCapabilities } from "@/lib/architecture-capabilities";
 import { DescriptionEditDialog } from "@/components/project/description-edit-dialog";
+import { ShareDialog } from "@/components/project/share-dialog";
 import {
   ResourcesPopover,
   type ProjectResources,
@@ -40,6 +41,9 @@ import {
   Pencil,
   Check,
   X,
+  Eye,
+  Copy,
+  Share2,
   Building2,
   GitFork,
   MessageSquare,
@@ -72,6 +76,7 @@ import {
   getDeployedResources,
   generateProjectNarrative,
   saveArchitectureSnapshot,
+  cloneProject,
   type Project,
   type ProjectFile,
   type ProjectFileContent,
@@ -231,6 +236,13 @@ function ProjectPage() {
 
   // Project state
   const [project, setProject] = useState<Project | null>(null);
+  // Read-only for shared VIEWERS — drives the disabled composer + banner + the
+  // "make a copy" escape hatch.
+  const isReadOnly = project?.my_role === "viewer";
+  const [isCloning, setIsCloning] = useState(false);
+  // Sharing is owner-only (admins too). Editors/viewers don't manage access.
+  const canShare = project?.my_role === "owner" || project?.my_role === "admin";
+  const [shareOpen, setShareOpen] = useState(false);
   // ARCHITECTURE-FIRST projects hide Overview + Story and live on the
   // Architecture tab — force it even if a stale ?tab= points at a now-hidden
   // tab. Otherwise the URL param wins, defaulting to Overview.
@@ -1322,6 +1334,23 @@ function ProjectPage() {
     }
   }, [projectId]);
 
+  // Clone this project into one the current user owns (read-only escape hatch).
+  const handleMakeCopy = useCallback(async () => {
+    if (isCloning) return;
+    setIsCloning(true);
+    try {
+      const clone = await cloneProject(projectId);
+      toast.success("Created your own editable copy");
+      navigate({ to: "/project/$projectId", params: { projectId: clone.id } });
+    } catch (error) {
+      console.error("Failed to clone project:", error);
+      toast.error(
+        error instanceof Error ? error.message : "Failed to make a copy"
+      );
+      setIsCloning(false);
+    }
+  }, [isCloning, projectId, navigate]);
+
   // Handle stopping the stream — tell the backend to cancel, then let the
   // SSE loop receive "stream.completed" naturally so the partial response
   // is saved. Only force-abort after a timeout as a safety net.
@@ -1876,6 +1905,33 @@ function ProjectPage() {
 
   return (
     <div className="flex h-screen flex-col overflow-hidden">
+      {/* Read-only banner for shared viewers */}
+      {isReadOnly && (
+        <div className="shrink-0 flex items-center justify-between gap-3 bg-amber-500/10 border-b border-amber-500/20 px-5 py-2">
+          <div className="flex items-center gap-2 text-xs text-amber-700 dark:text-amber-400 min-w-0">
+            <Eye className="h-3.5 w-3.5 shrink-0" />
+            <span className="truncate">
+              Read-only — this project was shared with you as a viewer. Make your
+              own copy to edit it.
+            </span>
+          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 shrink-0"
+            onClick={handleMakeCopy}
+            disabled={isCloning}
+          >
+            {isCloning ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <>
+                <Copy className="h-3.5 w-3.5 mr-1.5" /> Make a copy
+              </>
+            )}
+          </Button>
+        </div>
+      )}
       {/* Header — single dense row */}
       <div className="shrink-0 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
         <div className="px-5 py-3 border-b border-border">
@@ -2041,6 +2097,23 @@ function ProjectPage() {
 
             {/* Action buttons */}
             <div className="flex items-center gap-1.5">
+              {/* Share — owner-only. The primary way to hand a project to a
+                  teammate (as viewer or editor). Solid brand button so it reads
+                  as a distinct, everyday action vs. the violet "Publish to
+                  Gallery" (which broadcasts to the whole org). */}
+              {canShare && (
+                <Button
+                  variant="default"
+                  size="sm"
+                  className="h-9 gap-2 px-4 bg-emerald-600 text-white hover:bg-emerald-700 dark:bg-emerald-500 dark:hover:bg-emerald-600"
+                  onClick={() => setShareOpen(true)}
+                  title="Share this project privately with a specific teammate"
+                >
+                  <Share2 className="h-4 w-4" />
+                  Share
+                </Button>
+              )}
+
               {/* Chat lives in a floating action button at the bottom-right
                   of the page (see ChatFab below). Header stays clean. */}
 
@@ -2251,6 +2324,9 @@ function ProjectPage() {
               canAutoBuild={!isStreaming}
               contextHint={contextHint}
               onComposerActivity={captureArchitectureIfDirty}
+              readOnly={isReadOnly}
+              onMakeCopy={handleMakeCopy}
+              isCloning={isCloning}
             />
           </div>
         )}
@@ -2303,6 +2379,16 @@ function ProjectPage() {
           </div>
         );
       })()}
+
+      {/* Share Dialog — owner-only, opened from the header Share button. */}
+      {project && (
+        <ShareDialog
+          projectId={project.id}
+          projectName={project.name}
+          open={shareOpen}
+          onOpenChange={setShareOpen}
+        />
+      )}
 
       {/* Delete Confirmation Dialog */}
       <Dialog open={isDeleteDialogOpen} onOpenChange={(open) => { setIsDeleteDialogOpen(open); if (open) setDeleteError(null); }}>

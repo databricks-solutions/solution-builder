@@ -6,6 +6,7 @@
 import { memo, useRef, useEffect, useState, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { Textarea } from "../ui/textarea";
+import { Button } from "../ui/button";
 import { Prose } from "../markdown-prose";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../ui/tooltip";
 import {
@@ -32,6 +33,7 @@ import {
   Zap,
   Minimize2,
   Maximize2,
+  Copy,
 } from "lucide-react";
 import { getMessageReasoning, type Message, type ReasoningEntry } from "../../lib/custom-api";
 
@@ -399,6 +401,13 @@ interface ChatPanelProps {
    *  background while focus was held, the next keystroke re-captures it. Cheap:
    *  the handler early-returns when nothing changed. */
   onComposerActivity?: () => void;
+  /** Read-only mode for shared VIEWERS: the composer is replaced by a
+   *  "make a copy to edit" call-to-action, since the backend blocks their
+   *  writes anyway. */
+  readOnly?: boolean;
+  /** Clone this project into one the viewer owns (wired to the read-only CTA). */
+  onMakeCopy?: () => void;
+  isCloning?: boolean;
 }
 
 interface MessageBubbleProps {
@@ -1424,6 +1433,9 @@ export const ChatPanel = memo(function ChatPanel({
   title = "Your AI Assistant",
   contextHint,
   onComposerActivity,
+  readOnly = false,
+  onMakeCopy,
+  isCloning = false,
 }: ChatPanelProps) {
   const [input, setInput] = useState("");
   const [userHasScrolledChat, setUserHasScrolledChat] = useState(false);
@@ -1647,7 +1659,34 @@ export const ChatPanel = memo(function ChatPanel({
         </div>
       </div>
 
-      {/* Input area */}
+      {/* Input area — read-only viewers get a "make a copy" CTA instead. */}
+      {readOnly ? (
+        <div className="shrink-0 p-3 pt-2">
+          <div className="rounded-xl border border-border/60 bg-muted/30 px-4 py-3 text-center">
+            <p className="text-xs text-muted-foreground">
+              You have <span className="font-medium">read-only</span> access to
+              this project.
+            </p>
+            <Button
+              size="sm"
+              className="mt-2 w-full"
+              onClick={onMakeCopy}
+              disabled={isCloning || !onMakeCopy}
+            >
+              {isCloning ? (
+                <>
+                  <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Making a
+                  copy…
+                </>
+              ) : (
+                <>
+                  <Copy className="h-3.5 w-3.5 mr-1.5" /> Make my own copy to edit
+                </>
+              )}
+            </Button>
+          </div>
+        </div>
+      ) : (
       <div className="shrink-0 p-3 pt-2">
         <div className="rounded-xl border border-border/60 bg-muted/20 shadow-sm focus-within:border-border focus-within:shadow-md transition-all">
           <Textarea
@@ -1714,6 +1753,7 @@ export const ChatPanel = memo(function ChatPanel({
           </div>
         </div>
       </div>
+      )}
 
       {/* Live reasoning popup */}
       <LiveReasoningPopup

@@ -60,6 +60,9 @@ export interface Project {
   // Template lineage
   source_template_id?: string | null;
   source_template_name?: string | null;
+  /** Caller's access on this project: "owner" | "admin" | "editor" | "viewer".
+   *  Populated by getProject; drives the read-only UI for shared viewers. */
+  my_role?: string | null;
 }
 
 export interface ProjectListItem {
@@ -77,11 +80,16 @@ export interface ProjectListItem {
   is_starred: boolean;
   shared_by?: string | null;
   shared_message?: string | null;
+  // Caller's access on a shared project: "viewer" | "editor" (null if owner).
+  shared_role?: ShareRole | null;
   owner_email?: string | null;
   // Template lineage
   source_template_id?: string | null;
   source_template_name?: string | null;
 }
+
+export type ShareRole = "viewer" | "editor";
+export type ShareStatus = "pending" | "accepted" | "declined";
 
 export interface ProjectShareOut {
   id: number;
@@ -89,7 +97,12 @@ export interface ProjectShareOut {
   owner_email: string;
   shared_with_email: string;
   message: string | null;
+  role: ShareRole;
+  status: ShareStatus;
   created_at: string;
+  responded_at?: string | null;
+  // Populated on the recipient's invitations feed.
+  project_name?: string | null;
 }
 
 export interface ProjectFile {
@@ -436,16 +449,37 @@ export async function toggleProjectStar(
 export async function shareProject(
   projectId: string,
   email: string,
+  role: ShareRole = "viewer",
   message?: string
 ): Promise<ProjectShareOut> {
   const resp = await fetch(apiUrl(`/api/projects/${projectId}/share`), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email, message }),
+    body: JSON.stringify({ email, role, message }),
   });
   if (!resp.ok) {
     const err = await resp.json().catch(() => ({}));
     throw new Error(err.detail || `Failed to share project: ${resp.status}`);
+  }
+  return resp.json();
+}
+
+export async function updateProjectShare(
+  projectId: string,
+  shareId: number,
+  role: ShareRole
+): Promise<ProjectShareOut> {
+  const resp = await fetch(
+    apiUrl(`/api/projects/${projectId}/share/${shareId}`),
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ role }),
+    }
+  );
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({}));
+    throw new Error(err.detail || `Failed to update share: ${resp.status}`);
   }
   return resp.json();
 }
@@ -472,6 +506,42 @@ export async function unshareProject(
 export async function listSharedProjects(): Promise<ProjectListItem[]> {
   const resp = await fetch(apiUrl("/api/shared-projects"));
   if (!resp.ok) throw new Error(`Failed to list shared projects: ${resp.status}`);
+  return resp.json();
+}
+
+/** Pending share invitations addressed to the current user (notifications). */
+export async function listShareInvitations(): Promise<ProjectShareOut[]> {
+  const resp = await fetch(apiUrl("/api/share-invitations"));
+  if (!resp.ok) throw new Error(`Failed to list invitations: ${resp.status}`);
+  return resp.json();
+}
+
+/** Accept or decline a pending share invitation. */
+export async function respondToShare(
+  projectId: string,
+  accept: boolean
+): Promise<ProjectShareOut> {
+  const resp = await fetch(apiUrl(`/api/projects/${projectId}/share/respond`), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ accept }),
+  });
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({}));
+    throw new Error(err.detail || `Failed to respond: ${resp.status}`);
+  }
+  return resp.json();
+}
+
+/** Clone any project the caller can read into a new project they own. */
+export async function cloneProject(projectId: string): Promise<Project> {
+  const resp = await fetch(apiUrl(`/api/projects/${projectId}/clone`), {
+    method: "POST",
+  });
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({}));
+    throw new Error(err.detail || `Failed to clone project: ${resp.status}`);
+  }
   return resp.json();
 }
 

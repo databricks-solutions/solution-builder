@@ -39,7 +39,7 @@ from ..models import (
     ProjectFileWrite,
 )
 from ..services.file_sync import FileSyncService, decompress_content
-from .projects import _get_authorized_project
+from .projects import _get_authorized_project, _require_write_access
 
 logger = logging.getLogger(__name__)
 router = create_router()
@@ -808,7 +808,7 @@ def save_project_file(
     be used to clobber auth files or arbitrary code.
     """
     user_email = _get_user_email(headers)
-    _get_authorized_project(
+    _require_write_access(
         session, project_id, user_email, config.template_admin_emails
     )
 
@@ -868,7 +868,7 @@ def save_architecture_snapshot(
     import base64
 
     user_email = _get_user_email(headers)
-    _get_authorized_project(
+    _require_write_access(
         session, project_id, user_email, config.template_admin_emails
     )
 

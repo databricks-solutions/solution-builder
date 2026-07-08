@@ -10,6 +10,7 @@ import re
 import shutil
 from datetime import datetime, timezone
 from pathlib import PurePosixPath
+from typing import Optional
 
 from databricks.sdk import WorkspaceClient
 from fastapi import HTTPException, Request
@@ -35,8 +36,15 @@ from ..models import (
     ProjectShareRequest,
     ProjectStar,
     ProjectUpdateRequest,
+    ShareResponseRequest,
+    ShareRole,
+    ShareRoleUpdateRequest,
+    ShareStatus,
+    SuccessResponse,
     Template,
     compute_project_stage,
+    generate_uuid,
+    utc_now,
 )
 from ..services.file_sync import FileSyncService, decompress_content
 from ..services.skills_manager import (
@@ -302,39 +310,90 @@ def _ensure_default_schema(
         )
 
 
-def _get_authorized_project(
+# Access levels a caller can hold on a project, ordered by capability.
+ACCESS_OWNER = "owner"
+ACCESS_ADMIN = "admin"
+ACCESS_EDITOR = "editor"
+ACCESS_VIEWER = "viewer"
+
+
+def _get_project_access(
     session, project_id: str, user_email: str, admin_emails: list[str]
-) -> Project:
-    """Fetch a project by ID, verifying owner OR admin OR share-recipient.
+) -> tuple[Project, str]:
+    """Fetch a project and the caller's access level, or raise 404.
 
-    Used on every project-scoped endpoint, read AND mutation. Admins get
-    full access (read + write) so they can support users debugging their
-    own demos and clean up stuck state without playing impersonation
-    games. Share recipients keep their existing access.
+    Access is granted to: the owner, any admin, or a recipient of an ACCEPTED
+    share (at the share's role — 'editor' or 'viewer'). Pending/declined shares
+    grant NOTHING. Non-existent access is reported as 404 (not 403) so we don't
+    leak which project IDs exist to users with no relationship to them.
 
-    One query: LEFT JOIN ProjectShare so a share grant is fetched in the
-    same round-trip. The in-memory owner/admin check still short-circuits
-    before we look at the share row.
+    One query: LEFT JOIN the caller's accepted share so the grant is fetched in
+    the same round-trip; the in-memory owner/admin check short-circuits first.
+
+    Returns (project, access_level) where access_level is one of ACCESS_*.
+    Callers pick the right gate: reads accept any level, writes reject viewers
+    (_require_write_access), owner-only actions reject shares (_require_owner).
     """
     row = session.exec(
         select(Project, ProjectShare)
         .outerjoin(
             ProjectShare,
             (ProjectShare.project_id == Project.id)
-            & (ProjectShare.shared_with_email == user_email),
+            & (ProjectShare.shared_with_email == user_email)
+            & (ProjectShare.status == ShareStatus.ACCEPTED.value),
         )
         .where(Project.id == project_id)
     ).first()
     if row is None:
         raise HTTPException(status_code=404, detail="Project not found")
     project, share = row
-    if (
-        project.user_email == user_email
-        or is_admin(user_email, admin_emails)
-        or share is not None
-    ):
-        return project
+    if project.user_email == user_email:
+        return project, ACCESS_OWNER
+    if is_admin(user_email, admin_emails):
+        return project, ACCESS_ADMIN
+    if share is not None:
+        # 'editor' or 'viewer'; default to viewer for any unexpected value.
+        level = ACCESS_EDITOR if share.role == ShareRole.EDITOR.value else ACCESS_VIEWER
+        return project, level
     raise HTTPException(status_code=404, detail="Project not found")
+
+
+def _get_authorized_project(
+    session, project_id: str, user_email: str, admin_emails: list[str]
+) -> Project:
+    """READ access: owner, admin, or accepted share of ANY role.
+
+    Use on read-only endpoints. For mutations use _require_write_access; for
+    owner-only actions use _require_owner.
+    """
+    project, _ = _get_project_access(session, project_id, user_email, admin_emails)
+    return project
+
+
+def _require_write_access(
+    session, project_id: str, user_email: str, admin_emails: list[str]
+) -> Project:
+    """WRITE access: owner, admin, or EDITOR share. Viewers get 403."""
+    project, level = _get_project_access(session, project_id, user_email, admin_emails)
+    if level == ACCESS_VIEWER:
+        raise HTTPException(
+            status_code=403,
+            detail="You have read-only access to this project. Make your own copy to edit it.",
+        )
+    return project
+
+
+def _require_owner(
+    session, project_id: str, user_email: str, admin_emails: list[str]
+) -> Project:
+    """OWNER-only actions (delete, manage shares). Admins allowed; shares are not."""
+    project, level = _get_project_access(session, project_id, user_email, admin_emails)
+    if level not in (ACCESS_OWNER, ACCESS_ADMIN):
+        raise HTTPException(
+            status_code=403,
+            detail="Only the project owner can perform this action.",
+        )
+    return project
 
 
 @router.get(
@@ -682,7 +741,7 @@ def get_project(
     the expensive DB-to-disk reconcile and the redundant file-list SELECT.
     """
     user_email = _get_user_email(headers)
-    project = _get_authorized_project(
+    project, my_role = _get_project_access(
         session, project_id, user_email, config.template_admin_emails
     )
 
@@ -779,6 +838,7 @@ def get_project(
         default_schema=project.default_schema,
         source_template_id=project.source_template_id,
         source_template_name=_resolve_template_name(session, project.source_template_id),
+        my_role=my_role,
     )
 
 @router.patch(
@@ -795,7 +855,7 @@ def update_project(
 ):
     """Update a project's name or description."""
     user_email = _get_user_email(headers)
-    project = _get_authorized_project(session, project_id, user_email, config.template_admin_emails)
+    project = _require_write_access(session, project_id, user_email, config.template_admin_emails)
 
     if body.name is not None:
         project.name = body.name
@@ -870,7 +930,7 @@ def provision_project(
     right before sending the build prompt, and it no-ops the pieces that
     already exist (safe on any project)."""
     user_email = _get_user_email(headers)
-    project = _get_authorized_project(session, project_id, user_email, config.template_admin_emails)
+    project = _require_write_access(session, project_id, user_email, config.template_admin_emails)
 
     # 1. Name/schema/warehouse — only when creation deferred them (no schema
     #    picked yet). The story description from the build dialog is richer
@@ -991,7 +1051,7 @@ def ai_edit_project_description(
     serving call (OBO tokens lack the model-serving scope).
     """
     user_email = _get_user_email(headers)
-    project = _get_authorized_project(session, project_id, user_email, config.template_admin_emails)
+    project = _require_write_access(session, project_id, user_email, config.template_admin_emails)
 
     instruction = (body.instruction or "").strip()
     if not instruction:
@@ -1073,7 +1133,7 @@ def generate_project_narrative(
     from ..services.narrative import generate_narrative, NarrativeError
 
     user_email = _get_user_email(headers)
-    project = _get_authorized_project(
+    project = _require_write_access(
         session, project_id, user_email, config.template_admin_emails
     )
 
@@ -1136,7 +1196,7 @@ def update_project_resources(
 ):
     """Update a project's resource settings (cluster, warehouse, catalog, schema)."""
     user_email = _get_user_email(headers)
-    project = _get_authorized_project(session, project_id, user_email, config.template_admin_emails)
+    project = _require_write_access(session, project_id, user_email, config.template_admin_emails)
 
     # Update only the provided fields
     if body.cluster_id is not None:
@@ -1209,7 +1269,8 @@ def delete_project(
     from ..services.agent import get_client_pool
 
     user_email = _get_user_email(headers)
-    project = _get_authorized_project(session, project_id, user_email, config.template_admin_emails)
+    # Owner-only: a shared editor can modify but must not destroy the original.
+    project = _require_owner(session, project_id, user_email, config.template_admin_emails)
 
     # Clear source_project_id on any linked templates (don't delete the template)
     session.execute(
@@ -1267,7 +1328,7 @@ def sync_project(
 ):
     """Trigger full bidirectional sync for a project."""
     user_email = _get_user_email(headers)
-    project = _get_authorized_project(session, project_id, user_email, config.template_admin_emails)
+    project = _require_write_access(session, project_id, user_email, config.template_admin_emails)
 
     file_sync: FileSyncService = request.app.state.file_sync
     # Pass session to avoid new connection
@@ -1302,11 +1363,12 @@ def toggle_project_star(
     project_id: str,
     session: Dependencies.Session,
     headers: Dependencies.Headers,
+    config: Dependencies.Config,
 ):
     """Toggle the starred status of a project. Returns the new state."""
     user_email = _get_user_email(headers)
-    # Verify the user owns the project OR it's shared with them
-    _get_accessible_project(session, project_id, user_email)
+    # Verify the user can read the project (owner, admin, or accepted share).
+    _get_authorized_project(session, project_id, user_email, config.template_admin_emails)
 
     existing = session.exec(
         select(ProjectStar)
@@ -1329,23 +1391,20 @@ def toggle_project_star(
 # ---------------------------------------------------------------------------
 
 
-def _get_accessible_project(session, project_id: str, user_email: str) -> Project:
-    """Fetch a project the user can access — either owned or shared with them."""
-    project = session.get(Project, project_id)
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
-    if project.user_email == user_email:
-        return project
-    # Check if shared with user
-    share = session.exec(
-        select(ProjectShare).where(
-            ProjectShare.project_id == project_id,
-            ProjectShare.shared_with_email == user_email,
-        )
-    ).first()
-    if share:
-        return project
-    raise HTTPException(status_code=404, detail="Project not found")
+def _share_out(share: ProjectShare, project_name: Optional[str] = None) -> ProjectShareOut:
+    """Serialize a ProjectShare row to its API shape."""
+    return ProjectShareOut(
+        id=share.id,
+        project_id=share.project_id,
+        owner_email=share.owner_email,
+        shared_with_email=share.shared_with_email,
+        message=share.message,
+        role=share.role,
+        status=share.status,
+        created_at=share.created_at,
+        responded_at=share.responded_at,
+        project_name=project_name,
+    )
 
 
 @router.post(
@@ -1360,41 +1419,57 @@ def share_project(
     headers: Dependencies.Headers,
     config: Dependencies.Config,
 ):
-    """Share a project with another user via email."""
+    """Invite another user to a project at a given role (owner/admin only).
+
+    The invite starts pending; the recipient must accept it before it grants
+    access (see respond_to_share). Re-sharing a project that was previously
+    declined re-opens the invitation rather than erroring.
+    """
     user_email = _get_user_email(headers)
-    project = _get_authorized_project(session, project_id, user_email, config.template_admin_emails)
+    # Owner-only: managing who can access a project is not delegated to editors.
+    project = _require_owner(session, project_id, user_email, config.template_admin_emails)
 
-    if body.email.lower() == user_email.lower():
+    target = body.email.strip()
+    if target.lower() == user_email.lower():
         raise HTTPException(status_code=400, detail="Cannot share a project with yourself")
+    if target.lower() == project.user_email.lower():
+        raise HTTPException(status_code=400, detail="This user already owns the project")
 
-    # Check if already shared
+    role = body.role if body.role in (ShareRole.VIEWER.value, ShareRole.EDITOR.value) else ShareRole.VIEWER.value
+
     existing = session.exec(
         select(ProjectShare).where(
             ProjectShare.project_id == project_id,
-            ProjectShare.shared_with_email == body.email,
+            ProjectShare.shared_with_email == target,
         )
     ).first()
     if existing:
+        if existing.status == ShareStatus.DECLINED.value:
+            # Re-invite: reopen the previously declined share with the new role.
+            # Keep the original created_at so the audit trail / ordering is
+            # preserved; responded_at is cleared since it's pending again.
+            existing.role = role
+            existing.message = body.message
+            existing.status = ShareStatus.PENDING.value
+            existing.responded_at = None
+            session.add(existing)
+            session.commit()
+            session.refresh(existing)
+            return _share_out(existing)
         raise HTTPException(status_code=409, detail="Project already shared with this user")
 
     share = ProjectShare(
         project_id=project_id,
         owner_email=user_email,
-        shared_with_email=body.email,
+        shared_with_email=target,
         message=body.message,
+        role=role,
+        status=ShareStatus.PENDING.value,
     )
     session.add(share)
     session.commit()
     session.refresh(share)
-
-    return ProjectShareOut(
-        id=share.id,
-        project_id=share.project_id,
-        owner_email=share.owner_email,
-        shared_with_email=share.shared_with_email,
-        message=share.message,
-        created_at=share.created_at,
-    )
+    return _share_out(share)
 
 
 @router.get(
@@ -1408,29 +1483,57 @@ def list_project_shares(
     headers: Dependencies.Headers,
     config: Dependencies.Config,
 ):
-    """List all users a project is shared with (owner or admin)."""
+    """List everyone a project is shared with, and each share's role/status
+    (owner or admin only)."""
     user_email = _get_user_email(headers)
-    _get_authorized_project(session, project_id, user_email, config.template_admin_emails)
+    _require_owner(session, project_id, user_email, config.template_admin_emails)
 
     shares = session.exec(
-        select(ProjectShare).where(ProjectShare.project_id == project_id)
+        select(ProjectShare)
+        .where(ProjectShare.project_id == project_id)
+        .order_by(ProjectShare.created_at.desc())
     ).all()
 
-    return [
-        ProjectShareOut(
-            id=s.id,
-            project_id=s.project_id,
-            owner_email=s.owner_email,
-            shared_with_email=s.shared_with_email,
-            message=s.message,
-            created_at=s.created_at,
+    return [_share_out(s) for s in shares]
+
+
+@router.patch(
+    "/projects/{project_id}/share/{share_id}",
+    response_model=ProjectShareOut,
+    operation_id="updateProjectShare",
+)
+def update_project_share(
+    project_id: str,
+    share_id: int,
+    body: ShareRoleUpdateRequest,
+    session: Dependencies.Session,
+    headers: Dependencies.Headers,
+    config: Dependencies.Config,
+):
+    """Change an existing share's role (owner/admin only)."""
+    user_email = _get_user_email(headers)
+    _require_owner(session, project_id, user_email, config.template_admin_emails)
+
+    share = session.exec(
+        select(ProjectShare).where(
+            ProjectShare.id == share_id,
+            ProjectShare.project_id == project_id,
         )
-        for s in shares
-    ]
+    ).first()
+    if not share:
+        raise HTTPException(status_code=404, detail="Share not found")
+
+    if body.role in (ShareRole.VIEWER.value, ShareRole.EDITOR.value):
+        share.role = body.role
+    session.add(share)
+    session.commit()
+    session.refresh(share)
+    return _share_out(share)
 
 
 @router.delete(
     "/projects/{project_id}/share/{share_id}",
+    response_model=SuccessResponse,
     operation_id="unshareProject",
 )
 def unshare_project(
@@ -1440,9 +1543,9 @@ def unshare_project(
     headers: Dependencies.Headers,
     config: Dependencies.Config,
 ):
-    """Remove a share (owner or admin)."""
+    """Revoke a share (owner or admin)."""
     user_email = _get_user_email(headers)
-    _get_authorized_project(session, project_id, user_email, config.template_admin_emails)
+    _require_owner(session, project_id, user_email, config.template_admin_emails)
 
     share = session.exec(
         select(ProjectShare).where(
@@ -1455,7 +1558,189 @@ def unshare_project(
 
     session.delete(share)
     session.commit()
-    return {"success": True}
+    return SuccessResponse(success=True)
+
+
+@router.get(
+    "/share-invitations",
+    response_model=list[ProjectShareOut],
+    operation_id="listShareInvitations",
+)
+def list_share_invitations(session: Dependencies.Session, headers: Dependencies.Headers):
+    """Pending share invitations addressed to the current user.
+
+    Powers the notifications badge — these are shares the user has NOT yet
+    accepted, so they don't appear under "shared with me" yet.
+    """
+    user_email = _get_user_email(headers)
+    shares = session.exec(
+        select(ProjectShare)
+        .where(
+            ProjectShare.shared_with_email == user_email,
+            ProjectShare.status == ShareStatus.PENDING.value,
+        )
+        .order_by(ProjectShare.created_at.desc())
+    ).all()
+
+    out = []
+    for s in shares:
+        project = session.get(Project, s.project_id)
+        if not project:
+            continue  # project deleted while invite pending — skip
+        out.append(_share_out(s, project_name=project.name))
+    return out
+
+
+@router.post(
+    "/projects/{project_id}/share/respond",
+    response_model=ProjectShareOut,
+    operation_id="respondToShare",
+)
+def respond_to_share(
+    project_id: str,
+    body: ShareResponseRequest,
+    session: Dependencies.Session,
+    headers: Dependencies.Headers,
+):
+    """Accept or decline a pending share invitation (recipient only)."""
+    user_email = _get_user_email(headers)
+    share = session.exec(
+        select(ProjectShare).where(
+            ProjectShare.project_id == project_id,
+            ProjectShare.shared_with_email == user_email,
+        )
+    ).first()
+    if not share:
+        raise HTTPException(status_code=404, detail="Invitation not found")
+    if share.status != ShareStatus.PENDING.value:
+        raise HTTPException(status_code=409, detail="This invitation has already been responded to")
+
+    share.status = ShareStatus.ACCEPTED.value if body.accept else ShareStatus.DECLINED.value
+    share.responded_at = utc_now()
+    session.add(share)
+    session.commit()
+    session.refresh(share)
+    return _share_out(share)
+
+
+def _fresh_resources_from(session, source_project_id: str) -> dict:
+    """resources.json for a clone: keep the source's capability selection but
+    reset created_resources to empty so the clone points at no live Databricks
+    objects until its owner builds their own."""
+    try:
+        raw = _load_resources_text(session, source_project_id)
+        data = json.loads(raw) if raw else {}
+        caps = data.get("capabilities") or {"buildable": [], "talking_track": []}
+        return {"capabilities": caps, "created_resources": {}}
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return {"capabilities": {"buildable": [], "talking_track": []}, "created_resources": {}}
+
+
+@router.post(
+    "/projects/{project_id}/clone",
+    response_model=ProjectOut,
+    operation_id="cloneProject",
+)
+def clone_project(
+    project_id: str,
+    session: Dependencies.Session,
+    headers: Dependencies.Headers,
+    config: Dependencies.Config,
+):
+    """Clone a project into a new one owned by the caller.
+
+    Anyone with READ access (owner, admin, or an accepted share of any role)
+    can make their own independent, fully-editable copy. This is the escape
+    hatch for a read-only viewer who wants to iterate without touching the
+    original: the clone gets a new id, is owned by the caller, copies every
+    file EXCEPT resources.json, and seeds a fresh resources.json with
+    created_resources cleared — so it is wired to no live Databricks objects
+    (and cannot write into the source's UC schema) until its owner builds.
+    """
+    user_email = _get_user_email(headers)
+    source = _get_authorized_project(
+        session, project_id, user_email, config.template_admin_emails
+    )
+
+    new_id = generate_uuid()
+    clone = Project(
+        id=new_id,
+        user_email=user_email,
+        name=f"Copy of {source.name}",
+        description=source.description,
+        customer=source.customer,
+        project_type=source.project_type,
+        # Leave compute/schema bindings null — the clone provisions its own on
+        # first build rather than inheriting the source owner's resources.
+        default_catalog=config.default_catalog,
+    )
+    session.add(clone)
+
+    # Scaffold the project dir (skills + structure) up front so we can copy DB
+    # rows and materialize files to disk in a SINGLE pass over src_files. Every
+    # file except resources.json is copied verbatim from the compressed blobs we
+    # already hold; resources.json is reset below.
+    create_project_directory(new_id)
+    project_dir = get_project_directory(new_id)
+    src_files = session.exec(
+        select(ProjectFile).where(ProjectFile.project_id == project_id)
+    ).all()
+    for f in src_files:
+        if f.relative_path == "resources.json":
+            continue
+        session.add(
+            ProjectFile(
+                project_id=new_id,
+                relative_path=f.relative_path,
+                content_compressed=f.content_compressed,
+                content_hash=f.content_hash,
+                file_size=f.file_size,
+            )
+        )
+        dest = project_dir / f.relative_path
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            dest.write_bytes(decompress_content(f.content_compressed))
+        except Exception as e:  # noqa: BLE001 - best-effort per-file, don't fail the clone
+            logger.warning(f"[clone {new_id}] failed to write {f.relative_path}: {e}")
+    session.commit()
+
+    (project_dir / "resources.json").write_text(
+        json.dumps(_fresh_resources_from(session, project_id), indent=2),
+        encoding="utf-8",
+    )
+
+    file_count = session.exec(
+        select(func.count())
+        .select_from(ProjectFile)
+        .where(ProjectFile.project_id == new_id)
+    ).one()
+
+    session.refresh(clone)
+    return ProjectOut(
+        id=clone.id,
+        name=clone.name,
+        user_email=clone.user_email,
+        description=clone.description,
+        customer=clone.customer,
+        narrative=clone.narrative,
+        narrative_readme_hash=clone.narrative_readme_hash,
+        project_type=clone.project_type,
+        stage=clone.stage,
+        architecture_first=clone.architecture_first,
+        created_at=clone.created_at,
+        updated_at=clone.updated_at,
+        message_count=0,
+        file_count=file_count,
+        cluster_id=clone.cluster_id,
+        cluster_name=clone.cluster_name,
+        warehouse_id=clone.warehouse_id,
+        warehouse_name=clone.warehouse_name,
+        default_catalog=clone.default_catalog,
+        default_schema=clone.default_schema,
+        source_template_id=clone.source_template_id,
+        source_template_name=None,
+    )
 
 
 @router.get(
@@ -1464,7 +1749,10 @@ def unshare_project(
     operation_id="listSharedProjects",
 )
 def list_shared_projects(session: Dependencies.Session, headers: Dependencies.Headers):
-    """Return projects shared with the current user by others."""
+    """Projects shared with the current user that they've ACCEPTED.
+
+    Pending invitations live in /share-invitations; declined shares are hidden.
+    """
     user_email = _get_user_email(headers)
 
     # Get user's starred project IDs
@@ -1476,7 +1764,10 @@ def list_shared_projects(session: Dependencies.Session, headers: Dependencies.He
 
     shares = session.exec(
         select(ProjectShare)
-        .where(ProjectShare.shared_with_email == user_email)
+        .where(
+            ProjectShare.shared_with_email == user_email,
+            ProjectShare.status == ShareStatus.ACCEPTED.value,
+        )
         .order_by(ProjectShare.created_at.desc())
     ).all()
 
@@ -1513,6 +1804,7 @@ def list_shared_projects(session: Dependencies.Session, headers: Dependencies.He
                 is_starred=project.id in starred_ids,
                 shared_by=share.owner_email,
                 shared_message=share.message,
+                shared_role=share.role,
                 owner_email=project.user_email,
                 source_template_id=project.source_template_id,
                 source_template_name=_resolve_template_name(session, project.source_template_id),

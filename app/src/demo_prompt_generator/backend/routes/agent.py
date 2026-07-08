@@ -39,7 +39,7 @@ from ..models import (
 )
 from ..services.active_stream import get_stream_manager
 from ..services.agent import collect_text_response, collect_reasoning, is_stale_session_error, stream_agent_response
-from .projects import _get_authorized_project
+from .projects import _require_write_access
 
 router = create_router()
 
@@ -131,7 +131,9 @@ async def invoke_agent(
             )
     # DB reads (run on thread so we don't block the event loop on sync psycopg).
     def _load_initial():
-        project = _get_authorized_project(
+        # Running the agent mutates the project (files, resources) — viewers
+        # are blocked; owner/admin/editor allowed.
+        project = _require_write_access(
             session, body.project_id, user_email, config.template_admin_emails
         )
         user = session.exec(select(User).where(User.email == user_email)).first()

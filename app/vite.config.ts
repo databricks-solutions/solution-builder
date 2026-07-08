@@ -38,14 +38,16 @@ export default defineConfig(({ mode: _mode }) => {
       port: 5173,
       proxy: {
         "/api": {
-          target: "http://127.0.0.1:8000",
+          // Backend origin. Override with VITE_BACKEND_URL when the backend
+          // runs on a non-default port (e.g. 8000 is taken by another app).
+          target: process.env.VITE_BACKEND_URL || "http://127.0.0.1:8000",
           changeOrigin: true,
         },
         // Preview iframe + its proxied HTTP/WS/SSE traffic to the child app.
         // Match `/preview/<uuid>[/...]` only — NOT Vite's own module requests
         // like `/preview/AppPreviewTab.tsx` (source under ui/preview/).
         "^/preview/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(/.*)?$": {
-          target: "http://127.0.0.1:8000",
+          target: process.env.VITE_BACKEND_URL || "http://127.0.0.1:8000",
           changeOrigin: true,
           ws: true, // forward WebSocket upgrades (Vite HMR in the child)
         },
