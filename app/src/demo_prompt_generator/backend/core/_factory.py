@@ -116,24 +116,40 @@ def create_app(
             app.include_router(router)
 
     if dist_dir.exists():
-        from fastapi.responses import FileResponse
+        from fastapi.responses import HTMLResponse
 
         from ._static import CachedStaticFiles, add_not_found_handler
 
-        # /the_vision — bare URL must serve the page directly without a
-        # 307 redirect to /the_vision/. StaticFiles auto-redirects when
-        # `html=True` sees a directory hit; inside Databricks Apps that
-        # redirect target uses the internal scheme/host (localhost:8000)
-        # and breaks the browser. Resolve the index.html ourselves and
-        # also serve the sibling assets via direct file responses so the
-        # relative <link> / <script> paths in the HTML (style.css, app.js)
-        # resolve under both /the_vision and /the_vision/.
-        vision_dir = dist_dir / "the_vision"
-        if vision_dir.exists():
-            @app.get("/the_vision", include_in_schema=False)
-            @app.get("/the_vision/", include_in_schema=False)
-            def _the_vision_index():
-                return FileResponse(vision_dir / "index.html")
+        # Internal static microsites vendored from ../dbrain (the_vision, pitch,
+        # shift-left) live as subdirs of __dist__. Serving them needs two fixes:
+        #
+        #  1. The bare URL (/pitch) must serve the page WITHOUT a 307 redirect to
+        #     /pitch/. StaticFiles auto-redirects when `html=True` hits a dir;
+        #     inside Databricks Apps that redirect target uses the internal
+        #     scheme/host (localhost:8000) and breaks the browser.
+        #  2. Their HTML uses bare relative asset refs (style.css, app.js). At a
+        #     bare URL those resolve against "/". We inject a <base href="/<name>/">
+        #     so they resolve under the microsite dir at both /<name> and /<name>/.
+        #     (the_vision already ships a <base> tag; injecting an identical one
+        #     is idempotent for it and fixes the dbrain pages that lack one.)
+        def _register_microsite(name: str) -> None:
+            site_dir = dist_dir / name
+            if not site_dir.exists():
+                return
+            base_tag = f'<base href="/{name}/">'
+
+            def _serve() -> HTMLResponse:
+                html = (site_dir / "index.html").read_text(encoding="utf-8")
+                if "<base " not in html:
+                    html = html.replace("<head>", f"<head>\n  {base_tag}", 1)
+                return HTMLResponse(html)
+
+            # Distinct endpoint name per site so FastAPI doesn't collide handlers.
+            app.add_api_route(f"/{name}", _serve, include_in_schema=False, name=f"microsite_{name}")
+            app.add_api_route(f"/{name}/", _serve, include_in_schema=False, name=f"microsite_{name}_slash")
+
+        for _site in ("the_vision", "pitch", "shift-left"):
+            _register_microsite(_site)
 
         app.mount("/", CachedStaticFiles(directory=dist_dir, html=True))
         add_not_found_handler(app)

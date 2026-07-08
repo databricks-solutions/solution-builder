@@ -53,12 +53,19 @@ __pycache__/
 # Local scratch space (screenshots, throwaway scripts, etc.)
 .scratch/
 
-# Generator app's vendored pitch page — copied from ../dbrain/docs/pitch/
-# at deploy time, not part of this repo's source.
+# Generator app's vendored internal pages — symlinked/copied from ../dbrain/docs/
+# (pitch, vision, shift-left). Internal only: served by the app if present,
+# packaged into the build if present, never committed to this public repo.
 app/src/demo_prompt_generator/ui/public/the_vision/
+app/src/demo_prompt_generator/ui/public/pitch
+app/src/demo_prompt_generator/ui/public/shift-left
 
 # Internal FE ops tool — not part of the public repo (kept locally)
 add_team_to_workspace.py
 
 # Internal vibe-marketplace sync helper — kept local, not for the public repo
 scripts/publish-skill-to-vibe.sh
+
+# Internal vibe working notes / overlap audit — local scratch, not for the public repo
+.vibe-work-notes.md
+.vibe-overlap-diffs.md
