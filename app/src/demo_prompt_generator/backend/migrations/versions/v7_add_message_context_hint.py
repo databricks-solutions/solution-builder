@@ -6,8 +6,8 @@ preview-app/operations"). Persisted so the chat UI can surface it on refresh
 (a small "C" badge), and so it survives a reload. Nullable — messages sent with
 no active context (overview/story tabs) and non-user roles leave it NULL.
 
-Revision ID: v6_msg_context_hint
-Revises: v5_arch_first
+Revision ID: v7_msg_context_hint
+Revises: v6_add_customer
 Create Date: 2026-07-07
 """
 from typing import Sequence, Union
@@ -16,8 +16,10 @@ from alembic import op
 import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
-revision: str = "v6_msg_context_hint"
-down_revision: Union[str, None] = "v5_arch_first"
+# Chained AFTER v6_add_customer (both originally branched off v5_arch_first,
+# which produced two alembic heads and blocked startup — linearized here).
+revision: str = "v7_msg_context_hint"
+down_revision: Union[str, None] = "v6_add_customer"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
