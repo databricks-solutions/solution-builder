@@ -52,6 +52,17 @@ POLL_INTERVAL = 0.1  # seconds between event checks
 _CUSTOMER_TASKS: set[asyncio.Task] = set()
 
 
+def cancel_customer_tasks() -> int:
+    """Cancel every in-flight fire-and-forget customer task. Called from the
+    lifespan shutdown so these don't keep the event loop busy on SIGTERM.
+    Non-blocking (task.cancel() interrupts an awaiting task at once); returns
+    how many were still running."""
+    tasks = [t for t in _CUSTOMER_TASKS if not t.done()]
+    for t in tasks:
+        t.cancel()
+    return len(tasks)
+
+
 def _get_user_email(headers) -> str:
     """Extract user email from Databricks Apps headers."""
     if headers and headers.user_email:

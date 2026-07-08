@@ -105,4 +105,10 @@ echo "[start.sh] system python3: /usr/bin/python3 → $(/usr/bin/python3 --versi
 echo "[start.sh] PATH python3:   $(command -v python3) → $(python3 --version 2>&1)"
 echo "[start.sh] VIRTUAL_ENV:    ${VIRTUAL_ENV:-<unset>}"
 
-exec uvicorn demo_prompt_generator.backend.app:app --workers 1
+# --timeout-graceful-shutdown: on SIGTERM (redeploy/stop), uvicorn force-closes
+# any still-open connections after this many seconds instead of waiting for them
+# to drain. Without it, long-lived SSE streams (agent progress, preview events)
+# keep connections open and uvicorn hangs indefinitely → the app gets stuck in
+# "Stopping". 10s leaves headroom under the platform's ~15s SIGKILL window while
+# our lifespan teardown (bounded, in core/lakebase.py) runs.
+exec uvicorn demo_prompt_generator.backend.app:app --workers 1 --timeout-graceful-shutdown 10

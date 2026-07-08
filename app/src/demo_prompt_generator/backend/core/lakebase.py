@@ -769,6 +769,17 @@ class _LakebaseDependency(LifespanDependency):
                 task.cancel()
                 logger.info(f"[shutdown] cancelled {name} task")
 
+        # 2b. Cancel fire-and-forget customer-inference tasks — they aren't tied
+        #     to a stream, so nothing else cancels them, and an in-flight one
+        #     keeps the event loop busy past SIGTERM.
+        try:
+            from ..routes.agent import cancel_customer_tasks
+            n = cancel_customer_tasks()
+            if n:
+                logger.info(f"[shutdown] cancelled {n} customer task(s)")
+        except Exception as e:
+            logger.warning(f"[shutdown] customer-task cancel failed: {e!r}")
+
         # 3. Disconnect every pooled Claude SDK client with a per-client
         #    timeout. SDK disconnect waits for the Node subprocess to
         #    exit; if the subprocess is wedged, abandon it.
