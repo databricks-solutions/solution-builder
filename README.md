@@ -68,6 +68,14 @@ Prefer your terminal? Install the [Solution Generator Skill](.claude/skills/data
 
 Every solution becomes context for the next. Reskin one industry for another; swap one pattern for a related one; recombine for a new pitch. Publish finished projects as templates that anyone in your org can fork from the gallery. The library compounds.
 
+### `05` &nbsp; A polished architecture diagram, generated for you
+
+Every solution comes with an editable **architecture diagram** — the "Data + AI Platform" picture, wired to the resources it actually builds. Author it in a Lucidchart-style canvas (drag components, wire flows, drop in partner logos) and export it to PNG/SVG for a deck or a one-pager.
+
+<p align="center">
+  <img src="docs/architecture-example.svg" alt="Example generated Databricks solution architecture — sources through a governed Lakeflow/Genie pipeline to a lakehouse, dashboards, Genie, and an app" width="900">
+</p>
+
 ---
 
 > [!IMPORTANT]
