@@ -4,9 +4,9 @@
 # One-liner:
 #   bash <(curl -sL https://raw.githubusercontent.com/databricks-solutions/solution-builder/main/install.sh)
 #
-# Installs the `databricks-demo-generator` skill into ~/.claude/skills/ (or
-# ./.claude/skills/ with --project) and chains into the AI Dev Kit installer
-# unless --skill-only is passed.
+# Installs the `databricks-demo-generator` and `databricks-architecture` skills
+# into ~/.claude/skills/ (or ./.claude/skills/ with --project) and chains into
+# the AI Dev Kit installer unless --skill-only is passed.
 
 set -euo pipefail
 
@@ -14,8 +14,8 @@ set -euo pipefail
 # Public location overridable for forks / private mirrors via env vars.
 REPO_OWNER="${DSB_REPO_OWNER:-databricks-solutions}"
 REPO_NAME="${DSB_REPO_NAME:-solution-builder}"
-SKILL_NAME="databricks-demo-generator"
-SKILL_SUBPATH=".claude/skills/${SKILL_NAME}"
+# Skills installed by this script (each is .claude/skills/<name> in the repo).
+SKILLS=("databricks-demo-generator" "databricks-architecture")
 AI_DEV_KIT_INSTALLER="https://raw.githubusercontent.com/databricks-solutions/ai-dev-kit/main/install.sh"
 
 BRANCH="${DSB_BRANCH:-main}"
@@ -75,7 +75,7 @@ ${BLUE}╔═══════════════════════�
 ${BLUE}║${NC}                                                       ${BLUE}║${NC}
 ${BLUE}║${NC}   ${BOLD}Databricks Solution Builder — CLI installer${NC}        ${BLUE}║${NC}
 ${BLUE}║${NC}                                                       ${BLUE}║${NC}
-${BLUE}║${NC}   Skill:   ${GREEN}${SKILL_NAME}${NC}                  ${BLUE}║${NC}
+${BLUE}║${NC}   Skills:  ${GREEN}${#SKILLS[@]} skills${NC}$(printf '%*s' 33 '')${BLUE}║${NC}
 ${BLUE}║${NC}   Branch:  ${CYAN}${BRANCH}${NC}$(printf '%*s' $((40 - ${#BRANCH})) '')${BLUE}║${NC}
 ${BLUE}║${NC}                                                       ${BLUE}║${NC}
 ${BLUE}╚═══════════════════════════════════════════════════════╝${NC}
@@ -111,12 +111,10 @@ case "$DEST_MODE" in
         ;;
 esac
 
-DEST="$DEST_PARENT/$SKILL_NAME"
-
-info "Installing skill to: $DEST"
+info "Installing skills to: $DEST_PARENT"
 mkdir -p "$DEST_PARENT"
 
-# ─── Fetch skill from GitHub tarball ──────────────────────────────────────────
+# ─── Fetch repo tarball once ──────────────────────────────────────────────────
 TMPDIR_INSTALL="$(mktemp -d -t dsb-install-XXXXXX)"
 cleanup() { rm -rf "$TMPDIR_INSTALL"; }
 trap cleanup EXIT
@@ -131,30 +129,37 @@ if ! curl -fsSL "$TARBALL_URL" -o "$TARBALL"; then
     exit 1
 fi
 
-info "Extracting skill …"
-# tar emits ${REPO_NAME}-${BRANCH}/ as its top-level dir
+# tar emits ${REPO_NAME}-${BRANCH}/ as its top-level dir.
 EXTRACT_DIR="$TMPDIR_INSTALL/extract"
 mkdir -p "$EXTRACT_DIR"
-tar -xzf "$TARBALL" -C "$EXTRACT_DIR" \
-    "${REPO_NAME}-${BRANCH}/${SKILL_SUBPATH}" 2>/dev/null || {
+
+# ─── Install each skill ───────────────────────────────────────────────────────
+for SKILL_NAME in "${SKILLS[@]}"; do
+    SKILL_SUBPATH=".claude/skills/${SKILL_NAME}"
+    DEST="$DEST_PARENT/$SKILL_NAME"
+
+    info "Extracting ${SKILL_NAME} …"
+    if ! tar -xzf "$TARBALL" -C "$EXTRACT_DIR" \
+        "${REPO_NAME}-${BRANCH}/${SKILL_SUBPATH}" 2>/dev/null; then
         err "Skill subpath not found in tarball: ${SKILL_SUBPATH}"
         err "Repo layout may have changed on branch '${BRANCH}'."
         exit 1
-    }
+    fi
 
-SRC="$EXTRACT_DIR/${REPO_NAME}-${BRANCH}/${SKILL_SUBPATH}"
-if [ ! -d "$SRC" ]; then
-    err "Extracted skill directory missing: $SRC"
-    exit 1
-fi
+    SRC="$EXTRACT_DIR/${REPO_NAME}-${BRANCH}/${SKILL_SUBPATH}"
+    if [ ! -d "$SRC" ]; then
+        err "Extracted skill directory missing: $SRC"
+        exit 1
+    fi
 
-# Idempotent install: remove existing, then copy.
-if [ -d "$DEST" ]; then
-    warn "Removing existing skill at $DEST"
-    rm -rf "$DEST"
-fi
-cp -R "$SRC" "$DEST"
-success "Skill installed at $DEST"
+    # Idempotent install: remove existing, then copy.
+    if [ -d "$DEST" ]; then
+        warn "Removing existing skill at $DEST"
+        rm -rf "$DEST"
+    fi
+    cp -R "$SRC" "$DEST"
+    success "Installed ${SKILL_NAME} → $DEST"
+done
 
 # ─── AI Dev Kit ───────────────────────────────────────────────────────────────
 if [ "$INSTALL_AI_DEV_KIT" -eq 1 ]; then
@@ -179,7 +184,8 @@ echo
 cat <<EOF
 ${GREEN}${BOLD}Done.${NC}
 
-  Skill:        ${DEST}
+  Skills:       ${SKILLS[*]}
+  Location:     ${DEST_PARENT}
   Scope:        $([ "$DEST_MODE" = "user" ] && echo 'user-global (~/.claude)' || echo 'current directory (./.claude)')
 
 ${BOLD}Next steps${NC}
