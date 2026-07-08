@@ -878,11 +878,21 @@ export const FileViewer = memo(function FileViewer({
     }
   }, [filesLoaded, activeTab, hasArchitecture, isCreatingArchitecture, isStreaming, onCreateArchitecture]);
 
-  // Check if file is renderable (markdown, HTML, or PDF)
+  // Check if file is renderable (markdown, HTML, PDF, or image)
   const isMarkdown = selectedFile?.endsWith(".md");
   const isHtml = selectedFile?.endsWith(".html") || selectedFile?.endsWith(".htm");
   const isPdf = selectedFile?.endsWith(".pdf");
-  const isRenderable = isMarkdown || isHtml || isPdf;
+  const imageExt = [".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"].find((e) =>
+    selectedFile?.toLowerCase().endsWith(e),
+  );
+  const isImage = !!imageExt;
+  const imageMime =
+    imageExt === ".svg" ? "image/svg+xml"
+    : imageExt === ".jpg" || imageExt === ".jpeg" ? "image/jpeg"
+    : imageExt === ".gif" ? "image/gif"
+    : imageExt === ".webp" ? "image/webp"
+    : "image/png";
+  const isRenderable = isMarkdown || isHtml || isPdf || isImage;
 
   // Reset showRaw when changing files (default to preview mode)
   useEffect(() => {
@@ -997,7 +1007,7 @@ export const FileViewer = memo(function FileViewer({
             </div>
           ) : (
             <div className="flex-1 flex flex-col min-h-0">
-              {isRenderable && !isPdf && (
+              {isRenderable && !isPdf && !isImage && (
                 <div className="shrink-0 px-4 py-2 border-b border-border flex items-center justify-between bg-muted/20">
                   <span className="text-sm text-muted-foreground truncate">{selectedFile}</span>
                   <div className="flex items-center gap-1 bg-muted rounded-md p-0.5 flex-shrink-0 ml-2">
@@ -1030,6 +1040,16 @@ export const FileViewer = memo(function FileViewer({
                     className="flex-1 w-full border-0"
                     title={selectedFile || "PDF Preview"}
                   />
+                ) : isImage ? (
+                  <ScrollArea className="flex-1 bg-muted/20">
+                    <div className="flex min-h-full items-center justify-center p-6">
+                      <img
+                        src={`data:${imageMime};base64,${fileContent.content}`}
+                        alt={selectedFile || "Image preview"}
+                        className="max-w-full rounded-md shadow-sm"
+                      />
+                    </div>
+                  </ScrollArea>
                 ) : isHtml ? (
                   <iframe
                     srcDoc={fileContent.content}

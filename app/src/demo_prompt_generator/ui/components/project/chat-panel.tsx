@@ -392,6 +392,10 @@ interface ChatPanelProps {
    *  When set, a "C" badge in the composer shows the exact hint that will be
    *  prepended to the next message. Undefined on overview/story tabs. */
   contextHint?: string;
+  /** Fired when the message input gains focus. The project page uses this to
+   *  refresh the architecture PNG snapshot (only if the diagram changed) right
+   *  as the user turns to the chat — so the agent reads a current image. */
+  onInputFocus?: () => void;
 }
 
 interface MessageBubbleProps {
@@ -1416,6 +1420,7 @@ export const ChatPanel = memo(function ChatPanel({
   placeholder = "Ask the AI to help build your solution...",
   title = "Your AI Assistant",
   contextHint,
+  onInputFocus,
 }: ChatPanelProps) {
   const [input, setInput] = useState("");
   const [userHasScrolledChat, setUserHasScrolledChat] = useState(false);
@@ -1647,6 +1652,7 @@ export const ChatPanel = memo(function ChatPanel({
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
+            onFocus={onInputFocus}
             placeholder={placeholder}
             disabled={isStreaming}
             className="min-h-[44px] max-h-[160px] resize-none text-sm border-0 shadow-none bg-transparent focus-visible:ring-0 rounded-xl rounded-b-none px-3.5 py-3"

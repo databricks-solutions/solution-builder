@@ -71,6 +71,7 @@ import {
   downloadProjectAsZip,
   getDeployedResources,
   generateProjectNarrative,
+  saveArchitectureSnapshot,
   type Project,
   type ProjectFile,
   type ProjectFileContent,
@@ -79,7 +80,9 @@ import {
   type DeployedResources,
   type ReasoningEntry,
 } from "@/lib/custom-api";
-import { AUTO_BUILD_KICKOFF } from "@/lib/auto-build-prompt";
+import { AUTO_BUILD_KICKOFF, ARCHITECTURE_MIGRATION_PROMPT } from "@/lib/auto-build-prompt";
+import { isLegacyArchitectureFormat } from "@/lib/platform-architecture";
+import { captureDiagramPngDataUrl } from "@/components/project/platform-diagram/export-image";
 import { cn } from "@/lib/utils";
 
 /** Tabs the project page can deep-link to. Mirrors `ViewTab` in
@@ -104,7 +107,8 @@ export function buildContextHint(
   previewPath: string | null,
 ): string | undefined {
   if (activeTab === "story") return "the demo story (README)";
-  if (activeTab === "architecture") return "the architecture diagram";
+  if (activeTab === "architecture")
+    return "the architecture diagram — a screenshot of the current diagram is auto-rendered to `architecture.png` at the project root, so read that file to SEE it before editing `architecture.md`";
   if (activeTab === "files" && selectedFile) return `the file \`${selectedFile}\``;
   if (activeTab === "app") {
     const path = (previewPath ?? "/").replace(/\/+$/, "");
@@ -1393,6 +1397,45 @@ function ProjectPage() {
   const reloadArchitectureRef = useRef(reloadArchitecture);
   reloadArchitectureRef.current = reloadArchitecture;
 
+  // Architecture PNG snapshot — captured lazily, NOT on every render. A dirty
+  // flag flips whenever the diagram content changes (agent rewrite or user
+  // edit); we capture once when the user turns to the chat (input focus), so
+  // the agent reads a CURRENT `architecture.png` without us POSTing on every
+  // drag. Best-effort: only fires when the Architecture canvas is actually
+  // mounted (captureDiagramPngDataUrl returns null otherwise), and swallows
+  // failures. The initial load doesn't count as a change (skip first run).
+  const archDirtyRef = useRef(false);
+  const archSnapshotSeenRef = useRef(false);
+  useEffect(() => {
+    if (architectureContent == null) return;
+    if (!archSnapshotSeenRef.current) { archSnapshotSeenRef.current = true; return; }
+    archDirtyRef.current = true;
+  }, [architectureContent]);
+  const captureArchitectureIfDirty = useCallback(() => {
+    if (!archDirtyRef.current) return;
+    archDirtyRef.current = false; // optimistic — avoid a burst of focus events re-firing
+    captureDiagramPngDataUrl()
+      .then((dataUrl) => { if (dataUrl) return saveArchitectureSnapshot(projectId, dataUrl); })
+      .catch(() => { archDirtyRef.current = true; /* retry on next focus */ });
+  }, [projectId]);
+
+  // Legacy-architecture migration nudge. When architecture.md loads in the OLD
+  // (pre-flat-file) format, ask the agent — once per project — to migrate it to
+  // the current schema. Guarded by localStorage so a refresh/reload doesn't
+  // re-fire it, and only sent when the chat is idle (so we don't stomp a run).
+  const legacyMigrationSentRef = useRef(false);
+  useEffect(() => {
+    if (!architectureContent || legacyMigrationSentRef.current || isStreaming) return;
+    if (!isLegacyArchitectureFormat(architectureContent)) return;
+    const flagKey = `legacyArchMigrationSent:${projectId}`;
+    try {
+      if (localStorage.getItem(flagKey)) { legacyMigrationSentRef.current = true; return; }
+    } catch { /* localStorage unavailable — fall back to the in-session ref */ }
+    legacyMigrationSentRef.current = true;
+    try { localStorage.setItem(flagKey, "1"); } catch { /* ignore */ }
+    handleSendMessage(ARCHITECTURE_MIGRATION_PROMPT);
+  }, [architectureContent, projectId, isStreaming, handleSendMessage]);
+
   // Handle creating architecture - send message to agent
   const handleCreateArchitecture = useCallback(() => {
     if (isCreatingArchitecture || isStreaming) return;
@@ -2194,6 +2237,7 @@ function ProjectPage() {
               onAutoBuild={handleAutoBuild}
               canAutoBuild={!isStreaming}
               contextHint={contextHint}
+              onInputFocus={captureArchitectureIfDirty}
             />
           </div>
         )}

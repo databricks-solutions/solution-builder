@@ -720,6 +720,19 @@ class ProjectFileWrite(BaseModel):
     content: str
 
 
+class ArchitectureSnapshotWrite(BaseModel):
+    """Request body for the architecture PNG snapshot. `data_url` is a
+    `data:image/png;base64,...` string captured from the live canvas by the
+    open browser tab, so the agent can read a rendered image of its diagram."""
+    data_url: str
+
+
+class ArchitectureSnapshotResult(BaseModel):
+    """Response for a saved architecture snapshot."""
+    path: str
+    size: int
+
+
 class DeployedResourceLink(BaseModel):
     """A single deployed Databricks resource with its live URL."""
     resource_type: str

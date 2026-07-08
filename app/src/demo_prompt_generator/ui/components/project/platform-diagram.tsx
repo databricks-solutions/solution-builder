@@ -165,6 +165,10 @@ function PlatformDiagram({ content, deployedResources, projectId, defaultEditMod
   const activeIndexRef = useRef(activeIndex);
   activeIndexRef.current = activeIndex;
 
+  // NOTE: the architecture PNG snapshot is captured by the PROJECT PAGE on chat
+  // focus (only when the diagram changed), not here — so we don't POST a PNG on
+  // every drag/render. See `captureArchitectureIfDirty` in project.$projectId.
+
   // Write the whole multi-tab file (array of every tab's body). Sets the echo
   // guard to the full-array string so the watcher re-fetch of our own write is
   // ignored. Standalone (onSave) vs in-app (saveProjectFile) split preserved.

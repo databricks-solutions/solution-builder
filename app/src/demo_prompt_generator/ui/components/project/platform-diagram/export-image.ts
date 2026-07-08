@@ -30,3 +30,16 @@ export async function exportDiagramImage(kind: "png" | "svg", name = "architectu
   const dataUrl = kind === "png" ? await toPng(el, opts) : await toSvg(el, opts);
   downloadDataUrl(`${name}.${kind}`, dataUrl);
 }
+
+/** Capture the live diagram as a PNG data-url WITHOUT downloading it. Used by
+ *  the passive auto-snapshot: the open tab POSTs this back so the agent can
+ *  read a rendered image of the diagram. Returns null if the canvas isn't
+ *  mounted (no tab-open / not on the Architecture tab). */
+export async function captureDiagramPngDataUrl(): Promise<string | null> {
+  const el = captureTarget();
+  if (!el) return null;
+  const { toPng } = await import("html-to-image");
+  // Slightly lower pixelRatio than the download (this is for the agent to
+  // "see", not a poster) to keep the POST payload small.
+  return toPng(el, { backgroundColor: "#ffffff", pixelRatio: 1.5, cacheBust: true });
+}

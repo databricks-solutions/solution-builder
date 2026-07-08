@@ -29,6 +29,8 @@ from ..core.auth import (
     write_project_auth_file,
 )
 from ..models import (
+    ArchitectureSnapshotResult,
+    ArchitectureSnapshotWrite,
     DeployedResourceLink,
     DeployedResourcesOut,
     ProjectFile,
@@ -840,6 +842,61 @@ def save_project_file(
         size=stat.st_size,
         last_modified=datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc),
     )
+
+
+@router.put(
+    "/projects/{project_id}/architecture-snapshot",
+    response_model=ArchitectureSnapshotResult,
+    operation_id="saveArchitectureSnapshot",
+)
+def save_architecture_snapshot(
+    project_id: str,
+    body: ArchitectureSnapshotWrite,
+    session: Dependencies.Session,
+    headers: Dependencies.Headers,
+    config: Dependencies.Config,
+):
+    """Persist a PNG snapshot of the live architecture canvas as
+    `architecture.png` in the project dir.
+
+    The open browser tab captures the rendered ReactFlow canvas (via
+    html-to-image) after each save and POSTs the data-URL here — so the agent
+    can READ a rendered image of the diagram it just authored, without any
+    headless browser in the container. Best-effort: if no tab is open, this
+    simply never fires and `architecture.png` stays at its last capture.
+    """
+    import base64
+
+    user_email = _get_user_email(headers)
+    _get_authorized_project(
+        session, project_id, user_email, config.template_admin_emails
+    )
+
+    # Accept a `data:image/png;base64,...` URL (or bare base64) and decode it.
+    data_url = body.data_url
+    if "," in data_url and data_url.strip().startswith("data:"):
+        header, _, b64 = data_url.partition(",")
+        if "image/png" not in header:
+            raise HTTPException(status_code=400, detail="Snapshot must be image/png")
+    else:
+        b64 = data_url
+    try:
+        raw = base64.b64decode(b64, validate=True)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid base64 image data")
+    # Guard against absurd payloads (a big 2x diagram is well under this).
+    if len(raw) > 25 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Snapshot too large")
+
+    project_dir = _PROJECTS_BASE_RESOLVED / project_id
+    disk_path = project_dir / "architecture.png"
+    try:
+        disk_path.parent.mkdir(parents=True, exist_ok=True)
+        disk_path.write_bytes(raw)
+    except OSError as e:
+        raise HTTPException(status_code=500, detail=f"Write failed: {e}")
+
+    return ArchitectureSnapshotResult(path="architecture.png", size=len(raw))
 
 
 @router.get(

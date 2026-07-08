@@ -541,6 +541,22 @@ export async function saveProjectFile(
   return resp.json();
 }
 
+/** POST a PNG snapshot of the live architecture canvas so the backend saves it
+ *  as `architecture.png` (the agent can then read a rendered image). Best-effort:
+ *  callers ignore failures — a missing snapshot just means the agent doesn't
+ *  "see" this render. */
+export async function saveArchitectureSnapshot(
+  projectId: string,
+  dataUrl: string,
+): Promise<void> {
+  const resp = await fetch(apiUrl(`/api/projects/${projectId}/architecture-snapshot`), {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ data_url: dataUrl }),
+  });
+  if (!resp.ok) throw new Error(`Failed to save architecture snapshot: ${resp.status}`);
+}
+
 export async function getDeployedResources(projectId: string): Promise<DeployedResources> {
   const resp = await fetch(apiUrl(`/api/projects/${projectId}/deployed-resources`));
   if (!resp.ok) {

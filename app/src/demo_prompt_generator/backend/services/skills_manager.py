@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import shutil
 from pathlib import Path
 from typing import Optional
@@ -188,6 +189,67 @@ _SKILL_COPY_IGNORE = shutil.ignore_patterns(
 )
 
 
+# The in-app replacement for the skill's local-render workflow. Inside Solution
+# Builder the Architecture tab renders architecture.md live in its own canvas, so
+# there is no HTML-copy / headless-Chrome render loop — the agent just writes the
+# `architecture.md` file and the app draws it.
+_ARCH_SKILL_IN_APP_WORKFLOW = """## Workflow — how to make a diagram
+
+You are running inside Solution Builder. The Architecture tab renders the
+project's `architecture.md` **live in the app's own canvas** — there is no HTML
+file to copy and no image to render. Just:
+
+1. **Write `architecture.md`** at the project root, containing a single ```json
+   fenced block with the `{ name, story, columns?, nodes[], edges[] }` schema
+   (or an ARRAY of those objects for multiple tabs). Plain JSON — no `//` comments.
+2. The app re-renders the diagram automatically as soon as the file is saved.
+3. **To see your result, read `architecture.png`** at the project root. The app
+   automatically renders a PNG of the live canvas into that file as part of the
+   feedback loop — it refreshes whenever the user has the Architecture tab open
+   and turns to the chat. Read it to check the diagram is right (components
+   present, wired correctly, laid out cleanly) and edit `architecture.md` to fix
+   anything. Repeat until it looks right. (If `architecture.png` is missing or
+   stale, the Architecture tab may not be open — proceed from the JSON; the user
+   sees the live canvas regardless.)
+
+Start from the example in **The format** below (copy its `nodes`/`edges` and
+adapt), or from `reference/architecture-complete.jsonc` — the flagship
+end-to-end shape. **Strip the `//` comments** when you write the file.
+"""
+
+
+def _localize_arch_skill_for_app(skill_md: Path) -> None:
+    """Rewrite a project's copied architecture SKILL.md for the in-app context:
+    strip the local-only render-loop workflow (copy an HTML, run headless Chrome
+    → PNG — none of which exists inside Solution Builder, where the canvas renders
+    architecture.md natively) and inject a short in-app workflow in its place.
+    A no-op if the markers aren't present (older skill versions)."""
+    try:
+        text = skill_md.read_text(encoding="utf-8")
+    except OSError:
+        return
+    # Drop every local-render-only block between its markers (inclusive):
+    # the HTML-copy + headless-Chrome workflow and the renderer/ file list.
+    for marker in ("local-render-workflow", "local-render-files"):
+        text = re.sub(
+            rf"<!-- BEGIN: {marker}.*?<!-- END: {marker} -->\n?",
+            "",
+            text,
+            flags=re.DOTALL,
+        )
+    # Fill the in-app workflow placeholder with the app-native instructions.
+    text = re.sub(
+        r"<!-- BEGIN: in-app-workflow.*?<!-- END: in-app-workflow -->\n?",
+        _ARCH_SKILL_IN_APP_WORKFLOW,
+        text,
+        flags=re.DOTALL,
+    )
+    try:
+        skill_md.write_text(text, encoding="utf-8")
+    except OSError:
+        pass
+
+
 def copy_skills_to_project(project_id: str) -> bool:
     """Copy the demo-generator skill + every non-excluded ai-dev-kit skill
     into the project's `.claude/skills/` directory.
@@ -232,6 +294,7 @@ def copy_skills_to_project(project_id: str) -> bool:
                 "renderer", ".venv", ".DS_Store", "__pycache__", "*.pyc",
             ),
         )
+        _localize_arch_skill_for_app(dest / "SKILL.md")
         copied += 1
 
     # Copy every non-excluded skill from ai-dev-kit.
