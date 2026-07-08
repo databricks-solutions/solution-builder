@@ -30,7 +30,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Annotated, AsyncGenerator, TypeAlias
+from typing import Annotated, Any, AsyncGenerator, TypeAlias
 
 import psycopg
 from alembic import command
@@ -266,7 +266,9 @@ def _ensure_database_exists(ws: WorkspaceClient, endpoint: _Endpoint) -> None:
 
     cred = _mint_token(ws, endpoint.endpoint_path)
     user = _user_from_token(cred.token)
-    common = dict(host=endpoint.host, port=5432, user=user, password=cred.token, sslmode="require")
+    # dict[str, Any] so **common splats cleanly into psycopg.connect's overloads
+    # (a plain dict infers dict[str, object], which mypy can't match to any overload).
+    common: dict[str, Any] = dict(host=endpoint.host, port=5432, user=user, password=cred.token, sslmode="require")
     try:
         # Cheap probe — if connect succeeds, the DB exists, we're done.
         with psycopg.connect(dbname=target, **common, connect_timeout=5):
@@ -352,6 +354,32 @@ def validate_db(engine: Engine) -> None:
     logger.info(f"{mode} database connection validated successfully")
 
 
+def _prune_orphan_migration_pyc(versions_dir: Path) -> None:
+    """Delete compiled migration files whose `.py` source no longer exists.
+
+    A renamed/deleted migration can leave a stale `.pyc` behind (in the
+    `versions/` dir or its `__pycache__/`). If Alembic ever loads such an orphan
+    — e.g. in a sourceless/compiled layout, or when the `.py` is missing — it
+    resurrects the deleted revision, producing "Multiple head revisions" on
+    startup. This is purely a FILESYSTEM cleanup (no DB access): Python
+    regenerates a valid `.pyc` from the present `.py` on next import.
+    """
+    sources = {p.stem for p in versions_dir.glob("*.py")}
+    candidates = list(versions_dir.glob("*.pyc"))
+    cache = versions_dir / "__pycache__"
+    if cache.is_dir():
+        candidates += list(cache.glob("*.pyc"))
+    for pyc in candidates:
+        # "__pycache__/v6_foo.cpython-312.pyc" → stem "v6_foo"; "v6_foo.pyc" → "v6_foo"
+        stem = pyc.name.split(".")[0]
+        if stem not in sources:
+            try:
+                pyc.unlink()
+                logger.warning(f"Pruned orphan migration bytecode (no matching .py): {pyc.name}")
+            except OSError:
+                pass
+
+
 def _get_alembic_config(connection) -> AlembicConfig:
     """Build Alembic config that reuses our existing connection.
 
@@ -360,6 +388,9 @@ def _get_alembic_config(connection) -> AlembicConfig:
     URL-based connections wouldn't carry our minted OAuth token.
     """
     migrations_dir = Path(__file__).parent.parent / "migrations"
+    # Guard against stale compiled migrations (renamed/deleted revisions) that
+    # would otherwise show up as extra Alembic heads. Filesystem-only.
+    _prune_orphan_migration_pyc(migrations_dir / "versions")
     alembic_cfg = AlembicConfig()
     alembic_cfg.set_main_option("script_location", str(migrations_dir))
     alembic_cfg.attributes["connection"] = connection
