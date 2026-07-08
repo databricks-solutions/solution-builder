@@ -1220,12 +1220,6 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
     onAnnotate(panelPrimaryId, patch);
   }, [panelPrimaryId, onAnnotate, onAnnotateResize, nodesById]);
   const panelOnPickLogo = useCallback(() => { if (panelPrimaryId) setLogoPickerFor(panelPrimaryId); }, [panelPrimaryId]);
-  const panelAnnoSrc = panelAnno?.src;
-  const panelOnSetImageUrl = useCallback(() => {
-    if (!panelPrimaryId) return;
-    const url = window.prompt("Image URL:", panelAnnoSrc ?? "");
-    if (url !== null) onAnnotate(panelPrimaryId, { src: url.trim() });
-  }, [panelPrimaryId, panelAnnoSrc, onAnnotate]);
   const panelOnStyle = useCallback((patch: StylePatch) => styleNodes(styleTargets, patch), [styleNodes, styleTargets]);
   const panelOnCopyStyle = useCallback(() => setCopiedStyle(panelNodeStyle), [panelNodeStyle]);
   const panelOnGroup = useCallback(() => groupNodes(groupTargets), [groupNodes, groupTargets]);
@@ -1562,7 +1556,6 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
           onSetScale={panelOnSetScale}
           onAnno={panelOnAnno}
           onPickLogo={panelOnPickLogo}
-          onSetImageUrl={panelOnSetImageUrl}
           onStyle={panelOnStyle}
           onCopyStyle={panelOnCopyStyle}
           onGroup={panelOnGroup}
