@@ -320,7 +320,7 @@ export const AnnotationNode = memo(function AnnotationNode({ data, selected }: N
           {a.src ? (
             <img src={a.src} alt="" className="h-full w-full object-contain" draggable={false} />
           ) : (
-            <span className="px-2 text-center text-[11px] text-muted-foreground">Right-click → Set image URL</span>
+            <span className="px-2 text-center text-[11px] text-muted-foreground">Set the image url in the right menu</span>
           )}
         </div>
       )}
