@@ -94,6 +94,9 @@ interface FileViewerProps {
   onLoadArchitecture?: () => void;
   isCreatingArchitecture?: boolean;
   onCreateArchitecture?: () => void;
+  /** Fired when a user edit changes the architecture diagram — the route uses
+   *  it to mark the architecture.png snapshot dirty (re-captured on chat focus). */
+  onArchitectureDirty?: () => void;
   /** Architecture-first project awaiting its build: hide Overview + Story
    *  tabs and default the workspace to the Architecture tab. */
   architectureFirst?: boolean;
@@ -197,6 +200,7 @@ interface ArchitectureViewProps {
   capabilities?: { buildable: string[]; talking_track: string[] } | null;
   deployedResources?: DeployedResourceLink[];
   projectId: string;
+  onArchitectureDirty?: () => void;
 }
 
 const ArchitectureView = memo(function ArchitectureView({
@@ -208,6 +212,7 @@ const ArchitectureView = memo(function ArchitectureView({
   capabilities,
   deployedResources,
   projectId,
+  onArchitectureDirty,
 }: ArchitectureViewProps) {
   if (isCreatingArchitecture) {
     return (
@@ -242,6 +247,7 @@ const ArchitectureView = memo(function ArchitectureView({
               capabilities={capabilities ?? null}
               deployedResources={deployedResources}
               projectId={projectId}
+              onDirty={onArchitectureDirty}
             />
           </Suspense>
           {/* Reload spinner: the agent rewrote architecture.md and we're
@@ -800,6 +806,7 @@ export const FileViewer = memo(function FileViewer({
   onLoadArchitecture,
   isCreatingArchitecture = false,
   onCreateArchitecture,
+  onArchitectureDirty,
   architectureFirst = false,
   isStreaming = false,
   resources,
@@ -975,6 +982,7 @@ export const FileViewer = memo(function FileViewer({
               capabilities={capabilities}
               deployedResources={deployedResources}
               projectId={projectId}
+              onArchitectureDirty={onArchitectureDirty}
             />
           ) : activeTab === "app" ? (
             <AppPreviewTab

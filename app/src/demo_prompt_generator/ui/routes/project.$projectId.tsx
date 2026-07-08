@@ -1405,18 +1405,30 @@ function ProjectPage() {
   // mounted (captureDiagramPngDataUrl returns null otherwise), and swallows
   // failures. The initial load doesn't count as a change (skip first run).
   const archDirtyRef = useRef(false);
-  const archSnapshotSeenRef = useRef(false);
+  // The snapshot goes dirty from TWO sources:
+  //  (a) a USER edit in the canvas → PlatformDiagram's onDirty (threaded through
+  //      FileViewer) calls markArchitectureDirty. (The diagram's save is echo-
+  //      guarded, so architectureContent doesn't change on user edits — hence
+  //      the explicit callback.)
+  //  (b) an AGENT (background) rewrite of architecture.md → arrives as a changed
+  //      architectureContent via the SSE reload; the effect below marks it dirty.
+  const markArchitectureDirty = useCallback(() => { archDirtyRef.current = true; }, []);
+  const archContentSeenRef = useRef(false);
   useEffect(() => {
     if (architectureContent == null) return;
-    if (!archSnapshotSeenRef.current) { archSnapshotSeenRef.current = true; return; }
-    archDirtyRef.current = true;
+    if (!archContentSeenRef.current) { archContentSeenRef.current = true; return; } // skip initial load
+    archDirtyRef.current = true; // agent/reload rewrote architecture.md
   }, [architectureContent]);
+  // Capture if dirty. Called as the user turns to / types in the chat — so even
+  // if focus was already held while the agent changed the diagram in the
+  // background, the next keystroke re-captures the fresh state. Cheap: returns
+  // immediately when nothing changed since the last capture.
   const captureArchitectureIfDirty = useCallback(() => {
     if (!archDirtyRef.current) return;
-    archDirtyRef.current = false; // optimistic — avoid a burst of focus events re-firing
+    archDirtyRef.current = false; // optimistic — avoid re-firing on every keystroke
     captureDiagramPngDataUrl()
       .then((dataUrl) => { if (dataUrl) return saveArchitectureSnapshot(projectId, dataUrl); })
-      .catch(() => { archDirtyRef.current = true; /* retry on next focus */ });
+      .catch(() => { archDirtyRef.current = true; /* retry on next activity */ });
   }, [projectId]);
 
   // Legacy-architecture migration nudge. When architecture.md loads in the OLD
@@ -2179,6 +2191,7 @@ function ProjectPage() {
             onLoadArchitecture={handleLoadArchitecture}
             isCreatingArchitecture={isCreatingArchitecture}
             onCreateArchitecture={handleCreateArchitecture}
+            onArchitectureDirty={markArchitectureDirty}
             architectureFirst={!!project?.architecture_first}
             isStreaming={isStreaming}
             resources={{
@@ -2237,7 +2250,7 @@ function ProjectPage() {
               onAutoBuild={handleAutoBuild}
               canAutoBuild={!isStreaming}
               contextHint={contextHint}
-              onInputFocus={captureArchitectureIfDirty}
+              onComposerActivity={captureArchitectureIfDirty}
             />
           </div>
         )}

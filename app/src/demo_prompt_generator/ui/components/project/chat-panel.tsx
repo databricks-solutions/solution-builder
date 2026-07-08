@@ -392,10 +392,13 @@ interface ChatPanelProps {
    *  When set, a "C" badge in the composer shows the exact hint that will be
    *  prepended to the next message. Undefined on overview/story tabs. */
   contextHint?: string;
-  /** Fired when the message input gains focus. The project page uses this to
-   *  refresh the architecture PNG snapshot (only if the diagram changed) right
-   *  as the user turns to the chat — so the agent reads a current image. */
-  onInputFocus?: () => void;
+  /** Fired when the user engages the message input — on focus AND on each
+   *  keystroke. The project page uses this to refresh the architecture PNG
+   *  snapshot (only if the diagram changed since the last capture) as the user
+   *  turns to / types in the chat — so even if the diagram changed in the
+   *  background while focus was held, the next keystroke re-captures it. Cheap:
+   *  the handler early-returns when nothing changed. */
+  onComposerActivity?: () => void;
 }
 
 interface MessageBubbleProps {
@@ -1420,7 +1423,7 @@ export const ChatPanel = memo(function ChatPanel({
   placeholder = "Ask the AI to help build your solution...",
   title = "Your AI Assistant",
   contextHint,
-  onInputFocus,
+  onComposerActivity,
 }: ChatPanelProps) {
   const [input, setInput] = useState("");
   const [userHasScrolledChat, setUserHasScrolledChat] = useState(false);
@@ -1650,9 +1653,9 @@ export const ChatPanel = memo(function ChatPanel({
           <Textarea
             ref={textareaRef}
             value={input}
-            onChange={(e) => setInput(e.target.value)}
+            onChange={(e) => { setInput(e.target.value); onComposerActivity?.(); }}
             onKeyDown={handleKeyDown}
-            onFocus={onInputFocus}
+            onFocus={onComposerActivity}
             placeholder={placeholder}
             disabled={isStreaming}
             className="min-h-[44px] max-h-[160px] resize-none text-sm border-0 shadow-none bg-transparent focus-visible:ring-0 rounded-xl rounded-b-none px-3.5 py-3"

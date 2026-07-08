@@ -40,6 +40,9 @@ export async function captureDiagramPngDataUrl(): Promise<string | null> {
   if (!el) return null;
   const { toPng } = await import("html-to-image");
   // Slightly lower pixelRatio than the download (this is for the agent to
-  // "see", not a poster) to keep the POST payload small.
-  return toPng(el, { backgroundColor: "#ffffff", pixelRatio: 1.5, cacheBust: true });
+  // "see", not a poster) to keep the POST payload small. skipFonts avoids
+  // html-to-image trying to inline cross-origin Google Fonts CSS (which throws
+  // a harmless SecurityError on cssRules); system fonts render fine for the
+  // agent's snapshot.
+  return toPng(el, { backgroundColor: "#ffffff", pixelRatio: 1.5, cacheBust: true, skipFonts: true });
 }

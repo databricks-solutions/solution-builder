@@ -70,11 +70,16 @@ interface PlatformDiagramProps {
    *  When provided, these are used INSTEAD of the built-in in-app save+Download
    *  (the standalone passes its file-linking Save + Download here). */
   toolbarExtras?: React.ReactNode;
+  /** Fired on every in-app diagram save (a user edit changed the diagram). The
+   *  project page uses this to mark the architecture snapshot dirty, so it
+   *  re-captures architecture.png on the next chat focus. Not fired in the
+   *  standalone (onSave) path. */
+  onDirty?: () => void;
 }
 
 type SaveStatus = "idle" | "saving" | "saved" | "error";
 
-function PlatformDiagram({ content, deployedResources, projectId, defaultEditMode = true, readOnly, onSave, hideChrome, toolbarExtras: toolbarExtrasProp }: PlatformDiagramProps) {
+function PlatformDiagram({ content, deployedResources, projectId, defaultEditMode = true, readOnly, onSave, hideChrome, toolbarExtras: toolbarExtrasProp, onDirty }: PlatformDiagramProps) {
   // --- Guard against the diagram's own auto-save echoing back and reverting
   //     the canvas to a stale version. -------------------------------------
   // The canvas auto-saves architecture.md (debounced). That write trips the
@@ -176,13 +181,14 @@ function PlatformDiagram({ content, deployedResources, projectId, defaultEditMod
     const md = serializeArchitectureTabs(bodies);
     lastAuthoredMd.current = md;
     if (onSave) { onSave(md); return; }
+    onDirty?.(); // a user edit changed the diagram → mark the snapshot dirty
     setStatus("saving");
     savePending.current = true;
     saveProjectFile(projectId, "architecture.md", md)
       .then(() => setStatus("saved"))
       .catch(() => setStatus("error"))
       .finally(() => { savePending.current = false; });
-  }, [projectId, onSave]);
+  }, [projectId, onSave, onDirty]);
 
   // Splice a new body for the ACTIVE tab into the array + write. Keeps the tab's
   // display name in sync with the body's `name` (in case a rename rode along).
