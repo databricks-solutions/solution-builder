@@ -31,7 +31,7 @@ backend/
 ├── routes/             # One module per resource
 │   ├── agent.py        # POST /invoke_agent, /stream_progress/{id}, /stop_stream/{id}
 │   ├── projects.py     # Project CRUD, creation with auto-provisioning
-│   ├── project_files.py # File listing, read, download, deployed resources
+│   ├── project_files.py # File listing, read, download, deployed resources, architecture-snapshot (PNG)
 │   ├── messages.py     # Message history per project
 │   ├── templates.py    # Template publish/list/fork/search
 │   ├── resources.py    # Cluster/warehouse/catalog/schema listing
@@ -118,10 +118,9 @@ class WidgetOut(BaseModel):
 
 ### Database
 
-- Lakebase (managed PostgreSQL) in production, PGLite (auto-provisioned local PG) in development
-- Tables auto-created on startup via `SQLModel.metadata.create_all()` in `lakebase.py`
-- Reset with `RESET_DB=1` environment variable
-- Connection string: `LAKEBASE_PG_URL` env var (optional in dev — PGLite auto-provisions)
+- Lakebase (managed PostgreSQL) in prod. **In local dev the mode is decided by `_is_pglite_mode()` in `lakebase.py`:** PGLite iff `USE_PGLITE=1` **or** `LAKEBASE_DATABASE_PATH` is unset. `app/.env` normally sets `LAKEBASE_DATABASE_PATH` → **dev talks to a real remote Lakebase branch** (a named dev branch, not prod), NOT a local PGLite cluster.
+- Tables auto-created/migrated on startup (`initialize_models` / alembic in `lakebase.py`).
+- **`RESET_DB=1` is DESTRUCTIVE — see the "⚠️ Dev database" section in the root `../CLAUDE.md`.** In Lakebase mode it DROPS ALL TABLES on the remote branch `.env` points at; in PGLite mode it deletes `~/.pglite/`. Never run it (or a test that sets it) against a branch with real data.
 
 ## Frontend patterns
 
@@ -145,9 +144,9 @@ ui/
 │   ├── ui/                 # shadcn/ui primitives (button, dialog, input, etc.)
 │   ├── project/            # Project workspace components
 │   │   ├── chat-panel.tsx  # Chat interface with streaming + reasoning display
-│   │   ├── file-viewer.tsx # File explorer sidebar with tabs
+│   │   ├── file-viewer.tsx # File explorer sidebar with tabs (renders images inline: png/jpg/svg…)
 │   │   ├── code-viewer.tsx # Syntax-highlighted code display
-│   │   ├── architecture-diagram.tsx  # ReactFlow-based diagram
+│   │   ├── platform-diagram.tsx + platform-diagram/  # ReactFlow arch editor (see root CLAUDE.md)
 │   │   ├── build-stepper.tsx         # Stage pipeline progress indicator
 │   │   ├── deployed-resources-bar.tsx # Links to live Databricks resources
 │   │   ├── project-tile.tsx          # Project card for list views

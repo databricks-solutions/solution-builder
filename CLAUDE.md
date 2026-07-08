@@ -1,6 +1,7 @@
 # CLAUDE.md — Industry Demo Prompt Generator
 
-> **This file is your memory across sessions. Keep it accurate.** When a major change happens (new top-level directory, stack swap, workflow shift, renamed/moved key file, new dev script), update this file in the same change. Better stale-in-one-place than spread-across-three-places.
+> **This file is your memory across sessions. Keep it accurate — updating it is part of the work, not an afterthought.**
+> When a change lands that alters how the system is built, packaged, run, or deployed — a new top-level directory, a stack swap, a workflow shift, a renamed/moved key file, a new dev/build/deploy script, or a new *mode* of a subsystem (e.g. how a skill is packaged, how an artifact renders) — **update this file in the same change, before you consider the task done.** If you touched something described here and the description is now wrong, fix it. Better stale-in-one-place than spread-across-three-places. See "How to keep this file accurate" at the bottom for the exact triggers.
 
 ## What this project actually is
 
@@ -71,7 +72,8 @@ industry-demo-prompts/
 │   ├── databricks.{prod,staging}.yml     # Deployment overlays (admin emails live here)
 │   ├── pyproject.toml                    # uv. claude-agent-sdk>=0.2.83
 │   ├── package.json                      # bun. React 19, Vite, TanStack Router
-│   └── scripts/{dev,build,release,build-electron}.sh
+│   └── scripts/{dev,build,release,build-electron}.sh + arch-skill build chain
+│       # build-architecture-skill.sh, build-arch-standalone.sh, gen-architecture-skill.ts, render-arch.mjs
 ├── .claude/skills/databricks-demo-generator/   # ★ The skill (the brain)
 │   ├── SKILL.md                          # 4-stage workflow
 │   ├── stages/0X-*.md                    # Stage-specific guides
@@ -82,9 +84,13 @@ industry-demo-prompts/
 │   └── app/
 │       ├── app.md                        # How to design+spec a demo app (read during Stage 2)
 │       └── app_template/                 # ★ The template app emitted by the generator
+├── .claude/skills/databricks-architecture/      # ★ The architecture-diagram skill (see "two modes" below)
+│   ├── SKILL.md                          # catalog/icon-bank sections GENERATED from app CATALOG; rest hand-written
+│   ├── reference/*.jsonc                 # hand-authored example diagrams
+│   └── renderer/                         # standalone viewer/editor HTML + render-arch.mjs (built from app code)
 ├── initial_templates/                    # Pre-built seed templates (retail/loyalty-segmentation)
 ├── tests/                                # Playwright E2E for the generator (targets :9000)
-├── install.sh                            # End-user installer (downloads skill + ai-dev-kit)
+├── install.sh                            # End-user installer — installs BOTH skills (demo-generator + architecture) + ai-dev-kit
 └── docs/                                 # Screenshots for README
 ```
 
@@ -162,7 +168,7 @@ platform-diagram/
 ├── edges/{flow-edge,edge-flow}.tsx  # custom edge (arrows + inferred handles) + animated flow overlay
 ├── panels/{detail-panel,edit-panel,library-palette,style-controls}.tsx
 ├── menus/context-menu.tsx           # the EDGE edit panel (docked on click; flow/arrow/shape/label/delete)
-├── composite-{lakeflow,lakeflow-genie,genie-code,governance,agent-bricks,db-platform}.tsx  # rich composite kinds
+├── composite-{lakeflow,lakeflow-genie,genie-code,governance,agent-bricks,db-platform,genie-one}.tsx  # rich composite kinds
 ├── annotations.tsx                  # free-form text/box/logo/image annotations + IconPicker
 └── hooks/{use-diagram-history,use-node-mutations,use-edge-mutations,use-paste-image}.ts
 ```
@@ -176,16 +182,63 @@ Dependency direction is a strict leaf→root DAG (shared/edge-routing → edge-f
   - `parseArchitecture(content)` → the internal resolved `PlatformSchema` ({bands, layout}) the canvas consumes; `serializeArchitecture(schema, layout)` → writes the flat file back. (The internal `{bands, layout}` shape is kept ONLY so `flow-mapping.ts` + the node components didn't have to change.)
   - The **`CATALOG`** (single source of truth): every component with `id`/`label`/`icon`/`desc`/`kind`/`sublabel` + authoring metadata (`authoring` one-liner, `ports` map). `CATALOG_BY_ID` is the lookup; `naturalSize(type)` gives each kind's [w,h]. The file lists only what's placed; the library palette renders the full catalog.
   - **`computeLayout(file)`** — resolves SYMBOLIC placement → pixels. **Author structure, not coordinates:** `columns: [...]` + per-node `col`/`row` stack nodes in left→right lanes; `wraps: [ids]`+`pad` makes a `type:"box"` auto-size around children (recursive → cloud/VPC nesting); `bounds: {side:"<id>:<anchor>"}` cuts a box edge at a node/column midpoint; `pin: "bottom-left"`+`pinTo` docks banners into a box corner (non-`float` pins RESERVE a band so the box grows and they don't overlap content). **Explicit `at` always wins, and a user drag persists as `at`** — symbolic fields are author-time, consumed once at parse.
-  - Edges: `from`/`to` by node id; the `@handle` is **inferred** (source→Lakeflow picks the port from `ingest`; else L→R `@r`/`@l`). `arrow` (auto/none/end/start/both) — `auto` draws relationship arrows for user/Genie-One edges.
+  - Edges: `from`/`to` by node id. The `@handle` is either **explicit** (`to: "lakeflow-genie-block@in-zerobus"`) or **inferred** (L→R `@r`/`@l`). **There is NO `ingest` field anymore** — a source→Lakeflow edge names the ingest PORT via its target `@in-*` handle (`@in-lakeflow-connect` / `@in-zerobus` / `@in-direct`), and that handle drives BOTH the port anchor AND the flow animation (zerobus→particles, direct→docs, else→laser). `arrow` (auto/none/end/start/both) — `auto` draws relationship arrows for Genie-One edges.
 - **`flow-mapping.ts` — the ReactFlow-binding layer.** `schemaToFlow` / `flowToEdge` (resolved schema → `Node[]`/`Edge[]`) and `flowToLayout` (live graph → persisted layout). No file parsing here.
 
 ### Composite node kinds
 
-Beyond the plain `component` tile, each composite is its own node type + `composite-*.tsx`: `lakeflow` / `lakeflow-genie` (3-port ingest rail + medallion, `lakeflow-genie` adds a Genie Code footer — the preferred data block), `governance` (UC + AI Gateway + Genie Ontology bar), `agent-bricks` (supervisor tree), `genie-code`, `db-platform` (wordmark banner). A composite's `kind` lives on its catalog entry; `nodeTypeFor` maps kind→ReactFlow type; `cardStyle` lets border/shadow/fill controls apply uniformly (db-platform + governance default to no border/shadow).
+Beyond the plain `component` tile, each composite is its own node type + `composite-*.tsx`. `CompositeKind` (in `platform-architecture.ts`) is: `lakeflow` / `lakeflow-genie` (3-port ingest rail + medallion; `lakeflow-genie` adds a Genie Code footer — the preferred data block), `governance` (UC + AI Gateway + Genie Ontology bar), `agent-bricks` (supervisor tree), `genie-code`, `db-platform` (wordmark banner), and **`genie-one`** (the business-user entry tile — the "Business users" persona pill is built INTO it, so no separate `file:persona/user` node is needed). A composite's `kind` lives on its catalog entry; `nodeTypeFor` maps kind→ReactFlow type; `cardStyle` lets border/shadow/fill controls apply uniformly (db-platform + governance default to no border/shadow).
 
 ### The skill catalog is GENERATED from the code catalog
 
-The architecture skill's component reference (`.claude/skills/databricks-demo-generator/references/architecture/architecture.md`, between `<!-- BEGIN/END: generated-catalog -->`) is **derived from `CATALOG`** by `app/scripts/gen-architecture-skill.ts` (`bun run gen:arch-skill`). After changing a component's label/desc/`authoring`/`ports`, re-run it so the skill can't drift. The rest of that skill doc (format, the canonical-flow narrative, authoring rules, the Sources section) is hand-written.
+`app/scripts/gen-architecture-skill.ts` (`bun run gen:arch-skill`) writes the component catalog + icon-bank sections **directly into `.claude/skills/databricks-architecture/SKILL.md`** (between `<!-- BEGIN/END: generated-catalog -->` and `<!-- BEGIN/END: generated-icons -->`), derived from `CATALOG`. It also runs a build-time **drift guard**: prose that references an `@in-*` port not in `CATALOG.ports` fails the build. After changing a component's label/desc/`authoring`/`ports`, re-run it so the skill can't drift. The rest of that SKILL.md (workflow, format, authoring rules, Sources) is hand-written. (NOTE: this is *generation into the skill*; how the skill is *packaged/shipped* — pure vs in-app — is a separate concern, covered next.)
+
+## The architecture skill: two modes + the render/feedback loop
+
+The `databricks-architecture` skill (`.claude/skills/databricks-architecture/`) is **one source of truth, consumed two ways.** There is a single skill dir on disk — `SKILL.md` + `reference/*.jsonc` + `renderer/` (the standalone viewer/editor HTMLs + `render-arch.mjs`). Both the HTMLs and `render-arch.mjs` are BUILT from the app: `cd app && bun run build:arch-skill` (= `build-architecture-skill.sh`) does 3 steps — (1) `gen:arch-skill` regenerates SKILL.md's catalog/icon-bank, (2) `build:arch-standalone` builds the two HTMLs from `ui/standalone.tsx` via `vite.standalone.config.ts` (ARCH_MODE=viewer|editor), (3) copies the HTMLs + `scripts/render-arch.mjs` into the skill's `renderer/`. **This is a dev-time step you run before committing — it is NOT run at app start.** `render-arch.mjs`'s source of truth is `app/scripts/render-arch.mjs`; the skill copy is a build artifact — edit the source, not the copy.
+
+### Mode 1 — Pure skill (standalone, outside the app)
+
+`install.sh` (or a repo tarball) installs the skill dir **whole, including `renderer/`**, into `~/.claude/skills/` (or `./.claude/skills` with `--project`). `install.sh` installs BOTH `databricks-demo-generator` AND `databricks-architecture` (a `SKILLS=(…)` array it loops over). With no app around, the agent's feedback loop is **file + headless-browser**:
+
+```
+cp renderer/architecture-viewer.html my-arch.html   # edit the inline JSON
+node renderer/render-arch.mjs my-arch.html           # → my-arch.png
+# read my-arch.png, fix the JSON, repeat
+```
+
+`render-arch.mjs` drives **`chromium-headless-shell`** (Playwright's minimal headless build — `npx playwright install chromium-headless-shell`) over CDP and screenshots the rendered canvas to PNG. `findChrome()` auto-discovers the shell in the Playwright cache (falls back to full chromium, then system Chrome; `CHROME_PATH` overrides). SKILL.md ships this local render-loop workflow intact.
+
+### Mode 2 — In-app (Solution Builder)
+
+Two layers:
+1. **Wheel/build:** `app/scripts/build.sh` packages the **full** skill dir (incl. `renderer/`) into the wheel — the backend also serves `architecture-editor.html` for its viewer feature.
+2. **Per-project, at RUNTIME:** `skills_manager.copy_skills_to_project()` copies the skill into `<project>/.claude/skills/`, **excludes `renderer/`** (`ignore_patterns("renderer", …)`), and calls **`_localize_arch_skill_for_app(SKILL.md)`** — which strips the `local-render-workflow` / `local-render-files` marker blocks and injects the `in-app-workflow` block (the `_ARCH_SKILL_IN_APP_WORKFLOW` text). So the in-app flavor is **derived at project creation, not a second build** — no drift risk.
+
+In-app there's no headless browser; **the user's live React canvas IS the renderer**, and the agent gets an image via a browser-screenshot loop:
+
+```
+agent writes architecture.md  →  ReactFlow canvas re-renders live
+user focuses the chat input  +  diagram changed since last snapshot
+   →  browser screenshots the .react-flow canvas (html-to-image; right-side panels are OUTSIDE it, so excluded)
+   →  PUT /api/projects/{id}/architecture-snapshot  (base64 PNG; operation_id saveArchitectureSnapshot, project_files.py)
+   →  backend writes <project>/architecture.png
+agent reads architecture.png to SEE its work → iterates
+```
+
+The capture is **lazy + change-gated**: a dirty flag (`archDirtyRef` in `project.$projectId.tsx`) flips whenever `architectureContent` changes (agent rewrite or user edit); `captureArchitectureIfDirty()` fires on the chat input's `onInputFocus` (wired via ChatPanel's `onInputFocus` prop) — so it captures at most once per edit-session, not on every drag. Best-effort: if the Architecture tab isn't mounted, `captureDiagramPngDataUrl()` returns null and it skips. The localized SKILL.md + the Architecture-tab context hint both tell the agent to read `architecture.png`.
+
+| | **Mode 1 — pure skill** | **Mode 2 — in-app** |
+|---|---|---|
+| Ships `renderer/`? | yes | excluded per-project (in the wheel though) |
+| SKILL.md | full (local render loop) | localized (in-app loop injected) |
+| Render surface | headless-shell → PNG file | live React canvas |
+| Feedback PNG | `my-arch.png` via `render-arch.mjs` | `architecture.png` via browser screenshot on chat-focus |
+| Browser dependency | `chromium-headless-shell` | none (the user's own tab) |
+
+### Legacy-format migration nudge
+
+`isLegacyArchitectureFormat()` (`platform-architecture.ts`) detects the OLD pre-flat-file schema (`columns` as objects, no top-level `nodes`). When a project loads a legacy `architecture.md`, the frontend sends the agent `ARCHITECTURE_MIGRATION_PROMPT` **once per project** (guarded by a `localStorage` flag + `legacyMigrationSentRef`) asking it to migrate to the new schema grounded in the README story.
 
 ## Template ↔ Test app parallel-edit workflow
 
@@ -230,11 +283,18 @@ npx tsc --noEmit              # Frontend types
 uv run mypy src               # Backend types
 bun run build                 # Frontend → src/demo_prompt_generator/ui/__dist__/
 npx playwright test           # E2E (needs :9000)
-RESET_DB=1 ./scripts/dev.sh   # Wipe local DB
+bun run build:arch-skill      # Rebuild the architecture skill (SKILL.md catalog + renderer/) from app code
 
 # Generator deployment (NOT staging-then-prod by default — staging only unless user asks)
 databricks bundle deploy -t staging
 ```
+
+### ⚠️ Dev database: `RESET_DB` is DESTRUCTIVE — know the mode first
+
+The dev DB mode is chosen in `backend/core/lakebase.py` `_is_pglite_mode()`: PGLite iff `USE_PGLITE=1` **or** `LAKEBASE_DATABASE_PATH` is unset. **Local dev normally sets `LAKEBASE_DATABASE_PATH` in `app/.env` → it points at a real remote Lakebase branch** (a named branch under the shared Lakebase project, NOT prod). So:
+
+- **`RESET_DB=1` does NOT mean "wipe a throwaway local DB."** In Lakebase mode it **DROPS ALL TABLES on the remote branch** your `.env` points at (`lakebase.py:375`); in PGLite mode it deletes `~/.pglite/`. **Never run `RESET_DB=1` — or any test that sets it — against a branch holding real projects.** Point a test at a temp branch/DB instead.
+- **Recovery:** Lakebase branches are copy-on-write with point-in-time restore. If a branch is damaged, create a recovery branch from a past timestamp (`databricks postgres create-branch … --json '{"spec":{"source_branch":"…/branches/<b>","source_branch_time":"<ISO ts>","no_expiry":true}}'`), verify the data, then repoint `.env` at it. On-disk `app/projects/<id>/` files survive a DB drop regardless — only the DB rows (project metadata, message history) are lost.
 
 For the **test app** (separate from the generator):
 
@@ -272,6 +332,11 @@ This document is loaded into context at the start of every session. **It is your
 - A **new dev/build/deploy script** is introduced or an existing one removed.
 - A **durable preference** lands (those go under "Operational rules").
 
+- A **new mode / packaging path** of a subsystem appears (e.g. the architecture skill's pure-vs-in-app split, a new render/feedback loop, a new way an artifact is generated or shipped).
+- A **destructive-operation footgun** is discovered (like `RESET_DB` against a remote branch) — document the danger, not just the command.
+
 Don't update for: in-flight feature work, bug fixes, refactors that don't move files. Memory entries under `~/.claude/projects/.../memory/` cover transient feedback.
+
+**Two CLAUDE.md files:** this **root** file always loads and holds the whole-system picture + anything dangerous or cross-cutting. `app/CLAUDE.md` holds app-dev detail (backend/frontend patterns, DI, models, routes) and loads only when you're working under `app/` — so **never put must-always-know facts (danger, cross-cutting architecture) only in `app/CLAUDE.md`; those belong here.** When you update one, check whether the other now contradicts it.
 
 When in doubt, **read this file again from disk before relying on it** — code drifts faster than memory.
