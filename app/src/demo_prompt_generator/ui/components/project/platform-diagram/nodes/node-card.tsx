@@ -225,7 +225,13 @@ export function NodeCard(p: NodeCardProps) {
     />
   ) : p.title ? (
     <span
-      className={`min-w-0 truncate ${autoFit ? "whitespace-nowrap font-medium" : "font-semibold"} text-[13px] ${p.fontColor ? "" : "text-foreground"}`}
+      className={`min-w-0 ${
+        // Logo captions may overflow the (small) logo box rather than truncate —
+        // show the full label, single line, allowed to extend past the frame.
+        p.styleVariant === "logo"
+          ? "whitespace-nowrap font-medium"
+          : `truncate ${autoFit ? "whitespace-nowrap font-medium" : "font-semibold"}`
+      } text-[13px] ${p.fontColor ? "" : "text-foreground"}`}
       style={{ fontSize, ...(bold ? { fontWeight: 700 } : {}), ...(p.fontColor ? { color: p.fontColor } : {}) }}
       title="Double-click to edit"
       onDoubleClick={(e) => { e.stopPropagation(); setEditing(p.title); }}
@@ -348,9 +354,11 @@ export function NodeCard(p: NodeCardProps) {
             ? (e) => { e.stopPropagation(); setEditing(p.title ?? ""); }
             : undefined
         }
-        className={`group relative flex h-full w-full flex-col overflow-hidden transition-shadow ${
-          p.styleVariant === "tile" && !hasFill ? "bg-card" : ""
-        } ${selectedRing(p.selected)}`}
+        className={`group relative flex h-full w-full flex-col transition-shadow ${
+          // Logos let their caption overflow the frame — the label shouldn't be
+          // clipped to the (small) logo box. Everything else clips as before.
+          p.styleVariant === "logo" ? "overflow-visible" : "overflow-hidden"
+        } ${p.styleVariant === "tile" && !hasFill ? "bg-card" : ""} ${selectedRing(p.selected)}`}
         style={boxStyle}
         title={autoFit ? "Double-click to edit text · right-click for options" : undefined}
       >
