@@ -13,6 +13,7 @@ The diagram is a **flat list of the components you see** plus the **lines betwee
 
 ---
 
+<!-- BEGIN: local-render-workflow (stripped when the skill runs inside Solution Builder — the app renders architecture.md live in its own canvas) -->
 ## Workflow — how to make a diagram
 
 An architecture lives in **one self-contained HTML file** with its data in an inline JSON block. To create one:
@@ -34,10 +35,18 @@ Start from the example in **The format** below (copy its `nodes`/`edges` into th
 After writing/editing the JSON in a `*.html`, **render it to a PNG and look at it**:
 
 ```
+# One-time: install the lightweight headless browser (~90MB shell, not full Chrome).
+npx playwright install chromium-headless-shell
+
 node renderer/render-arch.mjs my-arch.html        # → my-arch.png
 ```
 
-Then **read `my-arch.png`**, check the diagram is right (components present, wired correctly, laid out cleanly), and edit the inline JSON to fix anything. Repeat until it looks right. (Needs `node` + a Chrome/Chromium; set `CHROME_PATH=/path/to/chrome` if it isn't auto-found. No `npm install` required.)
+Then **read `my-arch.png`**, check the diagram is right (components present, wired correctly, laid out cleanly), and edit the inline JSON to fix anything. Repeat until it looks right.
+
+The renderer drives **`chromium-headless-shell`** (Playwright's minimal headless build) over the DevTools protocol — no puppeteer/playwright *package* needed at render time, just the shell binary + `node` 18+. It auto-discovers the shell in Playwright's browser cache; run the one-time install above if it reports "No Chrome/Chromium found", or set `CHROME_PATH=/path/to/chrome` to point at any Chrome/Chromium you already have.
+<!-- END: local-render-workflow -->
+<!-- BEGIN: in-app-workflow (injected only when the skill runs inside Solution Builder) -->
+<!-- END: in-app-workflow -->
 
 ---
 
@@ -406,5 +415,7 @@ Also: `file:persona/user` (a person — normally the business-user persona is bu
 ## Reference files
 
 - `reference/architecture-complete.jsonc` — the flagship end-to-end shape (commented). The minimal shape is inlined in **The format** above.
+<!-- BEGIN: local-render-files (stripped inside Solution Builder — renderer/ isn't shipped into a project) -->
 - `renderer/architecture-viewer.html` / `architecture-editor.html` — copy one, edit its inline JSON.
 - `renderer/render-arch.mjs` — `node renderer/render-arch.mjs <file>.html` → a PNG to read.
+<!-- END: local-render-files -->

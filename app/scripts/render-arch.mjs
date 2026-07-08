@@ -4,9 +4,11 @@
  *
  *   node render-arch.mjs <architecture.html> [out.png]
  *
- * Drives an already-installed headless Chromium via the Chrome DevTools
- * Protocol over a WebSocket — NO npm install, NO playwright/puppeteer package.
- * Needs only: node 18+ (built-in WebSocket) + a Chrome/Chromium binary. It
+ * Drives the lightweight `chromium-headless-shell` (or any Chrome/Chromium) via
+ * the Chrome DevTools Protocol over a WebSocket — no puppeteer/playwright
+ * package needed at render time, just the shell binary + node 18+ (built-in
+ * WebSocket). Install the shell once with `npx playwright install
+ * chromium-headless-shell`; this script auto-discovers it in the browser cache. It
  * loads the HTML (which renders the diagram from its inline JSON via the bundled
  * engine — the SAME engine as the app), waits for the viewer's ready signal
  * (`body[data-arch-ready]`), measures the drawn content, and screenshots it.
@@ -33,34 +35,59 @@ const outPath = outArg
   : htmlPath.replace(/\.html?$/i, "") + ".png";
 
 // --- find a Chrome/Chromium binary -----------------------------------------
+// Preferred: the lightweight `chromium-headless-shell` Playwright installs
+// (~90MB shell, no full browser). Its cache layout is
+//   <cache>/chromium_headless_shell-<rev>/chrome-headless-shell-<platform>/chrome-headless-shell
+// We also fall back to a full Playwright chromium, then a system Chrome.
 function findChrome() {
   if (process.env.CHROME_PATH && existsSync(process.env.CHROME_PATH)) return process.env.CHROME_PATH;
-  const candidates = [
+
+  // 1) Playwright browsers cache — headless-shell first (lightest), then full chromium.
+  const caches = [
+    process.env.PLAYWRIGHT_BROWSERS_PATH,
+    resolve(homedir(), "Library/Caches/ms-playwright"), // macOS
+    resolve(homedir(), ".cache/ms-playwright"),          // linux
+  ].filter(Boolean);
+  // Executable names inside a browser dir, by platform folder.
+  const shellRels = [
+    "chrome-headless-shell-mac-arm64/chrome-headless-shell",
+    "chrome-headless-shell-mac-x64/chrome-headless-shell",
+    "chrome-headless-shell-linux64/chrome-headless-shell",
+    "chrome-headless-shell-win64/chrome-headless-shell.exe",
+  ];
+  const chromiumRels = [
+    "chrome-mac/Chromium.app/Contents/MacOS/Chromium",
+    "chrome-linux/chrome",
+    "chrome-win/chrome.exe",
+  ];
+  for (const cache of caches) {
+    if (!existsSync(cache)) continue;
+    const dirs = readdirSync(cache);
+    // Prefer the newest headless-shell revision, then the newest chromium.
+    const shellDirs = dirs.filter((d) => d.startsWith("chromium_headless_shell-")).sort().reverse();
+    const chromiumDirs = dirs.filter((d) => d.startsWith("chromium-")).sort().reverse();
+    for (const dir of shellDirs)
+      for (const rel of shellRels) { const p = resolve(cache, dir, rel); if (existsSync(p)) return p; }
+    for (const dir of chromiumDirs)
+      for (const rel of chromiumRels) { const p = resolve(cache, dir, rel); if (existsSync(p)) return p; }
+  }
+
+  // 2) A system Chrome/Chromium as a last resort.
+  const system = [
     "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
     "/Applications/Chromium.app/Contents/MacOS/Chromium",
     "/usr/bin/google-chrome", "/usr/bin/chromium", "/usr/bin/chromium-browser",
   ];
-  for (const c of candidates) if (existsSync(c)) return c;
-  // Playwright-installed browsers cache (headless_shell or full chromium).
-  const cache = resolve(homedir(), "Library/Caches/ms-playwright");
-  if (existsSync(cache)) {
-    for (const dir of readdirSync(cache)) {
-      for (const rel of [
-        "chrome-mac/headless_shell",
-        "chrome-mac/Chromium.app/Contents/MacOS/Chromium",
-        "chrome-linux/headless_shell",
-        "chrome-linux/chrome",
-      ]) {
-        const p = resolve(cache, dir, rel);
-        if (existsSync(p)) return p;
-      }
-    }
-  }
+  for (const c of system) if (existsSync(c)) return c;
   return null;
 }
 const chrome = findChrome();
 if (!chrome) {
-  console.error("No Chrome/Chromium found. Set CHROME_PATH=/path/to/chrome, or install Chrome,\nor run `npx playwright install chromium` once.");
+  console.error(
+    "No Chrome/Chromium found. Install the lightweight headless shell once:\n" +
+    "  npx playwright install chromium-headless-shell\n" +
+    "or set CHROME_PATH=/path/to/chrome.",
+  );
   process.exit(1);
 }
 
