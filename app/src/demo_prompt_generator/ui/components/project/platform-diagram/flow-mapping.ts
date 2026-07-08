@@ -18,7 +18,7 @@ import {
 } from "@/lib/platform-architecture";
 import { type NodeData, type EdgeData, nodeFootprint, nodeTypeFor } from "./shared";
 import { ANNOTATION_DEFAULT_SIZE, type AnnotationNodeData } from "./annotations";
-import { logoLabel, logoMetaByName } from "../../file-icons";
+import { logoLabel } from "../../file-icons";
 
 export function componentLookup(schema: PlatformSchema) {
   const m = new Map<string, { component: PlatformComponent; bandId: BandId }>();
@@ -73,11 +73,9 @@ export function schemaToFlow(
     // Canvas-added data source ("+ more data sources") — not in the catalog.
     // Build a source component from pos.source + the unified logo catalog.
     if (pos.source) {
-      const meta = logoMetaByName(pos.source.key);
       const component: PlatformComponent = {
         id, label: pos.label ?? logoLabel(pos.source.key), icon: pos.icon ?? pos.source.icon,
         desc: "", state: "active",
-        ingest: pos.source.ingest ?? (meta.ingest as PlatformComponent["ingest"]) ?? "lakeflow-connect",
       };
       const fp = nodeFootprint(component, pos);
       nodes.push({

@@ -13,7 +13,6 @@ import INDUSTRY_MAP from "../../../icons/industry-map.json";
 import { BrandMark } from "./brand-mark";
 import { type AnnotationData, type AnnotationVariant, isCustomIconKey, customLogoId } from "@/lib/platform-architecture";
 import { RotatableCard, DropTargetContext, EditModeContext, CustomLogosContext, InlineSvgIcon, type NodeData } from "./shared";
-import { NodeCard } from "./nodes/node-card";
 
 /** Render any icon key — a built-in DatabricksIconName, a file-icon key
  *  ("file:…"), or a custom inline-SVG logo ("custom:<id>") — at a given size.
@@ -117,64 +116,81 @@ export const AnnotationNode = memo(function AnnotationNode({ data, selected }: N
     }
   }, [isTextVariant, sizingText, fontSize, fontWeight, scale, d]);
 
-  // The LOGO variant renders via the shared <NodeCard> (icon + caption tile,
-  // auto-fit, box styling) — see the short-circuit right below. Its normalize:
-  // legacy caption "side"→right, "below"→bottom; unset → the old "below" look.
-  const isLogo = a.variant === "logo";
+  // The LOGO variant renders as a full-box icon with its caption floating
+  // OUTSIDE the box (see the short-circuit below). Normalize the legacy caption
+  // values: "side"→right, "below"→bottom; unset → bottom.
   const capNorm = a.caption === "side" ? "right" : a.caption === "below" ? "bottom" : a.caption;
-  const logoPositioned = isLogo && (capNorm === "right" || capNorm === "left" || capNorm === "top" || capNorm === "bottom");
 
   if (a.variant === "logo") {
+    // The logo icon ALWAYS fills the full box (it's square/natural). The caption
+    // renders OUTSIDE the box on the chosen side, so it never shrinks the logo.
     const pos = capNorm ?? "bottom";
-    // Positioned → fixed icon square that NodeCard wraps + auto-fits; legacy
-    // unpositioned → icon fills the box. Minimal padding so the glyph fills the
-    // tile (node-card already adds its own px-3 py-2.5 around the content).
-    const iconEl = logoPositioned ? (
-      <AnyIcon iconKey={a.icon ?? "data"} className="h-full w-full [&_svg]:h-full [&_svg]:w-full" style={d.iconColor ? { color: d.iconColor } : undefined} />
-    ) : (
-      <AnyIcon iconKey={a.icon ?? "data"} className="min-h-0 w-full flex-1 [&_svg]:h-full [&_svg]:w-full" style={d.iconColor ? { color: d.iconColor } : undefined} />
-    );
+    const fontSize = a.fontSize ?? 13;
+    // Where the caption sits relative to the box + which way it grows so it stays
+    // centered on the logo's edge (top/bottom center horizontally; left/right
+    // center vertically and grow away from the box).
+    const capClass =
+      pos === "top" ? "bottom-full left-1/2 -translate-x-1/2 mb-1 text-center"
+      : pos === "bottom" ? "top-full left-1/2 -translate-x-1/2 mt-1 text-center"
+      : pos === "left" ? "right-full top-1/2 -translate-y-1/2 mr-1.5 text-right"
+      : "left-full top-1/2 -translate-y-1/2 ml-1.5 text-left"; // right
+    const hasText = !!a.text;
+    const caption = (editing !== null || hasText || editMode) ? (
+      editing !== null ? (
+        <input
+          autoFocus
+          value={editing}
+          onChange={(e) => setEditing(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => { if (e.key === "Enter") commit(); else if (e.key === "Escape") setEditing(null); e.stopPropagation(); }}
+          onClick={(e) => e.stopPropagation()}
+          onDoubleClick={(e) => e.stopPropagation()}
+          className="w-28 rounded border border-primary/40 bg-background px-1 text-center text-[13px] font-medium outline-none"
+          style={{ fontSize, ...(a.bold ? { fontWeight: 700 } : {}), ...(d.fontColor ? { color: d.fontColor } : {}) }}
+        />
+      ) : hasText ? (
+        <span
+          className={`whitespace-nowrap font-medium ${d.fontColor ? "" : "text-foreground"}`}
+          style={{ fontSize, ...(a.bold ? { fontWeight: 700 } : {}), ...(d.fontColor ? { color: d.fontColor } : {}) }}
+          title="Double-click to edit"
+          onDoubleClick={(e) => { e.stopPropagation(); setEditing(a.text ?? ""); }}
+        >
+          {a.text}
+        </span>
+      ) : (
+        // Edit mode + no label yet: faint placeholder as a double-click target.
+        <span
+          className="whitespace-nowrap text-[13px] italic text-muted-foreground/50"
+          style={{ fontSize }}
+          title="Double-click to add a label"
+          onDoubleClick={(e) => { e.stopPropagation(); setEditing(""); }}
+        >
+          Add label…
+        </span>
+      )
+    ) : null;
     return (
-      <NodeCard
-        nodeId={d.nodeId}
-        selected={!!selected}
-        editMode={editMode}
-        isDropTarget={isDropTarget}
+      <RotatableCard
         rot={d.rot}
+        w={d.w ?? ANNOTATION_DEFAULT_SIZE.logo.w}
+        h={d.h ?? ANNOTATION_DEFAULT_SIZE.logo.h}
         scale={d.scale ?? 1}
-        w={d.w}
-        h={d.h}
-        icon={iconEl}
-        title={a.text ?? ""}
-        onCommitTitle={(v) => d.onAnnotate(d.nodeId, { text: v })}
-        hideEmptyTitle
-        // Editable description line — opt-in via the persisted showDesc flag.
-        description={a.desc}
-        showDescription={a.showDesc}
-        onCommitDescription={(v) => d.onAnnotate(d.nodeId, { desc: v })}
-        caption={pos}
-        contentMode={logoPositioned ? "autoFit" : "fixed"}
-        defaultSize={ANNOTATION_DEFAULT_SIZE.logo}
-        styleVariant="logo"
-        fontColor={d.fontColor}
-        fontSize={a.fontSize}
-        bold={a.bold}
-        iconColor={d.iconColor}
-        fillColor={d.fillColor}
-        borderWidth={d.borderWidth}
-        borderStyle={d.borderStyle}
-        borderColor={d.borderColor}
-        borderRadius={d.borderRadius}
-        shadow={d.shadow}
-        opacity={d.opacity}
-        onSelect={d.onSelect}
-        onResize={d.onResize}
-        // Give logos the 4 side resize rectangles (+ corners) that sources and
-        // product tiles get — RotatableCard only renders the side controls in
-        // its onScale branch. Auto-fit respects a manual w/h (same as sources).
-        onScale={(id, w) => d.onResize(id, w, Math.round((w * ANNOTATION_DEFAULT_SIZE.logo.h) / ANNOTATION_DEFAULT_SIZE.logo.w), w / ANNOTATION_DEFAULT_SIZE.logo.w)}
-        onContext={d.onContext}
-      />
+        editMode={editMode}
+        selected={!!selected}
+        forceDots={isDropTarget}
+        onResize={(w, h, center) => d.onResize(d.nodeId, w, h, undefined, center)}
+        onContext={(e) => { e.preventDefault(); d.onContext(d.nodeId, e.clientX, e.clientY); }}
+      >
+        {/* Wrapper is relative so the caption can float OUTSIDE the box. */}
+        <div className="relative h-full w-full" onClick={() => d.onSelect(d.nodeId)}>
+          <AnyIcon
+            iconKey={a.icon ?? "data"}
+            className="h-full w-full [&_svg]:h-full [&_svg]:w-full"
+            style={d.iconColor ? { color: d.iconColor } : undefined}
+          />
+          {caption && <div className={`pointer-events-auto absolute z-10 ${capClass}`}>{caption}</div>}
+        </div>
+      </RotatableCard>
     );
   }
 

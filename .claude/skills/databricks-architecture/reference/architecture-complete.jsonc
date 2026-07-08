@@ -13,24 +13,26 @@
 //     auto-sizes around them (+ `pad`). Use it for the platform box, or for
 //     cloud/VPC/zone containers (nesting works: a box may wrap other boxes).
 //   • Edges: write `from`/`to` by node id — the `@handle` is INFERRED from
-//     geometry (left→right ⇒ source @r → target @l) and, for a source feeding
-//     the Lakeflow block, from the source's `ingest` (→ the right in-* port).
-//     Add an explicit `@handle` only to override (e.g. `@b`/`@t` for a vertical
-//     link). Banners (db-platform / governance) use `pin` to dock onto a box's
-//     corner — never absolute `at` (which only holds for one node set).
+//     geometry (left→right ⇒ source @r → target @l). For a source feeding the
+//     Lakeflow block, name the ingest PORT with an explicit target handle
+//     (`@in-lakeflow-connect` / `@in-zerobus` / `@in-direct`) — that handle sets
+//     both the port anchor AND the flow animation. Add an explicit `@handle`
+//     elsewhere only to override (e.g. `@b`/`@t` for a vertical link). Banners
+//     (db-platform / governance) use `pin` to dock onto a box's corner — never
+//     absolute `at` (which only holds for one node set).
 //   The user can drag anything afterwards; their positions persist as `at`.
 //
 // LEFT → RIGHT story:
 //   sources (≈3 rows) → Lakeflow + Genie (one block) → lakehouse + lakebase
-//        → dashboard + Genie Room + app → Genie One → the end user
+//        → dashboard + Genie Room + app → Genie One (business user built in)
 //   db-platform wordmark + governance-block (UC) pin to the platform box's
 //   top corners; one big white `box` wraps the whole flow = "the Databricks
 //   Platform" (the pins reserve a top band so the box encloses them too).
 //
-// THE lakeflow-genie-block HAS THREE LEFT PORTS — a source's `ingest` picks one:
-//   lakeflow-connect → in-lakeflow-connect  (databases / SaaS: Postgres, SAP…)
-//   zerobus          → in-zerobus           (realtime / sensors / events: Kafka)
-//   direct           → in-direct            (files: PDF, CSV/Parquet dumps)
+// THE lakeflow-genie-block HAS THREE LEFT PORTS — the edge's target handle picks one:
+//   @in-lakeflow-connect  (databases / SaaS: Postgres, SAP…)
+//   @in-zerobus           (realtime / sensors / events — particle-stream flow)
+//   @in-direct            (files: PDF, CSV/Parquet dumps — travelling-docs flow)
 //   Right port `@r` → the compute layer. Inside the block = Genie Code + SDP
 //   (all bronze→silver→gold) — do NOT add separate sdp / genie-code nodes.
 // =============================================================================
@@ -40,15 +42,15 @@
 
   // Lanes, left → right. Add/rename/insert lanes freely for a different shape
   // (e.g. add "ml" between compute and work) — there's no fixed taxonomy.
-  "columns": ["sources", "pipeline", "compute", "work", "entry", "user"],
+  "columns": ["sources", "pipeline", "compute", "work", "entry"],
 
   "nodes": [
-    // ≈3 sources, stacked in the "sources" lane. `ingest` routes each to the
-    // matching Lakeflow port (no @handle needed on the edge).
-    { "id": "src-erp",      "type": "source", "col": "sources", "row": 1, "label": "ERP System",  "icon": "file:vendor/sap",        "ingest": "lakeflow-connect" },
-    { "id": "src-postgres", "type": "source", "col": "sources", "row": 2, "label": "Postgres",    "icon": "file:vendor/postgresql", "ingest": "lakeflow-connect" },
+    // ≈3 sources, stacked in the "sources" lane. The edge (below) names the
+    // Lakeflow ingest PORT via an explicit `@in-*` target handle.
+    { "id": "src-erp",      "type": "source", "col": "sources", "row": 1, "label": "ERP System",  "icon": "file:vendor/sap" },
+    { "id": "src-postgres", "type": "source", "col": "sources", "row": 2, "label": "Postgres",    "icon": "file:vendor/postgresql" },
     // A source can position + size its caption; `desc` adds a one-line blurb.
-    { "id": "src-sensors",  "type": "source", "col": "sources", "row": 3, "label": "Sensor data", "icon": "sensorSource",           "ingest": "zerobus", "caption": "bottom", "fontSize": 12, "desc": "Realtime IoT stream" },
+    { "id": "src-sensors",  "type": "source", "col": "sources", "row": 3, "label": "Sensor data", "icon": "sensorSource",           "caption": "bottom", "fontSize": 12, "desc": "Realtime IoT stream" },
 
     // The ONE processing block (ingest + bronze→silver→gold, built by Genie Code).
     { "id": "lakeflow-genie-block", "type": "lakeflow-genie-block", "col": "pipeline", "desc": "Declarative bronze → silver → gold pipeline — Genie Code describes the transformations, Lakeflow runs them reliably at scale." },
@@ -62,11 +64,11 @@
     { "id": "genie",               "type": "genie",               "col": "work", "row": 2, "desc": "Business users ask questions in plain language — governed, auditable answers." },
     { "id": "databricks-apps-work","type": "databricks-apps-work","col": "work", "row": 3 },
 
-    // Genie One = the business-user INTERFACE onto everything to its left.
-    // It's a wide banner, so rotate it 90° to stand vertically — a slim lane
-    // that saves horizontal space. Then the end user.
+    // Genie One = the business-user INTERFACE onto everything to its left. It
+    // has the "Business users" persona built IN (a pill above the tile) — no
+    // separate user node needed. It's a wide banner, so rotate it 90° to stand
+    // vertically — a slim lane that saves horizontal space.
     { "id": "genie-one", "type": "genie-one", "col": "entry", "rot": 90 },
-    { "id": "user",      "type": "logo",      "col": "user", "icon": "file:persona/user", "text": "End user", "caption": "bottom" },
 
     // Top band — banners PINNED to the platform box's corners (never absolute
     // `at`: those coordinates only hold for one node set; change the sources
@@ -80,14 +82,15 @@
     // The big white "platform" box — auto-sized to WRAP the whole flow (z:-1).
     // (A box shows a 1px border by default; set style.border to change it.)
     { "id": "platform-box", "type": "box", "z": -1, "pad": 40,
-      "wraps": ["src-erp", "src-postgres", "src-sensors", "lakeflow-genie-block", "lakehouse", "lakebase", "aibi-dashboards", "genie", "databricks-apps-work", "genie-one", "user"] }
+      "wraps": ["src-erp", "src-postgres", "src-sensors", "lakeflow-genie-block", "lakehouse", "lakebase", "aibi-dashboards", "genie", "databricks-apps-work", "genie-one"] }
   ],
 
   "edges": [
-    // sources → Lakeflow (port inferred from each source's ingest)
-    { "id": "e1", "from": "src-erp",      "to": "lakeflow-genie-block", "flow": true },
-    { "id": "e2", "from": "src-postgres", "to": "lakeflow-genie-block", "flow": true },
-    { "id": "e3", "from": "src-sensors",  "to": "lakeflow-genie-block", "flow": true },
+    // sources → Lakeflow: name the ingest PORT on the target handle (also drives
+    // the flow animation: @in-zerobus → particles, @in-direct → docs, else laser)
+    { "id": "e1", "from": "src-erp",      "to": "lakeflow-genie-block@in-lakeflow-connect", "flow": true },
+    { "id": "e2", "from": "src-postgres", "to": "lakeflow-genie-block@in-lakeflow-connect", "flow": true },
+    { "id": "e3", "from": "src-sensors",  "to": "lakeflow-genie-block@in-zerobus", "flow": true },
     // block → compute, compute → consumers (all left→right, handles inferred)
     { "id": "e4", "from": "lakeflow-genie-block", "to": "lakehouse", "flow": true },
     { "id": "e5", "from": "lakeflow-genie-block", "to": "lakebase",  "flow": true },
@@ -97,10 +100,9 @@
     // the app also consumes the dashboard + Genie Room (vertical — force @b/@t)
     { "id": "e9",  "from": "genie@b",           "to": "databricks-apps-work@t" },
     { "id": "e10", "from": "aibi-dashboards@b", "to": "databricks-apps-work@t" },
-    // user ==> Genie One; Genie One --> dashboard / Genie Room / app. These are
-    // RELATIONSHIP lines — leave `flow`/`arrow` out: the renderer auto-draws the
-    // arrowhead (user→GenieOne points IN; GenieOne→resource points OUT).
-    { "id": "e11", "from": "user",      "to": "genie-one" },
+    // Genie One (business user built in) --> dashboard / Genie Room / app. These
+    // are RELATIONSHIP lines — leave `flow`/`arrow` out: the renderer auto-draws
+    // the arrowhead pointing OUT toward each resource.
     { "id": "e12", "from": "genie-one", "to": "genie" },
     { "id": "e13", "from": "genie-one", "to": "aibi-dashboards" },
     { "id": "e14", "from": "genie-one", "to": "databricks-apps-work" }

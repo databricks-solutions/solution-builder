@@ -206,14 +206,23 @@ const FlowEdge = memo(function FlowEdge(props: EdgeProps) {
     setCenterDrag(null);
   };
 
-  // The flowing-data animation: a single dot (default), streaming particles
-  // (dots + red squares), or moving documents.
-  // Flow style: an explicit user choice wins; otherwise derived from the SOURCE
-  // node. Any actual data SOURCE (a node with an `ingest`) defaults to `laser` —
-  // the ingest lines read as bright beams pulling data into the platform. Only a
-  // non-source origin falls back to a plain `dot`.
-  const srcIngest = (sNode?.data as { component?: { ingest?: string } } | undefined)?.component?.ingest;
-  const autoStyle: FlowStyle = srcIngest ? "laser" : "dot";
+  // The flowing-data animation: a single dot, streaming particles (dots + red
+  // squares), moving documents, or a laser beam.
+  // Flow style: an explicit edge choice wins; when NONE is set, derive it from
+  // the edge's TARGET HANDLE — the Lakeflow block's named ingest ports say HOW
+  // the data arrives, so the animation matches with zero extra config:
+  //   • `in-zerobus` (realtime streams / sensors) → `particles` — a dense river.
+  //   • `in-direct`  (files: PDF / CSV / Parquet) → `docs` — travelling docs.
+  //   • any other edge FROM a data source → `laser` — a bright ingest beam.
+  //   • a non-source origin → a plain `dot`.
+  const targetHandle = props.targetHandleId ?? undefined;
+  const isSource = !!(sNode?.data as { sourceKey?: string } | undefined)?.sourceKey
+    || source.startsWith("src-");
+  const autoStyle: FlowStyle =
+    targetHandle === "in-zerobus" ? "particles"
+    : targetHandle === "in-direct" ? "docs"
+    : isSource ? "laser"
+    : "dot";
   const flowStyle = d?.flowStyle ?? autoStyle;
   // Arrowheads. "auto" (the default / empty) → a static arrow for RELATIONSHIP
   // edges: any edge touching the user persona or Genie One. Explicit

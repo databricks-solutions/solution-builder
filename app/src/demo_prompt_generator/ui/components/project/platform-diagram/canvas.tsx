@@ -62,7 +62,7 @@ import {
   logoFitSize,
   type AnnotationNodeData,
 } from "./annotations";
-import { logoLabel, logoMetaByName } from "../../file-icons";
+import { logoLabel } from "../../file-icons";
 import { Button } from "@/components/ui/button";
 import {
   Eye,
@@ -655,15 +655,15 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
 
   // Add a NEW data source from the "+ more data sources" picker. The source is
   // NOT a catalog component — its key/icon persist in layout.nodes[id].source
-  // (label/ingest come from the unified logo catalog), and it round-trips via
+  // (label comes from the unified logo catalog), and it round-trips via
   // buildLayout + schemaToFlow's source branch (no schema mutation, so the
-  // re-seed effect won't clobber it).
+  // re-seed effect won't clobber it). Which Lakeflow ingest port it feeds is set
+  // later by the edge handle the user draws (`@in-zerobus` / `@in-direct` / …).
   const addSourceFromIcon = useCallback((iconKey: string) => {
     const key = iconKey.replace(/^file:.*\//, "").replace(/^file:/, "").toLowerCase();
     const id = `src-${key.replace(/[^a-z0-9]+/g, "-")}`;
     const component: PlatformComponent = {
       id, label: logoLabel(key), icon: iconKey, desc: "", state: "active",
-      ingest: (logoMetaByName(key).ingest as PlatformComponent["ingest"]) ?? "lakeflow-connect",
     };
     setSourcePicker(false);
     setNodes((nds) => {

@@ -61,12 +61,6 @@ export interface PlatformComponent {
   /** Capability slug this tile is backed by, when different from `id`.
    *  Drives the deployed-resource deep-link lookup. Defaults to `id`. */
   capability?: string;
-  /** For SOURCE components only — how the source is ingested. Drives the
-   *  ingest rail between Sources and Agentic Data:
-   *    "lakeflow-connect" → routed through the Lakeflow Connect rail (default)
-   *    "zerobus"          → realtime path (Zerobus), drawn distinctly
-   *    "direct"           → no rail (e.g. files landing on a Volume) */
-  ingest?: IngestPath;
   /** Renders as a richer COMPOSITE block instead of a plain tile. The first is
    *  "lakeflow" — bundles Lakeflow Connect + Zerobus + direct ingest feeding a
    *  bronze→silver→gold pipeline, with 3 labelled input ports on the left. */
@@ -89,8 +83,6 @@ export interface PlatformComponent {
   ports?: Record<string, string>;
 }
 
-export type IngestPath = "lakeflow-connect" | "zerobus" | "direct";
-
 /** The animated-flow rendering style of an edge. `dot` = a single travelling
  *  dot; `particles` = a dense river of cubes/circles/triangles (realtime);
  *  `docs` = travelling document glyphs (file landing); `laser` = a comet with a
@@ -100,7 +92,7 @@ export type FlowStyle = "dot" | "particles" | "docs" | "laser";
 
 /** Composite block kinds (super-set components that draw an inner mini-diagram
  *  and expose multiple named ports). Extend this as we add more blocks. */
-export type CompositeKind = "lakeflow" | "genie-code" | "governance" | "lakeflow-genie" | "agent-bricks" | "db-platform";
+export type CompositeKind = "lakeflow" | "genie-code" | "governance" | "lakeflow-genie" | "agent-bricks" | "db-platform" | "genie-one";
 
 /** The 3 left input ports a "lakeflow" composite exposes. Edge handle ids on
  *  the block are `in-${port}` (+ a single `r` output on the right). */
@@ -171,9 +163,11 @@ export interface NodePosition {
   /** Stacking order (bring to front / send to back). Default 0. */
   z?: number;
   /** A canvas-added data source (from "+ more data sources"). Stores just the
-   *  logo-catalog key + icon; label/ingest defaults come from the unified
-   *  logo-catalog.json. Present only for such nodes. */
-  source?: { key: string; icon: IconKey; ingest?: IngestPath };
+   *  logo-catalog key + icon; label defaults come from the unified
+   *  logo-catalog.json. Present only for such nodes. The Lakeflow ingest port a
+   *  source feeds is carried on the EDGE handle (`@in-zerobus`, `@in-direct`,
+   *  `@in-lakeflow-connect`), not here. */
+  source?: { key: string; icon: IconKey };
   /** Source tiles only: label placement relative to the icon (right default |
    *  left | top | bottom). Persisted via the shared FileNode `caption`. */
   sourceCaption?: "right" | "left" | "top" | "bottom";
@@ -321,8 +315,6 @@ export interface FileNode {
   /** Whether the description line is shown (undefined → default resolution). */
   showDesc?: boolean;
   icon?: IconKey;
-  /** source nodes: ingest path. */
-  ingest?: IngestPath;
   /** box/text/logo/image annotation props. */
   text?: string;
   /** box: title-bar text + leading icon. */
@@ -501,8 +493,8 @@ export const CATALOG: Record<BandId, CatalogComponent[]> = {
   "agentic-work": [
     { id: "databricks-apps-work", label: "Databricks Apps", icon: "databricksAppsBrand", sublabel: "Deploy business apps", desc: "Deploy business apps",
       authoring: "The custom business app — PREFERRED over the legacy databricks-apps tile. Runs on Lakebase; can embed the dashboard + Genie Room." },
-    { id: "genie-one", label: "Genie One - Mobile app", icon: "genieOneBrand", sublabel: "Databricks access for business user", desc: "Databricks access for business user",
-      authoring: "The business-user / mobile entry point. Convention: a file:persona/user logo (caption 'Business users') to its right — user ==> Genie One, and Genie One --> dashboard / Genie Room / app. Those edges auto-render as arrows (leave `arrow` out)." },
+    { id: "genie-one", label: "Genie One - Mobile app", icon: "genieOneBrand", kind: "genie-one", sublabel: "Databricks access for business user", desc: "Databricks access for business user",
+      authoring: "The business-user / mobile entry point. It has a Business-users persona built IN (a small user icon docked above the Genie One mark) — so you do NOT need a separate file:persona/user node beside it. Wire Genie One --> dashboard / Genie Room / app (auto-arrows; leave `arrow` out)." },
     { id: "genie", label: "Genie Room", icon: "genieBrand", sublabel: "Ask anything about your data", desc: "ask anything about your data" },
     { id: "knowledge-assistant", label: "Knowledge Assistant", icon: "knowledgeAssistant", desc: "Chat with your documents — grounded, cited answers from unstructured content." },
     { id: "supervisor-agent", label: "Supervisor Agent", icon: "multiAgentSupervisor", desc: "Routes a question to the right specialist agent and composes the answer." },
@@ -542,12 +534,12 @@ export const CATALOG: Record<BandId, CatalogComponent[]> = {
     { id: "lakeflow-block", label: "Lakeflow", icon: "lakeflowConnectBrand", kind: "lakeflow",
       desc: "One block: managed ingest (Lakeflow Connect), real-time streams (Zerobus) and direct file landing, all flowing into a declarative bronze → silver → gold pipeline.",
       authoring: "The whole ingest + bronze→silver→gold SDP in one block (no Genie Code framing). Contains SDP — never add a separate sdp tile beside it.",
-      ports: { "in-lakeflow-connect": "← databases / SaaS apps (ingest: lakeflow-connect)", "in-zerobus": "← realtime streams / sensors (ingest: zerobus)", "in-direct": "← files: PDF / CSV / Parquet (ingest: direct)", "r": "→ the compute layer" } },
+      ports: { "in-lakeflow-connect": "← databases / SaaS apps", "in-zerobus": "← realtime streams / sensors", "in-direct": "← files: PDF / CSV / Parquet", "r": "→ the compute layer" } },
     // Combined box: the Lakeflow super-block stacked over the Genie Code block.
     { id: "lakeflow-genie-block", label: "Lakeflow + Genie", icon: "lakeflowConnectBrand", kind: "lakeflow-genie",
       desc: "Lakeflow ingest + declarative pipeline, with Genie Code building and maintaining it — one box, end to end.",
       authoring: "The PREFERRED data-layer block — ingest + bronze→silver→gold SDP, built/maintained by Genie Code. It IS the data layer; contains SDP + Genie Code, so never add separate sdp / genie-code tiles beside it.",
-      ports: { "in-lakeflow-connect": "← databases / SaaS apps (ingest: lakeflow-connect)", "in-zerobus": "← realtime streams / sensors (ingest: zerobus)", "in-direct": "← files: PDF / CSV / Parquet (ingest: direct)", "r": "→ the compute layer" } },
+      ports: { "in-lakeflow-connect": "← databases / SaaS apps", "in-zerobus": "← realtime streams / sensors", "in-direct": "← files: PDF / CSV / Parquet", "r": "→ the compute layer" } },
     { id: "lakeflow-connect", label: "Lakeflow Connect", icon: "lakeflowConnectBrand", desc: "A few-click interface to connect and ingest data from 100+ sources — SaaS apps, databases, files and knowledge systems." },
     { id: "zerobus-ingest", label: "Lakeflow Zerobus", icon: "zerobus", desc: "Real-time, direct ingest of streaming events into the lakehouse." },
     { id: "sdp", label: "Lakeflow SDP", icon: "sdpBrand", desc: "Spark Declarative Pipelines — declarative bronze → silver → gold that self-heal and scale." },
@@ -572,10 +564,10 @@ export const CATALOG: Record<BandId, CatalogComponent[]> = {
     // starting estate. The agent swaps in the demo's real systems (Shopify,
     // Zendesk, …) per story; those vendor logos live in the icon bank / "+ more
     // data sources" picker and the palette search.
-    { id: "src-kafka", label: "Kafka", icon: "file:vendor/kafka", ingest: "zerobus", desc: "Streaming events ingested in real time via Zerobus." },
-    { id: "src-postgres", label: "Postgres", icon: "file:vendor/postgresql", ingest: "lakeflow-connect", desc: "Operational database ingested via Lakeflow Connect." },
-    { id: "src-sensors", label: "Sensor data", icon: "sensorSource", ingest: "zerobus", desc: "Real-time sensor / IoT telemetry, streamed via Zerobus." },
-    { id: "src-pdf", label: "PDF documents", icon: "pdfLogo", ingest: "direct", desc: "Documents (PDFs) — landed as files on a UC Volume." },
+    { id: "src-kafka", label: "Kafka", icon: "file:vendor/kafka", desc: "Streaming events ingested in real time via Zerobus." },
+    { id: "src-postgres", label: "Postgres", icon: "file:vendor/postgresql", desc: "Operational database ingested via Lakeflow Connect." },
+    { id: "src-sensors", label: "Sensor data", icon: "sensorSource", desc: "Real-time sensor / IoT telemetry, streamed via Zerobus." },
+    { id: "src-pdf", label: "PDF documents", icon: "pdfLogo", desc: "Documents (PDFs) — landed as files on a UC Volume." },
   ],
 };
 
@@ -616,6 +608,7 @@ export function naturalSize(type: string): { w: number; h: number } {
   if (kind === "genie-code") return { w: 360, h: 112 };
   if (kind === "governance") return { w: 580, h: 108 };
   if (kind === "db-platform") return { w: 380, h: 60 };
+  if (kind === "genie-one") return { w: 230, h: 78 }; // tile; persona pill floats over the top edge
   if (type === "sdp") return { w: 230, h: 112 };
   if (c?.sublabel) return { w: 230, h: 70 };
   return { w: 200, h: 56 }; // plain tile + sources
@@ -913,10 +906,11 @@ export function parseArchitecture(content: string): PlatformSchema {
         ...(n.src !== undefined ? { src: n.src } : {}),
       };
     } else if (n.type === "source") {
-      // A data source: carry its logo key + icon + (optional) ingest so
-      // flow-mapping renders it via the canvas-added-source path.
+      // A data source: carry its logo key + icon so flow-mapping renders it via
+      // the canvas-added-source path. The Lakeflow ingest port it feeds is set
+      // by the edge handle (`@in-zerobus` / `@in-direct` / `@in-lakeflow-connect`).
       const key = (n.icon ?? "").replace(/^file:.*\//, "").replace(/^file:/, "").toLowerCase() || baseId(n.id).replace(/^src-/, "");
-      pos.source = { key, icon: (n.icon ?? "inputData") as IconKey, ...(n.ingest ? { ingest: n.ingest } : {}) };
+      pos.source = { key, icon: (n.icon ?? "inputData") as IconKey };
       if (n.label !== undefined) pos.label = n.label;
       // Source label placement (right default | left | top | bottom). Reuse the
       // shared FileNode `caption`; ignore the legacy logo values (side/below).
@@ -939,19 +933,10 @@ export function parseArchitecture(content: string): PlatformSchema {
   }
 
   // Edge-handle inference: when `from`/`to` carry no explicit `@handle`, derive
-  // it from geometry (+ source ingest into a Lakeflow block).
-  const ingestOf = (fileId: string): IngestPath | undefined => {
-    const fn = (file.nodes ?? []).find((x) => x.id === fileId);
-    return fn?.type === "source" ? (fn.ingest ?? "lakeflow-connect") : undefined;
-  };
-  const isLakeflow = (fileId: string): boolean => {
-    const fn = (file.nodes ?? []).find((x) => x.id === fileId);
-    const k = fn ? CATALOG_BY_ID.get(fn.type)?.c.kind : undefined;
-    return k === "lakeflow" || k === "lakeflow-genie";
-  };
+  // it from geometry. To target a specific Lakeflow ingest PORT, the edge must
+  // name it explicitly (`@in-lakeflow-connect` / `@in-zerobus` / `@in-direct`) —
+  // there is no source-ingest-based port inference.
   const inferHandles = (sId: string, tId: string): { sh?: string; th?: string } => {
-    // Source → Lakeflow block: pick the target PORT from the source's ingest.
-    if (ingestOf(sId) && isLakeflow(tId)) return { sh: "r", th: `in-${ingestOf(sId)}` };
     const sb = boxOf.get(sId), tb = boxOf.get(tId);
     if (!sb || !tb) return {};
     const dx = tb.x - sb.x, dy = tb.y - sb.y;
@@ -1174,7 +1159,6 @@ export function serializeArchitecture(
         // EMIT (user deliberately cleared it → renders nothing).
         ...(pos.label !== undefined ? { label: pos.label } : {}),
         icon: (pos.icon ?? pos.source.icon) as IconKey,
-        ...(pos.source.ingest ? { ingest: pos.source.ingest } : {}),
         ...(pos.sourceCaption !== undefined ? { caption: pos.sourceCaption } : {}),
         ...(pos.fontSize !== undefined ? { fontSize: pos.fontSize } : {}),
         ...(pos.desc !== undefined ? { desc: pos.desc } : {}),

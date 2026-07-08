@@ -76,7 +76,7 @@ function renderCatalog(): string {
     lines.push("");
   }
 
-  lines.push("> Sources are demo-authored (not in this catalog): use `type:\"source\"` with a vendor `icon` (`file:vendor/<name>`) + an `ingest` path (see the icon bank below).");
+  lines.push("> Sources are demo-authored (not in this catalog): use `type:\"source\"` with a vendor `icon` (`file:vendor/<name>`; see the icon bank below) and wire the edge to the Lakeflow block's ingest port via an explicit `@in-*` handle.");
   return lines.join("\n");
 }
 
@@ -117,7 +117,7 @@ function renderIcons(): string {
     if (leaves.length) lines.push(`- **${p}**: ${leaves.map((l) => `\`${l}\``).join(", ")}`);
   }
   lines.push("");
-  lines.push("Also: `file:persona/user` (a person — use as a `logo` node, caption \"Business users\"), `file:vendor/custom-source` (generic animated shapes source when no real logo fits).");
+  lines.push("Also: `file:persona/user` (a person — normally the business-user persona is built into the `genie-one` component, but you can place it as a standalone `logo` node if needed), `file:vendor/custom-source` (generic animated shapes source when no real logo fits).");
   return lines.join("\n");
 }
 
@@ -134,7 +134,39 @@ function inject(doc: string, name: string, body: string): string {
   return doc.slice(0, b) + `${begin}\n\n${body}\n\n${end}` + doc.slice(e + end.length);
 }
 
+/** Drift guard: the teaching PROSE (outside the generated block) hard-codes the
+ *  Lakeflow ingest port names (`@in-zerobus`, …) because concrete names make the
+ *  authoring guidance usable. To keep CATALOG the single source of truth, fail
+ *  the build if the prose references an `in-*` port that no CATALOG component
+ *  actually declares — so a future port rename can't silently leave stale docs. */
+function checkPortNameDrift(doc: string): void {
+  // Real port handle ids from the code.
+  const known = new Set<string>();
+  for (const comps of Object.values(CATALOG)) {
+    for (const c of comps) {
+      for (const h of Object.keys((c as { ports?: Record<string, string> }).ports ?? {})) {
+        if (h.startsWith("in-")) known.add(h);
+      }
+    }
+  }
+  // Prose = the doc with the generated blocks stripped out (those are code-derived).
+  const prose = doc.replace(/<!-- BEGIN: [\s\S]*?<!-- END: [^>]*-->/g, "");
+  const referenced = new Set(
+    [...prose.matchAll(/[`@](in-[a-z0-9-]+)`?/g)].map((m) => m[1]),
+  );
+  const stale = [...referenced].filter((p) => !known.has(p));
+  if (stale.length) {
+    console.error(
+      `Port-name drift in ${SKILL}: prose references ${stale.map((s) => `\`${s}\``).join(", ")} ` +
+      `which no CATALOG component declares (known: ${[...known].join(", ")}). ` +
+      `Update the prose to match CATALOG.ports, or add the port to the component.`,
+    );
+    process.exit(1);
+  }
+}
+
 let doc = readFileSync(SKILL, "utf8");
+checkPortNameDrift(doc);
 doc = inject(doc, "generated-catalog", renderCatalog());
 doc = inject(doc, "generated-icons", renderIcons());
 const next = doc;

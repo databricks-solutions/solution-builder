@@ -69,7 +69,7 @@ export function AnnotationMenu({
           <div className="flex items-center gap-1 px-2 py-1.5">
             <span className="mr-auto text-[11px] text-muted-foreground">Text</span>
             {opts.map(([p, ico]) => (
-              <button key={p} type="button" onClick={() => onAnno({ caption: p })}
+              <button key={p} type="button" onClick={(e) => { e.stopPropagation(); onAnno({ caption: p }); }}
                 title={`Text ${p}`}
                 className={`grid h-6 w-6 cursor-pointer place-items-center rounded ${cur === p ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}>
                 {ico}

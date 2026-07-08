@@ -209,6 +209,7 @@ export function nodeTypeFor(c: PlatformComponent): string {
   if (c.kind === "lakeflow-genie") return "lakeflowGenie";
   if (c.kind === "agent-bricks") return "agentBricks";
   if (c.kind === "db-platform") return "dbPlatform";
+  if (c.kind === "genie-one") return "genieOne";
   return "component";
 }
 
