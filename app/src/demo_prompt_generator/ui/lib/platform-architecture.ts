@@ -1066,6 +1066,32 @@ function parseTopLevel(content: string): unknown {
   }
 }
 
+/** Detect the LEGACY architecture format (the pre-flat-file schema, replaced by
+ *  the interactive editor). The old format nested nodes INSIDE column objects
+ *  (`columns: [{ nodes: [...], bars: [...] }, …]`) and had no top-level `nodes`;
+ *  the new flat format has `columns` as a list of lane-name STRINGS plus a
+ *  top-level `nodes` array. So a file is legacy iff any tab's `columns` holds
+ *  OBJECTS rather than strings (with a secondary tell: no top-level `nodes`).
+ *  Returns false for empty/unparseable/new-format content — we only flag a file
+ *  we're confident is the old shape. */
+export function isLegacyArchitectureFormat(content: string): boolean {
+  const top = parseTopLevel(content ?? "");
+  if (top == null) return false;
+  const objs: unknown[] = Array.isArray(top) ? top : [top];
+  return objs.some((o) => {
+    if (!o || typeof o !== "object") return false;
+    const rec = o as { columns?: unknown; nodes?: unknown };
+    // New format: columns is string[] AND nodes is a top-level array.
+    const cols = rec.columns;
+    const legacyColumns =
+      Array.isArray(cols) && cols.length > 0 && typeof cols[0] === "object" && cols[0] !== null;
+    const missingFlatNodes = !Array.isArray(rec.nodes);
+    // Only OBJECT columns is a hard tell; missing flat nodes alone could be a
+    // blank/partial file, so require the column shape.
+    return legacyColumns && missingFlatNodes;
+  });
+}
+
 /** Split architecture.md into tabs. A top-level ARRAY → one tab per element; a
  *  single OBJECT → one tab (auto-wrap, so existing single-architecture files
  *  keep working). Each tab's `body` is that element re-stringified as a fenced
