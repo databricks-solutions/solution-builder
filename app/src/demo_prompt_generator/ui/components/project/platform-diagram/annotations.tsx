@@ -44,7 +44,7 @@ export interface AnnotationNodeData extends NodeData {
 export const ANNOTATION_DEFAULT_SIZE: Record<AnnotationVariant, { w: number; h: number }> = {
   text: { w: 160, h: 40 },
   box: { w: 320, h: 180 },
-  logo: { w: 88, h: 88 },
+  logo: { w: 72, h: 72 },
   image: { w: 200, h: 140 },
 };
 
