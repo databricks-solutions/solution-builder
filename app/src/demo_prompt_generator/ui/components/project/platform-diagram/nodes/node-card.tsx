@@ -232,11 +232,11 @@ export function NodeCard(p: NodeCardProps) {
     >
       {p.title}
     </span>
-  ) : p.hideEmptyTitle && !p.editMode ? null : (
-    // Empty title. In edit mode always render a faint, double-clickable
-    // placeholder (even for logos, which hide an empty title when NOT editing)
-    // so there's a visible target to double-click and type a caption. Outside
-    // edit mode a hideEmptyTitle node still renders nothing.
+  ) : p.hideEmptyTitle ? null : (
+    // Empty title (non-logo). In edit mode render a faint, double-clickable
+    // placeholder so there's a visible target to double-click and type a label.
+    // Logos (hideEmptyTitle) render NOTHING here — the mark fills the tile and
+    // double-clicking the icon adds a label (see the icon wrapper below).
     <span
       className={`min-w-0 truncate text-[13px] italic ${autoFit ? "whitespace-nowrap" : ""} text-muted-foreground/50`}
       style={{ fontSize }}
@@ -336,7 +336,15 @@ export function NodeCard(p: NodeCardProps) {
     >
       <div
         onClick={() => p.onSelect(p.nodeId)}
-        onDoubleClick={autoFit ? (e) => { e.stopPropagation(); setEditing(p.title); } : undefined}
+        // Double-click starts label editing. For autoFit tiles AND for logos
+        // (which hide the empty-title placeholder), so a labelless logo can get
+        // a caption by double-clicking it. `?? ""` so an undefined title still
+        // opens a controlled (focusable) input.
+        onDoubleClick={
+          (autoFit || p.hideEmptyTitle) && p.editMode
+            ? (e) => { e.stopPropagation(); setEditing(p.title ?? ""); }
+            : undefined
+        }
         className={`group relative flex h-full w-full flex-col overflow-hidden transition-shadow ${
           p.styleVariant === "tile" && !hasFill ? "bg-card" : ""
         } ${selectedRing(p.selected)}`}
