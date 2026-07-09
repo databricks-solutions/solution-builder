@@ -96,6 +96,20 @@ async def invoke_agent(
     # will authenticate to Databricks.
     mode = detect_mode(headers)
 
+    # WRITE-ACCESS GATE — must run BEFORE any disk mutation below. Running the
+    # agent mutates the project, so viewers are rejected here. Critically, this
+    # also guards `write_project_auth_file`: without this gate a viewer's PAT
+    # would be written into the OWNER's `<project>/.databrickscfg` before the
+    # 403, swapping the identity the agent's `databricks` CLI runs as. Check
+    # first, write nothing until it passes.
+    await asyncio.to_thread(
+        _require_write_access,
+        session,
+        body.project_id,
+        user_email,
+        config.template_admin_emails,
+    )
+
     # Ensure the project directory + skills are on disk before we spawn the
     # agent. The common case is `getProject` already ran this on page load,
     # but a fresh container restart with a still-open browser tab will fire

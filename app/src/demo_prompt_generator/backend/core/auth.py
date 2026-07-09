@@ -35,7 +35,9 @@ from pydantic import BaseModel
 from sqlmodel import Session, select
 
 from ..models import User
+from ._defaults import ConfigDependency
 from ._headers import DatabricksAppsHeaders, HeadersDependency
+from .lakebase import LakebaseDependency
 
 logger = logging.getLogger(__name__)
 
@@ -327,12 +329,29 @@ def make_project_auth_refresher(
     def refresh_project_auth(
         project_id: str,
         headers: HeadersDependency,
+        session: LakebaseDependency,
+        config: ConfigDependency,
     ) -> None:
         if detect_mode(headers) != "deployed":
             return
         pat = request_user_pat(headers)
         if pat is None:
             return
+        # IDENTITY GUARD: only a caller with WRITE access (owner/admin/editor)
+        # may write the project's token file. A viewer (read-only share) writing
+        # here would stamp their PAT into the owner's dir and swap the agent's
+        # CLI identity. Lazy import to avoid a core→routes import cycle.
+        from ..routes.projects import ACCESS_VIEWER, _get_project_access
+        # Deployed mode always carries the caller's email in the header.
+        caller_email = headers.user_email or ""
+        try:
+            _, access = _get_project_access(
+                session, project_id, caller_email, config.template_admin_emails
+            )
+        except Exception:
+            return  # no access / project gone — never write
+        if access == ACCESS_VIEWER:
+            return  # read-only: never overwrite the owner's token
         host = resolve_host(headers)
         if not host:
             logger.warning(

@@ -39,7 +39,12 @@ from ..models import (
     ProjectFileWrite,
 )
 from ..services.file_sync import FileSyncService, decompress_content
-from .projects import _get_authorized_project, _require_write_access
+from .projects import (
+    ACCESS_VIEWER,
+    _get_authorized_project,
+    _get_project_access,
+    _require_write_access,
+)
 
 logger = logging.getLogger(__name__)
 router = create_router()
@@ -539,7 +544,7 @@ def _get_user_email(headers) -> str:
     return "anonymous@local"
 
 
-def _ensure_project_databrickscfg(project_dir: Path, headers) -> None:
+def _ensure_project_databrickscfg(project_dir: Path, headers, can_write: bool) -> None:
     """Refresh `<project_dir>/.databrickscfg` from the current request's
     PAT. Deployed mode only — no-op locally.
 
@@ -550,9 +555,16 @@ def _ensure_project_databrickscfg(project_dir: Path, headers) -> None:
     auth file until the user sends their first chat message — and any
     `databricks` CLI call before that point fails.
 
+    IDENTITY GUARD: `can_write` MUST be true (owner/admin/editor). A VIEWER
+    (read-only share recipient) must NEVER write here — doing so would stamp
+    their PAT into the OWNER's project dir, swapping the identity the agent's
+    `databricks` CLI runs as. Callers pass their resolved write-access.
+
     Best-effort: errors are logged and swallowed so they never break
     the request.
     """
+    if not can_write:
+        return  # read-only viewer — never overwrite the owner's token
     if detect_mode(headers) != "deployed":
         return
     pat = request_user_pat(headers)
@@ -604,7 +616,9 @@ def list_project_files(
     """
     try:
         user_email = _get_user_email(headers)
-        _get_authorized_project(session, project_id, user_email, config.template_admin_emails)
+        _project, access = _get_project_access(
+            session, project_id, user_email, config.template_admin_emails
+        )
 
         project_dir = _PROJECTS_BASE_RESOLVED / project_id
 
@@ -619,8 +633,9 @@ def list_project_files(
         # spawning, but doing it here too means the file exists from the
         # moment the user opens a project — useful if anything before the
         # first agent invocation (the user opening a terminal, manual psql,
-        # etc.) needs to authenticate.
-        _ensure_project_databrickscfg(project_dir, headers)
+        # etc.) needs to authenticate. NEVER for a viewer: writing here would
+        # stamp their PAT into the owner's dir and swap the CLI identity.
+        _ensure_project_databrickscfg(project_dir, headers, can_write=access != ACCESS_VIEWER)
 
         if include_hidden:
             # Debug view — walk fresh, include hidden, do NOT cache.

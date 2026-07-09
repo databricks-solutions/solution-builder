@@ -137,6 +137,33 @@ Rules:
   - Never exists in local mode. If it's there in local mode, it's a bug —
     delete it.
 
+### Identity guard — shared projects (viewers must NEVER write it)
+
+A project has ONE owner (`Project.user_email`); others reach it through an
+accepted `project_shares` row at role `viewer` (read-only) or `editor`. The
+`.databrickscfg` holds whoever-wrote-it-last's PAT, and the agent's CLI runs
+as that identity. So **only a caller with WRITE access (owner / admin / editor)
+may write this file** — if a *viewer* wrote it, they'd stamp their PAT into the
+owner's project dir and silently swap the CLI identity (the agent would then act
+as the viewer). This is an identity-swap bug, and it's easy to introduce because
+the write is tempting to do on read paths (opening a project, listing files).
+
+Rules to keep it safe:
+  - The write helper (`_ensure_project_databrickscfg`) takes `can_write` and
+    **no-ops when false** — the guard lives at the source so every caller
+    (current and future) is safe by default.
+  - `list_project_files` resolves the caller's level via `_get_project_access`
+    (non-raising) and passes `can_write = access != ACCESS_VIEWER`.
+  - `invoke_agent` runs `_require_write_access` (403s viewers) BEFORE any disk
+    mutation — including the auth-file write and the file-restore — so a viewer
+    is rejected before their PAT can touch the project dir.
+  - Any NEW route that writes the auth file must gate on write-access first.
+    Read-level auth (`_get_authorized_project`, which allows viewers) is NOT
+    sufficient to authorize a token write.
+  - Concurrent editing is not supported: two writers racing on the same project
+    thrash this file → the agent can switch identity mid-run. The share dialog
+    warns on the `editor` role for this reason.
+
 ## Failure modes (deliberate)
 
 - **No header, deployed mode**: should be impossible (Apps proxy always
