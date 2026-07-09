@@ -1393,16 +1393,21 @@ function ProjectPage() {
     }
   }, [projectId, selectedFile]);
 
-  // Handle loading architecture content
+  // Load architecture content when the tab opens. We ALWAYS refetch from disk
+  // (no "already loaded" guard): the Architecture tab unmounts on tab switch,
+  // so returning to it remounts PlatformDiagram from this prop — and the canvas
+  // autosaves every edit to disk, so disk is the freshest source. Guarding on a
+  // stale in-memory snapshot showed the pre-edit diagram on tab-return (the edit
+  // only reappeared after a hard refresh). Re-reading identical content is a
+  // no-op for the canvas (its echo-guard + React string-identity bail out).
   const handleLoadArchitecture = useCallback(async () => {
-    if (architectureContent) return; // Already loaded
     try {
       const content = await getProjectFile(projectId, "architecture.md");
-      setArchitectureContent(content.content);
+      setArchitectureContent((prev) => (prev === content.content ? prev : content.content));
     } catch (error) {
       console.error("Failed to load architecture:", error);
     }
-  }, [projectId, architectureContent]);
+  }, [projectId]);
 
   // Re-fetch architecture.md from disk after the watcher reports it changed
   // (the agent rewrote it — or just CREATED it). No "already loaded" guard:

@@ -7,6 +7,7 @@ import { memo, useState, useContext } from "react";
 import {
   useInternalNode,
   useStore,
+  useConnection,
   BaseEdge,
   getSmoothStepPath,
   getStraightPath,
@@ -48,6 +49,15 @@ const FlowEdge = memo(function FlowEdge(props: EdgeProps) {
 
   // Live endpoint drag (reconnect). Hook runs unconditionally before guards.
   const [drag, setDrag] = useState<{ end: "source" | "target"; x: number; y: number; side?: Side; handle?: string } | null>(null);
+  // Hover state → endpoint grab-dots grow/brighten on hover (they're rendered
+  // at rest too, subtly, so a used anchor always intercepts the pointer).
+  const [hover, setHover] = useState(false);
+  // While a NEW connection is being dragged, the edge layer (which sits above
+  // the node handles via EDGE_Z) must NOT capture the pointer — otherwise the
+  // hover ribbon / endpoint dots swallow the drop and the connection silently
+  // fails to land on the target handle (the "sometimes the line isn't created"
+  // bug). Selector keeps this a boolean (re-renders only when it flips).
+  const connecting = useConnection((c) => c.inProgress);
   // Live drag of the vertical-elbow handle (manual centerX). Hooks before guard.
   const [centerDrag, setCenterDrag] = useState<number | null>(null);
 
@@ -177,10 +187,22 @@ const FlowEdge = memo(function FlowEdge(props: EdgeProps) {
     setDrag(null);
   };
 
+  // Endpoint grab-dots. `prominent` (edge selected/hovered/dragging) → full-size
+  // bright dot; otherwise a small faint dot that STILL captures the pointer — so
+  // clicking a node anchor that already has an edge grabs THAT edge (reassign)
+  // instead of forking a new line. (Empty anchors have no edge dot → the node's
+  // own connection handle forks a new line there, as before.) A big edge zIndex
+  // (EDGE_Z) puts these above the node's connection handle at the same spot.
+  const prominent = selected || hover || drag !== null;
   const dotProps = {
-    r: 7, fill: "var(--primary)", stroke: "var(--background)", strokeWidth: 2,
-    style: { cursor: "grab", pointerEvents: "all" as const },
+    r: prominent ? 7 : 4.5,
+    fill: "var(--primary)", stroke: "var(--background)", strokeWidth: 2,
+    opacity: prominent ? 1 : 0.55,
+    // Don't intercept the pointer while a new connection is being dragged (see
+    // `connecting`) — the drop must reach the target node's handle.
+    style: { cursor: "grab", pointerEvents: connecting ? ("none" as const) : ("all" as const) },
     onPointerMove: move, onPointerUp: end,
+    onPointerEnter: () => setHover(true), onPointerLeave: () => setHover(false),
   };
 
   // The vertical elbow handle (↔): sits at the segment's X, vertically between
@@ -301,12 +323,24 @@ const FlowEdge = memo(function FlowEdge(props: EdgeProps) {
       {/* interactionWidth kept modest: a fat stripe blankets the source/target
           anchors and steals the pointer, so you can't start a NEW link (fork)
           from an already-connected anchor. 10px still clicks the line easily. */}
-      <BaseEdge path={path} style={baseStyle} interactionWidth={10} />
+      {/* Transparent hover ribbon over the line → brightens the endpoint dots
+          when you're near the edge (without stealing the anchor from a fork). */}
+      <path d={path} fill="none" stroke="transparent" strokeWidth={16}
+        style={{ pointerEvents: ops?.editMode && !connecting ? "stroke" : "none" }}
+        onPointerEnter={() => setHover(true)} onPointerLeave={() => setHover(false)} />
+      <BaseEdge path={path} style={baseStyle} interactionWidth={connecting ? 0 : 10} />
       {/* Key by edge id (NOT path): a drag/resize changes `path`, but keying by
           it would unmount + remount the whole SMIL subtree every frame. Keyed
           by id, the animated elements stay mounted and just re-read the updated
           `path` attribute. Hidden below a zoom threshold (sub-pixel anyway). */}
-      {flowing && showFlow && <EdgeFlow key={id} style={flowStyle} path={path} />}
+      {/* Decorative flow animation — never captures the pointer (it sits at the
+          edge zIndex, so without this a beam over a target handle would swallow
+          a connection drop). */}
+      {flowing && showFlow && (
+        <g style={{ pointerEvents: "none" }}>
+          <EdgeFlow key={id} style={flowStyle} path={path} />
+        </g>
+      )}
 
       {/* Arrowhead overlay — its OWN transparent path so the arrow sits on top of
           ANY line style (incl. a beamish laser/particles base that's transparent
@@ -337,10 +371,13 @@ const FlowEdge = memo(function FlowEdge(props: EdgeProps) {
         </g>
       )}
 
-      {/* Click the line to select → these endpoint dots appear (just outside
-          each tile). Drag one onto another tile (it highlights + snaps) to
-          reconnect; drop on empty space keeps the original edge. */}
-      {selected && ops?.editMode && (
+      {/* Draggable endpoint dots (just outside each tile). Rendered whenever
+          we're in edit mode — subtle at rest, bright on hover/select — so a
+          node anchor that ALREADY has an edge lets you grab + reassign THAT
+          edge (these sit above the node's connection handle via EDGE_Z).
+          Drag one onto another tile (it highlights + snaps) to reconnect; drop
+          on empty space keeps the original edge. */}
+      {ops?.editMode && (
         <>
           <circle cx={drag?.end === "source" ? drag.x : sDot.x} cy={drag?.end === "source" ? drag.y : sDot.y} {...dotProps} onPointerDown={start("source")} />
           <circle cx={drag?.end === "target" ? drag.x : tDot.x} cy={drag?.end === "target" ? drag.y : tDot.y} {...dotProps} onPointerDown={start("target")} />

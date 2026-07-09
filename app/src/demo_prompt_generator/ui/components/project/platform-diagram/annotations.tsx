@@ -84,7 +84,8 @@ export const AnnotationNode = memo(function AnnotationNode({ data, selected }: N
   const borderW = d.borderWidth ?? (a.variant === "box" ? 1 : 0);
   const showBorder = borderW > 0;
   const vA = a.vAlign ?? "middle";
-  const hA = a.hAlign ?? "center";
+  // Plain TEXT defaults to LEFT-aligned; a box keeps center.
+  const hA = a.hAlign ?? (a.variant === "text" ? "left" : "center");
 
   // --- Auto-fit for the plain TEXT annotation --------------------------------
   // A text label sizes to its content: we measure the rendered text off-layout
@@ -95,7 +96,10 @@ export const AnnotationNode = memo(function AnnotationNode({ data, selected }: N
   // (text nodes were un-resizable). Unlike the logo fit below, the FIRST run
   // does fit (a fresh text node should always hug its content).
   const measureRef = useRef<HTMLSpanElement>(null);
-  const isTextVariant = a.variant === "text";
+  // A text node auto-fits its content UNTIL the user gives it an explicit size
+  // (drags a resize handle → a.sized). After that it keeps the fixed box and
+  // the text wraps / truncates inside it (see textWrap).
+  const isTextVariant = a.variant === "text" && !a.sized;
   const scale = d.scale ?? 1;
   // The text we size to: the LIVE editing buffer while editing (so the node
   // grows as you type), else the committed text.
@@ -203,7 +207,13 @@ export const AnnotationNode = memo(function AnnotationNode({ data, selected }: N
       editMode={editMode}
       selected={!!selected}
       forceDots={isDropTarget}
-      onResize={(w, h, center) => d.onResize(d.nodeId, w, h, undefined, center)}
+      onResize={(w, h, center) => {
+        // A manual resize of a TEXT node fixes its size (stops auto-fit): flag
+        // it `sized` (so the auto-fit effect stops clobbering the box) alongside
+        // writing the new w/h. Box resize is unchanged.
+        if (a.variant === "text" && !a.sized) d.onAnnotate(d.nodeId, { sized: true });
+        d.onResize(d.nodeId, w, h, undefined, center);
+      }}
       onContext={(e) => { e.preventDefault(); d.onContext(d.nodeId, e.clientX, e.clientY); }}
     >
       {(a.variant === "text" || a.variant === "box") && (() => {
@@ -298,10 +308,21 @@ export const AnnotationNode = memo(function AnnotationNode({ data, selected }: N
               />
             ) : (
               <span
-                // Text: `whitespace-pre` so it sizes to content + only wraps on
-                // explicit newlines (the node auto-fits it). Box: wrap within
-                // the manually-sized box as before.
-                className={`${isBox ? "whitespace-pre-wrap break-words" : "whitespace-pre"} ${d.fontColor ? "" : "text-foreground"}`}
+                // Whitespace/overflow depends on the node's mode:
+                //  • box                       → wrap within the manual box.
+                //  • text, auto-fit (!sized)   → `whitespace-pre`: hugs content,
+                //    wraps only on explicit newlines (the node auto-fits it).
+                //  • text, sized + wrap        → flow onto new lines in the box.
+                //  • text, sized + truncate    → single line, ellipsis.
+                className={`${
+                  isBox
+                    ? "whitespace-pre-wrap break-words"
+                    : !a.sized
+                      ? "whitespace-pre"
+                      : a.textWrap === "truncate"
+                        ? "block w-full truncate"
+                        : "block w-full whitespace-pre-wrap break-words"
+                } ${d.fontColor ? "" : "text-foreground"}`}
                 style={{ fontSize, fontWeight, transform: "scale(var(--cs, 1))", ...(d.fontColor ? { color: d.fontColor } : {}) }}
                 title="Double-click to edit"
                 onDoubleClick={(e) => { e.stopPropagation(); setEditing(a.text ?? ""); }}
@@ -366,13 +387,34 @@ const INDUSTRY_BY_NAME: Record<string, string[]> = (() => {
 // (file:vendor/<name>) — skip them in the picker so we don't list a brand twice.
 const SUPERSEDED_BUILTINS = new Set<string>(["shopifyLogo", "zendeskLogo", "sapLogo"]);
 
+/** Clean display label for a Databricks icon KEY. Strips the internal
+ *  `Brand`/`Logo` suffix and camelCase-splits + title-cases — so `genieBrand` →
+ *  "Genie", `genieCodeBrand` → "Genie Code", `genieOneBrand` → "Genie One".
+ *  A small override map handles acronyms the generic rule would mangle. */
+const ICON_LABEL_OVERRIDES: Record<string, string> = {
+  aibiBrand: "AI/BI",
+  sdpBrand: "SDP",
+  pdfLogo: "PDF",
+  aiGatewayBrand: "AI Gateway",
+};
+export function prettyIconLabel(key: string): string {
+  if (ICON_LABEL_OVERRIDES[key]) return ICON_LABEL_OVERRIDES[key];
+  return key
+    .replace(/(Brand|Logo|Source|Icon)$/, "")     // drop the internal suffix
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")        // camelCase → spaced
+    .replace(/^\w/, (m) => m.toUpperCase())          // capitalize first
+    .trim();
+}
+
 function buildPickIndex(): { items: PickItem[]; tabs: string[] } {
   const items: PickItem[] = [];
   for (const k of Object.keys(DATABRICKS_ICONS) as DatabricksIconName[]) {
     if (SUPERSEDED_BUILTINS.has(k)) continue; // dup of file:vendor/<name>
     // Databricks built-ins: treat product/source-ish ones as sources; the rest
     // (agents, governance glyphs) aren't data sources. Keep it permissive.
-    items.push({ key: k, label: k, search: k.toLowerCase(), tabs: ["Databricks"], source: true });
+    // Search on the raw key AND the pretty label so "genie" still matches.
+    const label = prettyIconLabel(k);
+    items.push({ key: k, label, search: `${k} ${label}`.toLowerCase(), tabs: ["Databricks"], source: true });
   }
   for (const f of FILE_ICONS) {
     const tabs = f.group === "cloud"

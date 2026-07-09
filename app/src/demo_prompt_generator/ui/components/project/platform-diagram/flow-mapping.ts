@@ -20,6 +20,11 @@ import { type NodeData, type EdgeData, nodeFootprint, nodeTypeFor } from "./shar
 import { ANNOTATION_DEFAULT_SIZE, type AnnotationNodeData } from "./annotations";
 import { logoLabel } from "../../file-icons";
 
+/** Edges render ABOVE every node. Nodes/composites/boxes can carry a positive
+ *  zIndex (bring-to-front, etc.); a default-z edge would be hidden behind them.
+ *  A big constant keeps every connection line on top. */
+export const EDGE_Z = 1000;
+
 export function componentLookup(schema: PlatformSchema) {
   const m = new Map<string, { component: PlatformComponent; bandId: BandId }>();
   schema.bands.forEach((b) => b.components.forEach((c) => m.set(c.id, { component: c, bandId: b.id })));
@@ -183,6 +188,7 @@ export function flowToEdge(e: PlatformEdge): Edge {
     id: e.id,
     source: e.source,
     target: e.target,
+    zIndex: EDGE_Z, // always on top (see EDGE_Z)
     // Restore saved handles (composite port id or side); fall back to the
     // default L→R so older/auto-seeded edges still render.
     sourceHandle: e.sourceHandle ?? "r",

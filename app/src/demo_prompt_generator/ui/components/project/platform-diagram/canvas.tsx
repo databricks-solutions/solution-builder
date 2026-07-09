@@ -75,7 +75,7 @@ import { nodeTypes, edgeTypes } from "./node-types";
 import { DetailPanel } from "./panels/detail-panel";
 import { EditPanel } from "./panels/edit-panel";
 import { LibraryPalette } from "./panels/library-palette";
-import { componentLookup, schemaToFlow, flowToLayout } from "./flow-mapping";
+import { componentLookup, schemaToFlow, flowToLayout, EDGE_Z } from "./flow-mapping";
 import { ContextMenu, type CtxMenu } from "./menus/context-menu";
 import { useDiagramHistory } from "./hooks/use-diagram-history";
 import { useNodeMutations } from "./hooks/use-node-mutations";
@@ -137,6 +137,8 @@ const MULTI_SELECT_KEYS = ["Shift"];
 export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSetTrademark, defaultEditMode = true, readOnly = false, toolbarExtras, toolbarStatus, tabBar }: CanvasProps) {
   const [confirmTrademark, setConfirmTrademark] = useState(false);
   const [sourcePicker, setSourcePicker] = useState(false);
+  // "+ more logos" from the search results → the full logo picker (all marks).
+  const [logoPicker, setLogoPicker] = useState(false);
   // Turning logos ON requires a permission ack; turning OFF is immediate.
   const toggleTrademark = useCallback(() => {
     if (schema.enableTrademarkLogos) onSetTrademark(false);
@@ -467,6 +469,7 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
             targetHandle,
             id,
             type: "flow",
+            zIndex: EDGE_Z, // always on top of every node (see EDGE_Z)
             data: { animated: true },
             style: { stroke: "var(--muted-foreground)", strokeWidth: 1.5, opacity: 0.55 },
             markerEnd: "url(#arrow)",
@@ -1279,6 +1282,7 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
   const paletteOnAddLogo = useCallback((iconKey: string) => addAnnotation("logo", undefined, { icon: iconKey }), [addAnnotation]);
   const paletteOnAddSource = useCallback((iconKey: string) => addSourceFromIcon(iconKey), [addSourceFromIcon]);
   const paletteOnMoreSources = useCallback(() => setSourcePicker(true), []);
+  const paletteOnMoreLogos = useCallback(() => setLogoPicker(true), []);
   const paletteOnPick = useCallback((id: string) => { if (pickingFor) changeNodeType(pickingFor, id); setPickingFor(null); }, [pickingFor, changeNodeType]);
   const paletteOnCancelPick = useCallback(() => setPickingFor(null), []);
   const paletteIsPicking = pickingFor !== null;
@@ -1306,6 +1310,7 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
           onAddSource={paletteOnAddSource}
           onToggleTrademark={toggleTrademark}
           onMoreSources={paletteOnMoreSources}
+          onMoreLogos={paletteOnMoreLogos}
           picking={paletteIsPicking}
           onPick={paletteOnPick}
           onCancelPick={paletteOnCancelPick}
@@ -1516,6 +1521,16 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
             allowTrademark={!!schema.enableTrademarkLogos}
             onPick={(key) => addSourceFromIcon(key)}
             onClose={() => setSourcePicker(false)}
+          />
+        )}
+
+        {/* "+ more logos" from search → the full logo picker; picking adds a
+            logo annotation (same as onAddLogo). */}
+        {logoPicker && (
+          <IconPicker
+            allowTrademark={!!schema.enableTrademarkLogos}
+            onPick={(key) => paletteOnAddLogo(key)}
+            onClose={() => setLogoPicker(false)}
           />
         )}
       </div>

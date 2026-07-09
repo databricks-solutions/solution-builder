@@ -132,12 +132,25 @@ function PlatformDiagram({ content, deployedResources, projectId, defaultEditMod
 
   const activeBody = tabBodies[activeIndex] ?? "";
 
+  // The active-tab body WE just serialized on a persist (see persistActive).
+  // When `tabBodies` updates to this exact string, it's our own echo — the
+  // canvas already reflects it, so we must NOT re-parse (a new `built`/`schema`
+  // identity re-seeds the canvas and DROPS the selection ~700ms after a paste).
+  // Genuine external loads + tab switches produce a DIFFERENT body → re-parse.
+  const selfAuthoredBody = useRef<string | null>(null);
+  const builtRef = useRef<PlatformSchema | null>(null);
+
   // Parse the ACTIVE tab's body into the internal schema. The file is the sole
-  // source of truth for what's shown (no capability-state seeding).
-  const built = useMemo(
-    () => parseArchitecture(activeBody),
-    [activeBody],
-  );
+  // source of truth for what's shown (no capability-state seeding). Skip the
+  // re-parse (reuse the prior schema identity) when the body is our own save.
+  const built = useMemo(() => {
+    if (activeBody === selfAuthoredBody.current && builtRef.current) {
+      return builtRef.current;
+    }
+    const parsed = parseArchitecture(activeBody);
+    builtRef.current = parsed;
+    return parsed;
+  }, [activeBody]);
   // Trademark-logo opt-in is editable on the canvas; keep it as local state
   // seeded from the file, and fold it back onto the schema so both render and
   // save see it. (null until the user toggles → use the file's value.)
@@ -195,6 +208,9 @@ function PlatformDiagram({ content, deployedResources, projectId, defaultEditMod
   const persistActive = useCallback((body: string) => {
     const bodies = tabBodiesRef.current.slice();
     bodies[activeIndexRef.current] = body;
+    // Mark this as our own body so the resulting tabBodies update doesn't
+    // re-parse + re-seed the canvas (which would drop the live selection).
+    selfAuthoredBody.current = body;
     setTabBodies(bodies);
     writeTabs(bodies);
   }, [writeTabs]);
