@@ -205,9 +205,17 @@ export interface AnnotationData {
   fontSize?: number;
   /** text/box: bold text. */
   bold?: boolean;
-  /** box: vertical × horizontal text placement (default "middle"/"center"). */
+  /** box: vertical × horizontal text placement (default "middle"/"center").
+   *  text: horizontal placement (default "left"). */
   vAlign?: "top" | "middle" | "bottom";
   hAlign?: "left" | "center" | "right";
+  /** text: the user gave this text node an explicit size (dragged a resize
+   *  handle). Until then a text node AUTO-FITS its content; once `sized`, it
+   *  keeps the fixed box and honors `textWrap`. */
+  sized?: boolean;
+  /** text (sized only): how text overflows the fixed box — `wrap` (flow onto
+   *  new lines, default) or `truncate` (single line, ellipsis). */
+  textWrap?: "wrap" | "truncate";
   /** logo: the chosen icon key — a DatabricksIconName OR a file-icon key
    *  ("file:vendor/snowflake", "file:cloud/aws/storage/s3"). */
   icon?: string;
@@ -326,6 +334,10 @@ export interface FileNode {
   bold?: boolean;
   vAlign?: "top" | "middle" | "bottom";
   hAlign?: "left" | "center" | "right";
+  /** text: user gave it an explicit size (stops auto-fit). */
+  sized?: boolean;
+  /** text (sized): overflow behavior — "wrap" (default) | "truncate". */
+  textWrap?: "wrap" | "truncate";
   src?: string;
   /** Optional visual overrides. */
   style?: {
@@ -899,6 +911,8 @@ export function parseArchitecture(content: string): PlatformSchema {
         ...(n.bold !== undefined ? { bold: n.bold } : {}),
         ...(n.vAlign !== undefined ? { vAlign: n.vAlign } : {}),
         ...(n.hAlign !== undefined ? { hAlign: n.hAlign } : {}),
+        ...(n.sized !== undefined ? { sized: n.sized } : {}),
+        ...(n.textWrap !== undefined ? { textWrap: n.textWrap } : {}),
         ...(n.icon !== undefined ? { icon: n.icon } : {}),
         ...(n.caption !== undefined ? { caption: n.caption } : {}),
         ...(n.desc !== undefined ? { desc: n.desc } : {}),
@@ -1169,6 +1183,8 @@ export function serializeArchitecture(
         ...(a.bold !== undefined ? { bold: a.bold } : {}),
         ...(a.vAlign !== undefined ? { vAlign: a.vAlign } : {}),
         ...(a.hAlign !== undefined ? { hAlign: a.hAlign } : {}),
+        ...(a.sized !== undefined ? { sized: a.sized } : {}),
+        ...(a.textWrap !== undefined ? { textWrap: a.textWrap } : {}),
         ...(a.icon !== undefined ? { icon: a.icon } : {}),
         ...(a.caption !== undefined ? { caption: a.caption } : {}),
         ...(a.desc !== undefined ? { desc: a.desc } : {}),

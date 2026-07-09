@@ -19,7 +19,7 @@ import {
 import { BrandMark } from "../brand-mark";
 import { AnyIcon } from "../annotations";
 import { type AnnotationVariant } from "@/lib/platform-architecture";
-import { FILE_ICONS, type FileIcon, logoMetaForKey, logoLabel, logoAliases } from "../../../file-icons";
+import { FILE_ICONS, type FileIcon, logoLabel, logoAliases, logoMetaForKey } from "../../../file-icons";
 
 export const LibraryPalette = memo(function LibraryPalette({
   schema,
@@ -34,6 +34,7 @@ export const LibraryPalette = memo(function LibraryPalette({
   onAddSource,
   onToggleTrademark,
   onMoreSources,
+  onMoreLogos,
 }: {
   schema: PlatformSchema;
   placedIds: Set<string>;
@@ -49,6 +50,8 @@ export const LibraryPalette = memo(function LibraryPalette({
   onToggleTrademark?: () => void;
   /** Open the "+ more data sources" picker. */
   onMoreSources?: () => void;
+  /** Open the full logo picker (from the "+N more logos" search affordance). */
+  onMoreLogos?: () => void;
   /** When set, the palette is in "select a replacement type" mode: clicking a
    *  component calls onPick instead of dragging/adding. */
   picking?: boolean;
@@ -89,51 +92,63 @@ export const LibraryPalette = memo(function LibraryPalette({
             "aws"/"s3" → the cloud mark. No arbitrary cap; the list scrolls. */}
         {!picking && ql && (() => {
           const matched = FILE_ICONS.filter((f) => matchText(`${f.name} ${f.category} ${f.group} ${logoAliases(f.name).join(" ")}`));
-          // Mutually exclusive: a data-source logo shows under Sources only;
-          // everything else under Logos — so a match (e.g. Kafka) appears once.
-          const sources = matched.filter((f) => logoMetaForKey(f.key).source);
-          const logos = matched.filter((f) => !logoMetaForKey(f.key).source);
-          if (logos.length === 0 && sources.length === 0) return null;
+          if (matched.length === 0) return null;
+          const TOP = 3;
+          // LOGOS: every matched mark can be added as a plain logo (including
+          // source vendors like Kafka) — top 3, then a "+N more logos" link.
+          const shownLogos = matched.slice(0, TOP);
+          const moreLogos = matched.length - shownLogos.length;
+          // SOURCES: matched marks flagged as data sources, EXCLUDING any already
+          // offered by the catalog Sources band below (keyed by their file-icon).
+          // That kills the old duplicate "Source / Kafka" while keeping vendors
+          // NOT in the catalog (salesforce, snowflake, …) addable as a source.
+          const catalogSourceIcons = new Set(
+            catalogBands().find((b) => b.id === "sources")?.components.map((c) => c.icon) ?? [],
+          );
+          const srcMatches = matched.filter(
+            (f) => logoMetaForKey(f.key).source && !catalogSourceIcons.has(f.key),
+          );
+          const shownSrc = srcMatches.slice(0, TOP);
+          const moreSrc = srcMatches.length - shownSrc.length;
+          const Row = ({ f, kind }: { f: FileIcon; kind: "logo" | "source" }) => (
+            <button
+              key={`${kind}-${f.key}`}
+              type="button"
+              draggable
+              onDragStart={(e) => { e.dataTransfer.setData(kind === "logo" ? "application/x-logo" : "application/x-source", f.key); e.dataTransfer.effectAllowed = "copy"; }}
+              onDoubleClick={() => (kind === "logo" ? onAddLogo(f.key) : onAddSource?.(f.key))}
+              title={`Add ${kind === "logo" ? "logo" : "data source"}: ${logoLabel(f.name)}`}
+              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12px] text-foreground hover:bg-muted"
+            >
+              <GripVertical className="h-3 w-3 shrink-0 text-muted-foreground/40" />
+              <AnyIcon iconKey={f.key} className="h-4 w-4 [&_svg]:h-4 [&_svg]:w-4" />
+              <span className="truncate">{logoLabel(f.name)}</span>
+            </button>
+          );
           return (
             <>
-              {logos.length > 0 && (
-                <div className="mb-3">
-                  <div className="px-1 py-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Logos</div>
-                  {logos.map((f) => (
-                    <button
-                      key={`logo-${f.key}`}
-                      type="button"
-                      draggable
-                      onDragStart={(e) => { e.dataTransfer.setData("application/x-logo", f.key); e.dataTransfer.effectAllowed = "copy"; }}
-                      onDoubleClick={() => onAddLogo(f.key)}
-                      title={`Add logo: ${logoLabel(f.name)}`}
-                      className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12px] text-foreground hover:bg-muted"
-                    >
-                      <GripVertical className="h-3 w-3 shrink-0 text-muted-foreground/40" />
-                      <AnyIcon iconKey={f.key} className="h-4 w-4 [&_svg]:h-4 [&_svg]:w-4" />
-                      <span className="truncate">{logoLabel(f.name)}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
-              {sources.length > 0 && onAddSource && (
+              <div className="mb-3">
+                <div className="px-1 py-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Logos</div>
+                {shownLogos.map((f) => <Row key={`logo-${f.key}`} f={f} kind="logo" />)}
+                {moreLogos > 0 && onMoreLogos && (
+                  <button type="button" onClick={() => onMoreLogos()}
+                    className="mt-0.5 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12px] font-medium text-primary hover:bg-muted">
+                    <span className="grid h-4 w-4 shrink-0 place-items-center text-primary">+</span>
+                    <span className="truncate">{moreLogos} more logo{moreLogos === 1 ? "" : "s"}…</span>
+                  </button>
+                )}
+              </div>
+              {shownSrc.length > 0 && onAddSource && (
                 <div className="mb-3">
                   <div className="px-1 py-1 text-[10px] font-bold uppercase tracking-wider" style={{ color: BAND_COLOR.sources }}>Sources</div>
-                  {sources.map((f) => (
-                    <button
-                      key={`src-${f.key}`}
-                      type="button"
-                      draggable
-                      onDragStart={(e) => { e.dataTransfer.setData("application/x-source", f.key); e.dataTransfer.effectAllowed = "copy"; }}
-                      onDoubleClick={() => onAddSource(f.key)}
-                      title={`Add data source: ${logoLabel(f.name)}`}
-                      className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12px] text-foreground hover:bg-muted"
-                    >
-                      <GripVertical className="h-3 w-3 shrink-0 text-muted-foreground/40" />
-                      <AnyIcon iconKey={f.key} className="h-4 w-4 [&_svg]:h-4 [&_svg]:w-4" />
-                      <span className="truncate">{logoLabel(f.name)}</span>
+                  {shownSrc.map((f) => <Row key={`source-${f.key}`} f={f} kind="source" />)}
+                  {moreSrc > 0 && onMoreSources && (
+                    <button type="button" onClick={() => onMoreSources()}
+                      className="mt-0.5 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12px] font-medium text-primary hover:bg-muted">
+                      <span className="grid h-4 w-4 shrink-0 place-items-center text-primary">+</span>
+                      <span className="truncate">{moreSrc} more source{moreSrc === 1 ? "" : "s"}…</span>
                     </button>
-                  ))}
+                  )}
                 </div>
               )}
             </>

@@ -51,7 +51,8 @@ export function AnnotationMenu({
 }) {
   const isTextual = a.variant === "text" || a.variant === "box";
   const fontSize = a.fontSize ?? 14;
-  const hAlign = a.hAlign ?? "center";
+  // Mirror the render default: plain text is left-aligned, a box is centered.
+  const hAlign = a.hAlign ?? (a.variant === "text" ? "left" : "center");
   return (
     <>
       {a.variant === "logo" && <Item icon={<Shapes className="h-3.5 w-3.5" />} label="Pick logo…" onClick={onPickLogo} />}
@@ -146,6 +147,20 @@ export function AnnotationMenu({
                 <button key={v} type="button" onClick={() => onAnno({ vAlign: v })}
                   className={`cursor-pointer rounded px-1.5 py-0.5 text-[10px] capitalize ${(a.vAlign ?? "middle") === v ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}>
                   {v[0]}
+                </button>
+              ))}
+            </div>
+          )}
+          {/* Overflow mode — only for a TEXT node the user has given a fixed
+              size (auto-fit text has no overflow). Wrap (default) flows onto
+              new lines; Truncate keeps one line with an ellipsis. */}
+          {a.variant === "text" && a.sized && (
+            <div className="flex items-center gap-1 px-2 py-1.5">
+              <span className="mr-auto text-[11px] text-muted-foreground">Overflow</span>
+              {(["wrap", "truncate"] as const).map((mode) => (
+                <button key={mode} type="button" onClick={(e) => { e.stopPropagation(); onAnno({ textWrap: mode }); }}
+                  className={`cursor-pointer rounded px-1.5 py-0.5 text-[10px] capitalize ${(a.textWrap ?? "wrap") === mode ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}>
+                  {mode}
                 </button>
               ))}
             </div>
