@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-from functools import lru_cache
 from typing import Annotated, TypeAlias
 from uuid import UUID
 
@@ -25,18 +24,31 @@ class DatabricksAppsHeaders(BaseModel):
     token: SecretStr | None
 
 
-@lru_cache(maxsize=1)
+# Cache the resolved dev email — but ONLY on success. A previous version used
+# @lru_cache, which also cached a `None` from a transient early failure (SDK not
+# ready during boot), poisoning dev identity for the whole process lifetime
+# (every request then fell back to "anonymous@local"). Retry on each call until
+# it succeeds once, then memoize.
+_DEV_USER_EMAIL: str | None = None
+
+
 def _get_dev_user_email() -> str | None:
     """Get current user email from Databricks SDK (for dev mode fallback).
 
-    Uses lru_cache to avoid repeated API calls.
+    Memoizes the first SUCCESSFUL result; retries on failure so a transient
+    boot-time SDK error doesn't permanently pin identity to anonymous.
     """
+    global _DEV_USER_EMAIL
+    if _DEV_USER_EMAIL is not None:
+        return _DEV_USER_EMAIL
     try:
         from databricks.sdk import WorkspaceClient
         ws = WorkspaceClient()
         me = ws.current_user.me()
         email = me.user_name  # user_name is typically the email
-        logger.info(f"Dev mode: using Databricks SDK user email: {email}")
+        if email:
+            logger.info(f"Dev mode: using Databricks SDK user email: {email}")
+            _DEV_USER_EMAIL = email
         return email
     except Exception as e:
         logger.warning(f"Failed to get user from Databricks SDK: {e}")
