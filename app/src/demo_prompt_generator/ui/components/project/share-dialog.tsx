@@ -14,7 +14,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Loader2, Share2, Trash2, Eye, Pencil, Check } from "lucide-react";
+import { Loader2, Share2, Trash2, Eye, Pencil, Check, AlertTriangle } from "lucide-react";
 import {
   shareProject,
   updateProjectShare,
@@ -63,7 +63,6 @@ export function ShareDialog({
   const [isSharing, setIsSharing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [shares, setShares] = useState<ProjectShareOut[]>([]);
-  const [isLoadingShares, setIsLoadingShares] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -71,11 +70,12 @@ export function ShareDialog({
     setMessage("");
     setRole("viewer");
     setError(null);
-    setIsLoadingShares(true);
+    // Reset to empty first so the "Shared with" section doesn't briefly show a
+    // previous project's shares while this load is in flight.
+    setShares([]);
     listProjectShares(projectId)
       .then(setShares)
-      .catch(() => setShares([]))
-      .finally(() => setIsLoadingShares(false));
+      .catch(() => setShares([]));
   }, [open, projectId]);
 
   const handleShare = async () => {
@@ -116,7 +116,7 @@ export function ShareDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Share2 className="h-5 w-5" />
@@ -156,7 +156,7 @@ export function ShareDialog({
                     key={opt.value}
                     type="button"
                     onClick={() => setRole(opt.value)}
-                    className={`text-left rounded-lg border px-3 py-2 transition-colors ${
+                    className={`text-left cursor-pointer rounded-lg border px-3 py-2 transition-colors ${
                       active ? "border-primary bg-primary/5" : "border-border hover:border-primary/40"
                     }`}
                   >
@@ -171,6 +171,15 @@ export function ShareDialog({
                 );
               })}
             </div>
+            {role === "editor" && (
+              <div className="mt-2 flex items-start gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] leading-snug text-amber-700 dark:text-amber-400">
+                <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-px" />
+                <span>
+                  Concurrent edits are not yet supported and will create unexpected
+                  behavior, with the AI switching identity during execution.
+                </span>
+              </div>
+            )}
           </div>
 
           <div>
@@ -205,17 +214,11 @@ export function ShareDialog({
           </Button>
         </div>
 
-        {(shares.length > 0 || isLoadingShares) && (
+        {shares.length > 0 && (
           <div className="border-t border-border pt-4 mt-2">
             <h4 className="text-sm font-medium text-foreground mb-2">Shared with</h4>
-            {isLoadingShares ? (
-              <div className="flex items-center gap-2 text-muted-foreground py-2">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                <span className="text-sm">Loading...</span>
-              </div>
-            ) : (
-              <ul className="space-y-2">
-                {shares.map((share) => (
+            <ul className="space-y-2">
+              {shares.map((share) => (
                   <li key={share.id} className="flex items-center justify-between gap-2 text-sm">
                     <div className="min-w-0 flex-1">
                       <span className="text-foreground truncate block">
@@ -240,15 +243,14 @@ export function ShareDialog({
                     </select>
                     <button
                       onClick={() => handleUnshare(share.id)}
-                      className="text-muted-foreground hover:text-destructive transition-colors p-1"
+                      className="cursor-pointer text-muted-foreground hover:text-destructive transition-colors p-1"
                       title="Remove access"
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                     </button>
                   </li>
                 ))}
-              </ul>
-            )}
+            </ul>
           </div>
         )}
       </DialogContent>

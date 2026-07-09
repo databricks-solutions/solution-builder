@@ -27,6 +27,7 @@ from ..models import (
     Project,
     ProjectCreateRequest,
     ProjectFile,
+    HomeProjects,
     ProjectListItem,
     ProjectOut,
     ProjectProvisionRequest,
@@ -396,6 +397,131 @@ def _require_owner(
     return project
 
 
+def _build_project_list_items(
+    session,
+    projects: list[Project],
+    user_email: str,
+    *,
+    shares_by_id: dict[str, ProjectShare] | None = None,
+    persist_stage: bool = False,
+) -> list[ProjectListItem]:
+    """Turn a set of Project rows into ProjectListItems with BATCHED counts —
+    one query per table (files, messages, stars, templates, resources) instead
+    of ~5 per project. Shared by listProjects / listSharedProjects / home.
+
+    `shares_by_id` (project_id → accepted ProjectShare) populates the
+    shared_by/role fields for "shared with me" tiles. Preserves the input
+    `projects` ordering. `persist_stage` writes back a changed stage (owner list
+    only; skipped for shared views where the caller doesn't own the row)."""
+    from .project_files import _is_hidden_from_listing
+
+    project_ids = [p.id for p in projects]
+    if not project_ids:
+        return []
+
+    starred_ids = set(
+        session.exec(
+            select(ProjectStar.project_id).where(
+                ProjectStar.user_email == user_email,
+                ProjectStar.project_id.in_(project_ids),  # type: ignore[attr-defined]
+            )
+        ).all()
+    )
+
+    files_by_project: dict[str, list[str]] = {pid: [] for pid in project_ids}
+    for pid, path in session.exec(
+        select(ProjectFile.project_id, ProjectFile.relative_path)
+        .where(ProjectFile.project_id.in_(project_ids))  # type: ignore[attr-defined]
+    ).all():
+        files_by_project[pid].append(path)
+
+    msg_count_by_project: dict[str, int] = {pid: 0 for pid in project_ids}
+    for pid, cnt in session.exec(
+        select(Message.project_id, func.count(Message.id))
+        .where(Message.project_id.in_(project_ids))  # type: ignore[attr-defined]
+        .group_by(Message.project_id)
+    ).all():
+        msg_count_by_project[pid] = int(cnt)
+
+    template_ids = {p.source_template_id for p in projects if p.source_template_id}
+    template_name_map: dict[str, str] = {}
+    if template_ids:
+        template_name_map = {
+            t.id: t.name
+            for t in session.exec(
+                select(Template).where(Template.id.in_(template_ids))  # type: ignore[attr-defined]
+            ).all()
+        }
+
+    resources_text_by_project = _batch_load_resources_text(session, project_ids)
+
+    result = []
+    for p in projects:
+        file_paths = files_by_project.get(p.id, [])
+        visible_file_count = sum(1 for f in file_paths if not _is_hidden_from_listing(f))
+        stage = compute_project_stage(file_paths, resources_text_by_project.get(p.id))
+        if persist_stage and stage != p.stage:
+            p.stage = stage
+            session.add(p)
+        share = shares_by_id.get(p.id) if shares_by_id else None
+        result.append(
+            ProjectListItem(
+                id=p.id,
+                name=p.name,
+                description=p.description,
+                customer=p.customer,
+                project_type=p.project_type,
+                stage=stage,
+                created_at=p.created_at,
+                updated_at=p.updated_at,
+                message_count=msg_count_by_project.get(p.id, 0),
+                file_count=visible_file_count,
+                is_starred=p.id in starred_ids,
+                shared_by=share.owner_email if share else None,
+                shared_message=share.message if share else None,
+                shared_role=share.role if share else None,
+                owner_email=p.user_email,
+                source_template_id=p.source_template_id,
+                source_template_name=template_name_map.get(p.source_template_id) if p.source_template_id else None,
+            )
+        )
+    return result
+
+
+def _owned_projects(session, user_email: str, admin_view: bool) -> list[ProjectListItem]:
+    """Owned (or, for admins, all) projects newest-first."""
+    stmt = select(Project).order_by(Project.created_at.desc())
+    if not admin_view:
+        stmt = stmt.where(Project.user_email == user_email)
+    projects = session.exec(stmt).all()
+    items = _build_project_list_items(session, projects, user_email, persist_stage=True)
+    session.commit()
+    return items
+
+
+def _shared_projects(session, user_email: str) -> list[ProjectListItem]:
+    """Projects shared with the user that they've ACCEPTED, newest-first."""
+    shares = session.exec(
+        select(ProjectShare)
+        .where(
+            ProjectShare.shared_with_email == user_email,
+            ProjectShare.status == ShareStatus.ACCEPTED.value,
+        )
+        .order_by(ProjectShare.created_at.desc())
+    ).all()
+    if not shares:
+        return []
+    share_by_project = {s.project_id: s for s in shares}
+    project_ids = list(share_by_project.keys())
+    projects = session.exec(
+        select(Project).where(Project.id.in_(project_ids))  # type: ignore[attr-defined]
+    ).all()
+    # Preserve share (newest-first) ordering, not the arbitrary IN() order.
+    by_id = {p.id: p for p in projects}
+    ordered = [by_id[pid] for pid in project_ids if pid in by_id]
+    return _build_project_list_items(session, ordered, user_email, shares_by_id=share_by_project)
+
+
 @router.get(
     "/projects",
     response_model=list[ProjectListItem],
@@ -414,91 +540,27 @@ def list_projects(
     """
     user_email = _get_user_email(headers)
     admin_view = include_all and is_admin(user_email, config.template_admin_emails)
+    return _owned_projects(session, user_email, admin_view)
 
-    # Get user's starred project IDs
-    starred_ids = set(
-        session.exec(
-            select(ProjectStar.project_id).where(ProjectStar.user_email == user_email)
-        ).all()
+
+@router.get(
+    "/projects/home",
+    response_model=HomeProjects,
+    operation_id="getHomeProjects",
+)
+def get_home_projects(session: Dependencies.Session, headers: Dependencies.Headers):
+    """Everything the home page needs in ONE round-trip: owned projects, shared
+    projects, and pending invitations — so they render together instead of
+    popping in at different times. Each sub-list is batched internally.
+
+    (Registered before `/projects/{project_id}` so "home" isn't parsed as an id.)
+    """
+    user_email = _get_user_email(headers)
+    return HomeProjects(
+        owned=_owned_projects(session, user_email, admin_view=False),
+        shared=_shared_projects(session, user_email),
+        invitations=_pending_invitations(session, user_email),
     )
-
-    # Get projects with counts. Admin "view all" skips the user_email filter.
-    stmt = select(Project).order_by(Project.created_at.desc())
-    if not admin_view:
-        stmt = stmt.where(Project.user_email == user_email)
-    projects = session.exec(stmt).all()
-
-    # Batch-resolve template names for projects created from templates
-    template_ids = {p.source_template_id for p in projects if p.source_template_id}
-    template_name_map: dict[str, str] = {}
-    if template_ids:
-        templates = session.exec(
-            select(Template).where(Template.id.in_(template_ids))  # type: ignore[attr-defined]
-        ).all()
-        template_name_map = {t.id: t.name for t in templates}
-
-    # Batch-load file paths in one query — stage derivation needs the
-    # full list (looks for `databricks.yml`, `.py`/`.sql` files, etc., all
-    # of which are user-visible).
-    project_ids = [p.id for p in projects]
-    files_by_project: dict[str, list[str]] = {pid: [] for pid in project_ids}
-    if project_ids:
-        rows = session.exec(
-            select(ProjectFile.project_id, ProjectFile.relative_path)
-            .where(ProjectFile.project_id.in_(project_ids))  # type: ignore[attr-defined]
-        ).all()
-        for pid, path in rows:
-            files_by_project[pid].append(path)
-
-    # Batch message counts: one GROUP BY query instead of N round-trips.
-    msg_count_by_project: dict[str, int] = {pid: 0 for pid in project_ids}
-    if project_ids:
-        msg_rows = session.exec(
-            select(Message.project_id, func.count(Message.id))
-            .where(Message.project_id.in_(project_ids))  # type: ignore[attr-defined]
-            .group_by(Message.project_id)
-        ).all()
-        for pid, cnt in msg_rows:
-            msg_count_by_project[pid] = int(cnt)
-
-    # The tile's file count should match what the user sees in the
-    # file viewer — exclude .databrickscfg, .claude/skills/, etc.
-    from .project_files import _is_hidden_from_listing
-
-    resources_text_by_project = _batch_load_resources_text(session, list(project_ids))
-
-    result = []
-    for p in projects:
-        file_paths = files_by_project.get(p.id, [])
-        visible_file_count = sum(1 for f in file_paths if not _is_hidden_from_listing(f))
-        stage = compute_project_stage(file_paths, resources_text_by_project.get(p.id))
-
-        # Persist stage if it changed
-        if stage != p.stage:
-            p.stage = stage
-            session.add(p)
-
-        result.append(
-            ProjectListItem(
-                id=p.id,
-                name=p.name,
-                description=p.description,
-                customer=p.customer,
-                project_type=p.project_type,
-                stage=stage,
-                created_at=p.created_at,
-                updated_at=p.updated_at,
-                message_count=msg_count_by_project.get(p.id, 0),
-                file_count=visible_file_count,
-                is_starred=p.id in starred_ids,
-                owner_email=p.user_email,
-                source_template_id=p.source_template_id,
-                source_template_name=template_name_map.get(p.source_template_id) if p.source_template_id else None,
-            )
-        )
-
-    session.commit()
-    return result
 
 
 @router.post(
@@ -1561,6 +1623,33 @@ def unshare_project(
     return SuccessResponse(success=True)
 
 
+def _pending_invitations(session, user_email: str) -> list[ProjectShareOut]:
+    """Pending shares addressed to the user, with project names batched in."""
+    shares = session.exec(
+        select(ProjectShare)
+        .where(
+            ProjectShare.shared_with_email == user_email,
+            ProjectShare.status == ShareStatus.PENDING.value,
+        )
+        .order_by(ProjectShare.created_at.desc())
+    ).all()
+    if not shares:
+        return []
+    name_by_id = {
+        pid: name
+        for pid, name in session.exec(
+            select(Project.id, Project.name).where(
+                Project.id.in_([s.project_id for s in shares])  # type: ignore[attr-defined]
+            )
+        ).all()
+    }
+    return [
+        _share_out(s, project_name=name_by_id[s.project_id])
+        for s in shares
+        if s.project_id in name_by_id  # skip invites whose project was deleted
+    ]
+
+
 @router.get(
     "/share-invitations",
     response_model=list[ProjectShareOut],
@@ -1572,23 +1661,7 @@ def list_share_invitations(session: Dependencies.Session, headers: Dependencies.
     Powers the notifications badge — these are shares the user has NOT yet
     accepted, so they don't appear under "shared with me" yet.
     """
-    user_email = _get_user_email(headers)
-    shares = session.exec(
-        select(ProjectShare)
-        .where(
-            ProjectShare.shared_with_email == user_email,
-            ProjectShare.status == ShareStatus.PENDING.value,
-        )
-        .order_by(ProjectShare.created_at.desc())
-    ).all()
-
-    out = []
-    for s in shares:
-        project = session.get(Project, s.project_id)
-        if not project:
-            continue  # project deleted while invite pending — skip
-        out.append(_share_out(s, project_name=project.name))
-    return out
+    return _pending_invitations(session, _get_user_email(headers))
 
 
 @router.post(
@@ -1753,62 +1826,4 @@ def list_shared_projects(session: Dependencies.Session, headers: Dependencies.He
 
     Pending invitations live in /share-invitations; declined shares are hidden.
     """
-    user_email = _get_user_email(headers)
-
-    # Get user's starred project IDs
-    starred_ids = set(
-        session.exec(
-            select(ProjectStar.project_id).where(ProjectStar.user_email == user_email)
-        ).all()
-    )
-
-    shares = session.exec(
-        select(ProjectShare)
-        .where(
-            ProjectShare.shared_with_email == user_email,
-            ProjectShare.status == ShareStatus.ACCEPTED.value,
-        )
-        .order_by(ProjectShare.created_at.desc())
-    ).all()
-
-    result = []
-    for share in shares:
-        project = session.get(Project, share.project_id)
-        if not project:
-            continue
-
-        msg_count = session.exec(
-            select(func.count()).select_from(Message).where(Message.project_id == project.id)
-        ).one()
-
-        file_paths = [
-            row for row in session.exec(
-                select(ProjectFile.relative_path)
-                .where(ProjectFile.project_id == project.id)
-            ).all()
-        ]
-        stage = compute_project_stage(file_paths, _load_resources_text(session, project.id))
-
-        result.append(
-            ProjectListItem(
-                id=project.id,
-                name=project.name,
-                description=project.description,
-                customer=project.customer,
-                project_type=project.project_type,
-                stage=stage,
-                created_at=project.created_at,
-                updated_at=project.updated_at,
-                message_count=msg_count,
-                file_count=len(file_paths),
-                is_starred=project.id in starred_ids,
-                shared_by=share.owner_email,
-                shared_message=share.message,
-                shared_role=share.role,
-                owner_email=project.user_email,
-                source_template_id=project.source_template_id,
-                source_template_name=_resolve_template_name(session, project.source_template_id),
-            )
-        )
-
-    return result
+    return _shared_projects(session, _get_user_email(headers))

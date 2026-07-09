@@ -6,6 +6,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import Navbar from "@/components/layout/navbar";
 import { BubbleBackground } from "@/components/backgrounds/bubble";
 import { ProjectTile } from "@/components/project/project-tile";
+import { ProjectInvitations } from "@/components/project/project-invitations";
+import { SharedWithMe } from "@/components/project/shared-with-me";
 import { TemplateTile } from "@/components/template/template-tile";
 import { TemplateDetailPopup } from "@/components/template/template-detail-popup";
 import { CapabilitiesPanel, SIMPLE_BASELINE } from "@/components/capabilities-panel";
@@ -36,7 +38,7 @@ import {
   Check,
 } from "lucide-react";
 import {
-  listProjects,
+  getHomeProjects,
   createProject,
   toggleProjectStar,
   extractFiles,
@@ -45,6 +47,7 @@ import {
   getCapabilities,
   streamSuggestCapabilities,
   type ProjectListItem,
+  type ProjectShareOut,
   type TemplateSearchResult,
   type Capability,
   type CapabilityInput,
@@ -76,6 +79,8 @@ const DEFAULT_SELECTED_PRODUCTS = [
 function Index() {
   const [topic, setTopic] = useState("");
   const [projects, setProjects] = useState<ProjectListItem[]>([]);
+  const [sharedProjects, setSharedProjects] = useState<ProjectListItem[]>([]);
+  const [invitations, setInvitations] = useState<ProjectShareOut[]>([]);
   const [isLoadingProjects, setIsLoadingProjects] = useState(true);
   const [projectsError, setProjectsError] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
@@ -273,8 +278,14 @@ function Index() {
 
   // Load projects and capabilities on mount
   useEffect(() => {
-    listProjects()
-      .then(setProjects)
+    // One call feeds Recent Projects + Shared with Me + Invitations so they
+    // resolve together (no staggered pop-in).
+    getHomeProjects()
+      .then((home) => {
+        setProjects(home.owned);
+        setSharedProjects(home.shared);
+        setInvitations(home.invitations);
+      })
       .catch((err) => setProjectsError(err.message || "Failed to load projects"))
       .finally(() => setIsLoadingProjects(false));
 
@@ -1598,6 +1609,22 @@ function Index() {
           </div>
         )}
 
+        {/* Pending share invitations — above Recent Projects. Renders nothing
+            when there are none. Data comes from the single getHomeProjects call. */}
+        <ProjectInvitations
+          className="relative z-10 mx-auto mt-12 w-full max-w-5xl"
+          invitations={invitations}
+          onResponded={(projectId, accepted) => {
+            setInvitations((prev) => prev.filter((i) => i.project_id !== projectId));
+            if (accepted) {
+              // Pull the newly-accepted project into "Shared with Me".
+              getHomeProjects()
+                .then((home) => setSharedProjects(home.shared))
+                .catch(() => {});
+            }
+          }}
+        />
+
         {/* Recent projects (starred first) */}
         {projects.length > 0 && (
           <div className="relative z-10 mx-auto mt-12 w-full max-w-5xl">
@@ -1611,13 +1638,16 @@ function Index() {
                 </p>
               </div>
               {projects.length > 3 && (
-                <Link
-                  to={"/projects"}
-                  className="text-xs text-muted-foreground hover:text-primary transition-colors flex items-center gap-1"
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-2"
+                  onClick={() => navigate({ to: "/projects" })}
                 >
+                  <FolderOpen className="h-4 w-4" />
                   View all ({projects.length})
-                  <ArrowRight className="h-3 w-3" />
-                </Link>
+                  <ArrowRight className="h-4 w-4" />
+                </Button>
               )}
             </div>
 
@@ -1631,20 +1661,14 @@ function Index() {
                 />
               ))}
             </div>
-
-            <div className="mt-6 flex justify-center">
-              <Button
-                variant="outline"
-                className="gap-2"
-                onClick={() => navigate({ to: "/projects" })}
-              >
-                <FolderOpen className="h-4 w-4" />
-                View All Projects
-                <ArrowRight className="h-4 w-4" />
-              </Button>
-            </div>
           </div>
         )}
+
+        {/* Shared with Me — below Recent Projects. Renders nothing when empty. */}
+        <SharedWithMe
+          className="relative z-10 mx-auto mt-12 w-full max-w-5xl"
+          projects={sharedProjects}
+        />
 
         {/* Loading / Empty / Error state */}
         {projects.length === 0 && (

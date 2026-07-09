@@ -509,6 +509,20 @@ export async function listSharedProjects(): Promise<ProjectListItem[]> {
   return resp.json();
 }
 
+/** Everything the home page needs in one call — owned + shared + invitations —
+ *  so all three sections render together instead of popping in separately. */
+export interface HomeProjects {
+  owned: ProjectListItem[];
+  shared: ProjectListItem[];
+  invitations: ProjectShareOut[];
+}
+
+export async function getHomeProjects(): Promise<HomeProjects> {
+  const resp = await fetch(apiUrl("/api/projects/home"));
+  if (!resp.ok) throw new Error(`Failed to load home projects: ${resp.status}`);
+  return resp.json();
+}
+
 /** Pending share invitations addressed to the current user (notifications). */
 export async function listShareInvitations(): Promise<ProjectShareOut[]> {
   const resp = await fetch(apiUrl("/api/share-invitations"));

@@ -731,6 +731,14 @@ class ProjectShareOut(BaseModel):
     project_name: Optional[str] = None
 
 
+class HomeProjects(BaseModel):
+    """Everything the home page needs in ONE call, so owned projects, shared
+    projects, and pending invitations resolve together (no staggered pop-in)."""
+    owned: list[ProjectListItem] = []
+    shared: list[ProjectListItem] = []
+    invitations: list[ProjectShareOut] = []
+
+
 class ShareRoleUpdateRequest(BaseModel):
     """Owner changes an existing share's role (viewer/editor)."""
     role: str = Field(..., description="New access level: 'viewer' or 'editor'")
