@@ -209,13 +209,16 @@ export interface AnnotationData {
    *  text: horizontal placement (default "left"). */
   vAlign?: "top" | "middle" | "bottom";
   hAlign?: "left" | "center" | "right";
-  /** text: the user gave this text node an explicit size (dragged a resize
-   *  handle). Until then a text node AUTO-FITS its content; once `sized`, it
-   *  keeps the fixed box and honors `textWrap`. */
+  /** text: overflow mode — the single source of truth for how the box behaves.
+   *   • `auto` (default, or unset) → the box AUTO-FITS its content: it grows as
+   *     you type. No fixed size.
+   *   • `wrap` → FIXED box; text flows onto new lines within it.
+   *   • `truncate` → FIXED box; single line, ellipsis.
+   *  Dragging a resize handle switches an `auto` node to `wrap` (a fixed box). */
+  textWrap?: "auto" | "wrap" | "truncate";
+  /** @deprecated legacy "user resized it" flag — superseded by textWrap
+   *  (wrap/truncate ⇒ fixed). Still read for back-compat with old files. */
   sized?: boolean;
-  /** text (sized only): how text overflows the fixed box — `wrap` (flow onto
-   *  new lines, default) or `truncate` (single line, ellipsis). */
-  textWrap?: "wrap" | "truncate";
   /** logo: the chosen icon key — a DatabricksIconName OR a file-icon key
    *  ("file:vendor/snowflake", "file:cloud/aws/storage/s3"). */
   icon?: string;
@@ -334,10 +337,10 @@ export interface FileNode {
   bold?: boolean;
   vAlign?: "top" | "middle" | "bottom";
   hAlign?: "left" | "center" | "right";
-  /** text: user gave it an explicit size (stops auto-fit). */
+  /** text: overflow mode — "auto" (default, grows) | "wrap" | "truncate". */
+  textWrap?: "auto" | "wrap" | "truncate";
+  /** @deprecated legacy "sized" flag, superseded by textWrap. */
   sized?: boolean;
-  /** text (sized): overflow behavior — "wrap" (default) | "truncate". */
-  textWrap?: "wrap" | "truncate";
   src?: string;
   /** Optional visual overrides. */
   style?: {
