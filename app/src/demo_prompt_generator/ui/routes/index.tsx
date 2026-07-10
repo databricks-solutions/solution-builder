@@ -1658,6 +1658,7 @@ function Index() {
                   project={project}
                   onClick={() => handleOpenProject(project.id)}
                   onToggleStar={(e) => handleToggleStar(e, project)}
+                  showCustomer={false}
                 />
               ))}
             </div>

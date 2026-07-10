@@ -16,6 +16,9 @@ interface ProjectTileProps {
   onClone?: (e: React.MouseEvent) => void;
   cloning?: boolean;
   showOwner?: boolean;
+  /** Show the "Customer: …" line. Default true (Projects list). The home page
+   *  passes false to keep its tiles lighter. */
+  showCustomer?: boolean;
   selectable?: boolean;
   selected?: boolean;
 }
@@ -62,6 +65,7 @@ export const ProjectTile = memo(function ProjectTile({
   onClone,
   cloning = false,
   showOwner = false,
+  showCustomer = true,
   selectable = false,
   selected = false,
 }: ProjectTileProps) {
@@ -176,17 +180,20 @@ export const ProjectTile = memo(function ProjectTile({
           {project.description || "No description"}
         </p>
 
-        {/* Customer — always shown so reviewers can see who each project is for
-            at a glance ("Not specified" until inferred from chat or set). */}
-        <div className="flex items-center gap-1.5 mt-2">
-          <Building2 className="h-3 w-3 text-muted-foreground/50 shrink-0" />
-          <span className="text-xs truncate">
-            <span className="text-muted-foreground/70">Customer: </span>
-            <span className={project.customer ? "text-foreground/80 font-medium" : "text-muted-foreground/60 italic"}>
-              {project.customer || "Not specified"}
+        {/* Customer — shown on the Projects list so reviewers can see who each
+            project is for at a glance. Hidden on the home page (showCustomer
+            false) to keep those tiles lighter. */}
+        {showCustomer && (
+          <div className="flex items-center gap-1.5 mt-2">
+            <Building2 className="h-3 w-3 text-muted-foreground/50 shrink-0" />
+            <span className="text-xs truncate">
+              <span className="text-muted-foreground/70">Customer: </span>
+              <span className={project.customer ? "text-foreground/80 font-medium" : "text-muted-foreground/60 italic"}>
+                {project.customer || "Not specified"}
+              </span>
             </span>
-          </span>
-        </div>
+          </div>
+        )}
 
         {/* Owner (shared OR admin-browsing-other-people's-projects) */}
         {showOwner && (project.shared_by || project.owner_email) && (

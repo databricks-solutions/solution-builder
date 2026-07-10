@@ -84,6 +84,7 @@ export function SharedWithMe({ className, limit = 3, projects: projectsProp }: S
             onClone={() => handleClone(project.id)}
             cloning={cloningId === project.id}
             showOwner
+            showCustomer={false}
           />
         ))}
       </div>
