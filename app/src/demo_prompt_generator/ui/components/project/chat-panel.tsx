@@ -34,6 +34,7 @@ import {
   Minimize2,
   Maximize2,
   Copy,
+  Users,
 } from "lucide-react";
 import { getMessageReasoning, type Message, type ReasoningEntry } from "../../lib/custom-api";
 
@@ -408,6 +409,18 @@ interface ChatPanelProps {
   /** Clone this project into one the viewer owns (wired to the read-only CTA). */
   onMakeCopy?: () => void;
   isCloning?: boolean;
+  /** Conversation driver (EDITABLE shares). `isDriver` = the caller holds the
+   *  session. `showTakeover` = someone else drives → show the banner. A
+   *  non-driver may still SEND while the driver's token is fresh (`canSend`
+   *  true, `driverTokenExpired` false) — composer stays, with a slim "on behalf
+   *  of X" note. Once `driverTokenExpired`, the composer is replaced by a hard
+   *  "token expired — take over" banner and sending is blocked. */
+  showTakeover?: boolean;
+  canSend?: boolean;
+  driverTokenExpired?: boolean;
+  activeDriver?: string | null;
+  onTakeOver?: () => void;
+  isTakingOver?: boolean;
 }
 
 interface MessageBubbleProps {
@@ -538,8 +551,21 @@ const MessageBubble = memo(function MessageBubble({
   isStreaming = false,
 }: MessageBubbleProps) {
   const isUser = message.role === "user";
+  const isSystem = message.role === "system";
   const isError = "is_error" in message && message.is_error;
   const isCancelled = "is_cancelled" in message && message.is_cancelled;
+
+  // System notices (e.g. "X took over this conversation") render as a centered
+  // FYI pill — a posted event in the thread, distinct from AI output.
+  if (isSystem) {
+    return (
+      <div className="flex justify-center py-1">
+        <div className="max-w-[90%] rounded-full border border-border bg-muted/40 px-3 py-1 text-center text-[11px] text-muted-foreground">
+          <CollapsibleBody content={message.content} mode="markdown" tone="user" />
+        </div>
+      </div>
+    );
+  }
 
   const contextHint =
     "context_hint" in message ? (message.context_hint ?? null) : null;
@@ -1436,6 +1462,12 @@ export const ChatPanel = memo(function ChatPanel({
   readOnly = false,
   onMakeCopy,
   isCloning = false,
+  showTakeover = false,
+  canSend = true,
+  driverTokenExpired = false,
+  activeDriver,
+  onTakeOver,
+  isTakingOver = false,
 }: ChatPanelProps) {
   const [input, setInput] = useState("");
   const [userHasScrolledChat, setUserHasScrolledChat] = useState(false);
@@ -1491,10 +1523,19 @@ export const ChatPanel = memo(function ChatPanel({
   const handleSend = useCallback(async () => {
     const trimmed = input.trim();
     if (!trimmed || isStreaming) return;
+    // Can't send when blocked (non-driver + expired token, or still loading) —
+    // the parent also guards, but this stops a stray Enter/click.
+    if (!canSend) return;
 
     setInput("");
-    await onSendMessage(trimmed);
-  }, [input, isStreaming, onSendMessage]);
+    try {
+      await onSendMessage(trimmed);
+    } catch {
+      // Send failed (e.g. 409 token expired) — restore the text so the user can
+      // take over and re-send instead of losing what they typed.
+      setInput((cur) => (cur ? cur : trimmed));
+    }
+  }, [input, isStreaming, canSend, onSendMessage]);
 
   // Handle keyboard
   const handleKeyDown = useCallback(
@@ -1686,8 +1727,60 @@ export const ChatPanel = memo(function ChatPanel({
             </Button>
           </div>
         </div>
+      ) : showTakeover && driverTokenExpired ? (
+        // Driver's token is stale — nobody but the driver can refresh it, so a
+        // non-driver is hard-blocked until they take over (which mints a fresh
+        // token under their own identity).
+        <div className="shrink-0 p-3 pt-2">
+          <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-center">
+            <p className="text-xs text-amber-700 dark:text-amber-400">
+              <span className="font-medium">{activeDriver ?? "The driver"}</span>'s
+              session token has expired. Ask them to reopen the project to refresh
+              it, or take over to run under your own identity.
+            </p>
+            <Button
+              size="sm"
+              className="mt-2 w-full"
+              onClick={onTakeOver}
+              disabled={isTakingOver || isStreaming || !onTakeOver}
+              title={isStreaming ? "Wait for the current run to finish" : undefined}
+            >
+              {isTakingOver ? (
+                <>
+                  <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Taking over…
+                </>
+              ) : isStreaming ? (
+                "Agent running — can't take over yet"
+              ) : (
+                <>
+                  <Users className="h-3.5 w-3.5 mr-1.5" /> Take over to run as me
+                </>
+              )}
+            </Button>
+          </div>
+        </div>
       ) : (
       <div className="shrink-0 p-3 pt-2">
+        {/* Non-driver on a still-fresh token: they CAN send (riding the driver's
+            token), but show a slim note + optional take-over. */}
+        {showTakeover && (
+          <div className="mb-2 flex items-center justify-between gap-2 rounded-lg border border-border/60 bg-muted/30 px-2.5 py-1.5 text-[11px] text-muted-foreground">
+            <span className="min-w-0 truncate">
+              <Users className="mr-1 inline h-3 w-3" />
+              Running on behalf of{" "}
+              <span className="font-medium text-foreground">{activeDriver ?? "another user"}</span>
+            </span>
+            <button
+              type="button"
+              onClick={onTakeOver}
+              disabled={isTakingOver || isStreaming || !onTakeOver}
+              className="shrink-0 rounded-md border border-border bg-background px-2 py-0.5 text-[11px] font-medium hover:border-primary/40 disabled:opacity-50"
+              title={isStreaming ? "Wait for the current run to finish" : "Take over to run as yourself"}
+            >
+              {isTakingOver ? "Taking over…" : "Take over"}
+            </button>
+          </div>
+        )}
         <div className="rounded-xl border border-border/60 bg-muted/20 shadow-sm focus-within:border-border focus-within:shadow-md transition-all">
           <Textarea
             ref={textareaRef}

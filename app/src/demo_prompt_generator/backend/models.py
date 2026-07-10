@@ -286,6 +286,18 @@ class Project(SQLModel, table=True):
     # Claude Code session fields (1:1 conversation per project)
     session_id: Optional[str] = SQLField(default=None, max_length=100)
     active_execution_id: Optional[str] = SQLField(default=None, max_length=50)
+    # The current "driver" of the conversation — the user whose PAT the agent's
+    # Databricks CLI runs as. STICKY: starts null (owner claims on first send) and
+    # stays whoever last drove, even when idle. Only the driver's requests refresh
+    # <project>/.databrickscfg + run the agent; another editor must explicitly take
+    # over (POST /projects/{id}/take-over) to become driver. See AUTH.md.
+    active_driver_email: Optional[str] = SQLField(default=None, max_length=255)
+    # When the driver's PAT was last written to <project>/.databrickscfg. The
+    # forwarded token lives ~60min; a non-driver may still RUN the agent on the
+    # driver's token while it's fresh (<50min old), but is blocked once it's
+    # stale (only the driver's own browser can mint a new one). NULL = never
+    # written (unclaimed / local mode).
+    active_driver_token_refreshed_at: Optional[datetime] = SQLField(default=None)
     cluster_id: Optional[str] = SQLField(default=None, max_length=100)
     cluster_name: Optional[str] = SQLField(default=None, max_length=255)
     warehouse_id: Optional[str] = SQLField(default=None, max_length=100)
@@ -678,6 +690,16 @@ class ProjectOut(BaseModel):
     # "viewer". Drives the read-only UI. Only populated by get_project; other
     # (write) endpoints leave it None since their caller is never a viewer.
     my_role: Optional[str] = None
+    # Conversation driver — the user whose PAT the agent's CLI runs as. Null =
+    # unclaimed. `is_driver` is the caller-relative flag the chat UI uses to
+    # decide whether to allow sending or show the "take over" banner.
+    active_driver_email: Optional[str] = None
+    is_driver: Optional[bool] = None
+    # Age of the driver's token (seconds since last refresh) + whether it's stale.
+    # A non-driver may still run the agent while `driver_token_expired` is false;
+    # once true, they're blocked until someone takes over. Null when unclaimed.
+    driver_token_age_seconds: Optional[int] = None
+    driver_token_expired: Optional[bool] = None
 
 
 class ProjectListItem(BaseModel):
@@ -729,6 +751,16 @@ class ProjectShareOut(BaseModel):
     # Project context — populated on the recipient's "invitations" view so the
     # invite can be shown without a second fetch. Null on owner-side share lists.
     project_name: Optional[str] = None
+
+
+class DriverStatus(BaseModel):
+    """Lightweight poll response for a non-driver's chat: who holds the
+    conversation, how old their token is, and whether the caller may still run
+    (fresh) or must take over (expired)."""
+    active_driver_email: Optional[str] = None
+    is_driver: bool = False
+    driver_token_age_seconds: Optional[int] = None
+    driver_token_expired: bool = False
 
 
 class HomeProjects(BaseModel):

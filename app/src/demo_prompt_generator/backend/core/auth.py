@@ -337,11 +337,12 @@ def make_project_auth_refresher(
         pat = request_user_pat(headers)
         if pat is None:
             return
-        # IDENTITY GUARD: only a caller with WRITE access (owner/admin/editor)
-        # may write the project's token file. A viewer (read-only share) writing
-        # here would stamp their PAT into the owner's dir and swap the agent's
-        # CLI identity. Lazy import to avoid a core→routes import cycle.
-        from ..routes.projects import ACCESS_VIEWER, _get_project_access
+        # IDENTITY GUARD: only the DRIVER (a write-access caller who currently
+        # holds the conversation) may write the project's token file. A viewer
+        # would stamp their PAT into the owner's dir; a non-driver editor would
+        # thrash the token the current driver's agent run depends on — both swap
+        # the agent's CLI identity. Lazy import to avoid a core→routes cycle.
+        from ..routes.projects import ACCESS_VIEWER, _get_project_access, is_driver
         # Deployed mode always carries the caller's email in the header.
         caller_email = headers.user_email or ""
         try:
@@ -352,6 +353,8 @@ def make_project_auth_refresher(
             return  # no access / project gone — never write
         if access == ACCESS_VIEWER:
             return  # read-only: never overwrite the owner's token
+        if not is_driver(session, project_id, caller_email):
+            return  # not the driver: don't thrash the current driver's token
         host = resolve_host(headers)
         if not host:
             logger.warning(
@@ -371,6 +374,10 @@ def make_project_auth_refresher(
             _auth_refresh_last[key] = now
         try:
             write_project_auth_file(get_project_dir(project_id), host, pat)
+            # Stamp the driver token-freshness clock so non-drivers know the
+            # token is current (the driver just refreshed it via preview).
+            from ..routes.projects import claim_driver
+            claim_driver(session, project_id, caller_email)
         except Exception:
             # Non-fatal: if the refresh fails, the subprocess will use the
             # previous file. Next request will try again.

@@ -8,7 +8,7 @@ import hashlib
 import json
 import re
 import shutil
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import PurePosixPath
 from typing import Optional
 
@@ -27,6 +27,7 @@ from ..models import (
     Project,
     ProjectCreateRequest,
     ProjectFile,
+    DriverStatus,
     HomeProjects,
     ProjectListItem,
     ProjectOut,
@@ -395,6 +396,79 @@ def _require_owner(
             detail="Only the project owner can perform this action.",
         )
     return project
+
+
+# --- Conversation driver -----------------------------------------------------
+# A project's agent conversation is "held" by ONE driver (an email) whose PAT
+# lives in <project>/.databrickscfg — the identity the agent's CLI uses. STICKY:
+# null = unclaimed (first sender claims); otherwise stays put until take-over.
+#
+# The forwarded token expires ~60min after the driver's browser last minted it.
+# A NON-driver may still RUN the agent on the driver's token WHILE IT'S FRESH
+# (< DRIVER_TOKEN_MAX_AGE) — without touching the file or claiming — because only
+# the driver's own browser can produce a new token. Once stale, non-drivers are
+# blocked until someone takes over (which writes a fresh token). See AUTH.md.
+
+# Block non-driver runs once the driver's token is older than this (10min margin
+# under the ~60min expiry so an in-flight agent turn won't hit expiry mid-run).
+DRIVER_TOKEN_MAX_AGE = timedelta(minutes=50)
+
+
+def active_driver(session, project_id: str) -> Optional[str]:
+    """Email of the current conversation driver, or None if unclaimed."""
+    project = session.get(Project, project_id)
+    return project.active_driver_email if project else None
+
+
+def is_driver(session, project_id: str, user_email: str) -> bool:
+    """True if the caller IS the driver, or it's unclaimed."""
+    driver = active_driver(session, project_id)
+    return driver is None or driver == user_email
+
+
+def driver_token_age_seconds(session, project_id: str) -> Optional[int]:
+    """Seconds since the driver's token was last written, or None if never /
+    unclaimed. Used to decide whether a non-driver may still run the agent."""
+    project = session.get(Project, project_id)
+    ts = project.active_driver_token_refreshed_at if project else None
+    if ts is None:
+        return None
+    if ts.tzinfo is None:  # stored naive in some backends — treat as UTC
+        ts = ts.replace(tzinfo=timezone.utc)
+    return int((utc_now() - ts).total_seconds())
+
+
+def driver_token_expired(session, project_id: str) -> bool:
+    """True if the driver's token is stale (older than the max age) OR unknown.
+    A non-driver can only run the agent when this is False."""
+    age = driver_token_age_seconds(session, project_id)
+    return age is None or age > DRIVER_TOKEN_MAX_AGE.total_seconds()
+
+
+def claim_driver(session, project_id: str, user_email: str) -> None:
+    """Make `user_email` the driver + stamp the token-refresh time to now.
+    Called whenever the driver actually (re)writes their token. Commits."""
+    project = session.get(Project, project_id)
+    if project:
+        project.active_driver_email = user_email
+        project.active_driver_token_refreshed_at = utc_now()
+        session.add(project)
+        session.commit()
+
+
+def _driver_out_fields(session, project: "Project", my_role: str, user_email: str) -> dict:
+    """The driver-related fields for a ProjectOut, resolved for `user_email`."""
+    age = driver_token_age_seconds(session, project.id)
+    return {
+        "active_driver_email": project.active_driver_email,
+        # Caller may drive iff they're a writer AND (hold it OR it's unclaimed).
+        "is_driver": (
+            my_role != ACCESS_VIEWER
+            and project.active_driver_email in (None, user_email)
+        ),
+        "driver_token_age_seconds": age,
+        "driver_token_expired": driver_token_expired(session, project.id),
+    }
 
 
 def _build_project_list_items(
@@ -901,6 +975,7 @@ def get_project(
         source_template_id=project.source_template_id,
         source_template_name=_resolve_template_name(session, project.source_template_id),
         my_role=my_role,
+        **_driver_out_fields(session, project, my_role, user_email),
     )
 
 @router.patch(
@@ -1694,6 +1769,126 @@ def respond_to_share(
     session.commit()
     session.refresh(share)
     return _share_out(share)
+
+
+@router.post(
+    "/projects/{project_id}/take-over",
+    response_model=ProjectOut,
+    operation_id="takeOverProject",
+)
+async def take_over_project(
+    project_id: str,
+    session: Dependencies.Session,
+    headers: Dependencies.Headers,
+    config: Dependencies.Config,
+):
+    """Become the conversation DRIVER — the identity the agent's Databricks CLI
+    runs as. Owner/admin/editor only (viewers 403). Cannot take over while a run
+    is in flight. Keeps the same conversation/session; refreshes the token to the
+    caller (deployed mode) and injects a system message noting the handoff."""
+    import asyncio
+
+    user_email = _get_user_email(headers)
+    # Read-only access check (no mutation) can run before the lock.
+    _require_write_access(session, project_id, user_email, config.template_admin_emails)
+
+    from ..services.active_stream import get_stream_manager
+    manager = get_stream_manager()
+
+    # Take the SAME per-project lock invoke_agent uses, and re-check "run in
+    # progress" INSIDE it — otherwise a run could start between the check and
+    # our token write, swapping the token out from under the running agent.
+    async with manager.get_project_lock(project_id):
+        if manager.get_project_stream(project_id) is not None:
+            raise HTTPException(
+                status_code=409,
+                detail="An agent run is in progress. Wait for it to finish before taking over.",
+            )
+
+        def _do_takeover() -> None:
+            project = session.get(Project, project_id)
+            previous = project.active_driver_email if project else None
+            if previous == user_email:
+                return
+            claim_driver(session, project_id, user_email)
+            # Deployed mode: point <project>/.databrickscfg at the new driver's PAT.
+            from ..core.auth import detect_mode, request_user_pat, resolve_host, write_project_auth_file
+            if detect_mode(headers) == "deployed":
+                pat = request_user_pat(headers)
+                host = resolve_host(headers)
+                if pat and host:
+                    try:
+                        write_project_auth_file(get_project_directory(project_id), host, pat)
+                    except Exception:
+                        logger.exception("take-over: failed to refresh .databrickscfg for %s", project_id)
+            # Record the handoff in the conversation so it's visible + auditable.
+            who_from = f" from {previous}" if previous else ""
+            session.add(
+                Message(
+                    project_id=project_id,
+                    role="system",
+                    content=(
+                        f"🔄 **{user_email}** took over this conversation{who_from}. "
+                        f"The agent's Databricks CLI now runs on their behalf."
+                    ),
+                )
+            )
+            session.commit()
+
+        await asyncio.to_thread(_do_takeover)
+
+    # Return a fresh project view with driver fields resolved for the caller.
+    project, my_role = _get_project_access(
+        session, project_id, user_email, config.template_admin_emails
+    )
+    return ProjectOut(
+        id=project.id,
+        name=project.name,
+        user_email=project.user_email,
+        description=project.description,
+        customer=project.customer,
+        narrative=project.narrative,
+        narrative_readme_hash=project.narrative_readme_hash,
+        project_type=project.project_type,
+        stage=project.stage,
+        architecture_first=project.architecture_first,
+        created_at=project.created_at,
+        updated_at=project.updated_at,
+        cluster_id=project.cluster_id,
+        cluster_name=project.cluster_name,
+        warehouse_id=project.warehouse_id,
+        warehouse_name=project.warehouse_name,
+        default_catalog=project.default_catalog,
+        default_schema=project.default_schema,
+        source_template_id=project.source_template_id,
+        source_template_name=_resolve_template_name(session, project.source_template_id),
+        my_role=my_role,
+        **_driver_out_fields(session, project, my_role, user_email),
+    )
+
+
+@router.get(
+    "/projects/{project_id}/driver-status",
+    response_model=DriverStatus,
+    operation_id="getDriverStatus",
+)
+def get_driver_status(
+    project_id: str,
+    session: Dependencies.Session,
+    headers: Dependencies.Headers,
+    config: Dependencies.Config,
+):
+    """Light poll for the chat UI: who drives + the driver token's freshness.
+    The driver refreshes their token in the background (on their own requests),
+    so a non-driver polls this to keep the banner/send-gate accurate."""
+    user_email = _get_user_email(headers)
+    project, my_role = _get_project_access(session, project_id, user_email, config.template_admin_emails)
+    return DriverStatus(
+        active_driver_email=project.active_driver_email,
+        is_driver=(my_role != ACCESS_VIEWER and project.active_driver_email in (None, user_email)),
+        driver_token_age_seconds=driver_token_age_seconds(session, project_id),
+        driver_token_expired=driver_token_expired(session, project_id),
+    )
 
 
 def _fresh_resources_from(session, source_project_id: str) -> dict:

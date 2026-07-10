@@ -44,6 +44,8 @@ from .projects import (
     _get_authorized_project,
     _get_project_access,
     _require_write_access,
+    claim_driver,
+    is_driver,
 )
 
 logger = logging.getLogger(__name__)
@@ -544,9 +546,10 @@ def _get_user_email(headers) -> str:
     return "anonymous@local"
 
 
-def _ensure_project_databrickscfg(project_dir: Path, headers, can_write: bool) -> None:
+def _ensure_project_databrickscfg(project_dir: Path, headers, can_write: bool) -> bool:
     """Refresh `<project_dir>/.databrickscfg` from the current request's
-    PAT. Deployed mode only — no-op locally.
+    PAT. Deployed mode only — no-op locally. Returns True iff it actually wrote
+    the file (so the caller can stamp the driver token-freshness clock).
 
     Called from any project-scoped route the user might hit when
     re-opening a project (list files, get file, deployed-resources, …).
@@ -564,25 +567,27 @@ def _ensure_project_databrickscfg(project_dir: Path, headers, can_write: bool) -
     the request.
     """
     if not can_write:
-        return  # read-only viewer — never overwrite the owner's token
+        return False  # read-only viewer — never overwrite the owner's token
     if detect_mode(headers) != "deployed":
-        return
+        return False
     pat = request_user_pat(headers)
     if pat is None:
-        return
+        return False
     host = resolve_host(headers)
     if not host:
         logger.warning(
             "deployed mode + PAT present but no host resolvable — "
             "skipping .databrickscfg write for project_dir %s", project_dir,
         )
-        return
+        return False
     try:
         write_project_auth_file(project_dir, host, pat)
+        return True
     except Exception:
         logger.exception(
             "failed to write .databrickscfg for project_dir %s", project_dir,
         )
+        return False
 
 
 @router.get(
@@ -631,11 +636,16 @@ def list_project_files(
         # Keep <project_dir>/.databrickscfg fresh on every project open in
         # deployed mode. The agent route refreshes it again right before
         # spawning, but doing it here too means the file exists from the
-        # moment the user opens a project — useful if anything before the
-        # first agent invocation (the user opening a terminal, manual psql,
-        # etc.) needs to authenticate. NEVER for a viewer: writing here would
-        # stamp their PAT into the owner's dir and swap the CLI identity.
-        _ensure_project_databrickscfg(project_dir, headers, can_write=access != ACCESS_VIEWER)
+        # moment the user opens a project. Only write when the caller may drive:
+        # NEVER a viewer (would stamp their PAT into the owner's dir), and NEVER
+        # a non-driver editor (would thrash the token the current driver's run
+        # depends on and swap the CLI identity). Driver / owner-first only.
+        can_refresh = access != ACCESS_VIEWER and is_driver(session, project_id, user_email)
+        wrote = _ensure_project_databrickscfg(project_dir, headers, can_write=can_refresh)
+        if wrote:
+            # The driver just refreshed their token on this project open → stamp
+            # the freshness clock so non-drivers know the token is current.
+            claim_driver(session, project_id, user_email)
 
         if include_hidden:
             # Debug view — walk fresh, include hidden, do NOT cache.

@@ -77,6 +77,9 @@ import {
   generateProjectNarrative,
   saveArchitectureSnapshot,
   cloneProject,
+  takeOverProject,
+  getDriverStatus,
+  type DriverStatus,
   type Project,
   type ProjectFile,
   type ProjectFileContent,
@@ -239,6 +242,29 @@ function ProjectPage() {
   // Read-only for shared VIEWERS — drives the disabled composer + banner + the
   // "make a copy" escape hatch.
   const isReadOnly = project?.my_role === "viewer";
+  // Conversation driver model. A writer who HOLDS the session is the driver
+  // (isDriver). A NON-driver writer may still run the agent on the driver's
+  // token WHILE it's fresh; once the driver's token expires they're blocked
+  // until someone takes over. `driverStatus` is refreshed by a poll (below) so
+  // the banner/gate track the driver's token age live.
+  const [driverStatus, setDriverStatus] = useState<DriverStatus | null>(null);
+  const [isTakingOver, setIsTakingOver] = useState(false);
+  // Prefer the LIVE poll for all driver state, falling back to the initial
+  // project load. This is what lets a DISPLACED former driver notice a handoff:
+  // even if `project.is_driver` is stale-true, the poll flips `isDriver` false
+  // so the "on behalf of X" strip appears and A knows the agent now runs as X.
+  const liveIsDriver = driverStatus?.is_driver ?? project?.is_driver ?? true;
+  const isDriver = !!project && !isReadOnly && liveIsDriver;
+  // Someone else drives → show the banner (never flash during load).
+  const showTakeover = !!project && !isReadOnly && liveIsDriver === false;
+  const activeDriver =
+    driverStatus?.active_driver_email ?? project?.active_driver_email ?? null;
+  // Driver-token freshness: prefer the live poll, else the initial project load.
+  const driverTokenExpired =
+    driverStatus?.driver_token_expired ?? project?.driver_token_expired ?? false;
+  // A non-driver may SEND while the driver's token is still fresh; blocked once
+  // expired. The driver can always send. (Backend 409 is the authoritative gate.)
+  const canSend = isDriver || (showTakeover && !driverTokenExpired);
   const [isCloning, setIsCloning] = useState(false);
   // Sharing is owner-only (admins too). Editors/viewers don't manage access.
   const canShare = project?.my_role === "owner" || project?.my_role === "admin";
@@ -654,6 +680,14 @@ function ProjectPage() {
       options: { skipOptimisticUserMessage?: boolean; isAutoFix?: boolean } = {},
     ) => {
       if (isStreaming) return;
+      // A non-driver may run the agent only while the driver's token is fresh;
+      // once expired they must take over. The driver can always send.
+      if (!canSend) {
+        toast.error(
+          "This conversation's session token has expired — take over to continue.",
+        );
+        return;
+      }
 
       const skipOptimistic = options.skipOptimisticUserMessage ?? false;
       const isAutoFix = options.isAutoFix ?? false;
@@ -958,7 +992,25 @@ function ProjectPage() {
           }
         }
       } catch (error) {
-        if ((error as Error).name !== "AbortError") {
+        // 409 = another user drives this conversation (stale UI raced the send).
+        // The backend already saved an error message; refresh the project so
+        // is_driver flips and the take-over banner appears, plus pull messages.
+        if ((error as { status?: number }).status === 409) {
+          try {
+            const [proj, msgs] = await Promise.all([
+              getProject(projectId),
+              listProjectMessages(projectId),
+            ]);
+            setProject(proj);
+            setMessages(msgs);
+          } catch { /* ignore refresh errors */ }
+          // Surface the message that didn't send so it isn't silently lost —
+          // the composer is about to be replaced by the take-over banner.
+          toast.error(
+            "Another user is driving this conversation — take over to send. " +
+              `Your message was not sent: “${message.slice(0, 140)}${message.length > 140 ? "…" : ""}”`,
+          );
+        } else if ((error as Error).name !== "AbortError") {
           console.error("Failed to send message:", error);
           toast.error((error as Error).message || "Stream disconnected");
         }
@@ -1016,7 +1068,7 @@ function ProjectPage() {
     // tryResumeActiveExecution is defined below in the same component
     // scope — it's in the closure by the time this callback ever runs.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [projectId, isStreaming]
+    [projectId, isStreaming, canSend]
   );
 
   // Resume an in-flight server-side execution by attaching a fresh SSE
@@ -1350,6 +1402,48 @@ function ProjectPage() {
       setIsCloning(false);
     }
   }, [isCloning, projectId, navigate]);
+
+  // Take over the conversation — become the driver so the agent runs as us.
+  // Blocked while a run is in flight (server also enforces this with a 409).
+  const handleTakeOver = useCallback(async () => {
+    if (isTakingOver || isStreaming) return;
+    setIsTakingOver(true);
+    try {
+      const updated = await takeOverProject(projectId);
+      setProject(updated);
+      // We're the driver now — clear the stale poll snapshot so the derived
+      // isDriver/showTakeover reflect the fresh project immediately (the poll
+      // effect will also re-run and refetch).
+      setDriverStatus(null);
+      // Pull the injected "X took over" system message into the thread.
+      const msgs = await listProjectMessages(projectId).catch(() => null);
+      if (msgs) setMessages(msgs);
+      toast.success("You're now driving this conversation");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to take over");
+    } finally {
+      setIsTakingOver(false);
+    }
+  }, [isTakingOver, isStreaming, projectId]);
+
+  // Poll driver-status for ANY writer on the project (not just current
+  // non-drivers) so that: a non-driver tracks the driver's token age live, AND
+  // a current driver notices if someone else takes over (their local
+  // is_driver goes stale otherwise → they'd silently run as the new driver).
+  // Skipped for viewers (read-only) and while the project hasn't loaded. ~45s
+  // is well under the 50min cutoff so expiry is noticed with room to spare.
+  const canPollDriver = !!project && !isReadOnly;
+  useEffect(() => {
+    if (!canPollDriver) { setDriverStatus(null); return; }
+    let cancelled = false;
+    const poll = () =>
+      getDriverStatus(projectId)
+        .then((s) => { if (!cancelled) setDriverStatus(s); })
+        .catch(() => {});
+    poll();
+    const id = setInterval(poll, 45_000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [canPollDriver, projectId]);
 
   // Handle stopping the stream — tell the backend to cancel, then let the
   // SSE loop receive "stream.completed" naturally so the partial response
@@ -2281,7 +2375,10 @@ function ProjectPage() {
             deployedResources={deployedResources?.resources}
             deployedExtractionError={deployedResources?.extraction_error}
             capabilities={capabilities}
-            onAutoFixSend={(msg) => handleSendMessage(msg, { isAutoFix: true })}
+            // Auto-fix runs the agent — allow it only when we CAN send (driver,
+            // or a non-driver riding the driver's still-fresh token). Skip for a
+            // blocked non-driver so we don't toast-spam / fire wasted 409s.
+            onAutoFixSend={canSend ? (msg) => handleSendMessage(msg, { isAutoFix: true }) : undefined}
             autoFixApiRef={autoFixApiRef}
           />
         </div>
@@ -2332,6 +2429,12 @@ function ProjectPage() {
               readOnly={isReadOnly}
               onMakeCopy={handleMakeCopy}
               isCloning={isCloning}
+              showTakeover={showTakeover}
+              canSend={canSend}
+              driverTokenExpired={driverTokenExpired}
+              activeDriver={activeDriver}
+              onTakeOver={handleTakeOver}
+              isTakingOver={isTakingOver}
             />
           </div>
         )}

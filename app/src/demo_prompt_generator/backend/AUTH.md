@@ -160,9 +160,60 @@ Rules to keep it safe:
   - Any NEW route that writes the auth file must gate on write-access first.
     Read-level auth (`_get_authorized_project`, which allows viewers) is NOT
     sufficient to authorize a token write.
-  - Concurrent editing is not supported: two writers racing on the same project
-    thrash this file → the agent can switch identity mid-run. The share dialog
-    warns on the `editor` role for this reason.
+  - Concurrent editing is not truly simultaneous — see the conversation-driver
+    model below, which makes the single-writer constraint explicit and safe.
+
+### Conversation driver — the single-writer model (editable shares)
+
+Because `.databrickscfg` is per-PROJECT (one file, one identity) but a project
+can have multiple editors, we enforce **one active driver** per project —
+`Project.active_driver_email`, the user whose PAT the file holds and whose
+identity the agent's CLI uses.
+
+- **Sticky:** starts NULL (unclaimed). The first sender (normally the owner)
+  claims it on their first `invoke_agent`; it then stays that person even when
+  idle, until an explicit take-over. Never cleared on completion.
+- **Only the driver writes the token.** Helpers `is_driver` / `claim_driver` /
+  `active_driver` (`routes/projects.py`) gate **every** `.databrickscfg` write:
+  `invoke_agent`, `list_project_files` (`_ensure_project_databrickscfg`), and the
+  preview refresher (`make_project_auth_refresher`). A non-driver — even a
+  write-access editor — never refreshes the token, so they can't stomp the
+  current driver's identity.
+- **Atomicity:** in `invoke_agent` the is_driver-check → claim → token-write runs
+  INSIDE the per-project `get_project_lock` (with the stream-dedupe), so two
+  editors racing the first send on an unclaimed project can't both claim + both
+  write. `take_over_project` takes the SAME lock and re-checks "run in progress"
+  inside it, so a take-over can't swap the token out from under a starting run.
+  (NOTE: the lock is a per-PROCESS `asyncio.Lock`; prod runs `--workers 1`, so
+  it's sufficient. If workers ever increase, make the first claim an atomic
+  conditional `UPDATE … WHERE active_driver_email IS NULL`.)
+- **Token freshness — a non-driver CAN run while the driver's token is fresh.**
+  The forwarded PAT lives ~60min; `Project.active_driver_token_refreshed_at`
+  records when the driver last wrote it (stamped by `claim_driver`, called on
+  every driver token write: invoke, file-open, preview). A NON-driver's
+  `invoke_agent` is **allowed** while that token is < `DRIVER_TOKEN_MAX_AGE`
+  (50min) old — it runs on the driver's existing token WITHOUT writing the
+  non-driver's PAT or claiming (only the driver's browser can mint a new token).
+  Once the token is **stale** (> 50min), the non-driver is **blocked** with a
+  409 + saved message ("<x>'s token expired — ask them to refresh, or take
+  over"), because nobody but the driver can refresh it and a run would 401
+  mid-way. `GET /projects/{id}/driver-status` is a light poll the non-driver's
+  chat uses to track the age live (the banner flips fresh→expired without a
+  reload).
+- **Take-over** (`POST /projects/{id}/take-over`): owner/admin/editor only
+  (viewers 403); **409 while a run is in progress**; otherwise claims the driver,
+  refreshes the token to the caller, and inserts a `role="system"` handoff
+  message. Keeps the same conversation/session.
+- **PREVIEW runs as the DRIVER, not the viewer.** Since the preview refresher is
+  driver-gated too, a non-driver editor who opens the Preview tab does NOT
+  refresh the token — the preview app runs against the driver's `.databrickscfg`.
+  This is intentional: preview shares the project's single identity. A non-driver
+  viewing a preview sees data as the driver; if they need their own identity they
+  take over (or clone). Don't "fix" this by ungating the preview refresher — that
+  reintroduces the token thrash.
+- **Loose ends (deferred):** the driver is not auto-released when a share is
+  revoked (owner must take over); there's no live push of driver changes to idle
+  tabs (the 409-on-send is the safety net).
 
 ## Failure modes (deliberate)
 

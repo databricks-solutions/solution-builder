@@ -63,6 +63,28 @@ export interface Project {
   /** Caller's access on this project: "owner" | "admin" | "editor" | "viewer".
    *  Populated by getProject; drives the read-only UI for shared viewers. */
   my_role?: string | null;
+  /** Conversation driver — the user whose PAT the agent's CLI runs as (null =
+   *  unclaimed). `is_driver` = the caller currently holds it. A non-driver may
+   *  STILL run the agent while `driver_token_expired` is false (they ride the
+   *  driver's fresh token); once expired they must take over. */
+  active_driver_email?: string | null;
+  is_driver?: boolean | null;
+  driver_token_age_seconds?: number | null;
+  driver_token_expired?: boolean | null;
+}
+
+/** Light poll payload for the chat's driver banner (GET /driver-status). */
+export interface DriverStatus {
+  active_driver_email: string | null;
+  is_driver: boolean;
+  driver_token_age_seconds: number | null;
+  driver_token_expired: boolean;
+}
+
+export async function getDriverStatus(projectId: string): Promise<DriverStatus> {
+  const resp = await fetch(apiUrl(`/api/projects/${projectId}/driver-status`));
+  if (!resp.ok) throw new Error(`Failed to get driver status: ${resp.status}`);
+  return resp.json();
 }
 
 export interface ProjectListItem {
@@ -559,6 +581,19 @@ export async function cloneProject(projectId: string): Promise<Project> {
   return resp.json();
 }
 
+/** Become the conversation driver (the identity the agent's CLI runs as).
+ *  Rejects (409) while a run is in progress. Returns the updated project. */
+export async function takeOverProject(projectId: string): Promise<Project> {
+  const resp = await fetch(apiUrl(`/api/projects/${projectId}/take-over`), {
+    method: "POST",
+  });
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({}));
+    throw new Error(err.detail || `Failed to take over project: ${resp.status}`);
+  }
+  return resp.json();
+}
+
 export interface ProjectResourcesUpdate {
   cluster_id?: string | null;
   cluster_name?: string | null;
@@ -744,7 +779,14 @@ export async function invokeAgent(
       ...(options.contextHint ? { context_hint: options.contextHint } : {}),
     }),
   });
-  if (!resp.ok) throw new Error(`Failed to invoke agent: ${resp.status}`);
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({}));
+    // Surface the HTTP status so callers can special-case (e.g. 409 = another
+    // user is driving this conversation → show the "take over" banner).
+    const e = new Error(err.detail || `Failed to invoke agent: ${resp.status}`) as Error & { status?: number };
+    e.status = resp.status;
+    throw e;
+  }
   return resp.json();
 }
 

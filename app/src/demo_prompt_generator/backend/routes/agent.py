@@ -39,7 +39,13 @@ from ..models import (
 )
 from ..services.active_stream import get_stream_manager
 from ..services.agent import collect_text_response, collect_reasoning, is_stale_session_error, stream_agent_response
-from .projects import _require_write_access
+from .projects import (
+    _require_write_access,
+    active_driver,
+    claim_driver,
+    driver_token_expired,
+    is_driver,
+)
 
 router = create_router()
 
@@ -110,6 +116,11 @@ async def invoke_agent(
         config.template_admin_emails,
     )
 
+    # NOTE: the DRIVER GATE (is_driver → claim) and the deployed `.databrickscfg`
+    # refresh happen INSIDE the per-project lock below — check→claim→token-write
+    # must be atomic, or two editors racing the first send on an unclaimed project
+    # could both claim + both write their PAT. See the lock block.
+
     # Ensure the project directory + skills are on disk before we spawn the
     # agent. The common case is `getProject` already ran this on page load,
     # but a fresh container restart with a still-open browser tab will fire
@@ -133,27 +144,9 @@ async def invoke_agent(
         logger.exception(
             "failed to ensure project files restored for %s", body.project_id
         )
-    # Deployed mode: refresh <project>/.databrickscfg from the current PAT
-    # before spawn so the subprocess starts with a fresh token. No-op in
-    # local mode. Non-fatal if it fails.
-    if mode == "deployed":
-        pat = request_user_pat(headers)
-        host = resolve_host(headers)
-        if pat and host:
-            try:
-                write_project_auth_file(
-                    get_project_directory(body.project_id), host, pat
-                )
-            except Exception:
-                logger.exception(
-                    "failed to refresh .databrickscfg for project %s",
-                    body.project_id,
-                )
-        elif pat:
-            logger.warning(
-                "invoke_agent in deployed mode without resolvable host — "
-                ".databrickscfg not refreshed"
-            )
+
+    # (Driver gate + deployed token refresh moved inside the lock below.)
+
     # DB reads (run on thread so we don't block the event loop on sync psycopg).
     def _load_initial():
         # Running the agent mutates the project (files, resources) — viewers
@@ -194,6 +187,63 @@ async def invoke_agent(
                 execution_id=existing_stream.execution_id,
                 project_id=body.project_id,
             )
+
+        # DRIVER GATE + token refresh — INSIDE the lock so check→claim→write is
+        # atomic. Two cases:
+        #   • Caller IS the driver (or unclaimed): claim (sticky) and, in deployed
+        #     mode, refresh <project>/.databrickscfg to their PAT + stamp the
+        #     freshness clock. Normal path.
+        #   • Caller is NOT the driver: they may STILL run the agent on the
+        #     driver's existing token WHILE IT'S FRESH — we do NOT write their PAT
+        #     and do NOT claim (only the driver's browser can mint a token). But
+        #     if the driver's token is STALE, block with a 409 (+ saved message):
+        #     nobody can refresh it but the driver, so a run would 401 mid-way.
+        def _driver_gate_and_token() -> None:
+            if is_driver(session, body.project_id, user_email):
+                claim_driver(session, body.project_id, user_email)
+                if mode == "deployed":
+                    pat = request_user_pat(headers)
+                    host = resolve_host(headers)
+                    if pat and host:
+                        try:
+                            write_project_auth_file(
+                                get_project_directory(body.project_id), host, pat
+                            )
+                        except Exception:
+                            logger.exception(
+                                "failed to refresh .databrickscfg for project %s",
+                                body.project_id,
+                            )
+                    elif pat:
+                        logger.warning(
+                            "invoke_agent in deployed mode without resolvable host — "
+                            ".databrickscfg not refreshed"
+                        )
+                return
+
+            # Non-driver: allowed only while the driver's token is still fresh.
+            driver = active_driver(session, body.project_id)
+            if driver_token_expired(session, body.project_id):
+                session.add(
+                    Message(
+                        project_id=body.project_id,
+                        role="assistant",
+                        content=(
+                            f"**{driver}**'s session token has expired. Ask them to "
+                            f"reopen the project to refresh it, or take over to run "
+                            f"the agent under your own identity."
+                        ),
+                        is_error=True,
+                    )
+                )
+                session.commit()
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"{driver}'s token expired. Ask them to refresh, or take over.",
+                )
+            # Fresh → run on the driver's token untouched (no write, no claim).
+
+        await asyncio.to_thread(_driver_gate_and_token)
 
         # Use session_id from project (simpler than Execution table)
         session_id = project.session_id
