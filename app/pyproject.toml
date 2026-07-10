@@ -45,6 +45,11 @@ dependencies = [
     # deps. openpyxl reads .xlsx without needing the full pandas stack.
     "pypdf>=4.0",
     "openpyxl>=3.1",
+    "openai-agents>=0.17.7",
+    "ddgs>=9.14.4",
+    "selectolax>=0.4.10",
+    "colorthief>=0.2.1",
+    "playwright>=1.61.0",
 ]
 
 # Local path dependencies for Databricks MCP tools

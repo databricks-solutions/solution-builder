@@ -333,6 +333,49 @@ export async function extractFiles(files: File[]): Promise<UploadedFile[]> {
   return resp.json();
 }
 
+// --- Company brand (logo + palette) -----------------------------------------
+
+export interface BrandLogoCandidate {
+  source: string; // jsonld / inline-svg / header-img / og:image / favicon
+  url: string;
+  data_url: string;
+  content_type: string | null;
+  chosen: boolean;
+}
+
+export interface BrandOut {
+  name: string;
+  domain: string | null;
+  confidence: number;
+  logo_url: string | null;
+  logo_data_url: string | null;
+  logos: BrandLogoCandidate[];
+  palette: string[];
+  source: string | null;
+  warnings: string[];
+}
+
+/**
+ * Resolve a company's brand (official domain + logo candidates + color palette)
+ * from just its name. Best-effort + slow (the backend runs an agent loop that
+ * searches, fetches, and extracts) — expect ~15–40s. Always resolves to a
+ * BrandOut; missing pieces come back empty with `warnings`.
+ */
+export async function resolveBrand(name: string): Promise<BrandOut> {
+  const resp = await fetch(apiUrl(`/api/brands/resolve?name=${encodeURIComponent(name)}`));
+  if (!resp.ok) {
+    let detail = `Brand lookup failed: ${resp.status}`;
+    try {
+      const j = (await resp.json()) as { detail?: string };
+      if (j.detail) detail = j.detail;
+    } catch {
+      /* non-JSON body — keep the status-line fallback */
+    }
+    throw new Error(detail);
+  }
+  return resp.json();
+}
+
 export async function createProject(
   description: string,
   capabilities: string[] = [],

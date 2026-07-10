@@ -12,7 +12,7 @@ import uuid
 import zlib
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Optional
+from typing import Any, Optional
 
 from pydantic import BaseModel, Field
 from sqlalchemy import Column, Index, LargeBinary, String, Text
@@ -773,6 +773,51 @@ class HomeProjects(BaseModel):
     owned: list[ProjectListItem] = []
     shared: list[ProjectListItem] = []
     invitations: list[ProjectShareOut] = []
+
+
+class BrandLogoCandidate(BaseModel):
+    """One downloaded logo candidate (for review / picking). `data_url` inlines
+    the image so the frontend can render it offline; `chosen` marks the one the
+    agent committed to."""
+    source: str  # jsonld / inline-svg / header-img / og:image / favicon
+    url: str
+    data_url: str
+    content_type: Optional[str] = None
+    chosen: bool = False
+    # intrinsic size {w,h,aspect} when measurable — a wide aspect (≳2.5) signals a
+    # wordmark, ~1 a square glyph/favicon. None if unmeasurable.
+    dims: Optional[dict[str, Any]] = None
+
+
+class BrandOut(BaseModel):
+    """Resolved brand for a company name (v1, keyless, best-effort).
+
+    `logo_data_url` is a data: URI (base64) so the frontend/diagram can use the
+    logo offline; `palette` is ordered hex (primary first). `logos` is the top
+    few downloaded candidates (chosen first) for visual review. `warnings`
+    explains any degradation (favicon fallback, SPA site, low-confidence domain,
+    …) — the service returns partial results rather than failing."""
+    name: str
+    domain: Optional[str] = None
+    confidence: float = 0.0
+    logo_url: Optional[str] = None
+    logo_data_url: Optional[str] = None
+    logos: list[BrandLogoCandidate] = []
+    palette: list[str] = []
+    source: Optional[str] = None  # which logo source won (jsonld/og/svg/header-img/favicon/wikipedia)
+    # the contact sheet the vision model saw when picking the logo (data URL) —
+    # lets a human see exactly what was judged.
+    logo_contact_sheet: Optional[str] = None
+    # per-cell provenance for that sheet: [{n, format, source, host, official, image}]
+    logo_provenance: list[dict[str, Any]] = []
+    # screenshot of the official homepage (data URL) — brand context + the
+    # reference the vision model used to disambiguate the logo.
+    site_screenshot: Optional[str] = None
+    warnings: list[str] = []
+    # Full instrumented trace of the resolve (tool calls, decisions, reasoning
+    # notes, timings). Powers debugging + the self-improvement loop. Each item:
+    # {t_ms, kind, tool?, args?, summary?, reasoning?, detail?, ms?}.
+    trace: list[dict[str, Any]] = []
 
 
 class ShareRoleUpdateRequest(BaseModel):

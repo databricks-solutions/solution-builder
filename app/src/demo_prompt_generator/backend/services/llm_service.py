@@ -96,6 +96,34 @@ class LLMService:
         )
         return json.loads(response)
 
+    def chat_vision(
+        self,
+        content: list[dict[str, Any]],
+        *,
+        size: ModelSize | Literal["mini", "normal"] = ModelSize.MINI,
+        json_output: bool = False,
+        max_tokens: int = 1000,
+    ) -> str:
+        """Multimodal chat: `content` is an OpenAI content-parts list mixing
+        {type:'text',...} and {type:'image_url', image_url:{url: 'data:...'}}.
+        Model must be vision-capable (our gpt-5-mini is)."""
+        if isinstance(size, str):
+            size = ModelSize(size)
+        model = self._model_for(size)
+        kwargs: dict[str, Any] = {
+            "model": model,
+            "messages": [{"role": "user", "content": content}],
+            "max_tokens": max_tokens,
+        }
+        if json_output:
+            kwargs["response_format"] = {"type": "json_object"}
+        try:
+            response = self._get_client().chat.completions.create(**kwargs)
+            return response.choices[0].message.content
+        except Exception as e:
+            logger.error(f"Vision chat failed (model={model}): {e}")
+            raise
+
     def chat_stream(
         self,
         prompt: str,

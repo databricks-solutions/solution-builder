@@ -81,6 +81,31 @@ fi
 
 export PATH="$JQ_DIR:$PATH"
 
+# ── Playwright Chromium ─────────────────────────────────────────────────────
+# The brand service screenshots company sites with headless Chromium. The
+# browser binary (~170 MB) is far too big to bundle in the wheel, so — same
+# pattern as the CLI/jq above — download it at container boot into a cached
+# /tmp dir and point Playwright at it via PLAYWRIGHT_BROWSERS_PATH. The
+# `playwright` PYTHON package is in the wheel (pyproject); only the browser is
+# fetched here. Cold start: one-time ~10-20 s; warm restarts skip it.
+# System libs Chromium needs (--with-deps) may already be present; if apt isn't
+# available we still try the browser-only install. Non-fatal: if it fails, the
+# brand service just skips screenshots (best-effort).
+export PLAYWRIGHT_BROWSERS_PATH="/tmp/ms-playwright"
+if [[ -z "$(ls -A "$PLAYWRIGHT_BROWSERS_PATH"/chromium_headless_shell-* 2>/dev/null)" ]]; then
+    echo "[start.sh] Installing Playwright chromium-headless-shell ..."
+    # headless-shell is the lightweight build (~25% less RAM than full chromium);
+    # --with-deps pulls the shared libs Chromium needs on the Apps base image.
+    if python3 -m playwright install --with-deps chromium-headless-shell >/tmp/pw-install.log 2>&1 \
+       || python3 -m playwright install chromium-headless-shell >>/tmp/pw-install.log 2>&1; then
+        echo "[start.sh] Playwright chromium-headless-shell installed."
+    else
+        echo "[start.sh] WARNING: playwright install failed — site screenshots disabled (see /tmp/pw-install.log)" >&2
+    fi
+else
+    echo "[start.sh] Playwright chromium-headless-shell cached."
+fi
+
 # Front the venv on PATH so subprocesses (the agent's Bash tool, any `python`
 # / `python3` invocation in start scripts, etc.) inherit our 3.12 venv
 # interpreter instead of the OS-level /usr/bin/python3 (3.10 on Ubuntu 22.04).
