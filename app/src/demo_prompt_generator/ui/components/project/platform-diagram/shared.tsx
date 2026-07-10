@@ -194,6 +194,17 @@ export const SingleSelectionContext = createContext<boolean>(true);
  *  mode) so it reaches every leaf renderer without per-node data. */
 export const CustomLogosContext = createContext<Record<string, string>>({});
 
+/** A node id that should ENTER EDIT MODE immediately on mount — set when a
+ *  fresh text annotation is dropped so the cursor lands in the text right away
+ *  (like any editor). `clear()` resets it once consumed. Context-delivered so a
+ *  drop doesn't churn every node's data. */
+export const AutoEditContext = createContext<{ id: string | null; clear: () => void }>({ id: null, clear: () => {} });
+
+/** True while an EDGE is selected. Node connection anchors are then hidden +
+ *  non-connectable, so you can't fork a NEW line from a component while you're
+ *  editing an existing line (its own endpoints are the only anchors shown). */
+export const EdgeSelectedContext = createContext<boolean>(false);
+
 /** Render an inline SVG string as a scalable `<img>` (data URI) — used for
  *  custom logos. Consistent with FileSvgIcon (objectFit: contain). */
 export function InlineSvgIcon({ svg, className, style }: { svg: string; className?: string; style?: CSSProperties }) {
@@ -280,32 +291,62 @@ export function nodeFootprint(
 
 // Resize-grip geometry — ONE source of truth for how far every grip (corners
 // AND sides) floats outside the box and how big it is, so they can't drift.
-const GRIP_LEN = 15; // grip box size (px)
-const GRIP_OUT = 9; // distance the grip's OUTER edge sits past the border (px)
+const GRIP_LEN = 15; // grip SVG box size (px)
+// Distance from the box border to the grip's INK center (px). Pushed out far
+// enough to CLEAR the connection dots, which are the other thing floating just
+// outside the border: a dot centers at ConnectionDot.OUT (8px) out with radius
+// ~5, so its outer edge reaches ~13px — the side resize handle sits on the same
+// edge-midpoint as a side dot, so the grip center must sit past that with a few
+// px of breathing room.
+const GRIP_OUT = 18;
+// ReactFlow's <NodeResizeControl> renders a fixed CTRL×CTRL element whose
+// top-left it anchors to the node edge/corner (near sides at 0, far sides at
+// dim − CTRL, centered sides at (dim − CTRL)/2). Our GRIP_LEN SVG is a child
+// whose OWN top-left coincides with that anchor and then overflows down-right
+// (RF doesn't center it). So the ink center sits at anchor + GRIP_LEN/2. To land
+// that center on a symmetric ring we solve per axis (see gripShift below); the
+// CTRL offset is why the far sides need a *different* push than the near sides —
+// the old code missed this and pushed all far grips ~(GRIP_LEN−CTRL) too far.
+const GRIP_CTRL = 5; // RF's resize-control element size (px)
+const GRIP_H = GRIP_LEN / 2;
+// Translate applied to a grip so its 15px ink center lands GRIP_OUT outside the
+// edge (normal axis) or on the box midline (parallel axis).
+const gripShift = {
+  near: -GRIP_OUT - GRIP_H, // left / top edge  (RF anchor at 0)
+  far: GRIP_OUT + GRIP_CTRL - GRIP_H, // right / bottom edge (RF anchor at dim − CTRL)
+  mid: GRIP_CTRL / 2 - GRIP_H, // parallel axis of a side grip (RF anchor at (dim−CTRL)/2)
+};
 
 /** A resize grip drawn as a single SVG stroke (fat background line under a thin
  *  primary line → the "outlined" look), round caps + joints. ONE primitive for
  *  every grip: corner L-brackets (`top-left`…) and straight side bars (`h`/`v`).
- *  Sized GRIP_LEN×GRIP_LEN so callers can center it with a shared offset. */
+ *
+ *  Every grip's INK is centered on the SVG center (L/2, L/2): the side bar runs
+ *  through it, and the corner elbow sits ON it with the two arms pointing back
+ *  toward the box interior. That's the whole trick to alignment — because the
+ *  ink centroid == the SVG center for BOTH shapes, the caller can place all 8
+ *  grips with ONE formula (center the GRIP_LEN box on a common offset ring) and
+ *  they line up with no per-side fudge. */
 function GripStroke({ shape }: { shape: "top-left" | "top-right" | "bottom-right" | "bottom-left" | "h" | "v" }) {
   const L = GRIP_LEN;
-  const S = 3; // inset from the box edge so the round cap isn't clipped
+  const C = L / 2; // SVG center — every grip's ink is anchored here
   let d: string;
   let cursor: string;
   if (shape === "h" || shape === "v") {
-    // Straight bar centered in the box, ~2/3 of its length.
-    const a = S + 1;
-    const b = L - S - 1;
-    d = shape === "h" ? `M ${a} ${L / 2} L ${b} ${L / 2}` : `M ${L / 2} ${a} L ${L / 2} ${b}`;
+    // Straight bar through the center, ~2/3 of the box length.
+    const half = 5; // half-length of the bar
+    d = shape === "h" ? `M ${C - half} ${C} L ${C + half} ${C}` : `M ${C} ${C - half} L ${C} ${C + half}`;
     cursor = shape === "h" ? "ns-resize" : "ew-resize"; // h bar = top/bottom side, v bar = left/right side
   } else {
+    // L-bracket: elbow ON the center, arms pointing toward the box interior
+    // (the box lies diagonally inward from this grip). e.g. bottom-right → arms
+    // go LEFT and UP. So the drawn corner reads as hugging the box corner while
+    // its centroid stays dead-center → same radial distance as the side bars.
     const [oy, ox] = shape.split("-") as ["top" | "bottom", "left" | "right"];
-    const ARM = 6; // arm length from the elbow (shorter than the full box side)
-    const cx = ox === "left" ? S : L - S; // elbow x (outer corner)
-    const cy = oy === "top" ? S : L - S; // elbow y (outer corner)
-    const hx = ox === "left" ? cx + ARM : cx - ARM; // horizontal arm's inner end
-    const vy = oy === "top" ? cy + ARM : cy - ARM; // vertical arm's inner end
-    d = `M ${hx} ${cy} L ${cx} ${cy} L ${cx} ${vy}`;
+    const ARM = 6; // arm length from the elbow
+    const inX = ox === "left" ? C + ARM : C - ARM; // horizontal arm's inner end (toward box)
+    const inY = oy === "top" ? C + ARM : C - ARM; // vertical arm's inner end (toward box)
+    d = `M ${inX} ${C} L ${C} ${C} L ${C} ${inY}`;
     cursor = shape === "top-left" || shape === "bottom-right" ? "nwse-resize" : "nesw-resize";
   }
   return (
@@ -418,11 +459,13 @@ export function RotatableCard({
           drawn as thin round-capped grips (L-brackets on corners, bars on sides)
           pushed just outside the border, above the connection anchors (z:21). */}
       {showResize && (["top-left", "top-right", "bottom-right", "bottom-left"] as const).map((corner) => {
-        // Push the bracket outward diagonally by the SHARED grip distance, then
-        // back by half the grip's own size so it centers on the corner point.
+        // Ink centered in the GRIP_LEN box (see GripStroke) → place every grip's
+        // ink center on a symmetric ring GRIP_OUT outside the border. The near
+        // (left/top) and far (right/bottom) edges need different pushes because
+        // RF anchors their control boxes differently (see gripShift).
         const [oy, ox] = corner.split("-") as ["top" | "bottom", "left" | "right"];
-        const dx = (ox === "left" ? -GRIP_OUT : GRIP_OUT) - GRIP_LEN / 2;
-        const dy = (oy === "top" ? -GRIP_OUT : GRIP_OUT) - GRIP_LEN / 2;
+        const dx = ox === "left" ? gripShift.near : gripShift.far;
+        const dy = oy === "top" ? gripShift.near : gripShift.far;
         // Shift-lock: onScale nodes scale uniformly; the rest lock w:h via ratio.
         const shiftResize = (p: { width: number; height: number }) => {
           if (onScale) { onScale(p.width); return null; }
@@ -453,23 +496,17 @@ export function RotatableCard({
         );
       })}
       {showResize && (["top", "right", "bottom", "left"] as const).map((side) => {
-        // Match the CORNERS' visible distance. The corner's ink (its elbow) sits
-        // at the outer corner of its box, but a side bar is drawn down the box
-        // CENTER — so aligning box centers leaves the side ink ~half a grip too
-        // far IN. Push sides out by an extra half-grip so the drawn lines line up.
-        const sideAxis = side === "left" || side === "right";
-        const half = GRIP_LEN / 2;
-        const D = GRIP_OUT + 4; // small nudge so the bar's ink lines up with the corner ink
-        const out = D - half; // top-left offset that lands the center at D
-        // Parallel-axis correction: RF's side-handle anchor isn't exactly the
-        // edge midpoint, so plain -half read a touch off (top/bottom too far
-        // left, left/right too far up). Nudge back toward center.
-        const par = -half + 2;
+        // Same ring as the corners: push the ink center GRIP_OUT out along the
+        // normal (near/far) and center it on the parallel axis (gripShift.mid).
+        // All in px — RF's own transform is fully overridden by ours, so we can't
+        // lean on its -50% and must reproduce the centering ourselves.
+        const sideAxis = side === "left" || side === "right"; // vertical bar (left/right edge)
+        const { near, far, mid } = gripShift;
         const transform =
-          side === "left" ? `translate(${-D - half}px, ${par}px)`
-          : side === "right" ? `translate(${out}px, ${par}px)`
-          : side === "top" ? `translate(${par}px, ${-D - half}px)`
-          : `translate(${par}px, ${out}px)`;
+          side === "left" ? `translate(${near}px, ${mid}px)`
+          : side === "right" ? `translate(${far}px, ${mid}px)`
+          : side === "top" ? `translate(${mid}px, ${near}px)`
+          : `translate(${mid}px, ${far}px)`;
         return (
           <NodeResizeControl
             key={side}
@@ -556,6 +593,11 @@ export function ConnectionDot({
   editMode,
   dotOn,
 }: DotSpec & { editMode: boolean; dotOn: boolean }) {
+  // While a LINE is selected, a component's own connection anchors are hidden +
+  // non-connectable — you can't fork a new line from a component while editing
+  // an existing one (only that line's endpoints are grabbable). Rendering no
+  // Handle at all is what makes it non-connectable.
+  const edgeSelected = useContext(EdgeSelectedContext);
   // Screen-CONSTANT sizing: dots live inside the zoomed viewport; counter-scale
   // by 1/zoom so they're a fixed pixel size at any zoom.
   const zoom = useStore((s) => s.transform[2]);
@@ -615,6 +657,8 @@ export function ConnectionDot({
     ...(side === "b" ? { bottom: -OUT * inv } : side === "t" ? { top: -OUT * inv } : {}),
     transform: alongCenter,
   };
+  // Suppress entirely while a line is selected (no Handle ⇒ not connectable).
+  if (edgeSelected) return null;
   return (
     <>
       <Handle type="source" position={DOT_POSITION[side]} id={id} className={handleCls} style={hStyle} isConnectable={editMode} />

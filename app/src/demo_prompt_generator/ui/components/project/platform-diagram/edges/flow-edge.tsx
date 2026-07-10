@@ -49,9 +49,6 @@ const FlowEdge = memo(function FlowEdge(props: EdgeProps) {
 
   // Live endpoint drag (reconnect). Hook runs unconditionally before guards.
   const [drag, setDrag] = useState<{ end: "source" | "target"; x: number; y: number; side?: Side; handle?: string } | null>(null);
-  // Hover state → endpoint grab-dots grow/brighten on hover (they're rendered
-  // at rest too, subtly, so a used anchor always intercepts the pointer).
-  const [hover, setHover] = useState(false);
   // While a NEW connection is being dragged, the edge layer (which sits above
   // the node handles via EDGE_Z) must NOT capture the pointer — otherwise the
   // hover ribbon / endpoint dots swallow the drop and the connection silently
@@ -187,22 +184,16 @@ const FlowEdge = memo(function FlowEdge(props: EdgeProps) {
     setDrag(null);
   };
 
-  // Endpoint grab-dots. `prominent` (edge selected/hovered/dragging) → full-size
-  // bright dot; otherwise a small faint dot that STILL captures the pointer — so
-  // clicking a node anchor that already has an edge grabs THAT edge (reassign)
-  // instead of forking a new line. (Empty anchors have no edge dot → the node's
-  // own connection handle forks a new line there, as before.) A big edge zIndex
-  // (EDGE_Z) puts these above the node's connection handle at the same spot.
-  const prominent = selected || hover || drag !== null;
+  // Endpoint grab-dots — only shown when the edge is SELECTED/dragging (below),
+  // so they're always full-size + bright. Drag one to reconnect that end.
   const dotProps = {
-    r: prominent ? 7 : 4.5,
+    r: 7,
     fill: "var(--primary)", stroke: "var(--background)", strokeWidth: 2,
-    opacity: prominent ? 1 : 0.55,
+    opacity: 1,
     // Don't intercept the pointer while a new connection is being dragged (see
     // `connecting`) — the drop must reach the target node's handle.
     style: { cursor: "grab", pointerEvents: connecting ? ("none" as const) : ("all" as const) },
     onPointerMove: move, onPointerUp: end,
-    onPointerEnter: () => setHover(true), onPointerLeave: () => setHover(false),
   };
 
   // The vertical elbow handle (↔): sits at the segment's X, vertically between
@@ -323,11 +314,6 @@ const FlowEdge = memo(function FlowEdge(props: EdgeProps) {
       {/* interactionWidth kept modest: a fat stripe blankets the source/target
           anchors and steals the pointer, so you can't start a NEW link (fork)
           from an already-connected anchor. 10px still clicks the line easily. */}
-      {/* Transparent hover ribbon over the line → brightens the endpoint dots
-          when you're near the edge (without stealing the anchor from a fork). */}
-      <path d={path} fill="none" stroke="transparent" strokeWidth={16}
-        style={{ pointerEvents: ops?.editMode && !connecting ? "stroke" : "none" }}
-        onPointerEnter={() => setHover(true)} onPointerLeave={() => setHover(false)} />
       <BaseEdge path={path} style={baseStyle} interactionWidth={connecting ? 0 : 10} />
       {/* Key by edge id (NOT path): a drag/resize changes `path`, but keying by
           it would unmount + remount the whole SMIL subtree every frame. Keyed
@@ -371,13 +357,11 @@ const FlowEdge = memo(function FlowEdge(props: EdgeProps) {
         </g>
       )}
 
-      {/* Draggable endpoint dots (just outside each tile). Rendered whenever
-          we're in edit mode — subtle at rest, bright on hover/select — so a
-          node anchor that ALREADY has an edge lets you grab + reassign THAT
-          edge (these sit above the node's connection handle via EDGE_Z).
-          Drag one onto another tile (it highlights + snaps) to reconnect; drop
-          on empty space keeps the original edge. */}
-      {ops?.editMode && (
+      {/* Draggable endpoint dots — shown ONLY when the edge is SELECTED (or
+          mid-drag). Select a line → its two endpoints appear (drag one onto
+          another tile to reconnect). When NOT selected the line shows no dots;
+          you start a NEW line from a COMPONENT's own hover anchor instead. */}
+      {(selected || drag !== null) && ops?.editMode && (
         <>
           <circle cx={drag?.end === "source" ? drag.x : sDot.x} cy={drag?.end === "source" ? drag.y : sDot.y} {...dotProps} onPointerDown={start("source")} />
           <circle cx={drag?.end === "target" ? drag.x : tDot.x} cy={drag?.end === "target" ? drag.y : tDot.y} {...dotProps} onPointerDown={start("target")} />

@@ -44,6 +44,8 @@ import {
   DropTargetContext,
   EditModeContext,
   SingleSelectionContext,
+  AutoEditContext,
+  EdgeSelectedContext,
   nodeFootprint,
   nodeTypeFor,
   baseSize,
@@ -137,8 +139,9 @@ const MULTI_SELECT_KEYS = ["Shift"];
 export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSetTrademark, defaultEditMode = true, readOnly = false, toolbarExtras, toolbarStatus, tabBar }: CanvasProps) {
   const [confirmTrademark, setConfirmTrademark] = useState(false);
   const [sourcePicker, setSourcePicker] = useState(false);
-  // "+ more logos" from the search results → the full logo picker (all marks).
-  const [logoPicker, setLogoPicker] = useState(false);
+  // "see more logos" from search → the full logo picker, seeded with the query
+  // the user already typed (null = closed).
+  const [logoPicker, setLogoPicker] = useState<string | null>(null);
   // Turning logos ON requires a permission ack; turning OFF is immediate.
   const toggleTrademark = useCallback(() => {
     if (schema.enableTrademarkLogos) onSetTrademark(false);
@@ -152,6 +155,8 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
   const [pickingFor, setPickingFor] = useState<string | null>(null);
   // Annotation node id whose LOGO we're picking (opens the IconPicker modal).
   const [logoPickerFor, setLogoPickerFor] = useState<string | null>(null);
+  // A freshly-added TEXT annotation to drop the cursor into immediately.
+  const [autoEditFor, setAutoEditFor] = useState<string | null>(null);
   // Ids of all currently-selected nodes (lasso / shift-click). Drives whether
   // the right-click style controls apply to one node or the whole selection.
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -419,9 +424,13 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
         if (!n) return c;
         const w = (n.width ?? (n.data as NodeData).w ?? 200) as number;
         const h = (n.height ?? (n.data as NodeData).h ?? 56) as number;
-        const left = Math.round((c.position.x - w / 2) / g) * g;
-        const top = Math.round((c.position.y - h / 2) / g) * g;
-        return { ...c, position: { x: left + w / 2, y: top + h / 2 } };
+        // Snap the TOP-LEFT edge to the grid. `position` is origin-relative
+        // (center for the canvas default nodeOrigin), so offset by the node's
+        // origin to get the top-left and back.
+        const [ox, oy] = (n.origin as [number, number] | undefined) ?? NODE_ORIGIN;
+        const left = Math.round((c.position.x - ox * w) / g) * g;
+        const top = Math.round((c.position.y - oy * h) / g) * g;
+        return { ...c, position: { x: left + ox * w, y: top + oy * h } };
       });
       onNodesChange(snappedChanges);
       // Commit (save + history) on the drop frame or a removal.
@@ -484,17 +493,22 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
   );
 
   // Node footprint rect (flow coords) + hit-test, for the endpoint drag.
-  // IMPORTANT: the canvas uses nodeOrigin=[0.5,0.5], so `node.position` is the
-  // node's CENTER, not its top-left. The rect's top-left is position - size/2.
-  // (Getting this wrong made only the right/bottom half of a tile hit-testable
-  // — the "left half doesn't show the anchor" bug.)
+  // `node.position` is interpreted relative to the node's ORIGIN (canvas
+  // default nodeOrigin=[0.5,0.5] → position == CENTER → top-left = pos - w/2).
+  // Derive the top-left from the (per-node or default) origin so it's correct
+  // regardless of a node overriding its origin.
+  const topLeftOf = (n: Node, w: number, h: number): { x: number; y: number } => {
+    const [ox, oy] = (n.origin as [number, number] | undefined) ?? NODE_ORIGIN;
+    return { x: n.position.x - ox * w, y: n.position.y - oy * h };
+  };
   const nodeRect = useCallback(
     (nid: string): Rect | null => {
       const n = nodesRef.current.find((x) => x.id === nid);
       if (!n) return null;
       const w = (n.width ?? (n.data as NodeData).w ?? 200) as number;
       const h = (n.height ?? (n.data as NodeData).h ?? 56) as number;
-      return { x: n.position.x - w / 2, y: n.position.y - h / 2, w, h };
+      const tl = topLeftOf(n, w, h);
+      return { x: tl.x, y: tl.y, w, h };
     },
     [],
   );
@@ -505,8 +519,7 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
       for (const n of nodesRef.current) {
         const w = (n.width ?? (n.data as NodeData).w ?? 200) as number;
         const h = (n.height ?? (n.data as NodeData).h ?? 56) as number;
-        const x = n.position.x - w / 2;
-        const y = n.position.y - h / 2;
+        const { x, y } = topLeftOf(n, w, h);
         // Pick the TOPMOST node under the point (highest zIndex), so a
         // BringToFront node wins over one merely later in array order.
         const z = n.zIndex ?? 0;
@@ -563,8 +576,10 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
           nodeId = `${base}#${k}`;
         }
         const fp = nodeFootprint(found.component, {});
+        // A freshly-added node becomes THE selection (deselect the rest) so its
+        // edit panel opens right away. onSelectionChange syncs selectedIds.
         const next = [
-          ...nds,
+          ...nds.map((n) => (n.selected ? { ...n, selected: false } : n)),
           {
             id: nodeId,
             type: nodeTypeFor(found.component),
@@ -572,6 +587,7 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
             width: fp.w,
             height: fp.h,
             style: { width: fp.w, height: fp.h },
+            selected: true,
             data: {
               nodeId,
               component: found.component,
@@ -602,7 +618,7 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
       const pos = at ?? { x: 160, y: 160 };
       const defaults: AnnotationData =
         variant === "box" ? { variant, text: "", vAlign: "middle", hAlign: "center", fontSize: 14 }
-        : variant === "text" ? { variant, text: "Text", fontSize: 14 }
+        : variant === "text" ? { variant, text: "", fontSize: 14 }
         : variant === "logo" ? { variant, icon: "data" }
         : { variant }; // image — src set via menu/paste
       const annotation = { ...defaults, ...extra };
@@ -618,7 +634,9 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
           ? logoFitSize(annotation.text ?? "", cap === "right" || cap === "left", annotation.fontSize ?? 13, annotation.bold)
           : ANNOTATION_DEFAULT_SIZE[variant];
         const next = [
-          ...nds,
+          // Deselect the rest; the new annotation is THE selection so its edit
+          // panel opens right away (onSelectionChange syncs selectedIds).
+          ...nds.map((n) => (n.selected ? { ...n, selected: false } : n)),
           {
             id,
             type: "annotation",
@@ -626,6 +644,7 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
             width: sz.w,
             height: sz.h,
             style: { width: sz.w, height: sz.h },
+            selected: true,
             data: {
               nodeId: id,
               annotation,
@@ -675,9 +694,12 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
       const srcYs = nds.filter((n) => baseId(n.id).startsWith("src-")).map((n) => n.position.y);
       const y = srcYs.length ? Math.max(...srcYs) + 96 : 0;
       const next = [
-        ...nds,
+        // Deselect the rest; the new source is THE selection → its edit panel
+        // opens right away (onSelectionChange syncs selectedIds).
+        ...nds.map((n) => (n.selected ? { ...n, selected: false } : n)),
         {
           id, type: "component", position: { x: 0, y }, width: fp.w, height: fp.h, style: { width: fp.w, height: fp.h },
+          selected: true,
           data: {
             nodeId: id, component, bandId: "sources" as BandId, bandColor: BAND_COLOR.sources,
             deepLink: null, onSelect, onContext, onResize, onRename, onSetDescription,
@@ -704,6 +726,7 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
       if (anno) {
         const id = addAnnotation(anno as AnnotationVariant, pos);
         if (anno === "logo") setLogoPickerFor(id); // pick the logo right away
+        else if (anno === "text") setAutoEditFor(id); // cursor into the text now
         return;
       }
       const preset = e.dataTransfer.getData("application/x-annotation-preset");
@@ -1169,13 +1192,14 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
         if (!n.selected) return n;
         if (!snap) return { ...n, position: { x: n.position.x + ux, y: n.position.y + uy } };
         // Snap the TOP-LEFT edge to the grid (matching drag-drop), then step one
-        // cell in the arrow direction. position is the center (nodeOrigin 0.5),
-        // so snap (center − size/2) and convert back.
+        // cell in the arrow direction. position is origin-relative (center by
+        // default; top-left for origin:[0,0] text), so offset by the origin.
         const w = (n.width ?? (n.data as NodeData).w ?? 200) as number;
         const h = (n.height ?? (n.data as NodeData).h ?? 56) as number;
-        const left = Math.round((n.position.x - w / 2) / GRID) * GRID + ux * GRID;
-        const top = Math.round((n.position.y - h / 2) / GRID) * GRID + uy * GRID;
-        return { ...n, position: { x: left + w / 2, y: top + h / 2 } };
+        const [ox, oy] = (n.origin as [number, number] | undefined) ?? NODE_ORIGIN;
+        const left = Math.round((n.position.x - ox * w) / GRID) * GRID + ux * GRID;
+        const top = Math.round((n.position.y - oy * h) / GRID) * GRID + uy * GRID;
+        return { ...n, position: { x: left + ox * w, y: top + oy * h } };
       });
       scheduleSave(next, edges);
       return next;
@@ -1272,7 +1296,7 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
   // callbacks are already stable, so these thin adapters only need wrapping.
   const paletteOnAdd = useCallback((id: string) => addComponent(id), [addComponent]);
   const paletteOnAddAnnotation = useCallback(
-    (v: AnnotationVariant) => { const id = addAnnotation(v); if (v === "logo") setLogoPickerFor(id); },
+    (v: AnnotationVariant) => { const id = addAnnotation(v); if (v === "logo") setLogoPickerFor(id); else if (v === "text") setAutoEditFor(id); },
     [addAnnotation],
   );
   const paletteOnAddPreset = useCallback(
@@ -1282,7 +1306,7 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
   const paletteOnAddLogo = useCallback((iconKey: string) => addAnnotation("logo", undefined, { icon: iconKey }), [addAnnotation]);
   const paletteOnAddSource = useCallback((iconKey: string) => addSourceFromIcon(iconKey), [addSourceFromIcon]);
   const paletteOnMoreSources = useCallback(() => setSourcePicker(true), []);
-  const paletteOnMoreLogos = useCallback(() => setLogoPicker(true), []);
+  const paletteOnMoreLogos = useCallback((query: string) => setLogoPicker(query), []);
   const paletteOnPick = useCallback((id: string) => { if (pickingFor) changeNodeType(pickingFor, id); setPickingFor(null); }, [pickingFor, changeNodeType]);
   const paletteOnCancelPick = useCallback(() => setPickingFor(null), []);
   const paletteIsPicking = pickingFor !== null;
@@ -1293,7 +1317,15 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
   // actually flips across the 1↔many boundary (not per drag frame).
   const singleSelection = selectedIds.length <= 1;
 
+  // Auto-edit signal for a freshly-dropped text node (cursor lands in it).
+  const autoEditClear = useCallback(() => setAutoEditFor(null), []);
+  const autoEditValue = useMemo(() => ({ id: autoEditFor, clear: autoEditClear }), [autoEditFor, autoEditClear]);
+  // An edge is selected (its docked panel is open) → hide component anchors.
+  const edgeSelected = menu?.kind === "edge";
+
   return (
+    <AutoEditContext.Provider value={autoEditValue}>
+    <EdgeSelectedContext.Provider value={edgeSelected}>
     <EditModeContext.Provider value={editMode}>
     <EdgeOpsContext.Provider value={edgeOps}>
     <DropTargetContext.Provider value={dropTargetId}>
@@ -1426,7 +1458,7 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
             <div className="w-[min(420px,92vw)] rounded-xl border border-border bg-card p-4 shadow-2xl" onClick={(e) => e.stopPropagation()}>
               <div className="mb-1 text-[14px] font-semibold text-foreground">Use third-party brand logos?</div>
               <p className="mb-3 text-[12px] leading-snug text-muted-foreground">
-                Logos like Shopify, Snowflake, or SAP are trademarks of their owners. Only enable this if you have permission to use them in this material. Cloud and Databricks marks are always shown. You can turn this off anytime.
+                Third-party logos and trademarks are the property of their respective owners and are used for identification purposes only. No affiliation or endorsement is implied. Only enable this if you have permission to use them in the material. Cloud and Databricks marks are always shown. You can turn this off anytime
               </p>
               <div className="flex justify-end gap-2">
                 <button type="button" onClick={() => setConfirmTrademark(false)} className="cursor-pointer rounded-md border border-border px-3 py-1.5 text-[12px] hover:bg-muted">Cancel</button>
@@ -1524,13 +1556,15 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
           />
         )}
 
-        {/* "+ more logos" from search → the full logo picker; picking adds a
-            logo annotation (same as onAddLogo). */}
-        {logoPicker && (
+        {/* "see more logos" from search → the full logo picker, pre-filtered
+            with the search term; picking adds a logo annotation (same as
+            onAddLogo). */}
+        {logoPicker !== null && (
           <IconPicker
             allowTrademark={!!schema.enableTrademarkLogos}
+            initialQuery={logoPicker}
             onPick={(key) => paletteOnAddLogo(key)}
-            onClose={() => setLogoPicker(false)}
+            onClose={() => setLogoPicker(null)}
           />
         )}
       </div>
@@ -1598,5 +1632,7 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
     </DropTargetContext.Provider>
     </EdgeOpsContext.Provider>
     </EditModeContext.Provider>
+    </EdgeSelectedContext.Provider>
+    </AutoEditContext.Provider>
   );
 });

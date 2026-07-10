@@ -151,20 +151,27 @@ export function AnnotationMenu({
               ))}
             </div>
           )}
-          {/* Overflow mode — only for a TEXT node the user has given a fixed
-              size (auto-fit text has no overflow). Wrap (default) flows onto
-              new lines; Truncate keeps one line with an ellipsis. */}
-          {a.variant === "text" && a.sized && (
-            <div className="flex items-center gap-1 px-2 py-1.5">
-              <span className="mr-auto text-[11px] text-muted-foreground">Overflow</span>
-              {(["wrap", "truncate"] as const).map((mode) => (
-                <button key={mode} type="button" onClick={(e) => { e.stopPropagation(); onAnno({ textWrap: mode }); }}
-                  className={`cursor-pointer rounded px-1.5 py-0.5 text-[10px] capitalize ${(a.textWrap ?? "wrap") === mode ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}>
-                  {mode}
-                </button>
-              ))}
-            </div>
-          )}
+          {/* Overflow mode for a TEXT node (always available).
+                • Auto (default) — the box grows with the text as you type.
+                • Wrap — fixed box; text flows onto new lines.
+                • Truncate — fixed box; one line + ellipsis.
+              Picking Wrap/Truncate on an Auto node fixes its current size (the
+              box stops hugging the text); Auto reverts to grow-to-fit. Clearing
+              the legacy `sized` flag keeps the mode authoritative. */}
+          {a.variant === "text" && (() => {
+            const cur = a.textWrap && a.textWrap !== "auto" ? a.textWrap : a.sized ? "wrap" : "auto";
+            return (
+              <div className="flex items-center gap-1 px-2 py-1.5">
+                <span className="mr-auto text-[11px] text-muted-foreground">Overflow</span>
+                {(["auto", "wrap", "truncate"] as const).map((mode) => (
+                  <button key={mode} type="button" onClick={(e) => { e.stopPropagation(); onAnno({ textWrap: mode, sized: undefined }); }}
+                    className={`cursor-pointer rounded px-1.5 py-0.5 text-[10px] capitalize ${cur === mode ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}>
+                    {mode}
+                  </button>
+                ))}
+              </div>
+            );
+          })()}
         </>
       )}
       <div className="my-1 border-t border-border/60" />

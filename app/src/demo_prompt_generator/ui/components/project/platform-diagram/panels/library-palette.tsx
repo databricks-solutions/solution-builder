@@ -4,7 +4,7 @@
  * the canvas to add it; also hosts the trademark-logo toggle, the search box,
  * the "+ more data sources" entry, and the "pick a replacement type" mode.
  */
-import { memo, useState } from "react";
+import { memo, useMemo, useState } from "react";
 import { BAND_COLOR, catalogBands, DBX_ARCH_PRESETS, type PlatformSchema } from "@/lib/platform-architecture";
 import {
   X,
@@ -17,7 +17,7 @@ import {
   Check,
 } from "lucide-react";
 import { BrandMark } from "../brand-mark";
-import { AnyIcon } from "../annotations";
+import { AnyIcon, buildPickIndex, type PickItem } from "../annotations";
 import { type AnnotationVariant } from "@/lib/platform-architecture";
 import { FILE_ICONS, type FileIcon, logoLabel, logoAliases, logoMetaForKey } from "../../../file-icons";
 
@@ -50,8 +50,9 @@ export const LibraryPalette = memo(function LibraryPalette({
   onToggleTrademark?: () => void;
   /** Open the "+ more data sources" picker. */
   onMoreSources?: () => void;
-  /** Open the full logo picker (from the "+N more logos" search affordance). */
-  onMoreLogos?: () => void;
+  /** Open the full logo picker (from the "see more logos" search affordance),
+   *  pre-filtered with the current search term. */
+  onMoreLogos?: (query: string) => void;
   /** When set, the palette is in "select a replacement type" mode: clicking a
    *  component calls onPick instead of dragging/adding. */
   picking?: boolean;
@@ -61,6 +62,10 @@ export const LibraryPalette = memo(function LibraryPalette({
   const [q, setQ] = useState("");
   const ql = q.trim().toLowerCase();
   const matchText = (s: string) => !ql || s.toLowerCase().includes(ql);
+  // Full logo index (Databricks bank + file-icon vendor/cloud marks), built
+  // once — the search-results Logos block filters this so terms like "genie"
+  // (many Databricks matches) surface instead of only file-icon hits.
+  const pickItems = useMemo(() => buildPickIndex().items, []);
   return (
     <div className={`relative flex w-52 shrink-0 flex-col border-r border-border bg-muted/20 ${picking ? "z-50 ring-2 ring-primary" : ""}`}>
       {picking ? (
@@ -87,37 +92,67 @@ export const LibraryPalette = memo(function LibraryPalette({
         </div>
       </div>
       <div className="flex-1 overflow-y-auto p-2">
-        {/* When searching, surface matching LOGOS + SOURCES from the WHOLE icon
-            bank (vendor, persona, cloud) — e.g. "kafka" → the Kafka source,
-            "aws"/"s3" → the cloud mark. No arbitrary cap; the list scrolls. */}
+        {/* When searching, surface matching LOGOS + SOURCES.
+            LOGOS come from the WHOLE pick index (Databricks marks — Genie,
+            Genie Code, Genie One, … — AND file-icon vendor/cloud marks), so a
+            term like "genie" (many matches) surfaces properly. Show the first 4
+            then a "see more logos" link that opens the full picker pre-filtered
+            with the same term. SOURCES come from the file-icon bank and list
+            ALL matches (no cap). */}
         {!picking && ql && (() => {
-          const matched = FILE_ICONS.filter((f) => matchText(`${f.name} ${f.category} ${f.group} ${logoAliases(f.name).join(" ")}`));
-          if (matched.length === 0) return null;
-          const TOP = 3;
-          // LOGOS: every matched mark can be added as a plain logo (including
-          // source vendors like Kafka) — top 3, then a "+N more logos" link.
-          const shownLogos = matched.slice(0, TOP);
-          const moreLogos = matched.length - shownLogos.length;
-          // SOURCES: matched marks flagged as data sources, EXCLUDING any already
-          // offered by the catalog Sources band below (keyed by their file-icon).
-          // That kills the old duplicate "Source / Kafka" while keeping vendors
-          // NOT in the catalog (salesforce, snowflake, …) addable as a source.
+          const LOGO_TOP = 4;
+          // LOGOS — union of Databricks bank + file icons, matched by the pick
+          // index's precomputed search string. Dedup by display label, keeping
+          // the brand mark over the mono glyph (e.g. `genieBrand` "Genie" wins
+          // over the `genie` glyph that pretty-labels to the same thing).
+          const seenLabels = new Map<string, PickItem>();
+          for (const i of pickItems) {
+            if (!i.search.includes(ql)) continue;
+            const prev = seenLabels.get(i.label);
+            if (!prev || (!/(Brand|Logo)$/.test(prev.key) && /(Brand|Logo)$/.test(i.key)))
+              seenLabels.set(i.label, i);
+          }
+          const logoMatches = [...seenLabels.values()];
+          const shownLogos = logoMatches.slice(0, LOGO_TOP);
+          const moreLogos = logoMatches.length - shownLogos.length;
+          // SOURCES: matched file-icon marks flagged as data sources, EXCLUDING
+          // any already offered by the catalog Sources band below (keyed by
+          // their file-icon). That kills the old duplicate "Source / Kafka"
+          // while keeping vendors NOT in the catalog (salesforce, snowflake, …)
+          // addable as a source. List ALL matches — no cap.
           const catalogSourceIcons = new Set(
             catalogBands().find((b) => b.id === "sources")?.components.map((c) => c.icon) ?? [],
           );
-          const srcMatches = matched.filter(
-            (f) => logoMetaForKey(f.key).source && !catalogSourceIcons.has(f.key),
+          const srcMatches = FILE_ICONS.filter(
+            (f) =>
+              matchText(`${f.name} ${f.category} ${f.group} ${logoAliases(f.name).join(" ")}`) &&
+              logoMetaForKey(f.key).source &&
+              !catalogSourceIcons.has(f.key),
           );
-          const shownSrc = srcMatches.slice(0, TOP);
-          const moreSrc = srcMatches.length - shownSrc.length;
-          const Row = ({ f, kind }: { f: FileIcon; kind: "logo" | "source" }) => (
+          if (shownLogos.length === 0 && srcMatches.length === 0) return null;
+          const LogoRow = ({ i }: { i: PickItem }) => (
             <button
-              key={`${kind}-${f.key}`}
+              key={`logo-${i.key}`}
               type="button"
               draggable
-              onDragStart={(e) => { e.dataTransfer.setData(kind === "logo" ? "application/x-logo" : "application/x-source", f.key); e.dataTransfer.effectAllowed = "copy"; }}
-              onDoubleClick={() => (kind === "logo" ? onAddLogo(f.key) : onAddSource?.(f.key))}
-              title={`Add ${kind === "logo" ? "logo" : "data source"}: ${logoLabel(f.name)}`}
+              onDragStart={(e) => { e.dataTransfer.setData("application/x-logo", i.key); e.dataTransfer.effectAllowed = "copy"; }}
+              onDoubleClick={() => onAddLogo(i.key)}
+              title={`Add logo: ${i.label}`}
+              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12px] text-foreground hover:bg-muted"
+            >
+              <GripVertical className="h-3 w-3 shrink-0 text-muted-foreground/40" />
+              <AnyIcon iconKey={i.key} className="h-4 w-4 [&_svg]:h-4 [&_svg]:w-4" />
+              <span className="truncate">{i.label}</span>
+            </button>
+          );
+          const SourceRow = ({ f }: { f: FileIcon }) => (
+            <button
+              key={`source-${f.key}`}
+              type="button"
+              draggable
+              onDragStart={(e) => { e.dataTransfer.setData("application/x-source", f.key); e.dataTransfer.effectAllowed = "copy"; }}
+              onDoubleClick={() => onAddSource?.(f.key)}
+              title={`Add data source: ${logoLabel(f.name)}`}
               className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12px] text-foreground hover:bg-muted"
             >
               <GripVertical className="h-3 w-3 shrink-0 text-muted-foreground/40" />
@@ -127,28 +162,23 @@ export const LibraryPalette = memo(function LibraryPalette({
           );
           return (
             <>
-              <div className="mb-3">
-                <div className="px-1 py-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Logos</div>
-                {shownLogos.map((f) => <Row key={`logo-${f.key}`} f={f} kind="logo" />)}
-                {moreLogos > 0 && onMoreLogos && (
-                  <button type="button" onClick={() => onMoreLogos()}
-                    className="mt-0.5 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12px] font-medium text-primary hover:bg-muted">
-                    <span className="grid h-4 w-4 shrink-0 place-items-center text-primary">+</span>
-                    <span className="truncate">{moreLogos} more logo{moreLogos === 1 ? "" : "s"}…</span>
-                  </button>
-                )}
-              </div>
-              {shownSrc.length > 0 && onAddSource && (
+              {shownLogos.length > 0 && (
                 <div className="mb-3">
-                  <div className="px-1 py-1 text-[10px] font-bold uppercase tracking-wider" style={{ color: BAND_COLOR.sources }}>Sources</div>
-                  {shownSrc.map((f) => <Row key={`source-${f.key}`} f={f} kind="source" />)}
-                  {moreSrc > 0 && onMoreSources && (
-                    <button type="button" onClick={() => onMoreSources()}
+                  <div className="px-1 py-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Logos</div>
+                  {shownLogos.map((i) => <LogoRow key={`logo-${i.key}`} i={i} />)}
+                  {moreLogos > 0 && onMoreLogos && (
+                    <button type="button" onClick={() => onMoreLogos(q.trim())}
                       className="mt-0.5 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12px] font-medium text-primary hover:bg-muted">
                       <span className="grid h-4 w-4 shrink-0 place-items-center text-primary">+</span>
-                      <span className="truncate">{moreSrc} more source{moreSrc === 1 ? "" : "s"}…</span>
+                      <span className="truncate">See more logos…</span>
                     </button>
                   )}
+                </div>
+              )}
+              {srcMatches.length > 0 && onAddSource && (
+                <div className="mb-3">
+                  <div className="px-1 py-1 text-[10px] font-bold uppercase tracking-wider" style={{ color: BAND_COLOR.sources }}>Sources</div>
+                  {srcMatches.map((f) => <SourceRow key={`source-${f.key}`} f={f} />)}
                 </div>
               )}
             </>

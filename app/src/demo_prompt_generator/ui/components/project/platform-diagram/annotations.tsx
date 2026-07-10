@@ -5,14 +5,14 @@
  * are one ReactFlow node kind ("annotation") with a `variant`; their props live
  * in the node's layout entry (NodePosition.annotation) so they persist.
  */
-import { memo, useContext, useState, useMemo, useRef, useLayoutEffect } from "react";
-import { type NodeProps } from "@xyflow/react";
+import { memo, useContext, useState, useMemo, useRef, useLayoutEffect, useEffect } from "react";
+import { useReactFlow, type NodeProps } from "@xyflow/react";
 import { DATABRICKS_ICONS, BRAND_ICONS, type DatabricksIconName } from "../../databricks-icons";
 import { FILE_ICONS, FileSvgIcon, isFileIconKey, logoMetaByName, logoAliases } from "../../file-icons";
 import INDUSTRY_MAP from "../../../icons/industry-map.json";
 import { BrandMark } from "./brand-mark";
 import { type AnnotationData, type AnnotationVariant, isCustomIconKey, customLogoId } from "@/lib/platform-architecture";
-import { RotatableCard, DropTargetContext, EditModeContext, CustomLogosContext, InlineSvgIcon, type NodeData } from "./shared";
+import { RotatableCard, DropTargetContext, EditModeContext, CustomLogosContext, AutoEditContext, InlineSvgIcon, type NodeData } from "./shared";
 
 /** Render any icon key — a built-in DatabricksIconName, a file-icon key
  *  ("file:…"), or a custom inline-SVG logo ("custom:<id>") — at a given size.
@@ -77,6 +77,16 @@ export const AnnotationNode = memo(function AnnotationNode({ data, selected }: N
     }
   };
 
+  // A freshly-dropped TEXT node auto-enters edit mode so the cursor lands in it
+  // (like any editor). Consume the one-shot signal so it doesn't re-fire.
+  const autoEdit = useContext(AutoEditContext);
+  useEffect(() => {
+    if (autoEdit.id === d.nodeId && a.variant === "text") {
+      setEditing(a.text ?? "");
+      autoEdit.clear();
+    }
+  }, [autoEdit, d.nodeId, a.variant, a.text]);
+
   const fontSize = a.fontSize ?? 14;
   const fontWeight = a.bold ? 700 : 400;
   // Border: `style.border` (borderWidth) is the ONLY border control. A box
@@ -87,38 +97,55 @@ export const AnnotationNode = memo(function AnnotationNode({ data, selected }: N
   // Plain TEXT defaults to LEFT-aligned; a box keeps center.
   const hA = a.hAlign ?? (a.variant === "text" ? "left" : "center");
 
-  // --- Auto-fit for the plain TEXT annotation --------------------------------
-  // A text label sizes to its content: we measure the rendered text off-layout
-  // and write the natural size back via onResize. SIGNATURE-GUARDED: the
-  // measure (a forced-layout offsetWidth read) + refit run only when the
-  // CONTENT changes (text/font/scale) — with d.w/d.h in the deps it re-ran on
-  // every resize/drag frame, thrashing layout and snapping the node back
-  // (text nodes were un-resizable). Unlike the logo fit below, the FIRST run
-  // does fit (a fresh text node should always hug its content).
-  const measureRef = useRef<HTMLSpanElement>(null);
-  // A text node auto-fits its content UNTIL the user gives it an explicit size
-  // (drags a resize handle → a.sized). After that it keeps the fixed box and
-  // the text wraps / truncates inside it (see textWrap).
-  const isTextVariant = a.variant === "text" && !a.sized;
+  // --- Plain TEXT: a top-left-anchored, auto-fitting text box -----------------
+  // A text annotation is NOT drawn through RotatableCard's centered card model
+  // (which fights a growing text box). It renders its own top-left shell + fits
+  // its box to the text. The canvas uses center positions (nodeOrigin 0.5), so
+  // to keep the TOP-LEFT corner fixed while the box grows right/down (like a
+  // normal editor), we SHIFT the center by half the size delta — reading the
+  // node's CURRENT position + size imperatively from the RF store (not props /
+  // deps), so the fit fires once per text change and never chases its own write
+  // (that self-chase, plus a NaN from a missing NodeProps field, was the runaway).
+  const rf = useReactFlow();
+  const TEXT_PAD = 4; // px around the glyphs (must match the render padding)
+  // Overflow mode drives everything. `auto` (default / unset) → the box
+  // AUTO-FITS its content (grows as you type). `wrap`/`truncate` → FIXED box.
+  // (Legacy `a.sized` from old files also means fixed.) One source of truth.
+  const textMode: "auto" | "wrap" | "truncate" =
+    a.textWrap && a.textWrap !== "auto" ? a.textWrap : a.sized ? "wrap" : "auto";
+  const textFixed = textMode !== "auto";
+  const isTextVariant = a.variant === "text" && !textFixed;
   const scale = d.scale ?? 1;
-  // The text we size to: the LIVE editing buffer while editing (so the node
-  // grows as you type), else the committed text.
+  // The text we size to: the LIVE editing buffer while editing (so the box grows
+  // as you type), else the committed text.
   const sizingText = editing !== null ? editing : (a.text ?? "");
+  // Hidden measurer: mirrors the display font, whitespace-pre so it hugs the
+  // text (wraps only on explicit newlines). Off-flow + hidden so it never shows.
+  const measureRef = useRef<HTMLDivElement>(null);
   const textFitSig = useRef<string | null>(null);
+  const onResizeRef = useRef(d.onResize);
+  onResizeRef.current = d.onResize;
   useLayoutEffect(() => {
     if (!isTextVariant) { textFitSig.current = null; return; }
     const sig = `${sizingText}|${fontSize}|${fontWeight}|${scale}`;
-    if (textFitSig.current === sig) return; // content unchanged (manual resize / selection) → skip
-    textFitSig.current = sig;
+    if (textFitSig.current === sig) return; // content/font unchanged → skip
     const el = measureRef.current;
     if (!el) return;
-    const PAD = 6; // small breathing room around the glyphs
-    const w = Math.max(24, Math.ceil(el.offsetWidth * scale) + PAD * 2);
-    const h = Math.max(20, Math.ceil(el.offsetHeight * scale) + PAD * 2);
-    if (Math.abs((d.w ?? 0) - w) > 1 || Math.abs((d.h ?? 0) - h) > 1) {
-      d.onResize(d.nodeId, w, h);
-    }
-  }, [isTextVariant, sizingText, fontSize, fontWeight, scale, d]);
+    textFitSig.current = sig;
+    // offsetWidth/Height of the measurer = the exact rendered text box; add the
+    // padding the visible text carries, so the node box hugs the text.
+    const w = Math.max(24, Math.ceil(el.offsetWidth * scale) + TEXT_PAD * 2);
+    const h = Math.max(20, Math.ceil(el.offsetHeight * scale) + TEXT_PAD * 2);
+    // Current node state from the store (consistent snapshot; not reactive).
+    const node = rf.getNode(d.nodeId);
+    if (!node) { onResizeRef.current(d.nodeId, w, h); return; }
+    const oldW = (node.width ?? (node.data as NodeData).w ?? w) as number;
+    const oldH = (node.height ?? (node.data as NodeData).h ?? h) as number;
+    if (Math.abs(oldW - w) < 1 && Math.abs(oldH - h) < 1) return; // no change
+    // Hold the top-left: center shifts by half the size delta (position==center).
+    const center = { x: node.position.x + (w - oldW) / 2, y: node.position.y + (h - oldH) / 2 };
+    onResizeRef.current(d.nodeId, w, h, undefined, center);
+  }, [isTextVariant, sizingText, fontSize, fontWeight, scale, d.nodeId, rf]);
 
   // The LOGO variant renders as a full-box icon with its caption floating
   // OUTSIDE the box (see the short-circuit below). Normalize the legacy caption
@@ -198,6 +225,97 @@ export const AnnotationNode = memo(function AnnotationNode({ data, selected }: N
     );
   }
 
+  // ─── TEXT ─────────────────────────────────────────────────────────────────
+  // A dedicated left/top-aligned text renderer. The content FILLS the node box;
+  // while UNSIZED the auto-fit effect grows the box to the text (holding the
+  // top-left corner fixed — see the effect). Once the user drags a resize grip
+  // it becomes `sized` and honors textWrap (wrap | truncate).
+  if (a.variant === "text") {
+    const align = H_CLASS[hA].split(" ").slice(1).join(" "); // just the text-* class
+    // Display whitespace/overflow per mode: auto hugs content (pre, grows);
+    // wrap flows within the fixed box; truncate is one line + ellipsis.
+    const displayWS =
+      textMode === "auto"
+        ? "whitespace-pre"
+        : textMode === "truncate"
+          ? "truncate"
+          : "whitespace-pre-wrap break-words";
+    const textStyle: React.CSSProperties = {
+      fontSize, fontWeight, lineHeight: 1.3, padding: TEXT_PAD,
+      ...(d.fontColor ? { color: d.fontColor } : {}),
+      ...(d.opacity !== undefined ? { opacity: d.opacity } : {}),
+    };
+    return (
+      <RotatableCard
+        rot={d.rot}
+        w={d.w ?? ANNOTATION_DEFAULT_SIZE.text.w}
+        h={d.h ?? ANNOTATION_DEFAULT_SIZE.text.h}
+        scale={1 /* text auto-fits its own box; no content --cs scaling */}
+        editMode={editMode}
+        selected={!!selected}
+        forceDots={isDropTarget}
+        onResize={(w, h, center) => {
+          // A manual resize means the user wants a FIXED box: switch an `auto`
+          // node to `wrap` (the natural fixed default) in the same commit so it
+          // keeps the dragged dimensions and stops auto-fitting.
+          if (textMode === "auto") d.onAnnotate(d.nodeId, { textWrap: "wrap" });
+          d.onResize(d.nodeId, w, h, undefined, center);
+        }}
+        onContext={(e) => { e.preventDefault(); d.onContext(d.nodeId, e.clientX, e.clientY); }}
+      >
+        <div
+          className={`relative h-full w-full overflow-hidden ${d.fontColor ? "" : "text-foreground"} ${selected ? "ring-2 ring-primary/60" : ""}`}
+          onClick={() => d.onSelect(d.nodeId)}
+          onDoubleClick={(e) => { e.stopPropagation(); setEditing(a.text ?? ""); }}
+          title="Double-click to edit"
+          style={{
+            background: d.fillColor && d.fillColor !== "transparent" ? d.fillColor : undefined,
+            borderRadius: d.borderRadius ?? (showBorder ? 6 : 0),
+            borderStyle: showBorder ? (d.borderStyle ?? "solid") : undefined,
+            borderWidth: showBorder ? borderW : undefined,
+            borderColor: showBorder ? (d.borderColor ?? "var(--border)") : undefined,
+          }}
+        >
+          {editing !== null ? (
+            <textarea
+              autoFocus
+              value={editing}
+              onChange={(e) => setEditing(e.target.value)}
+              onBlur={commit}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) commit();
+                else if (e.key === "Escape") setEditing(null);
+                e.stopPropagation();
+              }}
+              onClick={(e) => e.stopPropagation()}
+              // Fills the box, top-left, whitespace-pre so the text (and thus the
+              // measurer/box) grows to the right. No manual rows — the box height
+              // comes from the auto-fit.
+              className={`absolute inset-0 h-full w-full resize-none overflow-hidden whitespace-pre border-0 bg-transparent outline-none ${align}`}
+              style={textStyle}
+            />
+          ) : a.text ? (
+            <div className={`h-full w-full ${displayWS} ${align}`} style={textStyle}>{a.text}</div>
+          ) : (
+            <div className={`h-full w-full italic text-muted-foreground/50 ${align}`} style={textStyle}>Text</div>
+          )}
+          {/* Hidden measurer — off-flow, never visible. whitespace-pre so
+              offsetWidth/Height is the exact one-line-per-newline text box. */}
+          {isTextVariant && (
+            <div
+              ref={measureRef}
+              aria-hidden
+              className="pointer-events-none absolute whitespace-pre"
+              style={{ left: -99999, top: -99999, visibility: "hidden", fontSize, fontWeight, lineHeight: 1.3 }}
+            >
+              {sizingText || "Text"}
+            </div>
+          )}
+        </div>
+      </RotatableCard>
+    );
+  }
+
   return (
     <RotatableCard
       rot={d.rot}
@@ -208,15 +326,11 @@ export const AnnotationNode = memo(function AnnotationNode({ data, selected }: N
       selected={!!selected}
       forceDots={isDropTarget}
       onResize={(w, h, center) => {
-        // A manual resize of a TEXT node fixes its size (stops auto-fit): flag
-        // it `sized` (so the auto-fit effect stops clobbering the box) alongside
-        // writing the new w/h. Box resize is unchanged.
-        if (a.variant === "text" && !a.sized) d.onAnnotate(d.nodeId, { sized: true });
         d.onResize(d.nodeId, w, h, undefined, center);
       }}
       onContext={(e) => { e.preventDefault(); d.onContext(d.nodeId, e.clientX, e.clientY); }}
     >
-      {(a.variant === "text" || a.variant === "box") && (() => {
+      {a.variant === "box" && (() => {
         // Fill default: a BOX is solid white unless the user sets a color (or
         // "transparent"); plain TEXT is transparent by default.
         const fill = d.fillColor ?? (a.variant === "box" ? "#ffffff" : "transparent");
@@ -307,41 +421,14 @@ export const AnnotationNode = memo(function AnnotationNode({ data, selected }: N
                 style={{ fontSize, fontWeight, lineHeight: 1.3, textAlign: hA, ...(d.fontColor ? { color: d.fontColor } : {}) }}
               />
             ) : (
+              // A BOX wraps its text within the manually-sized box.
               <span
-                // Whitespace/overflow depends on the node's mode:
-                //  • box                       → wrap within the manual box.
-                //  • text, auto-fit (!sized)   → `whitespace-pre`: hugs content,
-                //    wraps only on explicit newlines (the node auto-fits it).
-                //  • text, sized + wrap        → flow onto new lines in the box.
-                //  • text, sized + truncate    → single line, ellipsis.
-                className={`${
-                  isBox
-                    ? "whitespace-pre-wrap break-words"
-                    : !a.sized
-                      ? "whitespace-pre"
-                      : a.textWrap === "truncate"
-                        ? "block w-full truncate"
-                        : "block w-full whitespace-pre-wrap break-words"
-                } ${d.fontColor ? "" : "text-foreground"}`}
-                style={{ fontSize, fontWeight, transform: "scale(var(--cs, 1))", ...(d.fontColor ? { color: d.fontColor } : {}) }}
+                className={`whitespace-pre-wrap break-words ${d.fontColor ? "" : "text-foreground"}`}
+                style={{ fontSize, fontWeight, ...(d.fontColor ? { color: d.fontColor } : {}) }}
                 title="Double-click to edit"
                 onDoubleClick={(e) => { e.stopPropagation(); setEditing(a.text ?? ""); }}
               >
-                {a.text || (isBox ? "" : "Text")}
-              </span>
-            )}
-            {/* Off-layout measurer for the auto-fit text node — mirrors the
-                display span's font at scale 1 so we can read its natural size.
-                Renders the LIVE editing buffer so the node grows as you type.
-                A trailing space keeps a width on empty/blank lines. */}
-            {isTextVariant && (
-              <span
-                ref={measureRef}
-                aria-hidden
-                className="pointer-events-none invisible absolute whitespace-pre"
-                style={{ left: -99999, top: -99999, fontSize, fontWeight }}
-              >
-                {(sizingText || "Text") + " "}
+                {a.text}
               </span>
             )}
           </div>
@@ -369,7 +456,7 @@ export const AnnotationNode = memo(function AnnotationNode({ data, selected }: N
 /** A searchable picker over EVERY icon we ship — built-in catalog/brand/vendor
  *  React icons AND the file-based icon library (vendor logos, cloud marks).
  *  Used by the "Logo" annotation + the source/cloud library flows. */
-interface PickItem { key: string; label: string; search: string; tabs: string[]; source: boolean }
+export interface PickItem { key: string; label: string; search: string; tabs: string[]; source: boolean }
 
 // Which industry buckets each canonical vendor logo belongs to (built from the
 // dedup mapping). Lets one canonical file appear under several industry tabs.
@@ -406,7 +493,7 @@ export function prettyIconLabel(key: string): string {
     .trim();
 }
 
-function buildPickIndex(): { items: PickItem[]; tabs: string[] } {
+export function buildPickIndex(): { items: PickItem[]; tabs: string[] } {
   const items: PickItem[] = [];
   for (const k of Object.keys(DATABRICKS_ICONS) as DatabricksIconName[]) {
     if (SUPERSEDED_BUILTINS.has(k)) continue; // dup of file:vendor/<name>
@@ -440,6 +527,7 @@ export function IconPicker({
   onClose,
   allowTrademark = false,
   sourcesOnly = false,
+  initialQuery = "",
 }: {
   onPick: (key: string) => void;
   onClose: () => void;
@@ -447,8 +535,11 @@ export function IconPicker({
   allowTrademark?: boolean;
   /** Restrict to actual data sources (for the "+ more data sources" picker). */
   sourcesOnly?: boolean;
+  /** Seed the search box (e.g. the palette's "see more logos" carries the term
+   *  the user already typed so the picker opens pre-filtered). */
+  initialQuery?: string;
 }) {
-  const [q, setQ] = useState("");
+  const [q, setQ] = useState(initialQuery);
   const [tab, setTab] = useState("All");
   const { items, tabs } = useMemo(buildPickIndex, []);
   const ql = q.trim().toLowerCase();
