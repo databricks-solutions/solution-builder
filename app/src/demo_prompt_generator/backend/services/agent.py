@@ -291,6 +291,7 @@ async def stream_agent_response(
     databricks_profile: str | None = None,
     session_id: str | None = None,
     template_lineage: dict | None = None,
+    operator_notice: str | None = None,
 ) -> AsyncIterator[dict]:
     """
     Stream Claude Code agent responses with client pooling.
@@ -554,6 +555,11 @@ async def stream_agent_response(
             if context_hint
             else message
         )
+        # A take-over just happened → prepend a one-line operator-change notice
+        # (SDK-only; the UI already shows the system pill). Fired once — the
+        # route cleared the pending flag, so it never repeats.
+        if operator_notice:
+            query_text = f"{operator_notice}\n\n{query_text}"
         await client.query(query_text)
         logger.info(f"Sent query to agent for project {project_id}")
 
