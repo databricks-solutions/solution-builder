@@ -1821,7 +1821,9 @@ async def take_over_project(
                         write_project_auth_file(get_project_directory(project_id), host, pat)
                     except Exception:
                         logger.exception("take-over: failed to refresh .databrickscfg for %s", project_id)
-            # Record the handoff in the conversation so it's visible + auditable.
+            # Record the handoff in the conversation so it's visible + auditable
+            # (the UI pill) AND mark it pending so the NEXT agent turn folds a
+            # one-line notice into Claude's query — exactly once, no duplicate.
             who_from = f" from {previous}" if previous else ""
             session.add(
                 Message(
@@ -1833,6 +1835,8 @@ async def take_over_project(
                     ),
                 )
             )
+            project.driver_handoff_pending = True
+            session.add(project)
             session.commit()
 
         await asyncio.to_thread(_do_takeover)

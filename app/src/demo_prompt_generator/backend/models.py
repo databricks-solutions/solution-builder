@@ -298,6 +298,10 @@ class Project(SQLModel, table=True):
     # stale (only the driver's own browser can mint a new one). NULL = never
     # written (unclaimed / local mode).
     active_driver_token_refreshed_at: Optional[datetime] = SQLField(default=None)
+    # Set when a take-over happens; consumed (cleared) on the next agent turn,
+    # which folds a one-line "operator changed to X" notice into the query so
+    # CLAUDE learns the identity handoff — exactly once, no duplicate message.
+    driver_handoff_pending: bool = SQLField(default=False)
     cluster_id: Optional[str] = SQLField(default=None, max_length=100)
     cluster_name: Optional[str] = SQLField(default=None, max_length=255)
     warehouse_id: Optional[str] = SQLField(default=None, max_length=100)

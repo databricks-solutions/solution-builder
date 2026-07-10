@@ -198,7 +198,24 @@ async def invoke_agent(
         #     and do NOT claim (only the driver's browser can mint a token). But
         #     if the driver's token is STALE, block with a 409 (+ saved message):
         #     nobody can refresh it but the driver, so a run would 401 mid-way.
+        handoff_notice: str | None = None
+
         def _driver_gate_and_token() -> None:
+            nonlocal handoff_notice
+            # Consume a pending take-over handoff → tell Claude ONCE on this turn
+            # (folded into the query in stream_agent_response). Clear the flag so
+            # it never repeats. Whoever runs the next turn delivers the notice.
+            proj = session.get(Project, body.project_id)
+            if proj is not None and proj.driver_handoff_pending:
+                handoff_notice = (
+                    f"[System note] The operator of this conversation changed — the "
+                    f"agent's Databricks CLI now runs on behalf of {proj.active_driver_email}. "
+                    f"No action required; continue as normal."
+                )
+                proj.driver_handoff_pending = False
+                session.add(proj)
+                session.commit()
+
             if is_driver(session, body.project_id, user_email):
                 claim_driver(session, body.project_id, user_email)
                 if mode == "deployed":
@@ -298,6 +315,7 @@ async def invoke_agent(
                     databricks_profile=databricks_profile,
                     session_id=effective_session_id,
                     template_lineage=template_lineage,
+                    operator_notice=handoff_notice,
                 ):
                     collected_events.append(event)
             except asyncio.CancelledError:
