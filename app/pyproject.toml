@@ -49,13 +49,11 @@ dependencies = [
     "ddgs>=9.14.4",
     "selectolax>=0.4.10",
     "colorthief>=0.2.1",
-    # Pinned to 1.60.x: Playwright 1.61 added an `isMobile` viewport field that
-    # breaks Camoufox's bundled Juggler (setDefaultViewport error, GH daijro/
-    # camoufox#653). 1.60 supports BOTH screenshot backends: chromium-headless-shell
-    # AND Camoufox. Don't bump past 1.60 until Camoufox ships a 1.61-compatible build.
-    "playwright>=1.60.0,<1.61",
+    "playwright>=1.61.0",
+    # Applies to the chromium-headless-shell screenshot path: hides headless
+    # fingerprints (navigator.webdriver, plugins, WebGL vendor…) so JS-based
+    # bot-checks let us through — recovers sites like SAP (Akamai JS check).
     "playwright-stealth>=2.0.3",
-    "camoufox>=0.4.11",
 ]
 
 # Local path dependencies for Databricks MCP tools

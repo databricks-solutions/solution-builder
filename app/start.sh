@@ -106,27 +106,6 @@ else
     echo "[start.sh] Playwright chromium-headless-shell cached."
 fi
 
-# ── Camoufox (anti-detection Firefox) — OPT-IN ──────────────────────────────
-# Second screenshot backend for sites that bot-wall headless Chromium
-# (network-layer WAFs: LVMH, DataDome, etc.). DISABLED by default: a single
-# Camoufox capture costs ~1.4 GB (6 Firefox processes) vs ~750 MB for Chromium —
-# too heavy for the rare bot-walled site. The `camoufox` PYTHON package is always
-# in the wheel; the ~140 MB Firefox binary is only fetched at boot when
-# BRAND_CAMOUFOX_FALLBACK=1 (the same flag that enables the fallback in code).
-# NODE_OPTIONS is unset for the fetch — a stray --require crashes its Node launcher.
-if [[ "${BRAND_CAMOUFOX_FALLBACK:-}" == "1" ]]; then
-    if [[ ! -d "$HOME/.cache/camoufox/Camoufox.app" && ! -d "$HOME/.cache/camoufox/camoufox" ]]; then
-        echo "[start.sh] BRAND_CAMOUFOX_FALLBACK=1 — fetching Camoufox browser ..."
-        if NODE_OPTIONS= python3 -m camoufox fetch >>/tmp/pw-install.log 2>&1; then
-            echo "[start.sh] Camoufox fetched."
-        else
-            echo "[start.sh] WARNING: camoufox fetch failed — falls back to Chromium screenshots (see /tmp/pw-install.log)" >&2
-        fi
-    else
-        echo "[start.sh] Camoufox cached."
-    fi
-fi
-
 # Front the venv on PATH so subprocesses (the agent's Bash tool, any `python`
 # / `python3` invocation in start scripts, etc.) inherit our 3.12 venv
 # interpreter instead of the OS-level /usr/bin/python3 (3.10 on Ubuntu 22.04).

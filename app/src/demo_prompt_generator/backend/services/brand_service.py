@@ -452,11 +452,10 @@ def _ddg_images(query: str, n: int = 12) -> list[dict[str, Any]]:
 # company sites are SPAs, and reliability > the small memory saving, so we keep
 # the normal multi-process model. (Measured memory delta was ~noise anyway.)
 def _sanitize_browser_env() -> None:
-    """Strip env vars that break the Playwright/Camoufox Node driver subprocess.
-    Some environments inject a NODE_OPTIONS=--require=<file> that points at a
-    missing script → every Node child (the PW driver, Camoufox's launcher) crashes
-    with 'Connection closed while reading from the driver'. A screenshot browser
-    has no business inheriting a stray NODE_OPTIONS anyway."""
+    """Strip env vars that break Playwright's Node driver subprocess. Some
+    environments inject a NODE_OPTIONS=--require=<file> that points at a missing
+    script → the Node driver crashes with 'Connection closed while reading from the
+    driver'. A screenshot browser has no business inheriting a stray NODE_OPTIONS."""
     no = os.environ.get("NODE_OPTIONS", "")
     if "restore-node-options" in no or "cmux" in no:
         os.environ.pop("NODE_OPTIONS", None)
@@ -669,13 +668,8 @@ def _screenshot_site(url: str) -> Optional[bytes]:
     most sites incl. JS-fingerprint walls (SAP via stealth). Runs in a SUBPROCESS
     with a hard wall-clock timeout so a hung driver / stalled render / crashed
     browser can't block the resolve thread (page.goto's timeout only bounds ONE
-    op); SIGKILL on timeout reaps the browser subtree.
-
-    A Camoufox fallback backend exists (_capture_camoufox) that beats network-layer
-    WAFs Playwright can't (verified: LVMH), BUT it's DISABLED by default — a single
-    Camoufox capture costs ~1.4GB (6 Firefox processes) vs ~750MB, too heavy for the
-    rare bot-walled site. Set BRAND_CAMOUFOX_FALLBACK=1 to re-enable (the code + the
-    bench harness are kept for when it's worth revisiting).
+    op); SIGKILL on timeout reaps the browser subtree. Network-layer-WAF sites
+    (LVMH etc.) just return None here — logo/palette still resolve via image search.
 
     Sync — runs on the resolve worker thread. Serialized via _SCREENSHOT_LOCK so at
     most one browser subprocess runs at a time across concurrent resolves."""
@@ -686,27 +680,22 @@ def _screenshot_site(url: str) -> Optional[bytes]:
     if _SCREENSHOT_LOCK.locked():
         logger.info("[brand] screenshot: another capture in progress, queuing for %s", url)
     with _SCREENSHOT_LOCK:
-        shot = _run_backend_subprocess("playwright", url, timeout_s=_SHOT_TIMEOUT_S)
-        if shot is not None or os.environ.get("BRAND_CAMOUFOX_FALLBACK") != "1":
-            return shot
-        # Opt-in heavy fallback for bot-walled sites (see docstring).
-        logger.info("[brand] screenshot: playwright empty for %s — trying camoufox fallback", url)
-        return _run_backend_subprocess("camoufox", url, timeout_s=_SHOT_TIMEOUT_S)
+        return _run_capture_subprocess(url, timeout_s=_SHOT_TIMEOUT_S)
 
 
-# Hard per-backend wall-clock cap. A single capture does 3 attempts (goto 20-25s
-# each worst case), but a healthy render finishes in 3-6s; anything past this is a
-# hang/bot-wall stall we'd rather kill than wait on.
+# Hard wall-clock cap. A capture does 3 attempts (goto 20s each worst case), but a
+# healthy render finishes in 3-6s; anything past this is a hang/bot-wall stall we'd
+# rather kill than wait on.
 _SHOT_TIMEOUT_S = 35
 
 
-def _run_backend_subprocess(backend: str, url: str, timeout_s: int) -> Optional[bytes]:
-    """Run one screenshot backend in a child process with a HARD timeout. On
-    timeout we SIGKILL the child's whole PROCESS GROUP — not just the direct child —
-    so the browser grandchildren (the actual 0.75-1.6 GB) are reaped too, not left
-    as orphans. Returns JPEG bytes or None. The child imports brand_service and
-    calls _capture_<backend>, writing the JPEG to a temp file we read back (base64
-    over stdout risks truncation on large shots)."""
+def _run_capture_subprocess(url: str, timeout_s: int) -> Optional[bytes]:
+    """Run the screenshot in a child process with a HARD timeout. On timeout we
+    SIGKILL the child's whole PROCESS GROUP — not just the direct child — so the
+    browser grandchildren (the actual ~750MB) are reaped too, not left as orphans.
+    Returns JPEG bytes or None. The child imports brand_service and calls
+    _capture_playwright, writing the JPEG to a temp file we read back (base64 over
+    stdout risks truncation on large shots)."""
     import signal
     import subprocess
     import sys
@@ -716,21 +705,18 @@ def _run_backend_subprocess(backend: str, url: str, timeout_s: int) -> Optional[
     fd, out_path = tempfile.mkstemp(prefix="brand_shot_", suffix=".jpg")
     os.close(fd)
     code = (
-        "import os,sys;os.environ.pop('NODE_OPTIONS',None);"
+        "import sys;"
         "from demo_prompt_generator.backend.services import brand_service as bs;"
-        "b=bs._capture_playwright(sys.argv[1]) if sys.argv[2]=='playwright' "
-        "else bs._capture_camoufox(sys.argv[1]);"
-        "open(sys.argv[3],'wb').write(b) if b else None"
+        "b=bs._capture_playwright(sys.argv[1]);"
+        "open(sys.argv[2],'wb').write(b) if b else None"
     )
-    env = {**os.environ}
-    env.pop("NODE_OPTIONS", None)
     proc = None
     try:
         # start_new_session → child is a process-group leader; killpg reaps the
         # whole browser subtree on timeout.
         proc = subprocess.Popen(
-            [sys.executable, "-c", code, url, backend, out_path],
-            env=env, start_new_session=True,
+            [sys.executable, "-c", code, url, out_path],
+            start_new_session=True,
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         )
         proc.wait(timeout=timeout_s)
@@ -739,8 +725,8 @@ def _run_backend_subprocess(backend: str, url: str, timeout_s: int) -> Optional[
                 return f.read()
         return None
     except subprocess.TimeoutExpired:
-        logger.info("[brand] screenshot: %s TIMED OUT (%ds) for %s — killing process group",
-                    backend, timeout_s, url)
+        logger.info("[brand] screenshot: TIMED OUT (%ds) for %s — killing process group",
+                    timeout_s, url)
         try:
             if proc is not None:
                 os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
@@ -748,7 +734,7 @@ def _run_backend_subprocess(backend: str, url: str, timeout_s: int) -> Optional[
             pass
         return None
     except Exception as e:
-        logger.info("[brand] screenshot: %s subprocess error for %s: %s", backend, url, str(e)[:100])
+        logger.info("[brand] screenshot: subprocess error for %s: %s", url, str(e)[:100])
         return None
     finally:
         if proc is not None:
@@ -763,8 +749,8 @@ def _run_backend_subprocess(backend: str, url: str, timeout_s: int) -> Optional[
 
 
 def _capture_playwright(url: str) -> Optional[bytes]:
-    """Backend 1: chromium-headless-shell + stealth. Runs IN-PROCESS (called inside
-    the subprocess worker spawned by _run_backend_subprocess). See _screenshot_site."""
+    """chromium-headless-shell + stealth. Runs IN-PROCESS (called inside the
+    subprocess worker spawned by _run_capture_subprocess). See _screenshot_site."""
     try:
         from playwright.sync_api import sync_playwright
     except Exception as e:
@@ -883,63 +869,6 @@ def _capture_playwright(url: str) -> Optional[bytes]:
                 pw.stop()
         except Exception:
             pass
-
-
-def _capture_camoufox(url: str) -> Optional[bytes]:
-    """Backend 2 (fallback): Camoufox — anti-detection Firefox. Runs IN-PROCESS
-    (inside the subprocess worker). Reuses the SAME cookie-dismiss + content-ready
-    + reload-retry + discard-blank logic as the Playwright backend (Camoufox
-    exposes a Playwright Browser, so it transfers unchanged).
-
-    Camoufox gotchas baked in here:
-      - strip NODE_OPTIONS before launch (a stray --require crashes its Node driver)
-      - `browser.new_page()` takes the viewport from the launch `window=`; do NOT
-        pass a Playwright context viewport (Firefox rejects setDefaultViewport under
-        the playwright-1.61 isMobile bug — hence the <1.61 pin in pyproject).
-      - block_images=False: we NEED the header logo in the shot."""
-    _sanitize_browser_env()
-    try:
-        from camoufox.sync_api import Camoufox
-    except Exception as e:
-        logger.info("[brand] camoufox unavailable, skipping fallback screenshot: %s", e)
-        return None
-
-    _t0 = time.monotonic()
-    logger.info("[brand] screenshot: launching camoufox for %s", url)
-    try:
-        with Camoufox(headless=True, os=["macos", "windows", "linux"],
-                      window=(1280, 800), block_images=False) as browser:
-            page = browser.new_page()
-            page.goto(url, wait_until="domcontentloaded", timeout=25000)
-            best = None
-            best_q = 1.0
-            for attempt in range(3):
-                ready = _content_ready(page, timeout_ms=7000)
-                _dismiss_cookies(page)
-                page.wait_for_timeout(600)
-                cand = page.screenshot(type="jpeg", quality=80,
-                                       clip={"x": 0, "y": 0, "width": 1280, "height": 900})
-                q = _uniformity(cand)
-                if best is None or q < best_q:
-                    best, best_q = cand, q
-                if ready and q < 0.9:
-                    break
-                if attempt < 2:
-                    try:
-                        page.wait_for_timeout(1000 + 1500 * attempt)
-                        page.reload(wait_until="domcontentloaded", timeout=20000)
-                    except Exception:
-                        break
-            if best is None or best_q > 0.9:
-                logger.info("[brand] screenshot: camoufox DISCARDED %s — blank/uniform (%.2f)",
-                            url, best_q)
-                return None
-            logger.info("[brand] screenshot: camoufox captured %s (%d bytes, %.1fs, uniform=%.2f)",
-                        url, len(best), time.monotonic() - _t0, best_q)
-            return best
-    except Exception as e:
-        logger.info("[brand] camoufox screenshot failed for %s: %s", url, str(e)[:120])
-        return None
 
 
 def _colors_from_screenshot(png_or_jpeg: bytes, top: int = 8) -> list[str]:
