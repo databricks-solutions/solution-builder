@@ -20,6 +20,7 @@ import io
 import ipaddress
 import json
 import logging
+import os
 import re
 import socket
 import threading
@@ -450,6 +451,17 @@ def _ddg_images(query: str, n: int = 12) -> list[dict[str, Any]]:
 # renderer on heavy SPAs (airbnb.com etc.) — "Target page has been closed". Most
 # company sites are SPAs, and reliability > the small memory saving, so we keep
 # the normal multi-process model. (Measured memory delta was ~noise anyway.)
+def _sanitize_browser_env() -> None:
+    """Strip env vars that break the Playwright/Camoufox Node driver subprocess.
+    Some environments inject a NODE_OPTIONS=--require=<file> that points at a
+    missing script → every Node child (the PW driver, Camoufox's launcher) crashes
+    with 'Connection closed while reading from the driver'. A screenshot browser
+    has no business inheriting a stray NODE_OPTIONS anyway."""
+    no = os.environ.get("NODE_OPTIONS", "")
+    if "restore-node-options" in no or "cmux" in no:
+        os.environ.pop("NODE_OPTIONS", None)
+
+
 _PW_ARGS = [
     "--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage",
     "--disable-gpu", "--disable-software-rasterizer",
@@ -649,136 +661,286 @@ def _content_ready(page, timeout_ms: int = 6000) -> bool:
         return False
 
 
-def _screenshot_site(url: str, _attempts: int = 3) -> Optional[bytes]:
+def _screenshot_site(url: str) -> Optional[bytes]:
     """Screenshot a site (desktop viewport so the header logo is visible) → JPEG
-    bytes, or None. SSRF-guarded; best-effort. Serialized via _SCREENSHOT_LOCK so
-    at most one Chromium runs at a time (memory cap). Sync — runs on the resolve
-    worker thread. Browser/context/page are always torn down (finally)."""
+    bytes, or None. SSRF-guarded; best-effort.
+
+    Two backends, tried in order (benchmark showed they're COMPLEMENTARY):
+      1. Playwright chromium-headless-shell (+stealth) — fast, handles most sites
+         incl. JS-fingerprint walls (SAP via stealth).
+      2. Camoufox (anti-detection Firefox) — FALLBACK only when Playwright returns
+         None. Beats network-layer WAFs that block headless Chromium at the
+         TLS/HTTP-2 layer (verified: LVMH renders under Camoufox, FAILs under
+         Playwright). Heavier, so we only pay for it when the fast path failed.
+
+    Sync — runs on the resolve worker thread. Serialized via _SCREENSHOT_LOCK so at
+    most one browser subprocess runs at a time across concurrent resolves (memory
+    cap — a single browser tree is already ~0.75-1.6 GB)."""
     try:
         _assert_public_url(url)
     except Exception:
         return None
+    if _SCREENSHOT_LOCK.locked():
+        logger.info("[brand] screenshot: another capture in progress, queuing for %s", url)
+    with _SCREENSHOT_LOCK:
+        # Each backend runs in a SUBPROCESS with a hard wall-clock timeout, so a hung
+        # driver / stalled _content_ready / crashed browser can't block the resolve
+        # thread (page.goto's timeout only bounds ONE op, not the whole capture).
+        # SIGKILL on timeout reaps the browser children too. Playwright first (light,
+        # fast); camoufox only as a fallback (heavy: ~1.6GB vs ~750MB, ~2x slower).
+        shot = _run_backend_subprocess("playwright", url, timeout_s=_SHOT_TIMEOUT_S)
+        if shot is not None:
+            return shot
+        logger.info("[brand] screenshot: playwright empty for %s — trying camoufox fallback", url)
+        return _run_backend_subprocess("camoufox", url, timeout_s=_SHOT_TIMEOUT_S)
+
+
+# Hard per-backend wall-clock cap. A single capture does 3 attempts (goto 20-25s
+# each worst case), but a healthy render finishes in 3-6s; anything past this is a
+# hang/bot-wall stall we'd rather kill than wait on.
+_SHOT_TIMEOUT_S = 35
+
+
+def _run_backend_subprocess(backend: str, url: str, timeout_s: int) -> Optional[bytes]:
+    """Run one screenshot backend in a child process with a HARD timeout. On
+    timeout we SIGKILL the child's whole PROCESS GROUP — not just the direct child —
+    so the browser grandchildren (the actual 0.75-1.6 GB) are reaped too, not left
+    as orphans. Returns JPEG bytes or None. The child imports brand_service and
+    calls _capture_<backend>, writing the JPEG to a temp file we read back (base64
+    over stdout risks truncation on large shots)."""
+    import signal
+    import subprocess
+    import sys
+    import tempfile
+
+    _assert_public_url(url)  # re-guard: the child is told a URL, keep SSRF check here too
+    fd, out_path = tempfile.mkstemp(prefix="brand_shot_", suffix=".jpg")
+    os.close(fd)
+    code = (
+        "import os,sys;os.environ.pop('NODE_OPTIONS',None);"
+        "from demo_prompt_generator.backend.services import brand_service as bs;"
+        "b=bs._capture_playwright(sys.argv[1]) if sys.argv[2]=='playwright' "
+        "else bs._capture_camoufox(sys.argv[1]);"
+        "open(sys.argv[3],'wb').write(b) if b else None"
+    )
+    env = {**os.environ}
+    env.pop("NODE_OPTIONS", None)
+    proc = None
+    try:
+        # start_new_session → child is a process-group leader; killpg reaps the
+        # whole browser subtree on timeout.
+        proc = subprocess.Popen(
+            [sys.executable, "-c", code, url, backend, out_path],
+            env=env, start_new_session=True,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+        proc.wait(timeout=timeout_s)
+        if os.path.getsize(out_path) > 0:
+            with open(out_path, "rb") as f:
+                return f.read()
+        return None
+    except subprocess.TimeoutExpired:
+        logger.info("[brand] screenshot: %s TIMED OUT (%ds) for %s — killing process group",
+                    backend, timeout_s, url)
+        try:
+            if proc is not None:
+                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+        except Exception:
+            pass
+        return None
+    except Exception as e:
+        logger.info("[brand] screenshot: %s subprocess error for %s: %s", backend, url, str(e)[:100])
+        return None
+    finally:
+        if proc is not None:
+            try:
+                proc.wait(timeout=5)  # reap the zombie after kill
+            except Exception:
+                pass
+        try:
+            os.unlink(out_path)
+        except Exception:
+            pass
+
+
+def _capture_playwright(url: str) -> Optional[bytes]:
+    """Backend 1: chromium-headless-shell + stealth. Runs IN-PROCESS (called inside
+    the subprocess worker spawned by _run_backend_subprocess). See _screenshot_site."""
     try:
         from playwright.sync_api import sync_playwright
     except Exception as e:
         logger.info("[brand] playwright unavailable, skipping screenshot: %s", e)
         return None
 
-    # only note a WAIT if the lock is actually held (a screenshot already running)
-    if _SCREENSHOT_LOCK.locked():
-        logger.info("[brand] screenshot: another capture in progress, queuing for %s", url)
-    with _SCREENSHOT_LOCK:
-        _t0 = time.monotonic()
-        logger.info("[brand] screenshot: launching headless-shell for %s", url)
-        pw = browser = context = page = None
+    _t0 = time.monotonic()
+    logger.info("[brand] screenshot: launching headless-shell for %s", url)
+    pw = browser = context = page = None
+    try:
+        _sanitize_browser_env()
+        pw = sync_playwright().start()
+        # chromium-headless-shell: Chrome's stripped headless build (lighter than
+        # full chromium). We only screenshot public homepages — no full browser
+        # or anti-bot tooling needed.
+        browser = pw.chromium.launch(headless=True, channel="chromium-headless-shell", args=_PW_ARGS)
+        context = browser.new_context(
+            viewport={"width": 1280, "height": 800},
+            user_agent=_UA_BROWSER,
+            locale="en-US",
+            # Only Accept-Language here. Do NOT set Accept / Sec-Fetch-* as
+            # extra_http_headers — those apply to EVERY request (scripts, CSS,
+            # XHR), overriding Chromium's correct per-request values and making
+            # servers return wrong content / reject subresources → BLANK render
+            # (measured: this exact header set blanked anthropic.com). Chromium
+            # already sends proper Sec-Fetch-*/Accept per resource type.
+            extra_http_headers={"Accept-Language": "en-US,en;q=0.9"},
+        )
+        # Pre-inject generic consent cookies so most banners never render
+        # (cheaper + cleaner than clicking). Covers the common CMPs.
         try:
-            pw = sync_playwright().start()
-            # chromium-headless-shell: Chrome's stripped headless build (lighter than
-            # full chromium). We only screenshot public homepages — no full browser
-            # or anti-bot tooling needed.
-            browser = pw.chromium.launch(headless=True, channel="chromium-headless-shell", args=_PW_ARGS)
-            context = browser.new_context(
-                viewport={"width": 1280, "height": 800},
-                user_agent=_UA_BROWSER,
-                locale="en-US",
-                # Only Accept-Language here. Do NOT set Accept / Sec-Fetch-* as
-                # extra_http_headers — those apply to EVERY request (scripts, CSS,
-                # XHR), overriding Chromium's correct per-request values and making
-                # servers return wrong content / reject subresources → BLANK render
-                # (measured: this exact header set blanked anthropic.com). Chromium
-                # already sends proper Sec-Fetch-*/Accept per resource type.
-                extra_http_headers={"Accept-Language": "en-US,en;q=0.9"},
-            )
-            # Pre-inject generic consent cookies so most banners never render
-            # (cheaper + cleaner than clicking). Covers the common CMPs.
+            dom = "." + (urlparse(url).hostname or "").lstrip(".")
+            context.add_cookies(_consent_cookies(dom))
+        except Exception:
+            pass
+        page = context.new_page()
+        # Stealth: hide headless fingerprints (navigator.webdriver, plugins,
+        # WebGL vendor, window.chrome…) so JS-based bot-checks let us through.
+        # Recovers sites like SAP (Akamai JS check). Does NOT beat network-layer
+        # WAF fingerprinting (TLS/HTTP2) — those still block. Best-effort.
+        try:
+            from playwright_stealth import Stealth
+            Stealth().apply_stealth_sync(page)
+        except Exception as e:
+            logger.debug("[brand] stealth unavailable: %s", e)
+
+        def _route(route, request):
+            u = request.url.lower()
+            if request.resource_type in _SHOT_BLOCK_TYPES or any(h in u for h in _SHOT_BLOCK_URL_HINTS):
+                route.abort()
+            else:
+                route.continue_()
+        page.route("**/*", _route)
+        page.goto(url, wait_until="domcontentloaded", timeout=20000)  # navigate first!
+        def _grab():
+            return page.screenshot(type="jpeg", quality=80,
+                                   clip={"x": 0, "y": 0, "width": 1280, "height": 900})
+        def _quality(png):
+            # lower is better: penalize blank (high uniformity) heavily.
+            return _uniformity(png)
+
+        best = None
+        best_q = 1.0
+        # Up to 3 attempts. Each: wait for a PROPER styled render (catches both
+        # blank SPAs and unstyled CSS-failed fallbacks), dismiss cookies, grab.
+        # Reload between attempts — a bad render won't fix itself in place. Keep
+        # the best shot seen. This is the core reliability mechanism.
+        for attempt in range(3):
+            ready = _content_ready(page, timeout_ms=7000)
+            _dismiss_cookies(page)
+            page.wait_for_timeout(600)
+            cand = _grab()
+            q = _quality(cand)
+            if best is None or q < best_q:
+                best, best_q = cand, q
+            # good enough? proper render AND not near-blank → done.
+            if ready and q < 0.9:
+                break
+            if attempt < 2:
+                logger.info("[brand] screenshot: weak render (ready=%s uniform=%.2f), "
+                            "reload+retry %d for %s", ready, q, attempt + 1, url)
+                try:
+                    # brief back-off before reloading — a bad render is often a
+                    # transient hiccup/soft-throttle; hammering instantly makes
+                    # it worse. Escalating wait per attempt.
+                    page.wait_for_timeout(1000 + 1500 * attempt)
+                    page.reload(wait_until="domcontentloaded", timeout=20000)
+                except Exception as e:
+                    logger.debug("[brand] reload failed: %s", e)
+                    break
+        # If, after all retries, the best shot is STILL near-blank/uniform, the
+        # capture effectively failed → return None. A blank/white image is worse
+        # than none: it wastes vision-model tokens and can mislead the "match the
+        # real site" reasoning. Callers treat None as "no screenshot" and skip it.
+        if best_q > 0.9:
+            logger.info("[brand] screenshot: DISCARDED %s — still blank/uniform (%.2f) "
+                        "after retries", url, best_q)
+            return None
+        logger.info("[brand] screenshot: captured %s (%d bytes, %.1fs, uniform=%.2f)",
+                    url, len(best), time.monotonic() - _t0, best_q)
+        return best
+    except Exception as e:
+        logger.info("[brand] screenshot failed for %s: %s", url, e)
+        return None
+    finally:
+        # tear down in order: page → context → browser → playwright, each best-
+        # effort so one failure doesn't leak the rest.
+        for closer in (page, context, browser):
             try:
-                dom = "." + (urlparse(url).hostname or "").lstrip(".")
-                context.add_cookies(_consent_cookies(dom))
+                if closer:
+                    closer.close()
             except Exception:
                 pass
-            page = context.new_page()
-            # Stealth: hide headless fingerprints (navigator.webdriver, plugins,
-            # WebGL vendor, window.chrome…) so JS-based bot-checks let us through.
-            # Recovers sites like SAP (Akamai JS check). Does NOT beat network-layer
-            # WAF fingerprinting (TLS/HTTP2) — those still block. Best-effort.
-            try:
-                from playwright_stealth import Stealth
-                Stealth().apply_stealth_sync(page)
-            except Exception as e:
-                logger.debug("[brand] stealth unavailable: %s", e)
+        try:
+            if pw:
+                pw.stop()
+        except Exception:
+            pass
 
-            def _route(route, request):
-                u = request.url.lower()
-                if request.resource_type in _SHOT_BLOCK_TYPES or any(h in u for h in _SHOT_BLOCK_URL_HINTS):
-                    route.abort()
-                else:
-                    route.continue_()
-            page.route("**/*", _route)
-            page.goto(url, wait_until="domcontentloaded", timeout=20000)  # navigate first!
-            def _grab():
-                return page.screenshot(type="jpeg", quality=80,
-                                       clip={"x": 0, "y": 0, "width": 1280, "height": 900})
-            def _quality(png):
-                # lower is better: penalize blank (high uniformity) heavily.
-                return _uniformity(png)
 
+def _capture_camoufox(url: str) -> Optional[bytes]:
+    """Backend 2 (fallback): Camoufox — anti-detection Firefox. Runs IN-PROCESS
+    (inside the subprocess worker). Reuses the SAME cookie-dismiss + content-ready
+    + reload-retry + discard-blank logic as the Playwright backend (Camoufox
+    exposes a Playwright Browser, so it transfers unchanged).
+
+    Camoufox gotchas baked in here:
+      - strip NODE_OPTIONS before launch (a stray --require crashes its Node driver)
+      - `browser.new_page()` takes the viewport from the launch `window=`; do NOT
+        pass a Playwright context viewport (Firefox rejects setDefaultViewport under
+        the playwright-1.61 isMobile bug — hence the <1.61 pin in pyproject).
+      - block_images=False: we NEED the header logo in the shot."""
+    _sanitize_browser_env()
+    try:
+        from camoufox.sync_api import Camoufox
+    except Exception as e:
+        logger.info("[brand] camoufox unavailable, skipping fallback screenshot: %s", e)
+        return None
+
+    _t0 = time.monotonic()
+    logger.info("[brand] screenshot: launching camoufox for %s", url)
+    try:
+        with Camoufox(headless=True, os=["macos", "windows", "linux"],
+                      window=(1280, 800), block_images=False) as browser:
+            page = browser.new_page()
+            page.goto(url, wait_until="domcontentloaded", timeout=25000)
             best = None
             best_q = 1.0
-            # Up to 3 attempts. Each: wait for a PROPER styled render (catches both
-            # blank SPAs and unstyled CSS-failed fallbacks), dismiss cookies, grab.
-            # Reload between attempts — a bad render won't fix itself in place. Keep
-            # the best shot seen. This is the core reliability mechanism.
             for attempt in range(3):
                 ready = _content_ready(page, timeout_ms=7000)
                 _dismiss_cookies(page)
                 page.wait_for_timeout(600)
-                cand = _grab()
-                q = _quality(cand)
+                cand = page.screenshot(type="jpeg", quality=80,
+                                       clip={"x": 0, "y": 0, "width": 1280, "height": 900})
+                q = _uniformity(cand)
                 if best is None or q < best_q:
                     best, best_q = cand, q
-                # good enough? proper render AND not near-blank → done.
                 if ready and q < 0.9:
                     break
                 if attempt < 2:
-                    logger.info("[brand] screenshot: weak render (ready=%s uniform=%.2f), "
-                                "reload+retry %d for %s", ready, q, attempt + 1, url)
                     try:
-                        # brief back-off before reloading — a bad render is often a
-                        # transient hiccup/soft-throttle; hammering instantly makes
-                        # it worse. Escalating wait per attempt.
                         page.wait_for_timeout(1000 + 1500 * attempt)
                         page.reload(wait_until="domcontentloaded", timeout=20000)
-                    except Exception as e:
-                        logger.debug("[brand] reload failed: %s", e)
+                    except Exception:
                         break
-            # If, after all retries, the best shot is STILL near-blank/uniform, the
-            # capture effectively failed → return None. A blank/white image is worse
-            # than none: it wastes vision-model tokens and can mislead the "match the
-            # real site" reasoning. Callers treat None as "no screenshot" and skip it.
-            if best_q > 0.9:
-                logger.info("[brand] screenshot: DISCARDED %s — still blank/uniform (%.2f) "
-                            "after retries", url, best_q)
+            if best is None or best_q > 0.9:
+                logger.info("[brand] screenshot: camoufox DISCARDED %s — blank/uniform (%.2f)",
+                            url, best_q)
                 return None
-            logger.info("[brand] screenshot: captured %s (%d bytes, %.1fs, uniform=%.2f)",
+            logger.info("[brand] screenshot: camoufox captured %s (%d bytes, %.1fs, uniform=%.2f)",
                         url, len(best), time.monotonic() - _t0, best_q)
             return best
-        except Exception as e:
-            logger.info("[brand] screenshot failed for %s: %s", url, e)
-            return None
-        finally:
-            # tear down in order: page → context → browser → playwright, each best-
-            # effort so one failure doesn't leak the rest.
-            for closer in (page, context, browser):
-                try:
-                    if closer:
-                        closer.close()
-                except Exception:
-                    pass
-            try:
-                if pw:
-                    pw.stop()
-            except Exception:
-                pass
+    except Exception as e:
+        logger.info("[brand] camoufox screenshot failed for %s: %s", url, str(e)[:120])
+        return None
 
 
 def _colors_from_screenshot(png_or_jpeg: bytes, top: int = 8) -> list[str]:
