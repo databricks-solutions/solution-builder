@@ -665,17 +665,20 @@ def _screenshot_site(url: str) -> Optional[bytes]:
     """Screenshot a site (desktop viewport so the header logo is visible) → JPEG
     bytes, or None. SSRF-guarded; best-effort.
 
-    Two backends, tried in order (benchmark showed they're COMPLEMENTARY):
-      1. Playwright chromium-headless-shell (+stealth) — fast, handles most sites
-         incl. JS-fingerprint walls (SAP via stealth).
-      2. Camoufox (anti-detection Firefox) — FALLBACK only when Playwright returns
-         None. Beats network-layer WAFs that block headless Chromium at the
-         TLS/HTTP-2 layer (verified: LVMH renders under Camoufox, FAILs under
-         Playwright). Heavier, so we only pay for it when the fast path failed.
+    Playwright chromium-headless-shell (+stealth) — fast (~750MB peak), handles
+    most sites incl. JS-fingerprint walls (SAP via stealth). Runs in a SUBPROCESS
+    with a hard wall-clock timeout so a hung driver / stalled render / crashed
+    browser can't block the resolve thread (page.goto's timeout only bounds ONE
+    op); SIGKILL on timeout reaps the browser subtree.
+
+    A Camoufox fallback backend exists (_capture_camoufox) that beats network-layer
+    WAFs Playwright can't (verified: LVMH), BUT it's DISABLED by default — a single
+    Camoufox capture costs ~1.4GB (6 Firefox processes) vs ~750MB, too heavy for the
+    rare bot-walled site. Set BRAND_CAMOUFOX_FALLBACK=1 to re-enable (the code + the
+    bench harness are kept for when it's worth revisiting).
 
     Sync — runs on the resolve worker thread. Serialized via _SCREENSHOT_LOCK so at
-    most one browser subprocess runs at a time across concurrent resolves (memory
-    cap — a single browser tree is already ~0.75-1.6 GB)."""
+    most one browser subprocess runs at a time across concurrent resolves."""
     try:
         _assert_public_url(url)
     except Exception:
@@ -683,14 +686,10 @@ def _screenshot_site(url: str) -> Optional[bytes]:
     if _SCREENSHOT_LOCK.locked():
         logger.info("[brand] screenshot: another capture in progress, queuing for %s", url)
     with _SCREENSHOT_LOCK:
-        # Each backend runs in a SUBPROCESS with a hard wall-clock timeout, so a hung
-        # driver / stalled _content_ready / crashed browser can't block the resolve
-        # thread (page.goto's timeout only bounds ONE op, not the whole capture).
-        # SIGKILL on timeout reaps the browser children too. Playwright first (light,
-        # fast); camoufox only as a fallback (heavy: ~1.6GB vs ~750MB, ~2x slower).
         shot = _run_backend_subprocess("playwright", url, timeout_s=_SHOT_TIMEOUT_S)
-        if shot is not None:
+        if shot is not None or os.environ.get("BRAND_CAMOUFOX_FALLBACK") != "1":
             return shot
+        # Opt-in heavy fallback for bot-walled sites (see docstring).
         logger.info("[brand] screenshot: playwright empty for %s — trying camoufox fallback", url)
         return _run_backend_subprocess("camoufox", url, timeout_s=_SHOT_TIMEOUT_S)
 
