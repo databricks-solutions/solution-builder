@@ -50,6 +50,7 @@ dependencies = [
     "selectolax>=0.4.10",
     "colorthief>=0.2.1",
     "playwright>=1.61.0",
+    "playwright-stealth>=2.0.3",
 ]
 
 # Local path dependencies for Databricks MCP tools

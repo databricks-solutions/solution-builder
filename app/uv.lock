@@ -419,6 +419,7 @@ dependencies = [
     { name = "openpyxl" },
     { name = "pglite" },
     { name = "playwright" },
+    { name = "playwright-stealth" },
     { name = "plutoprint" },
     { name = "psycopg", extra = ["binary", "pool"] },
     { name = "pydantic-settings" },
@@ -461,6 +462,7 @@ requires-dist = [
     { name = "openpyxl", specifier = ">=3.1" },
     { name = "pglite", specifier = ">=0.2.0" },
     { name = "playwright", specifier = ">=1.61.0" },
+    { name = "playwright-stealth", specifier = ">=2.0.3" },
     { name = "plutoprint", specifier = "==0.19.0" },
     { name = "psycopg", extras = ["binary", "pool"], specifier = ">=3.2.11" },
     { name = "pydantic-settings", specifier = ">=2.11.0" },
@@ -1424,6 +1426,18 @@ wheels = [
     { url = "https://pypi-proxy.dev.databricks.com/packages/c2/a6/5be4e52b40a9c0c8a073e7c5b0785c05cf5a9ea8f8a7b5b260e32d970342/playwright-1.61.0-py3-none-win32.whl", hash = "sha256:372d55a6f1248fa1dd47599686980cb8fb5bbe6fcda59eab793eb657c11d8a9b", upload-time = "2026-06-29T10:33:07.361Z" },
     { url = "https://pypi-proxy.dev.databricks.com/packages/6c/fd/2b78036e5fbe9d5f5645bbe08a1eac7160c51243c0093963edbcf67c35d9/playwright-1.61.0-py3-none-win_amd64.whl", hash = "sha256:35c6cc4589a5d00964a59d7b3e59641e0aac0c02f15479a7af77d20f6bc79597", upload-time = "2026-06-29T10:33:10.637Z" },
     { url = "https://pypi-proxy.dev.databricks.com/packages/27/0d/1b0f3c4ee4eb0514bc805b5c2f9a223e5b6de4f11a926f5235d51d0fc81b/playwright-1.61.0-py3-none-win_arm64.whl", hash = "sha256:e9fcbffcf557a8620fdedd92491eb59a32d18e23d6f3b4f6214b952be324fe51", upload-time = "2026-06-29T10:33:14.008Z" },
+]
+
+[[package]]
+name = "playwright-stealth"
+version = "2.0.3"
+source = { registry = "https://pypi-proxy.dev.databricks.com/simple/" }
+dependencies = [
+    { name = "playwright" },
+]
+sdist = { url = "https://pypi-proxy.dev.databricks.com/packages/a4/db/6ade5d539c7d151b9defc78fafa8b65aa52352617d0e7699b47008bd801f/playwright_stealth-2.0.3.tar.gz", hash = "sha256:1d8e488fbdd8f190f1269ea8cf5d57d14df3a9f1af1001c41ee3588b2aac3133", upload-time = "2026-04-04T02:50:33.88Z" }
+wheels = [
+    { url = "https://pypi-proxy.dev.databricks.com/packages/b5/10/607c409712c02a26c4cb794820514cb7fdaaeac15fb05bed917fb8a354b3/playwright_stealth-2.0.3-py3-none-any.whl", hash = "sha256:1887ade423ab7ff8ae16d363a30a38de0b5817e1e4a29d47b74bf3a0e3dbfcb4", upload-time = "2026-04-04T02:50:35.246Z" },
 ]
 
 [[package]]

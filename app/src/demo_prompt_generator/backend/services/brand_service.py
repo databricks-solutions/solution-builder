@@ -164,7 +164,7 @@ class BrandRun:
 
     def log_reasoning(self, step: str, why: str) -> None:
         """Record an agent/tool reasoning note (why it chose X, what was hard)."""
-        logger.info("[brand:%s] REASONING [%s] %s", self.name, step, why)
+        logger.debug("[brand:%s] REASONING [%s] %s", self.name, step, why)
         self.trace("reasoning", tool=step, reasoning=why)
 
     def vote_color(self, hex_value: str, source: str) -> Optional[str]:
@@ -480,7 +480,176 @@ _SHOT_BLOCK_URL_HINTS = (
 _SCREENSHOT_LOCK = threading.Lock()
 
 
-def _screenshot_site(url: str) -> Optional[bytes]:
+def _consent_cookies(domain: str) -> list[dict[str, Any]]:
+    """Generic cookie-consent cookies for the common CMPs (OneTrust, Cookiebot,
+    Complianz, CookieYes, iubenda…) + catch-all patterns, so most cookie banners
+    never render and don't obscure the screenshot. Best-effort — a stray value
+    won't hurt; the JS dismiss below catches whatever remains."""
+    def c(name: str, value: str) -> dict[str, Any]:
+        return {"name": name, "value": value, "domain": domain, "path": "/"}
+    return [
+        c("OptanonAlertBoxClosed", "2024-01-01T00:00:00.000Z"),
+        c("CookieConsent", "{stamp:'x',necessary:true,preferences:true,statistics:true,marketing:true}"),
+        c("cookieyes-consent", "consent:yes,necessary:yes,functional:yes,analytics:yes,advertisement:yes"),
+        c("complianz_consent_status", "allow"), c("cmplz_banner-status", "dismissed"),
+        c("viewed_cookie_policy", "yes"), c("cookie_notice_accepted", "true"),
+        c("cookieconsent_status", "allow"), c("cookieconsent_dismissed", "yes"),
+        c("cookie-agreed", "2"),
+        # catch-all
+        c("cookie_consent", "accepted"), c("cookies_accepted", "1"),
+        c("gdpr_accepted", "1"), c("gdpr_consent", "1"), c("accept_cookies", "1"),
+    ]
+
+
+# JS that REMOVES leftover cookie/consent overlays from the DOM + unlocks scroll.
+# Generalizing, SAFE dismissal (no per-site IDs):
+#   1. Find COOKIE/CONSENT containers — elements whose id/class names contain a
+#      cookie-ish token. This is the concept, not a hardcoded selector.
+#   2. Inside ONLY those containers, click the accept-ish button (by text). Scoping
+#      to the banner is what makes text-clicking safe — it can't hit a page/marketing
+#      button (which is what broke Stripe when we searched the whole document).
+#   3. Remove any container still visible + unlock scroll.
+_DISMISS_JS = r"""
+() => {
+  const isCookieEl = (el) => {
+    const s = ((el.id||'') + ' ' + (el.className||'').toString()).toLowerCase();
+    return /cookie|consent|gdpr|cmplz|cookiebot|onetrust|didomi|truste|sourcepoint|sp_message|osano|iubenda|usercentrics|quantcast|qc-cmp/.test(s);
+  };
+  const acceptRe = /^(accept all|accept all cookies|accept cookies|accept|allow all|agree|i agree|got it|ok)$/i;
+  // candidate banner containers (cap the scan)
+  const containers = [...document.querySelectorAll('div,section,aside,dialog')]
+    .filter(isCookieEl).slice(0, 40);
+  for (const c of containers) {
+    const btns = [...c.querySelectorAll('button,a,[role=button]')];
+    const hit = btns.find(b => acceptRe.test((b.innerText||b.textContent||'').trim()));
+    if (hit) { try { hit.click(); } catch(e){} break; }
+  }
+  // strip whatever remains (only cookie-ish containers)
+  containers.forEach(c => { try { c.remove(); } catch(e){} });
+  document.documentElement.style.overflow = 'auto';
+  if (document.body) document.body.style.overflow = 'auto';
+}
+"""
+
+
+# SPECIFIC accept-button selectors for known CMPs only. These target the exact
+# consent-accept control of a named platform, so clicking them is safe — unlike a
+# generic "click any button that says accept", which can trigger unrelated modals
+# (that made the Stripe screenshot WORSE). No generic text selectors here on
+# purpose. Ordered most-common first; we click the first that's visible and stop.
+_CMP_ACCEPT_SELECTORS = [
+    "#onetrust-accept-btn-handler",                                  # OneTrust
+    "#accept-recommended-btn-handler",                               # OneTrust (alt)
+    "#CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll",        # Cookiebot
+    "#CybotCookiebotDialogBodyButtonAccept",                         # Cookiebot (alt)
+    "#didomi-notice-agree-button",                                   # Didomi
+    ".sp_choice_type_11",                                            # Sourcepoint (accept all)
+    ".cky-btn-accept",                                               # CookieYes
+    ".osano-cm-accept-all",                                          # Osano
+    "#iubenda-cs-accept-btn",                                        # iubenda
+    ".cmplz-accept",                                                 # Complianz
+    "#ccc-recommended-settings",                                     # Civic Cookie Control
+    "[data-testid='uc-accept-all-button']",                          # Usercentrics
+    ".qc-cmp2-summary-buttons button[mode='primary']",              # Quantcast
+]
+_CMP_IFRAME_HINTS = ("consent", "cookie", "gdpr", "trustarc", "sourcepoint",
+                     "cookielaw", "didomi", "quantcast", "onetrust", "privacy")
+
+
+def _dismiss_cookies(page) -> None:
+    """Best-effort cookie dismissal: (1) click the SPECIFIC accept button of a
+    known CMP (main frame + consent iframes); then (2) a GENERAL pass that finds
+    cookie/consent CONTAINERS and clicks the accept button *inside* them (scoped,
+    so it can't hit a page/marketing button) + removes leftover banners. No
+    per-site hardcoding. Cookie-injection already handled most banners upstream."""
+    def _try_click(scope) -> bool:
+        for sel in _CMP_ACCEPT_SELECTORS:
+            try:
+                loc = scope.locator(sel).first
+                if loc.is_visible(timeout=300):
+                    loc.click(timeout=1500)
+                    return True
+            except Exception:
+                continue
+        return False
+
+    try:
+        clicked = _try_click(page)
+        if not clicked:
+            for frame in page.frames:
+                if frame == page.main_frame:
+                    continue
+                if any(h in (frame.url or "").lower() for h in _CMP_IFRAME_HINTS):
+                    if _try_click(frame):
+                        break
+    except Exception:
+        pass
+    # strip whatever remains
+    try:
+        page.evaluate(_DISMISS_JS)
+    except Exception:
+        pass
+
+
+def _uniformity(jpeg: bytes) -> float:
+    """Fraction of a downscaled screenshot that is the single most-common color —
+    ~1.0 means a blank/uniform page (failed render, all-white backdrop, etc.).
+    Used to detect a bad capture and retry. Robust to white OR any solid color."""
+    try:
+        from PIL import Image
+        im = Image.open(io.BytesIO(jpeg)).convert("RGB").resize((64, 40))
+        px = list(im.getdata())
+        # quantize slightly so near-identical pixels count together
+        q = [(r >> 3, g >> 3, b >> 3) for r, g, b in px]
+        from collections import Counter
+        top = Counter(q).most_common(1)[0][1]
+        return top / len(q)
+    except Exception:
+        return 0.0  # can't measure → assume fine (don't force a retry)
+
+
+# JS that judges whether the page RENDERED PROPERLY (styled content painted), vs
+# blank / unstyled-fallback (CSS failed to load — a transient hiccup we've seen on
+# Wise etc.). Signals of a real render: meaningful text, a rendered image/svg, AND
+# actual CSS applied (stylesheets present + a non-default layout — links aren't all
+# the raw default underlined-blue, some element has a non-transparent background).
+_RENDER_CHECK_JS = r"""() => {
+    const txt = (document.body ? document.body.innerText : '').trim().length;
+    const img = [...document.images].some(i => i.complete && i.naturalWidth > 30 && i.naturalHeight > 10);
+    const svg = document.querySelector('header svg, nav svg, svg[class*=logo], img[src*=logo]') != null;
+    const sheets = document.styleSheets.length > 0;
+    // "styled" heuristic: some non-body element has a real background color, OR the
+    // body background isn't the default white/transparent — i.e. CSS took effect.
+    let styled = false;
+    const bodyBg = document.body ? getComputedStyle(document.body).backgroundColor : '';
+    if (bodyBg && bodyBg !== 'rgba(0, 0, 0, 0)' && bodyBg !== 'rgb(255, 255, 255)') styled = true;
+    if (!styled) {
+        const els = [...document.querySelectorAll('header,nav,section,div')].slice(0, 60);
+        styled = els.some(e => { const bg = getComputedStyle(e).backgroundColor;
+            return bg && bg !== 'rgba(0, 0, 0, 0)' && bg !== 'rgb(255, 255, 255)'; });
+    }
+    return { ok: txt > 150 && (img || svg) && sheets && styled, txt, img, svg, sheets, styled };
+}"""
+
+
+def _content_ready(page, timeout_ms: int = 6000) -> bool:
+    """Poll (bounded) until the page has PAINTED styled content (not blank, not an
+    unstyled CSS-failed fallback). SPAs finish DOMContentLoaded blank and paint
+    later; unstyled renders happen on transient CSS-load failures. Returns True if
+    a proper render appeared, False on timeout (caller then reloads)."""
+    try:
+        page.wait_for_function("() => { const r = (" + _RENDER_CHECK_JS + ")(); return r.ok; }",
+                               timeout=timeout_ms)
+        return True
+    except Exception:
+        try:
+            page.wait_for_timeout(800)
+        except Exception:
+            pass
+        return False
+
+
+def _screenshot_site(url: str, _attempts: int = 3) -> Optional[bytes]:
     """Screenshot a site (desktop viewport so the header logo is visible) → JPEG
     bytes, or None. SSRF-guarded; best-effort. Serialized via _SCREENSHOT_LOCK so
     at most one Chromium runs at a time (memory cap). Sync — runs on the resolve
@@ -495,8 +664,11 @@ def _screenshot_site(url: str) -> Optional[bytes]:
         logger.info("[brand] playwright unavailable, skipping screenshot: %s", e)
         return None
 
-    logger.info("[brand] screenshot: waiting for browser slot for %s", url)
+    # only note a WAIT if the lock is actually held (a screenshot already running)
+    if _SCREENSHOT_LOCK.locked():
+        logger.info("[brand] screenshot: another capture in progress, queuing for %s", url)
     with _SCREENSHOT_LOCK:
+        _t0 = time.monotonic()
         logger.info("[brand] screenshot: launching headless-shell for %s", url)
         pw = browser = context = page = None
         try:
@@ -505,9 +677,35 @@ def _screenshot_site(url: str) -> Optional[bytes]:
             # full chromium). We only screenshot public homepages — no full browser
             # or anti-bot tooling needed.
             browser = pw.chromium.launch(headless=True, channel="chromium-headless-shell", args=_PW_ARGS)
-            context = browser.new_context(viewport={"width": 1280, "height": 800},
-                                          user_agent=_UA_BROWSER)
+            context = browser.new_context(
+                viewport={"width": 1280, "height": 800},
+                user_agent=_UA_BROWSER,
+                locale="en-US",
+                # Only Accept-Language here. Do NOT set Accept / Sec-Fetch-* as
+                # extra_http_headers — those apply to EVERY request (scripts, CSS,
+                # XHR), overriding Chromium's correct per-request values and making
+                # servers return wrong content / reject subresources → BLANK render
+                # (measured: this exact header set blanked anthropic.com). Chromium
+                # already sends proper Sec-Fetch-*/Accept per resource type.
+                extra_http_headers={"Accept-Language": "en-US,en;q=0.9"},
+            )
+            # Pre-inject generic consent cookies so most banners never render
+            # (cheaper + cleaner than clicking). Covers the common CMPs.
+            try:
+                dom = "." + (urlparse(url).hostname or "").lstrip(".")
+                context.add_cookies(_consent_cookies(dom))
+            except Exception:
+                pass
             page = context.new_page()
+            # Stealth: hide headless fingerprints (navigator.webdriver, plugins,
+            # WebGL vendor, window.chrome…) so JS-based bot-checks let us through.
+            # Recovers sites like SAP (Akamai JS check). Does NOT beat network-layer
+            # WAF fingerprinting (TLS/HTTP2) — those still block. Best-effort.
+            try:
+                from playwright_stealth import Stealth
+                Stealth().apply_stealth_sync(page)
+            except Exception as e:
+                logger.debug("[brand] stealth unavailable: %s", e)
 
             def _route(route, request):
                 u = request.url.lower()
@@ -516,12 +714,54 @@ def _screenshot_site(url: str) -> Optional[bytes]:
                 else:
                     route.continue_()
             page.route("**/*", _route)
-            page.goto(url, wait_until="domcontentloaded", timeout=20000)
-            page.wait_for_timeout(1200)  # let the header/hero paint
-            shot = page.screenshot(type="jpeg", quality=80,
-                                   clip={"x": 0, "y": 0, "width": 1280, "height": 900})
-            logger.info("[brand] screenshot: captured %s (%d bytes)", url, len(shot))
-            return shot
+            page.goto(url, wait_until="domcontentloaded", timeout=20000)  # navigate first!
+            def _grab():
+                return page.screenshot(type="jpeg", quality=80,
+                                       clip={"x": 0, "y": 0, "width": 1280, "height": 900})
+            def _quality(png):
+                # lower is better: penalize blank (high uniformity) heavily.
+                return _uniformity(png)
+
+            best = None
+            best_q = 1.0
+            # Up to 3 attempts. Each: wait for a PROPER styled render (catches both
+            # blank SPAs and unstyled CSS-failed fallbacks), dismiss cookies, grab.
+            # Reload between attempts — a bad render won't fix itself in place. Keep
+            # the best shot seen. This is the core reliability mechanism.
+            for attempt in range(3):
+                ready = _content_ready(page, timeout_ms=7000)
+                _dismiss_cookies(page)
+                page.wait_for_timeout(600)
+                cand = _grab()
+                q = _quality(cand)
+                if best is None or q < best_q:
+                    best, best_q = cand, q
+                # good enough? proper render AND not near-blank → done.
+                if ready and q < 0.9:
+                    break
+                if attempt < 2:
+                    logger.info("[brand] screenshot: weak render (ready=%s uniform=%.2f), "
+                                "reload+retry %d for %s", ready, q, attempt + 1, url)
+                    try:
+                        # brief back-off before reloading — a bad render is often a
+                        # transient hiccup/soft-throttle; hammering instantly makes
+                        # it worse. Escalating wait per attempt.
+                        page.wait_for_timeout(1000 + 1500 * attempt)
+                        page.reload(wait_until="domcontentloaded", timeout=20000)
+                    except Exception as e:
+                        logger.debug("[brand] reload failed: %s", e)
+                        break
+            # If, after all retries, the best shot is STILL near-blank/uniform, the
+            # capture effectively failed → return None. A blank/white image is worse
+            # than none: it wastes vision-model tokens and can mislead the "match the
+            # real site" reasoning. Callers treat None as "no screenshot" and skip it.
+            if best_q > 0.9:
+                logger.info("[brand] screenshot: DISCARDED %s — still blank/uniform (%.2f) "
+                            "after retries", url, best_q)
+                return None
+            logger.info("[brand] screenshot: captured %s (%d bytes, %.1fs, uniform=%.2f)",
+                        url, len(best), time.monotonic() - _t0, best_q)
+            return best
         except Exception as e:
             logger.info("[brand] screenshot failed for %s: %s", url, e)
             return None
@@ -922,7 +1162,7 @@ def _pick_logo_by_sight(run: BrandRun, llm: "LLMService", context: str = "",
     run.chosen_logo = {"url": deliver["image"], "bytes": data, "ct": ct,
                        "source": deliver["source"], "page": deliver.get("page"),
                        "dims": _logo_dims(data, ct)}
-    logger.info("[brand:%s]   find_logo → cell #%s (%s, %s)",
+    logger.debug("[brand:%s]   find_logo → cell #%s (%s, %s)",
                 run.name, best_n, deliver["source"], ct)
 
     # Tag each grid cell with the model's VERDICT so the review explains 12→N:
@@ -1107,9 +1347,9 @@ def _build_tools(run: BrandRun, llm: "LLMService"):
         something like '<company> official website'. Returns up to 6 results as
         {title, url, snippet}. Pick the official site yourself (watch for brand
         collisions — a car brand vs an aerospace company share a name)."""
-        logger.info("[brand:%s] TOOL find_official_site(%r)", run.name, query)
+        logger.debug("[brand:%s] TOOL find_official_site(%r)", run.name, query)
         out = _ddg(query)
-        logger.info("[brand:%s]   → %d results: %s", run.name, len(out), [r.get("url") for r in out])
+        logger.debug("[brand:%s]   → %d results: %s", run.name, len(out), [r.get("url") for r in out])
         return out
 
     @function_tool
@@ -1121,7 +1361,7 @@ def _build_tools(run: BrandRun, llm: "LLMService"):
         pages_worth_opening: [urls]}. Colors are also VOTED internally (more
         independent sources = stronger). Aggregators like brandcolorcode.com,
         mobbin.com, colorarchive.org are good."""
-        logger.info("[brand:%s] TOOL search_brand_colors(%r)", run.name, name)
+        logger.debug("[brand:%s] TOOL search_brand_colors(%r)", run.name, name)
         rows: list[dict] = []
         for q in (f"{name} brand color palette hex", f"{name} brand colors hex code",
                   f"{name} brandcolorcode"):
@@ -1161,7 +1401,7 @@ def _build_tools(run: BrandRun, llm: "LLMService"):
         pages = [r["url"] for r in uniq if any(
             a in (r["url"] or "") for a in ("brandcolorcode", "mobbin", "colorarchive",
                                             "schemecolor", "loftlyy", "icolorpalette"))][:4]
-        logger.info("[brand:%s]   → %d extracted colors, %d votes so far, %d pages",
+        logger.debug("[brand:%s]   → %d extracted colors, %d votes so far, %d pages",
                     run.name, len(colors), len(run.color_votes), len(pages))
         run.trace("tool", tool="search_brand_colors", args={"name": name},
                   summary={"extracted": [c.get("hex") for c in colors],
@@ -1174,9 +1414,9 @@ def _build_tools(run: BrandRun, llm: "LLMService"):
         """Web-search for the company's LOGO (svg/png). Returns up to 6 results as
         {title, url, snippet} — official brand/press pages and logo repositories.
         Open the promising ones with fetch_page, then choose_logo the best asset."""
-        logger.info("[brand:%s] TOOL search_brand_logo(%r)", run.name, name)
+        logger.debug("[brand:%s] TOOL search_brand_logo(%r)", run.name, name)
         rows = _ddg(f"{name} logo svg download brand assets", n=6)
-        logger.info("[brand:%s]   → %d results", run.name, len(rows))
+        logger.debug("[brand:%s]   → %d results", run.name, len(rows))
         return rows
 
     @function_tool
@@ -1186,7 +1426,7 @@ def _build_tools(run: BrandRun, llm: "LLMService"):
         logo_candidates:[{url,note}], colors:[hex], stylesheets:[url],
         brand_links:[url], notes}. Use on the official site AND aggregator/brand
         pages. Follow `stylesheets` with fetch_css and `brand_links` for more."""
-        logger.info("[brand:%s] TOOL fetch_page(%r)", run.name, url)
+        logger.debug("[brand:%s] TOOL fetch_page(%r)", run.name, url)
         try:
             r = _http_get(url)
             base = str(r.url)
@@ -1285,7 +1525,7 @@ def _build_tools(run: BrandRun, llm: "LLMService"):
             "stylesheets": distilled["stylesheets"],
             "brand_links": distilled["brand_links"],
         }
-        logger.info("[brand:%s]   → official=%s declares=%s %d colors %d logos: %s",
+        logger.debug("[brand:%s]   → official=%s declares=%s %d colors %d logos: %s",
                     run.name, is_official, declares, len(page_colors),
                     len(out["logo_candidates"]), finding[:80])
         run.trace("tool", tool="fetch_page", args={"url": url},
@@ -1301,7 +1541,7 @@ def _build_tools(run: BrandRun, llm: "LLMService"):
         colors usually live here (not inline). Regexes hex/rgb + --brand/--primary/
         --accent vars, then the extractor LLM picks the brand-defining ones.
         Returns {colors: [hex], brand_vars: {name: hex}}. Votes them internally."""
-        logger.info("[brand:%s] TOOL fetch_css(%r)", run.name, url)
+        logger.debug("[brand:%s] TOOL fetch_css(%r)", run.name, url)
         try:
             r = _http_get(url)
             css = r.text[:_MAX_HTML_BYTES]
@@ -1335,7 +1575,7 @@ def _build_tools(run: BrandRun, llm: "LLMService"):
                     colors = picked
         except Exception as e:
             logger.warning("[brand:%s]   fetch_css LLM error: %s", run.name, e)
-        logger.info("[brand:%s]   → %d css colors, %d brand vars", run.name, len(colors), len(brand_vars))
+        logger.debug("[brand:%s]   → %d css colors, %d brand vars", run.name, len(colors), len(brand_vars))
         run.trace("tool", tool="fetch_css", args={"url": url},
                   summary={"colors": colors, "brand_vars": brand_vars})
         return {"colors": colors, "brand_vars": brand_vars}
@@ -1352,7 +1592,7 @@ def _build_tools(run: BrandRun, llm: "LLMService"):
             official = "official-declared" in kv[1]
             return (0 if official else 1, -len({s.split(":")[0] for s in kv[1]}), kv[0])
         ranked = sorted(run.color_votes.items(), key=key)
-        logger.info("[brand:%s] TOOL color_votes → %d colors", run.name, len(ranked))
+        logger.debug("[brand:%s] TOOL color_votes → %d colors", run.name, len(ranked))
         return {"colors": [
             {"hex": h, "official_declared": "official-declared" in s,
              "n_sources": len({x.split(":")[0] for x in s}), "sources": sorted(s)}
@@ -1377,7 +1617,7 @@ def _build_tools(run: BrandRun, llm: "LLMService"):
 
         Returns the committed logo + rationale + shortlist. If you disagree,
         choose_logo(url) with a specific candidate."""
-        logger.info("[brand:%s] TOOL find_logo(phrase=%r, context=%r)",
+        logger.debug("[brand:%s] TOOL find_logo(phrase=%r, context=%r)",
                     run.name, search_phrase[:50], context[:50])
         pick = _pick_logo_by_sight(run, llm, context=context, search_phrase=search_phrase)
         if not pick or not pick.get("committed"):
@@ -1400,7 +1640,7 @@ def _build_tools(run: BrandRun, llm: "LLMService"):
         illustration, or another brand). Rejected if it isn't. `context` helps the
         check for ambiguous names. Returns {ok, content_type, dims} or {ok:false,
         reason, what_it_actually_is}."""
-        logger.info("[brand:%s] TOOL choose_logo(%r)", run.name, logo_url)
+        logger.debug("[brand:%s] TOOL choose_logo(%r)", run.name, logo_url)
         page = next((c.get("page") for c in run.logo_candidates if c["url"] == logo_url), None)
         if not page:
             _p = urlparse(logo_url)
@@ -1438,7 +1678,7 @@ def _build_tools(run: BrandRun, llm: "LLMService"):
         notion.so). Records the domain so the result isn't blank. `why` = your
         justification (goes in the trace)."""
         dom = _domain_of(domain_or_url if "://" in domain_or_url else f"https://{domain_or_url}")
-        logger.info("[brand:%s] TOOL set_official_site(%s)", run.name, dom)
+        logger.debug("[brand:%s] TOOL set_official_site(%s)", run.name, dom)
         if not dom:
             return {"ok": False, "reason": "could not parse a domain"}
         run.official_site = f"https://{dom}"
@@ -1456,7 +1696,7 @@ def _build_tools(run: BrandRun, llm: "LLMService"):
         lists them (e.g. an oat/cream off-white). We keep EXACTLY what you pass
         (only normalizing hex format + dropping exact duplicates) — so choose
         deliberately, typically 3–6 colors."""
-        logger.info("[brand:%s] TOOL set_palette(%r)", run.name, hexes)
+        logger.debug("[brand:%s] TOOL set_palette(%r)", run.name, hexes)
         seen, out = set(), []
         for h in hexes:
             if not isinstance(h, str):
@@ -1648,7 +1888,7 @@ def _pick_and_download_logo(
     for c in _ranked_candidates(run):
         data, ct = _download_cached(run, c["url"], c.get("page"))
         if data:
-            logger.info("[brand:%s] fallback-picked logo source=%s url=%s (%d bytes, %s)",
+            logger.debug("[brand:%s] fallback-picked logo source=%s url=%s (%d bytes, %s)",
                         run.name, c["source"], c["url"], len(data), ct or "?")
             if c["source"] == "favicon":
                 run.warn("logo is a favicon/icon fallback — may be low-res")
@@ -1732,7 +1972,7 @@ def _final_palette(run: BrandRun, logo_bytes: Optional[bytes], ct: Optional[str]
             if nh and nh not in seen:
                 seen.add(nh)
                 out.append(nh)
-        logger.info("[brand:%s] final palette (agent, %d): %s", run.name, len(out), out)
+        logger.debug("[brand:%s] final palette (agent, %d): %s", run.name, len(out), out)
         return out[:8]
 
     # fallback: rank by authority then cross-source count
@@ -1747,7 +1987,7 @@ def _final_palette(run: BrandRun, logo_bytes: Optional[bytes], ct: Optional[str]
         if h not in palette:
             palette.append(h)
     palette = _clean_palette(palette)[:6]
-    logger.info("[brand:%s] final palette (fallback, %d): %s", run.name, len(palette), palette)
+    logger.debug("[brand:%s] final palette (fallback, %d): %s", run.name, len(palette), palette)
     return palette
 
 
@@ -1861,7 +2101,7 @@ class BrandService:
                 # REQUIRE the name in a non-empty title (not just the URL) — this
                 # rejects empty JS shells and parked pages that only echo the host.
                 if len(title) >= 3 and needle[:8] in title:
-                    logger.info("[brand:%s] domain guess (tentative): %s", run.name, guessed)
+                    logger.debug("[brand:%s] domain guess (tentative): %s", run.name, guessed)
                     run.confidence = max(run.confidence, 0.65)
                     run.official_site = f"https://{guessed}"   # registrable, not geo-redirect
                     run.domain = guessed
@@ -1870,7 +2110,7 @@ class BrandService:
                     return f"https://{guessed}"
             except Exception:
                 continue
-        logger.info("[brand:%s] domain guess did not confirm — agent will search", run.name)
+        logger.debug("[brand:%s] domain guess did not confirm — agent will search", run.name)
         run.trace("phase", tool="domain_guess", summary={"confirmed": None})
         return None
 
@@ -1893,6 +2133,18 @@ class BrandService:
         try:
             self._run_agent(run)
 
+            # Always capture the site screenshot once we have a domain, even if the
+            # logo step never ran (agent errored early, no logo candidates, etc.) —
+            # the result should ALWAYS include a homepage screenshot when possible.
+            if run.official_site and not run._shot_tried:
+                run._shot_tried = True
+                run.site_screenshot = _screenshot_site(run.official_site)
+                run.trace("tool", tool="screenshot_site", args={"url": run.official_site},
+                          summary={"captured": bool(run.site_screenshot)})
+                if run.site_screenshot:
+                    for hx in _colors_from_screenshot(run.site_screenshot):
+                        run.vote_color(hx, "screenshot")
+
             # Logo = the agent's choice if it committed one; else the code's
             # ranked fallback (agent errored / didn't choose).
             logo_page = None
@@ -1903,7 +2155,7 @@ class BrandService:
                 ct = run.chosen_logo["ct"]
                 source = run.chosen_logo["source"]
                 logo_page = run.chosen_logo.get("page")
-                logger.info("[brand:%s] using chosen logo: %s (%s)", run.name, logo_url, source)
+                logger.debug("[brand:%s] using chosen logo: %s (%s)", run.name, logo_url, source)
             else:
                 # No committed logo. If the vision step explicitly ABSTAINED (saw
                 # only non-logos / wrong-company), we return NO logo — we do NOT
@@ -1913,7 +2165,7 @@ class BrandService:
                 if run.logo_provenance:  # a contact sheet was judged → respect the abstain
                     run.warn("no logo committed — the candidate images did not contain a "
                              "clear logo for this company (see logo trace/rationale)")
-                    logger.info("[brand:%s] no logo (vision abstained; not falling back)", run.name)
+                    logger.debug("[brand:%s] no logo (vision abstained; not falling back)", run.name)
                 else:
                     logo_url, logo_bytes, ct, source, logo_page = _pick_and_download_logo(run)
 
@@ -2013,7 +2265,7 @@ class BrandService:
             orch_model = self.config.ai_gateway_mini
         model = OpenAIChatCompletionsModel(model=orch_model, openai_client=client)
         llm = LLMService(self.ws, self.config)  # MINI extractor for the tools
-        logger.info("[brand:%s] orchestrator model=%s", run.name, orch_model)
+        logger.debug("[brand:%s] orchestrator model=%s", run.name, orch_model)
 
         instructions = (
             "You are a brand researcher. Given a company name, you deliver: (1) the "
@@ -2074,7 +2326,7 @@ class BrandService:
                 input=f"Research the brand for: {run.name}",
                 max_turns=20,
             )
-            logger.info("[brand:%s] agent final: %s", run.name, getattr(result, "final_output", None))
+            logger.debug("[brand:%s] agent final: %s", run.name, getattr(result, "final_output", None))
         except Exception as e:
             run.warn(f"agent loop failed ({type(e).__name__}) — using signals gathered so far")
             logger.warning("[brand:%s] agent error: %s", run.name, e)

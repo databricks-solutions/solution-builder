@@ -341,6 +341,27 @@ export interface BrandLogoCandidate {
   data_url: string;
   content_type: string | null;
   chosen: boolean;
+  dims?: { w: number; h: number; aspect: number } | null;
+}
+
+export interface BrandTraceStep {
+  t_ms?: number;
+  kind: string; // tool | decision | reasoning | warning | phase
+  tool?: string;
+  args?: unknown;
+  summary?: unknown;
+  reasoning?: string;
+  detail?: string;
+}
+
+export interface BrandLogoProvenance {
+  n: number;
+  type?: string;
+  source?: string;
+  host?: string;
+  official?: boolean;
+  verdict?: string; // chosen | alternate | rejected | candidate
+  image?: string;
 }
 
 export interface BrandOut {
@@ -353,6 +374,11 @@ export interface BrandOut {
   palette: string[];
   source: string | null;
   warnings: string[];
+  // debug / "see reasoning" surfaces
+  logo_contact_sheet?: string | null; // data URL of the grading grid the model saw
+  logo_provenance?: BrandLogoProvenance[];
+  site_screenshot?: string | null; // data URL of the official-site screenshot
+  trace?: BrandTraceStep[];
 }
 
 /**

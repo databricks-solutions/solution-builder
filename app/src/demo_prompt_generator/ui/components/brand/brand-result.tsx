@@ -9,9 +9,9 @@
  * architecture logo picker) later.
  */
 import { useState } from "react";
-import type { BrandOut, BrandLogoCandidate } from "@/lib/custom-api";
+import type { BrandOut, BrandLogoCandidate, BrandTraceStep } from "@/lib/custom-api";
 import { cn } from "@/lib/utils";
-import { Check, Copy, ExternalLink, AlertTriangle } from "lucide-react";
+import { Check, Copy, ExternalLink, AlertTriangle, ChevronDown } from "lucide-react";
 
 /** A tiny transparency-checkerboard via CSS gradients. */
 const CHECKER =
@@ -106,6 +106,56 @@ function Swatch({ hex }: { hex: string }) {
   );
 }
 
+/** A lightweight native <details> collapsible with a chevron. */
+function Fold({ summary, children, defaultOpen = false }: {
+  summary: string; children: React.ReactNode; defaultOpen?: boolean;
+}) {
+  return (
+    <details open={defaultOpen} className="group rounded-lg border bg-card">
+      <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2 text-sm font-medium text-muted-foreground hover:text-foreground">
+        <ChevronDown className="h-4 w-4 transition-transform group-open:rotate-180" />
+        {summary}
+      </summary>
+      <div className="border-t p-3">{children}</div>
+    </details>
+  );
+}
+
+const TRACE_COLOR: Record<string, string> = {
+  tool: "text-blue-600",
+  decision: "text-emerald-600",
+  reasoning: "text-purple-600",
+  warning: "text-red-600",
+  phase: "text-slate-500",
+};
+
+function TraceView({ trace }: { trace: BrandTraceStep[] }) {
+  return (
+    <table className="w-full border-collapse text-xs">
+      <tbody>
+        {trace.map((s, i) => {
+          const parts: string[] = [];
+          if (s.args) parts.push(`args=${JSON.stringify(s.args)}`);
+          if (s.summary) parts.push(`→ ${JSON.stringify(s.summary)}`);
+          if (s.detail) parts.push(s.detail);
+          return (
+            <tr key={i} className="align-top">
+              <td className="whitespace-nowrap pr-2 text-muted-foreground/60">{s.t_ms ?? ""}ms</td>
+              <td className={cn("whitespace-nowrap pr-2 font-semibold", TRACE_COLOR[s.kind] ?? "")}>
+                {s.tool || s.kind}
+              </td>
+              <td className="break-all font-mono text-muted-foreground">
+                {parts.join(" ")}
+                {s.reasoning && <div className="mt-0.5 italic text-purple-600/90">why: {s.reasoning}</div>}
+              </td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
+  );
+}
+
 export function BrandResult({ brand, className }: { brand: BrandOut; className?: string }) {
   const confPct = Math.round(brand.confidence * 100);
   const confColor =
@@ -138,21 +188,44 @@ export function BrandResult({ brand, className }: { brand: BrandOut; className?:
         </div>
       </div>
 
-      {/* Palette */}
-      <section>
-        <h3 className="mb-3 text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          Palette
-        </h3>
-        {brand.palette.length > 0 ? (
-          <div className="flex flex-wrap items-start justify-center gap-4">
-            {brand.palette.map((hex) => (
-              <Swatch key={hex} hex={hex} />
-            ))}
+      {/* Palette (vertical, left) + website screenshot (right) */}
+      {brand.site_screenshot ? (
+        <section className="flex items-start justify-center gap-5">
+          <div className="flex flex-col items-center gap-3">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Palette
+            </h3>
+            {brand.palette.length > 0 ? (
+              brand.palette.map((hex) => <Swatch key={hex} hex={hex} />)
+            ) : (
+              <p className="text-xs text-muted-foreground">none</p>
+            )}
           </div>
-        ) : (
-          <p className="text-center text-sm text-muted-foreground">No colors extracted.</p>
-        )}
-      </section>
+          <div className="min-w-0 flex-1 space-y-2">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Website
+            </h3>
+            <div className="overflow-hidden rounded-xl border shadow-sm">
+              <img src={brand.site_screenshot} alt={`${brand.name} homepage`} className="w-full" />
+            </div>
+          </div>
+        </section>
+      ) : (
+        <section>
+          <h3 className="mb-3 text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Palette
+          </h3>
+          {brand.palette.length > 0 ? (
+            <div className="flex flex-wrap items-start justify-center gap-4">
+              {brand.palette.map((hex) => (
+                <Swatch key={hex} hex={hex} />
+              ))}
+            </div>
+          ) : (
+            <p className="text-center text-sm text-muted-foreground">No colors extracted.</p>
+          )}
+        </section>
+      )}
 
       {/* Logos */}
       <section>
@@ -184,6 +257,62 @@ export function BrandResult({ brand, className }: { brand: BrandOut; className?:
               <li key={i}>{w}</li>
             ))}
           </ul>
+        </section>
+      )}
+
+      {/* See reasoning / all the steps — collapsed by default (results-first) */}
+      {(brand.logo_contact_sheet || brand.trace?.length) && (
+        <section className="mx-auto max-w-2xl space-y-3">
+          <h3 className="text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            See reasoning
+          </h3>
+
+          {brand.logo_contact_sheet && (
+            <Fold summary={`Logo candidates the model graded${brand.logo_provenance?.length ? ` (${brand.logo_provenance.length})` : ""}`}>
+              <img
+                src={brand.logo_contact_sheet}
+                alt="logo grading grid"
+                className="w-full rounded-md border"
+              />
+              {brand.logo_provenance && brand.logo_provenance.length > 0 && (
+                <table className="mt-2 w-full border-collapse text-xs">
+                  <tbody>
+                    {brand.logo_provenance.map((p) => {
+                      const vc =
+                        p.verdict === "chosen"
+                          ? "text-emerald-600"
+                          : p.verdict === "alternate"
+                            ? "text-blue-600"
+                            : p.verdict === "rejected"
+                              ? "text-red-600"
+                              : "text-muted-foreground";
+                      return (
+                        <tr key={p.n} className="align-top">
+                          <td className="pr-2">#{p.n}</td>
+                          <td className={cn("pr-2 font-semibold", vc)}>{p.verdict}</td>
+                          <td className="pr-2">{p.type}</td>
+                          <td className="pr-2 font-mono text-muted-foreground">{p.host}</td>
+                          <td>
+                            {p.image?.startsWith("http") && (
+                              <a href={p.image} target="_blank" rel="noreferrer" className="text-primary hover:underline">
+                                src
+                              </a>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </Fold>
+          )}
+
+          {brand.trace && brand.trace.length > 0 && (
+            <Fold summary={`Full trace (${brand.trace.length} steps)`}>
+              <TraceView trace={brand.trace} />
+            </Fold>
+          )}
         </section>
       )}
     </div>
