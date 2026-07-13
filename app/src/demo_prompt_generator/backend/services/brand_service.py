@@ -106,6 +106,9 @@ class BrandRun:
     name: str
     domain: Optional[str] = None
     official_site: Optional[str] = None  # the URL the agent confirmed as official
+    # where the logo/palette were actually harvested (e.g. brand.databricks.com or
+    # a CDN) — kept SEPARATE from the official domain; informational only.
+    asset_source: Optional[str] = None
     confidence: float = 0.0
     # every logo candidate seen, tagged by source + the page it came from
     logo_candidates: list[dict[str, Any]] = field(default_factory=list)
@@ -277,6 +280,38 @@ def _write_trace_file(run: BrandRun, out: "BrandOut") -> None:
 
 def _domain_of(url: str) -> str:
     return urlparse(url).netloc.lower().removeprefix("www.")
+
+
+# Subdomains that host brand assets / press / dev docs — NOT the company's
+# official homepage. We collapse `brand.databricks.com` → `databricks.com` so
+# the reported website + screenshot are the real site, not the asset portal.
+_ASSET_SUBDOMAINS = {
+    "brand", "brandcenter", "brandguidelines", "press", "news", "newsroom",
+    "media", "design", "developer", "developers", "dev", "docs", "support",
+    "help", "assets", "static", "cdn", "download", "downloads", "about",
+    "investor", "investors", "ir", "careers", "jobs", "blog",
+}
+
+# Two-label public suffixes we must NOT truncate past (co.uk, com.au, …).
+_MULTI_TLDS = {
+    "co.uk", "com.au", "co.jp", "co.nz", "com.br", "co.in", "co.za",
+    "com.sg", "com.mx", "co.kr", "com.tr", "com.cn",
+}
+
+
+def _registrable_root(host: str) -> str:
+    """Collapse a host to the company's registrable root domain, dropping brand/
+    asset subdomains: `brand.databricks.com` → `databricks.com`, `www.x.co.uk` →
+    `x.co.uk`. A bare/2-label host is returned unchanged. Best-effort (no PSL) —
+    honors a small multi-label-TLD allowlist so `x.co.uk` isn't cut to `co.uk`."""
+    host = (host or "").lower().strip().removeprefix("www.")
+    if not host or "." not in host:
+        return host
+    parts = host.split(".")
+    # figure out how many trailing labels form the registrable domain
+    last2 = ".".join(parts[-2:])
+    n = 3 if last2 in _MULTI_TLDS and len(parts) >= 3 else 2
+    return ".".join(parts[-n:])
 
 
 # Hex + rgb() color literals anywhere in text (snippets, HTML, CSS).
@@ -1115,11 +1150,13 @@ def _pick_logo_by_sight(run: BrandRun, llm: "LLMService", context: str = "",
 
     # Screenshot the official site once — a REFERENCE the model uses to recognize
     # the real logo (it's visible in the site header), plus brand context returned
-    # on the result. Best-effort.
+    # on the result. Always the REGISTRABLE ROOT (databricks.com), never a brand/
+    # asset subdomain the agent may have confirmed. Best-effort.
     if run.official_site and not run._shot_tried:
         run._shot_tried = True
-        run.site_screenshot = _screenshot_site(run.official_site)
-        run.trace("tool", tool="screenshot_site", args={"url": run.official_site},
+        _root = f"https://{_registrable_root(_domain_of(run.official_site))}"
+        run.site_screenshot = _screenshot_site(_root)
+        run.trace("tool", tool="screenshot_site", args={"url": _root},
                   summary={"captured": bool(run.site_screenshot)})
         # Pixel-sample the screenshot for EXACT dominant colors (colorthief reads
         # real pixels — precise, unlike asking the model to name hex). These join
@@ -1473,12 +1510,13 @@ def _build_tools(run: BrandRun, llm: "LLMService"):
         try:
             data = llm.chat_json(
                 f"Company: {name}\n\nSearch result snippets about its brand colors:\n{blob}\n\n"
-                "Extract the company's BRAND color palette. Return a JSON object with a "
-                "'colors' array; each item has: hex (#rrggbb), label (primary/accent/etc), "
-                "sources (array of the domains that mentioned it). Only real brand colors "
-                "(ignore generic UI greys unless clearly brand). Prefer colors mentioned "
-                "by multiple sources.",
-                size=ModelSize.MINI, max_tokens=700,
+                "Extract the company's CORE brand colors. Return a JSON object with a "
+                "'colors' array of the main brand colors only (~8 max — primary, "
+                "secondary, key accents/neutrals; NOT every shade you can find); each "
+                "item has: hex (#rrggbb), label (primary/accent/etc), sources (array of "
+                "the domains that mentioned it). Ignore generic UI greys unless clearly "
+                "brand. Prefer colors mentioned by multiple sources.",
+                size=ModelSize.MINI, max_tokens=900,
             )
             colors = data.get("colors", []) if isinstance(data, dict) else []
             for c in colors:
@@ -1567,8 +1605,10 @@ def _build_tools(run: BrandRun, llm: "LLMService"):
                 "colors — do NOT drop them.\n"
                 "- logo_candidates (array of {url, note}): urls from img/svg/meta that "
                 "look like the real logo (skip favicons/social cards).\n"
+                "Keep `finding` to 1-3 sentences and cap `colors`/`logo_candidates` at "
+                "~12 each so the JSON stays complete.\n"
                 "Be honest and specific; this is evidence, not a final answer.",
-                size=ModelSize.MINI, max_tokens=1100,
+                size=ModelSize.MINI, max_tokens=1800,
             )
         except Exception as e:
             logger.warning("[brand:%s]   fetch_page LLM error: %s", run.name, e)
@@ -1785,7 +1825,8 @@ def _build_tools(run: BrandRun, llm: "LLMService"):
         color_votes). Include the brand's real neutrals if the official palette
         lists them (e.g. an oat/cream off-white). We keep EXACTLY what you pass
         (only normalizing hex format + dropping exact duplicates) — so choose
-        deliberately, typically 3–6 colors."""
+        deliberately: the CORE brand colors only, 3–5 max (not a swatch dump).
+        Anything past 5 is trimmed."""
         logger.debug("[brand:%s] TOOL set_palette(%r)", run.name, hexes)
         seen, out = set(), []
         for h in hexes:
@@ -2048,6 +2089,10 @@ def _palette_from(logo_bytes: Optional[bytes], content_type: Optional[str], run:
     return _clean_palette(palette)[:6]
 
 
+# A brand palette is a handful of CORE colors, not a swatch dump — cap it tight.
+PALETTE_MAX = 5
+
+
 def _final_palette(run: BrandRun, logo_bytes: Optional[bytes], ct: Optional[str]) -> list[str]:
     """Resolve the final palette. The AGENT's explicit set_palette wins and is
     respected as-is (only exact-dup + hex-normalize — NO filtering/merging behind
@@ -2063,7 +2108,7 @@ def _final_palette(run: BrandRun, logo_bytes: Optional[bytes], ct: Optional[str]
                 seen.add(nh)
                 out.append(nh)
         logger.debug("[brand:%s] final palette (agent, %d): %s", run.name, len(out), out)
-        return out[:8]
+        return out[:PALETTE_MAX]
 
     # fallback: rank by authority then cross-source count
     def rank_key(kv: tuple[str, set[str]]) -> tuple:
@@ -2076,7 +2121,7 @@ def _final_palette(run: BrandRun, logo_bytes: Optional[bytes], ct: Optional[str]
     for h in (_palette_from(logo_bytes, ct, run) if logo_bytes else []):
         if h not in palette:
             palette.append(h)
-    palette = _clean_palette(palette)[:6]
+    palette = _clean_palette(palette)[:PALETTE_MAX]
     logger.debug("[brand:%s] final palette (fallback, %d): %s", run.name, len(palette), palette)
     return palette
 
@@ -2169,41 +2214,6 @@ class BrandService:
         self.ws = ws
         self.config = config
 
-    def _confirm_domain_guess(self, run: BrandRun) -> Optional[str]:
-        """A cheap TENTATIVE domain head-start (the agent still does the real work
-        and can override via set_official_site). Try <slug>.<tld> and confirm the
-        page's TITLE actually contains the company name — an empty title (JS shell)
-        or a name-less title does NOT count (that's how linear.io got wrongly
-        confirmed). We keep the REGISTRABLE guessed domain, not the geo-redirected
-        final host (airbnb.com → airbnb.co.uk must still report airbnb.com).
-        Confidence stays modest (0.65) so a better signal wins."""
-        slug = _slugify(run.name)
-        needle = re.sub(r"[^a-z0-9]", "", run.name.lower())
-        # .com first (canonical for most brands), then app/ai/co/io.
-        for tld in (".com", ".app", ".ai", ".io", ".co"):
-            guessed = f"{slug}{tld}"
-            try:
-                r = _http_get(f"https://{guessed}")
-                from selectolax.parser import HTMLParser
-                tree = HTMLParser(r.text[:_MAX_HTML_BYTES])
-                _t = tree.css_first("title")
-                title = re.sub(r"[^a-z0-9]", "", (_t.text() if _t else "").lower())
-                # REQUIRE the name in a non-empty title (not just the URL) — this
-                # rejects empty JS shells and parked pages that only echo the host.
-                if len(title) >= 3 and needle[:8] in title:
-                    logger.debug("[brand:%s] domain guess (tentative): %s", run.name, guessed)
-                    run.confidence = max(run.confidence, 0.65)
-                    run.official_site = f"https://{guessed}"   # registrable, not geo-redirect
-                    run.domain = guessed
-                    run.trace("phase", tool="domain_guess",
-                              summary={"confirmed": guessed, "tentative": True})
-                    return f"https://{guessed}"
-            except Exception:
-                continue
-        logger.debug("[brand:%s] domain guess did not confirm — agent will search", run.name)
-        run.trace("phase", tool="domain_guess", summary={"confirmed": None})
-        return None
-
     async def resolve(self, name: str) -> "BrandOut":
         """Async entrypoint. Runs the ENTIRE (blocking) resolve on a worker thread
         so it never stalls the event loop (all HTTP, ddgs, colorthief, and the
@@ -2226,10 +2236,12 @@ class BrandService:
             # Always capture the site screenshot once we have a domain, even if the
             # logo step never ran (agent errored early, no logo candidates, etc.) —
             # the result should ALWAYS include a homepage screenshot when possible.
+            # Registrable root only (databricks.com), never a brand subdomain.
             if run.official_site and not run._shot_tried:
                 run._shot_tried = True
-                run.site_screenshot = _screenshot_site(run.official_site)
-                run.trace("tool", tool="screenshot_site", args={"url": run.official_site},
+                _root = f"https://{_registrable_root(_domain_of(run.official_site))}"
+                run.site_screenshot = _screenshot_site(_root)
+                run.trace("tool", tool="screenshot_site", args={"url": _root},
                           summary={"captured": bool(run.site_screenshot)})
                 if run.site_screenshot:
                     for hx in _colors_from_screenshot(run.site_screenshot):
@@ -2259,18 +2271,34 @@ class BrandService:
                 else:
                     logo_url, logo_bytes, ct, source, logo_page = _pick_and_download_logo(run)
 
-            # The domain we REPORT: a CONFIRMED official site always wins. Else the
-            # page the logo candidate was found on (its host) — NOT the logo asset
-            # URL (assets live on CDNs/DAMs like images.stripeassets.com or
-            # brandfolder.com, or are inline data: URLs). Asset host only as a last
-            # resort for a real http(s) logo when we have nothing better.
+            # TWO SEPARATE THINGS (this is the fix for brand.databricks.com):
+            #   • run.domain  = the OFFICIAL company site → website + screenshot.
+            #     Always the REGISTRABLE ROOT, so a company's own brand/press/dev
+            #     subdomain collapses to the real site
+            #     (brand.databricks.com → databricks.com).
+            #   • run.asset_source = where the logo/palette were actually harvested
+            #     (may be brand.databricks.com or a CDN) — informational only.
             page_host = _domain_of(logo_page) if logo_page else None
+            run.asset_source = page_host or (_domain_of(logo_url) if logo_url and "://" in logo_url else None)
             if run.official_site:
-                run.domain = _domain_of(run.official_site)
+                run.domain = _registrable_root(_domain_of(run.official_site))
             elif page_host and not _is_asset_host(page_host):
-                run.domain = page_host
+                # the logo lived on the company's own site (possibly a brand
+                # subdomain) — its registrable root is the official domain.
+                run.domain = _registrable_root(page_host)
             elif not run.domain and logo_url and logo_url.startswith(("http://", "https://")):
-                run.domain = _domain_of(logo_url)
+                lh = _domain_of(logo_url)
+                if not _is_asset_host(lh):
+                    run.domain = _registrable_root(lh)
+            # Screenshot the OFFICIAL ROOT (never the asset subdomain). Do it here
+            # even when the agent only inferred the domain — the earlier in-agent
+            # screenshot only fired when official_site was explicitly confirmed, so
+            # a fallback-derived domain would otherwise get no screenshot at all.
+            if run.domain and not run.site_screenshot:
+                root_url = f"https://{run.domain}"
+                run.site_screenshot = _screenshot_site(root_url)
+                run.trace("tool", tool="screenshot_site", args={"url": root_url},
+                          summary={"captured": bool(run.site_screenshot), "official_root": True})
 
             # Palette: the agent's explicit choice wins; else fall back to the
             # cross-source vote tally, then the logo/CSS colors.
@@ -2302,7 +2330,8 @@ class BrandService:
             if run.logo_sheet_png:
                 sheet_url = "data:image/png;base64," + base64.b64encode(run.logo_sheet_png).decode("ascii")
             out = BrandOut(
-                name=run.name, domain=run.domain, confidence=run.confidence,
+                name=run.name, domain=run.domain, asset_source=run.asset_source,
+                confidence=run.confidence,
                 logo_url=logo_url, logo_data_url=data_url, logos=logos, palette=palette,
                 source=source, warnings=run.warnings, trace=run.steps,
                 logo_contact_sheet=sheet_url,
@@ -2335,10 +2364,6 @@ class BrandService:
         from openai import AsyncOpenAI
 
         from .llm_service import LLMService
-
-        # Deterministic domain guess first (a cheap head start — the agent still
-        # confirms it and does the real exploration).
-        guessed = self._confirm_domain_guess(run)
 
         set_tracing_disabled(True)  # process-global: no OpenAI key / trace upload
         sync_client = self.ws.serving_endpoints.get_open_ai_client()  # auth in its httpx client
@@ -2374,7 +2399,10 @@ class BrandService:
             "the company's own BRAND / PRESS / brand-guidelines page (e.g. "
             "brand.<domain>, <domain>/brand, /press) — that page usually states the "
             "official palette outright. If fetch_page FAILS (403/bot-wall) but search "
-            "clearly identifies the domain, call set_official_site(domain, why).\n"
+            "clearly identifies the domain, call set_official_site(domain, why). "
+            "set_official_site takes the company's MAIN site (databricks.com) — NOT a "
+            "brand/press/dev subdomain (brand.databricks.com) even if that's where you "
+            "found the logo/palette; those are asset sources, not the official site.\n"
             "• COLORS — decide from the evidence, weighting by AUTHORITY: a palette "
             "the company DECLARES on its own brand page ('our primary colors are Lava "
             "#FF3621, Navy #0B2026, Oat #EEEDE9…') is authoritative — take those, "
@@ -2402,11 +2430,9 @@ class BrandService:
             "notes are how humans debug and improve this system.\n"
             "• Finish with ONE short line: domain + confidence. Don't invent data.\n\n"
             f'Company: "{run.name}".'
+            " No domain resolved yet — use find_official_site to search DuckDuckGo "
+            "for the official site, then verify it before committing via set_official_site."
         )
-        if guessed:
-            instructions += f" A quick guess suggests this official site: {guessed} — verify it first."
-        else:
-            instructions += " No confirmed domain yet — search for the official site."
 
         try:
             result = Runner.run_sync(

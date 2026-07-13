@@ -11,7 +11,7 @@ import { Skeleton } from "../ui/skeleton";
 import { ChevronRight, ChevronDown, ChevronLeft, Folder, FolderOpen, FileText, FileCode, Braces, Settings, File, Sparkles, RefreshCw, Network, BookOpen, Database, Eye, EyeOff, Code, Globe, Loader2, Server } from "lucide-react";
 import { UnityCatalogIcon } from "../databricks-icons";
 import { Button } from "../ui/button";
-import type { ProjectFile, ProjectFileContent, DeployedResourceLink } from "../../lib/custom-api";
+import type { ProjectFile, ProjectFileContent, DeployedResourceLink, Project } from "../../lib/custom-api";
 import { AppPreviewTab } from "../../preview";
 import { cn } from "../../lib/utils";
 
@@ -42,6 +42,10 @@ interface ResourcesInfo {
 
 interface FileViewerProps {
   projectId: string;
+  /** Full project — powers the Overview's brand card (company + brand.json). */
+  project?: Project | null;
+  /** Fired after the brand card resolves/saves; returns the refreshed project. */
+  onBrandUpdated?: (p: Project) => void;
   /** Project description — used as the elevator pitch fallback when no
    *  README exists yet (otherwise we extract a paragraph from the README). */
   projectDescription?: string | null;
@@ -781,6 +785,8 @@ const TabBar = memo(function TabBar({
 
 export const FileViewer = memo(function FileViewer({
   projectId,
+  project,
+  onBrandUpdated,
   projectDescription,
   projectNarrative,
   projectCreatedAt,
@@ -946,6 +952,8 @@ export const FileViewer = memo(function FileViewer({
           {activeTab === "overview" ? (
             <ProjectOverview
               projectId={projectId}
+              project={project}
+              onBrandUpdated={onBrandUpdated}
               projectDescription={projectDescription ?? null}
               projectNarrative={projectNarrative ?? null}
               isGeneratingNarrative={isGeneratingNarrative ?? false}
@@ -1052,7 +1060,14 @@ export const FileViewer = memo(function FileViewer({
                   <ScrollArea className="flex-1 bg-muted/20">
                     <div className="flex min-h-full items-center justify-center p-6">
                       <img
-                        src={`data:${imageMime};base64,${fileContent.content}`}
+                        // SVG content comes back as raw TEXT (UTF-8), raster as
+                        // BASE64 — base64-labeling SVG XML renders nothing, so
+                        // url-encode the markup for SVG and keep base64 otherwise.
+                        src={
+                          imageExt === ".svg"
+                            ? `data:image/svg+xml;utf8,${encodeURIComponent(fileContent.content)}`
+                            : `data:${imageMime};base64,${fileContent.content}`
+                        }
                         alt={selectedFile || "Image preview"}
                         className="max-w-full rounded-md shadow-sm"
                       />

@@ -20,6 +20,59 @@ from ..core._config import AppConfig
 logger = logging.getLogger(__name__)
 
 
+def _repair_json(text: str) -> dict[str, Any]:
+    """Best-effort recovery of a JSON object truncated mid-generation (a mini model
+    hitting max_tokens). Strategy: parse character-by-character tracking string +
+    bracket state; then progressively trim the tail one char at a time, and at each
+    step close any open string/brackets and try to parse. Returns the first dict
+    that parses, else {} — callers treat {} as "no evidence" and never crash."""
+    s = text.strip()
+    if not s or s[0] not in "{[":
+        return {}
+
+    def close_and_parse(prefix: str) -> dict[str, Any] | None:
+        stack: list[str] = []
+        in_str = esc = False
+        for ch in prefix:
+            if in_str:
+                if esc:
+                    esc = False
+                elif ch == "\\":
+                    esc = True
+                elif ch == '"':
+                    in_str = False
+                continue
+            if ch == '"':
+                in_str = True
+            elif ch == "{":
+                stack.append("}")
+            elif ch == "[":
+                stack.append("]")
+            elif ch in "}]" and stack:
+                stack.pop()
+        cand = prefix
+        if in_str:
+            cand += '"'
+        cand = cand.rstrip().rstrip(",")
+        cand += "".join(reversed(stack))
+        try:
+            v = json.loads(cand)
+            return v if isinstance(v, dict) else None
+        except Exception:
+            return None
+
+    # Try the full string first, then trim the last char and retry, walking back
+    # until something parses (bounded — don't scan more than a few KB back).
+    for cut in range(len(s), max(0, len(s) - 4000), -1):
+        got = close_and_parse(s[:cut])
+        if got is not None:
+            logger.warning("chat_json: recovered a truncated JSON response "
+                           "(%d chars, trimmed %d)", len(s), len(s) - cut)
+            return got
+    logger.warning("chat_json: could not repair truncated JSON — returning {}")
+    return {}
+
+
 class ModelSize(str, Enum):
     MINI = "mini"
     NORMAL = "normal"
@@ -94,7 +147,12 @@ class LLMService:
             prompt, size=size, system_prompt=system_prompt,
             json_output=True, max_tokens=max_tokens,
         )
-        return json.loads(response)
+        try:
+            return json.loads(response)
+        except json.JSONDecodeError:
+            # Mini models occasionally truncate at max_tokens mid-string, leaving
+            # unterminated/dangling JSON. Try a best-effort repair before failing.
+            return _repair_json(response)
 
     def chat_vision(
         self,

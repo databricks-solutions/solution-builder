@@ -149,7 +149,9 @@ export type LifecycleStageKey =
   | "RESOURCES"
   | "DAB";
 
-export type LifecycleStageStatus = "pending" | "active" | "done";
+// "optional" = a step that isn't part of the required journey (Distribute/DAB,
+// which is on-demand) — shown muted, never blocks completion, never "active".
+export type LifecycleStageStatus = "pending" | "active" | "done" | "optional";
 
 export interface LifecycleStageInfo {
   key: LifecycleStageKey;
@@ -175,25 +177,31 @@ export function getLifecycleStages(
   info: StageInfo,
   liveResourceCount: number,
   expectedResourceCount: number,
+  isStreaming = false,
 ): LifecycleStageInfo[] {
   // Story is done once the README exists. Architecture is no longer written
-  // by default (built on demand), so it must NOT gate this stage — requiring
-  // hasArch here left the step stuck "active" forever even after README +
-  // specs were done.
+  // by default (built on demand), so it must NOT gate this stage.
   const storyArchDone = info.hasReadme;
   const specDone = info.hasSpecifications;
-  const resourcesDone =
+  const resourcesReady =
     expectedResourceCount > 0
       ? liveResourceCount >= expectedResourceCount
       : info.hasDeployedResources;
+  // KEY FIX: while the agent is still streaming it keeps working in the
+  // background (app bug-fixes, follow-up files) even after the first resources
+  // land — so "Build resources" must NOT read done mid-stream. It's done only
+  // once resources exist AND the stream has stopped. This is what prevents the
+  // journey (and the top stepper) from showing complete while the chat works.
+  const resourcesDone = resourcesReady && !isStreaming;
   const dabDone = info.hasDab;
 
   // First not-done stage is active. Cascade so we never show two active.
+  // Distribute (DAB) is OPTIONAL — on-demand only — so it never becomes the
+  // active step and never blocks the journey from reading complete.
   let activeKey: LifecycleStageKey | null = null;
   if (!storyArchDone) activeKey = "STORY_AND_ARCH";
   else if (!specDone) activeKey = "SPECIFICATION";
   else if (!resourcesDone) activeKey = "RESOURCES";
-  else if (!dabDone) activeKey = "DAB";
 
   const status = (
     key: LifecycleStageKey,
@@ -227,8 +235,10 @@ export function getLifecycleStages(
       key: "DAB",
       label: "Bundle",
       shortLabel: "DAB",
-      blurb: "Packaged for repeatable deployment.",
-      status: status("DAB", dabDone),
+      blurb: "Packaged for repeatable deployment (on demand).",
+      // Optional step: done iff a DAB was actually created, else a muted
+      // "optional" — never active/pending, so it doesn't hold the journey open.
+      status: dabDone ? "done" : "optional",
     },
   ];
 }
@@ -303,8 +313,8 @@ export function BuildStepper({
   const { hasReadme, hasArch, hasSpecifications, hasCode, hasDab } = stageInfo;
   const lifecycle = useMemo(
     () =>
-      getLifecycleStages(stageInfo, deployedResourceCount, expectedResourceCount),
-    [stageInfo, deployedResourceCount, expectedResourceCount],
+      getLifecycleStages(stageInfo, deployedResourceCount, expectedResourceCount, isStreaming),
+    [stageInfo, deployedResourceCount, expectedResourceCount, isStreaming],
   );
 
   // Build the list of available actions based on current state

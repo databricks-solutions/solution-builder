@@ -4,6 +4,12 @@ Choose sensible defaults instead of asking. Batch independent reads and independ
 
 Write specifications directly — don't think too long about them. Spec files are working drafts that get refined during build, not finished essays. Skip the deliberation, write the file, move on. The build stage will surface anything that doesn't work.`;
 
+/** Appended to the initial prompt(s) we send the agent on project creation and
+ *  architecture-first build. The Solution Builder app resolves the brand itself
+ *  (via its brand API) and writes brand/brand.json — so the agent must NOT waste
+ *  turns web-searching for it. It just reads the file if/when it's there. */
+export const BRAND_NOTE = `Note: don't search the web for the company's brand — we resolve it for you and populate \`brand/brand.json\` (palette, logo, site). If it's there, read it to personalize the demo; if not, don't fetch it.`;
+
 /** Sent to the agent (once per project) when the frontend detects that
  *  architecture.md is in the OLD, pre-flat-file format. Asks the agent to
  *  migrate it to the current schema, grounded in the project's README story. */

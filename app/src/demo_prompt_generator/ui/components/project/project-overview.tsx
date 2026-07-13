@@ -35,9 +35,6 @@ import {
   MessageSquare,
   Play,
   Maximize2,
-  FileText,
-  Hammer,
-  Rocket,
   Check,
 } from "lucide-react";
 import { ScrollArea } from "../ui/scroll-area";
@@ -50,13 +47,9 @@ import {
   type CapabilityMeta,
 } from "@/lib/capabilities";
 import { estimateBuild, formatMinutes, formatElapsed, elapsedMinutes } from "@/lib/build-eta";
-import type { DeployedResourceLink, ProjectFile } from "@/lib/custom-api";
-import {
-  detectStageFromFiles,
-  getLifecycleStages,
-  type LifecycleStageInfo,
-  type LifecycleStageKey,
-} from "./build-stepper";
+import type { DeployedResourceLink, ProjectFile, Project } from "@/lib/custom-api";
+import { BrandCard } from "./brand-card";
+import { detectStageFromFiles, getLifecycleStages } from "./build-stepper";
 import { cn } from "@/lib/utils";
 import { useAppPreview } from "../../preview";
 
@@ -656,340 +649,219 @@ const HeroCard = memo(function HeroCard({
   );
 });
 
+
 // ===========================================================================
-// Lifecycle pipeline strip — 4 stage tiles rendered inside BuildingBanner
-// (and previously inside the standalone DraftingOverview, now retired:
-// the Overview tab no longer switches layouts pre/post-README — the
-// HeroCard's own skeleton + the resources placeholder + the BuildingBanner
-// fill the page from t=0 through completion).
+// StageSteps — the 4-step build journey (Generate Story → Generate
+// Specifications → Build resources → Distribute), full width, one card each.
+// The ACTIVE step plays a themed illustration; done = check, pending = quiet.
+// Shown during a build; the heavy per-check detail lives in the top BuildStepper.
 // ===========================================================================
-
-type PipelineStageState = "active" | "pending" | "done";
-
-interface PipelineStage {
-  key: string;
-  title: string;
-  blurb: string;
-  icon: React.ElementType;
-  state: PipelineStageState;
-}
-
-/** Equalizer-style activity indicator — three bars bouncing out of phase.
- *  Sits where the stage icon would be when a stage is the current one. */
-const ActivityBars = memo(function ActivityBars() {
-  return (
-    <div
-      aria-hidden
-      className="flex items-end justify-center gap-[3px] h-4 w-4"
-    >
-      <span className="block w-[3px] h-full bg-primary rounded-sm origin-bottom animate-drafting-bar-1" />
-      <span className="block w-[3px] h-full bg-primary rounded-sm origin-bottom animate-drafting-bar-2" />
-      <span className="block w-[3px] h-full bg-primary rounded-sm origin-bottom animate-drafting-bar-3" />
-    </div>
-  );
-});
-
-const StageCard = memo(function StageCard({ stage }: { stage: PipelineStage }) {
-  const Icon = stage.icon;
-  const isActive = stage.state === "active";
-  const isDone = stage.state === "done";
-  return (
-    <div
-      className={cn(
-        "relative h-full rounded-xl border p-3.5 transition-colors",
-        isActive
-          ? "border-primary/40 bg-primary/[0.06] animate-drafting-breathe"
-          : isDone
-            ? "border-primary/25 bg-primary/[0.03]"
-            : "border-border/50 bg-muted/30",
-      )}
-    >
-      <div className="flex items-center gap-2.5 mb-1.5">
-        <span
-          className={cn(
-            "shrink-0 inline-flex items-center justify-center h-7 w-7 rounded-lg",
-            isActive
-              ? "bg-primary/15 text-primary ring-1 ring-primary/30"
-              : isDone
-                ? "bg-primary/15 text-primary"
-                : "bg-muted text-muted-foreground/70",
-          )}
-        >
-          {isActive ? (
-            <ActivityBars />
-          ) : isDone ? (
-            <Check className="h-3.5 w-3.5" />
-          ) : (
-            <Icon className="h-3.5 w-3.5" />
-          )}
-        </span>
-        <div
-          className={cn(
-            "text-[12.5px] font-semibold leading-tight",
-            isActive || isDone ? "text-foreground" : "text-muted-foreground",
-          )}
-        >
-          {stage.title}
-        </div>
-      </div>
-      <p
-        className={cn(
-          "text-[11.5px] leading-relaxed pl-[38px]",
-          isActive
-            ? "text-muted-foreground"
-            : isDone
-              ? "text-muted-foreground/80"
-              : "text-muted-foreground/65",
-        )}
-      >
-        {stage.blurb}
-      </p>
-      {isActive && (
-        <span
-          aria-hidden
-          className="absolute top-2 right-2 inline-flex items-center gap-1 text-[9.5px] font-bold uppercase tracking-[0.12em] text-primary"
-        >
-          <span className="inline-flex h-1.5 w-1.5 rounded-full bg-primary shadow-[0_0_6px_currentColor]" />
-          Now
-        </span>
-      )}
-      {isDone && (
-        <span
-          aria-hidden
-          className="absolute top-2 right-2 inline-flex items-center gap-1 text-[9.5px] font-bold uppercase tracking-[0.12em] text-primary/70"
-        >
-          Done
-        </span>
-      )}
-    </div>
-  );
-});
-
-// Icon + title per lifecycle key. Two sources, one mapping — DraftingOverview
-// uses this when no file-driven stage info exists yet (first 2 minutes
-// before README lands); BuildingBanner uses the live lifecycle from
-// getLifecycleStages(). The titles are the user-facing labels for the
-// 4-tile strip.
-const LIFECYCLE_DISPLAY: Record<
-  LifecycleStageKey,
-  { title: string; blurb: string; icon: React.ElementType }
+const STEP_COPY: Record<
+  string,
+  { title: string; desc: string }
 > = {
-  STORY_AND_ARCH: {
-    title: "Story",
-    blurb: "Drafting the customer narrative and pitch.",
-    icon: BookOpen,
-  },
-  SPECIFICATION: {
-    title: "Specifications",
-    blurb: "Detailed plans for each resource.",
-    icon: FileText,
-  },
-  RESOURCES: {
-    title: "Resources",
-    blurb: "Databricks resources go live in your workspace.",
-    icon: Hammer,
-  },
-  DAB: {
-    title: "Bundle as DAB (on demand)",
-    blurb: "Packaged for repeatable deployment when you ask for it.",
-    icon: Rocket,
-  },
+  STORY_AND_ARCH: { title: "Generate Story", desc: "Draft the customer narrative & pitch" },
+  SPECIFICATION: { title: "Generate Specifications", desc: "Detailed plans for each resource" },
+  RESOURCES: { title: "Build resources", desc: "Create the Databricks resources in your workspace" },
+  DAB: { title: "Distribute (optional)", desc: "Package as a DAB for repeatable deployment" },
 };
 
-/** Map lifecycle stages → render-ready PipelineStage[] (4 tiles). */
-function buildLifecycleTiles(
-  lifecycle: LifecycleStageInfo[],
-): PipelineStage[] {
-  return lifecycle.map((s) => ({
-    key: s.key,
-    title: LIFECYCLE_DISPLAY[s.key].title,
-    blurb: LIFECYCLE_DISPLAY[s.key].blurb,
-    icon: LIFECYCLE_DISPLAY[s.key].icon,
-    state: s.status,
-  }));
+/** Themed illustration per step. `active` triggers the CSS animation; otherwise
+ *  the same art renders static (dimmed via the parent). Pure inline SVG/CSS. */
+function StepArt({ stepKey, active }: { stepKey: string; active: boolean }) {
+  const stroke = "currentColor";
+  if (stepKey === "STORY_AND_ARCH") {
+    // three writing lines sweeping in
+    return (
+      <svg viewBox="0 0 40 28" className="h-7 w-10" fill="none" aria-hidden>
+        <rect x="6" y="6" width="22" height="2.4" rx="1.2" fill={stroke}
+          className={active ? "animate-step-write-1" : ""} opacity="0.9" />
+        <rect x="6" y="13" width="28" height="2.4" rx="1.2" fill={stroke}
+          className={active ? "animate-step-write-2" : ""} opacity="0.7" />
+        <rect x="6" y="20" width="18" height="2.4" rx="1.2" fill={stroke}
+          className={active ? "animate-step-write-3" : ""} opacity="0.55" />
+      </svg>
+    );
+  }
+  if (stepKey === "SPECIFICATION") {
+    // checklist rows ticking on
+    return (
+      <svg viewBox="0 0 40 28" className="h-7 w-10" fill="none" aria-hidden>
+        {[6, 14, 22].map((y, i) => (
+          <g key={y} className={active ? `animate-step-tick-${i + 1}` : ""}>
+            <path d={`M6 ${y + 1.5} l2 2 l3.5 -3.5`} stroke={stroke} strokeWidth="1.6"
+              strokeLinecap="round" strokeLinejoin="round" />
+            <rect x="15" y={y} width="19" height="2.2" rx="1.1" fill={stroke} opacity="0.7" />
+          </g>
+        ))}
+      </svg>
+    );
+  }
+  if (stepKey === "RESOURCES") {
+    // blocks dropping into place / stacking
+    return (
+      <svg viewBox="0 0 40 28" className="h-7 w-10" fill="none" aria-hidden>
+        <rect x="6" y="16" width="8" height="8" rx="1.5" fill={stroke} opacity="0.9"
+          className={active ? "animate-step-drop-1" : ""} />
+        <rect x="16" y="16" width="8" height="8" rx="1.5" fill={stroke} opacity="0.75"
+          className={active ? "animate-step-drop-2" : ""} />
+        <rect x="26" y="16" width="8" height="8" rx="1.5" fill={stroke} opacity="0.6"
+          className={active ? "animate-step-drop-3" : ""} />
+        <rect x="16" y="6" width="8" height="8" rx="1.5" fill={stroke} opacity="0.9"
+          className={active ? "animate-step-drop-4" : ""} />
+      </svg>
+    );
+  }
+  // DAB — a package/box lifting off (shipping)
+  return (
+    <svg viewBox="0 0 40 28" className="h-7 w-10" fill="none" aria-hidden>
+      <g className={active ? "animate-step-ship" : ""}>
+        <path d="M20 4 L32 10 L20 16 L8 10 Z" fill={stroke} opacity="0.9" />
+        <path d="M8 10 V19 L20 25 V16 Z" fill={stroke} opacity="0.6" />
+        <path d="M32 10 V19 L20 25 V16 Z" fill={stroke} opacity="0.75" />
+      </g>
+    </svg>
+  );
 }
 
-// ===========================================================================
-// Platform value-prop — quiet single-sentence footer for the resources
-// card. Reinforces "everything's on one platform" without screaming.
-// ===========================================================================
+const StageSteps = memo(function StageSteps({
+  files,
+  liveResourceCount,
+  expectedResourceCount,
+  isStreaming,
+}: {
+  files: ProjectFile[];
+  liveResourceCount: number;
+  expectedResourceCount: number;
+  isStreaming: boolean;
+}) {
+  const stages = useMemo(() => {
+    const info = detectStageFromFiles(files, liveResourceCount);
+    return getLifecycleStages(info, liveResourceCount, expectedResourceCount, isStreaming);
+  }, [files, liveResourceCount, expectedResourceCount, isStreaming]);
 
-// ===========================================================================
-// BuildingBanner — shown between hero and resources while the agent is
-// streaming. The pulsing orb is the focal point: long agent runs (~30min)
-// otherwise feel frozen, this signals "we're working, you can wait
-// elsewhere." Clicking the CTA opens the chat so the user can see the
-// live activity (thinking, tool calls, file writes).
-// ===========================================================================
+  return (
+    <ol className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      {stages.map((s, i) => {
+        const status = s.status;
+        const copy = STEP_COPY[s.key] ?? { title: s.label, desc: s.blurb };
+        const done = status === "done";
+        const active = status === "active";
+        const optional = status === "optional";
+        return (
+          <li
+            key={s.key}
+            className={cn(
+              "relative flex items-center gap-3 rounded-xl border p-3 transition-colors",
+              active && "border-primary/40 bg-primary/[0.05]",
+              done && "border-emerald-500/25 bg-emerald-500/[0.05]",
+              (status === "pending" || optional) && "border-border/60 bg-muted/20",
+            )}
+          >
+            {/* Left column: the themed icon (the single status element — check
+                badge on its top-right when done, animates when active) with the
+                "Step N" label stacked directly below it. */}
+            <div className="flex shrink-0 flex-col items-center gap-1">
+              <div
+                className={cn(
+                  "relative",
+                  active ? "text-primary" : done
+                    ? "text-emerald-600 dark:text-emerald-400"
+                    : "text-muted-foreground/40",
+                )}
+              >
+                <StepArt stepKey={s.key} active={active} />
+                {done && (
+                  <span className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-emerald-500 text-white ring-2 ring-card">
+                    <Check className="h-2.5 w-2.5" strokeWidth={3.5} />
+                  </span>
+                )}
+              </div>
+              <span
+                className={cn(
+                  "text-[9.5px] font-bold uppercase tracking-[0.12em]",
+                  active && "text-primary",
+                  done && "text-emerald-600 dark:text-emerald-400",
+                  (status === "pending" || optional) && "text-muted-foreground/50",
+                )}
+              >
+                Step {i + 1}
+              </span>
+            </div>
 
-const BuildingBanner = memo(function BuildingBanner({
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5">
+                <div
+                  className={cn(
+                    "text-[13px] font-semibold leading-tight",
+                    status === "pending" || optional ? "text-muted-foreground" : "text-foreground",
+                  )}
+                >
+                  {copy.title}
+                </div>
+                {optional && (
+                  <span className="rounded bg-muted px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide text-muted-foreground/70">
+                    optional
+                  </span>
+                )}
+              </div>
+              <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground">{copy.desc}</p>
+            </div>
+          </li>
+        );
+      })}
+    </ol>
+  );
+});
+
+
+// BuildTimer — the elapsed / countdown pill ("Started 3m ago · 5m to go").
+// Self-contained live ticker so the label updates without re-rendering the
+// whole overview. Budget = static sum of remaining capability durations;
+// countdown = budget − elapsed wall-time.
+const BuildTimer = memo(function BuildTimer({
   buildable,
   deployed,
   createdAt,
-  files,
-  onOpenChat,
 }: {
   buildable: string[];
   deployed: DeployedResourceLink[];
-  /** Project creation timestamp — anchors "started X ago". Survives page
-   *  refresh because it's persisted on the project row, not a useRef. */
   createdAt?: string | null;
-  /** Project files — used to derive lifecycle stage tiles. Same source
-   *  the top stepper reads. */
-  files: ProjectFile[];
-  onOpenChat?: () => void;
 }) {
-  // Tick once a minute so the "started X ago" label stays current without
-  // flickering. The static `remainingMinutes` only changes when a tile
-  // flips live (handled by deployed-resource refetch upstream).
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     const id = window.setInterval(() => setNow(Date.now()), 60_000);
     return () => window.clearInterval(id);
   }, []);
-
-  const est = useMemo(
-    () => estimateBuild(buildable, deployed, true),
-    [buildable, deployed],
-  );
-
-  // `est.remainingMinutes` is the STATIC sum of remaining capability
-  // durations — it only ticks down when a resource flips live, not as
-  // wall time passes. Treat it as the *budget*, and derive a live
-  // countdown by subtracting elapsed. Without this the pill reads
-  // "Started 10 min ago | 25 min to go" forever, which is the bug.
+  const est = useMemo(() => estimateBuild(buildable, deployed, true), [buildable, deployed]);
   const budget = est.remainingMinutes;
-  const elapsed = useMemo(
-    () => elapsedMinutes(createdAt),
-    // `now` intentionally drives re-eval so the elapsed label updates.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [createdAt, now],
-  );
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const elapsed = useMemo(() => elapsedMinutes(createdAt), [createdAt, now]);
   const remaining = Math.max(0, budget - elapsed);
-
-  // Three timing phases:
-  //   1. Early         — "X min to go"          (live countdown of remaining)
-  //   2. About to land — "almost there"         (within 5min of landing, OR ≥80% through)
-  //   3. Overdue       — "taking a bit longer"  (elapsed past budget)
-  //
-  // The middle phase exists so the row doesn't flicker between "1 min to
-  // go" and "taking a bit longer" — a soft "almost there" lasts a few
-  // minutes either side of the predicted landing.
   const aboutToLandThreshold = Math.max(5, Math.ceil(budget * 0.2));
   const isOverdue = createdAt != null && elapsed > 0 && budget > 0 && elapsed >= budget;
   const isAboutToLand =
-    createdAt != null &&
-    elapsed > 0 &&
-    budget > 0 &&
-    !isOverdue &&
-    remaining <= aboutToLandThreshold;
+    createdAt != null && elapsed > 0 && budget > 0 && !isOverdue && remaining <= aboutToLandThreshold;
 
-  // 4-stage lifecycle tiles. Drives the strip below the headline so this
-  // panel mirrors the drafting screen + the top stepper. Source of truth:
-  // detectStageFromFiles → getLifecycleStages — same chain.
-  const stages = useMemo(() => {
-    const info = detectStageFromFiles(files, deployed.length);
-    const lifecycle = getLifecycleStages(info, deployed.length, buildable.length);
-    return buildLifecycleTiles(lifecycle);
-  }, [files, deployed.length, buildable.length]);
-
+  if (!(createdAt || budget > 0)) return null;
   return (
-    <section className="rounded-2xl border border-border/60 bg-card p-6 lg:p-8 overflow-hidden relative">
-      {/* Same primary glow the drafting screen uses — gives the panel
-          personality without competing with the prose. */}
-      <div
-        aria-hidden
-        className="pointer-events-none absolute -top-24 -right-24 h-64 w-64 rounded-full bg-primary/[0.07] blur-3xl"
-      />
-
-      {/* Header row — orb + title on the left, timing pill anchored
-          top-right (denser than the previous stacked layout). Chat CTA
-          tucked below the title so the row stays compact. */}
-      <div className="relative flex items-start gap-4">
-        {/* Pulsing orb — solid primary core with two soft halo rings. */}
-        <div className="shrink-0 flex items-center justify-center h-12 w-12 relative">
-          <span
-            aria-hidden
-            className="absolute inset-0 rounded-full bg-primary/25 animate-ping"
-          />
-          <span
-            aria-hidden
-            className="absolute inset-1 rounded-full bg-primary/35 animate-pulse"
-          />
-          <span className="relative flex h-8 w-8 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg shadow-primary/30">
-            <Sparkles className="h-4 w-4" strokeWidth={2.25} />
-          </span>
-        </div>
-
-        <div className="flex-1 min-w-0">
-          <h3 className="text-[14.5px] font-semibold text-foreground leading-tight">
-            The AI is working for you — please wait
-          </h3>
-          {onOpenChat && (
-            <button
-              type="button"
-              onClick={onOpenChat}
-              className="mt-1.5 inline-flex items-center gap-1.5 text-[12px] text-primary hover:underline cursor-pointer"
-            >
-              <MessageSquare className="h-3.5 w-3.5" />
-              Open the chat to see the activity
-            </button>
-          )}
-        </div>
-
-        {/* Timing pill — top-right corner. Elapsed anchor comes from
-            project.created_at (persisted, survives refresh). The "to go"
-            figure is a LIVE countdown: budget (static sum of remaining
-            capability durations) minus elapsed wall-time. When the
-            countdown approaches zero we shift to "almost there"; past
-            zero we shift to "taking a bit longer". */}
-        {(createdAt || budget > 0) && (
-          <div className="shrink-0 inline-flex items-center gap-2 rounded-lg border border-primary/20 bg-primary/[0.06] px-3 py-1.5 text-[12px] whitespace-nowrap">
-            <Clock className="h-3.5 w-3.5 text-primary" />
-            {createdAt && (
-              <span className="text-muted-foreground">
-                Started{" "}
-                <span className="font-medium text-foreground tabular-nums">
-                  {formatElapsed(elapsed)}
-                </span>
-              </span>
-            )}
-            {createdAt && budget > 0 && (
-              <span className="text-muted-foreground/70">·</span>
-            )}
-            {budget > 0 && !isOverdue && !isAboutToLand && (
-              <span className="font-semibold text-foreground tabular-nums">
-                {formatMinutes(remaining)} to go
-              </span>
-            )}
-            {isAboutToLand && (
-              <span className="font-medium text-foreground">
-                almost there
-              </span>
-            )}
-            {isOverdue && (
-              <span className="text-muted-foreground">
-                taking a bit longer
-              </span>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* 4-tile lifecycle strip — equal-height tiles, two per row on
-          mobile, four across on desktop. Stretches via items-stretch so
-          the longest blurb determines the row height and the others
-          fill it. */}
-      <ol className="relative mt-5 grid grid-cols-2 md:grid-cols-4 gap-3 items-stretch">
-        {stages.map((s) => (
-          <li key={s.key} className="h-full">
-            <StageCard stage={s} />
-          </li>
-        ))}
-      </ol>
-    </section>
+    <span className="inline-flex items-center gap-2 whitespace-nowrap text-[12px] text-muted-foreground">
+      <Clock className="h-3.5 w-3.5 text-primary" />
+      {createdAt && (
+        <span>
+          Started <span className="font-medium text-foreground tabular-nums">{formatElapsed(elapsed)}</span>
+        </span>
+      )}
+      {createdAt && budget > 0 && <span className="text-muted-foreground/70">·</span>}
+      {budget > 0 && !isOverdue && !isAboutToLand && (
+        <span className="font-semibold text-foreground tabular-nums">{formatMinutes(remaining)} to go</span>
+      )}
+      {isAboutToLand && <span className="font-medium text-foreground">almost there</span>}
+      {isOverdue && <span>taking a bit longer</span>}
+    </span>
   );
 });
+
 
 // ===========================================================================
 // AppShowcaseCard — shown on the overview when the project has an app/
@@ -1257,6 +1129,10 @@ const PlatformValueProp = memo(function PlatformValueProp({
 
 export interface ProjectOverviewProps {
   projectId: string;
+  /** Full project — powers the brand card (company + brand.json). */
+  project?: Project | null;
+  /** Called after the brand card resolves/saves a brand (returns refreshed project). */
+  onBrandUpdated?: (p: Project) => void;
   projectDescription?: string | null;
   projectNarrative?: string | null;
   isGeneratingNarrative?: boolean;
@@ -1289,6 +1165,8 @@ export interface ProjectOverviewProps {
 
 export const ProjectOverview = memo(function ProjectOverview({
   projectId,
+  project,
+  onBrandUpdated,
   projectNarrative,
   isGeneratingNarrative = false,
   onRegenerateNarrative,
@@ -1316,6 +1194,13 @@ export const ProjectOverview = memo(function ProjectOverview({
   const hasAnyResources = widgets.length > 0;
   const liveCount = widgets.filter((w) => w.state === "live").length;
   const totalCount = widgets.length;
+
+  // The demo is "built" once the backend settled its stage on BUILT/BUNDLED
+  // (all resources ready AND a prior turn finished). Once built we never show
+  // the build journey again — a follow-up chat streams but must not resurrect
+  // the "AI is working" banner + steps. `buildActive` = the initial-build view.
+  const buildComplete = project?.stage === "BUILT" || project?.stage === "BUNDLED";
+  const buildActive = isStreaming && !buildComplete;
 
   // Group widgets by their display group for the column layout. Empty
   // groups are dropped, and group order matches the original platform
@@ -1350,27 +1235,6 @@ export const ProjectOverview = memo(function ProjectOverview({
   );
   const hasAnalystBlock = !!(appWidget || lakebaseWidget);
 
-  // 4-stage lifecycle progress. Used for two things:
-  //   1. The "are we done?" gate that hides BuildingBanner once everything
-  //      is ready (no more waiting message + tile strip cluttering the page).
-  //   2. The "do we have ANY work to show yet?" signal — when the agent
-  //      is still on Story & Architecture there's no resources grid, so
-  //      we render a placeholder where the grid will eventually live.
-  const lifecycleInfo = useMemo(
-    () => detectStageFromFiles(files, deployed.length),
-    [files, deployed.length],
-  );
-  const lifecycleStages = useMemo(
-    () => getLifecycleStages(lifecycleInfo, deployed.length, buildable.length),
-    [lifecycleInfo, deployed.length, buildable.length],
-  );
-  // The banner stays up until all *required* stages are done. Bundle is
-  // on-demand and only fires when the user explicitly clicks "Bundle as
-  // DAB", so we ignore it here — otherwise the banner would linger past
-  // a finished build that just hasn't been packaged.
-  const requiredStagesDone = lifecycleStages
-    .filter((s) => s.key !== "DAB")
-    .every((s) => s.status === "done");
 
   return (
     <ScrollArea className="flex-1">
@@ -1393,20 +1257,6 @@ export const ProjectOverview = memo(function ProjectOverview({
           onOpenChat={onOpenChat}
         />
 
-        {/* Live-build banner — shown throughout the build, regardless of
-            whether the README has landed yet. Hidden once all 4 lifecycle
-            stages are done so the page settles into its "ready" state
-            without the waiting message + tile strip lingering. */}
-        {isStreaming && !requiredStagesDone && (
-          <BuildingBanner
-            buildable={buildable}
-            deployed={deployed}
-            createdAt={createdAt}
-            files={files}
-            onOpenChat={onOpenChat}
-          />
-        )}
-
         {/* Extraction-error notice (rare) */}
         {deployedExtractionError && (
           <div className="rounded-lg border border-amber-500/30 bg-amber-500/[0.06] px-3 py-2 text-[12px]">
@@ -1426,7 +1276,7 @@ export const ProjectOverview = memo(function ProjectOverview({
             grid will eventually land so the page doesn't visually collapse
             between the hero and the build banner.
             ──────────────────────────────────────────────────────────── */}
-        {!hasAnyResources && isStreaming && (
+        {!hasAnyResources && buildActive && (
           <section className="rounded-2xl border border-dashed border-border/60 bg-card/40 p-7 relative overflow-hidden">
             <div
               aria-hidden
@@ -1458,8 +1308,8 @@ export const ProjectOverview = memo(function ProjectOverview({
 
         {hasAnyResources && (
           <section className="rounded-2xl border border-border/60 bg-card p-7">
-            <header className="flex items-center justify-between gap-3 mb-5">
-              <div className="flex items-baseline gap-3">
+            <header className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 mb-5">
+              <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
                 <h2 className="text-[11px] font-bold uppercase tracking-[0.16em] text-muted-foreground">
                   Databricks resources
                 </h2>
@@ -1468,22 +1318,63 @@ export const ProjectOverview = memo(function ProjectOverview({
                   <span className="text-muted-foreground/70"> of {totalCount} ready</span>
                 </span>
               </div>
-              {/* "View architecture" — peer of the "Read the full story"
-                  button in the hero. Same Button variant/size so the two
-                  read as a consistent navigation language. */}
-              {hasArchitecture && onShowArchitecture && (
-                <Button
-                  variant="outline"
-                  size="default"
-                  onClick={onShowArchitecture}
-                  className="h-9 gap-1.5 text-[13px] font-medium"
-                >
-                  <Network className="h-4 w-4" />
-                  View architecture
-                  <ChevronRight className="h-4 w-4 opacity-60" />
-                </Button>
-              )}
+              {/* Right cluster: while building, the timer + "AI is working" +
+                  Open-chat sit on the SAME row as the title (saves a row); the
+                  View-architecture button follows. */}
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+                {buildActive && (
+                  <>
+                    <BuildTimer buildable={buildable} deployed={deployed} createdAt={createdAt} />
+                    <span className="hidden items-center gap-1.5 text-[12px] text-muted-foreground xl:inline-flex">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+                      The AI is working for you — please wait.
+                    </span>
+                    {onOpenChat && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={onOpenChat}
+                        className="h-8 shrink-0 gap-1.5 text-[12px] font-medium"
+                      >
+                        <MessageSquare className="h-3.5 w-3.5" />
+                        Open the chat to see the activity
+                      </Button>
+                    )}
+                  </>
+                )}
+                {hasArchitecture && onShowArchitecture && (
+                  <Button
+                    variant="outline"
+                    size="default"
+                    onClick={onShowArchitecture}
+                    className="h-9 gap-1.5 text-[13px] font-medium"
+                  >
+                    <Network className="h-4 w-4" />
+                    View architecture
+                    <ChevronRight className="h-4 w-4 opacity-60" />
+                  </Button>
+                )}
+              </div>
             </header>
+
+            {/* The 4-step build journey (Generate Story → Generate Specifications
+                → Build resources → Distribute), full width. Active step animates.
+                Only during the INITIAL build — hidden once the demo is built, so a
+                follow-up chat doesn't resurrect it. */}
+            {buildActive && (
+              <div className="mb-5">
+                <StageSteps
+                  files={files}
+                  liveResourceCount={deployed.length}
+                  expectedResourceCount={buildable.length}
+                  isStreaming={isStreaming}
+                />
+              </div>
+            )}
+            {/* Personalize-for-a-real-company — slim blue strip under the header. */}
+            {project && onBrandUpdated && (
+              <BrandCard project={project} onUpdated={onBrandUpdated} className="mb-5" />
+            )}
             <div
               className="grid gap-x-5 gap-y-6"
               style={{

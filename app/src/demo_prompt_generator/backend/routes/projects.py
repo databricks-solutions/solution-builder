@@ -29,6 +29,8 @@ from ..models import (
     ProjectFile,
     DriverStatus,
     HomeProjects,
+    ProjectBrand,
+    ProjectBrandRequest,
     ProjectListItem,
     ProjectOut,
     ProjectProvisionRequest,
@@ -45,15 +47,30 @@ from ..models import (
     SuccessResponse,
     Template,
     compute_project_stage,
+    merge_project_stage,
     generate_uuid,
     utc_now,
 )
 from ..services.file_sync import FileSyncService, decompress_content
+from ..services.brand_cache import cached_resolve
+from ..services.brand_file import BRAND_JSON_PATH, read_brand, rel_path, write_brand, write_logo, write_screenshot
+from ..services.brand_service import BrandService
 from ..services.skills_manager import (
     build_initial_resources_json,
     create_project_directory,
     get_project_directory,
 )
+
+
+def _project_is_streaming(project_id: str) -> bool:
+    """True iff an agent turn is CURRENTLY in flight for this project. Used to
+    gate BUILT: a demo isn't 'built' while the agent is still working (it keeps
+    bug-fixing the app etc. after the first resources land)."""
+    try:
+        from ..services.active_stream import get_stream_manager
+        return get_stream_manager().get_project_stream(project_id) is not None
+    except Exception:
+        return False
 
 
 def _load_resources_text(session, project_id: str) -> str | None:
@@ -145,12 +162,14 @@ def _generate_schema_name(project_name: str) -> str:
 
 
 def _generate_project_metadata(llm: LLMService, description: str) -> dict[str, str]:
-    """Generate project name, description, and schema name from user prompt via LLM."""
+    """Generate project name, description, schema name, and (best-effort) the real
+    company the demo is for, from the user prompt via LLM."""
     prompt = f"""Based on this demo description, return JSON:
 {{
     "name": "Short Demo Name (max 100 chars)",
     "description": "Brief summary (max 200 chars)",
-    "schema_name": "sql_safe_lowercase_name"
+    "schema_name": "sql_safe_lowercase_name",
+    "company": "The real company/brand this demo is being built FOR or presented TO, if the user names one (e.g. 'for Acme', 'meeting with Rolls-Royce'). Use null if none — do NOT use a fictional company that only appears inside the demo story."
 }}
 
 User prompt:
@@ -165,11 +184,27 @@ User prompt:
         schema_name = re.sub(r"_+", "_", schema_name).strip("_")
         if not schema_name or not schema_name[0].isalpha():
             schema_name = "demo_" + schema_name
-        return {"name": name, "description": short_desc, "schema_name": schema_name[:50]}
+        company = result.get("company")
+        company = company.strip()[:255] if isinstance(company, str) and company.strip().lower() not in _NULLISH else ""
+        return {"name": name, "description": short_desc, "schema_name": schema_name[:50], "company": company}
     except Exception as e:
         logger.error(f"Failed to generate project metadata: {e}")
         first_line = description.split("\n")[0].strip()[:100]
-        return {"name": first_line or "Untitled Demo", "description": "", "schema_name": "demo_project"}
+        return {"name": first_line or "Untitled Demo", "description": "", "schema_name": "demo_project", "company": ""}
+
+
+# Model sometimes returns these to mean "no company" — treat all as empty.
+_NULLISH = {"null", "none", "n/a", "na", "not specified", "unknown", "unspecified", ""}
+
+
+def _decode_data_url(data_url: str) -> Optional[bytes]:
+    """Extract the raw bytes from a `data:<mime>;base64,<payload>` URL, or None."""
+    try:
+        if "," not in data_url:
+            return None
+        return base64.b64decode(data_url.split(",", 1)[1])
+    except Exception:
+        return None
 
 
 def _get_user_email(headers) -> str:
@@ -533,7 +568,14 @@ def _build_project_list_items(
     for p in projects:
         file_paths = files_by_project.get(p.id, [])
         visible_file_count = sum(1 for f in file_paths if not _is_hidden_from_listing(f))
-        stage = compute_project_stage(file_paths, resources_text_by_project.get(p.id))
+        stage = merge_project_stage(
+            compute_project_stage(
+                file_paths,
+                resources_text_by_project.get(p.id),
+                is_streaming=_project_is_streaming(p.id),
+            ),
+            p.stage,
+        )
         if persist_stage and stage != p.stage:
             p.stage = stage
             session.add(p)
@@ -664,6 +706,7 @@ def create_project(
         project_description = body.description[:200]
         warehouse_id, warehouse_name = None, None
         default_schema = None
+        company = ""  # no LLM pass here → the brand card lets the user set it later
     else:
         # LLM calls go through the SP client — Apps OBO tokens lack the
         # model-serving scope vocabulary, so user-attributed serving-endpoint
@@ -673,6 +716,7 @@ def create_project(
         metadata = _generate_project_metadata(llm_service, body.description)
         project_name = metadata["name"]
         project_description = metadata.get("description") or body.description[:200]
+        company = metadata.get("company") or ""
         base_schema = f"{DEFAULT_SCHEMA_PREFIX}{metadata['schema_name']}"
 
         # Find default resources (returns tuples of id, name)
@@ -695,6 +739,7 @@ def create_project(
         user_email=user_email,
         name=project_name,
         description=project_description,
+        customer=company or None,  # best-effort company from the prompt; user confirms via the brand card
         warehouse_id=warehouse_id,
         warehouse_name=warehouse_name,
         cluster_id=None,
@@ -907,7 +952,16 @@ def get_project(
         select(func.count()).select_from(Message).where(Message.project_id == project.id)
     ).one()
 
-    stage = compute_project_stage(file_paths, _load_resources_text(session, project.id))
+    # BUILT only settles once resources are ready AND the agent is idle; and the
+    # stage is monotonic (a later streaming follow-up never demotes a built demo).
+    stage = merge_project_stage(
+        compute_project_stage(
+            file_paths,
+            _load_resources_text(session, project.id),
+            is_streaming=_project_is_streaming(project.id),
+        ),
+        project.stage,
+    )
     if stage != project.stage:
         project.stage = stage
         session.add(project)
@@ -957,6 +1011,7 @@ def get_project(
         user_email=project.user_email,
         description=project.description,
         customer=project.customer,
+        brand=read_brand(project.id),
         narrative=project.narrative,
         narrative_readme_hash=project.narrative_readme_hash,
         project_type=project.project_type,
@@ -1047,11 +1102,120 @@ def update_project(
 
 
 @router.post(
-    "/projects/{project_id}/provision",
+    "/projects/{project_id}/brand",
     response_model=ProjectOut,
-    operation_id="provisionProject",
+    operation_id="setProjectBrand",
 )
-def provision_project(
+async def set_project_brand(
+    project_id: str,
+    body: ProjectBrandRequest,
+    session: Dependencies.Session,
+    headers: Dependencies.Headers,
+    config: Dependencies.Config,
+    ws: Dependencies.Client,
+    request: Request,
+):
+    """Personalize a project to a real company: resolve (or accept) its brand,
+    write `<project>/brand.json`, and set `Project.customer` to the company.
+
+    `search=True` runs the keyless brand service (company → palette + website);
+    `search=False` saves the palette/website the user edited by hand. Either way
+    the resulting brand.json is what the demo-generator skill + app read to theme
+    the generated app. Returns the refreshed project (with `brand`)."""
+    user_email = _get_user_email(headers)
+    project = _require_write_access(session, project_id, user_email, config.template_admin_emails)
+
+    company = body.company.strip()
+    palette = body.palette or []
+    website = body.website
+    # Preserve existing logo + screenshot on a manual (search=False) save.
+    existing = read_brand(project_id)
+    logo_name = existing.company_logo if existing else None
+    screenshot_name = existing.company_official_website_screenshot if existing else None
+    # project-root-relative paths for the file-sync (files live under brand/).
+    synced_files = [BRAND_JSON_PATH]
+
+    if body.search:
+        # Resolve via the brand service (through the shared Lakebase cache);
+        # overlay any manual overrides the user set.
+        service = BrandService(ws, config)
+        resolved = await cached_resolve(session, company, service.resolve, no_cache=body.no_cache)
+        if not palette:
+            palette = resolved.palette
+        if not website:
+            website = f"https://{resolved.domain}" if resolved.domain else None
+        # Save the logo (brand/company_logo.<ext>) — only when one was resolved.
+        if resolved.logo_data_url:
+            saved = write_logo(project_id, resolved.logo_data_url)
+            if saved:
+                logo_name = saved
+                synced_files.append(rel_path(saved))
+        # Save the official-site screenshot (brand/website.png) — only on success.
+        if resolved.site_screenshot:
+            raw = _decode_data_url(resolved.site_screenshot)
+            if raw:
+                saved = write_screenshot(project_id, raw)
+                if saved:
+                    screenshot_name = saved
+                    synced_files.append(rel_path(saved))
+
+    brand = ProjectBrand(
+        company=company, palette=palette, website=website,
+        company_logo=logo_name,
+        company_official_website_screenshot=screenshot_name,
+    )
+    write_brand(project_id, brand)
+
+    # Persist brand.json (+ screenshot) to the DB so they survive a restore, and
+    # set the company on the project (drives the "customize" chip).
+    file_sync: FileSyncService = request.app.state.file_sync
+    file_sync.sync_files_to_db_sync(project_id, synced_files)
+    project.customer = company or None
+    project.updated_at = datetime.now(timezone.utc)
+    session.add(project)
+    session.commit()
+    session.refresh(project)
+
+    msg_count = session.exec(
+        select(func.count()).select_from(Message).where(Message.project_id == project.id)
+    ).one()
+    file_count = session.exec(
+        select(func.count()).select_from(ProjectFile).where(ProjectFile.project_id == project.id)
+    ).one()
+
+    return ProjectOut(
+        id=project.id,
+        name=project.name,
+        user_email=project.user_email,
+        description=project.description,
+        customer=project.customer,
+        brand=brand,
+        narrative=project.narrative,
+        narrative_readme_hash=project.narrative_readme_hash,
+        project_type=project.project_type,
+        stage=project.stage,
+        architecture_first=project.architecture_first,
+        created_at=project.created_at,
+        updated_at=project.updated_at,
+        message_count=msg_count,
+        file_count=file_count,
+        cluster_id=project.cluster_id,
+        cluster_name=project.cluster_name,
+        warehouse_id=project.warehouse_id,
+        warehouse_name=project.warehouse_name,
+        default_catalog=project.default_catalog,
+        default_schema=project.default_schema,
+        source_template_id=project.source_template_id,
+        source_template_name=_resolve_template_name(session, project.source_template_id),
+    )
+
+
+@router.post(
+    "/projects/{project_id}/provision-architecture",
+    response_model=ProjectOut,
+    operation_id="provisionArchitectureProject",
+)
+def provision_architecture_project(
     project_id: str,
     body: ProjectProvisionRequest,
     session: Dependencies.Session,
@@ -1061,11 +1225,11 @@ def provision_project(
     user_ws: Dependencies.UserClient,
     config: Dependencies.Config,
 ):
-    """Provision the remote assets an architecture-first project skipped at
-    creation: LLM name/schema generation, warehouse discovery and the
-    CREATE SCHEMA. Idempotent — the "Build the solution" dialog calls this
-    right before sending the build prompt, and it no-ops the pieces that
-    already exist (safe on any project)."""
+    """Provision the workspace scaffolding an architecture-first project deferred
+    at creation: LLM name/schema generation, warehouse discovery, CREATE SCHEMA,
+    and the final resources.json seed. Does NOT run the build itself — the "Build
+    the solution" dialog calls this right BEFORE it sends the build prompt to the
+    agent. Idempotent — no-ops the pieces that already exist (safe on any project)."""
     user_email = _get_user_email(headers)
     project = _require_write_access(session, project_id, user_email, config.template_admin_emails)
 
@@ -1079,6 +1243,10 @@ def provision_project(
         if body.description:
             project.name = metadata["name"]
             project.description = metadata.get("description") or body.description[:200]
+        # Seed the company from the prompt only if the user hasn't set one yet
+        # (the brand card is authoritative once used).
+        if not (project.customer or "").strip() and metadata.get("company"):
+            project.customer = metadata["company"]
         if not project.warehouse_id:
             project.warehouse_id, project.warehouse_name = _find_shared_warehouse(ws)
         if not project.default_catalog:
@@ -1478,7 +1646,16 @@ def sync_project(
             .where(ProjectFile.project_id == project.id)
         ).all()
     ]
-    stage = compute_project_stage(file_paths, _load_resources_text(session, project.id))
+    # BUILT only settles once resources are ready AND the agent is idle; and the
+    # stage is monotonic (a later streaming follow-up never demotes a built demo).
+    stage = merge_project_stage(
+        compute_project_stage(
+            file_paths,
+            _load_resources_text(session, project.id),
+            is_streaming=_project_is_streaming(project.id),
+        ),
+        project.stage,
+    )
     if stage != project.stage:
         project.stage = stage
         session.add(project)

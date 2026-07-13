@@ -166,6 +166,7 @@ def _all_buildable_capabilities_built(resources_json_text: str) -> bool:
 def compute_project_stage(
     file_paths: list[str],
     resources_json_text: str | None = None,
+    is_streaming: bool = False,
 ) -> str:
     """Derive the project stage from its file paths.
 
@@ -177,6 +178,13 @@ def compute_project_stage(
     file-only — a `.py`/`.sql` + `resources.json` was enough, which made
     BUILT trigger before the supervisor/app capabilities were actually
     deployed.
+
+    `is_streaming`: while the agent is actively working, a demo is NOT
+    considered BUILT even if all resources are already deployed — the agent
+    typically keeps going in the background (app bug-fixes, follow-up files).
+    We only settle on BUILT once resources are ready AND the conversation is
+    idle. (Callers apply this monotonically — see routes: once BUILT, a later
+    streaming turn never demotes it back.)
     """
     path_set = {p.lower() for p in file_paths}
     names = {p.rsplit("/", 1)[-1] for p in path_set}
@@ -186,7 +194,7 @@ def compute_project_stage(
 
     has_code = any(p.endswith(".py") or p.endswith(".sql") for p in path_set)
     has_resources = "resources.json" in names
-    if has_code and has_resources:
+    if has_code and has_resources and not is_streaming:
         if resources_json_text is None or _all_buildable_capabilities_built(resources_json_text):
             return ProjectStage.BUILT.value
         # File-level signals match BUILT but a requested buildable capability
@@ -204,6 +212,30 @@ def compute_project_stage(
         return ProjectStage.SUMMARIZED.value
 
     return ProjectStage.DRAFTING.value
+
+
+_STAGE_ORDER = [
+    ProjectStage.DRAFTING.value,
+    ProjectStage.SUMMARIZED.value,
+    ProjectStage.ARCHITECTED.value,
+    ProjectStage.SPECIFICATION.value,
+    ProjectStage.BUILT.value,
+    ProjectStage.BUNDLED.value,
+]
+
+
+def merge_project_stage(new_stage: str, current_stage: str | None) -> str:
+    """Monotonic stage: never go backwards. Once a demo reaches BUILT, a later
+    streaming follow-up (which recomputes to SPECIFICATION while the agent works)
+    must NOT demote it — the build already happened. Returns the more-advanced of
+    the two. ARCHITECTED is 'optional' and off the main path, so treat an unknown
+    stage as order 0 (never blocks an advance)."""
+    def rank(s: str | None) -> int:
+        try:
+            return _STAGE_ORDER.index(s) if s else -1
+        except ValueError:
+            return -1
+    return new_stage if rank(new_stage) >= rank(current_stage) else (current_stage or new_stage)
 
 
 class ExecutionStatus(str, Enum):
@@ -261,9 +293,10 @@ class Project(SQLModel, table=True):
     user_email: str = SQLField(index=True, max_length=255)
     name: str = SQLField(max_length=255)
     description: Optional[str] = SQLField(default=None, sa_column=Column(Text))
-    # The real customer/account this demo is being built FOR. Inferred by a mini
-    # model from the chat conversation (see services/customer_extraction.py) and
-    # user-editable. Null = not yet known; the UI renders "Not specified".
+    # The real company this demo is being built FOR / personalized to. Seeded by
+    # the project-metadata LLM at creation (best-effort guess from the prompt) and
+    # confirmed when the user runs the brand search (which also writes
+    # <project>/brand.json). User-editable. Null = not yet known.
     customer: Optional[str] = SQLField(default=None, max_length=255)
     # LLM-generated 1-2 paragraph storytelling summary of the demo, distinct
     # from `description` (which is the short one-liner the user can edit).
@@ -419,6 +452,38 @@ class ProjectFile(SQLModel, table=True):
     __table_args__ = (
         Index("ix_project_files_project_path", "project_id", "relative_path", unique=True),
     )
+
+
+class BrandCacheEntry(SQLModel, table=True):
+    """One resolved company brand, keyed by its canonical domain. Holds the
+    expensive artifacts (palette + logo bytes + site screenshot) so a repeat
+    lookup for the same company skips the whole resolve. Deduped by domain: many
+    typed queries (see BrandQueryAlias) point at ONE entry. Survives restart
+    (Lakebase); 30-day TTL applied at read time."""
+    __tablename__ = "brand_cache"
+
+    domain: str = SQLField(sa_column=Column(String(255), primary_key=True))
+    company: str = SQLField(default="", max_length=255)
+    # ordered palette hexes, stored as a JSON array
+    palette: list = SQLField(default_factory=list, sa_column=Column(JSON, nullable=False))
+    website: Optional[str] = SQLField(default=None, max_length=500)
+    # logo bytes + its content-type (svg/png/…), null when no logo resolved
+    logo_bytes: Optional[bytes] = SQLField(default=None, sa_column=Column(LargeBinary, nullable=True))
+    logo_content_type: Optional[str] = SQLField(default=None, max_length=100)
+    # official-site screenshot (JPEG bytes), null when capture failed/blocked
+    screenshot_bytes: Optional[bytes] = SQLField(default=None, sa_column=Column(LargeBinary, nullable=True))
+    resolved_at: datetime = SQLField(default_factory=utc_now)
+
+
+class BrandQueryAlias(SQLModel, table=True):
+    """Maps a NORMALIZED user query ("databricks data ai") to the domain of the
+    brand it resolved to. The cheap alias layer: different phrasings each add a
+    row here but share the one BrandCacheEntry keyed by that domain."""
+    __tablename__ = "brand_query_alias"
+
+    query_norm: str = SQLField(sa_column=Column(String(255), primary_key=True))
+    domain: str = SQLField(index=True, max_length=255)
+    created_at: datetime = SQLField(default_factory=utc_now)
 
 
 class Message(SQLModel, table=True):
@@ -660,15 +725,47 @@ class ProjectResourcesUpdateRequest(BaseModel):
     default_schema: Optional[str] = None
 
 
+class ProjectBrand(BaseModel):
+    """The company brand a demo is personalized to — persisted as
+    `<project>/brand.json` and read by the skill/app to theme the demo. Kept
+    deliberately tiny (this is the on-disk contract the skill reads): the full
+    resolver output (logos, trace) is NOT saved here."""
+    company: str = ""
+    palette: list[str] = []
+    website: Optional[str] = None
+    # Bare filename (relative to the brand/ folder) of the company logo
+    # (company_logo.<ext>) — only present when a logo was resolved.
+    company_logo: Optional[str] = None
+    # Bare filename (relative to the brand/ folder) of the official-site
+    # screenshot (website.png) — only present when the capture succeeded. The
+    # app builder uses it as visual inspiration when theming.
+    company_official_website_screenshot: Optional[str] = None
+
+
+class ProjectBrandRequest(BaseModel):
+    """Body for setting a project's brand. Either resolve from a company name
+    (search=True → run the brand service) or save an explicit edit (palette/website
+    the user tweaked in the UI)."""
+    company: str = Field(..., min_length=1, description="Company/brand name")
+    search: bool = Field(True, description="Run the brand service to resolve palette/website; False = save the provided values as-is")
+    palette: Optional[list[str]] = Field(None, description="Manual palette override (used when search=False, or to override the resolved one)")
+    website: Optional[str] = Field(None, description="Manual website override")
+    no_cache: bool = Field(False, description="When searching, bypass + invalidate the brand cache and re-resolve fresh")
+
+
 class ProjectOut(BaseModel):
     """Project details response."""
     id: str
     name: str
     user_email: str
     description: Optional[str]
-    # The customer/account this demo is for (chat-inferred, editable). Null → UI
-    # shows "Not specified".
+    # The company this demo is personalized to (seeded from the prompt, confirmed
+    # by the brand search). Null → UI shows the "customize for a real company" CTA.
     customer: Optional[str] = None
+    # The resolved brand ({company, palette, website}) read from <project>/brand.json,
+    # so a single getProject gives the UI the palette/mini-site to render. Null =
+    # no brand.json yet.
+    brand: Optional[ProjectBrand] = None
     # LLM-generated storytelling narrative (1-2 paragraphs). Distinct from
     # `description`. Drives the Overview hero on the frontend.
     narrative: Optional[str] = None
@@ -798,7 +895,12 @@ class BrandOut(BaseModel):
     explains any degradation (favicon fallback, SPA site, low-confidence domain,
     …) — the service returns partial results rather than failing."""
     name: str
+    # The company's OFFICIAL registrable domain (databricks.com) — drives the
+    # website + which site gets screenshotted. Distinct from asset_source.
     domain: Optional[str] = None
+    # Where the logo/palette were actually harvested (e.g. brand.databricks.com or
+    # a CDN). Informational — NOT the official site.
+    asset_source: Optional[str] = None
     confidence: float = 0.0
     logo_url: Optional[str] = None
     logo_data_url: Optional[str] = None

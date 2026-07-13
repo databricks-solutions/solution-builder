@@ -27,14 +27,32 @@ export const PROJECT_STAGES: ProjectStage[] = [
   "BUNDLED",
 ];
 
+/** The company brand a demo is personalized to — mirrors <project>/brand.json.
+ *  The tiny on-disk contract the skill/app read (NOT the full resolver output). */
+export interface ProjectBrand {
+  company: string;
+  palette: string[];
+  website?: string | null;
+  /** Project-root-relative filename of the company logo (company_logo.<ext>),
+   *  present only when a logo was resolved. */
+  company_logo?: string | null;
+  /** Project-root-relative filename of the official-site screenshot
+   *  (brand/website.png), present only when the capture succeeded. */
+  company_official_website_screenshot?: string | null;
+}
+
 export interface Project {
   id: string;
   name: string;
   user_email: string;
   description: string | null;
-  /** Real customer/account this demo is for (chat-inferred, editable).
-   *  Null → render "Not specified". */
+  /** The company this demo is personalized to (seeded from the prompt,
+   *  confirmed via the brand card). Null → show the "customize" CTA. */
   customer?: string | null;
+  /** Resolved brand ({company, palette, website}) from <project>/brand.json.
+   *  Populated by getProject so one load has the palette/mini-site to render.
+   *  Null → no brand.json yet. */
+  brand?: ProjectBrand | null;
   /** LLM-generated 1-2 paragraph storytelling summary used by the
    *  Overview hero. Distinct from `description` (the short one-liner). */
   narrative?: string | null;
@@ -366,7 +384,11 @@ export interface BrandLogoProvenance {
 
 export interface BrandOut {
   name: string;
+  /** Official registrable domain (databricks.com). */
   domain: string | null;
+  /** Where the logo/palette were harvested (brand.databricks.com / a CDN) —
+   *  informational, distinct from the official domain. */
+  asset_source?: string | null;
   confidence: number;
   logo_url: string | null;
   logo_data_url: string | null;
@@ -387,8 +409,10 @@ export interface BrandOut {
  * searches, fetches, and extracts) — expect ~15–40s. Always resolves to a
  * BrandOut; missing pieces come back empty with `warnings`.
  */
-export async function resolveBrand(name: string): Promise<BrandOut> {
-  const resp = await fetch(apiUrl(`/api/brands/resolve?name=${encodeURIComponent(name)}`));
+export async function resolveBrand(name: string, opts?: { noCache?: boolean }): Promise<BrandOut> {
+  const q = new URLSearchParams({ name });
+  if (opts?.noCache) q.set("no_cache", "true");
+  const resp = await fetch(apiUrl(`/api/brands/resolve?${q.toString()}`));
   if (!resp.ok) {
     let detail = `Brand lookup failed: ${resp.status}`;
     try {
@@ -396,6 +420,34 @@ export async function resolveBrand(name: string): Promise<BrandOut> {
       if (j.detail) detail = j.detail;
     } catch {
       /* non-JSON body — keep the status-line fallback */
+    }
+    throw new Error(detail);
+  }
+  return resp.json();
+}
+
+/**
+ * Personalize a project to a real company: resolve (or save) its brand and write
+ * <project>/brand.json. `search: true` runs the brand service (slow, ~15-40s);
+ * `search: false` saves the given palette/website as-is (a manual edit). Returns
+ * the refreshed Project (with `brand` populated).
+ */
+export async function setProjectBrand(
+  projectId: string,
+  body: { company: string; search: boolean; palette?: string[]; website?: string | null; no_cache?: boolean },
+): Promise<Project> {
+  const resp = await fetch(apiUrl(`/api/projects/${projectId}/brand`), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!resp.ok) {
+    let detail = `Brand update failed: ${resp.status}`;
+    try {
+      const j = (await resp.json()) as { detail?: string };
+      if (j.detail) detail = j.detail;
+    } catch {
+      /* keep status-line fallback */
     }
     throw new Error(detail);
   }
@@ -452,14 +504,15 @@ export async function updateProject(
   return resp.json();
 }
 
-/** Provision the remote assets an architecture-first project skipped at
- *  creation (LLM name/schema, warehouse discovery, CREATE SCHEMA). Idempotent
- *  — the "Build the solution" dialog calls it right before the build prompt. */
-export async function provisionProject(
+/** Provision the workspace scaffolding an architecture-first project deferred at
+ *  creation (LLM name/schema, warehouse discovery, CREATE SCHEMA, resources.json).
+ *  Does NOT run the build — the "Build the solution" dialog calls it right before
+ *  sending the build prompt. Idempotent. */
+export async function provisionArchitectureProject(
   projectId: string,
   body: { description?: string; capabilities?: string[] },
 ): Promise<Project> {
-  const resp = await fetch(apiUrl(`/api/projects/${projectId}/provision`), {
+  const resp = await fetch(apiUrl(`/api/projects/${projectId}/provision-architecture`), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),

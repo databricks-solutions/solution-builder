@@ -70,7 +70,7 @@ import {
   deleteProject,
   clearProjectSession,
   updateProject,
-  provisionProject,
+  provisionArchitectureProject,
   getTemplateByProject,
   downloadProjectAsZip,
   getDeployedResources,
@@ -1650,7 +1650,7 @@ function ProjectPage() {
       // 1. Provision the remote assets the fast architecture-first create
       //    deferred (LLM name/schema, warehouse, CREATE SCHEMA) + re-seed
       //    resources.json with the final capability selection. Idempotent.
-      const provisioned = await provisionProject(projectId, {
+      const provisioned = await provisionArchitectureProject(projectId, {
         description: storyDescription,
         capabilities,
       });
@@ -2336,6 +2336,8 @@ function ProjectPage() {
         <div className={`flex-1 min-w-0 overflow-hidden ${mobilePanel === "chat" ? "hidden md:flex" : "flex"} flex-col`}>
           <FileViewer
             projectId={projectId}
+            project={project}
+            onBrandUpdated={(p) => setProject(p)}
             projectDescription={project?.description}
             projectNarrative={project?.narrative ?? null}
             projectCreatedAt={project?.created_at ?? null}

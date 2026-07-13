@@ -52,8 +52,9 @@ Each stage fires one tracking event so we can see how the skill is used. Calls a
 ## Efficiency
 
 Batch tool calls in the same response whenever you can: emit multiple `Read` or `Write` calls in one assistant message and the harness executes them concurrently. You still generate tokens sequentially — batching saves LLM round-trips, not output time. Load all reference blocks in one message, write independent files in one message. **Spec writing fans out after `01-lakeflow.md`**: 02 / 03 / 04 / 05 + the app spec all depend only on 01 (and on each other's outputs that the build stage materializes, not on each other's spec text), so once 01 is written they're emitted as a single batched-Write turn on the main loop — never serialize them. Latency is dominated by LLM round-trips, not tool execution — every sequential tool call that could have been batched is wasted time.
+Do not get lost into thinking especially on operations like writing file, generating data or others. You must instead write the file with real tools and execute them.
 
-**Subagent policy.** A single subagent is used in Stage 3 (build) **and only for the App** — it's the longest task (~5 min) and runs in parallel while the parent builds everything else on main. Stages 0, 1, 2, and 4 run entirely on the main loop, and within Stage 3 only the App is delegated. The full spawn prompt is in `DEMO_SKILL_DIR/stages/03-build.md` → Step 2.
+**Subagent policy.** A subagent is used in Stage 3 (build) **and only for the App** — it's the longest task (~5 min) and runs in parallel while the parent builds everything else on main. Stages 0, 1, 2, and 4 run entirely on the main loop, and within Stage 3 only the App is delegated. The full spawn prompt is in `DEMO_SKILL_DIR/stages/03-build.md` → Step 2.
 
 ### Telling the user where you are
 
@@ -198,6 +199,18 @@ Generic pattern when adding a new capability (app, ML model, dashboard, etc.) to
 5. **Build it** — follow `stages/03-build.md` for the build order (data → pipeline → consumption layers).
 6. **App-specific path** — if the new component is an app, ALSO read `DEMO_SKILL_DIR/app/app.md` end-to-end (it walks the clone-template → specialize → deploy flow that's specific to the React/Node app, not the rest of the demo).
 7. **Update `resources.json`** — add the new resource's IDs / endpoints / paths to `created_resources` so the UI tiles light up and the capabilities after the addition/changes.
+
+---
+
+## Brand personalization (`brand/brand.json`)
+
+To personalize a demo to a **real company**, if the user gives you one, search the web for its official website, proper name, and main color palette, and write `brand/brand.json` (everything brand-related lives in the `brand/` folder at the project root):
+
+```json
+{ "company": "Rolls-Royce", "palette": ["#10069F", "#C0A062"], "website": "https://www.rolls-roycemotorcars.com", "company_logo": "company_logo.svg", "company_official_website_screenshot": "website.png" }
+```
+
+`company_logo` and `company_official_website_screenshot` (both optional) are **bare filenames relative to the `brand/` folder** (i.e. `brand/company_logo.svg`, `brand/website.png`) — the app builder uses the logo in the app header and the screenshot as visual inspiration. The user can ask you to skip this whole step and fill in the info themselves — then just read `brand/brand.json` if it's present. No `brand/brand.json` = not brand-personalized; that's fine. The app builder consumes it at the end of app generation (see `DEMO_SKILL_DIR/app/app.md`).
 
 ---
 

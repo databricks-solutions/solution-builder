@@ -30,7 +30,7 @@ import {
   type UseCaseIdea,
   type IdeaToRefine,
 } from "@/lib/custom-api";
-import { AUTO_BUILD_KICKOFF } from "@/lib/auto-build-prompt";
+import { AUTO_BUILD_KICKOFF, BRAND_NOTE } from "@/lib/auto-build-prompt";
 import { type ExtractedArchitecture } from "@/lib/architecture-capabilities";
 import { Check, Database, Loader2, Pencil, Send, Sparkles, X, Zap } from "lucide-react";
 
@@ -295,6 +295,7 @@ export function BuildSolutionDialog({ open, onOpenChange, extracted, onBuild }: 
       initialPrompt += `\n\n**${idea.title}**\n\n${idea.hook}`;
     }
     initialPrompt += authoritativeCapsLine;
+    initialPrompt += `\n\n${BRAND_NOTE}`;
     initialPrompt += `\n\n---\n\n${AUTO_BUILD_KICKOFF}`;
     // The provision step regenerates the project name/schema from the story —
     // richer input than the original architecture topic.

@@ -56,7 +56,7 @@ import {
   type UploadedFile,
 } from "@/lib/custom-api";
 import { FileUploadChip } from "@/components/file-upload-chip";
-import { AUTO_BUILD_KICKOFF } from "@/lib/auto-build-prompt";
+import { AUTO_BUILD_KICKOFF, BRAND_NOTE } from "@/lib/auto-build-prompt";
 import { cn } from "@/lib/utils";
 export const Route = createFileRoute("/")({
   component: Index,
@@ -782,6 +782,11 @@ function Index() {
           `Read the \`.extracted.md\` siblings (already text-extracted) ` +
           `before designing the story so it fits what's actually in them:\n${fileList}`;
       }
+
+      // Brand: the app resolves it + writes brand/brand.json, so tell the agent
+      // not to web-search for it. Applies to every entry (architecture-first,
+      // idea, pro) since the brand is populated out-of-band in all of them.
+      initialPrompt += `\n\n${BRAND_NOTE}`;
 
       // Auto mode: append the kickoff directive so the agent runs every stage
       // (DRAFTING → DEPLOYED) without prompting. The topic/idea header above

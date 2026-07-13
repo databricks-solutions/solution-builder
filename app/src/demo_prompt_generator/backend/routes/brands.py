@@ -12,6 +12,7 @@ from fastapi import Query
 
 from ..core import Dependencies, create_router
 from ..models import BrandOut
+from ..services.brand_cache import cached_resolve
 from ..services.brand_service import BrandService
 
 router = create_router()
@@ -19,14 +20,18 @@ router = create_router()
 
 @router.get("/brands/resolve", response_model=BrandOut, operation_id="resolveBrand")
 async def resolve_brand(
+    session: Dependencies.Session,
     ws: Dependencies.Client,
     config: Dependencies.Config,
     name: str = Query(..., min_length=1, description="Company name, e.g. 'Rolls-Royce'"),
+    no_cache: bool = Query(False, description="Bypass + invalidate the cache and re-resolve"),
 ):
     """Resolve a company's brand (official domain + logo + color palette).
 
-    Best-effort: always returns a `BrandOut` (with `warnings`) rather than
-    erroring — a missing logo/palette just comes back empty. Watch the
-    `brand_service` logger to see the agent's tool calls + reasoning.
+    Goes through the two-layer Lakebase cache (query→domain→brand); a repeat
+    lookup returns instantly. `no_cache=true` forces a fresh resolve and replaces
+    the cached entry. Best-effort: always returns a `BrandOut` (with `warnings`)
+    rather than erroring — a missing logo/palette just comes back empty.
     """
-    return await BrandService(ws, config).resolve(name)
+    service = BrandService(ws, config)
+    return await cached_resolve(session, name, service.resolve, no_cache=no_cache)

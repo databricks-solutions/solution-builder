@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { BrandResult } from "@/components/brand/brand-result";
 import { resolveBrand, type BrandOut } from "@/lib/custom-api";
-import { Loader2, Search } from "lucide-react";
+import { Loader2, Search, ChevronDown } from "lucide-react";
 
 export const Route = createFileRoute("/brand")({
   component: BrandPage,
@@ -22,6 +22,7 @@ function BrandPage() {
   const [loading, setLoading] = useState(false);
   const [brand, setBrand] = useState<BrandOut | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [forceRefresh, setForceRefresh] = useState(false);
 
   const run = async () => {
     const q = name.trim();
@@ -30,7 +31,7 @@ function BrandPage() {
     setError(null);
     setBrand(null);
     try {
-      setBrand(await resolveBrand(q));
+      setBrand(await resolveBrand(q, { noCache: forceRefresh }));
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -71,6 +72,23 @@ function BrandPage() {
             <span className="ml-1.5">Resolve</span>
           </Button>
         </form>
+
+        {/* Advanced — force a fresh resolve (bypass + invalidate the cache) */}
+        <details className="group mt-3 w-full max-w-md text-xs">
+          <summary className="flex cursor-pointer list-none items-center gap-1 text-muted-foreground hover:text-foreground">
+            <ChevronDown className="h-3.5 w-3.5 transition-transform group-open:rotate-180" />
+            Advanced
+          </summary>
+          <label className="mt-2 flex cursor-pointer items-center gap-2 pl-5 text-muted-foreground">
+            <input
+              type="checkbox"
+              checked={forceRefresh}
+              onChange={(e) => setForceRefresh(e.target.checked)}
+              className="h-3.5 w-3.5 accent-primary"
+            />
+            Ignore cached result and re-fetch (updates the cache)
+          </label>
+        </details>
 
         <div className="mt-10 w-full">
           {loading && (
