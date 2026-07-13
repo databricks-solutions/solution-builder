@@ -21,3 +21,8 @@ test-results/
 # ship with a template snapshot. See backend/AUTH.md in the generator.
 .databrickscfg
 shared/appkit-types/
+
+# Drizzle migrations are a BUILD ARTIFACT — regenerated from server/db/schema.ts
+# by `npm run db:generate` (wired into prebuild/predev). Never commit them:
+# a committed .sql drifts from schema.ts (stale tables → boot crash).
+drizzle/

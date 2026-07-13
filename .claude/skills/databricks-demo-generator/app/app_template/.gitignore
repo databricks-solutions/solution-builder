@@ -23,3 +23,8 @@ test-results/
 
 # AppKit 0.41 typegen output (generated; regenerated on dev machine with warehouse access)
 shared/appkit-types/
+
+# Drizzle migrations are a BUILD ARTIFACT — regenerated from server/db/schema.ts
+# by `npm run db:generate` (wired into prebuild/predev). Never commit them:
+# a committed .sql drifts from schema.ts (stale tables → boot crash).
+drizzle/
