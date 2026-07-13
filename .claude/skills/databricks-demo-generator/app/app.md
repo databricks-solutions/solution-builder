@@ -258,30 +258,17 @@ Static checks first:
 
 Then run a **one-shot smoke test** — start the app once on a random debug port, let it boot, stop it. This catches runtime errors (missing env vars, Lakebase OAuth misconfig, Delta→PG type mismatches, schema drift) *before* handing back to the user. Do this only once at the very end of the initial build (or after a substantive change on request). **It is mandatory to stop it afterwards regardless of outcome** — the Demo Prompt Generator UI supervises the process lifecycle going forward (and may already have a preview running for this project on the default port), so a leftover smoke-test process would collide or orphan.
 
-Use a random high port (`$RANDOM` gives 0-32767; shift into 40000-49999 to stay clear of both the default 8765 and whatever port the UI picks for its own preview). `start.sh` reads `DATABRICKS_APP_PORT` from the environment:
+Run it yourself (you know how to background a process, poll a port, and tail a log). What matters:
 
-```bash
-# From inside PROJECT/app, with .env filled:
-PORT=$((40000 + RANDOM % 10000))
-DATABRICKS_APP_PORT="$PORT" ./start.sh > /tmp/app-smoke.log 2>&1 &
-APP_PID=$!
+- **Random high port** in 40000-49999 (clear of the default 8765 and the UI's own preview port); pass it as `DATABRICKS_APP_PORT` — `start.sh` reads it.
+- **Redirect logs to a per-project path**, e.g. `/tmp/<project-id>/app-smoke.log` — NOT a shared `/tmp/app-smoke.log`, or two concurrent demo builds clobber each other.
+- **Wait up to ~180s.** Cold boot does a lot before it listens: `npm ci`, `predev` (sync + typegen + `db:generate`), tsx compile, `runMigrations`, and the Delta→Lakebase sync. Don't kill early.
+- **Watch the log while waiting** — surface a fatal error (uncaught exception, missing module, `relation … does not exist`, invalid token, `EADDRINUSE`, migration failure) as soon as it appears instead of sitting blind for 3 minutes.
+- Success = the port accepts a connection. Crash = the process exited. A 180s no-listen with the process still alive is usually just a slow `npm ci`/sync — dump the log and investigate, don't assume failure.
 
-# Give it up to 60s to either serve traffic on its port or fail loudly.
-for i in {1..60}; do
-  if nc -z localhost "$PORT" 2>/dev/null; then
-    echo "App booted on :$PORT"
-    break
-  fi
-  if ! kill -0 "$APP_PID" 2>/dev/null; then
-    echo "App crashed during boot — dumping logs:"
-    cat /tmp/app-smoke.log
-    break
-  fi
-  sleep 1
-done
-```
+Then:
 
-- Review `/tmp/app-smoke.log` for any errors. If the app crashed or logged fatal errors, fix them before reporting the build complete. Common issues: missing `DATABRICKS_HOST`, wrong catalog/schema, Lakebase endpoint not reachable, agent tool referencing a table column that doesn't exist yet.
+- Review the log for any errors. If the app crashed or logged fatal errors, fix them before reporting the build complete. Common issues: missing `DATABRICKS_HOST`, wrong catalog/schema, Lakebase endpoint not reachable, agent tool referencing a table column that doesn't exist yet.
 - Test the main endpoints (some get/create), make sure you test the chatbot / assistant endpoints as it's often having issue. 
 If you see errors, check the logs and fix the errors accordingly, and restart the app until it's working. The app should be functional once you finish
 
@@ -289,8 +276,7 @@ Fix any error and loop until the app starts properly.
 
 **Don't leave the app running.** From this point on, the **App** tab in the Demo Prompt Generator UI owns the process lifecycle — it spawns, supervises, proxies, and stops on idle / explicit Stop. A leftover smoke-test process would be untracked and could block the UI's own port. Verify with `lsof -iTCP:$PORT -sTCP:LISTEN` before reporting done.
 
-ALWAYS stop — whether it booted, crashed, or we're still waiting.
-`kill -9 "$APP_PID" 2>/dev/null || true`
+ALWAYS stop the smoke-test process — whether it booted, crashed, or we're still waiting — before reporting done (kill the PID you backgrounded; `-9` if needed).
 
 Once the initial run is done, **Never run `./start.sh` casually.** Only during the one-shot smoke test described above, or when a user explicitly asks you to debug a boot issue — and always kill it immediately after. The UI is the single supervisor of the app process; any other `start.sh` run will collide with it.
 
