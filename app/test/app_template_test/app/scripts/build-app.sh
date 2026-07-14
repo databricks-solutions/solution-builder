@@ -31,14 +31,19 @@ npm install --include=dev
 echo "[build-app] building server + client…"
 npm run build:source
 
-# Rewrite proxy URLs → public registry, in place. `sed -i.bak` works on
+# Rewrite ANY Databricks npm-proxy URL → public registry, in place. The App
+# container can't reach the internal proxy, and different dev environments pin
+# different proxy hosts in the lockfile (npm-proxy.dev.databricks.com on VPN,
+# npm-proxy.cloud.databricks.com elsewhere) — so match them all, not just one.
+# Missing even one host leaves proxy URLs that 404 on the container (e.g.
+# whatwg-url-5.0.0.tgz not mirrored on the cloud proxy). `sed -i.bak` works on
 # both BSD (macOS) and GNU sed.
-PROXY_URL="https://npm-proxy.dev.databricks.com/"
+PROXY_RE="https://npm-proxy[.-][a-z0-9.-]*databricks\.com/"
 PUBLIC_URL="https://registry.npmjs.org/"
-count=$(grep -c "$PROXY_URL" "$LOCKFILE" || true)
+count=$(grep -cE "$PROXY_RE" "$LOCKFILE" || true)
 if [[ "$count" -gt 0 ]]; then
     echo "[build-app] rewriting $count proxy URLs → public registry"
-    sed -i.bak "s|$PROXY_URL|$PUBLIC_URL|g" "$LOCKFILE"
+    sed -i.bak -E "s|$PROXY_RE|$PUBLIC_URL|g" "$LOCKFILE"
     rm -f "$LOCKFILE.bak"
 else
     echo "[build-app] lockfile already on public registry — no rewrite needed"

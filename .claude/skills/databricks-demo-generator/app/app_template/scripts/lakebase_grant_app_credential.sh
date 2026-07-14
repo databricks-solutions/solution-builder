@@ -95,6 +95,40 @@ for r in json.load(sys.stdin):
 }
 echo "[grant] SP role: $SP_ROLE"
 
+# ── Reassign stale ownership from a PRIOR app's SP ──────────────────────────
+# On a redeploy-after-delete the app gets a NEW service principal, but the app
+# schemas (app/appkit/drizzle) are still owned by the OLD, now-deleted app's SP
+# role. The connecting user (us) is NOT that owner, so a plain DROP/ALTER can't
+# fix it ("must be owner of schema appkit"). The managed-API fix is one command:
+# `delete-role --reassign-owned-to` transfers everything the old SP owns to the
+# current SP and drops the dead role (the CLI equivalent of the UI's "reassign
+# owned objects"). Do this for every OTHER service-principal role on the branch
+# so the current SP ends up owning its schemas. No-op when there's no stale SP.
+STALE_ROLE_NAMES="$(
+    databricks postgres list-roles "$BRANCH_PATH" ${PROFILE_FLAG[@]+"${PROFILE_FLAG[@]}"} -o json \
+    | python3 -c "
+import sys, json
+cur = '$APP_SP_UUID'
+for r in json.load(sys.stdin):
+    s = r.get('status', {})
+    # a SERVICE_PRINCIPAL role that isn't the current app's SP = a leftover
+    if s.get('identity_type') == 'SERVICE_PRINCIPAL' and s.get('postgres_role') != cur:
+        print(r['name'])   # full resource path (roles/<name>, not the UUID)
+"
+)"
+if [[ -n "$STALE_ROLE_NAMES" ]]; then
+    NEW_ROLE_PATH="$BRANCH_PATH/roles/$SP_ROLE"
+    while IFS= read -r old_path; do
+        [[ -z "$old_path" ]] && continue
+        echo "[grant] reassigning objects owned by stale SP role $old_path → current SP + dropping it"
+        if databricks postgres delete-role "$old_path" --reassign-owned-to "$NEW_ROLE_PATH" ${PROFILE_FLAG[@]+"${PROFILE_FLAG[@]}"} >/dev/null 2>&1; then
+            echo "[grant]   reassigned + dropped $old_path"
+        else
+            echo "[grant]   WARNING: reassign of $old_path failed (continuing)"
+        fi
+    done <<< "$STALE_ROLE_NAMES"
+fi
+
 # Auth as the current Databricks user (the DB owner from setup) to run the
 # GRANTs. Token is short-lived; no plumbing needed beyond this call.
 PG_HOST="$(
@@ -122,24 +156,27 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO "$SP_ROLE";
 
 -- The app uses three of its own schemas: \`app\` (Drizzle tables — the
 -- Delta→Lakebase mirror), \`appkit\` (AppKit's PersistentStorage cache), and
--- \`drizzle\` (Drizzle's migration-tracking table). The SP must be able to
--- create + own tables in each. Two failure modes this guards against:
---   1. Schema doesn't exist → SP can't create it (only DB-level CREATE helps,
---      but Drizzle/AppKit reference the schema by name expecting it present).
---   2. Schema EXISTS but is owned by another role (e.g. a human who ran an
---      earlier deploy) → SP gets "permission denied for schema <x>".
--- We DROP + recreate each app schema so it's freshly owned/granted, then grant
--- the SP ALL on it. DROP CASCADE is safe: \`app\` tables are rebuilt from Delta
--- by db/sync.ts on every boot; \`appkit\`/\`drizzle\` are regenerable bookkeeping.
+-- \`drizzle\` (Drizzle's migration-tracking table). The SP creates + OWNS these
+-- itself on first boot (it has GRANT CREATE ON DATABASE above). We must NOT try
+-- to create/alter/drop them AS the connecting user — that fails with "must be
+-- owner" / "must be able to SET ROLE" because we're neither the owner nor a
+-- member of the SP role. Stale ownership from a prior app's SP is already
+-- transferred by the delete-role --reassign-owned-to step above. So here we
+-- only GRANT the SP on any of these schemas that ALREADY exist (best-effort;
+-- skip silently if a schema isn't present yet — the SP makes it on boot).
 DO \$\$
 DECLARE s text;
 BEGIN
   FOREACH s IN ARRAY ARRAY['app','appkit','drizzle'] LOOP
-    EXECUTE format('DROP SCHEMA IF EXISTS %I CASCADE', s);
-    EXECUTE format('CREATE SCHEMA %I', s);
-    EXECUTE format('GRANT ALL ON SCHEMA %I TO %I', s, '$SP_ROLE');
-    EXECUTE format('ALTER DEFAULT PRIVILEGES IN SCHEMA %I GRANT ALL ON TABLES TO %I', s, '$SP_ROLE');
-    EXECUTE format('ALTER DEFAULT PRIVILEGES IN SCHEMA %I GRANT ALL ON SEQUENCES TO %I', s, '$SP_ROLE');
+    IF EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = s) THEN
+      BEGIN
+        EXECUTE format('GRANT ALL ON SCHEMA %I TO %I', s, '$SP_ROLE');
+        EXECUTE format('GRANT ALL ON ALL TABLES IN SCHEMA %I TO %I', s, '$SP_ROLE');
+        EXECUTE format('GRANT ALL ON ALL SEQUENCES IN SCHEMA %I TO %I', s, '$SP_ROLE');
+      EXCEPTION WHEN insufficient_privilege THEN
+        RAISE NOTICE 'not owner of schema % — SP owns it (via reassign) or will on boot; skipping grants', s;
+      END;
+    END IF;
   END LOOP;
 END \$\$;
 EOF

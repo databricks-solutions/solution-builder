@@ -78,26 +78,39 @@ explain_apps_error() {
     esac
 }
 
-USER_NAME="$(databricks current-user me "${PROFILE_FLAG[@]}" -o json \
+USER_NAME="$(databricks current-user me ${PROFILE_FLAG[@]+"${PROFILE_FLAG[@]}"} -o json \
     | python3 -c "import sys,json; print(json.load(sys.stdin)['userName'])")"
 WS_PATH="/Workspace/Users/$USER_NAME/apps/$APP_NAME"
 
 echo "[deploy] app=$APP_NAME  ws_path=$WS_PATH  user=$USER_NAME"
 
+# 0) Rebuild from source before uploading. A stale dist/ is a real footgun:
+#    the container installs FRESH deps (npm ci), so a dist/ built against an
+#    older @databricks/appkit crashes at boot (e.g. "server({autoStart}) has
+#    been removed"). build-app.sh runs `npm run build:source` AND rewrites the
+#    lockfile's proxy URLs → public registry (the container can't reach the
+#    internal proxy). Always rebuild here so what we upload matches the deps
+#    the container will install.
+echo "[deploy] rebuilding dist/ from source (avoids stale-dist boot crash)…"
+if ! ./scripts/build-app.sh; then
+    echo "[deploy] ERROR: build-app.sh failed — fix the build before deploying." >&2
+    exit 1
+fi
+
 # 1) Upload source. Delete the upload dir (not the app) and re-import —
 #    `--overwrite` alone doesn't prune removed/renamed files.
 echo "[deploy] uploading source to $WS_PATH"
-databricks workspace delete "$WS_PATH" --recursive "${PROFILE_FLAG[@]}" 2>/dev/null || true
-databricks workspace mkdirs "$WS_PATH" "${PROFILE_FLAG[@]}"
-if ! err="$(databricks workspace import-dir . "$WS_PATH" "${PROFILE_FLAG[@]}" 2>&1 1>/dev/null)"; then
+databricks workspace delete "$WS_PATH" --recursive ${PROFILE_FLAG[@]+"${PROFILE_FLAG[@]}"} 2>/dev/null || true
+databricks workspace mkdirs "$WS_PATH" ${PROFILE_FLAG[@]+"${PROFILE_FLAG[@]}"}
+if ! err="$(databricks workspace import-dir . "$WS_PATH" ${PROFILE_FLAG[@]+"${PROFILE_FLAG[@]}"} 2>&1 1>/dev/null)"; then
     echo "[deploy] ERROR (upload): $err" >&2
     exit 1
 fi
 
 # 2) Create the App resource if missing.
-if ! databricks apps get "$APP_NAME" "${PROFILE_FLAG[@]}" >/dev/null 2>&1; then
+if ! databricks apps get "$APP_NAME" ${PROFILE_FLAG[@]+"${PROFILE_FLAG[@]}"} >/dev/null 2>&1; then
     echo "[deploy] creating app $APP_NAME"
-    if ! err="$(databricks apps create "$APP_NAME" "${PROFILE_FLAG[@]}" 2>&1 1>/dev/null)"; then
+    if ! err="$(databricks apps create "$APP_NAME" ${PROFILE_FLAG[@]+"${PROFILE_FLAG[@]}"} 2>&1 1>/dev/null)"; then
         explain_apps_error create "$err"
         exit 1
     fi
@@ -105,7 +118,7 @@ fi
 
 # 3) Deploy the uploaded source.
 echo "[deploy] deploying source…"
-if ! err="$(databricks apps deploy "$APP_NAME" --source-code-path "$WS_PATH" "${PROFILE_FLAG[@]}" 2>&1 1>/dev/null)"; then
+if ! err="$(databricks apps deploy "$APP_NAME" --source-code-path "$WS_PATH" ${PROFILE_FLAG[@]+"${PROFILE_FLAG[@]}"} 2>&1 1>/dev/null)"; then
     explain_apps_error deploy "$err"
     echo "[deploy]   Get container logs with:" >&2
     echo "    databricks apps logs $APP_NAME ${PROFILE_FLAG[*]:-}" >&2
@@ -116,7 +129,7 @@ fi
 #    The role is created the first time the App's SP authenticates to
 #    Lakebase — typically a few seconds after the container starts.
 APP_SP_UUID="$(
-    databricks apps get "$APP_NAME" "${PROFILE_FLAG[@]}" -o json \
+    databricks apps get "$APP_NAME" ${PROFILE_FLAG[@]+"${PROFILE_FLAG[@]}"} -o json \
     | python3 -c "import sys,json; print(json.load(sys.stdin).get('service_principal_client_id',''))"
 )"
 [[ -n "$APP_SP_UUID" ]] || {
@@ -128,7 +141,7 @@ BRANCH_PATH="projects/$LAKEBASE_PROJECT_ID/branches/${LAKEBASE_BRANCH_ID:-produc
 echo "[deploy] waiting for SP role $APP_SP_UUID in $BRANCH_PATH (up to 90s)"
 ROLE_FOUND=false
 for i in $(seq 1 30); do
-    if databricks postgres list-roles "$BRANCH_PATH" "${PROFILE_FLAG[@]}" -o json 2>/dev/null \
+    if databricks postgres list-roles "$BRANCH_PATH" ${PROFILE_FLAG[@]+"${PROFILE_FLAG[@]}"} -o json 2>/dev/null \
         | python3 -c "
 import sys, json
 sp = '$APP_SP_UUID'
@@ -162,11 +175,11 @@ fi
 
 # 5) Start the App so the container is warm (no-op if already running).
 echo "[deploy] starting app"
-databricks apps start "$APP_NAME" "${PROFILE_FLAG[@]}" >/dev/null 2>&1 || true
+databricks apps start "$APP_NAME" ${PROFILE_FLAG[@]+"${PROFILE_FLAG[@]}"} >/dev/null 2>&1 || true
 
 # 6) Status + URL + log-tail.
 echo
-databricks apps get "$APP_NAME" "${PROFILE_FLAG[@]}" -o json | python3 -c "
+databricks apps get "$APP_NAME" ${PROFILE_FLAG[@]+"${PROFILE_FLAG[@]}"} -o json | python3 -c "
 import sys, json
 d = json.load(sys.stdin)
 ad = d.get('active_deployment', {}).get('status', {})

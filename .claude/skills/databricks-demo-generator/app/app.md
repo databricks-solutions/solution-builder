@@ -314,7 +314,9 @@ Make sure `.env` has `APP_NAME` set to the resolved name and the Lakebase values
 
 The script reads `.env` and does it all: uploads source to `/Workspace/Users/<me>/apps/<APP_NAME>`, creates the App if missing, deploys the source, waits for the App's Postgres SP role to appear in Lakebase, calls `lakebase_grant_app_credential.sh` to GRANT the SP CREATE+USAGE on schema `public`, starts the App so the container is warm, then prints URL + status + the `databricks apps logs` tail command. Idempotent on every step. Common failures (workspace Apps quota hit, name already taken, permission denied) surface as one-line actionable errors.
 
-**`app.yaml` runtime note** (no action needed): the template's `valueFrom: sql-warehouse` and `valueFrom: postgres` references resolve only when deployed via DAB. With this interactive path, AppKit reads the same values from `.env` (which `deploy.sh` ships with the source), so no UI binding step is required.
+**No resource binding on this path** (no action needed): the `valueFrom:` refs in `app.yaml` only resolve via DAB; interactively the app has `resources: []` and reads PG*/warehouse from `.env` + platform injection. `deploy.sh` runs `lakebase_grant_app_credential.sh` to create/grant the SP's Postgres role.
+
+**Redeploy after a delete:** the recreated app gets a new SP, but the old SP still owns the Lakebase schemas → boot `28P01`/`must be owner`. `lakebase_grant_app_credential.sh` fixes this automatically (reassigns ownership via `postgres delete-role --reassign-owned-to`). If you ever hit it by hand, that's the one command (use the role's `name` path, not the SP UUID).
 
 **After deploying, record the app in `resources.json` `created_resources`:**
 
