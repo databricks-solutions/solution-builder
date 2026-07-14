@@ -25,6 +25,9 @@ class Capability(BaseModel):
     name: str
     category: str
     disabled: bool = False
+    # Offered in the "Prepare a workshop" (Genie Code) mode? Defaults True;
+    # the workshop tab hides capabilities where this is False.
+    genie_code_workshop: bool = True
 
 
 class CapabilityStatus(str, Enum):
@@ -149,6 +152,7 @@ def get_capabilities():
             name=c["name"],
             category=c["category"],
             disabled=c.get("disabled", False),
+            genie_code_workshop=c.get("genie_code_workshop", True),
         )
         for c in load_capabilities()
     ]

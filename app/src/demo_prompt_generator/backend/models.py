@@ -312,6 +312,11 @@ class Project(SQLModel, table=True):
     # and shows the "Build the solution" CTA; flipped to False when the user
     # kicks off the build from the architecture.
     architecture_first: bool = SQLField(default=False)
+    # Home-page entry mode: "story" (default build flow), "architecture"
+    # (lead-with-diagram — see architecture_first), or "workshop" (Genie Code
+    # workshop: the agent generates notebooks + data-gen + context instead of
+    # provisioning resources). Drives which Build fork the agent takes.
+    mode: str = SQLField(default="story", max_length=20)
 
     # Skills config (JSON array of skill names)
     skills: str = SQLField(default="[]", sa_column=Column(Text))
@@ -677,6 +682,10 @@ class ProjectCreateRequest(BaseModel):
         False,
         description="Architecture-first project: opens on the Architecture tab and shows the 'Build the solution' CTA until the build is kicked off.",
     )
+    mode: str = Field(
+        "story",
+        description="Home-page entry mode: 'story', 'architecture', or 'workshop' (Genie Code workshop — agent generates notebooks instead of provisioning resources).",
+    )
 
 
 class ProjectUpdateRequest(BaseModel):
@@ -773,6 +782,7 @@ class ProjectOut(BaseModel):
     project_type: str
     stage: str = ProjectStage.DRAFTING.value
     architecture_first: bool = False
+    mode: str = "story"
     created_at: datetime
     updated_at: datetime
     message_count: int = 0

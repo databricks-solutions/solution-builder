@@ -46,6 +46,20 @@ export const SIMPLE_BASELINE = [
   ...SIMPLE_TALK_TRACK,
 ] as const;
 
+// Genie Code workshop simple baseline: the workshop builds a REAL SDP pipeline
+// (not the fast SQL load), so `sdp` is in the core arc here — synthetic data →
+// SDP → AI/BI dashboard → Genie. No app/lakebase (hidden in the workshop).
+export const WORKSHOP_BASELINE = [
+  "synthetic-data-gen",
+  "sdp",
+  "unity-catalog",
+  "aibi-dashboards",
+  "genie",
+  // talk-track context for the suggest LLM
+  "lakeflow-connect",
+  "genie-code",
+] as const;
+
 // Optional toggle in the simple view: flip on the App + Lakebase pair
 // together (matches the merged bundle in the custom view).
 export const APP_BUNDLE = ["databricks-apps", "lakebase"] as const;
@@ -81,6 +95,9 @@ interface Props {
   /** Which tab to open on. The build-from-architecture dialog passes "custom"
    *  when the diagram doesn't fit the simple baseline. Default "simple". */
   initialTab?: "simple" | "custom";
+  /** Hide the "add a custom app + Lakebase backend" toggle — set in the Genie
+   *  Code workshop, where apps + Lakebase aren't available. */
+  hideAppBundle?: boolean;
 }
 
 // Build the explicit-status map for Simple mode: every baseline id (+ app
@@ -114,6 +131,7 @@ export function CapabilitiesPanel({
   isLoading = false,
   explicitSelections = new Map(),
   initialTab = "simple",
+  hideAppBundle = false,
 }: Props) {
   const [tab, setTab] = useState<"simple" | "custom">(initialTab);
 
@@ -217,11 +235,13 @@ export function CapabilitiesPanel({
               <div className="flex flex-col items-center gap-4">
                 <BaselineRow isLoading={isLoading} />
 
-                <AppBundleToggle
-                  on={appBundleOn}
-                  onToggle={toggleAppBundle}
-                  disabled={isLoading}
-                />
+                {!hideAppBundle && (
+                  <AppBundleToggle
+                    on={appBundleOn}
+                    onToggle={toggleAppBundle}
+                    disabled={isLoading}
+                  />
+                )}
 
                 <button
                   type="button"

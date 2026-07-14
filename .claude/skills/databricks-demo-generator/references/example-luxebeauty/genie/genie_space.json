@@ -62,6 +62,9 @@
       },
       {
         "identifier": "<your-catalog>.<your-schema>.silver_returns"
+      },
+      {
+        "identifier": "<your-catalog>.<your-schema>.silver_production_lots"
       }
     ]
   },
@@ -95,7 +98,7 @@
           "  GROUP BY 1 ORDER BY n DESC LIMIT 1\n",
           ")\n",
           "SELECT l.lot_id, l.facility, l.production_date, l.status, l.incident_summary\n",
-          "FROM <your-catalog>.<your-schema>.raw_production_lots l\n",
+          "FROM <your-catalog>.<your-schema>.silver_production_lots l\n",
           "JOIN top_lot t ON t.lot_id = l.lot_id"
         ]
       },

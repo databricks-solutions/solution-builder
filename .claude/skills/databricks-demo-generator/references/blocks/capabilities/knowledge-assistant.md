@@ -4,6 +4,7 @@ category: agent-bricks
 disabled: false
 buildable: true
 skill: databricks-agent-bricks
+genie_code_workshop: false
 ---
 
 # Knowledge Assistant

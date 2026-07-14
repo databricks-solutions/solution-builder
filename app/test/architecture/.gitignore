@@ -1,0 +1,7 @@
+# Clean-room playground — everything here is generated per test run by
+# init.sh (the skill copy, the agent's diagrams, PNGs, transcripts). Only the
+# init script + docs are tracked.
+*
+!init.sh
+!README.md
+!.gitignore

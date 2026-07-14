@@ -62,6 +62,9 @@
       },
       {
         "identifier": "retail_consumer_goods.luxebeauty_demo.silver_returns"
+      },
+      {
+        "identifier": "retail_consumer_goods.luxebeauty_demo.silver_production_lots"
       }
     ]
   },
@@ -93,7 +96,7 @@
           "  GROUP BY 1 ORDER BY n DESC LIMIT 1\n",
           ")\n",
           "SELECT l.lot_id, l.facility, l.production_date, l.status, l.incident_summary\n",
-          "FROM retail_consumer_goods.luxebeauty_demo.raw_production_lots l\n",
+          "FROM retail_consumer_goods.luxebeauty_demo.silver_production_lots l\n",
           "JOIN top_lot t ON t.lot_id = l.lot_id"
         ]
       },

@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent } from "@/components/ui/card";
@@ -10,7 +10,7 @@ import { ProjectInvitations } from "@/components/project/project-invitations";
 import { SharedWithMe } from "@/components/project/shared-with-me";
 import { TemplateTile } from "@/components/template/template-tile";
 import { TemplateDetailPopup } from "@/components/template/template-detail-popup";
-import { CapabilitiesPanel, SIMPLE_BASELINE } from "@/components/capabilities-panel";
+import { CapabilitiesPanel, SIMPLE_BASELINE, WORKSHOP_BASELINE } from "@/components/capabilities-panel";
 import { ProductSelector } from "@/components/product-selector";
 import { DatabricksAnimatedLogo } from "@/components/databricks-animated-logo";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -96,8 +96,11 @@ function Index() {
   // "architecture" = lead-with-architecture flow: the prompt + the capability
   // picker (Simple-demo baseline by default — the agent draws exactly the
   // selection) + a "Create my architecture" button (no story ideas, no
-  // templates). Defaults to "story" to preserve today's landing.
-  const [mode, setMode] = useState<"story" | "architecture">("story");
+  // templates). "workshop" = Genie Code workshop: same capability/story picker
+  // as story mode, but genie_code_workshop-unready capabilities are hidden, and
+  // the agent generates a notebook workshop (build-it-live via Genie Code)
+  // instead of provisioning resources. Defaults to "story" to preserve today's landing.
+  const [mode, setMode] = useState<"story" | "architecture" | "workshop">("story");
   const [selectedProducts, setSelectedProducts] = useState<Set<string>>(
     new Set(DEFAULT_SELECTED_PRODUCTS)
   );
@@ -276,6 +279,19 @@ function Index() {
     );
   }, [mode, handleReplaceSelection]);
 
+  // Workshop mode seed: start from the workshop baseline (synthetic data → SDP →
+  // dashboard → Genie; no app/lakebase). The suggest LLM may still refine it,
+  // but sanitizeSelection guarantees the hidden caps never come back.
+  const workshopSeededRef = useRef(false);
+  useEffect(() => {
+    if (mode !== "workshop" || workshopSeededRef.current) return;
+    workshopSeededRef.current = true;
+    handleReplaceSelection(
+      new Set<string>(WORKSHOP_BASELINE),
+      new Map<string, "selected" | "unselected">(),
+    );
+  }, [mode, handleReplaceSelection]);
+
   // Load projects and capabilities on mount
   useEffect(() => {
     // One call feeds Recent Projects + Shared with Me + Invitations so they
@@ -345,12 +361,55 @@ function Index() {
   // mid-content. Fix: read `capabilities` + `explicitSelections` through
   // refs so this callback's identity stays stable across those changes.
   const abortControllerRef = useRef<AbortController | null>(null);
+  // Workshop mode: hide capabilities the Genie Code workshop can't co-build
+  // (genie_code_workshop === false: lakebase, apps, KA, MAS). It also SURFACES a
+  // few capabilities that are globally `disabled` (hidden from story) but make
+  // sense to build live with Genie Code — e.g. Notebooks & EDA — by clearing
+  // their disabled flag for this mode only. Story + architecture see the raw list.
+  const WORKSHOP_FORCE_ENABLE = ["notebooks-eda"];
+  const visibleCapabilities = useMemo(
+    () =>
+      mode === "workshop"
+        ? capabilities
+            .filter((c) => c.genie_code_workshop !== false)
+            .map((c) =>
+              WORKSHOP_FORCE_ENABLE.includes(c.id) && c.disabled
+                ? { ...c, disabled: false }
+                : c,
+            )
+        : capabilities,
+    [capabilities, mode],
+  );
+  // Ids the Genie Code workshop can't build (genie_code_workshop === false —
+  // apps, lakebase, KA, MAS). Derived from the loaded capabilities so it tracks
+  // the block frontmatter. Load-bearing: hiding a tile in the picker does NOT
+  // remove it from the selection, so we must actively strip these from any
+  // selection while in workshop mode (LLM suggestions + create payload).
+  const workshopHiddenIds = useMemo(
+    () => new Set(capabilities.filter((c) => c.genie_code_workshop === false).map((c) => c.id)),
+    [capabilities],
+  );
+  // Strip workshop-hidden ids from a selection when in workshop mode.
+  const sanitizeSelection = useCallback(
+    (ids: Iterable<string>): Set<string> => {
+      const s = new Set(ids);
+      if (mode === "workshop") for (const id of workshopHiddenIds) s.delete(id);
+      return s;
+    },
+    [mode, workshopHiddenIds],
+  );
   const capabilitiesRef = useRef(capabilities);
   const explicitSelectionsRef = useRef(explicitSelections);
   const selectedProductsRef = useRef(selectedProducts);
+  // Refs so runSuggestionStream (stable identity) can constrain the LLM to the
+  // workshop-allowed capabilities without depending on `mode`/`workshopHiddenIds`.
+  const modeRef = useRef(mode);
+  const workshopHiddenIdsRef = useRef(workshopHiddenIds);
   useEffect(() => { capabilitiesRef.current = capabilities; }, [capabilities]);
   useEffect(() => { explicitSelectionsRef.current = explicitSelections; }, [explicitSelections]);
   useEffect(() => { selectedProductsRef.current = selectedProducts; }, [selectedProducts]);
+  useEffect(() => { modeRef.current = mode; }, [mode]);
+  useEffect(() => { workshopHiddenIdsRef.current = workshopHiddenIds; }, [workshopHiddenIds]);
   // Same ref-trick so runSuggestionStream keeps its stable identity even
   // though buildContextText changes whenever uploadedFiles does.
   const buildContextTextRef = useRef(buildContextText);
@@ -421,11 +480,15 @@ function Index() {
     let nextIdeas: UseCaseIdea[] = [];
 
     try {
-      // Build capability inputs
-      const capabilityInputs: CapabilityInput[] = caps.map((cap) => ({
-        id: cap.id,
-        status: explicit.get(cap.id) ?? null,
-      }));
+      // Build capability inputs. In workshop mode, exclude the caps the
+      // workshop can't build so the suggest LLM never proposes them.
+      const hidden = modeRef.current === "workshop" ? workshopHiddenIdsRef.current : null;
+      const capabilityInputs: CapabilityInput[] = caps
+        .filter((cap) => !hidden || !hidden.has(cap.id))
+        .map((cap) => ({
+          id: cap.id,
+          status: explicit.get(cap.id) ?? null,
+        }));
 
       // Stream events. Read context text via ref so this function keeps
       // its stable identity (see the deps-via-refs note at the bottom).
@@ -475,7 +538,9 @@ function Index() {
               if (status === "selected") next.add(capId);
               else if (status === "unselected") next.delete(capId);
             }
-            return next;
+            // In workshop mode, drop anything the workshop can't build even if
+            // the LLM suggested it (apps, lakebase, KA, MAS).
+            return sanitizeSelection(next);
           });
         } else if (event.type === "reasoning") {
           // Set reasoning text from separate event
@@ -619,9 +684,10 @@ function Index() {
     }
     lastExplicitKeyRef.current = key;
 
-    // Story mode only: in architecture mode there are no stories to refresh —
-    // a toggle just pins the user's choice locally (the LLM already ran).
-    if (topic.trim().length < 3 || !capabilitiesReady || proMode || mode !== "story") {
+    // Story + workshop modes: refresh story ideas on selection change. In
+    // architecture mode there are no stories to refresh — a toggle just pins
+    // the user's choice locally (the LLM already ran).
+    if (topic.trim().length < 3 || !capabilitiesReady || proMode || (mode !== "story" && mode !== "workshop")) {
       return;
     }
 
@@ -701,8 +767,10 @@ function Index() {
     // typed text (or files) since there's no idea fallback.
     if (isCreating || (!topic.trim() && !effectiveIdea && uploadedFiles.length === 0)) return;
 
-    // Capabilities are always from selectedProducts (shared across all ideas)
-    const capabilityIds = Array.from(selectedProducts);
+    // Capabilities are always from selectedProducts (shared across all ideas).
+    // Sanitize for workshop mode — never ship apps/lakebase/KA/MAS into a
+    // Genie Code workshop even if the LLM or a stale selection included them.
+    const capabilityIds = Array.from(sanitizeSelection(selectedProducts));
 
     setIsCreating(true);
     setCreateError(null);
@@ -759,6 +827,24 @@ function Index() {
           `What they wrote (may be a tidy brief OR pasted notes / a transcript — extract intent from it):\n${topic.trim() || description}` +
           archCapsLine +
           `\n\nFollow the architecture-first path in SKILL.md: read the databricks-architecture skill (\`.claude/skills/databricks-architecture/SKILL.md\`), extract the main components, and write ONLY \`architecture.md\` at the project root. Do not design a story, write specs, or build resources yet — produce the diagram and stop so the user can review/edit it on the Architecture tab.`;
+      } else if (mode === "workshop") {
+        // Workshop (Genie Code) mode: same story + spec design as a normal
+        // build, but the BUILD stage forks — instead of provisioning Databricks
+        // resources, the agent generates a hands-on notebook workshop the SA
+        // hands to a customer (build-it-live via Genie Code prompts). SKILL.md's
+        // workshop path + references/example-luxebeauty-workshop are the guide.
+        const ideaHeader = effectiveIdea
+          ? `\n\n**${effectiveIdea.title}**\n\n${effectiveIdea.hook}`
+          : "";
+        initialPrompt =
+          `Help me prepare a Genie Code WORKSHOP (not a standard built demo).\n\n` +
+          `User request:\n${topic.trim() || description}${ideaHeader}${authoritativeCapsLine}\n\n` +
+          `Follow the WORKSHOP path in SKILL.md: design the story + write the specs as usual, ` +
+          `but at the Build stage take the workshop fork — generate a clean set of Databricks ` +
+          `notebooks whose cells are Genie Code prompts the SA pastes to build the demo live ` +
+          `(raw data → SDP → dashboard → Genie), plus the data-generation script and the Genie ` +
+          `context. Use \`references/example-luxebeauty-workshop\` as the pattern. Do NOT provision ` +
+          `Databricks resources — the deliverable is the downloadable notebook package.`;
       } else if (effectiveIdea) {
         initialPrompt = `Help me build a databricks solution.\n\nUser request:\n${topic.trim()}\n\n**${effectiveIdea.title}**\n\n${effectiveIdea.hook}${authoritativeCapsLine}`;
       } else {
@@ -813,6 +899,8 @@ function Index() {
         // Persisted flag: the workspace opens on the Architecture tab and shows
         // the "Build the solution" CTA until the build is kicked off there.
         architectureFirst,
+        // Entry mode — drives the agent's Build fork (workshop → notebooks).
+        mode,
       );
 
       // Per-session preference: Pro mode resets after each create so the
@@ -948,6 +1036,7 @@ function Index() {
             {([
               { v: "story" as const, label: "Describe your story" },
               { v: "architecture" as const, label: "Describe your architecture" },
+              { v: "workshop" as const, label: "Genie Code workshop" },
             ]).map((t) => {
               const active = mode === t.v;
               return (
@@ -1052,13 +1141,25 @@ function Index() {
                   </button>
                 </div>
 
-                {/* Architecture-tab tip — the input accepts anything, not
-                    just a tidy brief. */}
+                {/* Per-mode tip — the input accepts anything, not just a tidy
+                    brief. Sets expectations for what the agent produces. */}
                 {mode === "architecture" && (
                   <p className="text-xs text-muted-foreground">
                     💡 Paste anything — a rough idea, meeting notes, or a
                     transcript. We'll pull out the components and lay out a
                     starting architecture you can edit.
+                  </p>
+                )}
+                {mode === "story" && (
+                  <p className="text-xs text-muted-foreground">
+                    💡 Paste anything and refine the story — the agent will build
+                    all the Databricks resources for you.
+                  </p>
+                )}
+                {mode === "workshop" && (
+                  <p className="text-xs text-muted-foreground">
+                    💡 Paste anything and refine the story — the agent will
+                    prepare the Genie Code prompts for you to build the resources.
                   </p>
                 )}
 
@@ -1093,7 +1194,7 @@ function Index() {
                     and the header label switches to a "manual mode" hint.
                     Story-tab only — the architecture tab shows just the
                     prompt + a single "Create my architecture" button. */}
-                {isHeroCollapsed && mode === "story" && (
+                {isHeroCollapsed && (mode === "story" || mode === "workshop") && (
                   <div className="pt-2 pb-1">
                     <div className="flex items-center justify-between gap-3 mb-3">
                       <div className="flex items-center gap-2">
@@ -1434,15 +1535,16 @@ function Index() {
                     selector. Both tabs write to the same selectedProducts
                     set so the downstream build CTA / confirm dialog are
                     unchanged. Story-tab only. */}
-                {mode === "story" && (
+                {(mode === "story" || mode === "workshop") && (
                   <CapabilitiesPanel
-                    capabilities={capabilities}
+                    capabilities={visibleCapabilities}
                     selectedProducts={selectedProducts}
                     onToggleProduct={handleToggleProduct}
                     onReplaceSelection={handleReplaceSelection}
                     expanded={isHeroCollapsed}
                     isLoading={isSuggestingCapabilities}
                     explicitSelections={explicitSelections}
+                    hideAppBundle={mode === "workshop"}
                   />
                 )}
 
@@ -1490,7 +1592,7 @@ function Index() {
                     Shows in Auto mode once at least one idea has streamed
                     in, OR in Pro mode as soon as the user has typed (no
                     ideas exist in Pro). Story-tab only. */}
-                {mode === "story" && isHeroCollapsed && (proMode || ideas.length > 0) && (
+                {(mode === "story" || mode === "workshop") && isHeroCollapsed && (proMode || ideas.length > 0) && (
                   <div className="flex flex-col items-center gap-2 pt-2">
                     <button
                       type="button"

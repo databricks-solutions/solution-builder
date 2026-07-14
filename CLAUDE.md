@@ -7,13 +7,13 @@
 
 A **system that generates Databricks demos**. Not one app — **three**, plus a skill:
 
-1. **Generator app** (`app/`) — the user-facing tool. FastAPI + React. A user opens it, picks an industry/capability, chats with a Claude Code agent (via `claude-agent-sdk`), and the agent assembles a personalized demo by reading **blocks** from the skill below. Generated artifacts (demo code, specs, app boilerplate, deployable Databricks assets) land in a per-project directory.
+1. **Generator app** (`app/`) — the user-facing tool. FastAPI + React. A user opens it, picks an industry/capability, chats with a Claude Code agent (via `claude-agent-sdk`), and the agent assembles a personalized demo by reading **blocks** from the skill below. Generated artifacts (demo code, specs, app boilerplate, deployable Databricks assets) land in a per-project directory. The home page has **three entry modes** (a `mode` field on each project): *story* (describe it → agent builds every Databricks resource), *architecture* (draw the diagram first → generate from it), and *genie-code-workshop* (agent writes Genie-Code prompts → you build the resources live in notebooks). The mode picks the agent's Build fork; capability blocks carry a `genie_code_workshop` flag so the workshop tab hides what can't be built via Genie Code (apps, Lakebase, KA, MAS).
 
 2. **Demo-generator skill** (`.claude/skills/databricks-demo-generator/`) — the agent's brain. SKILL.md + reference blocks + stage guides + the template app. The generator's agent reads from here. **The skill is the product; the generator is the UI.**
 
 3. **Template app** (`.claude/skills/databricks-demo-generator/app/app_template/`) — a complete Node.js + Express + React Databricks App that ships *as part of every generated demo*. The agent copies + customizes it. It is **NOT** a sub-component of the generator — it's an artifact the generator emits.
 
-4. **Test app** (`app/test/app_template_test/app/`) — a working fork of the template above (`.claude/skills/databricks-demo-generator/app/app_template/`), used to dogfood + iterate on template changes. **The user's workflow is: fix bugs in the test app, sync to the template.** They must stay in lockstep.
+4. **Test copies** (`app/test/{app_template_test,app_template_test_simple,luxebeauty_workshop}/`) — runnable, live-workspace-wired copies of the skill's template app + reference demos, used to dogfood + iterate. **The workflow is: debug in the test copy, then sync the working content back into the skill.** They must stay in lockstep. See "Test apps ↔ skill" below.
 
 Plus: **ai_dev_kit** (`app/ai_dev_kit/`) — a cloned external repo (`github.com/databricks-solutions/ai-dev-kit`) holding ~26 sub-skills for creating individual Databricks resources (pipelines, dashboards, Genie spaces, KAs, MAS, etc.). The generator's agent uses these during the Build stage.
 
@@ -54,18 +54,22 @@ industry-demo-prompts/
 │   │       ├── preview/                  # Preview iframe + log streaming UI
 │   │       ├── lib/platform-architecture.ts  # ★ Arch-diagram CATALOG + flat-file parse/serialize + computeLayout (see below)
 │   │       └── components/project/platform-diagram{.tsx,/}  # ★ ReactFlow arch-diagram editor (see below)
-│   ├── test/app_template_test/
-│   │   ├── app/                          # ★ Test fork of template (parallel-edit with template)
-│   │   └── src/                          # ★ Source-of-truth for THIS demo's Databricks assets
-│   │       ├── pipeline/                 # SDP SQL (bronze/silver/gold)
-│   │       ├── dashboard/dashboard.json  # AI/BI dashboard JSON
-│   │       ├── genie/genie_space.json
-│   │       ├── knowledge_assistant/      # KA config
-│   │       ├── supervisor_agent/         # MAS config
-│   │       ├── metric_view/              # UC metric view YAML
-│   │       ├── ml/                       # training + scoring script
-│   │       ├── data_generation/
-│   │       └── documents/                # RAG sources
+│   ├── test/                             # ★ 3 runnable test copies — debug live, then sync to the skill (see below)
+│   │   ├── app_template_test/            #   FULL demo: app/ (template fork) + src/ (all assets) + databricks.yml DAB
+│   │   │   ├── app/                      #   ★ Test fork of app_template (parallel-edit with template)
+│   │   │   └── src/                      #   ★ Source-of-truth for THIS demo's Databricks assets
+│   │   │       ├── pipeline/             #   SDP SQL (bronze/silver/gold)
+│   │   │       ├── dashboard/dashboard.json  # AI/BI dashboard JSON
+│   │   │       ├── genie/genie_space.json
+│   │   │       ├── knowledge_assistant/  #   KA config
+│   │   │       ├── supervisor_agent/     #   MAS config
+│   │   │       ├── metric_view/          #   UC metric view YAML
+│   │   │       ├── ml/                   #   training + scoring script
+│   │   │       ├── data_generation/
+│   │   │       └── documents/            #   RAG sources
+│   │   ├── app_template_test_simple/     #   SIMPLE demo variant (src/ only): synth data → dashboard + genie
+│   │   ├── luxebeauty_workshop/          #   GENIE CODE WORKSHOP: src/ (notebooks + data_gen + answer-key SQL + CONTEXT.md) + deploy.sh
+│   │   └── architecture/                 #   (NOT a test app) gitignored render-loop scratch dir for the architecture skill
 │   ├── ai_dev_kit/                       # Cloned external repo (not submodule)
 │   │   └── databricks-skills/            # 26 per-resource skills
 │   ├── databricks.yml                    # DAB config for the generator itself
@@ -79,7 +83,7 @@ industry-demo-prompts/
 │   ├── stages/0X-*.md                    # Stage-specific guides
 │   ├── references/
 │   │   ├── blocks/{domains,capabilities,patterns}/*.md
-│   │   ├── example-luxebeauty{,-simple}/         # Reference demos
+│   │   ├── example-luxebeauty{,-simple,-workshop}/  # Reference demos (full / simple / genie-code-workshop) — synced from app/test/*
 │   │   └── dab/                                  # DAB packaging guide
 │   └── app/
 │       ├── app.md                        # How to design+spec a demo app (read during Stage 2)
@@ -240,31 +244,29 @@ The capture is **lazy + change-gated**: a dirty flag (`archDirtyRef` in `project
 
 `isLegacyArchitectureFormat()` (`platform-architecture.ts`) detects the OLD pre-flat-file schema (`columns` as objects, no top-level `nodes`). When a project loads a legacy `architecture.md`, the frontend sends the agent `ARCHITECTURE_MIGRATION_PROMPT` **once per project** (guarded by a `localStorage` flag + `legacyMigrationSentRef`) asking it to migrate to the new schema grounded in the README story.
 
-## Template ↔ Test app parallel-edit workflow
+## Test apps ↔ skill: debug-live-then-sync workflow
 
-The template at `.claude/skills/databricks-demo-generator/app/app_template/` is **duplicated** at `app/test/app_template_test/app/`. Same code, same stack, byte-for-byte (modulo intentional drift — domain-specific config, deployed IDs, etc.).
+The skill is the **shipped source of truth** — but its template app + reference demos are *blueprints* you can't run in place. So under `app/test/` we keep **runnable copies wired to a live workspace** (e2-demo-west). **The invariant: debug + visualize interactively in the test copy, then sync the working content back into the skill.** Test copy = debug surface; skill = product. Keep them in lockstep.
 
-```
-app/test/app_template_test/app/      ←→     .claude/skills/databricks-demo-generator/app/app_template/
-        (test fork)                                       (template)
-   user edits + tests here                          gets the same edit synced over
-```
+**The three test copies** (each mirrors one skill artifact):
 
-**Why the duplicate exists:**
+| Test copy | Mirrors (skill source of truth) | What it is / how you run it |
+|---|---|---|
+| `app/test/app_template_test/` | template app → `…/app/app_template/`; demo assets → `references/example-luxebeauty/` | **FULL** demo. `app/` (runnable template fork, `./start.sh` → :8765) + `src/` (all Databricks assets) + `databricks.yml` DAB. LuxeBeauty resources wired in (Lakebase, MAS, dashboard, Genie…); IDs in `resources.json`. |
+| `app/test/app_template_test_simple/` | `references/example-luxebeauty-simple/` | **SIMPLE** demo variant (`src/` only, no app/DAB): synth data → AI/BI dashboard + Genie (optional app). |
+| `app/test/luxebeauty_workshop/` | `references/example-luxebeauty-workshop/` | **GENIE CODE WORKSHOP**. `src/` (notebooks whose cells are Genie-Code prompts + data_generation + pipeline answer-key SQL + CONTEXT.md + specs) + `deploy.sh` (generates raw data → a UC Volume, uploads notebooks to a workspace folder). |
 
-The template lives inside the skill and is **shipped** to every generated demo. You can't run it directly — it's a blueprint. So we keep a **runnable, populated copy** at `app/test/app_template_test/app/` with the LuxeBeauty demo's real Databricks resources wired in (Lakebase, MAS endpoint, dashboard, Genie, etc.). That lets us:
+(`app/test/architecture/` is **not** a test app — it's the gitignored render-loop scratch dir for the `databricks-architecture` skill.)
 
-1. **Debug** template bugs against a live workspace without spinning up a fresh demo from scratch each time.
-2. **Test** template changes end-to-end (boot, chat, agent loop, preview, deploy) — `./start.sh` from inside the test app actually runs.
-3. **Backport** fixes back into the template once they're verified.
+**Why the copies exist:** to **debug** against a live workspace without regenerating a demo from scratch, **test** changes end-to-end (boot, chat, agent loop, preview, deploy — or, for the workshop, the actual notebook prompts), and then **sync** the verified content into the skill.
 
 **Workflow when fixing bugs or adding features:**
 
-1. **Always edit the test app first** (`app/test/app_template_test/app/`). Run it via `./start.sh` and verify in a browser.
-2. Once it works, **sync the changed files over to the template** with `cp`. Use `diff -rq` between the two trees to find anything that drifted.
-3. The template's `TEMPLATE_MAP.md` lists which files are structural (keep across demos) vs domain-specific (rewrite per fork). Only sync the structural files — domain-specific files in the test app (LuxeBeauty branding, schema, agent prompts) intentionally diverge.
+1. **Edit the test copy first.** Run it (`./start.sh` for the template app; `./deploy.sh` for the workshop) and verify against the live workspace / browser.
+2. Once it works, **sync the changed files back into the matching skill artifact** with `cp`. Use `diff -rq` between the two trees to catch drift.
+3. For the template app: `TEMPLATE_MAP.md` marks files structural (sync across demos) vs domain-specific (LuxeBeauty branding/schema/prompts — these intentionally diverge; don't sync). Assets/notebooks sync 1:1 into their `references/example-luxebeauty{,-simple,-workshop}/` counterpart.
 
-**LuxeBeauty assets** (deployed by hand for the test app, source-controlled in `app/test/app_template_test/src/`) include: SDP pipeline, AI/BI dashboard, Genie space, Knowledge Assistant, Multi-Agent Supervisor, metric view, ML model. IDs land in `app/test/app_template_test/resources.json`. Source files for each asset live under `src/<asset_type>/` so the whole demo can be re-created from scratch (see `app/test/app_template_test/src/README.md`).
+**LuxeBeauty assets** (deployed by hand, source-controlled in each `src/`) include the SDP pipeline, AI/BI dashboard, Genie space, Knowledge Assistant, Multi-Agent Supervisor, metric view, ML model (full demo). IDs land in `resources.json`; source files under `src/<asset_type>/` let the demo be re-created from scratch (see `app/test/app_template_test/src/README.md`).
 
 ## App development (`app/`) — backend + frontend patterns
 
@@ -347,11 +349,12 @@ The dev DB mode is chosen in `backend/core/lakebase.py` `_is_pglite_mode()`: PGL
 - **`RESET_DB=1` does NOT mean "wipe a throwaway local DB."** In Lakebase mode it **DROPS ALL TABLES on the remote branch** your `.env` points at (`lakebase.py:375`); in PGLite mode it deletes `~/.pglite/`. **Never run `RESET_DB=1` — or any test that sets it — against a branch holding real projects.** Point a test at a temp branch/DB instead.
 - **Recovery:** Lakebase branches are copy-on-write with point-in-time restore. If a branch is damaged, create a recovery branch from a past timestamp (`databricks postgres create-branch … --json '{"spec":{"source_branch":"…/branches/<b>","source_branch_time":"<ISO ts>","no_expiry":true}}'`), verify the data, then repoint `.env` at it. On-disk `app/projects/<id>/` files survive a DB drop regardless — only the DB rows (project metadata, message history) are lost.
 
-For the **test app** (separate from the generator):
+For the **test copies** (separate from the generator — see "Test apps ↔ skill" above):
 
 ```bash
-cd app/test/app_template_test/app
-./start.sh                    # Boots the LuxeBeauty test app on :8765
+cd app/test/app_template_test/app && ./start.sh   # Boots the FULL LuxeBeauty test app on :8765
+cd app/test/luxebeauty_workshop && ./deploy.sh     # Gen raw data → UC Volume + upload workshop notebooks (WEST)
+# app_template_test_simple is src-only (no runner) — sync its assets to references/example-luxebeauty-simple/
 ```
 
 ## Conventions
