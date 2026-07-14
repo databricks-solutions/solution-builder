@@ -26,3 +26,6 @@ shared/appkit-types/
 # by `npm run db:generate` (wired into prebuild/predev). Never commit them:
 # a committed .sql drifts from schema.ts (stale tables → boot crash).
 drizzle/
+
+# Runtime PID file written by start.sh (preview process group) — never commit.
+.preview.pgid
