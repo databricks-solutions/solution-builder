@@ -101,6 +101,25 @@ function Index() {
   // the agent generates a notebook workshop (build-it-live via Genie Code)
   // instead of provisioning resources. Defaults to "story" to preserve today's landing.
   const [mode, setMode] = useState<"story" | "architecture" | "workshop">("story");
+  // Preview flag — gates in-progress features (currently just the "Genie Code
+  // workshop" home tab). `?preview=on` turns it on and persists to localStorage;
+  // `?preview=off` turns it off. Reads the stored value on load otherwise.
+  const [previewEnabled, setPreviewEnabled] = useState(false);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const param = new URLSearchParams(window.location.search).get("preview");
+      if (param === "on" || param === "off") {
+        const on = param === "on";
+        window.localStorage.setItem("preview-features", on ? "on" : "off");
+        setPreviewEnabled(on);
+      } else {
+        setPreviewEnabled(window.localStorage.getItem("preview-features") === "on");
+      }
+    } catch {
+      // localStorage/URL unavailable — leave preview off.
+    }
+  }, []);
   const [selectedProducts, setSelectedProducts] = useState<Set<string>>(
     new Set(DEFAULT_SELECTED_PRODUCTS)
   );
@@ -1036,7 +1055,10 @@ function Index() {
             {([
               { v: "story" as const, label: "Describe your story" },
               { v: "architecture" as const, label: "Describe your architecture" },
-              { v: "workshop" as const, label: "Genie Code workshop" },
+              // Preview-gated: only shown when ?preview=on (persisted).
+              ...(previewEnabled
+                ? [{ v: "workshop" as const, label: "Genie Code workshop" }]
+                : []),
             ]).map((t) => {
               const active = mode === t.v;
               return (
@@ -1099,7 +1121,9 @@ function Index() {
                     placeholder={
                       mode === "architecture"
                         ? 'Describe your architecture... e.g. "ingest ERP data to a final business application"'
-                        : 'Describe your project... e.g. "predictive maintenance for wind turbines"'
+                        : mode === "workshop"
+                          ? 'Describe the workshop use-case... e.g. "returns analytics for retail"'
+                          : 'Describe your project... e.g. "predictive maintenance for wind turbines"'
                     }
                     value={topic}
                     onChange={(e) => {

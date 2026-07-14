@@ -3,10 +3,11 @@
 > **Workshop contract.** The data-generation script lands **6 raw parquet
 > datasets into a UC Volume** (`/Volumes/{catalog}/{schema}/raw_data/<dataset>/`)
 > — the bronze landing zone. The SA then builds **silver → gold** live via Genie
-> Code prompts (see `../notebooks/01_build_pipeline.py`), converging on the
-> answer-key SQL in `../pipeline/02_silver.sql` + `03_gold.sql`. **No bronze
-> pass-through** — silver reads the raw files directly with `read_files()`. This
-> spec is Genie Code's context for *what* to build and *why*.
+> Code prompts (see `../notebooks/02_build_pipeline.py`), converging on the
+> table/column contract in this spec + `../CONTEXT.md`. **No bronze
+> pass-through** — silver reads the raw files directly with `read_files()`.
+> **The SDP SQL is NOT shipped** — Genie Code writes it during the workshop; this
+> spec is its context for *what* to build and *why*.
 
 ---
 
@@ -45,8 +46,8 @@ The load-bearing split column for every "affected vs everyday" widget.
 ## A. Raw data (already generated — files in the Volume)
 
 `../data_generation/generate_data.py` writes 6 parquet datasets to
-`/Volumes/{catalog}/{schema}/raw_data/`. The SA runs it in notebook 0; the SDP
-reads it in notebook 1 via `read_files(..., format => 'parquet')`.
+`/Volumes/{catalog}/{schema}/raw_data/`. The SA runs it in the Setup notebook;
+the SDP reads it via `read_files(..., format => 'parquet')`.
 
 | Dataset (subdir) | ~Rows | Key columns |
 |---|---|---|
@@ -59,7 +60,7 @@ reads it in notebook 1 via `read_files(..., format => 'parquet')`.
 
 ---
 
-## B. Silver (built live → target `../pipeline/02_silver.sql`)
+## B. Silver (built live via Genie Code — target contract below)
 
 Read the raw files from the Volume; no bronze. Materialized views:
 
@@ -75,7 +76,7 @@ Read the raw files from the Volume; no bronze. Materialized views:
 
 ---
 
-## C. Gold (built live → target `../pipeline/03_gold.sql`)
+## C. Gold (built live via Genie Code — target contract below)
 
 V1 workshop = SDP + Dashboard + Genie. Build ONLY:
 

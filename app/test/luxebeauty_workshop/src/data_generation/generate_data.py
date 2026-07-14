@@ -6,8 +6,8 @@ Produces the coherent LuxeBeauty demo dataset, but LANDS IT AS RAW PARQUET
 FILES IN A UC VOLUME rather than as Delta tables. That Volume is the "bronze
 landing zone" the workshop attendee builds the SDP pipeline on top of — silver
 + gold are NOT built here (the SA builds them LIVE with Genie Code during the
-workshop; see `notebooks/01_build_pipeline.py` and the answer-key SQL in
-`pipeline/02_silver.sql` / `pipeline/03_gold.sql`).
+workshop; see `notebooks/02_build_pipeline.py`. The target table/column contract
+lives in `CONTEXT.md` + `specifications/01-lakeflow.md` — no SDP SQL is shipped).
 
 Uses Databricks Connect Serverless. Follows the databricks-synthetic-data-gen
 skill: spark.range + F.when + DataFrame joins only; no driver loops, no
@@ -32,7 +32,7 @@ Raw parquet datasets produced (all written under the UC Volume
 The subdir names (products / customers / production_lots / orders /
 order_items / returns) are the exact paths the SDP silver reads via
 read_files('/Volumes/{cat}/{schema}/raw_data/<dataset>', format => 'parquet')
-— keep them in lockstep with pipeline/02_silver.sql.
+— keep them in lockstep with the silver contract in CONTEXT.md.
 
 No pandas_udf used: name pools (~700 rows) are generated on the driver via
 Faker then broadcast-joined; reason/comment picks use F.element_at against
@@ -56,8 +56,8 @@ content:
     might be a fraud ring, a failing sensor, a churned segment).
   - The WORKSHOP contract: this script writes ONLY the RAW parquet datasets to
     the Volume. The medallion layers (silver + gold) are built live by the
-    attendee via Genie Code — so DON'T add silver/gold here; put the target
-    logic in pipeline/02_silver.sql + pipeline/03_gold.sql instead.
+    attendee via Genie Code — so DON'T add silver/gold here, and DON'T ship SDP
+    SQL; the target contract lives in CONTEXT.md + specifications/01-lakeflow.md.
 Everything domain-specific below — products, city anchors, incident text,
 seasonal curve, reasons/comments, row counts, the bad-lot mechanics — is the
 LuxeBeauty story and gets thrown out for another workshop. Match the new
@@ -1092,4 +1092,4 @@ _save(cust_with_status, "raw_customers")
 
 print("\nData generation complete.")
 print(f"Raw parquet datasets written under: {RAW_VOL_ROOT}/")
-print("Next: open notebooks/00_setup_and_explore.py and start the workshop.")
+print("Next: open notebooks/00_introduction.py to start the workshop.")

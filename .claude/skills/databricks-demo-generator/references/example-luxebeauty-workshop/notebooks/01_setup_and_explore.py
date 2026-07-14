@@ -1,30 +1,17 @@
 # Databricks notebook source
 # MAGIC %md
-# MAGIC # 🧴 LuxeBeauty Workshop — 0. Setup & Explore
+# MAGIC # 1️⃣ Setup & Explore
 # MAGIC
-# MAGIC **Welcome!** In this hands-on workshop you'll build a complete returns-intelligence
-# MAGIC demo on Databricks — a data pipeline, a dashboard, and a Genie space — **live, one step
-# MAGIC at a time, using the Databricks Assistant (Genie Code)**.
+# MAGIC Generate the raw data into a Volume, then explore it with the Assistant to
+# MAGIC find the story hiding in it. → *[Back to the introduction]($./00_introduction)*
 # MAGIC
-# MAGIC You don't have to write the code yourself. Each step gives you a **prompt to paste into
-# MAGIC the Assistant** (the ✨ panel on the right). The Assistant reads the shared context and
-# MAGIC writes the SQL/Python for you — you review it, run it, and move on.
-# MAGIC
-# MAGIC ### 👉 First, prime the Assistant
-# MAGIC Open the Assistant panel (✨ top-right) and paste this so it knows what we're building:
-# MAGIC
-# MAGIC > **Read the workshop context at `../CONTEXT.md` and the data spec at
-# MAGIC > `../specifications/01-lakeflow.md`. We're building the LuxeBeauty returns demo: raw
-# MAGIC > parquet in a Volume → silver → gold → dashboard → Genie. I'll ask you to build it one
-# MAGIC > table at a time. Use the exact table and column names from the context. Confirm you've
-# MAGIC > read it and summarize the story in 3 lines.**
-# MAGIC
-# MAGIC Once the Assistant confirms it understands the story, continue below.
+# MAGIC > If you haven't yet, prime the Assistant (✨) with the context prompt from the
+# MAGIC > [introduction]($./00_introduction) so it knows the LuxeBeauty story.
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Step 0.1 — Set your catalog & schema
+# MAGIC ## 1/ Set your catalog & schema
 # MAGIC
 # MAGIC Everything lands under `{catalog}.{schema}`. Change these to your workshop target.
 
@@ -41,7 +28,7 @@ print(f"✓ using {CATALOG}.{SCHEMA}")
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Step 0.2 — Generate the raw data into a Volume
+# MAGIC ## 2/ Generate the raw data into a Volume
 # MAGIC
 # MAGIC The generator lands **6 raw parquet datasets** into a UC Volume — this is our "bronze"
 # MAGIC landing zone (raw files as they'd arrive from Lakeflow Connect in production). We'll
@@ -61,7 +48,7 @@ print(f"✓ using {CATALOG}.{SCHEMA}")
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Step 0.3 — Explore the raw data with the Assistant
+# MAGIC ## 3/ Explore the raw data with the Assistant
 # MAGIC
 # MAGIC Now let's poke at what landed. Rather than writing SQL by hand, **ask the Assistant.**
 # MAGIC Paste each prompt into the ✨ panel, run the SQL it generates, and read the result.
@@ -87,7 +74,7 @@ print(f"✓ using {CATALOG}.{SCHEMA}")
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Step 0.4 — Peek at the punchline (optional)
+# MAGIC ## 4/ Peek at the punchline (optional)
 # MAGIC
 # MAGIC The explanation is hiding in the production lots. Ask the Assistant:
 # MAGIC > *"In the `production_lots` dataset, which rows have a non-null `incident_summary`?
@@ -101,5 +88,7 @@ print(f"✓ using {CATALOG}.{SCHEMA}")
 # MAGIC ---
 # MAGIC
 # MAGIC ### ✅ You're set up
-# MAGIC Raw data is in the Volume and you've seen the story in the data. Next:
-# MAGIC **`01_build_pipeline`** — build the silver + gold tables with the Assistant, one at a time.
+# MAGIC Raw data is in the Volume and you've seen the story in it.
+# MAGIC
+# MAGIC ### ▶️ Next: **[2. Build the pipeline]($./02_build_pipeline)**
+# MAGIC *(or [back to the introduction]($./00_introduction))*

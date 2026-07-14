@@ -40,21 +40,23 @@ echo "▶ [2/3] generating raw parquet → /Volumes/${CATALOG}/${SCHEMA}/raw_dat
 DATABRICKS_CONFIG_PROFILE="$PROFILE" DEMO_CATALOG="$CATALOG" DEMO_SCHEMA="$SCHEMA" \
   python3 "$SRC/data_generation/generate_data.py"
 
-# ── 3. Upload the 3 workshop notebooks ──────────────────────────────────────
+# ── 3. Upload the workshop notebooks (intro hub + 5 steps) ──────────────────
 echo "▶ [3/3] uploading notebooks → $WS_DIR …"
 databricks workspace mkdirs "$WS_DIR" -p "$PROFILE" 2>/dev/null || true
-for nb in 00_setup_and_explore 01_build_pipeline 02_dashboard_and_genie; do
+# Upload every notebook in notebooks/ so the intro's $./ cross-links resolve.
+for f in "$SRC"/notebooks/*.py; do
+  nb="$(basename "$f" .py)"
   databricks workspace import "$WS_DIR/$nb" \
-    --file "$SRC/notebooks/$nb.py" \
-    --format SOURCE --language PYTHON --overwrite -p "$PROFILE"
+    --file "$f" --format SOURCE --language PYTHON --overwrite -p "$PROFILE"
   echo "  ✓ $nb"
 done
-# Ship CONTEXT.md + specs alongside so the Assistant can read them from the ws.
+# Ship CONTEXT.md alongside so the Assistant can read it from the workspace.
 databricks workspace import "$WS_DIR/CONTEXT.md" --file "$SRC/CONTEXT.md" \
   --format RAW --overwrite -p "$PROFILE" 2>/dev/null || true
 
 HOST="$(python3 -c "import configparser,os; c=configparser.ConfigParser(); c.read(os.path.expanduser('~/.databrickscfg')); print(c['$PROFILE'].get('host','').rstrip('/'))" 2>/dev/null || true)"
 echo ""
-echo "✅ done. Open the first notebook to start the workshop:"
-echo "   ${HOST}/workspace${WS_DIR}/00_setup_and_explore"
+echo "✅ done. Open the introduction to start the workshop:"
+# Databricks opens a notebook by path via /#workspace<full-path>.
+echo "   ${HOST}/#workspace${WS_DIR}/00_introduction"
 echo "   raw data: /Volumes/${CATALOG}/${SCHEMA}/raw_data/"

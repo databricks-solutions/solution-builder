@@ -21,26 +21,28 @@ The SA opens the notebooks in order and, for each step, pastes the given prompt
 into the Assistant (✨). The Assistant reads `CONTEXT.md` (the ground truth) and
 writes the SQL/Python; the SA reviews + runs it.
 
-| Notebook | What the SA builds (via Genie Code) |
+| Notebook | What it is |
 |---|---|
-| `notebooks/00_setup_and_explore.py` | prime the Assistant, generate raw data → Volume, explore it (Notebooks & EDA) |
-| `notebooks/01_build_pipeline.py` | the SDP: silver (incl. `ai_classify` anger + AI functions + `silver_production_lots`) → gold, one table at a time |
-| `notebooks/02_dashboard_and_genie.py` | the AI/BI dashboard + the Genie space that cracks the case |
-| `notebooks/03_governance.py` | metric view (`mv_returns`) + ABAC tag-driven policies + data classification |
-| `notebooks/04_ml.py` | the hidden-premium classifier: feature table → train (XGBoost/Optuna/MLflow) → batch-score |
+| `notebooks/00_introduction.py` | **the hub** — platform + story intro, links to every step, the one-time priming prompt |
+| `notebooks/01_setup_and_explore.py` | generate raw data → Volume, explore it (Notebooks & EDA) |
+| `notebooks/02_build_pipeline.py` | the SDP: silver (incl. `ai_classify` anger + AI functions + `silver_production_lots`) → gold |
+| `notebooks/03_dashboard_and_genie.py` | the AI/BI dashboard + the Genie space that cracks the case |
+| `notebooks/04_governance.py` | metric view (`mv_returns`) + ABAC tag-driven policies + data classification |
+| `notebooks/05_ml.py` | the hidden-premium classifier: feature table → train (XGBoost/Optuna/MLflow) → batch-score |
 
-Notebooks 00–02 are the core demo; 03–04 layer on governance + ML — the same
-build-it-live-with-Genie-Code pattern. Run only the notebooks whose capabilities
+`00_introduction` is the landing hub; `01–03` are the core demo; `04–05` layer on
+governance + ML — same build-it-live-with-Genie-Code pattern. Notebooks cross-link
+with `$./` (e.g. `[Build the pipeline]($./02_build_pipeline)`). Run only the
+notebooks whose capabilities
 the demo needs.
 
 ## What's in this package
 
 ```
-CONTEXT.md                     # the primer the Assistant reads (story + exact table/column contracts)
+CONTEXT.md                     # the primer the Assistant reads (story + table/column contracts)
 resources.json                 # capabilities (SDP + Dashboard + Genie)
-notebooks/                     # the 3 workshop notebooks (Databricks notebook-source .py)
+notebooks/                     # the workshop notebooks (Databricks notebook-source .py)
 data_generation/generate_data.py   # writes 6 raw parquet datasets → UC Volume /raw_data/
-pipeline/{02_silver,03_gold}.sql    # the ANSWER KEY the SA converges on (reference, not run directly)
 specifications/{01-lakeflow,04-ai-bi}.md   # the specs = the Assistant's context
 ```
 
@@ -51,5 +53,6 @@ specifications/{01-lakeflow,04-ai-bi}.md   # the specs = the Assistant's context
   pass-through** (keep it simple).
 - **`silver_production_lots`** exposes the lot master (incl. `incident_summary`)
   as a governed table so Genie can hop to it — the drill-down destination.
-- **The SA builds everything live** — the answer-key SQL is there to converge on,
-  not to run blindly.
+- **The SA builds everything live with Genie Code.** The workshop ships NO
+  pipeline SQL — Genie Code writes it. The notebooks' prompts read like a human
+  prompting a real build; `CONTEXT.md` + the specs are the grounding contract.
