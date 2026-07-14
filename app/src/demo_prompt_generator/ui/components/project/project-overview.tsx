@@ -656,15 +656,22 @@ const HeroCard = memo(function HeroCard({
 // The ACTIVE step plays a themed illustration; done = check, pending = quiet.
 // Shown during a build; the heavy per-check detail lives in the top BuildStepper.
 // ===========================================================================
-const STEP_COPY: Record<
-  string,
-  { title: string; desc: string }
-> = {
-  STORY_AND_ARCH: { title: "Generate Story", desc: "Draft the customer narrative & pitch" },
-  SPECIFICATION: { title: "Generate Specifications", desc: "Detailed plans for each resource" },
-  RESOURCES: { title: "Build resources", desc: "Create the Databricks resources in your workspace" },
-  DAB: { title: "Distribute (optional)", desc: "Package as a DAB for repeatable deployment" },
-};
+// Per-step copy, mode-aware. The Genie Code workshop doesn't provision
+// resources — it generates notebooks + prompts and loads them into the
+// workspace — so the Build + Distribute steps read differently there.
+function stepCopy(mode?: string): Record<string, { title: string; desc: string }> {
+  const workshop = mode === "workshop";
+  return {
+    STORY_AND_ARCH: { title: "Generate Story", desc: "Draft the customer narrative & pitch" },
+    SPECIFICATION: { title: "Generate Specifications", desc: "Detailed plans for each resource" },
+    RESOURCES: workshop
+      ? { title: "Create Genie Code Prompts", desc: "Author the notebooks + prompts to build it live" }
+      : { title: "Build resources", desc: "Create the Databricks resources in your workspace" },
+    DAB: workshop
+      ? { title: "Load on workspace", desc: "Load the Genie workshop in your workspace" }
+      : { title: "Distribute (optional)", desc: "Package as a DAB for repeatable deployment" },
+  };
+}
 
 /** Themed illustration per step. `active` triggers the CSS animation; otherwise
  *  the same art renders static (dimmed via the parent). Pure inline SVG/CSS. */
@@ -729,22 +736,25 @@ const StageSteps = memo(function StageSteps({
   liveResourceCount,
   expectedResourceCount,
   isStreaming,
+  mode,
 }: {
   files: ProjectFile[];
   liveResourceCount: number;
   expectedResourceCount: number;
   isStreaming: boolean;
+  mode?: string;
 }) {
   const stages = useMemo(() => {
     const info = detectStageFromFiles(files, liveResourceCount);
     return getLifecycleStages(info, liveResourceCount, expectedResourceCount, isStreaming);
   }, [files, liveResourceCount, expectedResourceCount, isStreaming]);
+  const copyMap = useMemo(() => stepCopy(mode), [mode]);
 
   return (
     <ol className="grid grid-cols-2 gap-3 lg:grid-cols-4">
       {stages.map((s, i) => {
         const status = s.status;
-        const copy = STEP_COPY[s.key] ?? { title: s.label, desc: s.blurb };
+        const copy = copyMap[s.key] ?? { title: s.label, desc: s.blurb };
         const done = status === "done";
         const active = status === "active";
         const optional = status === "optional";
@@ -1368,6 +1378,7 @@ export const ProjectOverview = memo(function ProjectOverview({
                   liveResourceCount={deployed.length}
                   expectedResourceCount={buildable.length}
                   isStreaming={isStreaming}
+                  mode={project?.mode}
                 />
               </div>
             )}

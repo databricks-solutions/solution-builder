@@ -1099,7 +1099,9 @@ function Index() {
                     placeholder={
                       mode === "architecture"
                         ? 'Describe your architecture... e.g. "ingest ERP data to a final business application"'
-                        : 'Describe your project... e.g. "predictive maintenance for wind turbines"'
+                        : mode === "workshop"
+                          ? 'Describe the workshop use-case... e.g. "returns analytics for retail"'
+                          : 'Describe your project... e.g. "predictive maintenance for wind turbines"'
                     }
                     value={topic}
                     onChange={(e) => {

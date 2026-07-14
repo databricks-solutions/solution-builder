@@ -2,7 +2,7 @@
 
 > **Workshop contract.** After the SDP is built, the SA creates the AI/BI
 > dashboard + Genie space live via Genie Code prompts (see
-> `../notebooks/02_dashboard_and_genie.py`). This spec is Genie Code's context
+> `../notebooks/03_dashboard_and_genie.py`). This spec is Genie Code's context
 > for the widget layout, the datasets, and the Genie configuration. Everything
 > reads the gold tables `gold_returns` + `gold_daily_summary` and (for the
 > punchline) `silver_production_lots`.

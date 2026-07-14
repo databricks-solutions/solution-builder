@@ -50,7 +50,7 @@ There is **no bronze** — silver reads the raw files directly. Keep it simple.
 
 > **`is_bad_lot`** is the load-bearing split column: TRUE iff `lot_id` = the affected lot. Every "affected vs everyday" widget splits on it. It comes straight off the raw returns file (the data-gen sets it).
 
-Full target SQL: `pipeline/02_silver.sql`.
+> Silver reads the raw FILES from the Volume via `read_files('/Volumes/${catalog}/${schema}/raw_data/<dataset>', format => 'parquet')` — **no bronze**. Genie Code writes these MVs during the workshop; the tables above are the contract to converge on.
 
 ---
 
@@ -63,8 +63,8 @@ V1 scope is SDP + Dashboard + Genie — build ONLY these two:
 | `gold_returns` | one row per return (projected from `silver_returns`) | map, country/reason splits, sentiment, comments table, Genie drill-down. **Omits `incident_summary`** — the explanation stays on the raw production_lots so Genie has a destination to hop to. |
 | `gold_daily_summary` | one row per `(date, region, category)` | KPI counters, trend line, category donut, orders-by-region area |
 
-Full target SQL: `pipeline/03_gold.sql`.
-
+> `gold_returns` projects `silver_returns` (all joins already done); `gold_daily_summary` is an orders rollup from `silver_order_items` LEFT JOIN a returns rollup from `silver_returns`, returns → 0 where none.
+>
 > Do NOT build `gold_customer_features` (ML-only) or `gold_customer_returns` (app-only) — no ML or app in this workshop.
 
 ---
