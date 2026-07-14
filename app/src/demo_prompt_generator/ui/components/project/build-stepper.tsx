@@ -178,15 +178,20 @@ export function getLifecycleStages(
   liveResourceCount: number,
   expectedResourceCount: number,
   isStreaming = false,
+  // Workshop mode: the "build" stage produces notebooks, not resources. When
+  // >= 0, the RESOURCES step keys off notebook count instead of resource IDs.
+  workshopNotebookCount: number | null = null,
 ): LifecycleStageInfo[] {
   // Story is done once the README exists. Architecture is no longer written
   // by default (built on demand), so it must NOT gate this stage.
   const storyArchDone = info.hasReadme;
   const specDone = info.hasSpecifications;
   const resourcesReady =
-    expectedResourceCount > 0
-      ? liveResourceCount >= expectedResourceCount
-      : info.hasDeployedResources;
+    workshopNotebookCount !== null
+      ? workshopNotebookCount > 0 // workshop: at least one notebook generated
+      : expectedResourceCount > 0
+        ? liveResourceCount >= expectedResourceCount
+        : info.hasDeployedResources;
   // KEY FIX: while the agent is still streaming it keeps working in the
   // background (app bug-fixes, follow-up files) even after the first resources
   // land — so "Build resources" must NOT read done mid-stream. It's done only

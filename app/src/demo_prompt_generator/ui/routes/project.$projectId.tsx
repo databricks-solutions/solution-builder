@@ -2099,8 +2099,10 @@ function ProjectPage() {
                       Clicking opens the assistant when there's live activity.
                       Hidden for architecture-first projects awaiting their
                       build: "Planning 0/2" is misleading before the use-case
-                      even exists. */}
-                  {!project?.architecture_first && (
+                      even exists. Also hidden in workshop mode — we don't
+                      provision resources, so a "0/2 ready" resource count is
+                      meaningless there (the overview shows notebook progress). */}
+                  {!project?.architecture_first && project?.mode !== "workshop" && (
                     <HeaderStatusPill
                       buildable={capabilities?.buildable ?? []}
                       deployed={deployedResources?.resources ?? []}

@@ -731,6 +731,75 @@ function StepArt({ stepKey, active }: { stepKey: string; active: boolean }) {
   );
 }
 
+// Workshop mode: the deliverable is a set of notebooks (Genie Code prompts),
+// not provisioned resources. List the generated notebooks; while the agent is
+// still streaming and none exist yet, show a "generating" placeholder.
+const WORKSHOP_NB_LABELS: Record<string, string> = {
+  "00_introduction": "Introduction",
+  "01_setup_and_explore": "Setup & Explore",
+  "02_build_pipeline": "Build the pipeline",
+  "03_dashboard_and_genie": "Dashboard & Genie",
+  "04_governance": "Governance",
+  "05_ml": "ML",
+};
+
+const WorkshopNotebooks = memo(function WorkshopNotebooks({
+  files,
+  isStreaming,
+}: {
+  files: ProjectFile[];
+  isStreaming: boolean;
+}) {
+  const notebooks = useMemo(
+    () =>
+      files
+        .filter((f) => f.path.startsWith("notebooks/") && f.path.endsWith(".py"))
+        .map((f) => f.path.slice("notebooks/".length).replace(/\.py$/, ""))
+        .sort(),
+    [files],
+  );
+
+  if (notebooks.length === 0) {
+    return (
+      <div className="flex items-center gap-2.5 rounded-xl border border-dashed border-border/60 bg-muted/20 px-4 py-6 text-[13px] text-muted-foreground">
+        {isStreaming ? (
+          <>
+            <Loader2 className="h-4 w-4 animate-spin text-primary" />
+            Generating the workshop notebooks…
+          </>
+        ) : (
+          <>
+            <BookOpen className="h-4 w-4" />
+            The workshop notebooks will appear here once generated.
+          </>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
+      {notebooks.map((nb) => (
+        <div
+          key={nb}
+          className="flex items-center gap-2.5 rounded-xl border border-border/60 bg-card px-3.5 py-3 shadow-sm"
+        >
+          <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary">
+            <BookOpen className="h-4 w-4" />
+          </span>
+          <div className="min-w-0">
+            <div className="truncate text-[13px] font-medium text-foreground">
+              {WORKSHOP_NB_LABELS[nb] ?? nb}
+            </div>
+            <div className="truncate text-[11px] text-muted-foreground">{nb}.py</div>
+          </div>
+          <Check className="ml-auto h-4 w-4 shrink-0 text-primary/70" />
+        </div>
+      ))}
+    </div>
+  );
+});
+
 const StageSteps = memo(function StageSteps({
   files,
   liveResourceCount,
@@ -746,8 +815,13 @@ const StageSteps = memo(function StageSteps({
 }) {
   const stages = useMemo(() => {
     const info = detectStageFromFiles(files, liveResourceCount);
-    return getLifecycleStages(info, liveResourceCount, expectedResourceCount, isStreaming);
-  }, [files, liveResourceCount, expectedResourceCount, isStreaming]);
+    // Workshop mode: the build stage is "done" by notebook count, not resources.
+    const workshopNotebooks =
+      mode === "workshop"
+        ? files.filter((f) => f.path.startsWith("notebooks/") && f.path.endsWith(".py")).length
+        : null;
+    return getLifecycleStages(info, liveResourceCount, expectedResourceCount, isStreaming, workshopNotebooks);
+  }, [files, liveResourceCount, expectedResourceCount, isStreaming, mode]);
   const copyMap = useMemo(() => stepCopy(mode), [mode]);
 
   return (
@@ -1209,7 +1283,20 @@ export const ProjectOverview = memo(function ProjectOverview({
   // (all resources ready AND a prior turn finished). Once built we never show
   // the build journey again — a follow-up chat streams but must not resurrect
   // the "AI is working" banner + steps. `buildActive` = the initial-build view.
-  const buildComplete = project?.stage === "BUILT" || project?.stage === "BUNDLED";
+  // Workshop mode: we don't provision Databricks resources — the deliverable is
+  // a set of notebooks. So the "resources ready" panel doesn't apply; instead
+  // we track how many workshop notebooks have been generated. The backend's
+  // BUILT stage keys off resource IDs (which never populate here), so workshop
+  // "done" is its own signal: at least one notebook exists AND we're idle.
+  const isWorkshop = project?.mode === "workshop";
+  const notebookCount = useMemo(
+    () => files.filter((f) => f.path.startsWith("notebooks/") && f.path.endsWith(".py")).length,
+    [files],
+  );
+
+  const buildComplete = isWorkshop
+    ? notebookCount > 0 && !isStreaming
+    : project?.stage === "BUILT" || project?.stage === "BUNDLED";
   const buildActive = isStreaming && !buildComplete;
 
   // Group widgets by their display group for the column layout. Empty
@@ -1321,12 +1408,19 @@ export const ProjectOverview = memo(function ProjectOverview({
             <header className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 mb-5">
               <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
                 <h2 className="text-[11px] font-bold uppercase tracking-[0.16em] text-muted-foreground">
-                  Databricks resources
+                  {isWorkshop ? "Genie Code workshop" : "Databricks resources"}
                 </h2>
-                <span className="text-[12px] text-muted-foreground tabular-nums">
-                  <span className="text-foreground font-semibold">{liveCount}</span>
-                  <span className="text-muted-foreground/70"> of {totalCount} ready</span>
-                </span>
+                {isWorkshop ? (
+                  <span className="text-[12px] text-muted-foreground tabular-nums">
+                    <span className="text-foreground font-semibold">{notebookCount}</span>
+                    <span className="text-muted-foreground/70"> notebook{notebookCount === 1 ? "" : "s"} generated</span>
+                  </span>
+                ) : (
+                  <span className="text-[12px] text-muted-foreground tabular-nums">
+                    <span className="text-foreground font-semibold">{liveCount}</span>
+                    <span className="text-muted-foreground/70"> of {totalCount} ready</span>
+                  </span>
+                )}
               </div>
               {/* Right cluster: while building, the timer + "AI is working" +
                   Open-chat sit on the SAME row as the title (saves a row); the
@@ -1386,39 +1480,47 @@ export const ProjectOverview = memo(function ProjectOverview({
             {project && onBrandUpdated && (
               <BrandCard project={project} onUpdated={onBrandUpdated} className="mb-5" />
             )}
-            <div
-              className="grid gap-x-5 gap-y-6"
-              style={{
-                gridTemplateColumns: `repeat(${Math.min(
-                  widgetsByGroup.length + (hasAnalystBlock ? 1 : 0),
-                  5,
-                )}, minmax(220px, 1fr))`,
-              }}
-            >
-              {widgetsByGroup.map(({ group, widgets: groupWidgets }) => (
-                <ResourceColumn
-                  key={group}
-                  group={group}
-                  widgets={groupWidgets}
+            {isWorkshop ? (
+              /* Workshop mode: the deliverable is notebooks, not provisioned
+                 resources — list the generated notebooks instead of resource tiles. */
+              <WorkshopNotebooks files={files} isStreaming={isStreaming} />
+            ) : (
+              <>
+                <div
+                  className="grid gap-x-5 gap-y-6"
+                  style={{
+                    gridTemplateColumns: `repeat(${Math.min(
+                      widgetsByGroup.length + (hasAnalystBlock ? 1 : 0),
+                      5,
+                    )}, minmax(220px, 1fr))`,
+                  }}
+                >
+                  {widgetsByGroup.map(({ group, widgets: groupWidgets }) => (
+                    <ResourceColumn
+                      key={group}
+                      group={group}
+                      widgets={groupWidgets}
+                    />
+                  ))}
+                  {hasAnalystBlock && (
+                    <AnalystLayerBlock
+                      appWidget={appWidget}
+                      lakebaseWidget={lakebaseWidget}
+                      projectId={projectId}
+                      hasApp={hasApp}
+                      isStreaming={isStreaming}
+                      onShowApp={onShowApp}
+                    />
+                  )}
+                </div>
+                <PlatformValueProp
+                  catalogUrl={
+                    deployed.find((r) => r.resource_type === "catalog_explorer")
+                      ?.url ?? null
+                  }
                 />
-              ))}
-              {hasAnalystBlock && (
-                <AnalystLayerBlock
-                  appWidget={appWidget}
-                  lakebaseWidget={lakebaseWidget}
-                  projectId={projectId}
-                  hasApp={hasApp}
-                  isStreaming={isStreaming}
-                  onShowApp={onShowApp}
-                />
-              )}
-            </div>
-            <PlatformValueProp
-              catalogUrl={
-                deployed.find((r) => r.resource_type === "catalog_explorer")
-                  ?.url ?? null
-              }
-            />
+              </>
+            )}
           </section>
         )}
 

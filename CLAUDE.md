@@ -312,6 +312,17 @@ styles/globals.css       # Tailwind + oklch CSS custom properties
 - **shadcn/ui:** add primitives manually from the shadcn registry into `components/ui/`.
 - **Testing:** Playwright E2E in `tests/` (repo root) targets `http://localhost:9000` (prod-mode server, not the split dev ports).
 
+### Preview-gated features (`?preview=on`)
+
+In-progress / not-yet-GA UI is hidden behind a **preview flag** so it can ship to
+`main` without exposing it to everyone. The mechanism (in `ui/routes/index.tsx`):
+`?preview=on` enables it and **persists to `localStorage["preview-features"]`**
+(so it stays on across visits without the param); `?preview=off` disables it; with
+no param the stored value wins (default **off**). Gate a feature by rendering it
+only when the `previewEnabled` state is true. **Currently gates:** the "Genie Code
+workshop" home tab. Add future preview features to the same flag (one shared
+`preview-features` key — don't invent a per-feature param).
+
 (Run/build commands live under **Quick commands** below.)
 
 ## Key concepts
