@@ -6,8 +6,8 @@ Home-page entry mode for a project: "story" (the default build flow),
 instead of provisioning Databricks resources). Drives which Build fork the
 agent takes. Existing rows default to "story".
 
-Revision ID: v11_project_mode
-Revises: v10_driver_token_ts
+Revision ID: v13_project_mode
+Revises: v12_brand_cache
 Create Date: 2026-07-14
 """
 from typing import Sequence, Union
@@ -15,8 +15,8 @@ from typing import Sequence, Union
 from alembic import op
 import sqlalchemy as sa
 
-revision: str = "v11_project_mode"
-down_revision: Union[str, None] = "v10_driver_token_ts"
+revision: str = "v13_project_mode"
+down_revision: Union[str, None] = "v12_brand_cache"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
