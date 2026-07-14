@@ -46,6 +46,8 @@ export interface Project {
   /** Architecture-first project: opens on the Architecture tab and shows the
    *  "Build the solution" CTA until the build is kicked off (flag → false). */
   architecture_first?: boolean;
+  /** Home-page entry mode: "story" | "architecture" | "workshop". */
+  mode?: string;
   created_at: string;
   updated_at: string;
   message_count: number;
@@ -339,6 +341,7 @@ export async function createProject(
   initialPrompt?: string,
   contextFiles?: UploadedFile[],
   architectureFirst = false,
+  mode: "story" | "architecture" | "workshop" = "story",
 ): Promise<Project> {
   const resp = await fetch(apiUrl("/api/projects"), {
     method: "POST",
@@ -349,6 +352,7 @@ export async function createProject(
       initial_prompt: initialPrompt,
       context_files: contextFiles ?? [],
       architecture_first: architectureFirst,
+      mode,
     }),
   });
   if (!resp.ok) throw new Error(`Failed to create project: ${resp.status}`);
@@ -1371,6 +1375,9 @@ export interface Capability {
   name: string;
   category: string;
   disabled?: boolean;
+  /** Offered in the "Prepare a workshop" (Genie Code) mode? Defaults true;
+   *  the workshop tab hides capabilities where this is false. */
+  genie_code_workshop?: boolean;
 }
 
 export async function getIndustries(): Promise<string[]> {

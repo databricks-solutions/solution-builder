@@ -1,0 +1,32 @@
+{
+  "capabilities": {
+    "buildable": [
+      "synthetic-data-gen",
+      "sdp",
+      "metric-views",
+      "abac",
+      "data-classification",
+      "ml-training-serving",
+      "aibi-dashboards",
+      "genie"
+    ],
+    "talking_track": [
+      "lakeflow-connect",
+      "unity-catalog",
+      "ai-functions",
+      "notebooks-eda",
+      "genie-one",
+      "genie-code"
+    ]
+  },
+  "created_resources": {
+    "workspace_folder": "/Workspace/Users/<your-user>/luxebeauty_workshop",
+    "catalog": "luxebeauty",
+    "schema": "workshop",
+    "raw_volume": "/Volumes/luxebeauty/workshop/raw_data",
+    "warehouse_id": "<your-warehouse-id>",
+    "pipeline_id": "<built-live-in-the-workshop>",
+    "dashboard_id": "<built-live-in-the-workshop>",
+    "genie_space_id": "<built-live-in-the-workshop>"
+  }
+}

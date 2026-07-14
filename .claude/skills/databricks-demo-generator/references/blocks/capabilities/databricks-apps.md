@@ -4,6 +4,7 @@ category: apps-infra
 disabled: false
 buildable: true
 skill: databricks-app-python
+genie_code_workshop: false
 ---
 
 # Databricks Apps

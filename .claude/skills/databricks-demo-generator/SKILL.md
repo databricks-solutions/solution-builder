@@ -21,10 +21,19 @@ The main loop lives in this file (SKILL.md) — it describes **the flow**: stage
 | **1. Design Story** | Write `resources.json` + `README.md` (batched in one message) | ✅ *"Approve the story?"* | `stages/01-design-story.md` |
 | **2. Write Specs** | Write `01-lakeflow.md`, then the other top-level specs, then the app spec (if app needed), coherence review | ✅ *"Ready to build?"* | `stages/02-write-specs.md` |
 | **3. Build** (opt) | Create Databricks resources via ai-dev-kit skills | — (build completes) | `stages/03-build.md` |
+| **3′. Build a Workshop** (opt) | **Workshop mode only** — instead of provisioning resources, generate a notebook workshop (build-it-live via Genie Code) | — (package ready) | `stages/03-workshop.md` |
 | **4. Package as a DAB** (opt) | On user request only, post-build | — | `references/dab/dab.md` |
 
 **Cross-cutting (not a stage):**
 - **App creation** — folded into stages 2 + 3: `DEMO_SKILL_DIR/app/app.md`
+
+### Workshop entry (Genie Code workshop — Build stage forks)
+
+The opening message may say the user is preparing a **Genie Code workshop** (the home page's "Prepare a workshop" tab). A workshop is the SAME demo, delivered differently: instead of you provisioning the Databricks resources, you generate a **package of clean Databricks notebooks whose cells are Genie Code prompts** that the SA (or a customer) pastes into the Databricks Assistant to build the demo **live, one step at a time** — raw data (in a Volume) → SDP → dashboard → Genie space. When you see this:
+
+1. **Stages 0–2 are UNCHANGED.** Design the story, write `resources.json` + `README.md`, write the specs, exactly as for a normal demo. (The capability set is already scoped to workshop-ready ones — no ML/app/KA/MAS in V1.)
+2. **The Build stage FORKS.** Do NOT run `stages/03-build.md` (no resource provisioning). Run **`stages/03-workshop.md`** instead — it produces the notebook workshop + a volume-writing data-generation script + the Genie context, patterned on **`references/example-luxebeauty-workshop`**.
+3. **The deliverable is the downloadable package** (notebooks + data-gen + specs + context), not a deployed demo — no DAB.
 
 ### Architecture-first entry (alternate start)
 

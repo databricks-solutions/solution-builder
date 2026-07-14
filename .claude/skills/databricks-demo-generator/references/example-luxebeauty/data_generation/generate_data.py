@@ -13,13 +13,16 @@ Story (single load-bearing thread that every table reinforces):
     pressure issues during emulsification (homogenizer HMG-03).
   - ~5000 units sold over ~2 weeks; ~80% return rate; EU-skewed cohort.
 
-Tables produced (all written to {CATALOG}.{SCHEMA}):
-  raw_products            ~90 rows   — SKU master, prices + cost.
-  raw_customers           5K  rows   — region + tier + premium_status label.
-  raw_production_lots     ~2K rows   — lot master, status + incident_summary.
-  raw_orders              400K rows  — order header (1 row / order_id).
-  raw_order_items         ~640K rows — line items (FK to orders + products).
-  raw_returns             ~36K rows  — 8% baseline + 80% on bad lot.
+Raw parquet datasets produced (written as FILES to the UC Volume
+/Volumes/{CATALOG}/{SCHEMA}/raw_data/<dataset>/ — the single source of raw
+truth; the SDP silver layer reads them directly via read_files(), no bronze,
+no raw Delta tables):
+  products         ~90 rows   — SKU master, prices + cost.
+  customers        5K  rows   — region + tier + premium_status label.
+  production_lots  ~2K rows   — lot master, status + incident_summary.
+  orders           400K rows  — order header (1 row / order_id).
+  order_items      ~640K rows — line items (FK to orders + products).
+  returns          ~36K rows  — 8% baseline + 80% on bad lot.
 
 No pandas_udf used: name pools (~700 rows) are generated on the driver via
 Faker then broadcast-joined; reason/comment picks use F.element_at against
@@ -79,8 +82,9 @@ else:
     CATALOG = os.environ.get("DEMO_CATALOG")  # e.g. <your-catalog>
     SCHEMA  = os.environ.get("DEMO_SCHEMA")   # e.g. <your-schema>
 assert CATALOG and SCHEMA, "catalog + schema are required (widgets in-job, DEMO_CATALOG/DEMO_SCHEMA env locally)"
-# Volume holding raw parquet (kept around for downstream pipelines that want
-# Auto Loader; the canonical assets are the Delta tables).
+# Volume holding the raw parquet datasets — the SINGLE source of raw truth.
+# The SDP silver layer reads these files directly via read_files() (no bronze,
+# no raw Delta tables). One subdir per dataset under /Volumes/{cat}/{schema}/raw_data/.
 RAW_VOL = "raw_data"
 
 N_CUSTOMERS = 5_000
@@ -145,19 +149,31 @@ try:
 except NameError:
     spark = DatabricksSession.builder.serverless(True).getOrCreate()
 spark.sql(f"CREATE SCHEMA IF NOT EXISTS {CATALOG}.{SCHEMA}")
+# Raw parquet lands in a UC Volume — the landing zone the SDP silver reads via
+# read_files() (no bronze pass-through; silver reads the files directly). One
+# subdir per dataset, named WITHOUT the `raw_` prefix (raw_returns →
+# .../raw_data/returns) so 02_silver.sql's read_files() paths line up.
+spark.sql(f"CREATE VOLUME IF NOT EXISTS {CATALOG}.{SCHEMA}.{RAW_VOL}")
+RAW_VOL_ROOT = f"/Volumes/{CATALOG}/{SCHEMA}/{RAW_VOL}"
+
+
+def _raw_path(table: str) -> str:
+    """Volume subdir for a raw dataset: strip the `raw_` prefix."""
+    return f"{RAW_VOL_ROOT}/{table.removeprefix('raw_')}"
 
 
 def _save(df: DataFrame, table: str) -> None:
-    """Overwrite the table in {CATALOG}.{SCHEMA} with schema evolution allowed.
+    """Write a raw dataset as parquet FILES into the UC Volume.
 
-    Centralised so we keep one write style and a single log line per table.
+    Centralised so we keep one write style and a single log line per dataset.
+    The SDP silver layer reads these files with read_files(); we do NOT create
+    raw Delta tables (the Volume is the single source of raw truth).
     """
-    fqn = f"{CATALOG}.{SCHEMA}.{table}"
+    path = _raw_path(table)
     (df.write.mode("overwrite")
-       .option("overwriteSchema", "true")
-       .saveAsTable(fqn))
-    n = spark.table(fqn).count()
-    print(f"  ✓ {table:25s} rows={n:>9,}")
+       .parquet(path))
+    n = spark.read.parquet(path).count()
+    print(f"  ✓ {table:25s} rows={n:>9,}  → {path}")
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -554,7 +570,7 @@ lot_count_per_sku = (
 )
 
 # Customer lookup with country/region (broadcast-sized: 5K rows).
-cust_lookup_df = spark.table(f"{CATALOG}.{SCHEMA}.raw_customers") \
+cust_lookup_df = spark.read.parquet(_raw_path("raw_customers")) \
                       .select("customer_id", "country", "region")
 
 # Seasonality multipliers driven by month + day of the order date. We compute
@@ -688,13 +704,13 @@ items_with_lot = (
 # customer index ranges from raw_customers so the 65/35 EU skew lands.
 eu_countries = ("France", "UK", "Germany", "Italy", "Spain")
 eu_idx_df = (
-    spark.table(f"{CATALOG}.{SCHEMA}.raw_customers")
+    spark.read.parquet(_raw_path("raw_customers"))
     .filter(F.col("country").isin(*eu_countries))
     .select("customer_id")
     .withColumn("rk", F.row_number().over(Window.orderBy("customer_id")) - 1)
 )
 non_eu_idx_df = (
-    spark.table(f"{CATALOG}.{SCHEMA}.raw_customers")
+    spark.read.parquet(_raw_path("raw_customers"))
     .filter(~F.col("country").isin(*eu_countries))
     .select("customer_id")
     .withColumn("rk", F.row_number().over(Window.orderBy("customer_id")) - 1)
@@ -785,7 +801,7 @@ items_final = items_with_lot.unionByName(bad_items)
 _save(items_final, "raw_order_items")
 
 orders_total = (
-    spark.table(f"{CATALOG}.{SCHEMA}.raw_order_items")
+    spark.read.parquet(_raw_path("raw_order_items"))
     .groupBy("order_id")
     .agg(F.round(F.sum("line_total_usd"), 2).alias("total_usd"))
 )
@@ -809,7 +825,7 @@ print("\n[5/6] Generating returns...")
 # Each return references one "row" — pick the first item per order
 # (most demos return at order grain even though the schema is item-grain).
 first_item_per_order = (
-    spark.table(f"{CATALOG}.{SCHEMA}.raw_order_items")
+    spark.read.parquet(_raw_path("raw_order_items"))
     .withColumn("rk", F.row_number().over(
         Window.partitionBy("order_id").orderBy("product_id")))
     .filter(F.col("rk") == 1)
@@ -817,7 +833,7 @@ first_item_per_order = (
 )
 
 orders_for_ret = (
-    spark.table(f"{CATALOG}.{SCHEMA}.raw_orders")
+    spark.read.parquet(_raw_path("raw_orders"))
     .join(first_item_per_order, "order_id")
 )
 
@@ -964,8 +980,8 @@ _save(returns_all, "raw_returns")
 
 print("\n[6/6] Tagging premium customers...")
 
-orders_tbl = spark.table(f"{CATALOG}.{SCHEMA}.raw_orders")
-returns_tbl = spark.table(f"{CATALOG}.{SCHEMA}.raw_returns")
+orders_tbl = spark.read.parquet(_raw_path("raw_orders"))
+returns_tbl = spark.read.parquet(_raw_path("raw_returns"))
 
 per_cust = (
     orders_tbl.groupBy("customer_id").agg(
@@ -984,7 +1000,7 @@ per_cust = (
 )
 
 cust_features = (
-    spark.table(f"{CATALOG}.{SCHEMA}.raw_customers")
+    spark.read.parquet(_raw_path("raw_customers"))
     .drop("premium_status")
     .join(per_cust, "customer_id", "left")
     .fillna(0, ["total_spend", "total_orders", "returns_lifetime"])

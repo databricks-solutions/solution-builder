@@ -115,6 +115,10 @@ def _load_capabilities_from_files() -> list[dict]:
                 "category": CATEGORY_DISPLAY_NAMES.get(category_slug, category_slug.title()),
                 "disabled": frontmatter.get("disabled", False),
                 "buildable": frontmatter.get("buildable", False),
+                # Offered in the "Prepare a workshop" (Genie Code) mode? Defaults
+                # to True; set false on capabilities the workshop can't co-build
+                # via Genie Code prompts (lakebase, apps, KA/MAS, ML, …).
+                "genie_code_workshop": frontmatter.get("genie_code_workshop", True),
             })
         except Exception as e:
             logger.warning(f"Failed to parse capability {md_file.name}: {e}")

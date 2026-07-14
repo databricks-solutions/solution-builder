@@ -123,7 +123,7 @@ resources:
       schema_name: ${var.schema}
       name: "raw_data"
       volume_type: "MANAGED"
-      comment: "Optional raw parquet drop (gen also writes Delta direct)"
+      comment: "Raw parquet landing zone — the SDP silver reads these files via read_files()"
 
     manufacturing_reports:
       catalog_name: ${var.catalog}
@@ -232,9 +232,9 @@ resources:
       description: "Generate data → run pipeline → deploy metric view → train + score ML"
 
       tasks:
-        # Generate the 6 raw_* tables.
+        # Generate the 6 raw_* parquet datasets into the raw_data Volume.
         - task_key: generate_data
-          description: "Generate synthetic raw_* tables"
+          description: "Generate synthetic raw_* parquet datasets (→ raw_data Volume)"
           notebook_task:
             notebook_path: ./src/data_generation/generate_data.py
             base_parameters:

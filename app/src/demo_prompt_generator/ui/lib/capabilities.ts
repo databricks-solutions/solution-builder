@@ -63,7 +63,7 @@ export const CAPABILITY_META: Record<string, CapabilityMeta> = {
 
   // ── Data Analysis ─────────────────────────────────────────────────
   "aibi-dashboards": { group: "Data Analysis", display: "AI/BI Dashboard", icon: "dashboard", deployed_type: "dashboard" },
-  "genie":           { group: "Data Analysis", display: "AI/BI Genie Agent (Genie Spaces)", icon: "genie", deployed_type: "genie_space" },
+  "genie":           { group: "Data Analysis", display: "Genie Agent", icon: "genie", deployed_type: "genie_space" },
   "notebooks-eda":   { group: "Data Analysis", display: "Notebooks", icon: "notebooks" },
   "genie-code":      { group: "Data Analysis", display: "Genie Code", icon: "agents" },
   "lakehouse-rt":    { group: "Data Analysis", display: "Lakehouse Real Time (SQL Warehouse on Reyden)", icon: "sqlWarehouse" },

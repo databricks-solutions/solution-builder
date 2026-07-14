@@ -4,6 +4,7 @@ category: apps-infra
 disabled: false
 buildable: true
 skill: databricks-lakebase-autoscale
+genie_code_workshop: false
 ---
 
 # Lakebase

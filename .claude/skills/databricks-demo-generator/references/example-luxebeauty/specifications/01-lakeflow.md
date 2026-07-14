@@ -24,7 +24,7 @@
 
 **Skill**: `databricks-synthetic-data-gen` (read `SKILLS/databricks-synthetic-data-gen/SKILL.md`). Use the pre-provisioned databricks-connect venv (Python 3.12 + faker + numpy + pandas + holidays + pyarrow) — system prompt has the path; do NOT create a new venv.
 
-Write 5 Delta tables under `{catalog}.{schema}.raw_*` (no Parquet intermediate, no bronze pass-through — the gen runs Spark `CREATE OR REPLACE TABLE` directly):
+Write the raw datasets as **parquet files into the UC Volume** `/Volumes/{catalog}/{schema}/raw_data/<dataset>/` (one subdir per dataset, named without the `raw_` prefix). This Volume is the raw landing zone; the SDP silver reads it via `read_files()` — no bronze pass-through, no raw Delta tables:
 
 | Table | Rows | Notes |
 |-------|------|-------|
@@ -127,7 +127,7 @@ Create pipeline `luxebeauty_operations` transforming raw parquet → analytics t
 
 ### Raw layer (no bronze pass-through)
 
-The data-gen step in Section A writes 5 Delta tables directly: `raw_customers`, `raw_products`, `raw_production_lots`, `raw_orders`, `raw_order_items`, `raw_returns`. SDP reads from these — there is no bronze layer (saves a redundant copy; the gen's output is already typed and clean).
+The data-gen step in Section A writes 6 raw parquet datasets into the `raw_data` Volume: `customers`, `products`, `production_lots`, `orders`, `order_items`, `returns` (subdirs under `/Volumes/{catalog}/{schema}/raw_data/`). SDP silver reads these files via `read_files()` — there is no bronze layer (the gen's output is already typed and clean; a bronze copy would add nothing).
 
 ### Raw → Silver (joins + expectations + `ai_classify` dedup MV)
 

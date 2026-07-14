@@ -1,8 +1,12 @@
 -- Silver Layer — clean joined fact + ai_classify anger score.
--- We read raw_* directly (no bronze pass-through) and emit just the two
--- silver tables that are actually consumed downstream:
+-- Reads the RAW PARQUET FILES straight from the UC Volume landing zone
+-- (/Volumes/${catalog}/${schema}/raw_data/<dataset>/) via read_files() — no
+-- bronze pass-through. The data-gen script lands one parquet dataset per raw_*
+-- table there. Emits the silver tables consumed downstream:
 --   - silver_returns: enriched returns fact (used by gold + the app)
+--   - silver_order_items: denormalized order lines (used by gold)
 --   - silver_orders:  order-level totals (used by the Lakebase sync)
+--   - silver_production_lots: lot master exposed for Genie's incident drill-down
 -- Plus comment_anger_scores: a small dedup MV so ai_classify runs once per
 -- distinct comment instead of once per row.
 
@@ -15,7 +19,7 @@ COMMENT 'Distinct customer comments → ai_classify anger score. Read by silver_
 AS
 WITH distinct_comments AS (
   SELECT DISTINCT customer_comment
-  FROM raw_returns
+  FROM read_files('/Volumes/${catalog}/${schema}/raw_data/returns', format => 'parquet')
   WHERE customer_comment IS NOT NULL
 )
 SELECT
@@ -28,6 +32,24 @@ SELECT
     ELSE 0.1
   END AS anger_score
 FROM distinct_comments;
+
+-- silver_production_lots: the lot master exposed as a governed table so Genie
+-- (and the app) can query it — most importantly `incident_summary`, the QC note
+-- that only the affected lot carries. Raw lots now live as parquet in the
+-- Volume, so we surface them here as a silver MV (the drill-down destination:
+-- the returns tables show the symptom, this lot table holds the explanation).
+CREATE OR REFRESH MATERIALIZED VIEW silver_production_lots
+COMMENT 'Production lot master. incident_summary is the QC note — non-null ONLY on the affected lot rows; Genie hops here to quote it.'
+AS
+SELECT
+  lot_id,
+  product_id,
+  CAST(production_date AS DATE) AS production_date,
+  facility,
+  units_produced,
+  status,
+  incident_summary
+FROM read_files('/Volumes/${catalog}/${schema}/raw_data/production_lots', format => 'parquet');
 
 -- silver_order_items: one row per order line, denormalized with order
 -- date/region + product/category + lot/facility/production_date so the
@@ -54,12 +76,12 @@ SELECT
   i.quantity,
   i.unit_price_usd,
   i.line_total_usd
-FROM raw_order_items i
-JOIN raw_orders o
+FROM read_files('/Volumes/${catalog}/${schema}/raw_data/order_items', format => 'parquet') i
+JOIN read_files('/Volumes/${catalog}/${schema}/raw_data/orders', format => 'parquet') o
   ON o.order_id = i.order_id
-JOIN raw_products p
+JOIN read_files('/Volumes/${catalog}/${schema}/raw_data/products', format => 'parquet') p
   ON p.product_id = i.product_id
-LEFT JOIN raw_production_lots l
+LEFT JOIN read_files('/Volumes/${catalog}/${schema}/raw_data/production_lots', format => 'parquet') l
   ON l.lot_id = i.lot_id AND l.product_id = i.product_id;
 
 -- silver_returns: each return carries customer city/lat/lng + region/country
@@ -91,12 +113,12 @@ SELECT
   r.region,
   r.status,
   r.is_bad_lot
-FROM raw_returns r
-JOIN raw_products p
+FROM read_files('/Volumes/${catalog}/${schema}/raw_data/returns', format => 'parquet') r
+JOIN read_files('/Volumes/${catalog}/${schema}/raw_data/products', format => 'parquet') p
   ON r.product_id  = p.product_id
-LEFT JOIN raw_customers c
+LEFT JOIN read_files('/Volumes/${catalog}/${schema}/raw_data/customers', format => 'parquet') c
   ON r.customer_id = c.customer_id
-LEFT JOIN raw_orders o
+LEFT JOIN read_files('/Volumes/${catalog}/${schema}/raw_data/orders', format => 'parquet') o
   ON r.order_id    = o.order_id
 LEFT JOIN comment_anger_scores s
   ON r.customer_comment = s.customer_comment;
@@ -118,4 +140,4 @@ SELECT
   -- raw_orders has no order-level status in this synth; emit NULL so the
   -- sync's expected column exists. The app's drawer treats it as optional.
   CAST(NULL AS STRING)       AS status
-FROM raw_orders o;
+FROM read_files('/Volumes/${catalog}/${schema}/raw_data/orders', format => 'parquet') o;
