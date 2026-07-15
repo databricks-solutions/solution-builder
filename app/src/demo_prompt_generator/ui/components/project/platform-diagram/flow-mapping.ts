@@ -112,8 +112,20 @@ export function schemaToFlow(
     }
     // Node id may be an instance id (`genie#2`); resolve the catalog component
     // by its base id, but keep the instance id as the ReactFlow node id.
-    const found = lookup.get(baseId(id));
-    if (!found || hidden.has(id)) continue;
+    if (hidden.has(id)) continue;
+    // Unknown id (e.g. a diagram saved before a catalog id was renamed): don't
+    // silently drop it — render a labeled placeholder tile so the node is still
+    // visible + editable. No migration needed; the user can re-pick its type.
+    const found = lookup.get(baseId(id)) ?? {
+      component: {
+        id: baseId(id),
+        label: baseId(id),
+        icon: "data" as const,
+        desc: "Unknown component — this id isn't in the catalog (it may have been renamed). Pick a type or update the id.",
+        state: "active" as const,
+      } satisfies PlatformComponent,
+      bandId: "sources" as BandId,
+    };
     const { bandId } = found;
     // Apply canvas-edited overrides (double-click rename / change-type / desc)
     // saved in the layout: label + icon + desc win over the catalog component.

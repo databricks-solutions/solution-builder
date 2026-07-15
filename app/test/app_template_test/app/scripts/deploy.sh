@@ -3,11 +3,13 @@
 # on every step.
 #
 # Flow:
+#   0. Rebuild dist/ from source (build-app.sh) — never ship a stale dist.
 #   1. Load .env  → APP_NAME, LAKEBASE_PROJECT_ID, PGDATABASE.
 #   2. Upload source to /Workspace/Users/<me>/apps/<APP_NAME>.
 #   3. `databricks apps create` (skipped if app exists).
-#   4. `databricks apps deploy` against the uploaded source.
-#   5. Wait for the App's Postgres SP role to appear, then GRANT public.
+#   4. `databricks apps deploy` — applies app.yaml scopes (incl. model-serving).
+#   5. Wait for the App's Postgres SP role to appear, reassign any stale
+#      prior-SP ownership, then GRANT public.
 #   6. Start the App so the container is warm.
 #   7. Print URL + status + log-tail command.
 #
@@ -107,7 +109,13 @@ if ! err="$(databricks workspace import-dir . "$WS_PATH" ${PROFILE_FLAG[@]+"${PR
     exit 1
 fi
 
-# 2) Create the App resource if missing.
+# 2) Create the App resource if missing. Scopes are NOT set here — the app's
+#    OBO scopes come from `app.yaml`'s `user_authorization.scopes` (incl.
+#    `model-serving`), which `databricks apps deploy` (step 3) applies from the
+#    uploaded source. Do NOT set `user_api_scopes` via `apps create/update` on
+#    this interactive path — it overrides/clobbers the app.yaml scopes (using a
+#    different scope vocabulary, e.g. serving.serving-endpoints ≠ model-serving)
+#    and the agent then 403s "required scopes: model-serving".
 if ! databricks apps get "$APP_NAME" ${PROFILE_FLAG[@]+"${PROFILE_FLAG[@]}"} >/dev/null 2>&1; then
     echo "[deploy] creating app $APP_NAME"
     if ! err="$(databricks apps create "$APP_NAME" ${PROFILE_FLAG[@]+"${PROFILE_FLAG[@]}"} 2>&1 1>/dev/null)"; then

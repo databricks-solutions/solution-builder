@@ -75,7 +75,6 @@ Files and replacements:
 | Any `@databricks.com` email | Replace with `<your-email>`. |
 | Any path `/Workspace/Users/[^/]+/` referring to the SA | Replace `[^/]+` with `<your-username>`. |
 | Any `.env` (not `.env.example`) | Delete. |
-| `META-PROMPT.md` (SA-scaffolding from the demo-generator template) | Delete — SA-internal bootstrap doc, no client value. |
 | `raw_data/pdf/` and `raw_data/html/` duplicates (e.g., `01_brand_voice_guide.pdf` AND `brand_voice_guide.pdf`) | SHA-hash dedupe (`shasum -a 256`). On collision, keep the numeric-prefixed canonical name (`<NN>_<topic>.{pdf,html}`), delete the unprefixed variant. Record in `HANDOFF_NOTES.md`. Why: KA double-indexes duplicates → duplicate MAS citations; HTML dupes also bloat the ZIP. |
 
 After stripping, **record** the strip counts (e.g., "7 FE-workspace URLs in 3 files, 4 emails in 2 files, ...") — Step 10 prints the final summary. **Do not print a summary here**; Step 2's job is to strip, not to talk.
@@ -366,7 +365,6 @@ zip -r ./<demo-slug>-client-handoff.zip . \
   -x "./<demo-slug>-client-handoff.zip" \
   -x "*.pyc" "__pycache__/*" ".venv/*" "*.log" ".DS_Store" \
   -x ".claude/*" ".databricks/*" \
-  -x "META-PROMPT.md" \
   -x "client_handoff/*" \
   -x ".anthropic_token" "get_anthropic_token.sh" ".claude/settings.json"
 ```
@@ -384,7 +382,6 @@ zip -r ./<demo-slug>-client-handoff.zip . \
 - Build artifacts: `.venv/`, `__pycache__/`, `*.pyc`, `*.log`, `.DS_Store`
 - `.claude/` (SA's Claude Code config — distinct from `.assistant/skills/`)
 - `.databricks/` (CLI-local bundle cache written by `bundle validate`; ships → client's first `bundle deploy` fails on sync-state mismatch)
-- `META-PROMPT.md` (Step 2 already deletes it — belt-and-braces)
 - `client_handoff/` (legacy staging dir — canonical layout is flat at project root)
 - FMAPI auth artifacts: `.anthropic_token`, `get_anthropic_token.sh`, `.claude/settings.json` (appear in Solution-Builder-forked projects; SA-only secrets)
 - Any local credentials / `.env` files
@@ -421,7 +418,6 @@ Empirically-discovered failure modes from prior runs. Most algorithmic pitfalls 
 | **`databricks.prod.yml.example` keeps real values** | Blank all value fields in `*.yml.example` files (keep keys for shape). |
 | **ZIP packed into itself** (size grows each re-run) | Step 11 excludes `./<demo-slug>-client-handoff.zip` from the `zip -r`. |
 | **`.databricks/` CLI cache shipped** (caught 2026-05-29 V1 Phase E) — sync-state mismatch on client's first deploy | Step 11 excludes `.databricks/*`. Don't re-run `bundle validate` after Step 11 packs the ZIP. |
-| **`META-PROMPT.md` shipped** (caught 2026-05-29 V1 Phase E) — confusing SA-bootstrap doc lands in client's hands | Step 2 deletes it; Step 11 excludes it. |
 | **Duplicate PDFs in `raw_data/pdf/`** (caught 2026-05-29 V1 Phase E) — KA double-indexes, MAS citations duplicate | Step 2 SHA-hashes + dedupes; keep numeric-prefixed canonical names. |
 | **`ADAPTATION_GUIDE.md` lands in nested `client_handoff/`** (caught 2026-05-29 V1 Phase E) | Step 7 writes to project root flat; Step 11 excludes `client_handoff/*`. |
 | **`mode: development` prepends `dev_<user>_` to every DAB resource** (caught 2026-05-29 V1 Phase E8) — schema-vs-pipeline-target divergence | Step 3.1: omit `mode:` or set `mode: production`. Step 5 grep gate flags `mode: development` as critical-path fail. |

@@ -448,10 +448,11 @@ export async function configureAgentsSdk(ctx: AgentContext): Promise<void> {
   });
   setDefaultOpenAIClient(client);
   // Use the Responses API (the SDK's default — we leave setOpenAIAPI alone).
-  // This template ships with `databricks-gpt-5-4` as the agent model because
-  // it's the only Databricks-hosted model that supports both the Responses
-  // API passthrough AND the SDK-native `response.reasoning_summary_text.*`
-  // event stream — which the UI subscribes to for the live "thinking" panel.
+  // This template ships with `databricks-gpt-5-4` as the baseline agent model
+  // because it supports both the Responses API passthrough AND the SDK-native
+  // `response.reasoning_summary_text.*` event stream (which the UI subscribes to
+  // for the live "thinking" panel). A newer GPT endpoint with `/responses`
+  // enabled works too — the requirement is the Responses API, not this version.
   //
   // Why not Claude (Sonnet 4.6 etc)? Databricks gates the Responses API
   // route per-model: Anthropic models on FMAPI return 400 BAD_REQUEST on

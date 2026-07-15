@@ -1676,7 +1676,7 @@ function ProjectPage() {
       "2. Batch-read ALL capability blocks for the buildable capabilities in one turn\n" +
       "3. Also read the example specification files from the skill's references for format/style\n" +
       "4. Write specification files in dependency order — one stage per turn:\n" +
-      "   - **Stage A** (parallel): `META-PROMPT.md`, `01-lakeflow.md`\n" +
+      "   - **Stage A**: `01-lakeflow.md`\n" +
       "   - **Stage B** (after reading Stage A): `02-uc-governance.md` (if needed)\n" +
       "   - **Stage C** (after reading Stage B): `03-ai-bi.md`, `04-agent-bricks.md` (parallel within stage)\n" +
       "   - **Stage D** (after reading Stage C): `05-apps-infra.md` (if needed)\n" +
@@ -1697,16 +1697,15 @@ function ProjectPage() {
   const handleBuildResources = useCallback(() => {
     if (isStreaming) return;
     handleSendMessage(
-      "Build the Databricks resources. Follow the solution generator skill's Part 2 workflow:\n\n" +
-      "1. Read `META-PROMPT.md` for build order, catalog/schema, and validation checklist\n" +
-      "2. Read `resources.json` to see which capabilities need building and what's already created\n" +
-      "3. For EACH buildable capability in order:\n" +
+      "Build the Databricks resources. Follow the solution generator skill's build stage (`stages/03.1-build.md`):\n\n" +
+      "1. Read `resources.json` to see which capabilities need building, the catalog/schema, and what's already created\n" +
+      "2. For EACH buildable capability in order:\n" +
       "   a. Load the relevant skill (e.g. `databricks-synthetic-data-gen`, `databricks-spark-declarative-pipelines`, `databricks-aibi-dashboards`)\n" +
       "   b. Read the matching specification file\n" +
       "   c. Build the resource following the skill's guidance\n" +
       "   d. Validate the result\n" +
       "   e. Update `resources.json` created_resources with the new resource ID\n" +
-      "4. After ALL resources are built, run the validation checklist from META-PROMPT.md"
+      "3. After ALL resources are built, run the build stage's validation checklist"
     );
   }, [isStreaming, handleSendMessage]);
 

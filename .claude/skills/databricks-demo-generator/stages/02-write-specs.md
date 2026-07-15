@@ -8,7 +8,6 @@ You are producing the specification files for the demo.
 Here is a default layout example, but it can vary / be quite different based on the user request:
 ```
 PROJECT/
-├── META-PROMPT.md              (copied verbatim from template — do not author, `cat DEMO_SKILL_DIR/references/META-PROMPT-TEMPLATE.md > PROJECT/META-PROMPT.md`)
 ├── specifications/
 │   ├── 01-lakeflow.md          synthetic data + PDFs (optional) + (SDP bronze→silver→gold or just a few SQL queries to load the tables) + validation
 │   ├── 02-uc-governance.md     metric views, ABAC, data quality monitors, classification  (optional)
@@ -48,7 +47,7 @@ Spec writing is **execution**, not deliberation. README + resources.json are in 
 
 1. **Restating README facts to yourself.** Entity count, IDs, costs, timeline, baselines are in the README. Quote them into the spec once; don't paraphrase them in your reasoning ("I'm settling on N…", "the failure was 3 weeks ago…", "the cost was $X…").
 2. **Doing the build agent's job.** Specs = **WHAT**, not **HOW**. Not yours at spec time: SQL bodies, threshold tuning, GBT vs RF, dashboard pixel layouts, React components, ML hyperparameters, class-imbalance strategies. Spec says "anomaly score: 0–1 z-score, 30-day rolling baseline, target ≈ 0.8 for the affected entity" — done.
-3. **Re-verifying what the skill already stated.** Directories are pre-seeded, META-PROMPT is copied, catalog/schema are in `resources.json`. Every "let me check…" instinct is a smell — trust the skill.
+3. **Re-verifying what the skill already stated.** Directories are pre-seeded, catalog/schema are in `resources.json`. Every "let me check…" instinct is a smell — trust the skill.
 
 In doubt: pick a reasonable value, write it, move on. Build agent fine-tunes.
 
@@ -59,7 +58,7 @@ Important:
 - if SDP capability is selected, describe the table creation using a SDP typically bronze/silver/glod
 - if SDP is NOT selected, then DO NOT run sdp / mention the sdp in the lakeflow skill, instead instruct to run a few simple, interactive SQL queries to quikcly create the tables required for the downstream resources.
 
-**Pre-seeded by project creation**: these might have been created for you: `PROJECT/specifications/` already exists, `PROJECT/specifications/app/` exists if `databricks-apps` is in capabilities, and `PROJECT/META-PROMPT.md` is already copied from the template. Skip those steps; just write the spec files.
+**Pre-seeded by project creation**: these might have been created for you: `PROJECT/specifications/` already exists, and `PROJECT/specifications/app/` exists if `databricks-apps` is in capabilities. Skip those steps; just write the spec files.
 
 Typical order: 
 

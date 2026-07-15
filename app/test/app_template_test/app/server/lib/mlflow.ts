@@ -41,14 +41,16 @@ export async function ensureMlflowExperiment(
   }
 
   // 2) Create
-  const createResp = await fetch(`${base}/api/2.0/mlflow/experiments/create`, {
-    method: 'POST',
-    headers: h,
-    signal: timeout(),
-    body: JSON.stringify({ name: experimentPath }),
-  });
+  const doCreate = () =>
+    fetch(`${base}/api/2.0/mlflow/experiments/create`, {
+      method: 'POST',
+      headers: h,
+      signal: timeout(),
+      body: JSON.stringify({ name: experimentPath }),
+    });
+  let createResp = await doCreate();
   if (!createResp.ok) {
-    const errText = await createResp.text();
+    let errText = await createResp.text();
     // Race: another boot created it already. Retry the get.
     if (/RESOURCE_ALREADY_EXISTS/i.test(errText)) {
       const retry = await fetch(getUrl, { method: 'GET', headers: h, signal: timeout() });
@@ -60,7 +62,26 @@ export async function ensureMlflowExperiment(
         if (id) return id;
       }
     }
-    throw new Error(`mlflow create failed: ${createResp.status} ${errText}`);
+    // Nested path (e.g. /Shared/solution_builder/...): experiments/create does
+    // NOT create intermediate directories, so a first-ever deploy 404s with
+    // "Parent directory does not exist". Create the parent dir (idempotent) and
+    // retry the experiment create once.
+    if (/Parent directory does not exist/i.test(errText)) {
+      const parent = experimentPath.slice(0, experimentPath.lastIndexOf('/'));
+      if (parent) {
+        await fetch(`${base}/api/2.0/workspace/mkdirs`, {
+          method: 'POST',
+          headers: h,
+          signal: timeout(),
+          body: JSON.stringify({ path: parent }),
+        });
+        createResp = await doCreate();
+      }
+    }
+    if (!createResp.ok) {
+      errText = await createResp.text();
+      throw new Error(`mlflow create failed: ${createResp.status} ${errText}`);
+    }
   }
   const createBody = (await createResp.json()) as { experiment_id?: string };
   if (!createBody.experiment_id) {

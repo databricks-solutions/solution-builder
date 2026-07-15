@@ -8,7 +8,7 @@ This file is SA-facing and documents intentional stubs + manual TODOs from this 
 ## What was stripped (Step 2)
 
 - **resources.json `created_resources`**: already empty (`{}`). Template hasn't been built, so no workspace resource IDs to blank.
-- **README.md / META-PROMPT.md / architecture.md / specifications/*.md**: scanned for `e2-demo-field-eng|fevm-` URLs, `@databricks.com` emails, `/Workspace/Users/` paths — none found. Templates are pre-build (Stage 1-2), so no SA-fingerprint exists to strip.
+- **README.md / architecture.md / specifications/*.md**: scanned for `e2-demo-field-eng|fevm-` URLs, `@databricks.com` emails, `/Workspace/Users/` paths — none found. Templates are pre-build (Stage 1-2), so no SA-fingerprint exists to strip.
 - **databricks.yml**: hand-crafted in handoff shape; no SA workspace values to strip (all values are already `<placeholder>` form).
 
 ## Bundle restructure (Step 3)

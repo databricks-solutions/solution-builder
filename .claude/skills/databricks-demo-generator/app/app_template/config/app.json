@@ -24,8 +24,9 @@
   "masEndpointName": "${MAS_ENDPOINT_NAME:}",
   "genieSpaceId":    "${GENIE_SPACE_ID:}",
 
-  // Agent LLM. MUST be databricks-gpt-5-4 (only Databricks model with
-  // openai/v1/responses enabled — others 400 BAD_REQUEST). Don't change.
+  // Agent LLM. Needs the Responses API (openai/v1/responses). databricks-gpt-5-4
+  // is the baseline; a newer GPT endpoint with /responses enabled works too.
+  // Non-Responses models (Claude etc.) 400 BAD_REQUEST.
   "agentModel": "databricks-gpt-5-4",
 
   // MLflow trace path. Empty → chat shows "Trace pending…". Auto-created

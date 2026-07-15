@@ -126,10 +126,11 @@ When this app step runs, add the following fields to `created_resources` in `res
 - `lakebase_project_slug` — human-readable slug. Used by CLI commands and DAB variable substitution.
 - `lakebase_database` — DB name (`dbgen_<demo-short-name>`).
 - `app.name` and `app.id` — recorded after the app deploy step.
+- `agent_mlflow_experiment_path` — the MLflow experiment for AGENT traces (distinct from any ML-training `mlflow_experiment_path`). Convention: `/Shared/solution_builder/<app_name>-agent-traces`. **You usually don't need to set anything** — when `AGENT_MLFLOW_EXPERIMENT_PATH` is unset, the app self-derives exactly this path from the auto-injected `DATABRICKS_APP_NAME` at boot and get-or-creates the experiment. Persist this key (and/or set the env var) only to pin an explicit non-default path.
 
 **`config/app.json` — `agentModel` and `agentEndpointName`:** the assistant talks to TWO things, don't conflate them.
 
-- `agentModel` — the Foundation Model endpoint backing the OpenAI Agents SDK loop. **Use `databricks-gpt-5-4`.** Why: the Agents SDK defaults to the OpenAI Responses API, and Databricks gates that route per-model. GPT-5-4 is the only Databricks-hosted model with `openai/v1/responses` enabled today — Anthropic models (Sonnet 4.6 etc.) return 400 BAD_REQUEST: *"Responses API passthrough is not supported for model …"*. Switching to chat-completions to support Claude would lose the live reasoning UI (Anthropic thinking blocks aren't surfaced as typed SDK events) — not wired up. Use `databricks-gpt-5-4` and don't abbreviate.
+- `agentModel` — the FM endpoint for the Agents SDK loop. **Use `databricks-gpt-5-4` or a newer GPT with `openai/v1/responses` enabled** (check the endpoint's `api_types`). The SDK uses the Responses API, which Databricks gates per-model — so the version isn't the constraint, Responses support is. Claude/non-Responses models 400 (`"Responses API passthrough is not supported…"`). Use the exact endpoint name; don't abbreviate.
 - `agentEndpointName` — only used when `mode='mas'` (raw MAS passthrough). For the agent loop it's a no-op label. If the demo has no MAS, leave it empty or set it to the Genie space description; routing happens in code.
 
 ### Step 4: Configure environment
@@ -154,6 +155,22 @@ skipped feature); the app still boots. So **the agent never edits resource IDs
 into `config/app.json`** — it sets them in `.env` (preview/local) or lets the
 DAB flow inject them (deployed). Only the domain bits in `config/app.json`
 (branding, `assistantScript`, `data.tables` names) are hand-edited per demo.
+
+**`AGENT_MLFLOW_EXPERIMENT_PATH` self-derives — you rarely set it.** When it's
+empty, `server.ts` derives `/Shared/solution_builder/<DATABRICKS_APP_NAME>-agent-traces`
+at boot (`DATABRICKS_APP_NAME` is auto-injected into the Apps container) and
+get-or-creates the experiment, so tracing + the "Agent traces" header link work
+on every path with no env plumbing. It only degrades if you run somewhere
+`DATABRICKS_APP_NAME` is ALSO unset (e.g. bare local dev) — set the env var
+there if you want traces. Set it explicitly (env or `resources.json`'s
+`agent_mlflow_experiment_path`) only to override the derived path.
+
+Note the **interactive `deploy.sh` uploads `app.yaml` verbatim and harvests
+nothing** from `resources.json` — so the OTHER resource vars (`DEMO_CATALOG`,
+`GENIE_SPACE_ID`, `MAS_ENDPOINT_NAME`, `DASHBOARD_ID`, …) still must be present
+in `app.yaml`'s `env:` block when deploying interactively (only the DAB path's
+`finalize_app.sh` injects them). The MLflow path is the one that no longer
+needs it.
 
 **Lakebase: use OAuth, not password.** The AppKit `lakebase()` plugin fetches and auto-refreshes 1-hour OAuth tokens (2-minute refresh buffer) and injects them into every `pg.Pool` connection. Code is just `createDb(appkit.lakebase.pool)`. Do not set `PGPASSWORD`.
 
@@ -228,6 +245,11 @@ PIPELINE_ID=
 GENIE_SPACE_ID=
 KA_ENDPOINT_NAME=
 MAS_ENDPOINT_NAME=
+# Agent-traces experiment. Leave EMPTY in most cases — the app self-derives
+# /Shared/solution_builder/<DATABRICKS_APP_NAME>-agent-traces at boot when this
+# is unset (and get-or-creates it). Set it only to pin a non-default path, or
+# for local dev where DATABRICKS_APP_NAME isn't injected and you still want
+# traces (e.g. /Shared/solution_builder/<app_name>-agent-traces).
 AGENT_MLFLOW_EXPERIMENT_PATH=
 
 # Lakebase — values come from lakebase_setup_db.sh. AppKit's lakebase plugin
@@ -312,7 +334,9 @@ Make sure `.env` has `APP_NAME` set to the resolved name and the Lakebase values
 ./scripts/deploy.sh
 ```
 
-The script reads `.env` and does it all: uploads source to `/Workspace/Users/<me>/apps/<APP_NAME>`, creates the App if missing, deploys the source, waits for the App's Postgres SP role to appear in Lakebase, calls `lakebase_grant_app_credential.sh` to GRANT the SP CREATE+USAGE on schema `public`, starts the App so the container is warm, then prints URL + status + the `databricks apps logs` tail command. Idempotent on every step. Common failures (workspace Apps quota hit, name already taken, permission denied) surface as one-line actionable errors.
+The script reads `.env` and does it all: rebuilds `dist/` from source (never ships a stale build), uploads source, creates the App if missing, deploys (which applies the OBO scopes from `app.yaml`'s `user_authorization.scopes` — incl. `model-serving`, needed by the agent's `/serving-endpoints/responses` call), then runs `lakebase_grant_app_credential.sh` (creates/grants the SP's Postgres role + reassigns any stale prior-SP ownership), starts the App, and prints URL + status + the `databricks apps logs` tail command. Idempotent on every step. Common failures (quota, name taken, permission denied) surface as one-line actionable errors.
+
+**⚠️ Scopes come from `app.yaml`, not from `apps create/update`.** The agent's OBO token gets its scopes from `app.yaml`'s `user_authorization.scopes` (applied at `apps deploy`). Do NOT set `user_api_scopes` via `databricks apps update --json` on this interactive path — it overrides app.yaml's scopes with a *different vocabulary* (`serving.serving-endpoints` ≠ `model-serving`) and the agent then 403s `Invalid scope, required scopes: model-serving`. If the agent 403s, the fix is in `app.yaml` (+ redeploy), not an out-of-band `apps update`.
 
 **No resource binding on this path** (no action needed): the `valueFrom:` refs in `app.yaml` only resolve via DAB; interactively the app has `resources: []` and reads PG*/warehouse from `.env` + platform injection. `deploy.sh` runs `lakebase_grant_app_credential.sh` to create/grant the SP's Postgres role.
 

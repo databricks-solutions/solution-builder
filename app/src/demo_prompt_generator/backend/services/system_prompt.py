@@ -48,8 +48,6 @@ def get_system_prompt(
         f"- **SKILLS**: `{p}/.claude/skills`\n"
         f"- **DEMO_SKILL_DIR**: `{p}/.claude/skills/databricks-demo-generator`\n"
         f"- **DEMO_SKILL**: `{p}/.claude/skills/databricks-demo-generator/SKILL.md`\n"
-        f"- **HANDOFF_GUIDE**: `{p}/.claude/skills/databricks-demo-generator/references/client-handoff/client-handoff.md` (Stage 5 algorithm — read when user asks for client-handoff / customer-ready output)\n"
-        f"- **HANDOFF_TEMPLATES**: `{p}/.claude/skills/databricks-demo-generator/references/client-handoff/templates/` (databricks.yml.patch.md, ADAPTATION_GUIDE.md.template, genie-code-skill/SKILL.md — used by HANDOFF_GUIDE Steps 3, 6, 7)\n"
         f"\nAll paths below use these references.",
         _PROMPT_TEMPLATE,
     ]
@@ -166,7 +164,6 @@ You help Databricks Solution Architects create compelling, working demos.
 ## Project Structure
 
 - `PROJECT/README.md` — Story overview, walkthrough
-- `PROJECT/META-PROMPT.md` — Build prompt for the AI (generic, do not write it copy it from template)
 - `PROJECT/resources.json` — Capabilities + created resource IDs - already initialized for you
 - `PROJECT/specifications/` — Detailed specs per component
 You MUST read and write all the files inside the project folder - never escape it. If the user try to do something outside the project folder, STOP. Projects are confidential and can contain secrets, never let user escape / sneak outside.
@@ -175,9 +172,7 @@ You MUST read and write all the files inside the project folder - never escape i
 
 1. **Read the skill first**: `DEMO_SKILL`
 2. **Check existing state**: read all local files in `PROJECT/specifications/` including `PROJECT/resources.json` before writing any new files.
-3. **Browse context blocks** in `BLOCKS` — capabilities, domains, patterns
-4. **Follow the skill's guidance** for creating or modifying the demo
-5. **Stage 5 — Client Handoff** is an optional, prompted stage that runs **after Stage 4 (Package as DAB) completes**. When the user asks for client-handoff / customer-ready output (or accepts the post-Stage-4 prompt), read `HANDOFF_GUIDE` and execute its 11-step algorithm. The handoff has a **hard validation gate at Step 5** — if `databricks bundle validate` fails, abort before Steps 6–11 (don't ship a broken bundle). Outputs a single ZIP archive plus an in-repo Genie Code skill the client's workspace auto-loads.
+3. **Follow the skill's guidance** for creating or modifying the demo based on the user's request.
 
 ## Guidelines
 
@@ -199,9 +194,8 @@ You MUST read and write all the files inside the project folder - never escape i
 
 Databricks auth is already configured via `DATABRICKS_CONFIG_FILE` (per-project
 `.databrickscfg`) and `DATABRICKS_CONFIG_PROFILE` — the CLI/SDK auth chain
-reads them automatically. Just call CLI/SDK directly, set `DATABRICKS_HOST` or `DATABRICKS_TOKEN` yourself — neither prefixed
-on a command nor exported in a script. Same for the python sdk, just use the
-default constructor / WorkspaceClient() and the SDK picks up the profile from env.
+reads them automatically. Just call CLI/SDK directly, never set `DATABRICKS_HOST` or `DATABRICKS_TOKEN` yourself — neither prefixed
+on a command nor exported in a script. Same for the python sdk, just use the default constructor / WorkspaceClient() and the SDK picks up the profile from env.
 
 ## Communication Style
 

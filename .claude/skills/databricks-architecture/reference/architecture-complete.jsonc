@@ -63,11 +63,11 @@
     { "id": "lakeflow-genie-block", "type": "lakeflow-genie-block", "col": "pipeline", "desc": "Declarative bronze → silver → gold pipeline — Genie Code describes the transformations, Lakeflow runs them reliably at scale." },
 
     // Compute lane — both fed by the block.
-    { "id": "lakehouse", "type": "lakehouse", "col": "compute", "row": 1, "desc": "One governed copy of the data for BI + AI — real-time queries at scale." },
+    { "id": "sql-lakehouse", "type": "sql-lakehouse", "col": "compute", "row": 1, "desc": "One governed copy of the data for BI + AI — real-time queries at scale." },
     { "id": "lakebase",  "type": "lakebase",  "col": "compute", "row": 2, "desc": "Serverless Postgres for live app state — reads/writes the app's queue." },
 
     // Work lane — analytics + the app.
-    { "id": "aibi-dashboards",     "type": "aibi-dashboards",     "col": "work", "row": 1, "desc": "Executive KPI dashboard — live from the lakehouse." },
+    { "id": "ai-bi-dashboard",     "type": "ai-bi-dashboard",     "col": "work", "row": 1, "desc": "Executive KPI dashboard — live from the lakehouse." },
     { "id": "genie",               "type": "genie",               "col": "work", "row": 2, "desc": "Business users ask questions in plain language — governed, auditable answers." },
     { "id": "databricks-apps-work","type": "databricks-apps-work","col": "work", "row": 3 },
 
@@ -89,7 +89,7 @@
     // The big white "platform" box — auto-sized to WRAP the whole flow (z:-1).
     // (A box shows a 1px border by default; set style.border to change it.)
     { "id": "platform-box", "type": "box", "z": -1, "pad": 40,
-      "wraps": ["src-erp", "src-postgres", "src-sensors", "lakeflow-genie-block", "lakehouse", "lakebase", "aibi-dashboards", "genie", "databricks-apps-work", "genie-one"] }
+      "wraps": ["src-erp", "src-postgres", "src-sensors", "lakeflow-genie-block", "sql-lakehouse", "lakebase", "ai-bi-dashboard", "genie", "databricks-apps-work", "genie-one"] }
   ],
 
   "edges": [
@@ -99,19 +99,19 @@
     { "id": "e2", "from": "src-postgres", "to": "lakeflow-genie-block@in-lakeflow-connect", "flow": true },
     { "id": "e3", "from": "src-sensors",  "to": "lakeflow-genie-block@in-zerobus", "flow": true },
     // block → compute, compute → consumers (all left→right, handles inferred)
-    { "id": "e4", "from": "lakeflow-genie-block", "to": "lakehouse", "flow": true },
+    { "id": "e4", "from": "lakeflow-genie-block", "to": "sql-lakehouse", "flow": true },
     { "id": "e5", "from": "lakeflow-genie-block", "to": "lakebase",  "flow": true },
-    { "id": "e6", "from": "lakehouse", "to": "aibi-dashboards", "flow": true },
-    { "id": "e7", "from": "lakehouse", "to": "genie",           "flow": true },
+    { "id": "e6", "from": "sql-lakehouse", "to": "ai-bi-dashboard", "flow": true },
+    { "id": "e7", "from": "sql-lakehouse", "to": "genie",           "flow": true },
     { "id": "e8", "from": "lakebase",  "to": "databricks-apps-work", "flow": true },
     // the app also consumes the dashboard + Genie Room (vertical — force @b/@t)
     { "id": "e9",  "from": "genie@b",           "to": "databricks-apps-work@t" },
-    { "id": "e10", "from": "aibi-dashboards@b", "to": "databricks-apps-work@t" },
+    { "id": "e10", "from": "ai-bi-dashboard@b", "to": "databricks-apps-work@t" },
     // Genie One (business user built in) --> dashboard / Genie Room / app. These
     // are RELATIONSHIP lines — leave `flow`/`arrow` out: the renderer auto-draws
     // the arrowhead pointing OUT toward each resource.
     { "id": "e12", "from": "genie-one", "to": "genie" },
-    { "id": "e13", "from": "genie-one", "to": "aibi-dashboards" },
+    { "id": "e13", "from": "genie-one", "to": "ai-bi-dashboard" },
     { "id": "e14", "from": "genie-one", "to": "databricks-apps-work" }
   ]
 },

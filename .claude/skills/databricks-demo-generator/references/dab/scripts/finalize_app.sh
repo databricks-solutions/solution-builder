@@ -141,6 +141,19 @@ env_lines = [
     ("MAS_ENDPOINT_NAME", resources.get("mas_endpoint_name", "")),
 ]
 
+# The agent-traces experiment path. If the harvest didn't produce it, the app
+# still self-derives /Shared/solution_builder/<DATABRICKS_APP_NAME>-agent-traces
+# at boot (server.ts) — so this is a NOTE, not a failure. We still emit it when
+# present so the env value matches resources.json (and the DAB derivation).
+if not resources.get("agent_mlflow_experiment_path"):
+    print(
+        "[finalize] NOTE: agent_mlflow_experiment_path missing from harvested "
+        "resources — the app will self-derive it from DATABRICKS_APP_NAME at boot "
+        "(/Shared/solution_builder/<app_name>-agent-traces). Set it in "
+        "resources.json to pin an explicit path.",
+        file=sys.stderr,
+    )
+
 # Read the template, strip its existing `env:` block, append the new one.
 with open(template_path) as f:
     text = f.read()

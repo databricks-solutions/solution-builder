@@ -180,12 +180,12 @@ export async function handleChatStream(args: {
       userEmail,
       masEndpointName: config.masEndpointName,
       databricksHost: host,
-      // Foundation Model endpoint name. Use the EXACT name as listed under
-      // Serving → Foundation Models in your workspace. Default is
-      // `databricks-claude-sonnet-4-6`; `databricks-gpt-5-4` is a fine
-      // alternative. Never abbreviate (`databricks-claude-sonnet-4` does NOT
-      // exist and produces a 400 from the chat-completions call below).
-      model: config.agentModel ?? 'databricks-claude-sonnet-4-6',
+      // Foundation Model endpoint name. Needs the OpenAI Responses API
+      // (refundops.ts `setOpenAIAPI('responses')`). `databricks-gpt-5-4` is the
+      // baseline default; a newer GPT endpoint with `openai/v1/responses` enabled
+      // works too. Claude/non-Responses models 400 BAD_REQUEST on that route. Use
+      // the EXACT endpoint name from Serving → Foundation Models; never abbreviate.
+      model: config.agentModel ?? 'databricks-gpt-5-4',
       messages: cleanMessages,
       signal: turnAbort.signal,
     });

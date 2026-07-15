@@ -51,7 +51,7 @@ resources = {
     "mas_endpoint_name":           vals["mas_endpoint_name"],
     "ml_model_name":               f"{vals['catalog']}.{vals['schema']}.customer_premium_classifier",
     "pdf_volume_path":             f"/Volumes/{vals['catalog']}/{vals['schema']}/manufacturing_reports",
-    "agent_mlflow_experiment_path": f"/Shared/{vals['app_name']}-traces",
+    "agent_mlflow_experiment_path": f"/Shared/solution_builder/{vals['app_name']}-agent-traces",
 }
 
 print("Exporting resources:")

@@ -20,35 +20,36 @@ The main loop lives in this file (SKILL.md) — it describes **the flow**: stage
 | **0. Capture Intent** | Understand request, browse domain/pattern blocks, propose story ideas if vague | — (flows into stage 1) | Inline in SKILL.md |
 | **1. Design Story** | Write `resources.json` + `README.md` (batched in one message) | ✅ *"Approve the story?"* | `stages/01-design-story.md` |
 | **2. Write Specs** | Write `01-lakeflow.md`, then the other top-level specs, then the app spec (if app needed), coherence review | ✅ *"Ready to build?"* | `stages/02-write-specs.md` |
-| **3. Build** (opt) | Create Databricks resources via ai-dev-kit skills | — (build completes) | `stages/03-build.md` |
-| **3′. Build a Workshop** (opt) | **Workshop mode only** — instead of provisioning resources, generate a notebook workshop (build-it-live via Genie Code) | — (package ready) | `stages/03-workshop.md` |
+| **3. Build** — *pick ONE fork (by mode):* | | | |
+| &nbsp;&nbsp;↳ **3.1 Build resources** *(default)* | Provision the Databricks resources via ai-dev-kit skills | — (build completes) | `stages/03.1-build.md` |
+| &nbsp;&nbsp;↳ **3.2 Build a workshop** *(workshop mode)* | Instead of provisioning, generate a notebook workshop (build-it-live via Genie Code) | — (package ready) | `stages/03.2-workshop.md` |
 | **4. Package as a DAB** (opt) | On user request only, post-build | — | `references/dab/dab.md` |
 
 **Cross-cutting (not a stage):**
 - **App creation** — folded into stages 2 + 3: `DEMO_SKILL_DIR/app/app.md`
 
-### Workshop entry (Genie Code workshop — Build stage forks)
+### Three entry flows
 
-The opening message may say the user is preparing a **Genie Code workshop** (the home page's "Prepare a workshop" tab). A workshop is the SAME demo, delivered differently: instead of you provisioning the Databricks resources, you generate a **package of clean Databricks notebooks whose cells are Genie Code prompts** that the SA (or a customer) pastes into the Databricks Assistant to build the demo **live, one step at a time** — raw data (in a Volume) → SDP → dashboard → Genie space. When you see this:
+The opening message tells you which of three flows the user started (from the home page's tabs). The stages above are the **default**; two variants change where the run starts or how Build forks.
 
-1. **Stages 0–2 are UNCHANGED.** Design the story, write `resources.json` + `README.md`, write the specs, exactly as for a normal demo. (The capability set is already scoped to workshop-ready ones — no ML/app/KA/MAS in V1.)
-2. **The Build stage FORKS.** Do NOT run `stages/03-build.md` (no resource provisioning). Run **`stages/03-workshop.md`** instead — it produces the notebook workshop + a volume-writing data-generation script + the Genie context, patterned on **`references/example-luxebeauty-workshop`**.
-3. **The deliverable is the downloadable package** (notebooks + data-gen + specs + context), not a deployed demo — no DAB.
+**A — Build the resources (default).** Run stages 0→3.1: design the story, write specs, then **provision the real Databricks resources** (`stages/03.1-build.md`). Deployable demo; DAB optional only if the user ask at the end.
 
-### Architecture-first entry (alternate start)
+**B — Build a workshop** The SAME demo, delivered as prompts instead of resources: you generate a **package of clean notebooks whose cells are Genie Code prompts** that an SA (or customer) pastes into the Databricks Genie Assistant to build the demo **live, step by step** — raw data (Volume) → SDP → dashboard → Genie space.
+- **Stages 0–2 UNCHANGED** — story, `resources.json` + `README.md`, specs, as normal. (Capabilities are pre-scoped to workshop-ready ones — no ML/app/KA/MAS in V1.)
+- **Build forks to 3.2:** do NOT run `stages/03.1-build.md`; run **`stages/03.2-workshop.md`** — notebook workshop + volume-writing data-gen + Genie context, patterned on **`references/example-luxebeauty-workshop`**.
+- **Deliverable = the downloadable package** (notebooks + data-gen + specs + context), not a deployed demo. No DAB.
 
-Sometimes the opening message says the user wants to **start by creating an architecture diagram** (architecture-first) rather than a story. Their text may be anything — a tidy brief, pasted meeting notes, or a transcript. When you see that:
-
-1. **Skip stages 0–1.** Do **not** design a story, write `resources.json`/`README.md`, write specs, or build resources.
-2. Read the **`databricks-architecture` skill** (`.claude/skills/databricks-architecture/SKILL.md`) — the flat `nodes`/`edges` schema + component catalog + reference diagrams.
-3. **Extract the main components** the user's text implies — source systems, pipeline, serving layer, dashboards/apps, agents — and map each to a real catalog component id. Start from the minimal example inlined in that skill's **The format** section (or its `reference/architecture-complete.jsonc` for the full platform shape) when the intent clearly matches one, then patch in the named sources.
-4. **Write ONLY `architecture.md`** at the project root (the schema in a fenced ```json block), then **stop** with a one-liner inviting the user to review/edit it on the Architecture tab. The story comes later — the user will click "Generate the solution from this architecture", which kicks off stage 1 *constrained to* the components they kept on the canvas.
+**C — Architecture first** *(alternate start).* The user wants to draw the architecture before any story. Their text may be a brief, pasted meeting notes, or a transcript.
+- **Skip stages 0–1** — no story/`resources.json`/`README.md`/specs/build yet.
+- Read the **`databricks-architecture` skill** (`.claude/skills/databricks-architecture/SKILL.md`) — flat `nodes`/`edges` schema + component catalog + reference diagrams.
+- **Extract the components** the text implies (sources, pipeline, serving, dashboards/apps, agents), map each to a real catalog id. Start from the minimal example in that skill's **The format** section (or `reference/architecture-complete.jsonc` for the full platform) when intent matches, then patch in the named sources.
+- **Write ONLY `architecture.md`** at the project root (schema in a fenced ```json block), then **stop** with a one-liner inviting review/edit on the Architecture tab. The story comes later — the user clicks "Generate the solution from this architecture", which kicks off stage 1 *constrained to* the components they kept.
 
 ## Paths
 
 Your system prompt defines `PROJECT`, `SKILLS`, `DEMO_SKILL_DIR`, and `DEMO_SKILL` as absolute paths. This skill refers to sibling files like `DEMO_SKILL_DIR/stages/*.md`, `DEMO_SKILL_DIR/app/app.md`, `DEMO_SKILL_DIR/references/*`.
 
-**When spawning subagents**, substitute every placeholder (`DEMO_SKILL_DIR/…`, `PROJECT/…`, `SKILLS/…`) with its real absolute path before sending — the subagent has no system prompt defining them. The full spawn prompt is in `DEMO_SKILL_DIR/stages/03-build.md` → Step 2.
+**When spawning subagents**, substitute every placeholder (`DEMO_SKILL_DIR/…`, `PROJECT/…`, `SKILLS/…`) with its real absolute path before sending — the subagent has no system prompt defining them. The full spawn prompt is in `DEMO_SKILL_DIR/stages/03.1-build.md` → Step 2.
 
 ---
 
@@ -60,10 +61,11 @@ Each stage fires one tracking event so we can see how the skill is used. Calls a
 
 ## Efficiency
 
-Batch tool calls in the same response whenever you can: emit multiple `Read` or `Write` calls in one assistant message and the harness executes them concurrently. You still generate tokens sequentially — batching saves LLM round-trips, not output time. Load all reference blocks in one message, write independent files in one message. **Spec writing fans out after `01-lakeflow.md`**: 02 / 03 / 04 / 05 + the app spec all depend only on 01 (and on each other's outputs that the build stage materializes, not on each other's spec text), so once 01 is written they're emitted as a single batched-Write turn on the main loop — never serialize them. Latency is dominated by LLM round-trips, not tool execution — every sequential tool call that could have been batched is wasted time.
-Do not get lost into thinking especially on operations like writing file, generating data or others. You must instead write the file with real tools and execute them.
+Batch independent tool calls into one message — the harness runs them concurrently, saving LLM round-trips. Load all reference blocks together; write independent files together.
 
-**Subagent policy.** A subagent is used in Stage 3 (build) **and only for the App** — it's the longest task (~5 min) and runs in parallel while the parent builds everything else on main. Stages 0, 1, 2, and 4 run entirely on the main loop, and within Stage 3 only the App is delegated. The full spawn prompt is in `DEMO_SKILL_DIR/stages/03-build.md` → Step 2.
+Don't overthink mechanical work (writing files, generating data) — call the real tools and execute, don't narrate when you think.
+
+**Subagent policy.** A subagent is used in Stage 3.1 (build) **for the App** — it's the longest task (~5 min) and runs in parallel while the parent builds everything else on main. Stages 0, 1, 2, and 4 run entirely on the main loop, and within Stage 3 only the App is delegated. The full spawn prompt is in `DEMO_SKILL_DIR/stages/03.1-build.md` → Step 2.
 
 ### Telling the user where you are
 
@@ -90,7 +92,6 @@ Real thinking (surprising results, tradeoffs, ambiguity, errors) is welcome. Fil
 ```
 ./README.md           # Story overview, products showcased, walkthrough
 ./architecture.md     # Architecture diagram schema (JSON) — built on demand (see Architecture Diagram), not by default
-./META-PROMPT.md      # Build instructions for the AI (generic, do not write it, copy it from template)
 ./resources.json      # Selected capabilities + created resource IDs
 ./specifications/     # Detailed specs per component — the exact files depend on what the demo includes; there is no fixed list
 ```
@@ -149,7 +150,7 @@ When the user provides exact capabilities, use those directly — don't override
 
 ### Architecture Diagram
 
-Don't write `./architecture.md` by default. Build it **on demand** — when the user asks for an architecture diagram (or starts architecture-first) — by reading the **`databricks-architecture` skill** (`.claude/skills/databricks-architecture/SKILL.md`) for the flat `nodes`/`edges` schema, component catalog, and reference diagrams. Otherwise leave the Architecture tab alone.
+Don't write `./architecture.md` by default. Build it **on demand** — when the user asks for an architecture diagram (or starts architecture-first) — always by reading the **`databricks-architecture` skill** (`.claude/skills/databricks-architecture/SKILL.md`).
 
 ---
 
@@ -201,11 +202,11 @@ The coherence contract still applies: every change must ripple through all depen
 
 Generic pattern when adding a new capability (app, ML model, dashboard, etc.) to a project that didn't originally include it:
 
-1. **Find example** — check `DEMO_SKILL_DIR/references/blocks/capabilities/<slug>.md` and `DEMO_SKILL_DIR/references/example-luxebeauty/specifications/` for an existing spec of the same capability. Mirror its shape.
+1. **Find example** — check `DEMO_SKILL_DIR/references/blocks/capabilities/<slug>.md` if you need to know more about it and always `DEMO_SKILL_DIR/references/example-luxebeauty/specifications/` for an existing spec of the same capability. Mirror its shape if you don't have lot of instructions.
 2. **Story fit** — does the existing demo arc justify this component? If no, extend the README story beat before writing the spec.
 3. **Upstream prerequisites** — does this need new data, a new column, a new dashboard viz, a new model output? If so, patch the upstream specs (`01-lakeflow.md`, etc.) first, regenerate the data, update and re run the sdp pipeline if required and only then write the new component spec.
 4. **Write the new component spec when required** — under `specifications/`, following the standards in `stages/02-write-specs.md`.
-5. **Build it** — follow `stages/03-build.md` for the build order (data → pipeline → consumption layers).
+5. **Build it** — follow `stages/03.1-build.md` for the build order (data → pipeline → consumption layers).
 6. **App-specific path** — if the new component is an app, ALSO read `DEMO_SKILL_DIR/app/app.md` end-to-end (it walks the clone-template → specialize → deploy flow that's specific to the React/Node app, not the rest of the demo).
 7. **Update `resources.json`** — add the new resource's IDs / endpoints / paths to `created_resources` so the UI tiles light up and the capabilities after the addition/changes.
 
@@ -264,7 +265,7 @@ Wait for confirmation before starting stage 2.
 
 ## Stage 2 — Write Specs
 
-**Read `DEMO_SKILL_DIR/stages/02-write-specs.md` now** and follow it. Outputs: `META-PROMPT.md` (copied wit cp don't read/write it) + `specifications/*.md`. Includes the coherence pass at the end.
+**Read `DEMO_SKILL_DIR/stages/02-write-specs.md` now** and follow it. Outputs: `specifications/*.md`. Includes the coherence pass at the end.
 
 **Mental model before you start:** write `01-lakeflow.md` first (everything else depends on it). Then write the remaining top-level specs (02 / 03 / 04 / 05, only the ones this demo uses). Then, if the demo includes a Databricks App, write `specifications/app/*.md`. Sequential — one Write per file. **Don't ruminate, don't say "now I'll write X" — open the Write tool and write.** Coherence review at the end.
 
@@ -281,7 +282,7 @@ Reply "yes" to start building, or "no" to stop here.
 
 ## Stage 3 — Build 
 
-If the user confirms, **read `DEMO_SKILL_DIR/stages/03-build.md` now** and follow it. It covers: build-order gates, subagent parallelization, how to spawn a build subagent, app generation, and sync rules between specs and built resources.
+If the user confirms, **read `DEMO_SKILL_DIR/stages/03.1-build.md` now** and follow it. It covers: build-order gates, subagent parallelization, how to spawn a build subagent, app generation, and sync rules between specs and built resources.
 
 **Mental model before you start:** build time dominates this stage. The pipeline is the only sequential gate (raw data → SDP → tables exist). Once tables exist, fan out — Genie/Dashboard, KA/MAS, and the App all run as parallel subagents. Never loop through resources one at a time on the main thread.
 
@@ -297,10 +298,8 @@ When the user asks you to create a DAB, read `DEMO_SKILL_DIR/references/dab/dab.
 
 Browse `DEMO_SKILL_DIR/references/` for worked examples showing file format, detail level, and how files connect. Two examples ship — pick the one that matches the build's capability set:
 
-- **`example-luxebeauty/`** — full-stack reference (SDP bronze→silver→gold, metric view, ML premium classifier, Knowledge Assistant, Multi-Agent Supervisor, app with tiered offers). Use this when the build includes any of `sdp` / `metric-views` / `ml-training-serving` / `knowledge-assistant` / `supervisor-agent`.
-- **`example-luxebeauty-simple/`** — fast reference for the Simple-tab capability set (synth → raw→silver→gold built in-script since there's no SDP, AI/BI Dashboard + Genie, optional Databricks App + Lakebase, no SDP / KA / MAS / ML). Use this when the build sticks to that subset. **Ships two canonical artifacts** alongside the spec markdown — both are syntax references, not fill-in-the-blanks templates:
-  - `data_generation/generate_data.py` — one self-contained Spark (databricks-connect) file: Spark-native generation (spark.range + F.when + broadcast joins, no driver loops) → raw Delta tables → inline `spark.sql` CTAS for silver + gold + constraints. A worked example of the technique, not a domain template — rewrite the whole thing for the demo's own schema.
-  - `dashboard/dashboard.json` — a populated Lakeview JSON with the 5-stop palette, frame descriptions, sankey top-N bucketing, and category/source color pins already wired.
+- **`example-luxebeauty/`** — full-stack reference (SDP bronze→silver→gold, metric view, ML premium classifier, KA, MAS, app with tiered offers). Use when the build includes any of `sdp` / `metric-views` / `ml-training-serving` / `knowledge-assistant` / `supervisor-agent`.
+- **`example-luxebeauty-simple/`** — Simple-tab set (in-script synth → raw→silver→gold, no SDP; AI/BI + Genie; optional App + Lakebase; no ML/KA/MAS). Use when the build sticks to that subset. Ships two **syntax-reference** artifacts (rewrite fully per demo — they show shape, not content): `data_generation/generate_data.py` (self-contained Spark: `spark.range` + `F.when` + broadcast joins → raw Delta → `spark.sql` CTAS for silver/gold/constraints) and `dashboard/dashboard.json` (populated Lakeview: 5-stop palette, frame descriptions, sankey top-N, color pins).
 
 Adapt the structure, don't copy the narrative. Every story, schema, widget, position, color, and description must be rewritten for the current demo — the artifacts only show what a working file *looks like*, not what to put in one.
 

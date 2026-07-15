@@ -89,7 +89,7 @@ The bundled `.assistant/skills/<demo-slug>-adaptation/SKILL.md` must have no `{{
 
 ### Check 6 — Excluded files not packed
 
-Per Step 11: `.databricks/`, `META-PROMPT.md`, `.anthropic_token`, `get_anthropic_token.sh`, the ZIP itself, and `install.sh` (v0 artifact — superseded by the v1.1 CLI snippet) must not exist at the package root or one level down. No auto-fix — `rm -rf` the offending paths and re-run.
+Per Step 11: `.databricks/`, `.anthropic_token`, `get_anthropic_token.sh`, the ZIP itself, and `install.sh` (v0 artifact — superseded by the v1.1 CLI snippet) must not exist at the package root or one level down. No auto-fix — `rm -rf` the offending paths and re-run.
 
 ### Check 7 — databricks.yml has the right shape
 

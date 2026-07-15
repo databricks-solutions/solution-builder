@@ -182,7 +182,7 @@ AgentContext: `{db, userEmail, req, masEndpointName, databricksHost, model, onTo
 
 SDK setup: OpenAI client → `${host}/serving-endpoints`, **Responses API** (SDK default — we don't call `setOpenAIAPI`), custom fetch (Connection: close, strips long IDs >64 chars + `annotations` arrays from assistant content for compat), MLflow tracing (not OpenAI). On any non-2xx, the shim writes the response body into `ctx.modelError` so the catch block in agent-stream.ts can surface a real error message instead of "400 status code (no body)".
 
-> **Model constraint: `databricks-gpt-5-4` only.** The Agents SDK defaults to `/responses`, and Databricks gates that route per-model. GPT-5-4 is the only Databricks-hosted model with `openai/v1/responses` in its `api_types` today. Anthropic models (Sonnet 4.6, etc.) return 400 BAD_REQUEST: *"Responses API passthrough is not supported for model …"*. Supporting Claude would require switching to chat-completions AND parsing Anthropic thinking blocks ourselves (~60-100 lines, not done). Keep `agentModel: "databricks-gpt-5-4"` in `config/app.json`.
+> **Model constraint: needs the Responses API.** The Agents SDK defaults to `/responses`, and Databricks gates that route per-model. `databricks-gpt-5-4` is the baseline that works today; a newer GPT endpoint (gpt-5-5, gpt-6, …) is fine **if it has `openai/v1/responses` in its `api_types`** — the version isn't the constraint, the Responses API is. Anthropic models (Sonnet 4.6, etc.) return 400 BAD_REQUEST: *"Responses API passthrough is not supported for model …"*; supporting Claude would require chat-completions + parsing Anthropic thinking blocks ourselves (~60-100 lines, not done). Keep `agentModel` on `databricks-gpt-5-4` or a newer Responses-capable GPT in `config/app.json`.
 
 Instructions: MODE A (investigation — single `ask_mas`/`ask_genie` call) or MODE B (action — 3-phase: discover via ask_data + find_lot_premium_breakdown → draft TWO tiered emails for confirm → execute one tier-aware bulk call after approval).
 
@@ -230,8 +230,8 @@ Every field has a `_*_help` sibling key in `app.json` that explains the field + 
 {
   "_README": "...",
   "_dataBackend_help": "...", "masEndpointName": "...", "genieSpaceId": "",
-  "_agentModel_help": "...", "agentModel": "databricks-claude-sonnet-4-6",
-  "_mlflow_help": "...", "mlflowExperimentId": "...", "agentMlflowExperimentPath": "/Users/<email>/<app>-agent-traces",
+  "_agentModel_help": "...", "agentModel": "databricks-gpt-5-4",
+  "_mlflow_help": "...", "mlflowExperimentId": "...", "agentMlflowExperimentPath": "" /* empty → app self-derives /Shared/solution_builder/<app_name>-agent-traces */,
   "_dashboard_help": "...", "dashboardId": "...",
   "_data_help": "...", "data": { "catalog": "...", "schema": "...", "tables": { ... } },
   "_branding_help": "...", "branding": { "appName": "..." },

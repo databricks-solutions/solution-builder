@@ -554,13 +554,24 @@ function startBackgroundInit() {
 // but defer mlflow.init() until after sync — otherwise the SDK instruments
 // sync queries that have no parent span and produces noisy warnings.
 const mlflowIdPromise = (async () => {
-  if (!appConfig.agentMlflowExperimentPath) {
+  // Resolve the experiment path with a self-derived fallback so tracing works
+  // out of the box on EVERY deploy path — no env plumbing required. Precedence:
+  //   1. explicit `agentMlflowExperimentPath` (from AGENT_MLFLOW_EXPERIMENT_PATH)
+  //   2. derived `/Shared/solution_builder/<app-name>-agent-traces`, where the
+  //      app name comes from DATABRICKS_APP_NAME (auto-injected in the Apps
+  //      container — the same var @databricks/appkit reads).
+  // Only when BOTH are empty (e.g. local dev with neither set) do we degrade.
+  const appName = (process.env.DATABRICKS_APP_NAME ?? '').trim();
+  const experimentPath =
+    appConfig.agentMlflowExperimentPath ||
+    (appName ? `/Shared/solution_builder/${appName}-agent-traces` : '');
+  if (!experimentPath) {
     // Loud warning so this never silently breaks the "View trace" link in
     // the chat (the symptom is "Trace pending…" forever — see FeedbackRow).
-    // Set `agentMlflowExperimentPath` in config/app.json. See the field
-    // doc on AppConfig above for the recommended format.
+    // Normally self-derived from DATABRICKS_APP_NAME; set
+    // AGENT_MLFLOW_EXPERIMENT_PATH explicitly to override.
     console.warn(
-      '[boot] config.agentMlflowExperimentPath is empty — agent traces will NOT be recorded and the chat "View trace" link will show "Trace pending…". Set a path like "/Users/<your-email>/<app-name>-agent-traces" in config/app.json.',
+      '[boot] no MLflow experiment path — agentMlflowExperimentPath is empty AND DATABRICKS_APP_NAME is unset, so nothing could be derived. Agent traces will NOT be recorded and the chat "View trace" link will show "Trace pending…". Set AGENT_MLFLOW_EXPERIMENT_PATH (e.g. /Shared/solution_builder/<app-name>-agent-traces).',
     );
     return null;
   }
@@ -570,12 +581,12 @@ const mlflowIdPromise = (async () => {
     return null;
   }
   try {
-    const id = await ensureMlflowExperiment(host, appConfig.agentMlflowExperimentPath);
-    console.log(`[boot +${ms()}] MLflow experiment resolved (id=${id}) — traces will land at ${appConfig.agentMlflowExperimentPath}`);
+    const id = await ensureMlflowExperiment(host, experimentPath);
+    console.log(`[boot +${ms()}] MLflow experiment resolved (id=${id}) — traces will land at ${experimentPath}`);
     return id;
   } catch (e) {
     console.warn(
-      `[boot] MLflow experiment bootstrap failed for ${appConfig.agentMlflowExperimentPath} — "View trace" link will show "Trace pending…":`,
+      `[boot] MLflow experiment bootstrap failed for ${experimentPath} — "View trace" link will show "Trace pending…":`,
       (e as Error).message,
     );
     return null;

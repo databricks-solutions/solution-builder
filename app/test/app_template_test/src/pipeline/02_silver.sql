@@ -141,3 +141,26 @@ SELECT
   -- sync's expected column exists. The app's drawer treats it as optional.
   CAST(NULL AS STRING)       AS status
 FROM read_files('/Volumes/retail_consumer_goods/luxebeauty_demo/raw_data/orders', format => 'parquet') o;
+
+-- silver_customers — the customer dimension the app's Lakebase mirror needs
+-- (customer_id + identity + geo + tier + premium_status + registration_date).
+-- raw_customers is one row per customer in the Volume, so this is a straight
+-- column projection, matching silver_orders. gold_customer_returns/features
+-- can read this instead of re-reading the raw parquet.
+CREATE OR REFRESH MATERIALIZED VIEW silver_customers
+COMMENT 'Customer dimension (1 row per customer) for the Lakebase mirror + gold joins.'
+AS
+SELECT
+  c.customer_id,
+  c.email,
+  c.first_name,
+  c.last_name,
+  c.region,
+  c.country,
+  c.city,
+  c.customer_lat,
+  c.customer_lng,
+  c.loyalty_tier,
+  c.premium_status,
+  CAST(c.registration_date AS DATE) AS registration_date
+FROM read_files('/Volumes/retail_consumer_goods/luxebeauty_demo/raw_data/customers', format => 'parquet') c;

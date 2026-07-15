@@ -11,6 +11,10 @@ The diagram is a **flat list of the components you see** plus the **lines betwee
 
 **Author STRUCTURE, not pixels.** You assign each node to a **column** (a left→right lane) and let the renderer compute coordinates; you draw **edges by node id** and the handle is inferred; you wrap a group of nodes in a **container box** that auto-sizes around them. You almost never write `x/y`. (You *may* pin a node with an explicit `at` — it overrides its column — for things like top banners.)
 
+## Databricks capabilities — how components connect
+
+Before drawing edges, read **`reference/platform_architecture.md`** to understand how the Databricks components fit together — what each product does, whether it's a buildable resource or a talking-point, and (most importantly) **which components feed which** (e.g. sources → Lakeflow/`sdp` → `sql-lakehouse` → `ai-bi-dashboard`/`genie`; `supervisor-agent` routes to `genie`/`knowledge-assistant`; `lakebase` syncs with `sdp` tables and powers apps). That relationship map is what makes your data-flow edges correct rather than plausible-looking.
+
 ---
 
 <!-- BEGIN: local-render-workflow (stripped when the skill runs inside Solution Builder — the app renders architecture.md live in its own canvas) -->
@@ -76,9 +80,9 @@ when you emit into the inline block, which is parsed as plain JSON:
     { "id": "src-docs", "type": "source", "col": "sources", "row": 4, "label": "PDF documents", "icon": "pdfLogo" },
     // The one data-layer block (ingest + bronze→silver→gold, built by Genie Code).
     { "id": "lakeflow-genie-block", "type": "lakeflow-genie-block", "col": "pipeline" },
-    { "id": "lakehouse", "type": "lakehouse", "col": "compute" },
+    { "id": "sql-lakehouse", "type": "sql-lakehouse", "col": "compute" },
     // Consumption lane: dashboard + Genie, stacked.
-    { "id": "aibi-dashboards", "type": "aibi-dashboards", "col": "work", "row": 1 },
+    { "id": "ai-bi-dashboard", "type": "ai-bi-dashboard", "col": "work", "row": 1 },
     { "id": "genie", "type": "genie", "col": "work", "row": 2 },
     // Genie One = the business-user entry point (an INTERFACE onto everything to
     // its left). It has the "Business users" persona built IN (a pill above the
@@ -92,7 +96,7 @@ when you emit into the inline block, which is parsed as plain JSON:
     { "id": "governance-block", "type": "governance-block", "pin": { "at": "top-right", "to": "platform-box" } },
     // One white box wrapping the whole flow = "all of this is the platform".
     { "id": "platform-box", "type": "box", "z": -1,
-      "wraps": ["src-postgres", "src-erp", "src-sensors", "src-docs", "lakeflow-genie-block", "lakehouse", "aibi-dashboards", "genie", "genie-one"] }
+      "wraps": ["src-postgres", "src-erp", "src-sensors", "src-docs", "lakeflow-genie-block", "sql-lakehouse", "ai-bi-dashboard", "genie", "genie-one"] }
   ],
   "edges": [
     // Source → Lakeflow: name the ingest PORT on the target handle. That handle
@@ -102,23 +106,19 @@ when you emit into the inline block, which is parsed as plain JSON:
     { "id": "e1b", "from": "src-erp", "to": "lakeflow-genie-block@in-lakeflow-connect", "flow": true },
     { "id": "e1c", "from": "src-sensors", "to": "lakeflow-genie-block@in-zerobus", "flow": true },
     { "id": "e1d", "from": "src-docs", "to": "lakeflow-genie-block@in-direct", "flow": true },
-    { "id": "e2", "from": "lakeflow-genie-block", "to": "lakehouse", "flow": true },
-    { "id": "e3", "from": "lakehouse", "to": "aibi-dashboards", "flow": true },
-    { "id": "e4", "from": "lakehouse", "to": "genie", "flow": true },
+    { "id": "e2", "from": "lakeflow-genie-block", "to": "sql-lakehouse", "flow": true },
+    { "id": "e3", "from": "sql-lakehouse", "to": "ai-bi-dashboard", "flow": true },
+    { "id": "e4", "from": "sql-lakehouse", "to": "genie", "flow": true },
     // Genie One fronts the consumption tiles (auto-arrow — Genie One edges point
     // away from it toward the resource; no `flow`/`arrow` needed).
-    { "id": "e6", "from": "genie-one", "to": "aibi-dashboards" },
+    { "id": "e6", "from": "genie-one", "to": "ai-bi-dashboard" },
     { "id": "e7", "from": "genie-one", "to": "genie" }
   ]
 }
 ```
 
 Placement is SYMBOLIC: `columns` are left→right lanes; a node's `col` puts it
-in a lane (stacked top→bottom by `row`). To place a node **relative to another**
-use `alignX`/`alignY` (copy its center on an axis — keep a `col` and the lane
-re-stacks around you) or `below`/`above`/`leftOf`/`rightOf` (sit beside it,
-`gap` px apart; siblings on the same anchor fan out). The renderer de-overlaps
-these automatically. The renderer computes the pixels —
+in a lane (stacked top→bottom by `row`). The renderer computes the pixels —
 you almost never write `at`. Edges are by node id; the `@handle` is inferred.
 `options.trademarkLogos` and `custom_logos` are covered in the tables +
 sections below.
@@ -158,14 +158,9 @@ label. This lets one diagram hold several views (e.g. "Ingestion", "Serving",
 | Field | Required | Description |
 |-------|----------|-------------|
 | `id` | Yes | Unique node id. For a 2nd placement of the same component use `genie#2` (the `#N` suffix). |
-| `type` | Yes | A **catalog component id** (`genie`, `lakehouse`, `lakeflow-genie-block`, `governance-block`, `db-platform`, … — see the catalog below; this folds in the old composite "kind") OR a special kind: `source` · `box` · `text` · `logo` · `image`. |
+| `type` | Yes | A **catalog component id** (`genie`, `sql-lakehouse`, `lakeflow-genie-block`, `governance-block`, `db-platform`, … — see the catalog below; this folds in the old composite "kind") OR a special kind: `source` · `box` · `text` · `logo` · `image`. |
 | `col` | placement | The lane (from `columns`) this node sits in. Nodes in a lane stack vertically, centered. **Primary way to place a node.** |
 | `row` | No | Order within the lane (else order of appearance). |
-| `alignX` · `alignY` | placement | Copy ANOTHER node's center on that axis: `"alignY": "knowledge-assistant"` gives this node the same y (keep your `col` for x). Resolved AFTER lanes; the referenced node keeps its own `col`/`row`. **Give it a `col` too** — it stays IN that lane at the aligned height and its lane-mates automatically RE-STACK around it (open a slot), so nothing overlaps. The clean way to line a source up with the block it feeds. **Without a `col`** it's a free satellite (positioned only on the aligned axis, then nudged to clear overlaps) — usually you want the `col`. Two nodes aligned to the same target spread apart automatically. |
-| `below` · `above` · `leftOf` · `rightOf` | placement | Sit directly beside ANOTHER node on that side, centered on its other axis: `"below": "supervisor-agent"` parks this node under it. `gap` (px, default 40) sets the spacing. Chains resolve in order; the referenced node keeps its `col`/`row`. **Several nodes bound to the SAME anchor+side fan out** evenly (three `leftOf X` spread vertically, centered on X) — the natural way to attach a group. `leftOf`/`rightOf` make the node a horizontal satellite (it leaves any lane); `below`/`above` only move y so they can keep a `col`. A satellite that would still overlap a fixed node slides along its free axis to clear. |
-| `gap` | No | Spacing (px) for `below`/`above`/`leftOf`/`rightOf` (default 40). Ignored by `alignX`/`alignY`. |
-
-> **Use at most ONE relational field per node.** If several are set, only one applies (precedence `alignX` › `alignY` › `leftOf` › `rightOf` › `above` › `below`); the rest are ignored. To constrain both axes, place the node with one relational field and let the lane/`col` handle the other.
 | `wraps` | container | On a `type:"box"`: the node ids this box ENCLOSES. The box auto-sizes around them (+ `pad`, default 24). Nesting works (a box may wrap boxes) — see *Containers*. |
 | `bounds` | container | On a `type:"box"`: per-side edge anchors `{ left?, right?, top?, bottom? }`. Each side = `"<nodeId>:<anchor>"` (anchor ∈ `left`/`right`/`center` for x, `top`/`bottom`/`center` for y), or `"col:<name>:<anchor>"` (a lane's edge/midpoint), or `"wrap"`. Lets the box edge cut HALFWAY through a node/column. Unspecified sides fall back to `wraps`. |
 | `pin` | placement | Dock this node into a box corner (overrides `col`). An object `{ at, to?, pad?, float? }`: `at` = one of `top-left`·`top`·`top-right`·`left`·`center`·`right`·`bottom-left`·`bottom`·`bottom-right`; `to` = box id to dock into (default: the largest box); `pad` = inset px (default 16); `float` = `false`/omitted → **reserve a band** (the box GROWS so this never overlaps content — top pin pushes content down, bottom extends the box down), `true` → **overlay** at the corner (may sit over content). Use for banners / personas. |
@@ -301,8 +296,8 @@ sources (≈3 rows)  →  Lakeflow + Genie (one block)  →  lakehouse + lakebas
   - `@in-zerobus` ← **realtime streams / sensors / IoT / events**: sensor data… (NOT Kafka — Zerobus replaces a Kafka-style broker). Renders a particle-stream flow.
   - `@in-direct` ← **files NOT supported by Connect**: PDFs, CSV/Parquet dumps on a UC Volume. Renders a travelling-docs flow.
   - Right port `@r` → the compute layer. **Inside the block = Genie Code + SDP** (all bronze→silver→gold) — do NOT add separate `sdp`/`genie-code` nodes.
-- **Compute** (both fed by `lakeflow-genie-block@r`): `lakehouse` (BI+AI) and `lakebase` (live app state).
-- **Consumption:** `lakehouse` → `aibi-dashboards` + `genie`. `lakebase` → the `databricks-apps-work` app; the **app also consumes the Genie Room + dashboard**.
+- **Compute** (both fed by `lakeflow-genie-block@r`): `sql-lakehouse` (BI+AI) and `lakebase` (live app state).
+- **Consumption:** `sql-lakehouse` → `ai-bi-dashboard` + `genie`. `lakebase` → the `databricks-apps-work` app; the **app also consumes the Genie Room + dashboard**.
 - **End user:** the business user is built INTO `genie-one` (a "Business users" persona pill docked above the tile) — do NOT add a separate `file:persona/user` node. `genie-one` is the entry point that fronts the resources: wire it with **relationship arrows** — leave `arrow` out (auto): Genie One --> dashboard / Genie Room / app.
 
 ---
@@ -328,30 +323,28 @@ Use the `type` id; the renderer supplies the icon, label, default description an
 | `zerobus-ingest` | Lakeflow Zerobus | 200×56 | Real-time, direct ingest of streaming events into the lakehouse. |
 | `sdp` | Lakeflow SDP | 230×112 | Spark Declarative Pipelines — declarative bronze → silver → gold that self-heal and scale. |
 | `uc-volume` | UC Volume | 200×56 | Governed file storage in Unity Catalog — where raw documents (PDFs) land. |
-| `lakeflow-jobs` | Lakeflow Jobs | 230×54 | Orchestrate the whole pipeline on a schedule or trigger. |
+| `lakeflow-jobs` | Lakeflow Jobs | 230×70 | Orchestrate the whole pipeline on a schedule or trigger. |
 | `notebooks-eda` | Notebooks | 200×56 | Interactive exploration and analysis on governed data. |
 | `delta-sharing` | Delta Sharing | 200×56 | Open, cross-org data sharing with no copies. |
 | `marketplace` | Marketplace | 200×56 | Discover and consume third-party data and AI assets. |
-| `lakebase` | Lakebase | 230×54 | Managed Postgres for app state — reads/writes the live queue. |
-| `lakehouse` | Lakehouse | 230×54 | One copy of governed data for BI + AI — real-time queries at scale. |
+| `lakebase` | Lakebase | 230×70 | Managed Postgres for app state — reads/writes the live queue. |
+| `sql-lakehouse` | Lakehouse | 230×70 | One copy of governed data for BI + AI — real-time queries at scale (SQL Warehouse; RT = Lakehouse Real Time). |
 
 ### Agentic Work `agentic-work`
 
 | type | label | size | what it is / when to use |
 |------|-------|------|--------------------------|
-| `databricks-apps-work` | Databricks Apps | 230×54 | The custom business app — PREFERRED over the legacy databricks-apps tile. Runs on Lakebase; can embed the dashboard + Genie Room. |
+| `databricks-apps-work` | Databricks Apps | 230×70 | The custom business app — PREFERRED over the legacy databricks-apps tile. Runs on Lakebase; can embed the dashboard + Genie Room. |
 | `genie-one` | Genie One - Mobile app | 230×78 | The business-user / mobile entry point. It has a Business-users persona built IN (a small user icon docked above the Genie One mark) — so you do NOT need a separate file:persona/user node beside it. Wire Genie One --> dashboard / Genie Room / app (auto-arrows; leave `arrow` out). |
-| `genie` | Genie Room | 230×54 | ask anything about your data |
+| `genie` | Genie Room | 230×70 | ask anything about your data |
 | `knowledge-assistant` | Knowledge Assistant | 200×56 | Chat with your documents — grounded, cited answers from unstructured content. |
 | `supervisor-agent` | Supervisor Agent | 200×56 | Routes a question to the right specialist agent and composes the answer. |
 | `agent-bricks` | Agent Bricks | 230×170 | Managed MULTI-agent system: a Supervisor orchestrating Knowledge Assistant / Genie / MCP / Functions (with extraction·parsing·classification chips). Use when the agent layer is a supervisor routing to specialists; if the demo uses only one agent capability, use that single tile instead. |
 | `ml-training-serving` | ML Models | 200×56 | Train, register, and serve models on governed data. |
-| `model-serving` | Model Serving Endpoint | 230×54 | A deployed serving endpoint (real-time inference over a custom/registered model). Use when the demo calls a live endpoint; for the train→register→batch-score story use ml-training-serving instead. |
-| `hosted-mcps` | Hosted MCPs | 230×54 | The governed tool/connector layer for agents — hosted MCP servers (Genie / Atlassian / GitHub / Slack / SharePoint / Gmail …). Use when the demo's agent reaches OUT to external systems via MCP. |
 | `vector-search` | Vector Search | 200×56 | Semantic search and retrieval that grounds agents in your data. |
-| `information-extraction` | Information Extraction | 200×56 | Turn PDFs and documents into structured, queryable data. |
-| `document-parsing` | Document Parsing | 200×56 | Parse PDFs and documents into clean, structured text + layout. |
-| `classification` | Classification | 200×56 | Classify documents and records into governed categories. |
+| `information-extraction` | Information Extraction | 200×56 | Pull specific data points, entities, and fields from unstructured text (ai_extract). |
+| `document-parsing` | Document Parsing | 200×56 | Extract structured content from documents — text, tables, and metadata (ai_parse_document). |
+| `text-classification` | Text Classification | 200×56 | Categorize text into predefined or dynamic labels (ai_classify). |
 | `genie-code` | Built with Genie Code | 360×112 | Standalone 'describe it → Genie Code builds it' beat. Use only when NOT already using lakeflow-genie-block (which has the Genie Code footer built in). |
 
 ### Agentic Apps `agentic-apps`
@@ -359,7 +352,7 @@ Use the `type` id; the renderer supplies the icon, label, default description an
 | type | label | size | what it is / when to use |
 |------|-------|------|--------------------------|
 | `databricks-apps` | Databricks Apps | 200×56 | Custom web app where the team does the work — queue, actions, all in one place. |
-| `aibi-dashboards` | AI/BI Dashboard | 230×54 | Governed dashboards on the same data — one set of numbers, one page. |
+| `ai-bi-dashboard` | AI/BI Dashboard | 230×70 | Governed dashboards on the same data — one set of numbers, one page. |
 
 ### Unified Governance `unified-governance`
 
@@ -425,20 +418,8 @@ Also: `file:persona/user` (a person — normally the business-user persona is bu
 
 ## Reference files
 
-### Example diagrams
-
-Worked, commented `.jsonc` examples — copy the one closest to the user's intent and adapt it (strip the `//` comments; emit plain JSON in the `architecture.md` fence). More will be added over time.
-
-| Example | File | Shows |
-|---------|------|-------|
-| **Complete platform** | [`reference/architecture-complete.jsonc`](reference/architecture-complete.jsonc) | The flagship end-to-end shape: sources → Lakeflow + Genie → lakehouse/lakebase → dashboard/Genie/app → Genie One → user. Start here for a full data-platform demo. |
-| **Agent Bricks** | [`reference/agent-bricks.jsonc`](reference/agent-bricks.jsonc) | A multi-agent Supervisor over Knowledge Assistant · Genie · Hosted MCPs, serving Genie One + an AI/BI dashboard. Demonstrates `alignY` (a source lined up with the block it feeds) and `below` (relative placement) instead of hand-placed coordinates. |
-
-(The minimal shape is also inlined in **The format** above.)
-
+- `reference/architecture-complete.jsonc` — the flagship end-to-end shape (commented). The minimal shape is inlined in **The format** above.
 <!-- BEGIN: local-render-files (stripped inside Solution Builder — renderer/ isn't shipped into a project) -->
-### Render loop
-
 - `renderer/architecture-viewer.html` / `architecture-editor.html` — copy one, edit its inline JSON.
 - `renderer/render-arch.mjs` — `node renderer/render-arch.mjs <file>.html` → a PNG to read.
 <!-- END: local-render-files -->

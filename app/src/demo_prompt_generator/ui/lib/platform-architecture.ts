@@ -548,11 +548,19 @@ export const BAND_COLOR: Record<BandId, string> = {
 type CatalogComponent = Omit<PlatformComponent, "state">;
 
 /** Generic, brand-level fallback blurbs. The agent overrides these per demo
- *  with story-tied copy. Kept short — one sentence, what it does for a user. */
+ *  with story-tied copy. Kept short — one sentence, what it does for a user.
+ *
+ *  ID CONVENTION: when a component maps 1:1 to a capability in the demo-gen
+ *  skill's `references/platform_architecture.md`, REUSE that capability's id
+ *  here (e.g. `ai-bi-dashboard`, `sql-lakehouse`, `text-classification`) so the
+ *  two stay cross-searchable — the architecture skill ships that file and the
+ *  agent looks up "how components connect" by id. Renaming an id here is a
+ *  breaking change for saved `architecture.md` files, but there's no migration:
+ *  an unknown id renders a labeled placeholder tile (see flow-mapping.ts). */
 export const CATALOG: Record<BandId, CatalogComponent[]> = {
   "agentic-apps": [
     { id: "databricks-apps", label: "Databricks Apps", icon: "databricksApps", desc: "Custom web app where the team does the work — queue, actions, all in one place." },
-    { id: "aibi-dashboards", label: "AI/BI Dashboard", icon: "aibiBrand", sublabel: "Analyst consult & build insight", desc: "Governed dashboards on the same data — one set of numbers, one page." },
+    { id: "ai-bi-dashboard", label: "AI/BI Dashboard", icon: "aibiBrand", sublabel: "Analyst consult & build insight", desc: "Governed dashboards on the same data — one set of numbers, one page." },
   ],
   "agentic-work": [
     { id: "databricks-apps-work", label: "Databricks Apps", icon: "databricksAppsBrand", sublabel: "Deploy business apps", desc: "Deploy business apps",
@@ -573,10 +581,10 @@ export const CATALOG: Record<BandId, CatalogComponent[]> = {
     { id: "hosted-mcps", label: "Hosted MCPs", icon: "mcp", desc: "Managed MCP servers that let agents call external tools — Genie, Atlassian, GitHub, Slack, SharePoint, Gmail, and more.",
       authoring: "The governed tool/connector layer for agents — hosted MCP servers (Genie / Atlassian / GitHub / Slack / SharePoint / Gmail …). Use when the demo's agent reaches OUT to external systems via MCP." },
     { id: "vector-search", label: "Vector Search", icon: "vectorSearch", desc: "Semantic search and retrieval that grounds agents in your data." },
-    { id: "information-extraction", label: "Information Extraction", icon: "unstructuredData", desc: "Turn PDFs and documents into structured, queryable data." },
+    { id: "information-extraction", label: "Information Extraction", icon: "unstructuredData", desc: "Pull specific data points, entities, and fields from unstructured text (ai_extract)." },
     // The Agent Bricks building blocks (also surfaced inside the composite).
-    { id: "document-parsing", label: "Document Parsing", icon: "inputData", desc: "Parse PDFs and documents into clean, structured text + layout." },
-    { id: "classification", label: "Classification", icon: "aiFunctions", desc: "Classify documents and records into governed categories." },
+    { id: "document-parsing", label: "Document Parsing", icon: "inputData", desc: "Extract structured content from documents — text, tables, and metadata (ai_parse_document)." },
+    { id: "text-classification", label: "Text Classification", icon: "aiFunctions", desc: "Categorize text into predefined or dynamic labels (ai_classify)." },
     { id: "genie-code", label: "Built with Genie Code", icon: "genieCodeBrand", kind: "genie-code",
       desc: "A copilot for everyone — describe what you want and Genie Code builds the pipeline, dashboard or app for you, directly on Databricks.",
       authoring: "Standalone 'describe it → Genie Code builds it' beat. Use only when NOT already using lakeflow-genie-block (which has the Genie Code footer built in)." },
@@ -617,7 +625,7 @@ export const CATALOG: Record<BandId, CatalogComponent[]> = {
     { id: "delta-sharing", label: "Delta Sharing", icon: "deltaSharing", desc: "Open, cross-org data sharing with no copies." },
     { id: "marketplace", label: "Marketplace", icon: "deltaSharing", desc: "Discover and consume third-party data and AI assets." },
     { id: "lakebase", label: "Lakebase", icon: "lakebaseBrand", sublabel: "Serverless Postgres — instant start, branch", desc: "Managed Postgres for app state — reads/writes the live queue." },
-    { id: "lakehouse", label: "Lakehouse", icon: "lakehouseBrand", badge: "RT", sublabel: "~100 ms charts, thousands of concurrent users", desc: "One copy of governed data for BI + AI — real-time queries at scale." },
+    { id: "sql-lakehouse", label: "Lakehouse", icon: "lakehouseBrand", badge: "RT", sublabel: "~100 ms charts, thousands of concurrent users", desc: "One copy of governed data for BI + AI — real-time queries at scale (SQL Warehouse; RT = Lakehouse Real Time)." },
   ],
   // Sources are demo-authored. The catalog ships the LuxeBeauty example set so
   // the diagram reads as a complete architecture out of the box; the agent
