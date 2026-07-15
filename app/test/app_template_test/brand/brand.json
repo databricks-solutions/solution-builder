@@ -1,0 +1,12 @@
+{
+  "company": "Sephora",
+  "palette": [
+    "#000000",
+    "#ffffff",
+    "#cf112c",
+    "#f6f6f8"
+  ],
+  "website": "https://www.sephora.com",
+  "company_logo": "company_logo.svg",
+  "company_official_website_screenshot": "website.png"
+}
