@@ -98,8 +98,10 @@ export const ComponentNode = memo(function ComponentNode({ data, selected }: Nod
       liveLink={!isSource && live}
       extraContent={isSdp ? <MedallionRow /> : undefined}
       caption={cap}
-      // Sources auto-fit their box to icon + label; product tiles are fixed.
-      contentMode={isSource ? "autoFit" : "fixed"}
+      // Both sources and product tiles keep a FIXED box — changing the label must
+      // NOT resize the component. Only a pure `text` annotation auto-fits to its
+      // text (that path lives in annotations.tsx, untouched by this).
+      contentMode="fixed"
       defaultSize={defaultSize}
       styleVariant="tile"
       muted={muted}

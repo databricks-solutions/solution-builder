@@ -79,6 +79,9 @@ export interface EdgeOps {
   portsOf: (nodeId: string) => { handle: string; x: number; y: number }[];
   /** Set (or clear, with undefined) the manual X of an edge's vertical elbow. */
   setEdgeCenterX: (edgeId: string, centerX: number | undefined) => void;
+  /** Set (or clear, with "") an edge's mid-line label — used by the double-click
+   *  inline editor. */
+  setEdgeLabel: (edgeId: string, label: string) => void;
 }
 export const EdgeOpsContext = createContext<EdgeOps | null>(null);
 

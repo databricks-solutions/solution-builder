@@ -20,10 +20,17 @@ import { type NodeData, type EdgeData, nodeFootprint, nodeTypeFor } from "./shar
 import { ANNOTATION_DEFAULT_SIZE, type AnnotationNodeData } from "./annotations";
 import { logoLabel } from "../../file-icons";
 
-/** Edges render ABOVE every node. Nodes/composites/boxes can carry a positive
- *  zIndex (bring-to-front, etc.); a default-z edge would be hidden behind them.
- *  A big constant keeps every connection line on top. */
-export const EDGE_Z = 1000;
+/** Edges render BELOW nodes by default — a line passing near a tile tucks UNDER
+ *  it rather than crossing over its face (cleaner). Plain nodes default to z=1
+ *  (NODE_Z), edges to 0, background wrapper boxes to their explicit negative z.
+ *  A user bring-to-front (positive z) still lifts a node above everything.
+ *  NOTE: keep edges at a MODEST z (not a big constant) — a huge edge z combined
+ *  with node-internals refreshes made ReactFlow transiently drop edge handles
+ *  ("Couldn't create edge for source handle id") on selection changes. */
+export const EDGE_Z = 0;
+/** Default node stacking — one above the default edge z (0) so lines tuck under
+ *  tiles. Explicit `z` (bring-to-front / a background box's negative) overrides. */
+export const NODE_Z = 1;
 
 export function componentLookup(schema: PlatformSchema) {
   const m = new Map<string, { component: PlatformComponent; bandId: BandId }>();
@@ -57,7 +64,7 @@ export function schemaToFlow(
         position: { x: pos.x, y: pos.y },
         width: fp.w,
         height: fp.h,
-        zIndex: pos.z ?? 0,
+        zIndex: pos.z ?? NODE_Z,
         style: { width: fp.w, height: fp.h },
         data: {
           nodeId: id,
@@ -85,7 +92,7 @@ export function schemaToFlow(
       const fp = nodeFootprint(component, pos);
       nodes.push({
         id, type: "component", position: { x: pos.x, y: pos.y },
-        width: fp.w, height: fp.h, zIndex: pos.z ?? 0, style: { width: fp.w, height: fp.h },
+        width: fp.w, height: fp.h, zIndex: pos.z ?? NODE_Z, style: { width: fp.w, height: fp.h },
         data: {
           nodeId: id, component, bandId: "sources" as BandId, bandColor: BAND_COLOR.sources,
           deepLink: null, onSelect, onContext, onResize, onRename, onSetDescription,
@@ -97,7 +104,7 @@ export function schemaToFlow(
           showDesc: pos.showDesc,
           rot: pos.rot ?? 0,
           w: pos.w, h: pos.h, scale: pos.scale,
-          opacity: pos.opacity, fillColor: pos.fillColor, fontColor: pos.fontColor,
+          opacity: pos.opacity, fillColor: pos.fillColor, fontColor: pos.fontColor, iconColor: pos.iconColor,
           borderWidth: pos.borderWidth, borderStyle: pos.borderStyle, borderColor: pos.borderColor, borderRadius: pos.borderRadius, shadow: pos.shadow, groupId: pos.groupId,
         } satisfies NodeData,
       });
@@ -128,7 +135,7 @@ export function schemaToFlow(
       // fills 100%, so the selection frame + resizer + visual never drift.
       width: fp.w,
       height: fp.h,
-      zIndex: pos.z ?? 0,
+      zIndex: pos.z ?? NODE_Z,
       style: { width: fp.w, height: fp.h },
       data: {
         nodeId: id,
@@ -148,6 +155,7 @@ export function schemaToFlow(
         opacity: pos.opacity,
         fillColor: pos.fillColor,
         fontColor: pos.fontColor,
+        iconColor: pos.iconColor,
         borderWidth: pos.borderWidth,
         borderStyle: pos.borderStyle,
         borderColor: pos.borderColor,
@@ -161,6 +169,18 @@ export function schemaToFlow(
         allowTrademark: schema.enableTrademarkLogos ?? false,
       } satisfies NodeData,
     });
+  }
+
+  // Carry author-time symbolic placement + the pinned flag onto every node's data
+  // (uniform post-pass so each construction branch above stays simple). These
+  // round-trip through flowToLayout → serializeArchitecture so an unmoved node
+  // re-emits its symbolic fields instead of flattening to pixel `at`.
+  for (const n of nodes) {
+    const pos = schema.layout.nodes[n.id];
+    if (!pos) continue;
+    const d = n.data as NodeData;
+    if (pos.placement) d.placement = pos.placement;
+    if (pos.pinned) d.pinned = true;
   }
 
   // Heal handles on saved edges: a ported composite (lakeflow / lakeflow-genie)
@@ -260,7 +280,13 @@ export function flowToLayout(nds: Node[], eds: Edge[], schema: PlatformSchema): 
       ...(dd.borderRadius !== undefined ? { borderRadius: dd.borderRadius } : {}),
       ...(dd.shadow !== undefined ? { shadow: dd.shadow } : {}),
       ...(dd.groupId ? { groupId: dd.groupId } : {}),
-      ...(typeof n.zIndex === "number" && n.zIndex !== 0 ? { z: n.zIndex } : {}),
+      // Persist z only when it differs from the default node stacking (NODE_Z) —
+      // so the render-time default doesn't get written onto every node.
+      ...(typeof n.zIndex === "number" && n.zIndex !== NODE_Z && n.zIndex !== 0 ? { z: n.zIndex } : {}),
+      // Round-trip symbolic placement: an unmoved node (dd.placement set, not
+      // pinned) re-emits its col/relational fields; a dragged/at node is pinned.
+      ...(dd.placement && !dd.pinned ? { placement: dd.placement } : {}),
+      ...(dd.pinned ? { pinned: true } : {}),
     };
   });
   // `hidden` is keyed by catalog (base) ids: a component is hidden iff NO

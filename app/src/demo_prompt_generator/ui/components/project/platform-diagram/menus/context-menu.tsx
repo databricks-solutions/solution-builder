@@ -107,15 +107,17 @@ export const ContextMenu = memo(function ContextMenu({
         <Item icon={<ArrowLeft className="h-3.5 w-3.5" />} label="Arrow at start" onClick={() => onSetArrow("start")} active={ed?.arrow === "start"} />
         <Item icon={<ArrowLeftRight className="h-3.5 w-3.5" />} label="Both ends" onClick={() => onSetArrow("both")} active={ed?.arrow === "both"} />
         <div className="my-1 border-t border-border/60" />
-        <Item
-          icon={<Tag className="h-3.5 w-3.5" />}
-          label={typeof edge?.label === "string" && edge.label ? "Edit label…" : "Add label…"}
-          onClick={() => {
-            const next = window.prompt("Line label (leave empty to remove):", typeof edge?.label === "string" ? edge.label : "");
-            if (next !== null) onSetEdgeLabel(next.trim());
-          }}
-          active={typeof edge?.label === "string" && !!edge.label}
-        />
+        <div className="px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Label</div>
+        <div className="flex items-center gap-2 px-2 py-1">
+          <Tag className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+          <input
+            type="text"
+            value={typeof edge?.label === "string" ? edge.label : ""}
+            placeholder="Line label…"
+            onChange={(e) => onSetEdgeLabel(e.target.value)}
+            className="w-full rounded border border-border bg-background px-2 py-1 text-[12.5px] text-foreground outline-none focus:border-primary"
+          />
+        </div>
         <div className="my-1 border-t border-border/60" />
         <Item icon={<Trash2 className="h-3.5 w-3.5" />} label="Delete line" onClick={onRemoveEdge} />
       </div>

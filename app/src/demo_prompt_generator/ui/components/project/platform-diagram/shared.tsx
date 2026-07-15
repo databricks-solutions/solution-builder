@@ -6,7 +6,7 @@
  */
 import { createContext, useContext, useRef, type CSSProperties } from "react";
 import { Handle, Position, NodeResizeControl, useStore } from "@xyflow/react";
-import { naturalSize, type PlatformComponent, type BandId, type FlowStyle } from "@/lib/platform-architecture";
+import { naturalSize, type PlatformComponent, type BandId, type FlowStyle, type NodePosition } from "@/lib/platform-architecture";
 
 export type { FlowStyle };
 
@@ -65,6 +65,13 @@ export interface NodeData {
   /** Group membership — a shared id on every member of a group. Selecting one
    *  member selects the whole group so they move together. */
   groupId?: string;
+  /** Round-trip of author-time symbolic placement (col/row/relational). Carried
+   *  so an UNMOVED node re-emits its symbolic fields on save instead of pixel
+   *  `at`. See NodePosition.placement. */
+  placement?: NodePosition["placement"];
+  /** True once the node was authored with `at` or the user dragged it → it
+   *  serializes as pixel `at`, not symbolic. See NodePosition.pinned. */
+  pinned?: boolean;
   /** For canvas-added sources ("+ more data sources"): the logo-catalog key,
    *  persisted so the source round-trips without a catalog entry. */
   sourceKey?: string;

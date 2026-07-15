@@ -23,7 +23,13 @@ import {
   rectOf,
 } from "../edge-routing";
 import { computeFanLayout } from "../fan-layout";
+import { computeCrossings, type Hop } from "./crossings";
+import { injectHops } from "./path-hops";
 import { EdgeFlow } from "./edge-flow";
+
+// Stable empty-hops fallback so the store selector returns the SAME ref when an
+// edge has no crossings (a fresh [] each tick would defeat the equality check).
+const EMPTY_HOPS: Hop[] = [];
 
 const FlowEdge = memo(function FlowEdge(props: EdgeProps) {
   const { id, source, target, style, data, selected, label } = props;
@@ -47,6 +53,15 @@ const FlowEdge = memo(function FlowEdge(props: EdgeProps) {
       a.sFrac === b.sFrac && a.tFrac === b.tFrac && a.centerX === b.centerX,
   );
 
+  // Line jumps: the crossing points on THIS edge where it should hop OVER
+  // another line. Computed for ALL edges at once (memoized, same pattern as the
+  // fan selector). Compared by a cheap serialization so a tick that doesn't move
+  // this edge's crossings doesn't re-render it.
+  const hops = useStore(
+    (s) => computeCrossings(s.edges, s.nodeLookup).get(id) ?? EMPTY_HOPS,
+    (a, b) => a.length === b.length && a.every((h, i) => h.x === b[i].x && h.y === b[i].y),
+  );
+
   // Live endpoint drag (reconnect). Hook runs unconditionally before guards.
   const [drag, setDrag] = useState<{ end: "source" | "target"; x: number; y: number; side?: Side; handle?: string } | null>(null);
   // While a NEW connection is being dragged, the edge layer (which sits above
@@ -57,6 +72,9 @@ const FlowEdge = memo(function FlowEdge(props: EdgeProps) {
   const connecting = useConnection((c) => c.inProgress);
   // Live drag of the vertical-elbow handle (manual centerX). Hooks before guard.
   const [centerDrag, setCenterDrag] = useState<number | null>(null);
+  // Inline mid-line label editor (double-click the line). Holds the draft text
+  // while open; null = not editing. Hooks before guard.
+  const [labelDraft, setLabelDraft] = useState<string | null>(null);
 
   if (!sNode || !tNode || !fan) return null;
 
@@ -127,12 +145,17 @@ const FlowEdge = memo(function FlowEdge(props: EdgeProps) {
     sourcePosition: sPos, targetPosition: tPos,
     ...(centerX !== undefined ? { centerX } : {}),
   };
-  const [path] =
+  const [rawPath] =
     shape === "straight"
       ? getStraightPath({ sourceX: sPt.x, sourceY: sPt.y, targetX: tPt.x, targetY: tPt.y })
       : shape === "step"
       ? getSmoothStepPath({ ...args, offset: stepOffset, borderRadius: 0 })
       : getSmoothStepPath({ ...args, offset: stepOffset, borderRadius: Math.min(14, stepOffset) });
+  // Inject line-jump arcs where this edge crosses OVER another. Skip while
+  // dragging an endpoint or the elbow — the geometry (and thus the crossings)
+  // is transient and the hop points would lag a frame. `injectHops` no-ops when
+  // there are no hops, so a crossing-free edge keeps its exact original path.
+  const path = drag || centerDrag !== null ? rawPath : injectHops(rawPath, hops);
 
   const start = (end: "source" | "target") => (e: React.PointerEvent) => {
     e.stopPropagation();
@@ -200,8 +223,17 @@ const FlowEdge = memo(function FlowEdge(props: EdgeProps) {
   // the two endpoints. Only meaningful for smooth/step edges with a real
   // vertical run (source/target on left/right sides).
   const hasElbow = shape !== "straight" && (fan.sSide === "l" || fan.sSide === "r") && (fan.tSide === "l" || fan.tSide === "r");
-  const elbowX = centerDrag ?? d?.centerX ?? fan.centerX ?? (sp.x + tp.x) / 2;
   const elbowY = (sp.y + tp.y) / 2;
+  // The elbow DRAG handle follows the cursor / saved centerX (so dragging feels
+  // live). The LABEL, however, must sit on the ACTUAL drawn line: an elbow X only
+  // moves the line when there's a horizontal gap for the vertical run — when the
+  // two nodes are (near-)vertically aligned, getSmoothStepPath draws a straight
+  // line at ~sp.x and IGNORES centerX, so a centerX-anchored label would drift
+  // sideways off a line that never moved. Pin the label to the line midpoint in
+  // that case.
+  const elbowX = centerDrag ?? d?.centerX ?? fan.centerX ?? (sp.x + tp.x) / 2;
+  const HAS_H_RUN = Math.abs(tp.x - sp.x) > 8;
+  const labelX = hasElbow && HAS_H_RUN ? elbowX : (sp.x + tp.x) / 2;
   const startCenterDrag = (e: React.PointerEvent) => {
     e.stopPropagation();
     (e.target as Element).setPointerCapture(e.pointerId);
@@ -315,6 +347,21 @@ const FlowEdge = memo(function FlowEdge(props: EdgeProps) {
           anchors and steals the pointer, so you can't start a NEW link (fork)
           from an already-connected anchor. 10px still clicks the line easily. */}
       <BaseEdge path={path} style={baseStyle} interactionWidth={connecting ? 0 : 10} />
+      {/* Double-click the line → open the inline mid-line label editor. A wide
+          transparent hit path (only in edit mode, not mid-connection) so a
+          double-click anywhere along the edge triggers it. */}
+      {ops?.editMode && !connecting && (
+        <path
+          d={path} fill="none" stroke="transparent" strokeWidth={16}
+          // Hand pointer over the line; it becomes a text caret only once the
+          // inline label editor is open (double-click to enter it).
+          style={{ pointerEvents: "stroke", cursor: "pointer" }}
+          onDoubleClick={(e) => {
+            e.stopPropagation();
+            setLabelDraft(typeof label === "string" ? label : "");
+          }}
+        />
+      )}
       {/* Key by edge id (NOT path): a drag/resize changes `path`, but keying by
           it would unmount + remount the whole SMIL subtree every frame. Keyed
           by id, the animated elements stay mounted and just re-read the updated
@@ -336,15 +383,40 @@ const FlowEdge = memo(function FlowEdge(props: EdgeProps) {
         <path d={path} fill="none" stroke="transparent" markerEnd={markerEndUrl} markerStart={markerStartUrl} style={{ pointerEvents: "none" }} />
       )}
 
-      {/* Optional mid-line label (right-click → Add label). Pill sits on the
-          vertical elbow centre; a backing rect keeps it readable over the line. */}
-      {typeof label === "string" && label && (
-        <g transform={`translate(${elbowX} ${elbowY})`} style={{ pointerEvents: "none" }}>
-          <rect x={-label.length * 3.2 - 5} y={-8} width={label.length * 6.4 + 10} height={16} rx={4}
-            fill="var(--background)" stroke="var(--border)" strokeWidth={1} opacity={0.95} />
-          <text textAnchor="middle" dominantBaseline="central" fontSize={9.5}
-            fill="var(--foreground)" style={{ fontWeight: 500 }}>{label}</text>
-        </g>
+      {/* Mid-line label. Double-click the line to add/edit (also right-click →
+          Add label). Pill sits on the vertical-elbow centre, above the line; a
+          backing rect keeps it readable. While editing, an inline input replaces
+          the pill (commit on Enter/blur, cancel on Escape; empty removes it). */}
+      {labelDraft !== null ? (
+        <foreignObject x={labelX - 70} y={elbowY - 12} width={140} height={24} style={{ overflow: "visible" }}>
+          <input
+            autoFocus
+            value={labelDraft}
+            onChange={(e) => setLabelDraft(e.target.value)}
+            onBlur={() => { ops!.setEdgeLabel(id, labelDraft.trim()); setLabelDraft(null); }}
+            onKeyDown={(e) => {
+              e.stopPropagation();
+              if (e.key === "Enter") { ops!.setEdgeLabel(id, labelDraft.trim()); setLabelDraft(null); }
+              else if (e.key === "Escape") setLabelDraft(null);
+            }}
+            style={{
+              width: "100%", textAlign: "center", fontSize: 9.5, fontWeight: 500,
+              padding: "1px 4px", borderRadius: 4, border: "1px solid var(--primary)",
+              background: "var(--background)", color: "var(--foreground)", outline: "none",
+            }}
+          />
+        </foreignObject>
+      ) : (
+        typeof label === "string" && label && (
+          <g transform={`translate(${labelX} ${elbowY})`}
+             style={{ pointerEvents: ops?.editMode ? "all" : "none", cursor: ops?.editMode ? "pointer" : "default" }}
+             onDoubleClick={ops?.editMode ? (e) => { e.stopPropagation(); setLabelDraft(label); } : undefined}>
+            <rect x={-label.length * 3.2 - 5} y={-8} width={label.length * 6.4 + 10} height={16} rx={4}
+              fill="var(--background)" stroke="var(--border)" strokeWidth={1} opacity={0.95} />
+            <text textAnchor="middle" dominantBaseline="central" fontSize={9.5}
+              fill="var(--foreground)" style={{ fontWeight: 500 }}>{label}</text>
+          </g>
+        )
       )}
 
       {/* ↔ handle to drag the vertical elbow left/right (hover or select). */}
