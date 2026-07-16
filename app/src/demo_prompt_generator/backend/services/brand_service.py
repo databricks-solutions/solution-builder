@@ -1468,7 +1468,7 @@ def _build_tools(run: BrandRun, llm: "LLMService"):
             run.trace("tool", tool="_ddg", args={"query": query}, detail=f"error: {e}")
             return []
 
-    @function_tool
+    @function_tool(strict_mode=False)
     def find_official_site(query: str) -> list[dict]:
         """Web-search to FIND the company's official website. `query` should be
         something like '<company> official website'. Returns up to 6 results as
@@ -1479,7 +1479,7 @@ def _build_tools(run: BrandRun, llm: "LLMService"):
         logger.debug("[brand:%s]   → %d results: %s", run.name, len(out), [r.get("url") for r in out])
         return out
 
-    @function_tool
+    @function_tool(strict_mode=False)
     def search_brand_colors(name: str) -> dict:
         """Web-search for the company's BRAND COLOR PALETTE and have the extractor
         LLM read all the result snippets to pull out hex codes + which sources
@@ -1537,7 +1537,7 @@ def _build_tools(run: BrandRun, llm: "LLMService"):
                            "pages_worth_opening": pages})
         return {"colors": colors, "pages_worth_opening": pages}
 
-    @function_tool
+    @function_tool(strict_mode=False)
     def search_brand_logo(name: str) -> list[dict]:
         """Web-search for the company's LOGO (svg/png). Returns up to 6 results as
         {title, url, snippet} — official brand/press pages and logo repositories.
@@ -1547,7 +1547,7 @@ def _build_tools(run: BrandRun, llm: "LLMService"):
         logger.debug("[brand:%s]   → %d results", run.name, len(rows))
         return rows
 
-    @function_tool
+    @function_tool(strict_mode=False)
     def fetch_page(url: str) -> dict:
         """Fetch a web page, pre-trim it, and have the extractor LLM summarize it
         for brand purposes. Returns {final_url, is_official_guess, company_match,
@@ -1665,7 +1665,7 @@ def _build_tools(run: BrandRun, llm: "LLMService"):
                   reasoning=finding or None)
         return out
 
-    @function_tool
+    @function_tool(strict_mode=False)
     def fetch_css(url: str) -> dict:
         """Fetch a CSS stylesheet and extract brand colors from it — the REAL site
         colors usually live here (not inline). Regexes hex/rgb + --brand/--primary/
@@ -1710,7 +1710,7 @@ def _build_tools(run: BrandRun, llm: "LLMService"):
                   summary={"colors": colors, "brand_vars": brand_vars})
         return {"colors": colors, "brand_vars": brand_vars}
 
-    @function_tool
+    @function_tool(strict_mode=False)
     def color_votes() -> dict:
         """The color EVIDENCE gathered so far, for you to weigh before set_palette.
         Each entry: {hex, official_declared (was it explicitly declared on the
@@ -1728,7 +1728,7 @@ def _build_tools(run: BrandRun, llm: "LLMService"):
              "n_sources": len({x.split(":")[0] for x in s}), "sources": sorted(s)}
             for h, s in ranked]}
 
-    @function_tool
+    @function_tool(strict_mode=False)
     def find_logo(context: str = "", search_phrase: str = "") -> dict:
         """Find the company's real logo BY LOOKING at it. Image-searches, gathers
         candidates + site-crawl images, builds a contact sheet, and a multimodal
@@ -1762,7 +1762,7 @@ def _build_tools(run: BrandRun, llm: "LLMService"):
         return {"committed": pick["committed"], "rationale": pick.get("rationale"),
                 "shortlist": pick.get("shortlist", [])}
 
-    @function_tool
+    @function_tool(strict_mode=False)
     def choose_logo(logo_url: str, context: str = "") -> dict:
         """Manually commit a specific logo URL (override find_logo, or a URL you
         found). The image is VISUALLY VALIDATED — we download it and a vision model
@@ -1800,7 +1800,7 @@ def _build_tools(run: BrandRun, llm: "LLMService"):
                   summary={"ok": True, "content_type": ct, "dims": dims, "validated": check["what"]})
         return {"ok": True, "content_type": ct, "dims": dims}
 
-    @function_tool
+    @function_tool(strict_mode=False)
     def set_official_site(domain_or_url: str, why: str) -> dict:
         """Assert the company's OFFICIAL domain when you're confident from search
         evidence — use this especially if fetch_page couldn't load the site (403/
@@ -1817,7 +1817,7 @@ def _build_tools(run: BrandRun, llm: "LLMService"):
         run.trace("decision", tool="set_official_site", args={"domain": dom}, reasoning=why)
         return {"ok": True, "domain": dom}
 
-    @function_tool
+    @function_tool(strict_mode=False)
     def set_palette(hexes: list[str]) -> dict:
         """Commit the FINAL ordered brand palette (primary first), as #rrggbb
         strings — YOUR decision, weighing the evidence (official-declared colors
@@ -1841,7 +1841,7 @@ def _build_tools(run: BrandRun, llm: "LLMService"):
                   summary={"accepted": out})
         return {"palette": out}
 
-    @function_tool
+    @function_tool(strict_mode=False)
     def log_reasoning(step: str, why: str) -> dict:
         """Record WHY you did something (which site you judged official & why,
         which logo you picked over others & why, how you resolved conflicting
@@ -2367,10 +2367,60 @@ class BrandService:
 
         set_tracing_disabled(True)  # process-global: no OpenAI key / trace upload
         sync_client = self.ws.serving_endpoints.get_open_ai_client()  # auth in its httpx client
+
+        # Strip request fields the OpenAI Agents SDK sends that the Databricks AI
+        # Gateway's CLAUDE endpoints reject with `400 … Extra inputs are not
+        # permitted`, failing the whole agent loop:
+        #   • `tools[].function.strict`  — the SDK's chat-completions serializer
+        #     ALWAYS emits it (even with strict_mode=False → `strict: false`);
+        #     Claude rejects its mere PRESENCE (GPT endpoints tolerate `false`).
+        #   • top-level `parallel_tool_calls` — from ModelSettings; Claude via the
+        #     gateway rejects it too.
+        # A custom transport rewrites the outgoing JSON body to drop them —
+        # version-proof (independent of the SDK's serializer), scoped to this
+        # brand-agent client only. NOTE: rebuild the Request WITHOUT the stale
+        # content-length header so httpx recomputes it for the new (shorter)
+        # body — otherwise h11 raises "Too much data for declared Content-Length"
+        # and the request never leaves.
+        class _StripGatewayIncompatibleFieldsTransport(httpx.AsyncHTTPTransport):
+            async def handle_async_request(self, request: "httpx.Request"):
+                raw = await request.aread()
+                try:
+                    body = json.loads(raw) if raw else None
+                except (ValueError, TypeError):
+                    body = None
+                if not isinstance(body, dict):
+                    return await super().handle_async_request(request)
+                changed = False
+                # Top-level fields Claude-via-gateway rejects.
+                for key in ("parallel_tool_calls",):
+                    if body.pop(key, None) is not None:
+                        changed = True
+                # Per-tool `strict`.
+                for t in body.get("tools") or []:
+                    fn = t.get("function") if isinstance(t, dict) else None
+                    if isinstance(fn, dict) and fn.pop("strict", None) is not None:
+                        changed = True
+                if changed:
+                    new = json.dumps(body).encode()
+                    headers = [
+                        (k, v) for k, v in request.headers.raw
+                        if k.lower() not in (b"content-length", b"transfer-encoding")
+                    ]
+                    request = httpx.Request(
+                        request.method, request.url,
+                        headers=headers, content=new,
+                        extensions=request.extensions,
+                    )
+                return await super().handle_async_request(request)
+
         client = AsyncOpenAI(
             base_url=str(sync_client.base_url),
             api_key="no-token",  # real auth is the httpx BearerAuth below
-            http_client=httpx.AsyncClient(auth=sync_client._client.auth),
+            http_client=httpx.AsyncClient(
+                auth=sync_client._client.auth,
+                transport=_StripGatewayIncompatibleFieldsTransport(),
+            ),
         )
         # Orchestrator model: prefer the "normal" gateway, but fall back to mini
         # when ai_gateway isn't a real endpoint (local dev sets it to a dummy
