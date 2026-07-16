@@ -8,12 +8,13 @@ import hashlib
 import json
 import re
 import shutil
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from pathlib import PurePosixPath
 from typing import Optional
 
 from databricks.sdk import WorkspaceClient
-from fastapi import HTTPException, Request
+from fastapi import BackgroundTasks, HTTPException, Request
 from sqlmodel import func, select, text
 
 from ..core import Dependencies, create_router
@@ -260,7 +261,18 @@ def _resolve_unique_schema_name(
 
     The point of this guard is to keep two concurrent project creations
     from picking the same schema and writing into each other's data.
+
+    Fast path: if the schema-name cache is primed (loaded at startup by the
+    catalog-bootstrap daemon), resolve + reserve the name FROM MEMORY — no
+    warehouse round-trip. The cache is optimistic; the deferred CREATE SCHEMA
+    is the real authority. Only fall back to the live `SHOW SCHEMAS` query when
+    the cache isn't primed (priming failed, or a non-default catalog).
     """
+    from ..core import _schema_cache
+    cached = _schema_cache.reserve(catalog, base_schema)
+    if cached is not None:
+        return cached
+
     if not warehouse_id:
         return base_schema
     try:
@@ -692,41 +704,57 @@ def create_project(
     ws: Dependencies.Client,
     user_ws: Dependencies.UserClient,
     config: Dependencies.Config,
+    background_tasks: BackgroundTasks,
 ):
     """Create a new project with default resources."""
     user_email = _get_user_email(headers)
 
-    if body.architecture_first:
-        # Architecture-first: keep creation INSTANT — no LLM call, no workspace
-        # round-trips. All the remote work below (LLM name/schema generation,
-        # warehouse discovery, unique-schema resolution, CREATE SCHEMA) is
-        # deferred to POST /projects/{id}/provision, which the "Build the
-        # solution" dialog calls when the user actually kicks off the build.
-        project_name = _quick_arch_name(body.description)
-        project_description = body.description[:200]
-        warehouse_id, warehouse_name = None, None
-        default_schema = None
-        company = ""  # no LLM pass here → the brand card lets the user set it later
-    else:
-        # LLM calls go through the SP client — Apps OBO tokens lack the
-        # model-serving scope vocabulary, so user-attributed serving-endpoint
-        # calls 403. The SP has CAN_QUERY on the LLM endpoints via the bundle
-        # resource bindings.
+    # Mint the project id up front so the (id-only) filesystem work — the skill
+    # copy + directory scaffold — can run CONCURRENTLY with the metadata LLM
+    # call and warehouse discovery below (none of them need each other). A
+    # ThreadPoolExecutor overlaps these independent, mostly-blocking ops instead
+    # of serializing them; the handler is a sync `def`, so the pool is safe.
+    project_id = generate_uuid()
+
+    with ThreadPoolExecutor(max_workers=3) as ex:
+        # Independent of everything except project_id — start it immediately.
+        dir_future = ex.submit(
+            create_project_directory, project_id, capabilities=body.capabilities
+        )
+
+        # Resolve the resource NAMES (schema, warehouse) for BOTH flows — they go
+        # into the system prompt from turn one so the agent is *given* the target
+        # names instead of discovering them. This is name resolution only; the
+        # actual CREATE SCHEMA (a slow warehouse round-trip) is deferred below /
+        # to /provision. metadata LLM ∥ warehouse discovery are independent → run
+        # concurrently. LLM calls go through the SP client (Apps OBO tokens lack
+        # the model-serving scope vocabulary → user-attributed calls 403; the SP
+        # has CAN_QUERY on the LLM endpoints via the bundle resource bindings).
         llm_service = LLMService(ws, config)
-        metadata = _generate_project_metadata(llm_service, body.description)
-        project_name = metadata["name"]
-        project_description = metadata.get("description") or body.description[:200]
+        meta_future = ex.submit(
+            _generate_project_metadata, llm_service, body.description
+        )
+        wh_future = ex.submit(_find_shared_warehouse, ws)
+
+        metadata = meta_future.result()
+        # Architecture-first keeps its fast, topic-derived DISPLAY name (the LLM
+        # name is story-shaped, but arch-first has no story yet); the normal flow
+        # uses the LLM name. Both take the LLM's schema_name for the real target.
+        if body.architecture_first:
+            project_name = _quick_arch_name(body.description)
+            project_description = body.description[:200]
+        else:
+            project_name = metadata["name"]
+            project_description = metadata.get("description") or body.description[:200]
         company = metadata.get("company") or ""
         base_schema = f"{DEFAULT_SCHEMA_PREFIX}{metadata['schema_name']}"
+        warehouse_id, warehouse_name = wh_future.result()
 
-        # Find default resources (returns tuples of id, name)
-        warehouse_id, warehouse_name = _find_shared_warehouse(ws)
-
-        # Pick a non-colliding schema name BEFORE the DB write so the project
-        # row records the final, unique value. Two SAs creating projects with
-        # similar themes (e.g. "fraud detection v1" and "fraud detection v2")
-        # would otherwise both resolve to `dbgen_fraud_detection` and write
-        # into each other's tables.
+        # Pick a non-colliding schema NAME before the DB write so the row records
+        # the final, unique value (needs both the base name AND the warehouse, so
+        # it runs after the join). Cache-backed → usually no round-trip. Two SAs
+        # creating similar themes (e.g. "fraud detection v1"/"v2") would otherwise
+        # both resolve to `dbgen_fraud_detection` and clobber each other's tables.
         default_schema = _resolve_unique_schema_name(
             user_ws,
             warehouse_id=warehouse_id,
@@ -734,8 +762,13 @@ def create_project(
             base_schema=base_schema,
         )
 
+        # Make sure the directory + skill copy finished before we write files
+        # into it below. Re-raise any error from the thread.
+        dir_future.result()
+
     # Create DB record with default resources (cluster left empty - user sets it manually)
     project = Project(
+        id=project_id,
         user_email=user_email,
         name=project_name,
         description=project_description,
@@ -758,22 +791,27 @@ def create_project(
     # (the default catalog is often workspace-shared and only a handful of
     # admins have CREATE_SCHEMA on it by default). Uses the user's OBO client
     # so the schema is owned by the user, not the App's service principal.
-    # Soft-fails: if the create errors out (permission denied, network blip,
-    # warehouse asleep), we log and continue — the agent can still try later
-    # OR the user can change default_catalog in Settings.
-    # Architecture-first projects have no schema yet (deferred to /provision).
-    if default_schema:
-        _ensure_default_schema(
+    #
+    # Run it as a BACKGROUND TASK (fires AFTER the response is sent) — a cold
+    # warehouse can make CREATE SCHEMA take up to ~30s, and the user shouldn't
+    # wait on it. It's already best-effort: if it errors (permission denied,
+    # network blip, warehouse asleep) we log and continue, and the agent can
+    # still create the schema later OR the user can change default_catalog in
+    # Settings.
+    #
+    # ARCHITECTURE-FIRST: the schema NAME is resolved above (so it's in the
+    # system prompt from turn one), but we do NOT create the schema here — the
+    # user is only drawing a diagram. /provision (the "Generate the solution"
+    # step) runs the CREATE SCHEMA right before the build needs it.
+    if default_schema and not body.architecture_first:
+        background_tasks.add_task(
+            _ensure_default_schema,
             user_ws,
             warehouse_id=warehouse_id,
             catalog=config.default_catalog,
             schema=default_schema,
             project_id=project.id,
         )
-
-    # Create project directory (no README yet - agent will create it).
-    # Passing capabilities scopes the copied skills to what this demo needs.
-    create_project_directory(project.id, capabilities=body.capabilities)
 
     # Seed a clean resources.json up front: the selected capabilities,
     # classified buildable/talking_track, with `created_resources` EMPTY.
@@ -1241,9 +1279,22 @@ def provision_architecture_project(
     #    picked yet). The story description from the build dialog is richer
     #    input for the LLM than the original architecture topic.
     if not project.default_schema:
+        # metadata LLM ∥ warehouse discovery — independent, run concurrently to
+        # shave the kickoff latency (the build dialog is waiting on this call
+        # before it can send the build prompt). Schema resolve needs both, so it
+        # runs after the join.
         llm_service = LLMService(ws, config)
         seed = body.description or project.description or project.name
-        metadata = _generate_project_metadata(llm_service, seed)
+        with ThreadPoolExecutor(max_workers=2) as ex:
+            meta_future = ex.submit(_generate_project_metadata, llm_service, seed)
+            wh_future = (
+                ex.submit(_find_shared_warehouse, ws)
+                if not project.warehouse_id
+                else None
+            )
+            metadata = meta_future.result()
+            if wh_future is not None:
+                project.warehouse_id, project.warehouse_name = wh_future.result()
         if body.description:
             project.name = metadata["name"]
             project.description = metadata.get("description") or body.description[:200]
@@ -1251,8 +1302,6 @@ def provision_architecture_project(
         # (the brand card is authoritative once used).
         if not (project.customer or "").strip() and metadata.get("company"):
             project.customer = metadata["company"]
-        if not project.warehouse_id:
-            project.warehouse_id, project.warehouse_name = _find_shared_warehouse(ws)
         if not project.default_catalog:
             project.default_catalog = config.default_catalog
         base_schema = f"{DEFAULT_SCHEMA_PREFIX}{metadata['schema_name']}"

@@ -207,6 +207,12 @@ def _check(config: AppConfig) -> None:
         f"{len(admins)} admin(s) verified"
     )
 
+    # Prime the schema-name cache while we're connected — lets project creation
+    # resolve a non-colliding schema NAME from memory instead of paying a
+    # `SHOW SCHEMAS` round-trip per create. Best-effort (see _schema_cache).
+    from . import _schema_cache
+    _schema_cache.prime(ws, catalog)
+
 
 class _CatalogBootstrapDependency(LifespanDependency):
     """Spawn a daemon thread at startup to validate the default catalog.
