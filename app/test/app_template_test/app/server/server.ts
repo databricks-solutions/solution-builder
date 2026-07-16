@@ -60,6 +60,7 @@ import {
   server,
   lakebase,
   analytics,
+  getExecutionContext,
 } from '@databricks/appkit';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -625,7 +626,35 @@ void (async () => {
   // Now safe to enable tracing — sync queries are done.
   agentExperimentId = await mlflowIdPromise;
   if (agentExperimentId) {
-    mlflow.init({ trackingUri: 'databricks', experimentId: agentExperimentId });
+    // Make the mlflow-tracing exporter use the SAME auth as the app's working
+    // client. `mlflow.init({trackingUri:'databricks'})` builds its own bundled
+    // @databricks/sdk-experimental Config, which resolves the DEFAULT
+    // ~/.databrickscfg and IGNORES the DATABRICKS_CONFIG_FILE that appkit's
+    // client is wired to — so it gets no token and every trace upload throws
+    // "cannot configure default credentials". `init` accepts explicit `host` +
+    // `databricksToken` overrides, so we pass the bearer the app client already
+    // resolves (project token in preview, SP/OBO in deploy). We read the token
+    // from the AUTHENTICATED header, not config.token, so it works whether the
+    // profile is PAT or OAuth (OAuth tokens only materialize during
+    // authenticate()). Graceful: on any failure, fall back to the default init.
+    let mlflowHost: string | undefined;
+    let mlflowToken: string | undefined;
+    try {
+      const { client } = getExecutionContext();
+      const h = new Headers();
+      await client.config.authenticate(h);
+      mlflowToken = /^Bearer\s+(.+)$/i.exec(h.get('Authorization') ?? '')?.[1];
+      mlflowHost = (client.config as { host?: string }).host
+        ?? process.env.DATABRICKS_HOST;
+    } catch (e) {
+      console.warn('[boot] could not resolve MLflow exporter auth from the app client — trace upload may fail:', (e as Error).message);
+    }
+
+    mlflow.init({
+      trackingUri: 'databricks',
+      experimentId: agentExperimentId,
+      ...(mlflowHost && mlflowToken ? { host: mlflowHost, databricksToken: mlflowToken } : {}),
+    });
     console.log(`[boot +${ms()}] MLflow tracing active`);
 
     // Silence one specific mlflow-tracing warning that fires for every

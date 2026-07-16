@@ -79,6 +79,9 @@ sync:
     - "src/**"
     - "app/dist/**"          # tsdown output (server bundle)
     - "app/client/dist/**"   # vite output (client bundle)
+    - "app/drizzle/**"       # generated Drizzle SQL migrations (gitignored;
+                             # build-app.sh runs db:generate → runMigrations()
+                             # reads dist/../drizzle at boot)
   # The bundle has no root .gitignore, so explicit excludes are required.
   # node_modules in particular: 885 MB at the test app's app/ — without this
   # rule it gets synced + dragged into the Apps deployment zip, which "Preparing

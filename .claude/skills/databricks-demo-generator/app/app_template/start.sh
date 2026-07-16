@@ -249,6 +249,22 @@ if needs_install; then
   fi
 fi
 
+# Generate the Drizzle migrations explicitly. The `predev` lifecycle hook
+# (npm run sync && typegen && db:generate) would normally do this before
+# `npm run dev` — BUT .npmrc sets `ignore-scripts=true` (to skip the
+# postinstall typegen on the runtime container), which ALSO suppresses
+# pre/post scripts like `predev`. Without this line `drizzle/` is never
+# created and the server's runMigrations() 503s with "No Drizzle migrations
+# folder found" on first preview boot. Run it directly so it's independent of
+# the npm lifecycle. Idempotent + cheap (regenerates from schema.ts).
+if [ ! -d drizzle ] || [ -z "$(ls -A drizzle 2>/dev/null)" ]; then
+  echo "[start.sh] generating Drizzle migrations (db:generate)…"
+  npm run db:generate || {
+    echo "[start.sh] ERROR: db:generate failed — server will 503 on migrate." >&2
+    exit 1
+  }
+fi
+
 echo "[start.sh] ports clear — starting dev server"
 echo "[start.sh] open: http://localhost:$APP_PORT  (use localhost, NOT 0.0.0.0 — embedded AI/BI dashboards need a secure context, and browsers treat 0.0.0.0 as non-secure → crypto.randomUUID is undefined and the dashboard iframe errors out)"
 
