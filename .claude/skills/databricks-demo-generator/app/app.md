@@ -40,10 +40,11 @@ Chat UI (dock + full-page), streaming with thinking panel, MLflow tracing per tu
 
 ### Step 1: Copy template
 
-The template ships with `node_modules/` pre-installed, so you do **not** need to run `npm install` — skip straight to customization. Only exclude `.env` (may contain secrets) and build artifacts.
+Copy the template source into the project's `app/`. **Don't** run `npm install` yourself — `start.sh` installs deps (`npm ci`) automatically on the first boot / smoke test (see Step 5). Exclude `node_modules` (large, and reinstalled fresh on first run anyway), `.env` (may contain secrets), and build artifacts.
 
 ```bash
 rsync -a \
+  --exclude node_modules \
   --exclude .env \
   --exclude dist \
   --exclude .DS_Store \

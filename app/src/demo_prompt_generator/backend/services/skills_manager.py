@@ -170,12 +170,16 @@ def get_architecture_skill_path() -> Optional[Path]:
     return _get_repo_skill_path("databricks-architecture")
 
 
-# Ignore rules for skill copies. We intentionally KEEP node_modules — the
-# canonical app_template/ ships with a pre-installed node_modules so the
-# agent doesn't have to run `npm install` (2-4 min) during a session. The
-# wheel build (scripts/build.sh) excludes node_modules separately, since
-# native binaries (sharp, esbuild, @ast-grep) aren't OS-portable.
+# Ignore rules for skill copies. We EXCLUDE node_modules: the skill copy only
+# needs the skill's markdown + the app_template source, and copying the
+# template's ~880MB node_modules into every project was the single biggest
+# create-path cost (a synchronous copytree blocking the HTTP response) for no
+# benefit — the agent never runs those deps from the skill dir, and when the
+# app is built into <project>/app/ its start.sh runs `npm ci` on first boot
+# anyway (a cross-filesystem copy flattens the .bin symlinks, forcing a fresh
+# install regardless). The wheel build (scripts/build.sh) also excludes it.
 _SKILL_COPY_IGNORE = shutil.ignore_patterns(
+    "node_modules",
     ".venv",
     "dist",
     ".env",
