@@ -117,6 +117,27 @@ if [[ -d "../.claude/skills/databricks-demo-generator" ]]; then
         --exclude='__dist__' \
         "../.claude/skills/databricks-demo-generator/" \
         "$PKG_DIR/.claude/skills/databricks-demo-generator/"
+
+    # Rewrite the template app's npm lockfile internal-proxy URLs -> public
+    # registry IN THE WHEEL COPY (never the source — local dev keeps the proxy).
+    # The committed app_template/package-lock.json carries
+    # npm-proxy.*.databricks.com `resolved` URLs (a dev's `npm install` on VPN
+    # writes them); the generated demo's Apps container can't reach that proxy
+    # and npm HONORS the lockfile's `resolved` host regardless of any registry=
+    # setting, so it must be scrubbed here. Same gate + intent as the uv.lock
+    # rewrite below (on any bundle deploy; local builds keep the faster proxy).
+    if [[ "${REWRITE_LOCK_TO_PUBLIC_PYPI:-}" == "1" ]]; then
+        _tmpl_lock="$PKG_DIR/.claude/skills/databricks-demo-generator/app/app_template/package-lock.json"
+        if [[ -f "$_tmpl_lock" ]]; then
+            echo "  Rewriting app_template package-lock.json internal proxy URLs -> public npm registry"
+            perl -i -pe 's{https://npm-proxy[.-][a-z0-9.-]*databricks\.com/}{https://registry.npmjs.org/}g' "$_tmpl_lock"
+            if grep -q "npm-proxy" "$_tmpl_lock"; then
+                echo "ERROR: app_template package-lock.json still references npm-proxy after rewrite" >&2
+                grep -n "npm-proxy" "$_tmpl_lock" | head >&2
+                exit 1
+            fi
+        fi
+    fi
 fi
 
 # .claude/skills/databricks-architecture/ — the architecture-diagram skill the
