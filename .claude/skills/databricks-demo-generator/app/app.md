@@ -105,18 +105,21 @@ The template's operations page is a queue (rows + filters + KPI cards), built fo
 - The queue/backlog can still exist — but as a secondary panel (drawer, tab, side card) below the domain-specific hero, not the page itself.
 - **Visual identity is fair game**: page colors, density, hero illustrations, and chrome should be adapted to fit the domain. Keep the chat dock and message bubbles similar (low impact / high effort to change); content pages are where you reinvent.
 
-#### Adapt the app's visual identity to the domain
-**Brand personalization (`brand/brand.json`) comes first.** Once you're done customizing the app, check whether `brand/brand.json` exists at the project root. If it does, **read it** and set the app's palette (`client/src/index.css` tokens — primary/accent at minimum) to that company's `palette`, so the demo is personalized to the real company. The `company_logo` / `company_official_website_screenshot` fields are bare filenames inside the `brand/` folder. If there's a `company_logo` (e.g. `brand/company_logo.svg`), **use it in the app** (copy it into the app's assets and place it in the header/nav in place of the generic mark). If there's a `company_official_website_screenshot` (`brand/website.png`), **look at that screenshot** — use the company's real site as visual inspiration for layout, typography, and tone. No `brand/brand.json` → pick a palette from the domain vibe below.
-The template ships with one look (editorial, neutral, light-mode-first — designed around a consumer-brand demo). Reusing it verbatim for every demo makes every generated app feel like the same product. **Adjust the visual identity to fit the domain's vibe.** The single source of truth for tokens is `client/src/index.css` (Tailwind v4 `@theme` + CSS variables: `--background`, `--foreground`, `--primary`, `--accent`, `--font-sans`, `--font-display`, `--radius`, etc.). Updating the tokens in one place re-skins the entire app via shadcn/ui + Tailwind.
+#### Adapt the app's visual identity (last polish step)
 
-What's worth tuning per demo:
+The template ships with one look (editorial, neutral, light-mode-first). Reused verbatim, every generated app feels like the same product — **re-skin it so it reads as this demo's own tool.** The single source of truth for tokens is `client/src/index.css` (Tailwind v4 `@theme` + CSS variables: `--background`, `--foreground`, `--card`, `--muted`, `--border`, `--primary`, `--accent`, `--chart-*`, `--font-sans`, `--font-display`, `--radius`). Change the tokens in one place — don't restyle component-by-component — and the whole app re-skins via shadcn/ui + Tailwind.
 
-- **Color palette.** Pick a primary + accent that match the domain's industry conventions. Industrial / operational tools tend dark with strong accent colors; financial / executive tools tend muted with sharper contrast; consumer-brand tools tend warm and editorial. **One bold accent color** that matches the demo's hero element (the anomaly's color, the brand color, the segment-of-interest color) makes the app feel intentional.
-- **Light vs. dark default.** Some domains read better in dark mode (SCADA, security ops, traders) — flip the `:root` defaults if so.
-- **Typography.** The template uses Geist + Fraunces. Swap for what fits — Inter + IBM Plex for a corporate / data-heavy app, JetBrains Mono accents for a technical / developer-facing one, a more humanist serif for a healthcare / education one. Use Google Fonts via `<link>` in `index.html` (the template already does this).
-- **Radius + density.** Industrial / dense apps want smaller `--radius` and tighter padding; consumer / executive apps want larger radius and more breathing room.
+**Your source of truth for the look: `brand/brand.json` if it exists, otherwise the domain's vibe.** Check the project root for `brand/brand.json` (`{ company, palette, website, company_logo, company_official_website_screenshot }`; the two filename fields are bare, relative to `brand/`).
 
-Keep it tasteful: pick a coherent palette and stick to it. Don't restyle component-by-component — change the tokens. **Quick sanity check**: open the running app side-by-side with the luxebeauty template; if both look the same, the visual identity hasn't shifted enough.
+- **With `brand/brand.json`** — the demo is personalized to a **real company**; make it look like *that company's* internal tool:
+  - Drive the **whole** token set from `palette` (background, surfaces, border, text, primary/accent, status, `--chart-*`) — not just the button. A palette is usually dark→light + one or two brand accents; map darkest/lightest to background/foreground, the brand color(s) to primary/accent, derive muted/border as tints; generate tints if the palette is short.
+  - **Logo** (`company_logo`, e.g. `brand/company_logo.svg`): copy into the app assets and use it for the sidebar/header brand (replace the first-letter avatar in `AppSidebar.tsx`) + the favicon (`client/index.html`). SVG gotcha: a single-color SVG with a black `fill` vanishes on a dark nav — set `fill="currentColor"`.
+  - **`company_official_website_screenshot`** (`brand/website.png`): open and look at it — echo the real site's layout, typography, and tone.
+- **Without it** — pick a palette + type + density from the domain's conventions: industrial/ops → dark, strong accent, tight; financial/exec → muted, sharp contrast; consumer → warm, editorial, roomier. One bold accent tied to the hero element. Flip `:root` to dark if the domain reads better dark (SCADA, security ops, traders). Swap Geist/Fraunces for what fits (Google Fonts via `<link>` in `index.html`).
+
+**Name it for the story** (both cases): set `config/app.json` `branding.appName` (the big in-app title) to fit the company + use-case — e.g. `"<Company> Returns Console"` — and fix the browser tab (`client/index.html` `<title>` still says `mas-chat-demo`) to match.
+
+**Sanity check:** open the running app side-by-side with the LuxeBeauty template. If it just looks like the template with a new accent color, you've only done the button — keep going until it reads as this demo's (or this company's) real tool.
 
 read `resources.json` to get the available resource ids to use (ex: mas endpoint)
 
@@ -306,7 +309,10 @@ Tell the user the build is complete and point them at the **App** tab to start i
 
 ### Step 6: Deploy the app (only on explicit user request, don't do it by default)
 
-**Trigger only on explicit ask** — "deploy the app" / "push the app" / "create the Databricks App". "Deploy resources" / "deploy the demo" means everything *except* the app.
+**Ask for confirmation** — Only deploy if the user explicitly ask ("deploy the app" / "push the app" / "create the Databricks App")
+Always make sure you ask them if they don't want to preview the app instead using the UI: "You can preview the app from the UI and have interactive debugging. Are you sure you want to deploy it now?"
+
+Note: "Deploy resources" / "deploy the demo" means everything *except* the app.
 
 This is the **interactive** deploy path. We do NOT run `databricks bundle deploy` here — the project's `databricks.yml` is shipped in the source so the user can run a bundle deploy themselves later; the skill's job is the live push.
 
@@ -324,7 +330,9 @@ If the resolved `APP_NAME` matches any of these — whether from `resources.json
 **Workspace Apps quota is hit (cannot create new app):**
 If `databricks apps create` fails with a quota / "workspace apps limit" / "app limit exceeded" error, do **NOT** try to reuse some existing app name to bypass it. Stop the deploy entirely and tell the user:
 
-> "The workspace is at its Databricks Apps quota — I can't create `<APP_NAME>` right now. For this demo session, you can use the **Preview** button in the UI's App tab to run the app locally without deploying. To enable a real deploy later, free a slot in `databricks apps list` and ask me to re-run the deploy step."
+> "The workspace is at its Databricks Apps quota — I can't create `<APP_NAME>` right now. For this demo session, you can use the **Preview** button in the UI's App tab to run the app locally without deploying. To enable a real deploy later, free a slot in `databricks apps list` and ask me to re-run the deploy step.
+
+Instead, you can preview the app from the UI to avoid this issue."
 
 Record the quota failure in `resources.json` `created_resources.app.deployment_note` so the next session sees it.
 

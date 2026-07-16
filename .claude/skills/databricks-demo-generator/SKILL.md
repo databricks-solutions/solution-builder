@@ -222,6 +222,8 @@ To personalize a demo to a **real company**, if the user gives you one, search t
 
 `company_logo` and `company_official_website_screenshot` (both optional) are **bare filenames relative to the `brand/` folder** (i.e. `brand/company_logo.svg`, `brand/website.png`) — the app builder uses the logo in the app header and the screenshot as visual inspiration. The user can ask you to skip this whole step and fill in the info themselves — then just read `brand/brand.json` if it's present. No `brand/brand.json` = not brand-personalized; that's fine. The app builder consumes it at the end of app generation (see `DEMO_SKILL_DIR/app/app.md`).
 
+**When brand-personalized, weave the company name into the story too** — the app's big title, the README persona/company, and the narrative should name the real company (e.g. "<Company> Returns Console", not "LuxeBeauty"). The demo should read as *that company's* solution end to end, not a generic story with a recolored app. The full app-side brand match (palette across all tokens, logo in header + favicon + title, real-site-driven layout) is the LAST step of `DEMO_SKILL_DIR/app/app.md`.
+
 ---
 
 ## Stage 0 — Capture Intent
