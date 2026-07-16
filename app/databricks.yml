@@ -170,12 +170,15 @@ targets:
     workspace:
       root_path: /Workspace/solution_builder/.bundle/${bundle.name}/${bundle.target}
   # Staging target. Use `databricks bundle deploy -t staging` (no default).
-  # `mode: development` is the canonical setting for non-prod targets — it
-  # relaxes some bundle-CLI checks. We override `presets.name_prefix` to
-  # empty so the App resource keeps its declared name (`dbdemos-generator-
-  # staging`) instead of getting auto-prefixed with `[dev <user>]`.
+  # `mode: production` (not development): the root_path below is SHARED (no
+  # ${workspace.current_user.userName}) so any machine redeploys the same
+  # bundle — and `mode: development` REQUIRES the username in root_path for
+  # uniqueness, which would defeat the shared path. Production mode also skips
+  # the `[dev <user>]` name-prefixing, so the App keeps its declared name
+  # (`dbdemos-generator-staging`); `presets.name_prefix: ""` is kept as a
+  # belt-and-braces no-op. This mirrors the prod target's shared-root pattern.
   staging:
-    mode: development
+    mode: production
     presets:
       name_prefix: ""
     workspace:
