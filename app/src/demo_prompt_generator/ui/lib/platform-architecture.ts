@@ -119,6 +119,10 @@ export interface PlatformSchema {
    *  text badge instead. Cloud (AWS/GCP/Azure) + Databricks marks are always
    *  shown regardless (they don't need this opt-in). */
   enableTrademarkLogos?: boolean;
+  /** The declared left→right lane names (the file's top-level `columns`). Kept
+   *  on the schema so it ROUND-TRIPS: symbolic `col` refs are meaningless without
+   *  it, so serialize must re-emit it even after a node is dragged/pinned. */
+  columns?: string[];
   bands: PlatformBand[];
   /** Canvas layout — node positions + edges. Persisted by the interactive
    *  editor; auto-seeded by band when absent. */
@@ -186,6 +190,33 @@ export interface NodePosition {
    *  (right-click → Group). Selecting one member selects the whole group so
    *  they move together. Cleared on Ungroup. No container node — just a tag. */
   groupId?: string;
+  /** Author-time SYMBOLIC placement carried through from the file (`col`/`row`/
+   *  relational fields, AND container/pin fields) so it can be RE-EMITTED on save
+   *  for nodes the user never moved — instead of flattening to `at`. computeLayout
+   *  already resolved it to `x`/`y` (+ derived `w`/`h` for a box); this is kept
+   *  only for round-trip. Cleared (and `at`/`size` emitted instead) once `pinned`
+   *  flips — see below. Container fields (`wraps`/`bounds`/`pin`) matter most: a
+   *  box or pinned banner that flattened to `at` would freeze and stop reflowing
+   *  (children escape the box, banners drift off the corner). */
+  placement?: {
+    col?: string; row?: number;
+    alignX?: string; alignY?: string;
+    below?: string; above?: string; leftOf?: string; rightOf?: string;
+    gap?: number;
+    /** Container box: auto-sizes to enclose these child ids (+ `pad`). */
+    wraps?: string[]; pad?: number;
+    /** Per-side box edge anchors. */
+    bounds?: { left?: string; right?: string; top?: string; bottom?: string };
+    /** Corner dock for a banner/persona inside a box. */
+    pin?: {
+      at: "top-left" | "top" | "top-right" | "left" | "center" | "right" | "bottom-left" | "bottom" | "bottom-right";
+      to?: string; pad?: number; float?: boolean;
+    };
+  };
+  /** True once the user has manually positioned this node (dragged it, or it was
+   *  authored with an explicit `at`). A pinned node serializes as `at`; an
+   *  un-pinned node with `placement` re-emits its symbolic fields. */
+  pinned?: boolean;
 }
 
 /** A free-form canvas annotation — not a Databricks catalog component. One node
@@ -290,6 +321,24 @@ export interface FileNode {
    *  `at` is set. */
   col?: string;
   row?: number;
+  /** Relational placement — position this node against ANOTHER node's resolved
+   *  box, evaluated AFTER columns (so the anchor keeps its own col/row default).
+   *  Use these instead of guessing `at` coordinates.
+   *    alignX/alignY: "<id>" — copy that node's center X (or Y); keep your other
+   *                            axis from col/row. `gap` does NOT apply.
+   *    below/above/leftOf/rightOf: "<id>" — sit adjacent to that node on that
+   *                            side, centered on its other axis; `gap` = px
+   *                            between the boxes (default 40).
+   *  Use at MOST ONE per node — if several are set only one applies (precedence
+   *  alignX > alignY > leftOf > rightOf > above > below). `at` still wins over
+   *  everything. Chains resolve in dependency order. */
+  alignX?: string;
+  alignY?: string;
+  below?: string;
+  above?: string;
+  leftOf?: string;
+  rightOf?: string;
+  gap?: number;
   /** Container box: this node (type "box") auto-sizes to enclose these child
    *  node ids (+ `pad`). Recursive — a box may wrap other boxes. */
   wraps?: string[];
@@ -519,6 +568,10 @@ export const CATALOG: Record<BandId, CatalogComponent[]> = {
       desc: "Databricks' managed agents — a multi-agent supervisor plus information extraction, document parsing, and classification, built and governed for you.",
       authoring: "Managed MULTI-agent system: a Supervisor orchestrating Knowledge Assistant / Genie / MCP / Functions (with extraction·parsing·classification chips). Use when the agent layer is a supervisor routing to specialists; if the demo uses only one agent capability, use that single tile instead." },
     { id: "ml-training-serving", label: "ML Models", icon: "mlModel", desc: "Train, register, and serve models on governed data." },
+    { id: "model-serving", label: "Model Serving Endpoint", icon: "modelServing", desc: "Serve a custom model behind a governed, autoscaling REST endpoint for real-time inference.",
+      authoring: "A deployed serving endpoint (real-time inference over a custom/registered model). Use when the demo calls a live endpoint; for the train→register→batch-score story use ml-training-serving instead." },
+    { id: "hosted-mcps", label: "Hosted MCPs", icon: "mcp", desc: "Managed MCP servers that let agents call external tools — Genie, Atlassian, GitHub, Slack, SharePoint, Gmail, and more.",
+      authoring: "The governed tool/connector layer for agents — hosted MCP servers (Genie / Atlassian / GitHub / Slack / SharePoint / Gmail …). Use when the demo's agent reaches OUT to external systems via MCP." },
     { id: "vector-search", label: "Vector Search", icon: "vectorSearch", desc: "Semantic search and retrieval that grounds agents in your data." },
     { id: "information-extraction", label: "Information Extraction", icon: "unstructuredData", desc: "Turn PDFs and documents into structured, queryable data." },
     // The Agent Bricks building blocks (also surfaced inside the composite).
@@ -625,9 +678,18 @@ export function naturalSize(type: string): { w: number; h: number } {
   if (kind === "db-platform") return { w: 380, h: 60 };
   if (kind === "genie-one") return { w: 230, h: 78 }; // tile; persona pill floats over the top edge
   if (type === "sdp") return { w: 230, h: 112 };
-  if (c?.sublabel) return { w: 230, h: 70 };
+  // Standard "compute / serving" tiles share ONE default footprint so they line
+  // up in a column (Lakehouse, Lakebase, Model Serving, Hosted MCPs, …). 230 wide,
+  // 54 tall (one grid gap shorter than the old 70). Tiles WITH a sublabel and the
+  // named single-line tiles below both use it.
+  if (c?.sublabel || STANDARD_TILE_TYPES.has(type)) return { w: 230, h: 54 };
   return { w: 200, h: 56 }; // plain tile + sources
 }
+
+/** Single-line catalog tiles that should default to the STANDARD compute-tile
+ *  footprint (same as Lakehouse/Lakebase) so a column of them lines up, even
+ *  though they carry no `sublabel`. */
+const STANDARD_TILE_TYPES = new Set(["model-serving", "hosted-mcps"]);
 
 // =============================================================================
 // Build: catalog + resources.json defaults + agent override → final schema
@@ -693,9 +755,23 @@ export function computeLayout(file: ArchitectureFile): Map<string, ResolvedBox> 
   }
 
   // 2) Column stacking — only non-wrapper, un-pinned nodes that declare a `col`.
+  //    A node whose position is set RELATIONALLY opts out of stacking so it never
+  //    reserves a ghost slot in a lane it gets pulled out of:
+  //      • `leftOf`/`rightOf` → horizontal satellite: leaves the lane entirely
+  //        (no lane width / no stack row).
+  //      • `alignY`/`below`/`above` → its Y is external, so it must NOT take a
+  //        stack row (else the remaining lane nodes stack around a phantom).
+  //        It still gets its lane's X later (step 3) so it sits IN the column,
+  //        just at the relationally-chosen height.
+  //    (`alignX` only overrides X, so it keeps its normal stack row.)
   const cols = file.columns ?? [];
   const colIndex = new Map(cols.map((c, i) => [c, i]));
-  const laned = nodes.filter((n) => !out.has(n.id) && !n.wraps && n.col && colIndex.has(n.col));
+  const yRelational = (n: FileNode) => !!(n.alignY || n.below || n.above);
+  const laned = nodes.filter(
+    (n) =>
+      !out.has(n.id) && !n.wraps && !n.leftOf && !n.rightOf && !yRelational(n) &&
+      n.col && colIndex.has(n.col),
+  );
   const byCol = new Map<string, FileNode[]>();
   for (const n of laned) {
     const arr = byCol.get(n.col!) ?? [];
@@ -737,7 +813,215 @@ export function computeLayout(file: ArchitectureFile): Map<string, ResolvedBox> 
   for (const n of nodes) {
     if (!out.has(n.id) && !n.wraps) {
       const s = sizeOf(n);
-      out.set(n.id, { x: 0, y: 0, w: s.w, h: s.h });
+      // A y-relational node that names a real `col` keeps that lane's X (so it
+      // stays IN the column at its relational height); else park at origin.
+      const x = n.col && colX.has(n.col) ? colX.get(n.col)! : 0;
+      out.set(n.id, { x, y: 0, w: s.w, h: s.h });
+    }
+  }
+
+  // 3.5) Relational placement — position a node against ANOTHER node's box.
+  //   alignX/alignY: copy the anchor's center on that axis (keep the other axis).
+  //   below/above/leftOf/rightOf: butt up against the anchor's edge (+`gap`),
+  //     centered on the anchor's other axis. `at` is never overridden.
+  //   Resolved in dependency order so a chain (A rightOf B, B rightOf C) settles.
+  //   Then TWO de-overlap passes keep the default readable without an auto-layout
+  //   engine: (a) FAN-OUT — several nodes bound to the same anchor+direction
+  //   spread evenly along the perpendicular axis, centered on the anchor, instead
+  //   of piling on one point; (b) NUDGE — a relational node still overlapping a
+  //   FIXED node (lane / `at` / box) slides along its free axis until it clears.
+  //   Only relational nodes ever move; anchors and authored lane nodes stay put.
+  const SIB_GAP = 24; // spacing between sibling satellites of the same anchor
+  {
+    // A node's single relational directive (first set wins), + which axis it
+    // pins (the anchor's edge/center it copies) vs. its FREE axis (fanned/nudged).
+    type Dir = "alignX" | "alignY" | "leftOf" | "rightOf" | "above" | "below";
+    const DIRS: Dir[] = ["alignX", "alignY", "leftOf", "rightOf", "above", "below"];
+    const dirOf = (n: FileNode): Dir | undefined => DIRS.find((d) => n[d]);
+    const isRel = (n: FileNode) =>
+      !Array.isArray(n.at) && !n.wraps && dirOf(n) !== undefined;
+    const rels = nodes.filter(isRel);
+    // Free axis = the one the relation does NOT pin, so it's safe to fan/nudge on.
+    //   leftOf/rightOf/alignX pin X  → free axis is Y.
+    //   above/below/alignY   pin Y  → free axis is X.
+    const freeAxisOf = (d: Dir): "x" | "y" =>
+      d === "leftOf" || d === "rightOf" || d === "alignX" ? "y" : "x";
+
+    // (0) Base placement — dependency-ordered so anchors resolve first.
+    const done = new Set<string>();
+    const place = (n: FileNode, seen: Set<string>): void => {
+      if (done.has(n.id) || seen.has(n.id)) return;
+      seen.add(n.id);
+      for (const d of DIRS) {
+        const ref = n[d] as string | undefined;
+        const dep = ref && rels.find((r) => r.id === ref);
+        if (dep) place(dep, seen);
+      }
+      const self = out.get(n.id);
+      if (!self) return;
+      const gap = n.gap ?? 40;
+      const a = out.get((n[dirOf(n)!] as string) ?? "");
+      if (!a) { done.add(n.id); return; }
+      const d = dirOf(n)!;
+      if (d === "alignX") self.x = a.x;
+      else if (d === "alignY") self.y = a.y;
+      else if (d === "leftOf") { self.x = a.x - a.w / 2 - gap - self.w / 2; self.y = a.y; }
+      else if (d === "rightOf") { self.x = a.x + a.w / 2 + gap + self.w / 2; self.y = a.y; }
+      else if (d === "above") { self.y = a.y - a.h / 2 - gap - self.h / 2; self.x = a.x; }
+      else if (d === "below") { self.y = a.y + a.h / 2 + gap + self.h / 2; self.x = a.x; }
+      done.add(n.id);
+    };
+    for (const n of rels) place(n, new Set());
+
+    // Lane-anchored nodes (`alignX`/`alignY` WITH a resolvable `col`) are lane
+    // members whose free axis is owned by the lane, not free to fan — they're
+    // handled by reserve-a-slot (pass b), NOT by fan-out. Compute the set up front
+    // so fan-out can skip them.
+    const isLaneAligned = (n: FileNode) =>
+      !!(n.col && colX.has(n.col) && (n.alignX || n.alignY) &&
+        !n.below && !n.above && !n.leftOf && !n.rightOf);
+    const laneAligned = rels.filter(isLaneAligned);
+
+    // (a) FAN-OUT — group siblings by (anchor, direction). Distribute each group
+    //     of >1 along its free axis, centered on the anchor's center on that axis.
+    //     Lane-anchored nodes are excluded (reserve-a-slot owns them).
+    const groups = new Map<string, FileNode[]>();
+    for (const n of rels) {
+      if (isLaneAligned(n)) continue;
+      const d = dirOf(n)!;
+      const key = `${n[d]}|${d}`;
+      (groups.get(key) ?? groups.set(key, []).get(key)!).push(n);
+    }
+    for (const [key, sibs] of groups) {
+      if (sibs.length < 2) continue;
+      const anchor = out.get(key.split("|")[0]);
+      if (!anchor) continue;
+      const axis = freeAxisOf(dirOf(sibs[0])!);
+      const ext = (b: ResolvedBox) => (axis === "y" ? b.h : b.w);
+      const center = axis === "y" ? anchor.y : anchor.x;
+      const boxes = sibs.map((n) => out.get(n.id)!).filter(Boolean);
+      const total = boxes.reduce((s, b) => s + ext(b), 0) + SIB_GAP * (boxes.length - 1);
+      let cursor = center - total / 2;
+      boxes.forEach((b) => {
+        const c = cursor + ext(b) / 2;
+        if (axis === "y") b.y = c; else b.x = c;
+        cursor += ext(b) + SIB_GAP;
+      });
+    }
+
+    const relIds = new Set(rels.map((r) => r.id));
+    const overlaps = (a: ResolvedBox, b: ResolvedBox) =>
+      Math.abs(a.x - b.x) < (a.w + b.w) / 2 && Math.abs(a.y - b.y) < (a.h + b.h) / 2;
+
+    // (b) RESERVE-A-SLOT — `alignX`/`alignY` nodes that live IN a lane (`col`) are
+    //     lane members pinned to an external position: they keep their slots and
+    //     the lane's PLAIN (row-stacked) mates flow into the gaps around them, in
+    //     row order, so the lane stays contiguous with no overlap. Handled PER
+    //     LANE so several aligned nodes in one column share the same reflow (one
+    //     independent re-stack per aligned node would fight the others).
+    const laneGroups = new Map<string, FileNode[]>();
+    for (const n of laneAligned) {
+      const laneAxis = n.alignY ? "y" : "x";
+      const k = `${n.col}|${laneAxis}`;
+      (laneGroups.get(k) ?? laneGroups.set(k, []).get(k)!).push(n);
+    }
+    for (const [key, aligned] of laneGroups) {
+      const laneAxis = key.split("|")[1] as "x" | "y";
+      const col = key.split("|")[0];
+      const ext = (b: ResolvedBox) => (laneAxis === "y" ? b.h : b.w);
+      const pos = (b: ResolvedBox) => (laneAxis === "y" ? b.y : b.x);
+      const setPos = (b: ResolvedBox, v: number) => { if (laneAxis === "y") b.y = v; else b.x = v; };
+      // Two+ aligned nodes pointing at the SAME target (or targets closer than
+      // their combined size) would pin to the same spot — spread each such
+      // cluster like siblings, centered on the cluster's mean, so they don't
+      // stack. (A single aligned node keeps its exact target.)
+      const alignedBoxes = aligned.map((n) => out.get(n.id)!).filter(Boolean).sort((a, b) => pos(a) - pos(b));
+      let ci = 0;
+      while (ci < alignedBoxes.length) {
+        const cluster = [alignedBoxes[ci]];
+        let cj = ci + 1;
+        while (cj < alignedBoxes.length &&
+               pos(alignedBoxes[cj]) - pos(cluster[cluster.length - 1]) < (ext(alignedBoxes[cj]) + ext(cluster[cluster.length - 1])) / 2 + SIB_GAP) {
+          cluster.push(alignedBoxes[cj]); cj++;
+        }
+        if (cluster.length > 1) {
+          const mean = cluster.reduce((s, b) => s + pos(b), 0) / cluster.length;
+          const totalC = cluster.reduce((s, b) => s + ext(b), 0) + SIB_GAP * (cluster.length - 1);
+          let cur = mean - totalC / 2;
+          for (const b of cluster) { setPos(b, cur + ext(b) / 2); cur += ext(b) + SIB_GAP; }
+        }
+        ci = cj;
+      }
+      // Reserved intervals = each aligned node's footprint at its (now spread)
+      // pinned position (+SIB_GAP margin), sorted along the lane axis.
+      const reserved = alignedBoxes
+        .map((b) => ({ lo: pos(b) - ext(b) / 2 - SIB_GAP, hi: pos(b) + ext(b) / 2 + SIB_GAP }))
+        .sort((a, b) => a.lo - b.lo);
+      // Plain (non-relational) lane-mates in row order flow around the reserved
+      // slots: walk the lane, and whenever the next mate would land inside a
+      // reserved interval, jump the cursor past it.
+      const mates = nodes
+        .filter((m) => !relIds.has(m.id) && !m.wraps && m.col === col && out.has(m.id))
+        .sort((a, b) => (a.row ?? 0) - (b.row ?? 0));
+      if (!mates.length) continue;
+      // Flow mates in row order, skipping reserved slots. Run it once as a DRY
+      // pass to measure the block's extent, then re-run shifted so the whole lane
+      // (mates + pinned slots) is CENTERED on the lane's natural center (0) — the
+      // aligned nodes stay pinned; the mates balance around them, no side-drift.
+      const runFrom = (start: number, commit: boolean): { min: number; max: number } => {
+        let cursor = start, min = Infinity, max = -Infinity;
+        for (const m of mates) {
+          const b = out.get(m.id)!;
+          const e = ext(b);
+          for (const r of reserved) {
+            if (cursor < r.hi && cursor + e > r.lo) cursor = r.hi;
+          }
+          if (commit) setPos(b, cursor + e / 2);
+          min = Math.min(min, cursor);
+          max = Math.max(max, cursor + e);
+          cursor += e + SIB_GAP;
+        }
+        return { min, max };
+      };
+      const dry = runFrom(0, false);
+      const extMin = Math.min(dry.min, ...reserved.map((r) => r.lo));
+      const extMax = Math.max(dry.max, ...reserved.map((r) => r.hi));
+      runFrom(-((extMin + extMax) / 2), true);
+    }
+
+    // (c) NUDGE — any OTHER relational node still overlapping something slides
+    //     along its free axis (away from the overlap) until clear. It de-conflicts
+    //     against FIXED nodes AND against other satellites already positioned
+    //     earlier in the list — only `self` moves per hit, so processing in order
+    //     is asymmetric (later satellites yield to earlier ones) → no oscillation.
+    //     Anchors and authored lane nodes never move. A few passes settle chains.
+    const nudgeable = rels.filter((n) => !laneAligned.includes(n));
+    const fixed = nodes.filter((n) => !relIds.has(n.id) && !n.wraps && out.has(n.id));
+    for (let pass = 0; pass < 6; pass++) {
+      let moved = false;
+      nudgeable.forEach((n, i) => {
+        const self = out.get(n.id);
+        if (!self) return;
+        const axis = freeAxisOf(dirOf(n)!);
+        // Obstacles = every fixed node + every satellite placed BEFORE this one.
+        const obstacles = [
+          ...fixed.map((f) => f.id),
+          ...nudgeable.slice(0, i).map((o) => o.id),
+        ].filter((oid) => oid !== n.id);
+        for (const oid of obstacles) {
+          const ob = out.get(oid)!;
+          if (!ob || !overlaps(self, ob)) continue;
+          if (axis === "y") {
+            const need = (self.h + ob.h) / 2 - Math.abs(self.y - ob.y) + SIB_GAP;
+            self.y += (self.y <= ob.y ? -need : need);
+          } else {
+            const need = (self.w + ob.w) / 2 - Math.abs(self.x - ob.x) + SIB_GAP;
+            self.x += (self.x <= ob.x ? -need : need);
+          }
+          moved = true;
+        }
+      });
+      if (!moved) break;
     }
   }
 
@@ -859,6 +1143,28 @@ export function computeLayout(file: ArchitectureFile): Map<string, ResolvedBox> 
 /** Parse the flat ArchitectureFile into the internal PlatformSchema the canvas
  *  consumes. `bands` = the full catalog (for lookup/color); `layout.nodes` =
  *  exactly the placed nodes from the file; `layout.edges` = the file edges. */
+/** Pull the symbolic placement fields off a file node, or undefined if it has
+ *  none (→ the node is pinned to pixels). */
+function pickPlacement(n: FileNode): NodePosition["placement"] | undefined {
+  const p: NonNullable<NodePosition["placement"]> = {};
+  if (n.col !== undefined) p.col = n.col;
+  if (n.row !== undefined) p.row = n.row;
+  if (n.alignX !== undefined) p.alignX = n.alignX;
+  if (n.alignY !== undefined) p.alignY = n.alignY;
+  if (n.below !== undefined) p.below = n.below;
+  if (n.above !== undefined) p.above = n.above;
+  if (n.leftOf !== undefined) p.leftOf = n.leftOf;
+  if (n.rightOf !== undefined) p.rightOf = n.rightOf;
+  if (n.gap !== undefined) p.gap = n.gap;
+  // Container / pin fields — a box or pinned banner MUST keep these symbolic, or
+  // it flattens to a frozen `at`+`size` (children escape the box, banners drift).
+  if (n.wraps !== undefined) p.wraps = n.wraps;
+  if (n.pad !== undefined) p.pad = n.pad;
+  if (n.bounds !== undefined) p.bounds = n.bounds;
+  if (n.pin !== undefined) p.pin = n.pin;
+  return Object.keys(p).length ? p : undefined;
+}
+
 export function parseArchitecture(content: string): PlatformSchema {
   const file = parseArchitectureFile(content) ?? {};
   const nodes: Record<string, NodePosition> = {};
@@ -880,9 +1186,17 @@ export function parseArchitecture(content: string): PlatformSchema {
     // `bounds`); otherwise an explicit `size` wins (a plain node keeps its
     // natural size → no w/h stored).
     const derivedSize = (n.wraps || n.bounds) && !n.size ? [box.w, box.h] as [number, number] : n.size;
+    // Preserve symbolic placement for round-trip. A node authored WITHOUT `at`
+    // that carries symbolic fields (col/relational/wraps/bounds/pin) is un-`pinned`:
+    // on save it re-emits those fields (not `at`) unless the user drags it. A node
+    // authored WITH `at`, or with no symbolic fields at all, is pinned to pixels.
+    const placement = pickPlacement(n);
+    const pinned = Array.isArray(n.at) || !placement;
     const pos: NodePosition = {
       x: x ?? 0,
       y: y ?? 0,
+      ...(placement ? { placement } : {}),
+      ...(pinned ? { pinned: true } : {}),
       ...(n.rot !== undefined ? { rot: n.rot } : {}),
       ...(derivedSize ? { w: derivedSize[0], h: derivedSize[1] } : {}),
       ...(n.scale !== undefined ? { scale: n.scale } : {}),
@@ -994,6 +1308,7 @@ export function parseArchitecture(content: string): PlatformSchema {
     name: file?.name ?? "Solution architecture",
     story: file?.story,
     enableTrademarkLogos: file?.options?.trademarkLogos ?? false,
+    ...(file?.columns?.length ? { columns: file.columns } : {}),
     bands: catalogSchemaBands(),
     layout: { nodes, edges, hidden: [] },
     ...(Object.keys(customLogos).length ? { customLogos } : {}),
@@ -1165,9 +1480,36 @@ export function serializeArchitecture(
 ): string {
   const nodes: FileNode[] = [];
   for (const [id, pos] of Object.entries(layout.nodes)) {
+    // Positional fragment: a node the user never moved (un-`pinned`) with symbolic
+    // `placement` re-emits those authored fields so the file keeps its structure;
+    // anything pinned (dragged, or authored with `at`) serializes as pixel `at`.
     const at: [number, number] = [Math.round(pos.x), Math.round(pos.y)];
+    const pl = pos.placement;
+    const symbolic = !pos.pinned && !!pl;
+    // A symbolic container (box with `wraps`/`bounds`) is NOT `pinned`; it re-emits
+    // its container fields and computeLayout re-derives its size — so we must NOT
+    // also emit a frozen `size` for it (that would stop it reflowing).
+    const isSymbolicBox = symbolic && !!(pl!.wraps?.length || pl!.bounds);
+    const place: Partial<FileNode> =
+      symbolic
+        ? {
+            ...(pl!.col !== undefined ? { col: pl!.col } : {}),
+            ...(pl!.row !== undefined ? { row: pl!.row } : {}),
+            ...(pl!.alignX !== undefined ? { alignX: pl!.alignX } : {}),
+            ...(pl!.alignY !== undefined ? { alignY: pl!.alignY } : {}),
+            ...(pl!.below !== undefined ? { below: pl!.below } : {}),
+            ...(pl!.above !== undefined ? { above: pl!.above } : {}),
+            ...(pl!.leftOf !== undefined ? { leftOf: pl!.leftOf } : {}),
+            ...(pl!.rightOf !== undefined ? { rightOf: pl!.rightOf } : {}),
+            ...(pl!.gap !== undefined ? { gap: pl!.gap } : {}),
+            ...(pl!.wraps !== undefined ? { wraps: pl!.wraps } : {}),
+            ...(pl!.pad !== undefined ? { pad: pl!.pad } : {}),
+            ...(pl!.bounds !== undefined ? { bounds: pl!.bounds } : {}),
+            ...(pl!.pin !== undefined ? { pin: pl!.pin } : {}),
+          }
+        : { at };
     const common: Partial<FileNode> = {
-      ...(pos.w !== undefined && pos.h !== undefined ? { size: [pos.w, pos.h] as [number, number] } : {}),
+      ...(pos.w !== undefined && pos.h !== undefined && !isSymbolicBox ? { size: [pos.w, pos.h] as [number, number] } : {}),
       ...(pos.rot ? { rot: pos.rot } : {}),
       ...(pos.scale !== undefined && pos.scale !== 1 ? { scale: pos.scale } : {}),
       ...(pos.z ? { z: pos.z } : {}),
@@ -1178,7 +1520,7 @@ export function serializeArchitecture(
     if (pos.annotation) {
       const a = pos.annotation;
       nodes.push({
-        id, type: a.variant, at, ...common,
+        id, type: a.variant, ...place, ...common,
         ...(a.text !== undefined ? { text: a.text } : {}),
         ...(a.title !== undefined ? { title: a.title } : {}),
         ...(a.titleIcon !== undefined ? { titleIcon: a.titleIcon as IconKey } : {}),
@@ -1199,7 +1541,7 @@ export function serializeArchitecture(
     }
     if (pos.source) {
       nodes.push({
-        id, type: "source", at, ...common,
+        id, type: "source", ...place, ...common,
         // label: `undefined` → OMIT (stays auto-derived on reload); `""` →
         // EMIT (user deliberately cleared it → renders nothing).
         ...(pos.label !== undefined ? { label: pos.label } : {}),
@@ -1217,7 +1559,7 @@ export function serializeArchitecture(
     const type = baseId(id);
     const def = CATALOG_BY_ID.get(type)?.c;
     nodes.push({
-      id, type, at, ...common,
+      id, type, ...place, ...common,
       ...(pos.label !== undefined && pos.label !== def?.label ? { label: pos.label } : {}),
       ...(pos.desc !== undefined && pos.desc !== def?.desc ? { desc: pos.desc } : {}),
       ...(pos.showDesc !== undefined ? { showDesc: pos.showDesc } : {}),
@@ -1254,6 +1596,10 @@ export function serializeArchitecture(
     name: schema.name,
     ...(schema.story ? { story: schema.story } : {}),
     ...(schema.enableTrademarkLogos ? { options: { trademarkLogos: true } } : {}),
+    // Re-emit the lane declaration: symbolic `col` refs on un-pinned nodes are
+    // meaningless without it, so dropping it (as the old serializer did) made a
+    // single drag collapse every remaining symbolic node to the origin.
+    ...(schema.columns?.length ? { columns: schema.columns } : {}),
     ...(custom_logos.length ? { custom_logos } : {}),
     nodes,
     edges,

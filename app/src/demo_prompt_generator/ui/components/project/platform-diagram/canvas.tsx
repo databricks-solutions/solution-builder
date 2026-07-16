@@ -438,9 +438,23 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
         (c) => (c.type === "position" && c.dragging === false) || c.type === "remove",
       );
       if (committed) {
+        // A finished DRAG pins the moved node to pixels: it should now serialize
+        // as `at`, dropping any authored symbolic placement (col/alignY/below/…)
+        // so its file stays honest, while UNTOUCHED nodes keep re-emitting their
+        // symbolic fields (see NodePosition.pinned / serializeArchitecture).
+        const dropped = new Set(
+          changes.flatMap((c) => (c.type === "position" && c.dragging === false ? [c.id] : [])),
+        );
         setNodes((nds) => {
-          scheduleSave(nds, edges);
-          return nds;
+          const next = dropped.size
+            ? nds.map((n) =>
+                dropped.has(n.id) && !(n.data as NodeData).pinned
+                  ? { ...n, data: { ...(n.data as NodeData), pinned: true } }
+                  : n,
+              )
+            : nds;
+          scheduleSave(next, edges);
+          return next;
         });
       }
     },
@@ -478,7 +492,7 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
             targetHandle,
             id,
             type: "flow",
-            zIndex: EDGE_Z, // always on top of every node (see EDGE_Z)
+            zIndex: EDGE_Z, // below nodes (EDGE_Z=0 < NODE_Z=1; see EDGE_Z docblock)
             data: { animated: true },
             style: { stroke: "var(--muted-foreground)", strokeWidth: 1.5, opacity: 0.55 },
             markerEnd: "url(#arrow)",
@@ -554,9 +568,9 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
     () => ({
       editMode, retarget: retargetEdge, nodeAt, rectOf: nodeRect, setDropTarget, portsOf,
       toFlow: (cx: number, cy: number) => screenToFlowPosition({ x: cx, y: cy }),
-      setEdgeCenterX,
+      setEdgeCenterX, setEdgeLabel,
     }),
-    [editMode, retargetEdge, nodeAt, nodeRect, setDropTarget, portsOf, screenToFlowPosition, setEdgeCenterX],
+    [editMode, retargetEdge, nodeAt, nodeRect, setDropTarget, portsOf, screenToFlowPosition, setEdgeCenterX, setEdgeLabel],
   );
 
   // --- Add from library (drop or double-click) ------------------------------
@@ -1473,6 +1487,11 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
           edges={edges}
           nodeTypes={nodeTypes}
           edgeTypes={edgeTypes}
+          // Edges render BELOW nodes by default (EDGE_Z=0 < NODE_Z=1) so a line
+          // tucks under a tile it passes. (No `elevateEdgesOnSelect`: toggling an
+          // edge's z on selection refreshed node internals and transiently dropped
+          // edge handles — every line vanished until the next full re-render. The
+          // endpoint dots draw inside the edge SVG, which is enough to grab.)
           onNodesChange={handleNodesChange}
           onEdgesChange={onEdgesChange}
           onConnect={onConnect}

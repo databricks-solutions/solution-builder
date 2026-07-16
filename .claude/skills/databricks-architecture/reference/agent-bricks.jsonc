@@ -1,0 +1,46 @@
+// =============================================================================
+// AGENT BRICKS — a multi-agent "Agent Bricks" architecture.
+//
+// This is JSONC (JSON + // comments) for YOU, the agent, to read. When you write
+// the project's `architecture.md`, emit PLAIN JSON (no comments) inside a ```json
+// fence — strip these comments.
+//
+// What it shows:
+//   • A data SOURCE (`src-pdf`) aligned to the block it feeds via `alignY` — the
+//     source sits IN its own lane but at the SAME height as the Knowledge
+//     Assistant, so the feed edge is a clean horizontal line (no hand-placed at).
+//   • A "tools" column (Knowledge Assistant · Genie · Hosted MCPs) fanning into a
+//     Supervisor Agent.
+//   • `aibi-dashboards` placed with `below` (relative to the Supervisor) instead
+//     of a hand-computed coordinate.
+//   • `genie-one` as the business-user entry (rotated), with auto-arrow serving
+//     edges (no `flow`) vs. the animated `flow: true` data edges upstream.
+//
+// AUTHOR STRUCTURE, NOT PIXELS: columns + col/row lanes, `alignY`/`below` for
+// relative placement. The renderer computes all coordinates.
+// =============================================================================
+[
+  {
+    "name": "Agent Bricks",
+    "story": "PDF documents feed a Knowledge Assistant — either directly, or landed via the Lakeflow + Genie block's direct-file (raw docs) ingest port and processed by the declarative pipeline before flowing on to the Knowledge Assistant. A Supervisor Agent orchestrates the Knowledge Assistant, Genie, and hosted MCP tool servers, then serves answers to business users through Genie One alongside an AI/BI dashboard.",
+    "columns": ["sources", "tools", "supervisor", "entry"],
+    "nodes": [
+      { "id": "src-pdf", "type": "src-pdf", "col": "sources", "alignY": "knowledge-assistant" },
+      { "id": "knowledge-assistant", "type": "knowledge-assistant", "col": "tools", "row": 1 },
+      { "id": "genie", "type": "genie", "col": "tools", "row": 2 },
+      { "id": "hosted-mcps", "type": "hosted-mcps", "col": "tools", "row": 3 },
+      { "id": "supervisor-agent", "type": "supervisor-agent", "col": "supervisor" },
+      { "id": "aibi-dashboards", "type": "aibi-dashboards", "below": "supervisor-agent" },
+      { "id": "genie-one", "type": "genie-one", "col": "entry", "rot": 90 }
+    ],
+    "edges": [
+      { "id": "e-pdf-ka", "from": "src-pdf@r", "to": "knowledge-assistant@l", "flow": true },
+      { "id": "e-ka-sup", "from": "knowledge-assistant@r", "to": "supervisor-agent@l", "flow": true },
+      { "id": "e-genie-sup", "from": "genie@r", "to": "supervisor-agent@l", "flow": true },
+      { "id": "e-mcp-sup", "from": "hosted-mcps@r", "to": "supervisor-agent@l", "flow": true },
+      { "id": "e-sup-genieone", "from": "supervisor-agent@r", "to": "genie-one@l" },
+      { "id": "e-sup-dash", "from": "supervisor-agent@b", "to": "aibi-dashboards@t", "flow": true },
+      { "id": "e-dash-genieone", "from": "aibi-dashboards@r", "to": "genie-one@l" }
+    ]
+  }
+]

@@ -35,7 +35,14 @@
 //   @in-direct            (files: PDF, CSV/Parquet dumps — travelling-docs flow)
 //   Right port `@r` → the compute layer. Inside the block = Genie Code + SDP
 //   (all bronze→silver→gold) — do NOT add separate sdp / genie-code nodes.
+//
+// TABS: the top level is a JSON ARRAY — each element is one tab (its `name` is
+// the tab label). This file has two: the full end-to-end platform, then a small
+// "Serving layer" tab showing the standard single-row compute/serving tiles
+// (Lakehouse · Lakebase · Model Serving · Hosted MCPs) that share ONE default
+// footprint so a column of them lines up.
 // =============================================================================
+[
 {
   "name": "Data Intelligence Platform — End-to-End Architecture",
   "story": "Sources → one governed Lakeflow + Genie pipeline → lakehouse & lakebase → dashboards, Genie and an app → the business user via Genie One.",
@@ -50,7 +57,7 @@
     { "id": "src-erp",      "type": "source", "col": "sources", "row": 1, "label": "ERP System",  "icon": "file:vendor/sap" },
     { "id": "src-postgres", "type": "source", "col": "sources", "row": 2, "label": "Postgres",    "icon": "file:vendor/postgresql" },
     // A source can position + size its caption; `desc` adds a one-line blurb.
-    { "id": "src-sensors",  "type": "source", "col": "sources", "row": 3, "label": "Sensor data", "icon": "sensorSource",           "caption": "bottom", "fontSize": 12, "desc": "Realtime IoT stream" },
+    { "id": "src-sensors",  "type": "source", "col": "sources", "row": 3, "label": "Sensor data", "icon": "sensorSource",           "fontSize": 12, "desc": "Realtime IoT stream" },
 
     // The ONE processing block (ingest + bronze→silver→gold, built by Genie Code).
     { "id": "lakeflow-genie-block", "type": "lakeflow-genie-block", "col": "pipeline", "desc": "Declarative bronze → silver → gold pipeline — Genie Code describes the transformations, Lakeflow runs them reliably at scale." },
@@ -107,4 +114,23 @@
     { "id": "e13", "from": "genie-one", "to": "aibi-dashboards" },
     { "id": "e14", "from": "genie-one", "to": "databricks-apps-work" }
   ]
+},
+{
+  // Second tab — the standard compute / serving tiles. They carry NO explicit
+  // `size`; each falls to the shared 230×54 default (see naturalSize), so a
+  // single `serving` column lines them up with no hand-tuning.
+  "name": "Serving layer",
+  "columns": ["serving"],
+  "nodes": [
+    { "id": "lakehouse",     "type": "lakehouse",     "col": "serving", "row": 1 },
+    { "id": "lakebase",      "type": "lakebase",      "col": "serving", "row": 2 },
+    { "id": "model-serving", "type": "model-serving", "col": "serving", "row": 3 },
+    { "id": "hosted-mcps",   "type": "hosted-mcps",   "col": "serving", "row": 4 },
+    // A wrapper box around the four tiles: a `type:"box"` node that `wraps` the
+    // child ids. It auto-sizes to enclose them (+ `pad`); `z:-1` puts it behind.
+    { "id": "serving-box", "type": "box", "title": "Serving layer",
+      "wraps": ["lakehouse", "lakebase", "model-serving", "hosted-mcps"], "pad": 28, "z": -1 }
+  ],
+  "edges": []
 }
+]
