@@ -492,7 +492,7 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
             targetHandle,
             id,
             type: "flow",
-            zIndex: EDGE_Z, // always on top of every node (see EDGE_Z)
+            zIndex: EDGE_Z, // below nodes (EDGE_Z=0 < NODE_Z=1; see EDGE_Z docblock)
             data: { animated: true },
             style: { stroke: "var(--muted-foreground)", strokeWidth: 1.5, opacity: 0.55 },
             markerEnd: "url(#arrow)",

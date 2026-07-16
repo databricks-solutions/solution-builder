@@ -208,7 +208,7 @@ export function flowToEdge(e: PlatformEdge): Edge {
     id: e.id,
     source: e.source,
     target: e.target,
-    zIndex: EDGE_Z, // always on top (see EDGE_Z)
+    zIndex: EDGE_Z, // below nodes (EDGE_Z=0 < NODE_Z=1; see EDGE_Z docblock)
     // Restore saved handles (composite port id or side); fall back to the
     // default L→R so older/auto-seeded edges still render.
     sourceHandle: e.sourceHandle ?? "r",

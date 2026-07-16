@@ -99,9 +99,8 @@ export const ComponentNode = memo(function ComponentNode({ data, selected }: Nod
       extraContent={isSdp ? <MedallionRow /> : undefined}
       caption={cap}
       // Both sources and product tiles keep a FIXED box — changing the label must
-      // NOT resize the component. Only a pure `text` annotation auto-fits to its
-      // text (that path lives in annotations.tsx, untouched by this).
-      contentMode="fixed"
+      // NOT resize the component. (Only a pure `text` annotation auto-fits to its
+      // text; that path lives in annotations.tsx, not NodeCard.)
       defaultSize={defaultSize}
       styleVariant="tile"
       muted={muted}

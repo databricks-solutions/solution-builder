@@ -1,14 +1,14 @@
 /**
  * platform-diagram/nodes/node-card — the shared icon + title tile primitive.
  *
- * ONE render for the three "icon + label" node kinds that used to have their
- * own copies:
+ * ONE render for the "icon + label" node kinds that used to have their own
+ * copies:
  *   • product/catalog tiles (ComponentNode)  — brand icon, subtitle, badge,
- *     live dot, optional extra content (SDP medallion), fixed baseSize;
- *   • data sources                           — brand icon, caption position,
- *     auto-fit;
- *   • logo annotations                       — any icon (recolorable), caption
- *     position, auto-fit, box on/off.
+ *     live dot, optional extra content (SDP medallion);
+ *   • data sources                           — brand icon, caption position.
+ * Both use a FIXED box (baseSize or a user resize) — changing the label never
+ * resizes the tile. (Logo annotations render via RotatableCard directly, NOT
+ * through NodeCard; their add-time sizing uses `logoFitSize` in canvas.tsx.)
  *
  * Composites (lakeflow / governance / agent-bricks / …) and the text/box/image
  * annotation variants are NOT built on this — they have their own layouts.
@@ -18,14 +18,13 @@
  * the icon *slot* sizing. Sizing/box/caption/edit all live here so every caller
  * behaves identically.
  */
-import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import {
   RotatableCard,
   cardStyle,
   shadowLevel,
   shadowCss,
   SHADOW_DEFAULT,
-  logoFitSize,
   type NodeData,
 } from "../shared";
 
@@ -77,10 +76,9 @@ export interface NodeCardProps {
   showDescription?: boolean;
   onCommitDescription?: (value: string) => void;
 
-  /** Layout. `caption` positions the icon vs the title. `fixed` uses baseSize/
-   *  manual; `autoFit` measures icon+text and calls onResize on content change. */
+  /** Layout. `caption` positions the icon vs the title. The box is always FIXED
+   *  (baseSize or a user resize) — editing the label doesn't resize it. */
   caption?: CaptionPosition;
-  contentMode: "fixed" | "autoFit";
   /** Default (natural) size used when the box isn't user-resized. */
   defaultSize: { w: number; h: number };
 
@@ -141,28 +139,6 @@ export function NodeCard(p: NodeCardProps) {
   const fontSize = p.fontSize ?? 13;
   const bold = !!p.bold;
 
-  // --- Auto-fit (source/logo): measure icon+text, resize on CONTENT change ---
-  // Signature-guarded exactly like the old logo effect: never fires on
-  // mount/reload (persisted/manual size wins) and never fights a manual resize
-  // (a drag doesn't change the content signature).
-  const autoFit = p.contentMode === "autoFit";
-  const sizingText = editing !== null ? editing : p.title;
-  const fitSig = useRef<string | null>(null);
-  useLayoutEffect(() => {
-    if (!autoFit) { fitSig.current = null; return; }
-    const sig = `${sizingText}|${fontSize}|${bold}|${horizontal}`;
-    if (fitSig.current === sig) return;
-    const first = fitSig.current === null;
-    fitSig.current = sig;
-    if (first) return; // mount/reload → keep the persisted (possibly manual) size
-    const { w, h } = logoFitSize(sizingText, horizontal, fontSize, bold);
-    const W = Math.ceil(w * scale);
-    const H = Math.ceil(h * scale);
-    if (Math.abs((p.w ?? 0) - W) > 1 || Math.abs((p.h ?? 0) - H) > 1) {
-      p.onResize(p.nodeId, W, H);
-    }
-  }, [autoFit, sizingText, fontSize, bold, horizontal, scale, p]);
-
   // Box style. "tile" → the product cardStyle (border + band tint + bg-card);
   // "logo" → transparent, no border/shadow unless a fill/border is set.
   let boxStyle: React.CSSProperties;
@@ -207,7 +183,6 @@ export function NodeCard(p: NodeCardProps) {
     <input
       autoFocus
       value={editing}
-      {...(autoFit ? { size: Math.max(3, editing.length) } : {})}
       onChange={(e) => setEditing(e.target.value)}
       onBlur={commit}
       onKeyDown={(e) => {
@@ -218,9 +193,7 @@ export function NodeCard(p: NodeCardProps) {
       onClick={(e) => e.stopPropagation()}
       onDoubleClick={(e) => e.stopPropagation()}
       placeholder={p.titlePlaceholder}
-      className={`min-w-0 bg-transparent text-[13px] font-semibold outline-none ${
-        autoFit ? (horizontal ? (cap === "left" ? "text-right" : "text-left") : "text-center") : "w-full"
-      } ${p.fontColor ? "" : "text-foreground"}`}
+      className={`min-w-0 w-full bg-transparent text-[13px] font-semibold outline-none ${p.fontColor ? "" : "text-foreground"}`}
       style={p.fontColor ? { color: p.fontColor, fontSize, ...(bold ? { fontWeight: 700 } : {}) } : { fontSize, ...(bold ? { fontWeight: 700 } : {}) }}
     />
   ) : p.title ? (
@@ -230,7 +203,7 @@ export function NodeCard(p: NodeCardProps) {
         // show the full label, single line, allowed to extend past the frame.
         p.styleVariant === "logo"
           ? "whitespace-nowrap font-medium"
-          : `truncate ${autoFit ? "whitespace-nowrap font-medium" : "font-semibold"}`
+          : "truncate font-semibold"
       } text-[13px] ${p.fontColor ? "" : "text-foreground"}`}
       style={{ fontSize, ...(bold ? { fontWeight: 700 } : {}), ...(p.fontColor ? { color: p.fontColor } : {}) }}
       title="Double-click to edit"
@@ -244,7 +217,7 @@ export function NodeCard(p: NodeCardProps) {
     // Logos (hideEmptyTitle) render NOTHING here — the mark fills the tile and
     // double-clicking the icon adds a label (see the icon wrapper below).
     <span
-      className={`min-w-0 truncate text-[13px] italic ${autoFit ? "whitespace-nowrap" : ""} text-muted-foreground/50`}
+      className="min-w-0 truncate text-[13px] italic text-muted-foreground/50"
       style={{ fontSize }}
       title="Double-click to add a label"
       onDoubleClick={(e) => { e.stopPropagation(); setEditing(""); }}
@@ -316,17 +289,8 @@ export function NodeCard(p: NodeCardProps) {
     </span>
   );
 
-  // Icon slot: fixed square when auto-fitting; else fills its flex cell.
-  const iconEl = autoFit ? (
-    <span
-      className={`grid place-items-center ${horizontal ? "h-full shrink-0" : "min-h-0 w-full flex-1"}`}
-      style={horizontal ? { aspectRatio: "1 / 1" } : undefined}
-    >
-      {p.icon}
-    </span>
-  ) : (
-    p.icon
-  );
+  // Icon slot: fills its flex cell (the box is fixed-size).
+  const iconEl = p.icon;
 
   return (
     <RotatableCard
@@ -345,12 +309,13 @@ export function NodeCard(p: NodeCardProps) {
     >
       <div
         onClick={() => p.onSelect(p.nodeId)}
-        // Double-click starts label editing. For autoFit tiles AND for logos
-        // (which hide the empty-title placeholder), so a labelless logo can get
-        // a caption by double-clicking it. `?? ""` so an undefined title still
-        // opens a controlled (focusable) input.
+        // Double-click the whole tile starts label editing for logos (which hide
+        // the empty-title placeholder), so a labelless logo can get a caption by
+        // double-clicking it. `?? ""` so an undefined title still opens a
+        // controlled (focusable) input. (Non-logo tiles edit via the title span's
+        // own double-click handler.)
         onDoubleClick={
-          (autoFit || p.hideEmptyTitle) && p.editMode
+          p.hideEmptyTitle && p.editMode
             ? (e) => { e.stopPropagation(); setEditing(p.title ?? ""); }
             : undefined
         }
@@ -360,7 +325,6 @@ export function NodeCard(p: NodeCardProps) {
           p.styleVariant === "logo" ? "overflow-visible" : "overflow-hidden"
         } ${p.styleVariant === "tile" && !hasFill ? "bg-card" : ""} ${selectedRing(p.selected)}`}
         style={boxStyle}
-        title={autoFit ? "Double-click to edit text · right-click for options" : undefined}
       >
         <div
           className={`flex min-h-0 w-full flex-1 ${horizontal ? "flex-row items-center gap-2.5" : "flex-col items-center justify-center gap-1.5"} ${p.styleVariant === "logo" ? "px-1.5 py-1.5" : "px-3 py-2.5"}`}
