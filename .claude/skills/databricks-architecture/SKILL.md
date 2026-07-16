@@ -323,24 +323,26 @@ Use the `type` id; the renderer supplies the icon, label, default description an
 | `zerobus-ingest` | Lakeflow Zerobus | 200×56 | Real-time, direct ingest of streaming events into the lakehouse. |
 | `sdp` | Lakeflow SDP | 230×112 | Spark Declarative Pipelines — declarative bronze → silver → gold that self-heal and scale. |
 | `uc-volume` | UC Volume | 200×56 | Governed file storage in Unity Catalog — where raw documents (PDFs) land. |
-| `lakeflow-jobs` | Lakeflow Jobs | 230×70 | Orchestrate the whole pipeline on a schedule or trigger. |
+| `lakeflow-jobs` | Lakeflow Jobs | 230×54 | Orchestrate the whole pipeline on a schedule or trigger. |
 | `notebooks-eda` | Notebooks | 200×56 | Interactive exploration and analysis on governed data. |
 | `delta-sharing` | Delta Sharing | 200×56 | Open, cross-org data sharing with no copies. |
 | `marketplace` | Marketplace | 200×56 | Discover and consume third-party data and AI assets. |
-| `lakebase` | Lakebase | 230×70 | Managed Postgres for app state — reads/writes the live queue. |
-| `sql-lakehouse` | Lakehouse | 230×70 | One copy of governed data for BI + AI — real-time queries at scale (SQL Warehouse; RT = Lakehouse Real Time). |
+| `lakebase` | Lakebase | 230×54 | Managed Postgres for app state — reads/writes the live queue. |
+| `sql-lakehouse` | Lakehouse | 230×54 | One copy of governed data for BI + AI — real-time queries at scale (SQL Warehouse; RT = Lakehouse Real Time). |
 
 ### Agentic Work `agentic-work`
 
 | type | label | size | what it is / when to use |
 |------|-------|------|--------------------------|
-| `databricks-apps-work` | Databricks Apps | 230×70 | The custom business app — PREFERRED over the legacy databricks-apps tile. Runs on Lakebase; can embed the dashboard + Genie Room. |
+| `databricks-apps-work` | Databricks Apps | 230×54 | The custom business app — PREFERRED over the legacy databricks-apps tile. Runs on Lakebase; can embed the dashboard + Genie Room. |
 | `genie-one` | Genie One - Mobile app | 230×78 | The business-user / mobile entry point. It has a Business-users persona built IN (a small user icon docked above the Genie One mark) — so you do NOT need a separate file:persona/user node beside it. Wire Genie One --> dashboard / Genie Room / app (auto-arrows; leave `arrow` out). |
-| `genie` | Genie Room | 230×70 | ask anything about your data |
+| `genie` | Genie Room | 230×54 | ask anything about your data |
 | `knowledge-assistant` | Knowledge Assistant | 200×56 | Chat with your documents — grounded, cited answers from unstructured content. |
 | `supervisor-agent` | Supervisor Agent | 200×56 | Routes a question to the right specialist agent and composes the answer. |
 | `agent-bricks` | Agent Bricks | 230×170 | Managed MULTI-agent system: a Supervisor orchestrating Knowledge Assistant / Genie / MCP / Functions (with extraction·parsing·classification chips). Use when the agent layer is a supervisor routing to specialists; if the demo uses only one agent capability, use that single tile instead. |
 | `ml-training-serving` | ML Models | 200×56 | Train, register, and serve models on governed data. |
+| `model-serving` | Model Serving Endpoint | 230×54 | A deployed serving endpoint (real-time inference over a custom/registered model). Use when the demo calls a live endpoint; for the train→register→batch-score story use ml-training-serving instead. |
+| `hosted-mcps` | Hosted MCPs | 230×54 | The governed tool/connector layer for agents — hosted MCP servers (Genie / Atlassian / GitHub / Slack / SharePoint / Gmail …). Use when the demo's agent reaches OUT to external systems via MCP. |
 | `vector-search` | Vector Search | 200×56 | Semantic search and retrieval that grounds agents in your data. |
 | `information-extraction` | Information Extraction | 200×56 | Pull specific data points, entities, and fields from unstructured text (ai_extract). |
 | `document-parsing` | Document Parsing | 200×56 | Extract structured content from documents — text, tables, and metadata (ai_parse_document). |
@@ -352,7 +354,7 @@ Use the `type` id; the renderer supplies the icon, label, default description an
 | type | label | size | what it is / when to use |
 |------|-------|------|--------------------------|
 | `databricks-apps` | Databricks Apps | 200×56 | Custom web app where the team does the work — queue, actions, all in one place. |
-| `ai-bi-dashboard` | AI/BI Dashboard | 230×70 | Governed dashboards on the same data — one set of numbers, one page. |
+| `ai-bi-dashboard` | AI/BI Dashboard | 230×54 | Governed dashboards on the same data — one set of numbers, one page. |
 
 ### Unified Governance `unified-governance`
 
