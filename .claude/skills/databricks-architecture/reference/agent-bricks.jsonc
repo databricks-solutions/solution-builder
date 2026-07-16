@@ -11,7 +11,7 @@
 //     Assistant, so the feed edge is a clean horizontal line (no hand-placed at).
 //   • A "tools" column (Knowledge Assistant · Genie · Hosted MCPs) fanning into a
 //     Supervisor Agent.
-//   • `aibi-dashboards` placed with `below` (relative to the Supervisor) instead
+//   • `ai-bi-dashboard` placed with `below` (relative to the Supervisor) instead
 //     of a hand-computed coordinate.
 //   • `genie-one` as the business-user entry (rotated), with auto-arrow serving
 //     edges (no `flow`) vs. the animated `flow: true` data edges upstream.
@@ -30,7 +30,7 @@
       { "id": "genie", "type": "genie", "col": "tools", "row": 2 },
       { "id": "hosted-mcps", "type": "hosted-mcps", "col": "tools", "row": 3 },
       { "id": "supervisor-agent", "type": "supervisor-agent", "col": "supervisor" },
-      { "id": "aibi-dashboards", "type": "aibi-dashboards", "below": "supervisor-agent" },
+      { "id": "ai-bi-dashboard", "type": "ai-bi-dashboard", "below": "supervisor-agent" },
       { "id": "genie-one", "type": "genie-one", "col": "entry", "rot": 90 }
     ],
     "edges": [
@@ -39,8 +39,8 @@
       { "id": "e-genie-sup", "from": "genie@r", "to": "supervisor-agent@l", "flow": true },
       { "id": "e-mcp-sup", "from": "hosted-mcps@r", "to": "supervisor-agent@l", "flow": true },
       { "id": "e-sup-genieone", "from": "supervisor-agent@r", "to": "genie-one@l" },
-      { "id": "e-sup-dash", "from": "supervisor-agent@b", "to": "aibi-dashboards@t", "flow": true },
-      { "id": "e-dash-genieone", "from": "aibi-dashboards@r", "to": "genie-one@l" }
+      { "id": "e-sup-dash", "from": "supervisor-agent@b", "to": "ai-bi-dashboard@t", "flow": true },
+      { "id": "e-dash-genieone", "from": "ai-bi-dashboard@r", "to": "genie-one@l" }
     ]
   }
 ]

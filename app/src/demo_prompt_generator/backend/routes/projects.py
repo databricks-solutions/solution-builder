@@ -730,7 +730,12 @@ def create_project(
         # concurrently. LLM calls go through the SP client (Apps OBO tokens lack
         # the model-serving scope vocabulary → user-attributed calls 403; the SP
         # has CAN_QUERY on the LLM endpoints via the bundle resource bindings).
-        llm_service = LLMService(ws, config)
+        # Give the metadata LLM its OWN WorkspaceClient so the two futures don't
+        # share one client's connection pool concurrently (databricks-sdk wraps a
+        # requests.Session, documented not-thread-safe). `_find_shared_warehouse`
+        # keeps the shared `ws` — it's cache-backed and usually does no HTTP, so
+        # there's no concurrent request on `ws` in the common case.
+        llm_service = LLMService(WorkspaceClient(), config)
         meta_future = ex.submit(
             _generate_project_metadata, llm_service, body.description
         )
@@ -783,7 +788,16 @@ def create_project(
         mode=body.mode,
     )
     session.add(project)
-    session.commit()
+    try:
+        session.commit()
+    except Exception:
+        # The DB insert failed after we reserved the schema name in the cache —
+        # release it so it isn't skipped forever (harmless no-op if the name came
+        # from the live-query fallback rather than the cache).
+        from ..core import _schema_cache
+        if default_schema:
+            _schema_cache.forget(config.default_catalog, default_schema)
+        raise
     session.refresh(project)
 
     # Provision the default schema on the user's behalf so the agent doesn't
@@ -1282,8 +1296,9 @@ def provision_architecture_project(
         # metadata LLM ∥ warehouse discovery — independent, run concurrently to
         # shave the kickoff latency (the build dialog is waiting on this call
         # before it can send the build prompt). Schema resolve needs both, so it
-        # runs after the join.
-        llm_service = LLMService(ws, config)
+        # runs after the join. The LLM gets its OWN WorkspaceClient so it doesn't
+        # share a connection pool with the (cache-backed) warehouse call.
+        llm_service = LLMService(WorkspaceClient(), config)
         seed = body.description or project.description or project.name
         with ThreadPoolExecutor(max_workers=2) as ex:
             meta_future = ex.submit(_generate_project_metadata, llm_service, seed)

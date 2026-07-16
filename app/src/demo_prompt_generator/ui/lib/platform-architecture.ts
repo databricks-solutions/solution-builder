@@ -560,7 +560,7 @@ type CatalogComponent = Omit<PlatformComponent, "state">;
 export const CATALOG: Record<BandId, CatalogComponent[]> = {
   "agentic-apps": [
     { id: "databricks-apps", label: "Databricks Apps", icon: "databricksApps", desc: "Custom web app where the team does the work — queue, actions, all in one place." },
-    { id: "ai-bi-dashboard", label: "AI/BI Dashboard", icon: "aibiBrand", sublabel: "Analyst consult & build insight", desc: "Governed dashboards on the same data — one set of numbers, one page." },
+    { id: "ai-bi-dashboard", label: "AI/BI Dashboard", icon: "aibiBrand", sublabel: "Analyst consult & build insight", desc: "Governed dashboards on the same data — one set of numbers, one page.", capability: "aibi-dashboards" },
   ],
   "agentic-work": [
     { id: "databricks-apps-work", label: "Databricks Apps", icon: "databricksAppsBrand", sublabel: "Deploy business apps", desc: "Deploy business apps",

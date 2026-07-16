@@ -122,14 +122,14 @@
   "name": "Serving layer",
   "columns": ["serving"],
   "nodes": [
-    { "id": "lakehouse",     "type": "lakehouse",     "col": "serving", "row": 1 },
+    { "id": "sql-lakehouse",     "type": "sql-lakehouse",     "col": "serving", "row": 1 },
     { "id": "lakebase",      "type": "lakebase",      "col": "serving", "row": 2 },
     { "id": "model-serving", "type": "model-serving", "col": "serving", "row": 3 },
     { "id": "hosted-mcps",   "type": "hosted-mcps",   "col": "serving", "row": 4 },
     // A wrapper box around the four tiles: a `type:"box"` node that `wraps` the
     // child ids. It auto-sizes to enclose them (+ `pad`); `z:-1` puts it behind.
     { "id": "serving-box", "type": "box", "title": "Serving layer",
-      "wraps": ["lakehouse", "lakebase", "model-serving", "hosted-mcps"], "pad": 28, "z": -1 }
+      "wraps": ["sql-lakehouse", "lakebase", "model-serving", "hosted-mcps"], "pad": 28, "z": -1 }
   ],
   "edges": []
 }
