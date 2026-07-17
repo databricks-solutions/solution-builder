@@ -9,7 +9,7 @@ import pytest
 import yaml
 
 from evaluation.live import LivePolicy
-from evaluation.runner import _write_live_skillforge_config
+from evaluation.runner import _load_project_resources, _write_live_skillforge_config
 
 
 def _policy() -> LivePolicy:
@@ -62,10 +62,15 @@ def test_skillforge_runtime_shim_redirects_hard_coded_run_roots(
     skillforge_eval = types.ModuleType("skillforge.eval")
     run_isolation = types.ModuleType("skillforge.eval.run_isolation")
     unified_runner = types.ModuleType("skillforge.eval.unified_runner")
+    skillforge_databricks = types.ModuleType("skillforge.databricks")
+    auth = types.ModuleType("skillforge.databricks.auth")
     run_isolation._SKILLFORGE_RUNS = Path.home() / ".skillforge" / "runs"
     unified_runner._SKILLFORGE_RUNS = Path.home() / ".skillforge" / "runs"
+    auth._SF_CONFIG_DIR = Path.home() / ".skillforge"
+    auth._SF_CONFIG_PATH = auth._SF_CONFIG_DIR / "config.yaml"
     skillforge_eval.run_isolation = run_isolation
     skillforge_eval.unified_runner = unified_runner
+    skillforge_databricks.auth = auth
     monkeypatch.setitem(sys.modules, "skillforge", skillforge)
     monkeypatch.setitem(sys.modules, "skillforge.eval", skillforge_eval)
     monkeypatch.setitem(
@@ -74,6 +79,8 @@ def test_skillforge_runtime_shim_redirects_hard_coded_run_roots(
     monkeypatch.setitem(
         sys.modules, "skillforge.eval.unified_runner", unified_runner
     )
+    monkeypatch.setitem(sys.modules, "skillforge.databricks", skillforge_databricks)
+    monkeypatch.setitem(sys.modules, "skillforge.databricks.auth", auth)
     monkeypatch.setenv("SKILLFORGE_HOME", str(tmp_path / "skillforge-home"))
 
     shim = (
@@ -87,3 +94,30 @@ def test_skillforge_runtime_shim_redirects_hard_coded_run_roots(
     expected = tmp_path / "skillforge-home" / "runs"
     assert run_isolation._SKILLFORGE_RUNS == expected
     assert unified_runner._SKILLFORGE_RUNS == expected
+    assert auth._SF_CONFIG_DIR == tmp_path / "skillforge-home"
+    assert auth._SF_CONFIG_PATH == tmp_path / "skillforge-home" / "config.yaml"
+
+
+def test_project_resource_scan_excludes_copied_skills(tmp_path: Path) -> None:
+    authored = tmp_path / "comparison" / "a" / "with" / "resources.json"
+    authored.parent.mkdir(parents=True)
+    authored.write_text(
+        '{"catalog":"sb_eval_created"}\n', encoding="utf-8"
+    )
+    reference = (
+        tmp_path
+        / "comparison"
+        / "a"
+        / "with"
+        / ".claude"
+        / "skills"
+        / "demo"
+        / "references"
+        / "resources.json"
+    )
+    reference.parent.mkdir(parents=True)
+    reference.write_text('{"catalog":"production"}\n', encoding="utf-8")
+
+    assert [resource.key for resource in _load_project_resources(tmp_path)] == [
+        "catalog:sb_eval_created"
+    ]

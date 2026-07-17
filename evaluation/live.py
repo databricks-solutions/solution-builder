@@ -281,6 +281,16 @@ RESOURCE_KEYS: dict[str, str] = {
     "mlflow_experiment_path": "mlflow_experiment",
 }
 
+RESOURCE_NAME_KEYS: dict[str, str] = {
+    "pipeline_id": "pipeline_name",
+    "dashboard_id": "dashboard_name",
+    "genie_space_id": "genie_space_name",
+    "knowledge_assistant_id": "knowledge_assistant_name",
+    "knowledge_assistant_endpoint": "knowledge_assistant_endpoint",
+    "multi_agent_supervisor_id": "multi_agent_supervisor_name",
+    "multi_agent_supervisor_endpoint": "multi_agent_supervisor_endpoint",
+}
+
 
 def resources_from_manifest(
     path: Path, *, side: str | None = None
@@ -298,11 +308,14 @@ def resources_from_manifest(
             resource_id = str(value)
             if key == "schema" and created.get("catalog") and "." not in resource_id:
                 resource_id = f"{created['catalog']}.{resource_id}"
+            resource_name = str(
+                created.get(RESOURCE_NAME_KEYS.get(key, "")) or resource_id
+            )
             records.append(
                 ResourceRecord(
                     resource_type=resource_type,
                     resource_id=resource_id,
-                    name=resource_id,
+                    name=resource_name,
                     side=side,
                 )
             )
@@ -551,6 +564,22 @@ class DatabricksCliCleaner:
         elif resource.resource_type in {"cluster", "warehouse", "vector_endpoint"}:
             scoped_parts = (resource.name or rid,)
             minimum_parts = 1
+        elif resource.resource_type in {
+            "app",
+            "serving_endpoint",
+            "pipeline",
+            "job",
+            "dashboard",
+            "genie_space",
+            "knowledge_assistant",
+            "multi_agent_supervisor",
+        }:
+            name = (resource.name or "").strip()
+            if not name.startswith(prefix):
+                raise RuntimeError(
+                    f"refusing to delete {resource.key}: outside evaluation prefix {prefix!r}"
+                )
+            return
         elif resource.resource_type in {"notebook", "mlflow_experiment"}:
             path_parts = tuple(
                 part for part in (resource.name or rid).split("/") if part

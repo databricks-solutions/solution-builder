@@ -141,7 +141,8 @@ def _load_tracked_resources(home: Path) -> list[ResourceRecord]:
 def _load_project_resources(search_root: Path) -> list[ResourceRecord]:
     resources: list[ResourceRecord] = []
     for path in search_root.glob("**/resources.json"):
-        if ".skillforge" in path.parts or "skillforge-home" in path.parts:
+        relative_parts = path.relative_to(search_root).parts
+        if ".skillforge" in relative_parts or ".claude" in relative_parts:
             continue
         try:
             resources.extend(resources_from_manifest(path))
@@ -348,7 +349,10 @@ def run_scenario(
         )
 
     tracked = _load_tracked_resources(skillforge_home)
-    manifests = _load_project_resources(scenario_dir)
+    # Agent-authored manifests live in the per-side run cwd. Never scan the
+    # copied fixture skill: it contains reference-demo resources.json files
+    # that are examples, not resources created by this evaluation.
+    manifests = _load_project_resources(skillforge_home / "runs")
     resources = reconcile_resources(tracked, manifests)
     cleanup = CleanupStatus(attempted=live, complete=not live)
     status = "passed"

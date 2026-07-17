@@ -330,15 +330,17 @@ def test_capabilities_derive_resource_kinds_with_overrides() -> None:
             ],
         ),
         (
-            ResourceRecord("dashboard", "dashboard-id"),
+            ResourceRecord("dashboard", "dashboard-id", name="sb_eval_dashboard"),
             ["databricks", "lakeview", "trash", "dashboard-id"],
         ),
         (
-            ResourceRecord("genie_space", "space-id"),
+            ResourceRecord("genie_space", "space-id", name="sb_eval_genie"),
             ["databricks", "genie", "trash-space", "space-id"],
         ),
         (
-            ResourceRecord("knowledge_assistant", "ka-id"),
+            ResourceRecord(
+                "knowledge_assistant", "ka-id", name="sb_eval_knowledge_assistant"
+            ),
             [
                 "databricks",
                 "knowledge-assistants",
@@ -347,7 +349,9 @@ def test_capabilities_derive_resource_kinds_with_overrides() -> None:
             ],
         ),
         (
-            ResourceRecord("multi_agent_supervisor", "mas-id"),
+            ResourceRecord(
+                "multi_agent_supervisor", "mas-id", name="sb_eval_supervisor"
+            ),
             [
                 "databricks",
                 "api",
@@ -398,7 +402,7 @@ def test_databricks_cleaner_verifies_absence_after_delete(
     monkeypatch.setattr("evaluation.live.subprocess.run", fake_subprocess_run)
     backend = DatabricksCliCleaner(_policy())
     report = ResourceCleaner(backend.delete, backend.exists, retries=1).cleanup(
-        [ResourceRecord("pipeline", "pipeline-id")]
+        [ResourceRecord("pipeline", "pipeline-id", name="sb_eval_pipeline")]
     )
     assert report.complete
     assert [call[1:3] for call in calls] == [
@@ -448,3 +452,11 @@ def test_destructive_uc_cleanup_refuses_out_of_scope_name() -> None:
         backend.delete(ResourceRecord("table", "production.default.customers"))
     with pytest.raises(RuntimeError, match="outside evaluation prefix"):
         backend.delete(ResourceRecord("mlflow_experiment", "/Shared/production"))
+    with pytest.raises(RuntimeError, match="outside evaluation prefix"):
+        backend.delete(
+            ResourceRecord("pipeline", "opaque-id", name="production-pipeline")
+        )
+    with pytest.raises(RuntimeError, match="outside evaluation prefix"):
+        backend.delete(
+            ResourceRecord("dashboard", "opaque-id", name="production-dashboard")
+        )
