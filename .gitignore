@@ -39,6 +39,9 @@ screenshot-eval/
 # tests/pipeline/ harness output
 test-runs/
 
+# Maintainer evaluation dependency checkouts (never packaged or deployed)
+.deps/
+
 # Python caches
 __pycache__/
 *.pyc

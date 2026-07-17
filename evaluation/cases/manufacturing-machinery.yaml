@@ -1,0 +1,97 @@
+schema_version: 1
+id: manufacturing-machinery
+skill: databricks-demo-generator
+description: >-
+  Warranty optimization demo for a heavy-machinery OEM (Manufacturing >
+  Machinery sub-vertical). Synthetic warranty claims and telemetry land in
+  Delta, Genie answers cost questions, a supervisor routes work, and a
+  Databricks App supports field service.
+capabilities: [synthetic-data-gen, genie, supervisor-agent, databricks-apps]
+timeout_seconds: 3600
+target_stage: BUILT
+live_resources:
+  cleanup_owner: solution-builder
+  expected_resource_kinds: [catalog, schema, table, genie_space, multi_agent_supervisor, serving_endpoint, app]
+  additional_resource_kinds: []
+  evaluation_prefix: sb_eval_
+steps:
+  - id: capture-story
+    prompt: >-
+      Build a warranty-optimization demo for a heavy-machinery OEM
+      (Manufacturing > Machinery sub-vertical). Use synthetic-data-gen to
+      create warranty claims and machine-telemetry tables in Delta, stand up a
+      Genie space over the Gold warranty tables for ad-hoc cost/failure-mode
+      questions, wire a multi-agent supervisor that routes between Genie
+      (quantitative) and a claims-triage agent, and ship a Databricks App
+      (FastAPI + React) where a field-service manager can inspect a claim and
+      see the supervisor's recommendation.
+    expected_project_stage: SUMMARIZED
+    required_artifacts:
+      - {path: README.md, description: Approved warranty story}
+      - {path: resources.json, description: Capability and resource manifest}
+    semantic_assertions:
+      - The field-service workflow gives synthetic telemetry, warranty costs, Genie, supervisor routing, and the app distinct connected roles.
+    expected_facts: [The demo is for a heavy-machinery OEM and includes Genie, a supervisor, and a field-service app.]
+    expected_patterns: ['(?i)warranty', '(?i)(field.service|machinery)']
+    tool_expectations: {required: [Read, Write], banned: []}
+    verification_commands:
+      - fact: README.md and resources.json exist after story capture.
+        command: "bash -lc 'test -f README.md && test -f resources.json && echo {\"ok\":true}'"
+        check: .ok == true
+    regression_intent: Detects disconnected app, supervisor, or data stories and regressions to a generic manufacturing vertical.
+    sources:
+      - &skill_source
+        type: github
+        uri: repo://.claude/skills/databricks-demo-generator/SKILL.md
+        title: Databricks Demo Generator workflow and app guidance
+        retrieved_at: 2026-07-17T00:00:00Z
+        snippet: Every showcased product earns a clear beat, and app creation is folded into specification and build stages.
+  - id: design-architecture
+    prompt: Looks good — proceed to architect the pipeline and produce architecture.md.
+    expected_project_stage: ARCHITECTED
+    required_artifacts: [{path: architecture.md, description: Renderable architecture diagram JSON}]
+    semantic_assertions:
+      - The architecture connects claims and telemetry through Gold data to Genie, supervisor routing, and the app.
+    expected_facts: [The project contains architecture.md.]
+    expected_patterns: ['architecture\.md', '(?i)(genie|supervisor|app)']
+    tool_expectations: {required: [Read, Write], banned: []}
+    verification_commands:
+      - fact: architecture.md exists and is not empty.
+        command: "bash -lc 'test -s architecture.md && echo {\"ok\":true}'"
+        check: .ok == true
+    regression_intent: Detects missing routing, app, or data-flow nodes in a selected full-stack scenario.
+    sources: [*skill_source]
+  - id: write-specifications
+    prompt: Now write the specifications for each component (specifications/*.md) — synthetic data tables, Genie space, supervisor agent, and the Databricks App.
+    expected_project_stage: SPECIFICATION
+    required_artifacts: [{path: specifications/*.md, description: Functional component specifications}]
+    semantic_assertions:
+      - Specs preserve claim identifiers, failure modes, cost measures, routing criteria, and app interactions across components.
+    expected_facts: [Specifications cover synthetic data, Genie, the supervisor, and the Databricks App.]
+    expected_patterns: ['specifications/', '(?i)(claim|telemetry)']
+    tool_expectations: {required: [Read, Write], banned: []}
+    verification_commands:
+      - fact: At least one Markdown specification exists.
+        command: "bash -lc 'find specifications -name \"*.md\" -type f -print -quit | grep -q . && echo {\"ok\":true}'"
+        check: .ok == true
+    regression_intent: Detects interface drift between data, Genie, supervisor tools, and the app experience.
+    sources: [*skill_source]
+  - id: build-demo
+    prompt: "Build it: write the SQL/Python for synthetic data, the Genie config, the supervisor agent definition, the app code, and capture deployed resource IDs in resources.json."
+    expected_project_stage: BUILT
+    required_artifacts:
+      - {path: resources.json, description: Populated deployed resource manifest}
+      - {path: app/**, description: Databricks App implementation}
+      - {path: '**/*.{py,sql,json}', description: Buildable implementation artifacts}
+    semantic_assertions:
+      - App, supervisor, Genie, and data artifacts implement the approved contracts and resources.json records validated IDs.
+      - Live resource names use the evaluation namespace supplied in the environment when present.
+    expected_facts: [Data code, Genie config, supervisor definition, app code, and resource identifiers are produced.]
+    expected_patterns: ['resources\.json', '(?i)(supervisor|app|genie)']
+    tool_expectations: {required: [Read, Write], banned: []}
+    verification_commands:
+      - fact: resources.json is valid JSON and app plus data code exists.
+        command: "bash -lc 'python3 -m json.tool resources.json >/dev/null && test -d app && find . -type f -name \"*.py\" -print -quit | grep -q . && echo {\"ok\":true}'"
+        check: .ok == true
+    regression_intent: Detects incomplete full-stack builds, stale IDs, or resources that cannot be isolated and cleaned.
+    sources: [*skill_source]

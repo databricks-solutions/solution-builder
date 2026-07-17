@@ -1,0 +1,163 @@
+version: '5'
+test_cases:
+- id: financial-services--01-capture-story
+  inputs:
+    prompt: Build a fraud-detection demo for a retail bank. Use synthetic credit-card
+      transactions, an anomaly-detection pattern, a Genie space for ad-hoc questions,
+      and an AI/BI dashboard for the trend view.
+  expectations:
+    expected_facts:
+    - The proposed demo uses synthetic credit-card transactions, Genie, and an AI/BI
+      dashboard.
+    - fact: README.md and resources.json exist after story capture.
+      verify_cmd: bash -lc 'test -f README.md && test -f resources.json && echo {"ok":true}'
+      verify_check: .ok == true
+    assertions:
+    - The story has a named banking protagonist, a concrete fraud catalyst, and quantified
+      business impact.
+    - Synthetic transactions, the anomaly narrative, Genie questions, and dashboard
+      measures form one coherent story.
+    expected_patterns:
+    - (?i)fraud
+    - (?i)(revenue|loss|risk|\$)
+    trace_expectations:
+      required_tools:
+      - Read
+      - Write
+      banned_tools: []
+      token_budget:
+        max_total: 80000
+    guidelines:
+    - 'Expected project stage after this step: SUMMARIZED'
+    - 'Required artifacts: README.md, resources.json'
+  metadata:
+    category: happy_path
+    difficulty: intermediate
+    generation_session_id: 5edf0889-9b05-5e3d-ab3d-326591ec1a17
+    regression_intent: Detects generic fraud stories whose selected products or generated
+      data do not support the same investigation.
+    sources:
+    - type: github
+      uri: repo://.claude/skills/databricks-demo-generator/SKILL.md
+      title: Databricks Demo Generator workflow and coherence contract
+      retrieved_at: '2026-07-17T00:00:00Z'
+      snippet: Story first and coherence above all; every showcased product must earn
+        a clear beat in the walkthrough.
+- id: financial-services--02-design-architecture
+  inputs:
+    prompt: Looks good — proceed to architect the pipeline and produce architecture.md.
+  expectations:
+    expected_facts:
+    - The project contains architecture.md.
+    - fact: architecture.md exists and is not empty.
+      verify_cmd: bash -lc 'test -s architecture.md && echo {"ok":true}'
+      verify_check: .ok == true
+    assertions:
+    - The architecture connects transaction generation to governed data, Genie, and
+      the dashboard without orphan components.
+    expected_patterns:
+    - architecture\.md
+    - (?i)(genie|dashboard)
+    trace_expectations:
+      required_tools:
+      - Read
+      - Write
+      banned_tools: []
+      token_budget:
+        max_total: 80000
+    guidelines:
+    - 'Expected project stage after this step: ARCHITECTED'
+    - 'Required artifacts: architecture.md'
+  metadata:
+    category: happy_path
+    difficulty: intermediate
+    generation_session_id: cdae271d-b326-5c95-9b8d-a8853f2c8f99
+    regression_intent: Detects architecture output that omits a selected capability
+      or breaks the end-to-end data flow.
+    sources:
+    - type: github
+      uri: repo://.claude/skills/databricks-demo-generator/SKILL.md
+      title: Databricks Demo Generator workflow and coherence contract
+      retrieved_at: '2026-07-17T00:00:00Z'
+      snippet: Story first and coherence above all; every showcased product must earn
+        a clear beat in the walkthrough.
+- id: financial-services--03-write-specifications
+  inputs:
+    prompt: Now write the specifications for each component (specifications/*.md).
+  expectations:
+    expected_facts:
+    - Per-component specifications are written under specifications/.
+    - fact: At least one Markdown specification exists.
+      verify_cmd: bash -lc 'find specifications -name "*.md" -type f -print -quit
+        | grep -q . && echo {"ok":true}'
+      verify_check: .ok == true
+    assertions:
+    - Specifications define compatible transaction fields, fraud measures, dashboard
+      visuals, and Genie questions.
+    expected_patterns:
+    - specifications/
+    - (?i)(transaction|anomal)
+    trace_expectations:
+      required_tools:
+      - Read
+      - Write
+      banned_tools: []
+      token_budget:
+        max_total: 80000
+    guidelines:
+    - 'Expected project stage after this step: SPECIFICATION'
+    - 'Required artifacts: specifications/*.md'
+  metadata:
+    category: happy_path
+    difficulty: intermediate
+    generation_session_id: e49ead5c-4903-5c55-a315-9b62c6591b68
+    regression_intent: Detects specs that are individually plausible but disagree
+      on schemas, measures, or the investigation path.
+    sources:
+    - type: github
+      uri: repo://.claude/skills/databricks-demo-generator/SKILL.md
+      title: Databricks Demo Generator workflow and coherence contract
+      retrieved_at: '2026-07-17T00:00:00Z'
+      snippet: Story first and coherence above all; every showcased product must earn
+        a clear beat in the walkthrough.
+- id: financial-services--04-build-demo
+  inputs:
+    prompt: 'Build it: write the SQL/Python and capture deployed resource IDs in resources.json.'
+  expectations:
+    expected_facts:
+    - SQL or Python implementation artifacts and resource identifiers are produced.
+    - fact: resources.json is valid JSON and implementation code exists.
+      verify_cmd: bash -lc 'python3 -m json.tool resources.json >/dev/null && find
+        . -type f -name "*.py" -print -quit | grep -q . && echo {"ok":true}'
+      verify_check: .ok == true
+    assertions:
+    - Build artifacts implement the approved specifications and resources.json records
+      only resources actually created.
+    - Live resource names use the evaluation namespace supplied in the environment
+      when present.
+    expected_patterns:
+    - resources\.json
+    - (?i)(sql|python|dashboard|genie)
+    trace_expectations:
+      required_tools:
+      - Read
+      - Write
+      banned_tools: []
+      token_budget:
+        max_total: 80000
+    guidelines:
+    - 'Expected project stage after this step: BUILT'
+    - 'Required artifacts: resources.json, **/*.{py,sql,json}'
+  metadata:
+    category: happy_path
+    difficulty: hard
+    generation_session_id: c883ee3d-ce79-5194-8273-98423bfd17ce
+    regression_intent: Detects claimed builds with placeholders, missing code, dead
+      resource links, or resources outside the evaluation namespace.
+    sources:
+    - type: github
+      uri: repo://.claude/skills/databricks-demo-generator/SKILL.md
+      title: Databricks Demo Generator workflow and coherence contract
+      retrieved_at: '2026-07-17T00:00:00Z'
+      snippet: Story first and coherence above all; every showcased product must earn
+        a clear beat in the walkthrough.

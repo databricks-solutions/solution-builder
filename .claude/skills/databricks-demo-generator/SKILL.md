@@ -29,7 +29,16 @@ The main loop lives in this file (SKILL.md) — it describes **the flow**: stage
 
 ## Paths
 
-Your system prompt defines `PROJECT`, `SKILLS`, `DEMO_SKILL_DIR`, and `DEMO_SKILL` as absolute paths. This skill refers to sibling files like `DEMO_SKILL_DIR/stages/*.md`, `DEMO_SKILL_DIR/app/app.md`, `DEMO_SKILL_DIR/references/*`.
+Your system prompt normally defines `PROJECT`, `SKILLS`, `DEMO_SKILL_DIR`, and `DEMO_SKILL` as absolute paths. This skill refers to sibling files like `DEMO_SKILL_DIR/stages/*.md`, `DEMO_SKILL_DIR/app/app.md`, `DEMO_SKILL_DIR/references/*`.
+
+When those injected aliases are absent (for example in a maintainer evaluation fixture), self-locate before reading any references:
+
+- `PROJECT` is the execution working directory.
+- `SKILLS` is `PROJECT/.claude/skills`.
+- `DEMO_SKILL_DIR` is `SKILLS/databricks-demo-generator`.
+- `DEMO_SKILL` is `DEMO_SKILL_DIR/SKILL.md`.
+
+Resolve and use absolute paths from those fallbacks. Injected aliases, when present, remain authoritative.
 
 **When spawning subagents**, substitute every placeholder (`DEMO_SKILL_DIR/…`, `PROJECT/…`, `SKILLS/…`) with its real absolute path before sending — the subagent has no system prompt defining them. The full spawn prompt is in `DEMO_SKILL_DIR/stages/03-build.md` → Step 2.
 

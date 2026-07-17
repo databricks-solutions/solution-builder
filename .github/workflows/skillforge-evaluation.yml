@@ -1,0 +1,148 @@
+name: SkillForge evaluation
+
+on:
+  pull_request:
+    paths:
+      - ".claude/skills/databricks-demo-generator/**"
+      - "evaluation/**"
+      - "tests/evaluation/**"
+      - "tests/pipeline/scenarios.py"
+      - ".github/workflows/skillforge-evaluation.yml"
+  workflow_dispatch:
+    inputs:
+      scenario:
+        description: Canonical scenario id or all
+        required: true
+        default: all
+        type: string
+
+concurrency:
+  group: skillforge-${{ github.event_name == 'workflow_dispatch' && 'live' || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate-and-quick-eval:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+      - uses: astral-sh/setup-uv@e92bafb6253dcd438e0484186d7669ea7a8ca1cc # v6
+        with:
+          enable-cache: true
+      - name: Install maintainer environment
+        run: uv sync --group dev --locked
+      - name: Validate canonical cases
+        run: uv run sb-eval cases validate
+      - name: Run maintainer contract tests
+        run: uv run pytest -q
+      - name: Read pinned revisions
+        id: pins
+        run: |
+          uv run python - <<'PY' >> "$GITHUB_OUTPUT"
+          from evaluation.toolchain import load_lock
+          lock = load_lock()
+          print(f"skillforge_repo={lock.skillforge_repository.removesuffix('.git').removeprefix('https://github.com/')}")
+          print(f"skillforge_revision={lock.skillforge_revision}")
+          print(f"ai_dev_kit_repo={lock.ai_dev_kit_repository.removesuffix('.git').removeprefix('https://github.com/')}")
+          print(f"ai_dev_kit_revision={lock.ai_dev_kit_revision}")
+          PY
+      - name: Checkout pinned SkillForge
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+        with:
+          repository: ${{ steps.pins.outputs.skillforge_repo }}
+          ref: ${{ steps.pins.outputs.skillforge_revision }}
+          token: ${{ secrets.SKILLFORGE_READ_TOKEN }}
+          path: .deps/skillforge
+      - name: Checkout pinned ai-dev-kit
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+        with:
+          repository: ${{ steps.pins.outputs.ai_dev_kit_repo }}
+          ref: ${{ steps.pins.outputs.ai_dev_kit_revision }}
+          path: .deps/ai-dev-kit
+      - name: Install pinned external SkillForge
+        run: uv tool install '.deps/skillforge/python[all]'
+      - name: Informational L1/L3 evaluation
+        id: quick-eval
+        continue-on-error: true
+        env:
+          SB_EVAL_AI_DEV_KIT_DIR: ${{ github.workspace }}/.deps/ai-dev-kit
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: uv run sb-eval run --levels L1,L3
+      - name: Upload evaluation reports
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: skillforge-quick-${{ github.run_id }}
+          path: test-runs/skillforge/
+          if-no-files-found: warn
+
+  full-live-eval:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    environment: solution-builder-live-evaluation
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+      - uses: astral-sh/setup-uv@e92bafb6253dcd438e0484186d7669ea7a8ca1cc # v6
+        with:
+          enable-cache: true
+      - name: Install maintainer environment
+        run: uv sync --group dev --locked
+      - name: Validate canonical cases
+        run: uv run sb-eval cases validate
+      - name: Run maintainer contract tests
+        run: uv run pytest -q
+      - name: Read pinned revisions
+        id: pins
+        run: |
+          uv run python - <<'PY' >> "$GITHUB_OUTPUT"
+          from evaluation.toolchain import load_lock
+          lock = load_lock()
+          print(f"skillforge_repo={lock.skillforge_repository.removesuffix('.git').removeprefix('https://github.com/')}")
+          print(f"skillforge_revision={lock.skillforge_revision}")
+          print(f"ai_dev_kit_repo={lock.ai_dev_kit_repository.removesuffix('.git').removeprefix('https://github.com/')}")
+          print(f"ai_dev_kit_revision={lock.ai_dev_kit_revision}")
+          PY
+      - name: Checkout pinned SkillForge
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+        with:
+          repository: ${{ steps.pins.outputs.skillforge_repo }}
+          ref: ${{ steps.pins.outputs.skillforge_revision }}
+          token: ${{ secrets.SKILLFORGE_READ_TOKEN }}
+          path: .deps/skillforge
+      - name: Checkout pinned ai-dev-kit
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+        with:
+          repository: ${{ steps.pins.outputs.ai_dev_kit_repo }}
+          ref: ${{ steps.pins.outputs.ai_dev_kit_revision }}
+          path: .deps/ai-dev-kit
+      - name: Install pinned external SkillForge
+        run: uv tool install '.deps/skillforge/python[all]'
+      - name: Configure dedicated non-production profile
+        env:
+          DATABRICKS_HOST: ${{ secrets.SB_EVAL_DATABRICKS_HOST }}
+          DATABRICKS_TOKEN: ${{ secrets.SB_EVAL_DATABRICKS_TOKEN }}
+        run: |
+          mkdir -p "$HOME/.databricks"
+          printf '[solution-builder-eval]\nhost = %s\ntoken = %s\n' "$DATABRICKS_HOST" "$DATABRICKS_TOKEN" > "$HOME/.databrickscfg"
+          chmod 600 "$HOME/.databrickscfg"
+      - name: Full manual L1-L5 live evaluation
+        env:
+          SB_EVAL_AI_DEV_KIT_DIR: ${{ github.workspace }}/.deps/ai-dev-kit
+          SB_EVAL_DATABRICKS_PROFILE: solution-builder-eval
+          SB_EVAL_ALLOWED_PROFILES: solution-builder-eval
+          SB_EVAL_ALLOWED_HOSTS: ${{ secrets.SB_EVAL_DATABRICKS_HOST }}
+          DATABRICKS_HOST: ${{ secrets.SB_EVAL_DATABRICKS_HOST }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          SB_EVAL_SCENARIO: ${{ inputs.scenario }}
+        run: uv run sb-eval run --levels all --live --scenario "$SB_EVAL_SCENARIO"
+      - name: Upload evaluation reports
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: skillforge-live-${{ github.run_id }}
+          path: test-runs/skillforge/
+          if-no-files-found: error

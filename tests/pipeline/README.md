@@ -12,7 +12,7 @@ You'll spend FMAPI tokens. Plan for ~45–60 min per full run.
 ## Run
 
 ```bash
-tests/pipeline/run.sh                              # all 3 scenarios, target=BUILT
+tests/pipeline/run.sh                              # all 4 scenarios, target=BUILT
 tests/pipeline/run.sh --scenario healthcare       # single scenario
 tests/pipeline/run.sh --target SPECIFICATION      # cheaper (~15 min)
 tests/pipeline/run.sh --scenario-timeout 1800     # 30 min/scenario cap
@@ -59,10 +59,15 @@ Otherwise FAIL — the per-scenario `README.md` lists every issue.
 
 ## Add a scenario
 
-Append a `Scenario(...)` to `SCENARIOS` in `scenarios.py`. Capability slugs
-must match filenames (without `.md`) in
-`.claude/skills/databricks-demo-generator/references/blocks/capabilities/`.
-A new scenario runs in parallel with the rest automatically — no other wiring.
+Add and validate a canonical case under `evaluation/cases/`:
+
+```bash
+uv run sb-eval cases validate
+```
+
+Capability slugs must match the demo-generator capability blocks. The pipeline
+harness and SkillForge adapter both load the same versioned YAML, so a new case
+runs in parallel here without a second hardcoded definition.
 
 ## Files
 
@@ -71,7 +76,7 @@ A new scenario runs in parallel with the rest automatically — no other wiring.
 | `run.sh` | Bootstrap: ensure backend, run pytest, surface summary path. |
 | `test_pipeline.py` | Pytest entry. Fans out scenarios via `asyncio.gather`. |
 | `runner.py` | `drive_project()`: create → invoke per turn → snapshot. |
-| `scenarios.py` | The 3 hardcoded scenarios + `Scenario` dataclass. |
+| `scenarios.py` | Compatibility loader for canonical `evaluation/cases/*.yaml`. |
 | `assertions.py` | Pure pass/fail helpers (stage, errors, artifacts). |
 | `api_client.py` | `httpx.AsyncClient` wrapper + SSE consumer with reconnect. |
 | `conftest.py` | Pytest fixtures: scenario selection, output dir, health check. |

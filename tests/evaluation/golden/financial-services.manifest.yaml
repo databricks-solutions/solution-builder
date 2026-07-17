@@ -1,0 +1,28 @@
+skill_name: databricks-demo-generator
+description: 'Solution Builder canonical scenario: financial-services'
+shared_cwd: true
+tool_modules: []
+comparison_judge:
+  rubric_file: comparison_rubric.md
+  dimensions:
+  - correctness
+  - coherence
+  - safety
+  - artifact_quality
+  anti_bias:
+  - Treat the target skill as WITH and the control skill as WITHOUT.
+  - Do not reward verbosity or tool-call count.
+  - Attribute shared-cwd cascading failures to their earliest causal case.
+solution_builder:
+  scenario_id: financial-services
+  capabilities:
+  - genie
+  - aibi-dashboards
+  - synthetic-data-gen
+  expected_resource_kinds:
+  - catalog
+  - schema
+  - table
+  - dashboard
+  - genie_space
+  cleanup_owner: solution-builder

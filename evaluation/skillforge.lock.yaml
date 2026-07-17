@@ -1,0 +1,15 @@
+schema_version: 1
+skillforge:
+  repository: https://github.com/databricks-field-eng/skillforge.git
+  revision: ef9b6fb851e7f80c3765bb1eba4e6a5b16581ff9
+  version: 0.1.0
+  executable: stf
+  required_features:
+    - recursive-skill-discovery
+    - complete-skill-content-hash
+    - per-side-lifecycle-hooks
+    - extended-databricks-resource-tracking
+ai_dev_kit:
+  repository: https://github.com/databricks-solutions/ai-dev-kit.git
+  revision: 8cb4456543d6413e8a12923d4d4b5394fea89b25
+  skills_subdirectory: databricks-skills
