@@ -10,6 +10,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 from evaluation.adapter import SkillForgeAdapter
 from evaluation.fixture import build_fixture
 from evaluation.hashing import hash_skill
@@ -84,6 +86,35 @@ def _git_sha(repo_root: Path) -> str:
         text=True,
     )
     return completed.stdout.strip()
+
+
+def _write_live_skillforge_config(home: Path, policy: LivePolicy) -> Path:
+    """Pin SkillForge's workspace and MLflow routing for a guarded live run."""
+    experiment = os.environ.get(
+        "SB_EVAL_MLFLOW_EXPERIMENT", "/Shared/sb_eval_skillforge_evals"
+    ).strip()
+    experiment_name = experiment.rsplit("/", 1)[-1]
+    if not experiment.startswith("/") or not experiment_name.startswith(
+        policy.evaluation_prefix
+    ):
+        raise ValueError(
+            "live MLflow experiment must be an absolute path whose name starts "
+            f"with {policy.evaluation_prefix!r}"
+        )
+    home.mkdir(parents=True, exist_ok=True)
+    path = home / "config.yaml"
+    path.write_text(
+        yaml.safe_dump(
+            {
+                "databricks": {"profile": policy.profile},
+                "mlflow": {"enabled": True, "experiment": experiment},
+                "llm": {"backend": "fmapi"},
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+    return path
 
 
 def _load_tracked_resources(home: Path) -> list[ResourceRecord]:
@@ -248,7 +279,10 @@ def run_scenario(
     if live:
         env["SB_EVAL_LIVE"] = "1"
         # Validate before the external runner can make a tool call.
-        LivePolicy.from_env(scenario.live_resources.evaluation_prefix)
+        policy = LivePolicy.from_env(scenario.live_resources.evaluation_prefix)
+        _write_live_skillforge_config(skillforge_home, policy)
+        env["DATABRICKS_CONFIG_PROFILE"] = policy.profile
+        env["DATABRICKS_HOST"] = policy.host
     completed = subprocess.run(
         command,
         cwd=repo_root,
