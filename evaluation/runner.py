@@ -274,7 +274,6 @@ def run_scenario(
     if judge_model:
         command.extend(["--judge-model", judge_model])
     env = os.environ.copy()
-    env["SKILLFORGE_HOME"] = str(skillforge_home)
     env["SB_EVAL_PREFIX"] = scenario.live_resources.evaluation_prefix
     if live:
         env["SB_EVAL_LIVE"] = "1"
@@ -283,6 +282,12 @@ def run_scenario(
         _write_live_skillforge_config(skillforge_home, policy)
         env["DATABRICKS_CONFIG_PROFILE"] = policy.profile
         env["DATABRICKS_HOST"] = policy.host
+    env["SKILLFORGE_HOME"] = str(skillforge_home)
+    shim_dir = Path(__file__).resolve().parent / "skillforge_runtime"
+    python_path = env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = os.pathsep.join(
+        item for item in (str(shim_dir), python_path) if item
+    )
     completed = subprocess.run(
         command,
         cwd=repo_root,
