@@ -26,6 +26,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    env:
+      HAS_QUICK_EVAL_SECRETS: ${{ secrets.SKILLFORGE_READ_TOKEN != '' && secrets.ANTHROPIC_API_KEY != '' }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
       - uses: astral-sh/setup-uv@e92bafb6253dcd438e0484186d7669ea7a8ca1cc # v6
@@ -49,6 +51,7 @@ jobs:
           print(f"ai_dev_kit_revision={lock.ai_dev_kit_revision}")
           PY
       - name: Checkout pinned SkillForge
+        if: env.HAS_QUICK_EVAL_SECRETS == 'true'
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
         with:
           repository: ${{ steps.pins.outputs.skillforge_repo }}
@@ -56,14 +59,20 @@ jobs:
           token: ${{ secrets.SKILLFORGE_READ_TOKEN }}
           path: .deps/skillforge
       - name: Checkout pinned ai-dev-kit
+        if: env.HAS_QUICK_EVAL_SECRETS == 'true'
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
         with:
           repository: ${{ steps.pins.outputs.ai_dev_kit_repo }}
           ref: ${{ steps.pins.outputs.ai_dev_kit_revision }}
           path: .deps/ai-dev-kit
       - name: Install pinned external SkillForge
+        if: env.HAS_QUICK_EVAL_SECRETS == 'true'
         run: uv tool install '.deps/skillforge/python[all]'
+      - name: Note unavailable fork secrets
+        if: env.HAS_QUICK_EVAL_SECRETS != 'true'
+        run: echo "External L1/L3 evaluation skipped because fork-safe maintainer secrets are unavailable."
       - name: Informational L1/L3 evaluation
+        if: env.HAS_QUICK_EVAL_SECRETS == 'true'
         id: quick-eval
         continue-on-error: true
         env:
