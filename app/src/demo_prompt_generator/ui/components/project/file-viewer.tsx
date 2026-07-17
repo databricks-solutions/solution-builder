@@ -11,7 +11,7 @@ import { Skeleton } from "../ui/skeleton";
 import { ChevronRight, ChevronDown, ChevronLeft, Folder, FolderOpen, FileText, FileCode, Braces, Settings, File, Sparkles, RefreshCw, Network, BookOpen, Database, Eye, EyeOff, Code, Globe, Loader2, Server } from "lucide-react";
 import { UnityCatalogIcon } from "../databricks-icons";
 import { Button } from "../ui/button";
-import type { ProjectFile, ProjectFileContent, DeployedResourceLink, Project } from "../../lib/custom-api";
+import type { CapabilityBuildStatus, ProjectFile, ProjectFileContent, DeployedResourceLink, Project } from "../../lib/custom-api";
 import { AppPreviewTab } from "../../preview";
 import { cn } from "../../lib/utils";
 
@@ -108,6 +108,9 @@ interface FileViewerProps {
   resources?: ResourcesInfo;
   onResourcesClick?: () => void;
   deployedResources?: DeployedResourceLink[];
+  /** Authoritative per-capability build status from the backend — the Overview
+   *  grid + pill read this to decide live/pending (not URL inference). */
+  deployedCapabilities?: CapabilityBuildStatus[];
   deployedExtractionError?: string | null;
   /** Parsed from the project's `resources.json` — drives the marketecture
    *  grid on the Overview tab. ProjectOverview joins these slugs against
@@ -818,6 +821,7 @@ export const FileViewer = memo(function FileViewer({
   resources,
   onResourcesClick,
   deployedResources,
+  deployedCapabilities,
   deployedExtractionError,
   capabilities,
   onAutoFixSend,
@@ -960,6 +964,7 @@ export const FileViewer = memo(function FileViewer({
               onRegenerateNarrative={onRegenerateNarrative}
               capabilities={capabilities ?? null}
               deployedResources={deployedResources}
+              deployedCapabilities={deployedCapabilities}
               deployedExtractionError={deployedExtractionError}
               readmeContent={readmeContent ?? null}
               hasReadme={hasReadme}

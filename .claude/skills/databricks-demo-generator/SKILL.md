@@ -137,7 +137,7 @@ You must keep this exact naming convention.
 
 Notes on the trickier keys:
 - **`mlflow_experiment_path`** — required when the demo trains an ML model. Full workspace path passed to `mlflow.set_experiment(...)`. Without it the MLflow Experiment tile never appears in the resources grid (the UI resolves the path → numeric experiment_id via the SDK).
-- **`app` is nested** (`app.name`, `app.id`, `app.deployment_note`). When the deploy fails or is intentionally skipped, still record `app.name` and put the explanation in `deployment_note`.
+- **`app` is nested** (`app.name`, `app.id`, `app.deployment_note`). **Record `app.name` as soon as the app's initial setup is done (scaffold + config) — do NOT wait for deploy.** `app.name` alone marks the app capability "built" in the UI, so a preview-only app that never deploys still counts as complete. Add `app.id`/`app.url` later, only after `databricks apps deploy`. If the deploy fails or is intentionally skipped, keep `app.name` and put the explanation in `deployment_note`.
 - **Lakebase keys are three flat fields**, not nested. See `app.md` for `lakebase_setup_db.sh` which prints them.
 
 - **buildable**: capabilities that require actual Databricks resources (pipelines, dashboards, agents, apps, etc.)

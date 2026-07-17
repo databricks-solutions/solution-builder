@@ -13,12 +13,12 @@
  */
 
 import { CAPABILITY_META } from "./capabilities";
-import type { DeployedResourceLink } from "./custom-api";
+import type { CapabilityBuildStatus, DeployedResourceLink } from "./custom-api";
 
 /** Slugs that ship without a deployment signal AND aren't displayed as
- *  resource tiles (talking-track only). Excluded from the build
- *  estimate so they never gate the "Ready" phase. Keep in sync with
- *  the HIDDEN_SLUGS set in project-overview.tsx. */
+ *  resource tiles (talking-track only). Only used by the LEGACY fallback
+ *  path (payloads without `capabilities`); the backend now omits
+ *  non-buildable slugs from `capabilities` directly. */
 const HIDDEN_SLUGS = new Set(["synthetic-data-gen", "genie-one", "genie-code"]);
 
 /** Rough build duration (minutes) per capability slug. Tuned for typical
@@ -92,36 +92,49 @@ export interface BuildEstimate {
 /**
  * Compute the build estimate for a project.
  *
- * @param buildable     The `capabilities.buildable` array from resources.json.
- * @param deployed      Deployed resource links from /deployed-resources.
+ * @param buildable     The `capabilities.buildable` array from resources.json
+ *                      (only used by the legacy fallback path).
+ * @param deployed      Deployed resource links (legacy fallback only).
  * @param hasStarted    True once the build has clearly kicked off
  *                      (specifications/ files exist or any resource is live).
  *                      Drives the "planning" vs "building" phase.
+ * @param capabilities  Authoritative per-capability status from the backend.
+ *                      Preferred source; when present, `deployed`/`buildable`
+ *                      are ignored for readiness.
  */
 export function estimateBuild(
   buildable: string[],
   deployed: DeployedResourceLink[],
   hasStarted: boolean,
+  /** Authoritative per-capability build status from the backend
+   *  (`DeployedResources.capabilities`). When present, readiness + counts come
+   *  straight from it — the backend already omits non-buildable / talking-track
+   *  slugs, so no `deployed_type`/URL inference is needed here. Omit only for
+   *  legacy payloads that predate the field (then we fall back to URL inference). */
+  capabilities?: CapabilityBuildStatus[],
 ): BuildEstimate {
-  const deployedTypes = new Set(deployed.map((r) => r.resource_type));
-
-  // Only count capabilities that:
-  //   1. Are known (have a CAPABILITY_META entry)
-  //   2. Aren't hidden talking-track-only slugs
-  //   3. Have a `deployed_type` we can flip to "live" — otherwise the
-  //      build can never reach "Ready" because the slug stays pending
-  //      forever (bug: status read "Building" even after every visible
-  //      tile was complete).
   const liveSlugs: string[] = [];
   const pendingSlugs: string[] = [];
-  for (const slug of buildable) {
-    if (HIDDEN_SLUGS.has(slug)) continue;
-    const meta = CAPABILITY_META[slug];
-    if (!meta || !meta.deployed_type) continue;
-    const types = Array.isArray(meta.deployed_type) ? meta.deployed_type : [meta.deployed_type];
-    const isLive = types.some((t) => deployedTypes.has(t));
-    if (isLive) liveSlugs.push(slug);
-    else pendingSlugs.push(slug);
+
+  if (capabilities && capabilities.length > 0) {
+    // Authoritative path: the backend told us which capabilities are built.
+    for (const c of capabilities) {
+      if (c.built) liveSlugs.push(c.slug);
+      else pendingSlugs.push(c.slug);
+    }
+  } else {
+    // Legacy fallback (payload predates `capabilities`): infer readiness from
+    // deployed-resource URLs, mirroring the old behavior. Only count known,
+    // non-hidden, deployable slugs.
+    const deployedTypes = new Set(deployed.map((r) => r.resource_type));
+    for (const slug of buildable) {
+      if (HIDDEN_SLUGS.has(slug)) continue;
+      const meta = CAPABILITY_META[slug];
+      if (!meta || !meta.deployed_type) continue;
+      const types = Array.isArray(meta.deployed_type) ? meta.deployed_type : [meta.deployed_type];
+      if (types.some((t) => deployedTypes.has(t))) liveSlugs.push(slug);
+      else pendingSlugs.push(slug);
+    }
   }
 
   const totalCount = liveSlugs.length + pendingSlugs.length;

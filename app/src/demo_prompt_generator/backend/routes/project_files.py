@@ -37,12 +37,16 @@ from ..models import (
     ProjectFileContent,
     ProjectFileOut,
     ProjectFileWrite,
+    capability_build_status,
+    compute_project_stage,
+    merge_project_stage,
 )
 from ..services.file_sync import FileSyncService, decompress_content
 from .projects import (
     ACCESS_VIEWER,
     _get_authorized_project,
     _get_project_access,
+    _project_is_streaming,
     _require_write_access,
     claim_driver,
     is_driver,
@@ -1228,9 +1232,17 @@ def get_deployed_resources(
     ws: Dependencies.Client,
     request: Request,
 ):
-    """Get deployed Databricks resource links parsed from resources.json."""
+    """Get deployed Databricks resource links parsed from resources.json.
+
+    Also computes the authoritative per-capability build status + overall
+    `all_built` (from resources.json) and persists the recomputed project stage
+    — this endpoint is the single place that turns resources.json into both the
+    UI's live progress meter and the coarse `project.stage` latch.
+    """
     user_email = _get_user_email(headers)
-    _get_authorized_project(session, project_id, user_email, config.template_admin_emails)
+    project = _get_authorized_project(
+        session, project_id, user_email, config.template_admin_emails
+    )
 
     file_sync: FileSyncService = request.app.state.file_sync
     # Try root-level resources.json first (new convention), then legacy path
@@ -1299,8 +1311,36 @@ def get_deployed_resources(
     if file_record:
         deployed_at = file_record.last_modified
 
+    # Authoritative per-capability build status, straight from resources.json
+    # (NOT re-inferred from URLs). Drives the UI's live "N of N ready" meter.
+    capabilities = capability_build_status(raw_text)
+    all_built = bool(capabilities) and all(c.built for c in capabilities)
+
+    # Recompute + persist the coarse project stage from the same resources.json,
+    # exactly as getProject does (monotonic; not demoted by a streaming turn).
+    # This endpoint is polled after every build event, so it keeps stage fresh
+    # without a second parse or a dedicated stage endpoint.
+    try:
+        project_dir = _PROJECTS_BASE_RESOLVED / project_id
+        file_paths = [f["path"] for f in _get_cached_files(project_id, project_dir)]
+        stage = merge_project_stage(
+            compute_project_stage(
+                file_paths, raw_text, is_streaming=_project_is_streaming(project_id)
+            ),
+            project.stage,
+        )
+        if stage != project.stage:
+            project.stage = stage
+            session.add(project)
+            session.commit()
+    except Exception:
+        # Stage persistence is best-effort — never fail the resources read.
+        logger.warning(f"Could not persist project stage for {project_id}", exc_info=True)
+
     return DeployedResourcesOut(
         resources=links,
         deployed_at=deployed_at,
         extraction_error=extraction_error,
+        capabilities=capabilities,
+        all_built=all_built,
     )
