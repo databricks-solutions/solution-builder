@@ -215,6 +215,19 @@ def test_tracked_comparison_sides_are_normalized() -> None:
     assert resources[-1].key == "lakebase:projects/sb_eval_lakebase"
 
 
+def test_tracked_resources_ignore_unresolved_activity_detections() -> None:
+    assert resources_from_tracked(
+        [
+            {
+                "asset_type": "catalog",
+                "asset_id": "unknown",
+                "confidence": "medium",
+                "detection_source": "cli",
+            }
+        ]
+    ) == []
+
+
 def test_capabilities_derive_resource_kinds_with_overrides() -> None:
     assert expected_resource_kinds(
         ["sdp", "ml-training-serving", "vector-search"], overrides=["volume"]

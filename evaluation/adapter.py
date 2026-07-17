@@ -129,7 +129,15 @@ class SkillForgeAdapter:
                         "assertions": step.semantic_assertions,
                         "expected_patterns": step.expected_patterns,
                         "trace_expectations": {
-                            "required_tools": step.tool_expectations.required,
+                            # SkillForge derives the agent's allowed tool list
+                            # from this field. Keep the canonical expectations
+                            # and add the built-in Skill tool so WITH runs can
+                            # actually invoke the skill under evaluation.
+                            "required_tools": list(
+                                dict.fromkeys(
+                                    ["Skill", *step.tool_expectations.required]
+                                )
+                            ),
                             "banned_tools": step.tool_expectations.banned,
                             "token_budget": {"max_total": 80_000},
                         },

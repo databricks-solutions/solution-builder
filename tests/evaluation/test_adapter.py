@@ -63,3 +63,4 @@ def test_v5_contains_sources_regression_and_expectations(tmp_path: Path) -> None
         assert expectations["assertions"]
         assert expectations["expected_patterns"]
         assert expectations["trace_expectations"]
+        assert "Skill" in expectations["trace_expectations"]["required_tools"]

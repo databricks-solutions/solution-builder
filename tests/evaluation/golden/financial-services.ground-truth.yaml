@@ -22,6 +22,7 @@ test_cases:
     - (?i)(revenue|loss|risk|\$)
     trace_expectations:
       required_tools:
+      - Skill
       - Read
       - Write
       banned_tools: []
@@ -60,6 +61,7 @@ test_cases:
     - (?i)(genie|dashboard)
     trace_expectations:
       required_tools:
+      - Skill
       - Read
       - Write
       banned_tools: []
@@ -99,6 +101,7 @@ test_cases:
     - (?i)(transaction|anomal)
     trace_expectations:
       required_tools:
+      - Skill
       - Read
       - Write
       banned_tools: []
@@ -140,6 +143,7 @@ test_cases:
     - (?i)(sql|python|dashboard|genie)
     trace_expectations:
       required_tools:
+      - Skill
       - Read
       - Write
       banned_tools: []

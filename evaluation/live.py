@@ -353,6 +353,12 @@ def resources_from_tracked(rows: Iterable[dict[str, Any]]) -> list[ResourceRecor
             continue
         resource_type = str(resource_type)
         resource_id = str(resource_id)
+        if resource_id.strip().lower() in {"unknown", "none", "null"}:
+            # SkillForge may emit medium-confidence activity detections before
+            # a CLI response contains an actual identifier. They are useful
+            # diagnostics but are not actionable resources and must not count
+            # toward expected-kind checks or cleanup.
+            continue
         resource_name = str(row.get("name") or resource_id)
         if resource_type == "lakebase":
             # Lakebase APIs delete by projects/{slug}; tool results may expose
