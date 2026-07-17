@@ -129,26 +129,28 @@ class LivePolicy:
         )
         if not allowed_hosts:
             raise ValueError("--live requires SB_EVAL_ALLOWED_HOSTS")
-        host = os.environ.get("DATABRICKS_HOST", "").rstrip("/")
+        auth_context = subprocess.run(
+            ["databricks", "auth", "env", "--profile", profile],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+        if auth_context.returncode != 0:
+            raise ValueError("could not resolve the live evaluation profile")
+        try:
+            auth_payload = json.loads(auth_context.stdout)
+            profile_env = auth_payload.get("env", {})
+        except json.JSONDecodeError as exc:
+            raise ValueError("databricks auth env returned invalid JSON") from exc
+        if not isinstance(profile_env, dict):
+            raise ValueError("databricks auth env returned an invalid environment")
+        host = (
+            os.environ.get("DATABRICKS_HOST", "")
+            or str(profile_env.get("DATABRICKS_HOST", ""))
+        ).rstrip("/")
         if not host:
-            completed = subprocess.run(
-                ["databricks", "auth", "env", "--profile", profile],
-                check=False,
-                capture_output=True,
-                text=True,
-                timeout=20,
-            )
-            if completed.returncode != 0:
-                raise ValueError(
-                    "could not resolve host for the live evaluation profile"
-                )
-            try:
-                payload = json.loads(completed.stdout)
-                host = str(payload.get("env", {}).get("DATABRICKS_HOST", "")).rstrip(
-                    "/"
-                )
-            except json.JSONDecodeError as exc:
-                raise ValueError("databricks auth env returned invalid JSON") from exc
+            raise ValueError("could not resolve host for the live evaluation profile")
         if host not in allowed_hosts:
             raise ValueError(f"workspace host {host!r} is not allowlisted")
         identity = subprocess.run(
@@ -178,7 +180,54 @@ class LivePolicy:
             if isinstance(identity_payload, dict)
             else None
         )
-        if not application_id:
+        user_name = (
+            identity_payload.get("user_name") or identity_payload.get("userName")
+            if isinstance(identity_payload, dict)
+            else None
+        )
+        profile_client_id = profile_env.get("DATABRICKS_CLIENT_ID")
+        is_service_principal = bool(application_id) or bool(
+            profile_client_id and user_name == profile_client_id
+        )
+        if (
+            not is_service_principal
+            and isinstance(user_name, str)
+            and re.fullmatch(
+                r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}",
+                user_name,
+            )
+        ):
+            lookup = subprocess.run(
+                [
+                    "databricks",
+                    "service-principals",
+                    "list",
+                    "--profile",
+                    profile,
+                    "--filter",
+                    f'applicationId eq "{user_name}"',
+                    "-o",
+                    "json",
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=20,
+            )
+            if lookup.returncode == 0:
+                try:
+                    principals = json.loads(lookup.stdout)
+                except json.JSONDecodeError:
+                    principals = []
+                if isinstance(principals, list):
+                    is_service_principal = any(
+                        isinstance(item, dict)
+                        and (item.get("application_id") or item.get("applicationId"))
+                        == user_name
+                        and item.get("active", True)
+                        for item in principals
+                    )
+        if not is_service_principal:
             raise ValueError(
                 "--live requires credentials for a dedicated Databricks service principal"
             )

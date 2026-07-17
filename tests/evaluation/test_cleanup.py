@@ -144,6 +144,32 @@ def test_live_policy_rejects_human_identity(
         LivePolicy.from_env()
 
 
+def test_live_policy_accepts_oauth_m2m_identity(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _set_live_env(monkeypatch)
+    client_id = "f8854bec-358f-40d8-bd30-ea315cc43411"
+
+    def fake_subprocess_run(args, **kwargs):
+        if args[1:3] == ["auth", "env"]:
+            return _completed(
+                args,
+                stdout=json.dumps(
+                    {
+                        "env": {
+                            "DATABRICKS_HOST": "https://eval.example.com",
+                            "DATABRICKS_AUTH_TYPE": "oauth-m2m",
+                            "DATABRICKS_CLIENT_ID": client_id,
+                        }
+                    }
+                ),
+            )
+        return _completed(args, stdout=json.dumps({"userName": client_id}))
+
+    monkeypatch.setattr("evaluation.live.subprocess.run", fake_subprocess_run)
+    assert LivePolicy.from_env().profile == "solution-builder-eval"
+
+
 def test_manifest_normalizes_schema_and_lakebase_slug(tmp_path: Path) -> None:
     path = tmp_path / "resources.json"
     path.write_text(
