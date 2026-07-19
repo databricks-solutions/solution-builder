@@ -33,12 +33,14 @@ export const REMOTE_VENDOR_LOGOS: Record<string, string> = {
   "google-docs": "https://upload.wikimedia.org/wikipedia/commons/0/01/Google_Docs_logo_%282014-2020%29.svg",
   "google-drive": "https://cdn.svglogos.dev/logos/google-drive.svg",
   "google-sheets": "https://upload.wikimedia.org/wikipedia/commons/3/30/Google_Sheets_logo_%282014-2020%29.svg",
+  grok: "https://cdn.svglogos.dev/logos/grok-icon.svg", // xAI Grok (square icon mark)
   hootsuite: "https://cdn.svglogos.dev/logos/hootsuite-icon.svg",
   hubspot: "https://cdn.svglogos.dev/logos/hubspot.svg",
   ibm: "https://cdn.svglogos.dev/logos/ibm.svg",
   informatica: "https://www.vectorlogo.zone/logos/informatica/informatica-icon.svg",
   intercom: "https://cdn.svglogos.dev/logos/intercom-icon.svg",
   jira: "https://cdn.svglogos.dev/logos/jira.svg",
+  kimi: "https://cdn.svglogos.dev/logos/moonshot-ai-icon.svg", // Kimi = Moonshot AI (square icon mark)
   klarna: "https://www.vectorlogo.zone/logos/klarna/klarna-icon.svg",
   looker: "https://cdn.svglogos.dev/logos/looker-icon.svg",
   mailchimp: "https://cdn.svglogos.dev/logos/mailchimp.svg",

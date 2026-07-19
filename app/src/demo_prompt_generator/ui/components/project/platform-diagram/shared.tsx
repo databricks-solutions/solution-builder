@@ -238,6 +238,7 @@ export function nodeTypeFor(c: PlatformComponent): string {
   if (c.kind === "agent-bricks") return "agentBricks";
   if (c.kind === "db-platform") return "dbPlatform";
   if (c.kind === "genie-one") return "genieOne";
+  if (c.kind === "ai-gateway") return "aiGateway";
   if (c.kind === "medallion-table") return "medallion";
   return "component";
 }
@@ -257,6 +258,7 @@ export function baseSize(c: PlatformComponent): { w: number; h: number } {
   if (c.kind === "genie-code") return { w: 360, h: 112 };
   if (c.kind === "governance") return { w: 580, h: 108 };
   if (c.kind === "db-platform") return { w: 380, h: 60 };
+  if (c.kind === "ai-gateway") return { w: 240, h: 104 };
   if (c.kind === "medallion-table") return medallionSize();
   return naturalSize(c.id);
 }

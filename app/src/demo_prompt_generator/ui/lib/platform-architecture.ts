@@ -111,7 +111,7 @@ export type FlowStyle = "dot" | "particles" | "docs" | "laser" | "model";
 
 /** Composite block kinds (super-set components that draw an inner mini-diagram
  *  and expose multiple named ports). Extend this as we add more blocks. */
-export type CompositeKind = "lakeflow" | "genie-code" | "governance" | "lakeflow-genie" | "agent-bricks" | "db-platform" | "genie-one" | "medallion-table";
+export type CompositeKind = "lakeflow" | "genie-code" | "governance" | "lakeflow-genie" | "agent-bricks" | "db-platform" | "genie-one" | "medallion-table" | "ai-gateway";
 
 /** The 3 left input ports a "lakeflow" composite exposes. Edge handle ids on
  *  the block are `in-${port}` (+ a single `r` output on the right). */
@@ -649,7 +649,8 @@ export const CATALOG: Record<BandId, CatalogComponent[]> = {
       desc: "The Databricks Data + AI platform — one governed foundation for all data + AI.",
       authoring: "Title banner (the Databricks wordmark). Pin it top-left, usually paired with a big background box (z:-1) wrapping everything → reads as 'all of this is the platform'." },
     { id: "unity-catalog", label: "Unity Catalog", icon: "unityCatalogBrand", desc: "One governed catalog — access, lineage, and semantics across data + AI." },
-    { id: "ai-gateway", label: "Unity AI Gateway", icon: "aiGatewayBrand", desc: "Security, cost, and rate limits." },
+    { id: "ai-gateway", label: "Unity AI Gateway", icon: "aiGatewayBrand", kind: "ai-gateway", desc: "Security, cost, and rate limits.",
+      authoring: "The Unity AI Gateway tile with a row of foundation-model logos (OpenAI · Anthropic · Gemini · Grok · Kimi) across the top — conveys 'govern + access ANY model' at a glance. Use standalone; the Unified Governance bar already embeds a compact gateway if you want the whole control plane." },
     { id: "data-quality", label: "Data Quality", icon: "unityCatalog", desc: "Expectations and monitors keep bad data out of the gold layer." },
     { id: "abac", label: "ABAC", icon: "unityCatalog", desc: "Attribute-based access control — fine-grained, policy-driven permissions." },
     { id: "data-classification", label: "Data Classification", icon: "unityCatalog", desc: "Automatically tag and govern sensitive data." },
@@ -763,6 +764,7 @@ export function naturalSize(type: string, params?: Record<string, boolean>): { w
   if (kind === "governance") return { w: 580, h: 108 };
   if (kind === "db-platform") return { w: 380, h: 60 };
   if (kind === "genie-one") return { w: 230, h: 78 }; // tile; persona pill floats over the top edge
+  if (kind === "ai-gateway") return { w: 240, h: 104 }; // model-logo row on top + gateway body below
   if (kind === "medallion-table") return medallionSize(params);
   if (type === "sdp") return { w: 230, h: 112 };
   // Standard "compute / serving" tiles share ONE default footprint so they line

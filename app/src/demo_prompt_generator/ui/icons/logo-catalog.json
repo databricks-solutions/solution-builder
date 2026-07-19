@@ -299,6 +299,18 @@
     "oss": false,
     "source": false
   },
+  "grok": {
+    "trademark": true,
+    "oss": false,
+    "source": false,
+    "label": "Grok"
+  },
+  "kimi": {
+    "trademark": true,
+    "oss": false,
+    "source": false,
+    "label": "Kimi"
+  },
   "genie-ontology": {
     "trademark": false,
     "oss": false,
