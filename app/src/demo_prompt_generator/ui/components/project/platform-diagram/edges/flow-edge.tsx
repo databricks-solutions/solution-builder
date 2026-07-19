@@ -205,9 +205,12 @@ const FlowEdge = memo(function FlowEdge(props: EdgeProps) {
     if (!drag) return;
     e.stopPropagation();
     const f = ops!.toFlow(e.clientX, e.clientY);
-    const over = ops!.nodeAt(f.x, f.y);
+    // Exclude the OTHER endpoint, exactly as the `move` preview does — otherwise
+    // the preview could snap to a valid nearby target while this commit resolves
+    // to the (nearer, excluded) other endpoint and silently drops the reconnect.
     const otherEnd = drag.end === "source" ? target : source;
-    if (over && over !== otherEnd) ops!.retarget(id, drag.end, over, drag.handle ?? drag.side); // else keep old edge
+    const over = ops!.nodeAt(f.x, f.y, undefined, otherEnd);
+    if (over) ops!.retarget(id, drag.end, over, drag.handle ?? drag.side); // else keep old edge
     ops!.setDropTarget(null);
     setDrag(null);
   };

@@ -1258,7 +1258,7 @@ export function parseArchitecture(content: string): PlatformSchema {
 
   for (const n of file?.nodes ?? []) {
     if (!n?.id || !n.type) continue;
-    const box = placed.get(n.id) ?? { x: 0, y: 0, ...naturalSize(n.type) };
+    const box = placed.get(n.id) ?? { x: 0, y: 0, ...naturalSize(n.type, n.params) };
     const [x, y] = [box.x, box.y];
     const st = n.style ?? {};
     // A container box's size is derived by computeLayout (from `wraps` and/or
