@@ -70,15 +70,6 @@ type NodeLookup = Map<string, FanNode>;
 // edge in the same tick.
 let cacheSig = "";
 let cacheMap: Map<string, FanEntry> = new Map();
-// Identity of the last inputs. The E FlowEdge selectors all call this within one
-// store tick with the SAME (edges, nodeLookup) references; short-circuiting on
-// identity means only the FIRST caller builds the O(E+N) signature string — the
-// rest skip straight to the cached map (before, every caller rebuilt the string
-// even though the map was already fresh). ReactFlow swaps at least one reference
-// whenever the layout actually changes (drag → new nodeLookup, edit → new edges),
-// so this can't return a stale map.
-let lastEdges: FanEdge[] | null = null;
-let lastLookup: NodeLookup | null = null;
 
 function signature(edges: FanEdge[], nodeLookup: NodeLookup): string {
   let s = "";
@@ -109,12 +100,15 @@ function signature(edges: FanEdge[], nodeLookup: NodeLookup): string {
 
 /** Compute (or return cached) fan entries for every edge. */
 export function computeFanLayout(edges: FanEdge[], nodeLookup: NodeLookup): Map<string, FanEntry> {
-  // Fast path: same input references as the last call → the map is already
-  // fresh, skip the O(E+N) signature rebuild. (See lastEdges/lastLookup above.)
-  if (edges === lastEdges && nodeLookup === lastLookup) return cacheMap;
+  // NOTE: we intentionally do NOT short-circuit on input IDENTITY
+  // (edges===last && nodeLookup===last). In @xyflow/react v12 the store's
+  // `nodeLookup` Map is created ONCE and mutated in place (adoptUserNodes clears
+  // + repopulates the same Map), and `edges` keeps its reference across a whole
+  // node drag — so an identity check would be TRUE every tick and freeze the fan
+  // geometry mid-drag. The signature (which folds in node positions) is the
+  // correct, cheap-enough invalidator; every FlowEdge selector rebuilds the O(E)
+  // string per tick but the heavy grouping/sort work is shared via the sig memo.
   const sig = signature(edges, nodeLookup);
-  lastEdges = edges;
-  lastLookup = nodeLookup;
   if (sig === cacheSig) return cacheMap;
 
   const rect = (nid: string): Rect | null => {

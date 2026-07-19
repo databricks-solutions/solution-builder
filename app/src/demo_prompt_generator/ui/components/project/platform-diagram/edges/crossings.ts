@@ -63,10 +63,6 @@ function segIntersect(
 // --- 1-deep memo cache (same pattern as fan-layout) ------------------------
 let cacheSig = "";
 let cacheMap: Map<string, Hop[]> = new Map();
-// Input identity — the E edge selectors call this with the SAME references per
-// tick; identity short-circuit means only the first rebuilds the signature.
-let lastEdges: CrossEdge[] | null = null;
-let lastLookup: NodeLookup | null = null;
 
 function signature(edges: CrossEdge[], nodeLookup: NodeLookup): string {
   let s = "";
@@ -97,10 +93,11 @@ const MAX_HOPS = 8;
  * hops. Returns Map<edgeId, Hop[]>.
  */
 export function computeCrossings(edges: CrossEdge[], nodeLookup: NodeLookup): Map<string, Hop[]> {
-  if (edges === lastEdges && nodeLookup === lastLookup) return cacheMap;
+  // No input-identity short-circuit — see the NOTE in fan-layout.ts
+  // computeFanLayout: v12 mutates nodeLookup in place and keeps `edges` stable
+  // across a drag, so identity would be stale. The signature folds node
+  // positions and is the correct invalidator.
   const sig = signature(edges, nodeLookup);
-  lastEdges = edges;
-  lastLookup = nodeLookup;
   if (sig === cacheSig) return cacheMap;
 
   const fan = computeFanLayout(edges, nodeLookup);
