@@ -11,9 +11,9 @@
  * right fork: `out-gold` (always), `out-fs` / `out-mv` (when enabled).
  */
 import { memo, useContext, useState, useEffect, useRef, Fragment, type ReactNode } from "react";
-import { type NodeProps, useUpdateNodeInternals, useStore, Handle, Position } from "@xyflow/react";
+import { type NodeProps, useUpdateNodeInternals } from "@xyflow/react";
 import { BronzeLayerIcon, SilverLayerIcon, GoldLayerIcon, FeatureStoreBrandIcon, MetricViewsIcon } from "../../databricks-icons";
-import { RotatableCard, medallionSize, DropTargetContext, EditModeContext, EdgeSelectedContext, cardStyle, ConnectionDot, dotsOn, type DotSpec, type NodeData } from "./shared";
+import { RotatableCard, medallionSize, DropTargetContext, EditModeContext, cardStyle, ConnectionDot, dotsOn, type DotSpec, type NodeData } from "./shared";
 
 // Metal tones. Bronze + Silver render inline; Gold is the LAST column (inline,
 // or the middle of the MV/Gold/FS stack when a fork option is on).
@@ -89,72 +89,30 @@ function FanConnector({ rows }: { rows: number }) {
 }
 
 // One row in the right-hand output column: a mark + its label, side by side.
-// Used for Gold + the optional Metric Views (above) / Feature Store (below), all
+// Used for Gold + the optional Feature Store (above) / Metric Views (below), all
 // left-aligned in a single column so an output anchor lines up with each row.
+// The output anchor is a plain right-side ConnectionDot rendered INSIDE this
+// `relative` row — RF measures it from the DOM at the row's exact vertical
+// center, so it always lines up (no separate frac math to drift), and it reuses
+// the ONE dot renderer (same size/behaviour/edge-selected handling as every
+// other anchor) rather than a forked copy.
+// The row stretches to the block's right BORDER (the parent column cancels the
+// block's px-3 with -mr-3) — so the dot's `side="r"` anchor lands exactly on the
+// edge. `pr-3` keeps the label text off the border while the row box reaches it.
 function StackRow({ Icon, label, color, handleId, editMode, on }: { Icon: (p: { className?: string; style?: React.CSSProperties }) => ReactNode; label: string; color?: string; handleId: string; editMode: boolean; on: boolean }) {
-  // `relative` + a full-width row so the RowHandle (right:0) lands on the block's
-  // right border at THIS row's vertical center — RF measures it from the DOM, so
-  // it always aligns with the row (no separate frac math to drift).
-  // The row stretches to the block's right BORDER (the parent column cancels the
-  // block's px-3 with -mr-3) — so RowHandle's `right:0` lands exactly on the edge
-  // and its dot floats just OUTSIDE, matching every other anchor. `pr-3` keeps the
-  // label text off the border while the row box still reaches it.
   return (
     <div className="relative flex h-9 w-full items-center gap-1.5 pr-3">
       <Icon className="h-9 w-9 shrink-0" style={color ? { color } : undefined} />
       <span className="whitespace-nowrap text-[11px] font-semibold leading-none" style={color ? { color } : { color: "var(--foreground)" }}>{label}</span>
-      <RowHandle id={handleId} editMode={editMode} on={on} />
+      <ConnectionDot id={handleId} side="r" editMode={editMode} dotOn={on} />
     </div>
-  );
-}
-
-/** A right-side OUTPUT handle, rendered INSIDE its output row so RF measures it
- *  at the row's exact DOM position (no separate frac math to drift). Plain RF
- *  <Handle> anchored to the node's right edge at this row's vertical center — a
- *  small negative right offset puts it on the block border. `handleId` = out-gold
- *  / out-mv / out-fs. The row itself just needs `position: relative`. */
-function RowHandle({ id, editMode, on }: { id: string; editMode: boolean; on: boolean }) {
-  const zoom = useStore((s) => s.transform[2]);
-  const inv = 1 / (zoom || 1);
-  // While a LINE is selected, a component's own anchors are hidden + made
-  // non-connectable (mirrors ConnectionDot) — you can't fork a new line from a
-  // component while editing an existing one. Rendering no Handle at all is what
-  // makes it non-connectable. Without this the output rows stayed visible while
-  // the generic l/b anchors vanished — the asymmetry the user saw after deleting
-  // a line (selection lingers a tick).
-  // While a line is selected: NON-connectable + no dot, but KEEP the <Handle>
-  // MOUNTED. Unmounting removed a handle from the medallion → ReactFlow
-  // re-measured the whole node's handleBounds → during that frame every edge
-  // failed getEdgePosition and the diagram's lines flashed away. Staying mounted
-  // avoids the re-measure churn.
-  const edgeSelected = useContext(EdgeSelectedContext);
-  // CONSTANT dot box (9px, screen-constant); emphasis via scale(), never a
-  // width/height change — a resize would trip RF's per-node ResizeObserver and
-  // re-measure all handles (same "lines vanish" flash).
-  const DOT = 9 * inv;
-  const dotScale = on ? 1.15 : 1;
-  const HIT = Math.max(22, 22 * inv);
-  return (
-    <>
-      <Handle
-        type="source" position={Position.Right} id={id} isConnectable={editMode && !edgeSelected}
-        className={`!border-0 !bg-transparent ${editMode && !edgeSelected ? "" : "!pointer-events-none"}`}
-        style={{ top: "50%", right: 0, transform: "translate(50%, -50%)", width: HIT, height: HIT, zIndex: 20 }}
-      />
-      {!edgeSelected && (
-        <span
-          className={`pointer-events-none absolute rounded-full bg-background shadow-sm ${on ? "opacity-100 border-2 border-primary" : editMode ? "opacity-0 transition-opacity group-hover:opacity-100 border-2 border-primary/70" : "opacity-0"}`}
-          style={{ top: "50%", right: -8 * inv, transform: `translateY(-50%) scale(${dotScale})`, width: DOT, height: DOT, zIndex: 10 }}
-        />
-      )}
-    </>
   );
 }
 
 /** Generic side anchors (source/target from any side): left, top, bottom always;
  *  the RIGHT `out-gold` anchor ONLY when NOT forked (a fork puts out-gold on its
- *  own row via RowHandle). All float just outside the border like every other
- *  ConnectionDot. */
+ *  own row via a StackRow ConnectionDot). All float just outside the border like
+ *  every other ConnectionDot. */
 function MedallionPorts({ editMode, selected, isDropTarget, hasFork }: { editMode: boolean; selected: boolean; isDropTarget: boolean; hasFork: boolean }) {
   const on = dotsOn(selected, isDropTarget);
   const dots: DotSpec[] = [
@@ -250,7 +208,7 @@ export const MedallionBlock = memo(function MedallionBlock({ data, selected }: N
       </div>
       <div
         onClick={() => d.onSelect(d.nodeId)}
-        // NOTE: overflow-VISIBLE (not hidden) — the per-row output dots (RowHandle)
+        // NOTE: overflow-VISIBLE (not hidden) — the per-row output dots (StackRow)
         // float just OUTSIDE the right border; overflow-hidden would crop them.
         // The card content is centered and never reaches the rounded corners, so
         // not clipping is safe here (the fill/border still round via the radius).
@@ -270,7 +228,7 @@ export const MedallionBlock = memo(function MedallionBlock({ data, selected }: N
               </Fragment>
             ))}
             {/* Silver → (Gold | fork stack). A fan draws a line to EVERY row.
-                Each row carries its own output handle (RowHandle) so it anchors
+                Each row carries its own output handle (StackRow) so it anchors
                 + connects at the row. */}
             {hasFork ? (
               <>

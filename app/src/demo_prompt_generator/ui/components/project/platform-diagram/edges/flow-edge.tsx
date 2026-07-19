@@ -171,9 +171,10 @@ const FlowEdge = memo(function FlowEdge(props: EdgeProps) {
     if (!drag || !(e.buttons & 1)) return;
     e.stopPropagation();
     const f = ops!.toFlow(e.clientX, e.clientY);
-    const over = ops!.nodeAt(f.x, f.y);
+    // Exclude the edge's OTHER endpoint so a nearby valid target isn't shadowed
+    // by it (nodeAt returns a single nearest node within margin).
     const otherEnd = drag.end === "source" ? target : source;
-    const valid = over && over !== otherEnd ? over : null;
+    const valid = ops!.nodeAt(f.x, f.y, undefined, otherEnd);
     ops!.setDropTarget(valid);
     if (valid) {
       const r = ops!.rectOf(valid);
@@ -250,10 +251,14 @@ const FlowEdge = memo(function FlowEdge(props: EdgeProps) {
   // the path-computed label falls outside the source↔target box, fall back to the
   // endpoint midpoint (always between the two boxes); otherwise trust the path
   // label (correct elbow centre for normal L-shapes).
+  // Clamp/fallback against the SAME endpoints the drawn path used (`sPt`/`tPt`),
+  // not the resting `sp`/`tp` — during an endpoint reconnect drag they diverge,
+  // and comparing the dragged path label to the resting box would jump the label
+  // off the line for a frame.
   const inBox = (v: number, a: number, b: number) => v >= Math.min(a, b) - 1 && v <= Math.max(a, b) + 1;
-  const pathLabelOk = !manualElbow && inBox(pathLabelX, sp.x, tp.x) && inBox(pathLabelY, sp.y, tp.y);
-  const labelX = manualElbow ? elbowX : pathLabelOk ? pathLabelX : (sp.x + tp.x) / 2;
-  const labelY = manualElbow ? elbowY : pathLabelOk ? pathLabelY : (sp.y + tp.y) / 2;
+  const pathLabelOk = !manualElbow && inBox(pathLabelX, sPt.x, tPt.x) && inBox(pathLabelY, sPt.y, tPt.y);
+  const labelX = manualElbow ? elbowX : pathLabelOk ? pathLabelX : (sPt.x + tPt.x) / 2;
+  const labelY = manualElbow ? elbowY : pathLabelOk ? pathLabelY : (sPt.y + tPt.y) / 2;
   const startCenterDrag = (e: React.PointerEvent) => {
     e.stopPropagation();
     (e.target as Element).setPointerCapture(e.pointerId);
@@ -286,18 +291,20 @@ const FlowEdge = memo(function FlowEdge(props: EdgeProps) {
   const targetHandle = props.targetHandleId ?? undefined;
   const sData = sNode?.data as { sourceKey?: string; component?: { icon?: string } } | undefined;
   const isSource = !!sData?.sourceKey || source.startsWith("src-");
+  // Base ids (strip a `#N` duplicate suffix) — computed once, reused below.
+  const srcBase = source.replace(/#\d+$/, "");
+  const tgtBase = target.replace(/#\d+$/, "");
   // A document/PDF source (by id or icon) → its ingest is files, so `docs` even
   // when it lands on a plain tile (e.g. the medallion @l), not just an `in-direct`
-  // Lakeflow port.
-  const srcIcon = sData?.component?.icon ?? "";
+  // Lakeflow port. Only a SOURCE origin can be a doc source, so gate on it.
   const isDocSource =
-    source.replace(/#\d+$/, "") === "src-pdf"
-    || /pdf|doc/i.test(sData?.sourceKey ?? "")
-    || /pdf|doc/i.test(srcIcon);
+    isSource
+    && (srcBase === "src-pdf"
+      || /pdf|doc/i.test(sData?.sourceKey ?? "")
+      || /pdf|doc/i.test(sData?.component?.icon ?? ""));
   // Either endpoint is the UC Model Registry? (base id, so `uc-model-registry#2`
   // counts too). A model leaving/entering the registry rides the line as a model.
-  const isModelReg = (nid: string) => nid.replace(/#\d+$/, "") === "uc-model-registry";
-  const touchesModelReg = isModelReg(source) || isModelReg(target);
+  const touchesModelReg = srcBase === "uc-model-registry" || tgtBase === "uc-model-registry";
   const autoStyle: FlowStyle =
     touchesModelReg ? "model"
     : targetHandle === "in-zerobus" ? "particles"
@@ -313,13 +320,12 @@ const FlowEdge = memo(function FlowEdge(props: EdgeProps) {
   //   • Genie One → the arrow points AWAY from Genie One, to the resource
   //                 (dashboard / Genie Room / app).
   // We pick "end" (arrow at target) vs "start" (arrow at source) accordingly.
-  const isGenieOne = (nid: string) => nid.replace(/#\d+$/, "") === "genie-one";
   const isUser = (node: typeof sNode) => {
     const icon = (node?.data as { annotation?: { icon?: string } } | undefined)?.annotation?.icon;
     return typeof icon === "string" && icon.includes("persona/user");
   };
   const srcUser = isUser(sNode), tgtUser = isUser(tNode);
-  const srcGO = isGenieOne(source), tgtGO = isGenieOne(target);
+  const srcGO = srcBase === "genie-one", tgtGO = tgtBase === "genie-one";
   const arrowSetting = (d?.arrow ?? "auto") as "auto" | "none" | "end" | "start" | "both";
   let arrow: "none" | "end" | "start" | "both";
   if (arrowSetting !== "auto") {
@@ -330,7 +336,7 @@ const FlowEdge = memo(function FlowEdge(props: EdgeProps) {
   } else if (srcGO || tgtGO) {
     // arrow points away from Genie One, toward the resource
     arrow = srcGO ? "end" : "start";
-  } else if (isModelReg(source)) {
+  } else if (srcBase === "uc-model-registry") {
     // An edge LEAVING the UC Model Registry shows direction by default — the
     // registered model flows OUT to its target (serving / batch job). An edge
     // merely arriving at a model node gets no auto arrow.

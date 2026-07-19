@@ -70,7 +70,7 @@ export const POS_OF: Record<Side, Position> = {
 export interface EdgeOps {
   editMode: boolean;
   retarget: (edgeId: string, end: "source" | "target", nodeId: string, handle?: string) => void;
-  nodeAt: (fx: number, fy: number) => string | null;
+  nodeAt: (fx: number, fy: number, margin?: number, exclude?: string) => string | null;
   rectOf: (nodeId: string) => Rect | null;
   setDropTarget: (nodeId: string | null) => void;
   toFlow: (clientX: number, clientY: number) => { x: number; y: number };

@@ -70,6 +70,15 @@ type NodeLookup = Map<string, FanNode>;
 // edge in the same tick.
 let cacheSig = "";
 let cacheMap: Map<string, FanEntry> = new Map();
+// Identity of the last inputs. The E FlowEdge selectors all call this within one
+// store tick with the SAME (edges, nodeLookup) references; short-circuiting on
+// identity means only the FIRST caller builds the O(E+N) signature string — the
+// rest skip straight to the cached map (before, every caller rebuilt the string
+// even though the map was already fresh). ReactFlow swaps at least one reference
+// whenever the layout actually changes (drag → new nodeLookup, edit → new edges),
+// so this can't return a stale map.
+let lastEdges: FanEdge[] | null = null;
+let lastLookup: NodeLookup | null = null;
 
 function signature(edges: FanEdge[], nodeLookup: NodeLookup): string {
   let s = "";
@@ -100,7 +109,12 @@ function signature(edges: FanEdge[], nodeLookup: NodeLookup): string {
 
 /** Compute (or return cached) fan entries for every edge. */
 export function computeFanLayout(edges: FanEdge[], nodeLookup: NodeLookup): Map<string, FanEntry> {
+  // Fast path: same input references as the last call → the map is already
+  // fresh, skip the O(E+N) signature rebuild. (See lastEdges/lastLookup above.)
+  if (edges === lastEdges && nodeLookup === lastLookup) return cacheMap;
   const sig = signature(edges, nodeLookup);
+  lastEdges = edges;
+  lastLookup = nodeLookup;
   if (sig === cacheSig) return cacheMap;
 
   const rect = (nid: string): Rect | null => {

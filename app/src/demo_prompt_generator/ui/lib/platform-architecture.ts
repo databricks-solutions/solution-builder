@@ -722,9 +722,26 @@ const ANNOTATION_SIZE: Record<AnnotationVariant, { w: number; h: number }> = {
   image: { w: 200, h: 140 },
 };
 
+/** Medallion-table footprint — grows when a fork option (`feature_store` /
+ *  `metric_views`) is on: the last column becomes a vertical MV/Gold/FS stack,
+ *  so it gets a bit WIDER (labels) and TALLER (one row per option). SINGLE
+ *  source of truth for the medallion box — `naturalSize` (→ layout/`sizeOf`),
+ *  `nodeFootprint` (the ReactFlow selection frame), and the composite render
+ *  (`shared.tsx` re-exports this) all resolve through here, so symbolic layout,
+ *  the resize frame, and the visual always agree. */
+export function medallionSize(params?: Record<string, boolean>): { w: number; h: number } {
+  const fs = !!params?.feature_store;
+  const mv = !!params?.metric_views;
+  if (!fs && !mv) return { w: 268, h: 96 }; // title + 3 layer marks + labels + connectors
+  const forkRows = 1 + (fs ? 1 : 0) + (mv ? 1 : 0);
+  return { w: 300, h: Math.max(96, 44 + forkRows * 38) };
+}
+
 /** Natural [w,h] for a file `type` (catalog id / composite kind / source /
- *  annotation variant). Mirrors shared.tsx `baseSize`. */
-export function naturalSize(type: string): { w: number; h: number } {
+ *  annotation variant). Mirrors shared.tsx `baseSize`. `params` is only read for
+ *  a `medallion-table` (its fork options change the footprint); pass `n.params`
+ *  so symbolic layout reserves the same box the node actually renders at. */
+export function naturalSize(type: string, params?: Record<string, boolean>): { w: number; h: number } {
   if (ANNOTATION_TYPES.has(type as AnnotationVariant)) return ANNOTATION_SIZE[type as AnnotationVariant];
   const c = CATALOG_BY_ID.get(type)?.c;
   const kind = c?.kind;
@@ -735,7 +752,7 @@ export function naturalSize(type: string): { w: number; h: number } {
   if (kind === "governance") return { w: 580, h: 108 };
   if (kind === "db-platform") return { w: 380, h: 60 };
   if (kind === "genie-one") return { w: 230, h: 78 }; // tile; persona pill floats over the top edge
-  if (kind === "medallion-table") return { w: 268, h: 96 }; // title + 3 layer marks + labels + connectors
+  if (kind === "medallion-table") return medallionSize(params);
   if (type === "sdp") return { w: 230, h: 112 };
   // Standard "compute / serving" tiles share ONE default footprint so they line
   // up in a column (Lakehouse, Lakebase, Model Serving, Hosted MCPs, …). 230 wide,
@@ -802,7 +819,7 @@ export function computeLayout(file: ArchitectureFile): Map<string, ResolvedBox> 
   // On-canvas footprint: explicit `size` (or natural), with w/h SWAPPED for a
   // 90°/270° rotation — a rotated tall node is a narrow one on the canvas.
   const sizeOf = (n: FileNode): { w: number; h: number } => {
-    const s = n.size ? { w: n.size[0], h: n.size[1] } : naturalSize(n.type);
+    const s = n.size ? { w: n.size[0], h: n.size[1] } : naturalSize(n.type, n.params);
     const q = (((n.rot ?? 0) % 360) + 360) % 360;
     return q === 90 || q === 270 ? { w: s.h, h: s.w } : s;
   };

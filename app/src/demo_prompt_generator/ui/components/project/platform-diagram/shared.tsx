@@ -6,9 +6,13 @@
  */
 import { createContext, useContext, useRef, type CSSProperties } from "react";
 import { Handle, Position, NodeResizeControl, useStore } from "@xyflow/react";
-import { naturalSize, type PlatformComponent, type BandId, type FlowStyle, type NodePosition } from "@/lib/platform-architecture";
+import { naturalSize, medallionSize, type PlatformComponent, type BandId, type FlowStyle, type NodePosition } from "@/lib/platform-architecture";
 
 export type { FlowStyle };
+// Re-exported so the composite + node components keep importing it from here
+// (the size formula itself now lives in platform-architecture.ts, so symbolic
+// layout and the rendered box can't diverge). See `medallionSize` there.
+export { medallionSize };
 
 // ---------------------------------------------------------------------------
 // Node data + props
@@ -255,20 +259,6 @@ export function baseSize(c: PlatformComponent): { w: number; h: number } {
   if (c.kind === "db-platform") return { w: 380, h: 60 };
   if (c.kind === "medallion-table") return medallionSize();
   return naturalSize(c.id);
-}
-
-/** Medallion-table footprint — grows when a fork option (`feature_store` /
- *  `metric_views`) is on: the last column becomes a vertical MV/Gold/FS stack,
- *  so it gets a bit WIDER (labels) and TALLER (one row per option). SINGLE source
- *  of truth, used by both the ReactFlow node box (nodeFootprint → resize frame)
- *  and the composite render, so the selection frame always matches the visual. */
-export function medallionSize(params?: Record<string, boolean>): { w: number; h: number } {
-  const fs = !!params?.feature_store;
-  const mv = !!params?.metric_views;
-  const hasFork = fs || mv;
-  if (!hasFork) return { w: 268, h: 96 };
-  const forkRows = 1 + (fs ? 1 : 0) + (mv ? 1 : 0);
-  return { w: 300, h: Math.max(96, 44 + forkRows * 38) };
 }
 
 /** Default box for a SOURCE tile with a vertical caption (top/bottom) — the

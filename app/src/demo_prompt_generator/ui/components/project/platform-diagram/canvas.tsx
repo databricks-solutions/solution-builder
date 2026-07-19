@@ -552,11 +552,14 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
   // whose rect the cursor is closest to (so between two nearby boxes the nearer
   // wins). `margin` in FLOW units (24 ≈ the connection radius at 100% zoom).
   const nodeAt = useCallback(
-    (fx: number, fy: number, margin = 24): string | null => {
+    (fx: number, fy: number, margin = 24, exclude?: string): string | null => {
       let hit: string | null = null;
       let hitZ = -Infinity;
       let hitDist = Infinity;
       for (const n of nodesRef.current) {
+        // Skip an excluded node (e.g. an edge's OTHER endpoint during reconnect)
+        // so it can't shadow a different valid target that's also within margin.
+        if (n.id === exclude) continue;
         const w = (n.width ?? (n.data as NodeData).w ?? 200) as number;
         const h = (n.height ?? (n.data as NodeData).h ?? 56) as number;
         const { x, y } = topLeftOf(n, w, h);
