@@ -149,15 +149,23 @@ export function endSide(
  *  (lakeflow / lakeflow-genie: `in-*` on the left, `bl` bottom-left, + r/t/b) or
  *  the plain 4 sides (t/r/b/l). When moving to a type WITHOUT ports, collapse a
  *  port handle to its equivalent SIDE so the edge still attaches there:
- *    in-<port> → "l"  (ports live on the left)
- *    bl        → "b"  (bottom-left anchor → bottom side)
+ *    in-<port>  → "l"  (ingest ports live on the left)
+ *    out-<port> → "r"  (medallion output ports live on the right)
+ *    bl         → "b"  (bottom-left anchor → bottom side)
  *  Side handles (t/r/b/l) are valid on both, so they pass through. Returns
- *  null/undefined unchanged (auto-derive). */
+ *  null/undefined unchanged (auto-derive).
+ *
+ *  NOTE `newHasPorts` only means the NEW type is a Lakeflow composite (which has
+ *  `in-*`/`bl`). A medallion's `out-*` ports are NOT covered by that flag, so an
+ *  `out-*` handle is always collapsed to "r" here unless the caller separately
+ *  knows the new type keeps them — safe because "r" is a valid side everywhere. */
 export function remapHandleForType(
   handleId: string | null | undefined,
   newHasPorts: boolean,
 ): string | null | undefined {
-  if (!handleId || newHasPorts) return handleId; // valid as-is on a ported type
+  if (!handleId) return handleId; // auto-derive
+  if (handleId.startsWith("out-")) return "r"; // medallion output → right side
+  if (newHasPorts) return handleId; // Lakeflow in-*/bl valid as-is on a ported type
   if (handleId.startsWith("in-")) return "l";
   if (handleId === "bl") return "b";
   return handleId; // already a plain side (t/r/b/l) or "r"

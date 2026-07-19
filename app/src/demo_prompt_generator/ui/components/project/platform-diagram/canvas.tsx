@@ -917,7 +917,11 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
       const next = nds.map((n) => {
         if (n.id !== id) return n;
         const dd = n.data as NodeData;
-        const nat = baseSize(dd.component);
+        // Params-aware natural size (un-rotated): a forked medallion is taller
+        // than the base 268x96, so `baseSize` (params-unaware) would squish it.
+        // nodeFootprint with no w/h + rot:0 routes the medallion through
+        // medallionSize(params) — the single source used everywhere else.
+        const nat = nodeFootprint(dd.component, { rot: 0, params: dd.params });
         const cardW = Math.round(nat.w * scale);
         const cardH = Math.round(nat.h * scale);
         const fp = nodeFootprint(dd.component, { w: cardW, h: cardH, rot: dd.rot });
@@ -1269,16 +1273,23 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
       if (!nds.some((n) => n.selected)) return nds;
       const next = nds.map((n) => {
         if (!n.selected) return n;
-        if (!snap) return { ...n, position: { x: n.position.x + ux, y: n.position.y + uy } };
+        // A keyboard nudge is a deliberate reposition, exactly like a drag-drop —
+        // PIN it so it serializes as pixel `at` and drops any authored symbolic
+        // placement (col/below/alignY/…). Without this, a symbolically-placed
+        // node's nudge is silently discarded on reload (computeLayout re-derives
+        // the original spot). Mirrors handleNodesChange's drag-commit pinning.
+        const dd = n.data as NodeData;
+        const pinData = dd.pinned ? n.data : { ...dd, pinned: true };
+        if (!snap) return { ...n, position: { x: n.position.x + ux, y: n.position.y + uy }, data: pinData };
         // Snap the TOP-LEFT edge to the grid (matching drag-drop), then step one
         // cell in the arrow direction. position is origin-relative (center by
         // default; top-left for origin:[0,0] text), so offset by the origin.
-        const w = (n.width ?? (n.data as NodeData).w ?? 200) as number;
-        const h = (n.height ?? (n.data as NodeData).h ?? 56) as number;
+        const w = (n.width ?? dd.w ?? 200) as number;
+        const h = (n.height ?? dd.h ?? 56) as number;
         const [ox, oy] = (n.origin as [number, number] | undefined) ?? NODE_ORIGIN;
         const left = Math.round((n.position.x - ox * w) / GRID) * GRID + ux * GRID;
         const top = Math.round((n.position.y - oy * h) / GRID) * GRID + uy * GRID;
-        return { ...n, position: { x: left + ox * w, y: top + oy * h } };
+        return { ...n, position: { x: left + ox * w, y: top + oy * h }, data: pinData };
       });
       scheduleSave(next, edges);
       return next;

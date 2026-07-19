@@ -338,8 +338,12 @@ export function flowToLayout(nds: Node[], eds: Edge[], schema: PlatformSchema): 
       ...(dd.shadow !== undefined ? { shadow: dd.shadow } : {}),
       ...(dd.groupId ? { groupId: dd.groupId } : {}),
       // Persist z only when it differs from the default node stacking (NODE_Z) —
-      // so the render-time default doesn't get written onto every node.
-      ...(typeof n.zIndex === "number" && n.zIndex !== NODE_Z && n.zIndex !== 0 ? { z: n.zIndex } : {}),
+      // so the render-time default doesn't get written onto every node. An
+      // explicit z:0 (tuck a node to edge-level, below other tiles) IS a real
+      // author choice and must round-trip — only skip the NODE_Z default (a
+      // node with no authored z already renders at NODE_Z, so n.zIndex is 1, not
+      // 0; only an intentional z:0 reaches here as 0).
+      ...(typeof n.zIndex === "number" && n.zIndex !== NODE_Z ? { z: n.zIndex } : {}),
       // Round-trip symbolic placement: an unmoved node (dd.placement set, not
       // pinned) re-emits its col/relational fields; a dragged/at node is pinned.
       ...(dd.placement && !dd.pinned ? { placement: dd.placement } : {}),

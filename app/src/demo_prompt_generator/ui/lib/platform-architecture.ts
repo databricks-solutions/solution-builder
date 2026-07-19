@@ -737,6 +737,17 @@ export function medallionSize(params?: Record<string, boolean>): { w: number; h:
   return { w: 300, h: Math.max(96, 44 + forkRows * 38) };
 }
 
+/** Normalize a `stack` value from the file (agent- or hand-authored, so it may
+ *  be a float, string, huge, or garbage) to a clean integer in [2, 5], or
+ *  `undefined` when there's no meaningful stack (≤1, NaN, non-finite). The
+ *  renderer caps at 5 anyway; coercing here keeps the file honest and avoids a
+ *  fractional value silently floor-truncating the shadow-card count. */
+export function sanitizeStack(v: unknown): number | undefined {
+  const n = Math.floor(Number(v));
+  if (!Number.isFinite(n) || n <= 1) return undefined;
+  return Math.min(n, 5);
+}
+
 /** Natural [w,h] for a file `type` (catalog id / composite kind / source /
  *  annotation variant). Mirrors shared.tsx `baseSize`. `params` is only read for
  *  a `medallion-table` (its fork options change the footprint); pass `n.params`
@@ -1277,7 +1288,7 @@ export function parseArchitecture(content: string): PlatformSchema {
       ...(placement ? { placement } : {}),
       ...(pinned ? { pinned: true } : {}),
       ...(n.params && Object.keys(n.params).length ? { params: n.params } : {}),
-      ...(n.stack && n.stack > 1 ? { stack: n.stack } : {}),
+      ...(sanitizeStack(n.stack) ? { stack: sanitizeStack(n.stack)! } : {}),
       ...(n.rot !== undefined ? { rot: n.rot } : {}),
       ...(derivedSize ? { w: derivedSize[0], h: derivedSize[1] } : {}),
       ...(n.scale !== undefined ? { scale: n.scale } : {}),
@@ -1338,6 +1349,19 @@ export function parseArchitecture(content: string): PlatformSchema {
     let nodeId = n.id;
     if (!ANNOTATION_TYPES.has(n.type as AnnotationVariant) && n.type !== "source" && baseId(n.id) !== n.type) {
       nodeId = n.type;
+    }
+    // Collision guard: if that id is already taken (two nodes re-keyed to the
+    // same `type`, or two files sharing an id), disambiguate with `type#N`
+    // instead of blindly overwriting — otherwise the earlier node is SILENTLY
+    // LOST and any edge to it re-targets the survivor. `#N` still baseId-resolves
+    // to the catalog type, so flow-mapping renders both. (The authoring
+    // convention is `type` / `type#2`; this makes an off-convention duplicate
+    // safe rather than destructive.)
+    if (nodes[nodeId]) {
+      const base = baseId(nodeId);
+      let k = 2;
+      while (nodes[`${base}#${k}`]) k++;
+      nodeId = `${base}#${k}`;
     }
     nodes[nodeId] = pos;
     fileToNode.set(n.id, nodeId);
@@ -1596,7 +1620,7 @@ export function serializeArchitecture(
       ...(pos.z ? { z: pos.z } : {}),
       ...(pos.groupId ? { group: pos.groupId } : {}),
       ...(pos.params && Object.keys(pos.params).length ? { params: pos.params } : {}),
-      ...(pos.stack && pos.stack > 1 ? { stack: pos.stack } : {}),
+      ...(sanitizeStack(pos.stack) ? { stack: sanitizeStack(pos.stack)! } : {}),
     };
     const style = styleOf(pos);
 
