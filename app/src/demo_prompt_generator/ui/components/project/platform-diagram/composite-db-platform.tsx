@@ -28,6 +28,7 @@ export const DbPlatformBlock = memo(function DbPlatformBlock({ data, selected }:
       forceDots={isDropTarget}
       onResize={(w, h, center) => d.onResize(d.nodeId, w, h, undefined, center)}
       onScale={(w) => d.onResize(d.nodeId, w, Math.round((w * nat.h) / nat.w), w / nat.w)}
+      stack={d.stack}
       onContext={(e) => { e.preventDefault(); d.onContext(d.nodeId, e.clientX, e.clientY); }}
     >
       <div
@@ -38,7 +39,7 @@ export const DbPlatformBlock = memo(function DbPlatformBlock({ data, selected }:
         <div className="flex h-full w-full items-center gap-3 px-4" style={{ transform: "scale(var(--cs, 1))", transformOrigin: "left center" }}>
           <FileSvgIcon iconKey="file:vendor/databricks-wordmark" className="h-5 w-auto shrink-0" />
           <span className="h-7 w-px shrink-0 bg-border" />
-          <span className="min-w-0 text-[15px] font-bold leading-tight text-foreground">The Data Intelligence Platform</span>
+          <span className="min-w-0 text-[15px] font-bold leading-tight text-foreground">Databricks Data + AI</span>
         </div>
       </div>
     </RotatableCard>

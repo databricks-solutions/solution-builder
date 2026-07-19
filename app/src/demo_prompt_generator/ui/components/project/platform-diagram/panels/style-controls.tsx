@@ -55,6 +55,23 @@ export function AnnotationMenu({
   const hAlign = a.hAlign ?? (a.variant === "text" ? "left" : "center");
   return (
     <>
+      {/* Box title — the legend on the top border. Editable here OR by
+          double-clicking the box's top edge. Empty clears the legend. */}
+      {a.variant === "box" && (
+        <div className="px-2 py-1.5">
+          <div className="mb-1 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+            <Type className="h-3.5 w-3.5" /> Title
+          </div>
+          <input
+            type="text"
+            value={a.title ?? ""}
+            placeholder="Box title…"
+            onClick={(e) => e.stopPropagation()}
+            onChange={(e) => onAnno({ title: e.target.value })}
+            className="w-full rounded border border-border bg-background px-2 py-1 text-[11px] outline-none focus:border-primary"
+          />
+        </div>
+      )}
       {a.variant === "logo" && <Item icon={<Shapes className="h-3.5 w-3.5" />} label="Pick logo…" onClick={onPickLogo} />}
       {a.variant === "logo" && (() => {
         // Where the text label sits relative to the icon. Legacy side==right,

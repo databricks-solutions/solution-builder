@@ -81,18 +81,37 @@ export interface PlatformComponent {
    *  { "in-lakeflow-connect": "← databases / SaaS apps", "r": "→ compute" }.
    *  THE key metadata — tells the agent which port maps to what. */
   ports?: Record<string, string>;
+  /** Optional toggleable PARAMS a component exposes. Each renders as a checkbox
+   *  in the right edit panel; enabled values live on the NODE as `params`
+   *  (NodePosition.params → the flat file's `params`). A composite reads
+   *  `d.params?.<key>` to render conditionally (e.g. the medallion table shows a
+   *  Feature Store / Metric Views fork when enabled). General — any component
+   *  can declare options; the panel + round-trip are shared. */
+  options?: ComponentOption[];
+}
+
+/** One toggleable component param. */
+export interface ComponentOption {
+  /** Stored under `node.params[key]`. */
+  key: string;
+  /** Checkbox label in the edit panel. */
+  label: string;
+  /** Default when the node has no explicit value (default false). */
+  default?: boolean;
 }
 
 /** The animated-flow rendering style of an edge. `dot` = a single travelling
  *  dot; `particles` = a dense river of cubes/circles/triangles (realtime);
  *  `docs` = travelling document glyphs (file landing); `laser` = a comet with a
- *  fading tail (explicit-choice only — never auto-derived). Canonical home for
- *  the union; the UI layer re-uses it so schema + renderer + menu never drift. */
-export type FlowStyle = "dot" | "particles" | "docs" | "laser";
+ *  fading tail (explicit-choice only — never auto-derived); `model` = a small ML
+ *  model glyph travelling the line (auto-default for edges touching the UC Model
+ *  Registry — a served/registered model flowing through). Canonical home for the
+ *  union; the UI layer re-uses it so schema + renderer + menu never drift. */
+export type FlowStyle = "dot" | "particles" | "docs" | "laser" | "model";
 
 /** Composite block kinds (super-set components that draw an inner mini-diagram
  *  and expose multiple named ports). Extend this as we add more blocks. */
-export type CompositeKind = "lakeflow" | "genie-code" | "governance" | "lakeflow-genie" | "agent-bricks" | "db-platform" | "genie-one";
+export type CompositeKind = "lakeflow" | "genie-code" | "governance" | "lakeflow-genie" | "agent-bricks" | "db-platform" | "genie-one" | "medallion-table";
 
 /** The 3 left input ports a "lakeflow" composite exposes. Edge handle ids on
  *  the block are `in-${port}` (+ a single `r` output on the right). */
@@ -217,6 +236,13 @@ export interface NodePosition {
    *  authored with an explicit `at`). A pinned node serializes as `at`; an
    *  un-pinned node with `placement` re-emits its symbolic fields. */
   pinned?: boolean;
+  /** Enabled toggleable component options (round-trips to the file's `params`).
+   *  See PlatformComponent.options. */
+  params?: Record<string, boolean>;
+  /** Render this node as a STACK of N cards (N-1 blank offset copies peeking out
+   *  the bottom-right of the front card) to signal "many of these" — e.g. deploy
+   *  N apps. 1 or absent = a single normal card. Works on any node kind. */
+  stack?: number;
 }
 
 /** A free-form canvas annotation — not a Databricks catalog component. One node
@@ -321,6 +347,13 @@ export interface FileNode {
    *  `at` is set. */
   col?: string;
   row?: number;
+  /** Enabled toggleable component options (see PlatformComponent.options), e.g.
+   *  `{ "feature_store": true }`. Only keys the component declares are meaningful. */
+  params?: Record<string, boolean>;
+  /** Render as a STACK of N cards to signal "many of these" (e.g. N apps): N-1
+   *  blank offset copies peek out the bottom-right of the front card. 1/absent =
+   *  single card. Works on any node type. */
+  stack?: number;
   /** Relational placement — position this node against ANOTHER node's resolved
    *  box, evaluated AFTER columns (so the anchor keeps its own col/row default).
    *  Use these instead of guessing `at` coordinates.
@@ -576,11 +609,28 @@ export const CATALOG: Record<BandId, CatalogComponent[]> = {
       desc: "Databricks' managed agents — a multi-agent supervisor plus information extraction, document parsing, and classification, built and governed for you.",
       authoring: "Managed MULTI-agent system: a Supervisor orchestrating Knowledge Assistant / Genie / MCP / Functions (with extraction·parsing·classification chips). Use when the agent layer is a supervisor routing to specialists; if the demo uses only one agent capability, use that single tile instead." },
     { id: "ml-training-serving", label: "ML Models", icon: "mlModel", desc: "Train, register, and serve models on governed data." },
+    { id: "ml-model", label: "Machine Learning Model", icon: "mlModelBrand", desc: "A trained model on governed data — classification, forecasting, recommendations, and more." },
+    { id: "model-training", label: "Model Training", icon: "mlflowBrand", desc: "Train + track experiments with MLflow — parameters, metrics, and artifacts, all governed." },
+    { id: "mlops", label: "MLOps", icon: "mlopsBrand", desc: "The full model lifecycle — train, evaluate, register, deploy, and monitor, governed end to end." },
+    // Medallion layers (orange brand marks) — used inside the SDP/pipeline block.
+    { id: "bronze-layer", label: "Bronze", icon: "bronzeLayer", desc: "Raw ingested data, landed as-is." },
+    { id: "silver-layer", label: "Silver", icon: "silverLayer", desc: "Cleaned, conformed, deduplicated." },
+    { id: "gold-layer", label: "Gold", icon: "goldLayer", desc: "Curated, business-ready aggregates." },
+    { id: "medallion-table", label: "Medallion Table", icon: "goldLayer", kind: "medallion-table",
+      desc: "Bronze → Silver → Gold in one block — the medallion refinement of a governed table.",
+      authoring: "The whole medallion (bronze → silver → gold) as ONE block, with the metal-toned layer marks and an internal flow. Prefer this over three separate bronze/silver/gold tiles when you just want to show the layered data itself. OPTIONS (params): `feature_store` and `metric_views` — each adds a fork off the GOLD layer (Feature Store above, Metric Views below) shown inside the block, and exposes an extra right-side OUTPUT handle so you can wire it: `@out-gold` (always), `@out-fs` (when feature_store), `@out-mv` (when metric_views).",
+      options: [
+        { key: "feature_store", label: "Feature store" },
+        { key: "metric_views", label: "Metric views" },
+      ],
+      ports: { "l": "← sources / ingest", "out-gold": "→ gold output", "out-fs": "→ feature store (when enabled)", "out-mv": "→ metric views (when enabled)" } },
+    { id: "feature-store", label: "Feature Store", icon: "featureStoreBrand", desc: "Governed, reusable features for training and real-time serving — consistent offline and online." },
+    { id: "uc-model-registry", label: "UC Model Registry", icon: "modelRegistryBrand", desc: "Version, stage, and govern models in Unity Catalog with full lineage." },
     { id: "model-serving", label: "Model Serving Endpoint", icon: "modelServing", desc: "Serve a custom model behind a governed, autoscaling REST endpoint for real-time inference.",
       authoring: "A deployed serving endpoint (real-time inference over a custom/registered model). Use when the demo calls a live endpoint; for the train→register→batch-score story use ml-training-serving instead." },
     { id: "hosted-mcps", label: "Hosted MCPs", icon: "mcp", desc: "Managed MCP servers that let agents call external tools — Genie, Atlassian, GitHub, Slack, SharePoint, Gmail, and more.",
       authoring: "The governed tool/connector layer for agents — hosted MCP servers (Genie / Atlassian / GitHub / Slack / SharePoint / Gmail …). Use when the demo's agent reaches OUT to external systems via MCP." },
-    { id: "vector-search", label: "Vector Search", icon: "vectorSearch", desc: "Semantic search and retrieval that grounds agents in your data." },
+    { id: "vector-search", label: "Vector Search", icon: "vectorSearchBrand", desc: "Embeddings" },
     { id: "information-extraction", label: "Information Extraction", icon: "unstructuredData", desc: "Pull specific data points, entities, and fields from unstructured text (ai_extract)." },
     // The Agent Bricks building blocks (also surfaced inside the composite).
     { id: "document-parsing", label: "Document Parsing", icon: "inputData", desc: "Extract structured content from documents — text, tables, and metadata (ai_parse_document)." },
@@ -596,10 +646,10 @@ export const CATALOG: Record<BandId, CatalogComponent[]> = {
       desc: "One control plane for data + AI: Unity Catalog governs access, lineage and quality; the Unity AI Gateway governs every foundation-model call (OpenAI, Anthropic, Gemini, …); Genie Ontology is the shared semantic layer.",
       authoring: "One governance bar: Unity Catalog + Unity AI Gateway (access any model) + a live Genie Ontology graph. Prefer over the loose unity-catalog / ai-gateway / data-quality / abac / data-classification tiles (use those only to spotlight one feature)." },
     { id: "db-platform", label: "Databricks Platform", icon: "file:vendor/databricks-wordmark", kind: "db-platform",
-      desc: "The Databricks Data Intelligence Platform — one governed foundation for all data + AI.",
+      desc: "The Databricks Data + AI platform — one governed foundation for all data + AI.",
       authoring: "Title banner (the Databricks wordmark). Pin it top-left, usually paired with a big background box (z:-1) wrapping everything → reads as 'all of this is the platform'." },
     { id: "unity-catalog", label: "Unity Catalog", icon: "unityCatalogBrand", desc: "One governed catalog — access, lineage, and semantics across data + AI." },
-    { id: "ai-gateway", label: "Unity AI Gateway", icon: "aiGatewayBrand", desc: "Every model and agent call governed — security, cost, and rate limits." },
+    { id: "ai-gateway", label: "Unity AI Gateway", icon: "aiGatewayBrand", desc: "Security, cost, and rate limits." },
     { id: "data-quality", label: "Data Quality", icon: "unityCatalog", desc: "Expectations and monitors keep bad data out of the gold layer." },
     { id: "abac", label: "ABAC", icon: "unityCatalog", desc: "Attribute-based access control — fine-grained, policy-driven permissions." },
     { id: "data-classification", label: "Data Classification", icon: "unityCatalog", desc: "Automatically tag and govern sensitive data." },
@@ -685,6 +735,7 @@ export function naturalSize(type: string): { w: number; h: number } {
   if (kind === "governance") return { w: 580, h: 108 };
   if (kind === "db-platform") return { w: 380, h: 60 };
   if (kind === "genie-one") return { w: 230, h: 78 }; // tile; persona pill floats over the top edge
+  if (kind === "medallion-table") return { w: 268, h: 96 }; // title + 3 layer marks + labels + connectors
   if (type === "sdp") return { w: 230, h: 112 };
   // Standard "compute / serving" tiles share ONE default footprint so they line
   // up in a column (Lakehouse, Lakebase, Model Serving, Hosted MCPs, …). 230 wide,
@@ -697,7 +748,10 @@ export function naturalSize(type: string): { w: number; h: number } {
 /** Single-line catalog tiles that should default to the STANDARD compute-tile
  *  footprint (same as Lakehouse/Lakebase) so a column of them lines up, even
  *  though they carry no `sublabel`. */
-const STANDARD_TILE_TYPES = new Set(["model-serving", "hosted-mcps"]);
+const STANDARD_TILE_TYPES = new Set([
+  "model-serving", "hosted-mcps",
+  "ml-model", "model-training", "mlops", "feature-store", "uc-model-registry",
+]);
 
 // =============================================================================
 // Build: catalog + resources.json defaults + agent override → final schema
@@ -1205,6 +1259,8 @@ export function parseArchitecture(content: string): PlatformSchema {
       y: y ?? 0,
       ...(placement ? { placement } : {}),
       ...(pinned ? { pinned: true } : {}),
+      ...(n.params && Object.keys(n.params).length ? { params: n.params } : {}),
+      ...(n.stack && n.stack > 1 ? { stack: n.stack } : {}),
       ...(n.rot !== undefined ? { rot: n.rot } : {}),
       ...(derivedSize ? { w: derivedSize[0], h: derivedSize[1] } : {}),
       ...(n.scale !== undefined ? { scale: n.scale } : {}),
@@ -1522,6 +1578,8 @@ export function serializeArchitecture(
       ...(pos.scale !== undefined && pos.scale !== 1 ? { scale: pos.scale } : {}),
       ...(pos.z ? { z: pos.z } : {}),
       ...(pos.groupId ? { group: pos.groupId } : {}),
+      ...(pos.params && Object.keys(pos.params).length ? { params: pos.params } : {}),
+      ...(pos.stack && pos.stack > 1 ? { stack: pos.stack } : {}),
     };
     const style = styleOf(pos);
 

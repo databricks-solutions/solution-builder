@@ -21,6 +21,7 @@ import {
   useEdgesState,
   addEdge,
   useReactFlow,
+  useStoreApi,
   type Node,
   type Edge,
   type Connection,
@@ -77,7 +78,7 @@ import { nodeTypes, edgeTypes } from "./node-types";
 import { DetailPanel } from "./panels/detail-panel";
 import { EditPanel } from "./panels/edit-panel";
 import { LibraryPalette } from "./panels/library-palette";
-import { componentLookup, schemaToFlow, flowToLayout, EDGE_Z } from "./flow-mapping";
+import { componentLookup, schemaToFlow, flowToLayout, EDGE_Z, handlesFor, fallbackHandle } from "./flow-mapping";
 import { ContextMenu, type CtxMenu } from "./menus/context-menu";
 import { useDiagramHistory } from "./hooks/use-diagram-history";
 import { useNodeMutations } from "./hooks/use-node-mutations";
@@ -171,7 +172,8 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
       return sel.map((n) => n.id);
     });
   }, []);
-  const { screenToFlowPosition } = useReactFlow();
+  const { screenToFlowPosition, getInternalNode } = useReactFlow();
+  const rfStore = useStoreApi();
   const wrapRef = useRef<HTMLDivElement>(null);
 
   // "Copy style → paste onto others" mode. While `copiedStyle` is set, a banner
@@ -318,7 +320,16 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
       ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0],
     };
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") { editKeyHandlersRef.current.clearSelection(); return; }
+      if (e.key === "Escape") {
+        // If a connection is being DRAWN (dragging out of a handle), Escape
+        // cancels the pending line instead of clearing the selection. RF's own
+        // connection state lives on the store; cancelConnection() aborts it so
+        // the next pointerup won't create an edge.
+        const st = rfStore.getState() as { connection?: { inProgress?: boolean }; cancelConnection?: () => void };
+        if (st.connection?.inProgress) { st.cancelConnection?.(); return; }
+        editKeyHandlersRef.current.clearSelection();
+        return;
+      }
       if (isTyping()) return;
       const H = editKeyHandlersRef.current;
       // ⌘⇧↑ / ⌘⇧↓ = bring-to-front / send-to-back (Keynote/Sketch convention).
@@ -463,7 +474,7 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
 
   const onConnect = useCallback(
     (params: Connection) => {
-      // No self-loops; no duplicate of an existing source→target pair.
+      // No self-loops.
       if (!params.source || !params.target || params.source === params.target) return;
       // A ported composite (Lakeflow / Lakeflow+Genie) only has the named input
       // ports (in-*) + r/t/b/bl — NOT the plain side handles t/r/b/l. If the
@@ -480,11 +491,17 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
       };
       const sourceHandle = validHandle(params.source, params.sourceHandle, "source");
       const targetHandle = validHandle(params.target, params.targetHandle, "target");
+      // Stable, collision-free id from the endpoint pair + HANDLES (NOT eds.length,
+      // which repeats after a delete). Handle-aware so a composite with multiple
+      // output ports (the medallion's out-gold / out-fs / out-mv) can fan several
+      // DISTINCT edges to the SAME target — each handle pair is its own edge.
+      const id = `e-${params.source}-${sourceHandle ?? ""}-${params.target}-${targetHandle ?? ""}`;
       setEdges((eds) => {
-        if (eds.some((e) => e.source === params.source && e.target === params.target)) return eds;
-        // Stable, collision-free id from the (now-guaranteed-unique) endpoint
-        // pair + handles — NOT eds.length, which repeats after a delete.
-        const id = `e-${params.source}-${sourceHandle ?? ""}-${params.target}-${targetHandle ?? ""}`;
+        // Dedup on the full handle-aware id, not just the (source,target) pair —
+        // otherwise a 2nd port→same-target edge is silently dropped ("can't add
+        // the 3rd connection"). Only an EXACT duplicate (same both handles) is a
+        // no-op.
+        if (eds.some((e) => e.id === id)) return eds;
         const next = addEdge(
           {
             ...params,
@@ -526,18 +543,32 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
     },
     [],
   );
+  // Hit-test a flow-coord point against the nodes for the reconnect (endpoint
+  // drag) snap. A MARGIN expands each node's rect so the endpoint catches when
+  // the cursor is merely NEAR a box — matching how NEW-connection creation snaps
+  // within `connectionRadius`, instead of requiring the cursor strictly INSIDE
+  // the box (the old behaviour: "I have to go deep into each box for the magnet
+  // to catch"). Among nodes within margin, prefer the TOPMOST (z), then the one
+  // whose rect the cursor is closest to (so between two nearby boxes the nearer
+  // wins). `margin` in FLOW units (24 ≈ the connection radius at 100% zoom).
   const nodeAt = useCallback(
-    (fx: number, fy: number): string | null => {
+    (fx: number, fy: number, margin = 24): string | null => {
       let hit: string | null = null;
       let hitZ = -Infinity;
+      let hitDist = Infinity;
       for (const n of nodesRef.current) {
         const w = (n.width ?? (n.data as NodeData).w ?? 200) as number;
         const h = (n.height ?? (n.data as NodeData).h ?? 56) as number;
         const { x, y } = topLeftOf(n, w, h);
-        // Pick the TOPMOST node under the point (highest zIndex), so a
-        // BringToFront node wins over one merely later in array order.
+        // Distance from the point to the node RECT (0 if inside). Skip if farther
+        // than the margin.
+        const dx = Math.max(x - fx, 0, fx - (x + w));
+        const dy = Math.max(y - fy, 0, fy - (y + h));
+        const dist = Math.hypot(dx, dy);
+        if (dist > margin) continue;
         const z = n.zIndex ?? 0;
-        if (fx >= x && fx <= x + w && fy >= y && fy <= y + h && z >= hitZ) { hit = n.id; hitZ = z; }
+        // Higher z wins; at equal z the nearer rect wins.
+        if (z > hitZ || (z === hitZ && dist < hitDist)) { hit = n.id; hitZ = z; hitDist = dist; }
       }
       return hit;
     },
@@ -545,24 +576,43 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
   );
   const [dropTargetId, setDropTargetId] = useState<string | null>(null);
   const setDropTarget = useCallback((nid: string | null) => setDropTargetId(nid), []);
-  // A composite block's named input ports as absolute flow-coord anchors so the
-  // reconnect drag can snap to (and target) the RIGHT one, not just "left".
+  // A composite block's named ports as absolute flow-coord anchors so a drag
+  // INTO the block snaps to (and targets) the RIGHT one, not just a single side.
   const portsOf = useCallback(
     (nid: string): { handle: string; x: number; y: number }[] => {
       const n = nodesRef.current.find((x) => x.id === nid);
       const kind = (n?.data as NodeData | undefined)?.component.kind;
-      if (!n || kind !== "lakeflow") return [];
       const r = nodeRect(nid);
-      if (!r) return [];
-      return [
-        // Left-edge input ports …
-        ...LF_PORTS.map((p) => ({ handle: `in-${p.port}`, x: r.x, y: r.y + r.h * p.frac })),
-        // … plus the bottom-left anchor (under the files), so a reconnect drag
-        // can snap to it (matches `portAnchor`'s {side:"b", frac:0.08}).
-        { handle: "bl", x: r.x + r.w * 0.08, y: r.y + r.h },
-      ];
+      if (!n || !r) return [];
+      if (kind === "lakeflow") {
+        return [
+          // Left-edge input ports …
+          ...LF_PORTS.map((p) => ({ handle: `in-${p.port}`, x: r.x, y: r.y + r.h * p.frac })),
+          // … plus the bottom-left anchor (under the files), so a reconnect drag
+          // can snap to it (matches `portAnchor`'s {side:"b", frac:0.08}).
+          { handle: "bl", x: r.x + r.w * 0.08, y: r.y + r.h },
+        ];
+      }
+      if (kind === "medallion-table") {
+        // The medallion's fork OUTPUT rows (out-mv / out-gold / out-fs) are on the
+        // right and their Y depends on the current fork layout — so read RF's
+        // MEASURED handle bounds (the ground truth) instead of recomputing. Local
+        // (node-space) centres → absolute flow coords via the node rect. Exposing
+        // them lets a drag INTO the medallion snap to the correct row, not just
+        // one side. (Falls back to nothing if not measured yet → generic sides.)
+        const internal = getInternalNode(nid) as
+          | { internals?: { handleBounds?: { source?: { id?: string | null; x: number; y: number; width: number; height: number }[] | null } | null } }
+          | undefined;
+        const src = internal?.internals?.handleBounds?.source ?? [];
+        // Expose the fork OUTPUT rows (right) AND the generic sides (l/t/b) so a
+        // drag can snap to any of them by proximity.
+        return src
+          .filter((h) => h.id && (h.id.startsWith("out-") || ["l", "t", "b"].includes(h.id)))
+          .map((h) => ({ handle: h.id as string, x: r.x + h.x + h.width / 2, y: r.y + h.y + h.height / 2 }));
+      }
+      return [];
     },
-    [nodeRect],
+    [nodeRect, getInternalNode],
   );
   const edgeOps = useMemo<EdgeOps>(
     () => ({
@@ -874,6 +924,18 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
           data: { ...dd, scale, w: cardW, h: cardH },
         };
       });
+      scheduleSave(next, edges);
+      return next;
+    });
+  }, [setNodes, scheduleSave, edges]);
+
+  // Set the STACK count (N cards) for a node. Just patches data.stack (the stack
+  // shadows are decorative + pointer-none, so no footprint change). 1 clears it.
+  const setNodeStack = useCallback((id: string, stack: number) => {
+    setNodes((nds) => {
+      const next = nds.map((n) =>
+        n.id === id ? { ...n, data: { ...(n.data as NodeData), stack: stack > 1 ? stack : undefined } } : n,
+      );
       scheduleSave(next, edges);
       return next;
     });
@@ -1241,6 +1303,47 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
   const panelOnRemove = useCallback(() => { const ids = [...selectedIds]; clearSelection(); ids.forEach(removeNode); }, [selectedIds, clearSelection, removeNode]);
   const panelOnChangeType = useCallback(() => { if (panelPrimaryId) { setPickingFor(panelPrimaryId); clearSelection(); } }, [panelPrimaryId, clearSelection]);
   const panelOnSetScale = useCallback((s: number) => { if (panelPrimaryId) setNodeScale(panelPrimaryId, s); }, [panelPrimaryId, setNodeScale]);
+  const panelOnSetStack = useCallback((n: number) => { if (panelPrimaryId) setNodeStack(panelPrimaryId, n); }, [panelPrimaryId, setNodeStack]);
+  // Component options (checkboxes): the selected component's declared options +
+  // its current params, and a setter that writes one key into node.data.params.
+  const panelOptions = selectedIds.length === 1 ? panelPrimaryData?.component.options : undefined;
+  const panelParams = panelPrimaryData?.params;
+  const panelOnSetParam = useCallback((key: string, value: boolean) => {
+    if (!panelPrimaryId) return;
+    setNodes((nds) => {
+      const next = nds.map((n) => {
+        if (n.id !== panelPrimaryId) return n;
+        const dd = n.data as NodeData;
+        const params = { ...(dd.params ?? {}), [key]: value };
+        // Recompute the node box so the selection frame + resize handles track the
+        // new (forked) size — only when the user hasn't manually resized it.
+        const manual = dd.w !== undefined || dd.h !== undefined;
+        const fp = manual ? null : nodeFootprint(dd.component, { rot: dd.rot, params });
+        return { ...n, ...(fp ? { width: fp.w, height: fp.h, style: { ...n.style, width: fp.w, height: fp.h } } : {}), data: { ...dd, params } };
+      });
+      // Re-heal edges on this node: toggling an option OFF removes a port handle
+      // (e.g. `out-fs`), which would drop the edge — remap it to a live handle.
+      const changed = next.find((n) => n.id === panelPrimaryId);
+      const set = changed ? handlesFor(changed.data as NodeData) : null;
+      const healEdge = (e: typeof edges[number]) => {
+        if (!set) return e;
+        if (e.source === panelPrimaryId && e.sourceHandle && !set.has(e.sourceHandle)) return { ...e, sourceHandle: fallbackHandle(set, e.sourceHandle, "source") };
+        if (e.target === panelPrimaryId && e.targetHandle && !set.has(e.targetHandle)) return { ...e, targetHandle: fallbackHandle(set, e.targetHandle, "target") };
+        return e;
+      };
+      const healedEdges = set ? edges.map(healEdge) : edges;
+      if (set) setEdges(healedEdges);
+      scheduleSave(next, healedEdges);
+      return next;
+    });
+  }, [panelPrimaryId, setNodes, setEdges, scheduleSave, edges]);
+  // Editable block title — only composites that carry one (the medallion table).
+  const panelHasTitle = selectedIds.length === 1 && panelPrimaryData?.component.kind === "medallion-table";
+  // Show the user's title in the input; blank (→ "Title…" placeholder) when it's
+  // still the catalog default, so the block's own "Ingestion (SDP)" default shows.
+  const panelNodeTitle = panelHasTitle && panelPrimaryData?.component.label !== "Medallion Table"
+    ? panelPrimaryData?.component.label : "";
+  const panelOnSetTitle = useCallback((t: string) => { if (panelPrimaryId) onRename(panelPrimaryId, t); }, [panelPrimaryId, onRename]);
   const panelOnAnno = useCallback((patch: Partial<AnnotationData>) => {
     if (!panelPrimaryId) return;
     // Flipping a logo's text position between a HORIZONTAL (right/left) and a
@@ -1334,8 +1437,12 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
   // Auto-edit signal for a freshly-dropped text node (cursor lands in it).
   const autoEditClear = useCallback(() => setAutoEditFor(null), []);
   const autoEditValue = useMemo(() => ({ id: autoEditFor, clear: autoEditClear }), [autoEditFor, autoEditClear]);
-  // An edge is selected (its docked panel is open) → hide component anchors.
-  const edgeSelected = menu?.kind === "edge";
+  // An edge is selected AND its docked panel is actually showing → hide
+  // component anchors. Must match the panel-render guard below (which also
+  // requires no node selection) — otherwise selecting a node/box AFTER a line
+  // leaves the panel hidden but `edgeSelected` stuck true, suppressing every
+  // box/node anchor (the "box anchors vanish after clicking a line" bug).
+  const edgeSelected = menu?.kind === "edge" && selectedIds.length === 0;
 
   return (
     <AutoEditContext.Provider value={autoEditValue}>
@@ -1539,7 +1646,11 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
           proOptions={PRO_OPTIONS}
           defaultEdgeOptions={DEFAULT_EDGE_OPTIONS}
           connectionMode={ConnectionMode.Loose}
-          connectionRadius={36}
+          // 20px — MUST stay below the medallion's stacked-output spacing (~40px
+          // node-local) so each of out-mv / out-gold / out-fs gets its own snap
+          // zone. A larger radius (was 36) let the nearest handle grab the drop
+          // from far away, so the 3 right-side ports collapsed to feeling like one.
+          connectionRadius={20}
           nodesConnectable={editMode}
           nodesDraggable={editMode}
           elementsSelectable
@@ -1599,7 +1710,7 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
           onSetShape={(s) => setEdgeShape(menu.id, s)}
           onSetFlowStyle={(s) => setEdgeFlowStyle(menu.id, s)}
           onSetArrow={(a) => setEdgeArrow(menu.id, a)}
-          onSetEdgeLabel={(label) => { setEdgeLabel(menu.id, label); setMenu(null); }}
+          onSetEdgeLabel={(label) => setEdgeLabel(menu.id, label)}
           onRemoveEdge={() => { removeEdge(menu.id); setMenu(null); }}
         />
       )}
@@ -1612,6 +1723,8 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
           selectionCount={selectedIds.length}
           annotation={panelAnno}
           nodeScale={panelPrimaryData?.scale ?? 1}
+          nodeStack={(panelPrimaryData?.stack as number | undefined) ?? 1}
+          onSetStack={selectedIds.length === 1 && !panelAnno ? panelOnSetStack : undefined}
           style={panelNodeStyle}
           isGroup={isGroup}
           canGroup={canGroup}
@@ -1621,6 +1734,11 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
           onSetSourceCaption={panelIsSource ? panelOnSetSourceCaption : undefined}
           showDescription={panelCanToggleDesc ? panelShowDescription : undefined}
           onSetShowDescription={panelCanToggleDesc ? panelOnSetShowDescription : undefined}
+          options={panelOptions}
+          params={panelParams}
+          onSetParam={panelOnSetParam}
+          nodeTitle={panelHasTitle ? panelNodeTitle : undefined}
+          onSetTitle={panelHasTitle ? panelOnSetTitle : undefined}
           onClose={clearSelection}
           onRotate={panelOnRotate}
           onRemove={panelOnRemove}

@@ -4,14 +4,38 @@
  * (`FlowStylePreview`). Pure SVG, no ReactFlow coupling.
  */
 import { type FlowStyle } from "../shared";
+import { MLModelBrandIcon } from "../../../databricks-icons";
 
 /** Flowing-data animation along an edge path. Styles:
  *   dot       — a single glowing dot (the original).
  *   particles — a dense red "river" of cubes/circles/triangles (streaming data).
  *   docs       — small document glyphs moving along (file ingest).
  *   laser      — a futuristic pulsing red beam with a bright streak racing along
- *                (DB / SaaS connector data). */
+ *                (DB / SaaS connector data).
+ *   model      — a small ML-model glyph (a neural-net "chip") travelling the
+ *                line; the auto-default for edges touching the UC Model Registry
+ *                (a registered/served model flowing through). */
 export function EdgeFlow({ style, path }: { style: FlowStyle; path: string }) {
+  if (style === "model") {
+    // ONE actual ML-model brand glyph riding the line, SLOWLY — a registered/
+    // served model flowing through. The real icon (viewBox 0 0 150 150) scaled to
+    // a SIZE box + centered so `animateMotion` moves its center along the path.
+    // An opaque background disc UNDER the icon masks the dashed line where the
+    // glyph sits, so the line reads as "disappearing behind" the model.
+    const SIZE = 30;
+    const MASK = SIZE * 0.62; // disc diameter — covers the line, smaller than the glyph
+    const DUR = 8; // slow
+    return (
+      <g>
+        {/* opaque disc hides the line under the logo */}
+        <circle r={MASK / 2} fill="var(--background)" />
+        <g transform={`translate(${-SIZE / 2} ${-SIZE / 2})`}>
+          <MLModelBrandIcon width={SIZE} height={SIZE} />
+        </g>
+        <animateMotion dur={`${DUR}s`} repeatCount="indefinite" path={path} />
+      </g>
+    );
+  }
   if (style === "dot") {
     return (
       <circle r="3.5" fill="var(--primary)" style={{ filter: "drop-shadow(0 0 4px var(--primary))" }}>

@@ -92,6 +92,46 @@ export const rectOf = (n: { internals: { positionAbsolute: { x: number; y: numbe
   h: n.measured.height ?? 56,
 });
 
+/** A ReactFlow measured handle (from `node.internals.handleBounds`). x/y are
+ *  node-LOCAL (relative to the node's top-left), width/height the hit box.
+ *  Structurally matches RF's `Handle` (id may be null/undefined; position is the
+ *  `Position` enum whose string values are top/right/bottom/left). */
+export interface HandleBound {
+  id?: string | null;
+  position: Position;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+const POSITION_TO_SIDE: Record<string, Side> = {
+  [Position.Left]: "l", [Position.Right]: "r", [Position.Top]: "t", [Position.Bottom]: "b",
+};
+
+/** Resolve a handle id to its `{side, frac}` from ReactFlow's MEASURED handle
+ *  bounds — the ground truth for where a handle actually sits on the node, so
+ *  edges anchor exactly at the rendered anchor (no per-handle frac table to keep
+ *  in sync). Frac is the handle CENTER along its side, clamped to [0,1]. Returns
+ *  null when the handle isn't measured (falls back to the frac heuristics). */
+export function anchorFromBounds(
+  bounds: HandleBound[] | null | undefined,
+  handleId: string | null | undefined,
+  nodeW: number,
+  nodeH: number,
+): { side: Side; frac: number } | null {
+  if (!bounds || !handleId) return null;
+  const b = bounds.find((h) => h.id === handleId);
+  if (!b) return null;
+  const side = POSITION_TO_SIDE[b.position];
+  const cx = b.x + b.width / 2;
+  const cy = b.y + b.height / 2;
+  const frac = side === "l" || side === "r"
+    ? (nodeH > 0 ? cy / nodeH : 0.5)
+    : (nodeW > 0 ? cx / nodeW : 0.5);
+  return { side, frac: Math.min(1, Math.max(0, frac)) };
+}
+
 /** Which side of a node a given edge-end attaches to (explicit handle wins,
  *  else the side facing the other node's center). Module-level so the store
  *  selector and the edge can agree. */

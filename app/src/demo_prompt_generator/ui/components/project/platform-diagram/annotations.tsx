@@ -347,37 +347,47 @@ export const AnnotationNode = memo(function AnnotationNode({ data, selected }: N
         // The legend's TOP corners track it so the rounding stays proportional.
         const boxRadius = d.borderRadius ?? 6;
         const titleBar = isBox ? (
+          // A WIDE invisible hit strip spanning the whole top edge — makes the
+          // double-click-to-edit target easy to hit anywhere along the top (not
+          // just the ~40px legend). The visible legend (mask + title text) is a
+          // child docked at the left; it looks like a fieldset legend while the
+          // whole strip is clickable. Height 16px straddling the border.
           <div
             onClick={(e) => { e.stopPropagation(); d.onSelect(d.nodeId); }}
             onDoubleClick={(e) => { e.stopPropagation(); setEditingTitle(a.title ?? ""); }}
             title="Double-click to edit title"
-            className="absolute left-3 top-0 z-10 flex max-w-[calc(100%-24px)] -translate-y-1/2 items-center gap-1.5"
-            style={hasTitle ? { background: legendMask, padding: "0 6px", borderTopLeftRadius: boxRadius, borderTopRightRadius: boxRadius } : { minWidth: 40, height: 12 }}
+            className="absolute inset-x-0 top-0 z-10 flex h-4 -translate-y-1/2 items-center"
+            style={{ cursor: "text" }}
           >
-            {hasTitle && a.titleIcon && (
-              <AnyIcon iconKey={a.titleIcon} className="h-5 w-5 shrink-0 [&_svg]:h-5 [&_svg]:w-5" />
-            )}
-            {editingTitle !== null ? (
-              <input
-                autoFocus
-                value={editingTitle}
-                onChange={(e) => setEditingTitle(e.target.value)}
-                onBlur={commitTitle}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") commitTitle();
-                  else if (e.key === "Escape") setEditingTitle(null);
-                  e.stopPropagation();
-                }}
-                onClick={(e) => e.stopPropagation()}
-                placeholder="Title"
-                className={`bg-transparent text-[15px] font-semibold leading-none outline-none ${d.fontColor ? "" : "text-foreground"}`}
-                style={d.fontColor ? { color: d.fontColor } : undefined}
-              />
-            ) : hasTitle ? (
-              <span className={`truncate text-[15px] font-semibold leading-none ${d.fontColor ? "" : "text-foreground"}`} style={d.fontColor ? { color: d.fontColor } : undefined}>
-                {a.title}
-              </span>
-            ) : null}
+            <div
+              className="ml-3 flex max-w-[calc(100%-24px)] items-center gap-1.5"
+              style={hasTitle ? { background: legendMask, padding: "0 6px", borderTopLeftRadius: boxRadius, borderTopRightRadius: boxRadius } : undefined}
+            >
+              {hasTitle && a.titleIcon && (
+                <AnyIcon iconKey={a.titleIcon} className="h-5 w-5 shrink-0 [&_svg]:h-5 [&_svg]:w-5" />
+              )}
+              {editingTitle !== null ? (
+                <input
+                  autoFocus
+                  value={editingTitle}
+                  onChange={(e) => setEditingTitle(e.target.value)}
+                  onBlur={commitTitle}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") commitTitle();
+                    else if (e.key === "Escape") setEditingTitle(null);
+                    e.stopPropagation();
+                  }}
+                  onClick={(e) => e.stopPropagation()}
+                  placeholder="Title"
+                  className={`bg-transparent text-[15px] font-semibold leading-none outline-none ${d.fontColor ? "" : "text-foreground"}`}
+                  style={d.fontColor ? { color: d.fontColor } : undefined}
+                />
+              ) : hasTitle ? (
+                <span className={`truncate text-[15px] font-semibold leading-none ${d.fontColor ? "" : "text-foreground"}`} style={d.fontColor ? { color: d.fontColor } : undefined}>
+                  {a.title}
+                </span>
+              ) : null}
+            </div>
           </div>
         ) : null;
         return (

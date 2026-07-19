@@ -34,6 +34,7 @@ export const GenieOneBlock = memo(function GenieOneBlock({ data, selected }: Nod
       forceDots={isDropTarget}
       onResize={(w, h, center) => d.onResize(d.nodeId, w, h, undefined, center)}
       onScale={(w) => d.onResize(d.nodeId, w, Math.round((w * nat.h) / nat.w), w / nat.w)}
+      stack={d.stack}
       onContext={(e) => { e.preventDefault(); d.onContext(d.nodeId, e.clientX, e.clientY); }}
     >
       {/* Wrapper allows the persona pill to overflow above the card's top edge. */}

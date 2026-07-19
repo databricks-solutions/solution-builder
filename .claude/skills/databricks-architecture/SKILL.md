@@ -341,9 +341,19 @@ Use the `type` id; the renderer supplies the icon, label, default description an
 | `supervisor-agent` | Supervisor Agent | 200×56 | Routes a question to the right specialist agent and composes the answer. |
 | `agent-bricks` | Agent Bricks | 230×170 | Managed MULTI-agent system: a Supervisor orchestrating Knowledge Assistant / Genie / MCP / Functions (with extraction·parsing·classification chips). Use when the agent layer is a supervisor routing to specialists; if the demo uses only one agent capability, use that single tile instead. |
 | `ml-training-serving` | ML Models | 200×56 | Train, register, and serve models on governed data. |
+| `ml-model` | Machine Learning Model | 230×54 | A trained model on governed data — classification, forecasting, recommendations, and more. |
+| `model-training` | Model Training | 230×54 | Train + track experiments with MLflow — parameters, metrics, and artifacts, all governed. |
+| `mlops` | MLOps | 230×54 | The full model lifecycle — train, evaluate, register, deploy, and monitor, governed end to end. |
+| `bronze-layer` | Bronze | 200×56 | Raw ingested data, landed as-is. |
+| `silver-layer` | Silver | 200×56 | Cleaned, conformed, deduplicated. |
+| `gold-layer` | Gold | 200×56 | Curated, business-ready aggregates. |
+| `medallion-table` | Medallion Table | 268×96 | The whole medallion (bronze → silver → gold) as ONE block, with the metal-toned layer marks and an internal flow. Prefer this over three separate bronze/silver/gold tiles when you just want to show the layered data itself. OPTIONS (params): `feature_store` and `metric_views` — each adds a fork off the GOLD layer (Feature Store above, Metric Views below) shown inside the block, and exposes an extra right-side OUTPUT handle so you can wire it: `@out-gold` (always), `@out-fs` (when feature_store), `@out-mv` (when metric_views). |
+| | | | **ports:** `l` ← sources / ingest · `out-gold` → gold output · `out-fs` → feature store (when enabled) · `out-mv` → metric views (when enabled) |
+| `feature-store` | Feature Store | 230×54 | Governed, reusable features for training and real-time serving — consistent offline and online. |
+| `uc-model-registry` | UC Model Registry | 230×54 | Version, stage, and govern models in Unity Catalog with full lineage. |
 | `model-serving` | Model Serving Endpoint | 230×54 | A deployed serving endpoint (real-time inference over a custom/registered model). Use when the demo calls a live endpoint; for the train→register→batch-score story use ml-training-serving instead. |
 | `hosted-mcps` | Hosted MCPs | 230×54 | The governed tool/connector layer for agents — hosted MCP servers (Genie / Atlassian / GitHub / Slack / SharePoint / Gmail …). Use when the demo's agent reaches OUT to external systems via MCP. |
-| `vector-search` | Vector Search | 200×56 | Semantic search and retrieval that grounds agents in your data. |
+| `vector-search` | Vector Search | 200×56 | Embeddings |
 | `information-extraction` | Information Extraction | 200×56 | Pull specific data points, entities, and fields from unstructured text (ai_extract). |
 | `document-parsing` | Document Parsing | 200×56 | Extract structured content from documents — text, tables, and metadata (ai_parse_document). |
 | `text-classification` | Text Classification | 200×56 | Categorize text into predefined or dynamic labels (ai_classify). |
@@ -363,7 +373,7 @@ Use the `type` id; the renderer supplies the icon, label, default description an
 | `governance-block` | Unified Governance | 580×108 | One governance bar: Unity Catalog + Unity AI Gateway (access any model) + a live Genie Ontology graph. Prefer over the loose unity-catalog / ai-gateway / data-quality / abac / data-classification tiles (use those only to spotlight one feature). |
 | `db-platform` | Databricks Platform | 380×60 | Title banner (the Databricks wordmark). Pin it top-left, usually paired with a big background box (z:-1) wrapping everything → reads as 'all of this is the platform'. |
 | `unity-catalog` | Unity Catalog | 200×56 | One governed catalog — access, lineage, and semantics across data + AI. |
-| `ai-gateway` | Unity AI Gateway | 200×56 | Every model and agent call governed — security, cost, and rate limits. |
+| `ai-gateway` | Unity AI Gateway | 200×56 | Security, cost, and rate limits. |
 | `data-quality` | Data Quality | 200×56 | Expectations and monitors keep bad data out of the gold layer. |
 | `abac` | ABAC | 200×56 | Attribute-based access control — fine-grained, policy-driven permissions. |
 | `data-classification` | Data Classification | 200×56 | Automatically tag and govern sensitive data. |
@@ -420,7 +430,11 @@ Also: `file:persona/user` (a person — normally the business-user persona is bu
 
 ## Reference files
 
-- `reference/architecture-complete.jsonc` — the flagship end-to-end shape (commented). The minimal shape is inlined in **The format** above.
+Worked, commented `.jsonc` examples — copy the one closest to the user's intent and adapt (strip the `//` comments; emit plain JSON in the fence). More get added over time.
+
+- `reference/architecture-complete.jsonc` — the flagship end-to-end platform (2 tabs). The minimal shape is inlined in **The format** above.
+- `reference/agent-bricks.jsonc` — a multi-agent Supervisor over Knowledge Assistant · Genie · Hosted MCPs → Genie One + dashboard. Shows `alignY` + `below` relative placement.
+- `reference/ml-platform.jsonc` — end-to-end ML: medallion SDP → Feature Store + Vector Search → MLflow training → UC Model Registry → real-time / RAG / batch serving, all inside a Unity Catalog box. Shows nested boxes (`sdp-box` inside `uc-box`), a pinned `unity-catalog` banner, and the `#N` instance-id rule for two `model-serving` tiles.
 <!-- BEGIN: local-render-files (stripped inside Solution Builder — renderer/ isn't shipped into a project) -->
 - `renderer/architecture-viewer.html` / `architecture-editor.html` — copy one, edit its inline JSON.
 - `renderer/render-arch.mjs` — `node renderer/render-arch.mjs <file>.html` → a PNG to read.

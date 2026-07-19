@@ -115,6 +115,7 @@ export const ComponentNode = memo(function ComponentNode({ data, selected }: Nod
       borderRadius={d.borderRadius}
       shadow={d.shadow}
       opacity={d.opacity}
+      stack={d.stack}
       onSelect={d.onSelect}
       onResize={d.onResize}
       onScale={(id, w) => d.onResize(id, w, Math.round((w * defaultSize.h) / defaultSize.w), w / defaultSize.w)}

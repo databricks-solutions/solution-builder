@@ -193,19 +193,26 @@ export function schemaToFlow(
     const d = n.data as NodeData;
     if (pos.placement) d.placement = pos.placement;
     if (pos.pinned) d.pinned = true;
+    if (pos.params) d.params = pos.params;
+    if (pos.stack && pos.stack > 1) d.stack = pos.stack;
   }
 
-  // Heal handles on saved edges: a ported composite (lakeflow / lakeflow-genie)
-  // only has in-* ports + r/t/b/bl — NOT the plain sides t/r/b/l. Older edges
-  // saved with e.g. targetHandle "l" make ReactFlow fail to position them
-  // ("Couldn't create edge for handle id"), so the edge silently vanishes.
-  // Map any such invalid handle to a real one.
-  const kindOf = new Map(nodes.map((n) => [n.id, (n.data as NodeData | undefined)?.component?.kind]));
-  const ported = (id: string) => { const k = kindOf.get(id); return k === "lakeflow" || k === "lakeflow-genie"; };
+  // Heal saved edge handles against the handles a node ACTUALLY exposes right
+  // now. A composite's named ports depend on its kind AND its current params
+  // (e.g. the medallion table only exposes `out-fs` while `feature_store` is on).
+  // If an edge references a handle that isn't currently available — an older
+  // file, or an option the user just turned OFF — ReactFlow can't place it and
+  // the whole line silently vanishes. So: compute each node's available-handle
+  // set, and remap any missing handle to the nearest sensible fallback. GENERAL —
+  // works for any component that declares its handles via `handlesFor`.
+  const dataOf = new Map(nodes.map((n) => [n.id, n.data as NodeData | undefined]));
   const fixHandle = (id: string, h: string | null | undefined, end: "source" | "target") => {
-    if (!ported(id)) return h ?? undefined;
-    if (h && (h.startsWith("in-") || ["r", "t", "b", "bl"].includes(h))) return h;
-    return end === "target" ? "in-direct" : "r";
+    const d = dataOf.get(id);
+    if (!d) return h ?? undefined;
+    const set = handlesFor(d);
+    if (!set) return h ?? undefined;         // no declared handle set → leave as-is
+    if (h && set.has(h)) return h;           // still valid → keep
+    return fallbackHandle(set, h, end);      // missing → nearest available
   };
   const edges: Edge[] = schema.layout.edges
     .filter((e) => schema.layout.nodes[e.source] && schema.layout.nodes[e.target])
@@ -213,6 +220,44 @@ export function schemaToFlow(
     .map((e) => ({ ...e, sourceHandle: fixHandle(e.source, e.sourceHandle, "source"), targetHandle: fixHandle(e.target, e.targetHandle, "target") }));
 
   return { nodes, edges };
+}
+
+/** The set of handle ids a node currently exposes (composite ports that depend
+ *  on kind + params, plus the generic sides). Returns null for plain nodes,
+ *  whose handles (`l`/`r`/`t`/`b`) are always all present so no healing is
+ *  needed. Extend this as composites gain param-driven ports. */
+export function handlesFor(d: NodeData): Set<string> | null {
+  const kind = d.component?.kind;
+  const sides = ["l", "r", "t", "b"];
+  if (kind === "lakeflow" || kind === "lakeflow-genie") {
+    return new Set(["in-lakeflow-connect", "in-zerobus", "in-direct", "r", "t", "b", "bl"]);
+  }
+  if (kind === "medallion-table") {
+    const p = d.params ?? {};
+    return new Set([
+      ...sides,
+      "out-gold",
+      ...(p.feature_store ? ["out-fs"] : []),
+      ...(p.metric_views ? ["out-mv"] : []),
+    ]);
+  }
+  return null;
+}
+
+/** Pick a fallback handle from the available set for a handle that no longer
+ *  exists. Prefer the SAME side family (an `out-*` falls back to another `out-*`,
+ *  ideally `out-gold`; a plain side to another side), else the primary in/out. */
+export function fallbackHandle(set: Set<string>, missing: string | null | undefined, end: "source" | "target"): string | undefined {
+  const has = (h: string) => set.has(h);
+  // A dropped medallion output → the always-present gold output.
+  if (missing && missing.startsWith("out-") && has("out-gold")) return "out-gold";
+  // A ported-composite target → its default file-landing input.
+  if (end === "target" && has("in-direct")) return "in-direct";
+  // Otherwise the natural side: source leaves right, target enters left.
+  if (end === "source" && has("r")) return "r";
+  if (end === "target" && has("l")) return "l";
+  // Last resort: any available handle.
+  return set.values().next().value as string | undefined;
 }
 
 export function flowToEdge(e: PlatformEdge): Edge {
@@ -299,6 +344,8 @@ export function flowToLayout(nds: Node[], eds: Edge[], schema: PlatformSchema): 
       // pinned) re-emits its col/relational fields; a dragged/at node is pinned.
       ...(dd.placement && !dd.pinned ? { placement: dd.placement } : {}),
       ...(dd.pinned ? { pinned: true } : {}),
+      ...(dd.params && Object.keys(dd.params).length ? { params: dd.params } : {}),
+      ...(dd.stack && dd.stack > 1 ? { stack: dd.stack } : {}),
     };
   });
   // `hidden` is keyed by catalog (base) ids: a component is hidden iff NO

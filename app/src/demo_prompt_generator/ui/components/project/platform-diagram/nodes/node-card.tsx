@@ -94,6 +94,8 @@ export interface NodeCardProps {
   borderRadius?: number;
   shadow?: number | boolean;
   opacity?: number;
+  /** Render as a stack of N cards (see RotatableCard). 1/undefined = single. */
+  stack?: number;
   /** Muted "mentioned" state (product tiles) → dimmed + transparent border. */
   muted?: boolean;
   /** cardStyle default border color (band tint) for the FIXED product look. */
@@ -303,6 +305,9 @@ export function NodeCard(p: NodeCardProps) {
       editMode={p.editMode}
       selected={p.selected}
       forceDots={p.isDropTarget}
+      stack={p.stack}
+      stackRadius={p.borderRadius ?? 12}
+      stackBorderColor={(boxStyle.borderColor as string | undefined)}
       onResize={(w, h, center) => p.onResize(p.nodeId, w, h, undefined, center)}
       {...(p.onScale ? { onScale: (w: number) => p.onScale!(p.nodeId, w) } : {})}
       onContext={(e) => { e.preventDefault(); p.onContext(p.nodeId, e.clientX, e.clientY); }}

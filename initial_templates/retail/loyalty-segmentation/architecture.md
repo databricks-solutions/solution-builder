@@ -24,7 +24,7 @@
       { "id": "genie-one", "type": "genie-one", "col": "entry", "rot": 90 },
       { "id": "user", "type": "logo", "col": "user", "icon": "file:persona/user", "text": "End user", "caption": "bottom" },
 
-      { "id": "db-platform", "type": "db-platform", "pin": { "at": "top-left", "to": "platform-box" }, "desc": "The Databricks Data Intelligence Platform — one governed foundation for all data + AI." },
+      { "id": "db-platform", "type": "db-platform", "pin": { "at": "top-left", "to": "platform-box" }, "desc": "The Databricks Data + AI platform — one governed foundation for all data + AI." },
       { "id": "governance-block", "type": "governance-block", "pin": { "at": "top-right", "to": "platform-box" }, "desc": "Unity Catalog governs access, lineage and quality across every table and volume." },
 
       { "id": "platform-box", "type": "box", "z": -1, "pad": 40,
