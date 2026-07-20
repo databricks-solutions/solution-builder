@@ -54,7 +54,6 @@ export function AppPreviewTab({ projectId, onAutoFixSend, isStreaming = false, a
   // app isn't emitting errors, so it's safe to be "enabled" even before the
   // preview is running — keeps the toggle steerable without lifecycle gating.
   const [autoFixEnabled, setAutoFixEnabled] = useState(true);
-  const appRunning = state?.status === "ready";
 
   // True while an auto-fix-initiated stream is in flight. Set when the hook
   // dispatches a fix message; cleared when the assistant's stream finishes
@@ -96,7 +95,7 @@ export function AppPreviewTab({ projectId, onAutoFixSend, isStreaming = false, a
     // signal when the app died — users saw auto-fix do nothing and
     // wondered if it was broken).
     enabled: autoFixEnabled && !!onAutoFixSend,
-    appRunning,
+    status: state?.status,
     logs,
     isStreaming,
     onSend: handleAutoFixSend,
