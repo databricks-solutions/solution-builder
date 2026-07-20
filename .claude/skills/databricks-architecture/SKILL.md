@@ -293,15 +293,24 @@ sources (≈3 rows)  →  Lakeflow + Genie (one block)  →  lakehouse + lakebas
      →  dashboard + Genie Room + app  →  Genie One  →  the end user
 ```
 
-- **Top-left:** the `db-platform` wordmark. **Top-right:** `governance-block` (Unity Catalog) over everything. **Both are `pin`ned to the platform box's corners** (`"pin": { "at": "top-left"|"top-right", "to": "platform-box" }`) — never absolute `at`, which drifts off-corner as soon as the node set changes. **Everything sits inside ONE big white `box`** (`z:-1`) — that box *is* "the Databricks Platform", and the non-float pins reserve a top band so it grows to enclose the banners too.
-- **The `lakeflow-genie-block` has THREE left ports** — target the one matching HOW each source is ingested by naming it on the edge's handle, e.g. `"to": "lakeflow-genie-block@in-zerobus"`:
-  - `@in-lakeflow-connect` ← **databases / SaaS apps**: Postgres, ERP/SAP, Salesforce, MySQL…
-  - `@in-zerobus` ← **realtime streams / sensors / IoT / events**: sensor data… (NOT Kafka — Zerobus replaces a Kafka-style broker). Renders a particle-stream flow.
-  - `@in-direct` ← **files NOT supported by Connect**: PDFs, CSV/Parquet dumps on a UC Volume. Renders a travelling-docs flow.
-  - Right port `@r` → the compute layer. **Inside the block = Genie Code + SDP** (all bronze→silver→gold) — do NOT add separate `sdp`/`genie-code` nodes.
-- **Compute** (both fed by `lakeflow-genie-block@r`): `sql-lakehouse` (BI+AI) and `lakebase` (live app state).
-- **Consumption:** `sql-lakehouse` → `ai-bi-dashboard` + `genie`. `lakebase` → the `databricks-apps-work` app; the **app also consumes the Genie Room + dashboard**.
-- **End user:** the business user is built INTO `genie-one` (a "Business users" persona pill docked above the tile) — do NOT add a separate `file:persona/user` node. `genie-one` is the entry point that fronts the resources: wire it with **relationship arrows** — leave `arrow` out (auto): Genie One --> dashboard / Genie Room / app.
+**This section is the layout NARRATIVE only — the per-component facts (what each
+tile shows, its ports, and the composite internals) are in the generated
+*Component catalog* below, which is the single source of truth. Read the catalog
+row for a component's default title/description, its `ports` (the `@handle`s you
+wire to), and its `authoring` note (when to use it + what NOT to add alongside).**
+Don't restate those here — if the code changes, the catalog updates; this prose
+should not need to.
+
+The layout conventions that AREN'T per-component (so they live here, not the catalog):
+
+- **Banners pin to the platform box's corners.** `db-platform` (the Databricks
+  wordmark) top-left, `governance-block` top-right: `"pin": { "at": "top-left"|"top-right", "to": "platform-box" }` — never an absolute `at` (it drifts off-corner as soon as the node set changes).
+- **One big white `box`** (`z:-1`) `wraps` the whole flow (usually excluding the raw
+  data sources) — it *is* "the Databricks Platform"; the non-float corner pins reserve a band so it grows to enclose the banners.
+- **Ingest edges name the port** (see the `lakeflow-block` / `lakeflow-genie-block`
+  catalog `ports`): match the source to HOW it's ingested — a DB/SaaS source → `@in-lakeflow-connect`, a realtime stream/sensor → `@in-zerobus`, files (PDF/CSV/Parquet) → `@in-direct`. That handle also picks the flow animation.
+- **Genie One fronts the consumption tiles** with relationship arrows — leave `arrow`
+  out (auto): Genie One --> dashboard / Genie Room / app. (Its business-user persona is built in — see its catalog row.)
 
 ---
 
