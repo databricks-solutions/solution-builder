@@ -150,7 +150,7 @@ label. This lets one diagram hold several views (e.g. "Ingestion", "Serving",
 | `story` | No | One-line description of this architecture. Metadata (kept in the file); not rendered on the canvas. |
 | `options.trademarkLogos` | No | `true` → render real third-party brand logos. Default `false` (neutral badges). |
 | `columns` | No | Ordered left→right **lane names**. Nodes reference one via `col`. Add/rename/insert lanes freely for a different shape — no fixed taxonomy. |
-| `rowGrid` | No | `true` → a node's `row` becomes a **shared grid row aligned across ALL columns** (row 1 = the same top line in every lane, row 2 the next line, …), so columns register into horizontal rows even with different node counts. A skipped row leaves an empty slot. Each band's height = its tallest node. Default (off) → `row` orders WITHIN a lane. Use when you want a clean matrix layout; relational (`alignY`/`below`/…) + `at` still override per node. |
+| `rowGrid` | No | `true` → a node's `row` becomes a **shared grid row aligned across ALL columns** (row N = the same horizontal line in every lane), so columns register into rows even with different node counts. Each band's height = its tallest node. A node with **no `row`** falls back to stacking within its own column (so you can leave e.g. the data sources without a `row`). **Row numbers are grid coordinates — SKIPPING a number inserts an empty band of vertical space** (rows `0, 2, 4` are more spread out than `0, 1, 2`). Default (off) → `row` orders WITHIN a lane. Relational (`alignY`/`below`/…) + `at` still override per node. |
 | `custom_logos` | No | `[{ id, svg }]` — inline SVG logos. Reference one from any node's `icon` as `"custom:<id>"`. See *Custom logos & images*. |
 | `nodes` | Yes | The components on the canvas (see below). |
 | `edges` | Yes | The lines between them. |
@@ -426,6 +426,7 @@ Also: `file:persona/user` (a person — normally the business-user persona is bu
 6. **Edges by id; geometric handles inferred.** Write `from`/`to` as plain ids — the geometric `@handle` (`@l`/`@r`/`@t`/`@b`) is inferred. EXCEPTION: a source → Lakeflow-block edge must name the ingest port explicitly (`@in-lakeflow-connect` / `@in-zerobus` / `@in-direct`); it isn't inferred. Add other `@handle`s only to override (e.g. `@b`/`@t` for a vertical link).
 7. **Descriptions are the point.** Make `desc`s demo-specific and human, not datasheet copy.
 8. **Genie One / user edges are auto-arrows** (leave `arrow`/`flow` out). Pipeline edges use `flow: true`.
+9. **Crowded / unreadable edge labels? Add vertical space.** Render to a PNG and look — if edge labels between two rows overlap each other or their lines, spread the rows apart. With `rowGrid`, just **skip a row number** (put the two rows at `0` and `2` instead of `0` and `1`) — the empty row becomes a band of blank space the labels sit in. Without `rowGrid`, bump the `gap` on a `below`/`above` node. Prefer more space over shrinking or dropping labels.
 
 ---
 

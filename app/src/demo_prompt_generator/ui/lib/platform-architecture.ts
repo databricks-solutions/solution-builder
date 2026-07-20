@@ -924,16 +924,34 @@ export function computeLayout(file: ArchitectureFile): Map<string, ResolvedBox> 
         nextFree.set(n.col!, r + 1);
       }
     }
-    const rowKeys = [...new Set(laned.map((n) => rowOf.get(n.id)!))].sort((a, b) => a - b);
     // Band height = tallest node anywhere in that row.
     const bandH = new Map<number, number>();
     for (const n of laned) {
       const r = rowOf.get(n.id)!;
       bandH.set(r, Math.max(bandH.get(r) ?? 0, sizeOf(n).h));
     }
-    const totalH = rowKeys.reduce((s, r) => s + bandH.get(r)!, 0) + ROW_GAP * (rowKeys.length - 1);
+    // Walk EVERY integer row from min→max (not just the occupied ones), so a
+    // SKIPPED row number leaves a real empty band's worth of vertical space.
+    // That's the lever for readability: spread nodes onto rows 0, 2, 4… (instead
+    // of 0,1,2…) when edges have labels that need room. An empty row uses a
+    // default band height. Contiguous rows (1,2,3,…) are unchanged (no gaps).
+    const present = [...bandH.keys()];
+    const minR = Math.min(...present);
+    const maxR = Math.max(...present);
+    const EMPTY_BAND = 96; // a standard tile's height — one skipped row ≈ one tile of space
     const bandCenterY = new Map<number, number>();
-    { let cy = -totalH / 2; for (const r of rowKeys) { const h = bandH.get(r)!; bandCenterY.set(r, cy + h / 2); cy += h + ROW_GAP; } }
+    {
+      let cy = -0; // provisional; recentered below
+      for (let r = minR; r <= maxR; r++) {
+        const h = bandH.get(r) ?? EMPTY_BAND;
+        bandCenterY.set(r, cy + h / 2);
+        cy += h + ROW_GAP;
+      }
+      // Center the whole grid on y=0 (cy is now the full stacked height + a
+      // trailing ROW_GAP; subtract that gap back out for the true total).
+      const totalH = cy - ROW_GAP;
+      for (const [r, y] of bandCenterY) bandCenterY.set(r, y - totalH / 2);
+    }
     for (const n of laned) {
       const s = sizeOf(n);
       out.set(n.id, { x: colX.get(n.col!) ?? 0, y: bandCenterY.get(rowOf.get(n.id)!)!, w: s.w, h: s.h });
