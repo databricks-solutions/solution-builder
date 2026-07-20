@@ -24,7 +24,7 @@
 //
 // LEFT → RIGHT story:
 //   sources (≈3 rows) → Lakeflow + Genie (one block) → lakehouse + lakebase
-//        → dashboard + Genie Room + app → Genie One (business user built in)
+//        → dashboard + Genie Space + app → Genie One (business user built in)
 //   db-platform wordmark + governance-block (UC) pin to the platform box's
 //   top corners; one big white `box` wraps the whole flow = "the Databricks
 //   Platform" (the pins reserve a top band so the box encloses them too).
@@ -104,10 +104,10 @@
     { "id": "e6", "from": "sql-lakehouse", "to": "ai-bi-dashboard", "flow": true },
     { "id": "e7", "from": "sql-lakehouse", "to": "genie",           "flow": true },
     { "id": "e8", "from": "lakebase",  "to": "databricks-apps-work", "flow": true },
-    // the app also consumes the dashboard + Genie Room (vertical — force @b/@t)
+    // the app also consumes the dashboard + Genie Space (vertical — force @b/@t)
     { "id": "e9",  "from": "genie@b",           "to": "databricks-apps-work@t" },
     { "id": "e10", "from": "ai-bi-dashboard@b", "to": "databricks-apps-work@t" },
-    // Genie One (business user built in) --> dashboard / Genie Room / app. These
+    // Genie One (business user built in) --> dashboard / Genie Space / app. These
     // are RELATIONSHIP lines — leave `flow`/`arrow` out: the renderer auto-draws
     // the arrowhead pointing OUT toward each resource.
     { "id": "e12", "from": "genie-one", "to": "genie" },

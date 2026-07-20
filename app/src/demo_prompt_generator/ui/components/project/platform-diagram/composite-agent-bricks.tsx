@@ -2,7 +2,7 @@
  * platform-diagram/composite-agent-bricks — the "Agent Bricks" block.
  *
  * A Supervisor agent at the centre, orchestrating four capabilities it routes
- * to — Knowledge Assistant (PDF docs), Genie room, MCP tools, and Functions.
+ * to — Knowledge Assistant (PDF docs), Genie Space, MCP tools, and Functions.
  * The four are laid out as tiles in the corners with connector lines running
  * back to the supervisor in the middle; an animated pulse walks the links so it
  * reads as the supervisor dispatching to each in turn.
@@ -24,7 +24,7 @@ const AB_RED = "#FF5F46";
  *  (currentColor) icon variants so they can be tinted to AB_RED. */
 const TILES: Capability[] = [
   { icon: "knowledgeAssistant", label: "Knowledge Assistant" },
-  { icon: "genie", label: "Genie room" },
+  { icon: "genie", label: "Genie Space" },
   { icon: "mcp", label: "MCP" },
   { icon: "aiFunctions", label: "Functions" },
 ];

@@ -635,10 +635,10 @@ export const CATALOG: Record<BandId, CatalogComponent[]> = {
   ],
   "agentic-work": [
     { id: "databricks-apps-work", label: "Databricks Apps", icon: "databricksAppsBrand", sublabel: "Deploy business apps", desc: "Deploy business apps",
-      authoring: "The custom business app — PREFERRED over the legacy databricks-apps tile. Runs on Lakebase; can embed the dashboard + Genie Room." },
+      authoring: "The custom business app — PREFERRED over the legacy databricks-apps tile. Runs on Lakebase; can embed the dashboard + Genie Space." },
     { id: "genie-one", label: "Genie One - Mobile app", icon: "genieOneBrand", kind: "genie-one", sublabel: "Databricks access for business user", desc: "Databricks access for business user",
-      authoring: "The business-user / mobile entry point. It has a Business-users persona built IN (a small user icon docked above the Genie One mark) — so you do NOT need a separate file:persona/user node beside it. Wire Genie One --> dashboard / Genie Room / app (auto-arrows; leave `arrow` out)." },
-    { id: "genie", label: "Genie Room", icon: "genieBrand", sublabel: "Ask anything about your data", desc: "ask anything about your data" },
+      authoring: "The business-user / mobile entry point. It has a Business-users persona built IN (a small user icon docked above the Genie One mark) — so you do NOT need a separate file:persona/user node beside it. Wire Genie One --> dashboard / Genie Space / app (auto-arrows; leave `arrow` out)." },
+    { id: "genie", label: "Genie Space", icon: "genieBrand", sublabel: "Ask anything about your data", desc: "ask anything about your data" },
     { id: "knowledge-assistant", label: "Knowledge Assistant", icon: "knowledgeAssistant", desc: "Chat with your documents — grounded, cited answers from unstructured content." },
     { id: "supervisor-agent", label: "Supervisor Agent", icon: "multiAgentSupervisor", desc: "Routes a question to the right specialist agent and composes the answer." },
     // Composite "Agent Bricks" block: the bundled agent building blocks
@@ -805,21 +805,17 @@ export function naturalSize(type: string, params?: Record<string, boolean>): { w
   if (kind === "ai-gateway") return { w: 240, h: 104 }; // model-logo row on top + gateway body below
   if (kind === "medallion-table") return medallionSize(params);
   if (type === "sdp") return { w: 230, h: 112 };
-  // Standard "compute / serving" tiles share ONE default footprint so they line
-  // up in a column (Lakehouse, Lakebase, Model Serving, Hosted MCPs, …). 230 wide,
-  // 54 tall (one grid gap shorter than the old 70). Tiles WITH a sublabel and the
-  // named single-line tiles below both use it.
-  if (c?.sublabel || STANDARD_TILE_TYPES.has(type)) return { w: 230, h: 54 };
-  return { w: 200, h: 56 }; // plain tile + sources
+  // EVERY plain single-line catalog tile shares ONE footprint (230×54) so any
+  // column of them lines up — Lakehouse, Genie Space, Knowledge Assistant,
+  // Supervisor Agent, Model Serving, … all identical. (Previously the size keyed
+  // on whether a tile happened to carry a `sublabel`, so sibling agent tiles came
+  // out different sizes — the bug this fixes.)
+  if (c) return { w: 230, h: 54 };
+  // Non-catalog ids: a demo-authored data source (`type:"source"`) has no catalog
+  // entry — its own narrower default (a vertical caption swaps to VERTICAL_SOURCE_SIZE
+  // via nodeFootprint).
+  return { w: 200, h: 56 };
 }
-
-/** Single-line catalog tiles that should default to the STANDARD compute-tile
- *  footprint (same as Lakehouse/Lakebase) so a column of them lines up, even
- *  though they carry no `sublabel`. */
-const STANDARD_TILE_TYPES = new Set([
-  "model-serving", "hosted-mcps",
-  "ml-model", "model-training", "mlops", "feature-store", "uc-model-registry",
-]);
 
 // =============================================================================
 // Build: catalog + resources.json defaults + agent override → final schema
@@ -1524,7 +1520,7 @@ export function parseArchitecture(content: string): PlatformSchema {
 /** The raw global catalog as bands — every component with its CATALOG label /
  *  icon / desc, with NO per-project overrides merged in. The library palette
  *  (left menu) renders from this so it always shows the canonical component
- *  set, not a demo's story-tied relabels (e.g. a demo renaming Genie Room must
+ *  set, not a demo's story-tied relabels (e.g. a demo renaming Genie Space must
  *  not change what the palette calls it). `state` is omitted — the palette only
  *  needs id/label/icon/desc. */
 export function catalogBands(): { id: BandId; label: string; sublabel?: string; components: CatalogComponent[] }[] {

@@ -36,14 +36,27 @@ node renderer/render-arch.mjs my-arch.html        # → my-arch.png
 
 ---
 
+## Pick a starting point
+
+**Build what the user asked for — don't force it into one template.** The references below aren't a fixed menu: **copy the closest, and freely COMBINE and adapt them** — take the ML platform's serving lane, add the agent-bricks supervisor, drop in the full-platform governance bar, swap the sources, re-map the flow. Match the components + connections to the actual request; there is no single "right" diagram. The inline example under *The format* is just the SIMPLEST shape.
+
+| If the user wants… (example prompt) | Start / borrow from | Shows |
+|---|---|---|
+| "Ingest our data into a lakehouse with a dashboard + Genie for the business to ask questions" | *The format* inline example (below) | The minimal ingest → lakehouse → dashboard/Genie → Genie One flow. |
+| "Build an end-to-end ML platform — features, MLflow training, real-time + batch serving, RAG" | `reference/ml-platform.jsonc` | `rowGrid` matrix layout, medallion Feature Store fork (`@out-fs`), Vector Search / RAG, model registry → serving, `note`s. |
+| "A multi-agent assistant that routes questions across Genie, our docs, and external tools" | `reference/agent-bricks.jsonc` | A Supervisor over Knowledge Assistant · Genie · Hosted MCPs → Genie One; `alignY`/`below` relative placement. |
+| "The whole Databricks platform, end to end" (the flagship story) | `reference/architecture-complete.jsonc` | The full sources → Lakeflow+Genie → lakehouse/Lakebase → dashboard/Genie/app → Genie One shape, 2 tabs. |
+
+Nothing matches, or the ask spans several? **Compose** — mix pieces from multiple references and the *Component catalog* below. The flat format exists precisely so you can assemble any shape, not just reproduce one.
+
 ## The format
 
-One tab's shape — your starting point. Emit an array of these (`[ … ]`, see *Tabs*). Shown as JSONC for the comments; **strip `//` comments** on emit (parsed as plain JSON):
+The SIMPLEST shape — one tab. **Use it only for a basic ingest→serve demo**; for anything richer copy a reference above. Emit an array of tabs (`[ … ]`, see *Tabs*); shown as JSONC for the comments — **strip `//`** on emit (parsed as plain JSON):
 
 ```jsonc
 {
-  "name": "Simple Solution Architecture",
-  "story": "Sources → governed Lakeflow + Genie pipeline → lakehouse → a dashboard and Genie for plain-language Q&A. Business users reach it through Genie One, all on the governed Databricks Platform.",
+  "name": "Customer 360",
+  "story": "Ingest our Postgres, ERP, sensor, and PDF data into a governed lakehouse, then give the business a dashboard and a Genie room to ask questions in plain language — reached through Genie One, all on Databricks.",
   "columns": ["sources", "pipeline", "compute", "work", "entry"],
   "nodes": [
     // Sources, each stacked by `row`. The edge (below) names the Lakeflow ingest
@@ -119,6 +132,8 @@ Rules under `rowGrid`:
 - **`row` numbers are grid coordinates, not just order.** SKIP a number to insert an empty band of vertical space (rows `0,2,4` are more spread out than `0,1,2`) — the lever for opening room when edge labels between two rows collide.
 - **No `row`** → that node falls back to stacking within its own `col` (e.g. leave the data sources row-less to just stack them).
 - **`at` / `alignY` / `below` / `above` still override** a node's grid position (per node).
+- **Line the source up with what it feeds** — give a source the SAME `row` as its target so the feed edge is a clean horizontal line (e.g. `src-pdf` and `knowledge-assistant` both on row 4; `src-postgres` and `medallion-table` both on row 3).
+- **A TALL node (medallion, agent-bricks, lakeflow blocks) makes its whole band taller** — so its row centers lower than short tiles sharing that row, and it widens the gap to adjacent rows. If that pushes things apart awkwardly, put the tall node on a row of its own (or use `alignY` to re-center a neighbor onto it) rather than fighting the band.
 
 ### Top level  *(each element of the tabs array)*
 | Field | Required | Description |
@@ -146,9 +161,9 @@ Rules under `rowGrid`:
 | `size` | No | `[w, h]` if resized from the natural size. |
 | `rot` · `scale` · `z` · `pad` | No | Rotation° (0/90/180/270), content scale, stacking order (negative = behind), container padding. |
 | `group` | No | A shared string id stamped on several nodes → they form a GROUP: selecting one selects all, and they move together on the canvas. |
-| `label` · `icon` | No | Override the catalog default label/icon (only when it differs). `icon` may be a built-in name, a `file:vendor/…`/`file:cloud/…` key, or a `custom:<id>` (see *Custom logos & images*). |
+| `label` · `icon` | No | Override the catalog default label/icon (only when it differs). **Exception — a `type:"source"` has NO catalog default, so it REQUIRES an explicit `label`** (omit it and the tile falls back to an ugly icon-derived name like "Pdflogo"). `icon` may be a built-in name, a `file:vendor/…`/`file:cloud/…` key, or a `custom:<id>` (see *Custom logos & images*). |
 | `note` | No | **Authoring note — NEVER rendered, never affects layout.** Free text explaining WHY this node is here or what a non-obvious choice means (a relabeled generic tile, why a `row`/`col` was picked, a param's effect). Round-trips verbatim (survives drags/saves). Distinct from `desc` (the visible line). Use it so an example stays self-documenting — see rule 10. |
-| `desc` | No | The node's **description line** — one line under the label. On a catalog tile it overrides the default blurb; on a `source`/`logo` it's the tile's only descriptive text. `""` (empty string) deliberately CLEARS it (renders nothing); omit to keep the catalog default. See *Node text: title · description · caption*. |
+| `desc` | No | Description line under the label. **On a catalog component: OMIT it** — the catalog default (see the catalog table) renders and is the source of truth. Set `desc` ONLY to override that default with something the default can't say — e.g. a **relabeled** tile whose default no longer matches (`lakeflow-jobs`→"Batch Scoring Job", `model-serving#2`→"RAG Endpoint"). On a `source`/`logo` there's no catalog default, so `desc` is its only description (optional). `""` clears it. If you find yourself paraphrasing the default, delete the `desc` (or improve the default in code). |
 | `showDesc` | No | `true`/`false` to force the description line on/off. **Default:** a catalog tile shows its description when it has one; a `source`/`logo` shows it only when you set `desc`. |
 | `caption` | source · logo | Where the label sits relative to the icon: `right` · `left` · `top` · `bottom`. **Default:** `right` for a source, below (`bottom`) for a logo. |
 | `fontSize` | source · logo · text/box | Label font size in px. Applies to source/logo captions and to `text`/`box` annotations. |
@@ -241,14 +256,14 @@ The renderer gives each kind a different **default** chrome, so the same `style`
 
 ```
 sources (≈3 rows)  →  Lakeflow + Genie (one block)  →  lakehouse + lakebase
-     →  dashboard + Genie Room + app  →  Genie One  →  the end user
+     →  dashboard + Genie Space + app  →  Genie One  →  the end user
 ```
 
 Per-component facts (title, `ports`/`@handle`s, composite internals, when-to-use) live in the generated **Component catalog** below — the single source of truth; read the row, don't restate it here. This section is only the whole-diagram layout:
 
 - **Platform box:** one `box` `z:-1` `wraps` the whole flow (usually not the raw sources) = "the Databricks Platform".
 - **Banners:** `db-platform` and `governance-block` `pin` to that box's `top-left`/`top-right` (never a raw `at` — it drifts when the node set changes; the non-float pin grows the box to fit).
-- **Genie One** fronts the consumption tiles (dashboard / Genie Room / app) with auto-arrows.
+- **Genie One** fronts the consumption tiles (dashboard / Genie Space / app) with auto-arrows.
 
 ---
 
@@ -271,14 +286,14 @@ Use the `type` id; the renderer supplies the icon, label, default description an
 | | | | | **ports:** `in-lakeflow-connect` ← databases / SaaS apps · `in-zerobus` ← realtime streams / sensors · `in-direct` ← files: PDF / CSV / Parquet · `r` → the compute layer |
 | `lakeflow-genie-block` | Lakeflow + Genie | Lakeflow ingest + declarative pipeline, with Genie Code building and maintaining it — one box, end to end. | 360×208 | The PREFERRED data-layer block — ingest + bronze→silver→gold SDP, built/maintained by Genie Code. It IS the data layer; contains SDP + Genie Code, so never add separate sdp / genie-code tiles beside it. |
 | | | | | **ports:** `in-lakeflow-connect` ← databases / SaaS apps · `in-zerobus` ← realtime streams / sensors · `in-direct` ← files: PDF / CSV / Parquet · `r` → the compute layer |
-| `lakeflow-connect` | Lakeflow Connect | A few-click interface to connect and ingest data from 100+ sources — SaaS apps, databases, files and knowledge systems. | 200×56 |  |
-| `zerobus-ingest` | Lakeflow Zerobus | Real-time, direct ingest of streaming events into the lakehouse. | 200×56 |  |
+| `lakeflow-connect` | Lakeflow Connect | A few-click interface to connect and ingest data from 100+ sources — SaaS apps, databases, files and knowledge systems. | 230×54 |  |
+| `zerobus-ingest` | Lakeflow Zerobus | Real-time, direct ingest of streaming events into the lakehouse. | 230×54 |  |
 | `sdp` | Lakeflow SDP | Spark Declarative Pipelines — declarative bronze → silver → gold that self-heal and scale. | 230×112 |  |
-| `uc-volume` | UC Volume | Governed file storage in Unity Catalog — where raw documents (PDFs) land. | 200×56 |  |
+| `uc-volume` | UC Volume | Governed file storage in Unity Catalog — where raw documents (PDFs) land. | 230×54 |  |
 | `lakeflow-jobs` | Lakeflow Jobs | Orchestrate the whole pipeline on a schedule or trigger. | 230×54 |  |
-| `notebooks-eda` | Notebooks | Interactive exploration and analysis on governed data. | 200×56 |  |
-| `delta-sharing` | Delta Sharing | Open, cross-org data sharing with no copies. | 200×56 |  |
-| `marketplace` | Marketplace | Discover and consume third-party data and AI assets. | 200×56 |  |
+| `notebooks-eda` | Notebooks | Interactive exploration and analysis on governed data. | 230×54 |  |
+| `delta-sharing` | Delta Sharing | Open, cross-org data sharing with no copies. | 230×54 |  |
+| `marketplace` | Marketplace | Discover and consume third-party data and AI assets. | 230×54 |  |
 | `lakebase` | Lakebase | Managed Postgres for app state — reads/writes the live queue. | 230×54 |  |
 | `sql-lakehouse` | Lakehouse | One copy of governed data for BI + AI — real-time queries at scale (SQL Warehouse; RT = Lakehouse Real Time). | 230×54 |  |
 
@@ -288,29 +303,29 @@ Use the `type` id; the renderer supplies the icon, label, default description an
 
 | type | default title | default description (shown on the tile) | size | when to use |
 |------|---------------|-----------------------------------------|------|-------------|
-| `databricks-apps-work` | Databricks Apps | Deploy business apps | 230×54 | The custom business app — PREFERRED over the legacy databricks-apps tile. Runs on Lakebase; can embed the dashboard + Genie Room. |
-| `genie-one` | Genie One - Mobile app | Databricks access for business user | 230×78 | The business-user / mobile entry point. It has a Business-users persona built IN (a small user icon docked above the Genie One mark) — so you do NOT need a separate file:persona/user node beside it. Wire Genie One --> dashboard / Genie Room / app (auto-arrows; leave `arrow` out). |
-| `genie` | Genie Room | ask anything about your data | 230×54 |  |
-| `knowledge-assistant` | Knowledge Assistant | Chat with your documents — grounded, cited answers from unstructured content. | 200×56 |  |
-| `supervisor-agent` | Supervisor Agent | Routes a question to the right specialist agent and composes the answer. | 200×56 |  |
+| `databricks-apps-work` | Databricks Apps | Deploy business apps | 230×54 | The custom business app — PREFERRED over the legacy databricks-apps tile. Runs on Lakebase; can embed the dashboard + Genie Space. |
+| `genie-one` | Genie One - Mobile app | Databricks access for business user | 230×78 | The business-user / mobile entry point. It has a Business-users persona built IN (a small user icon docked above the Genie One mark) — so you do NOT need a separate file:persona/user node beside it. Wire Genie One --> dashboard / Genie Space / app (auto-arrows; leave `arrow` out). |
+| `genie` | Genie Space | ask anything about your data | 230×54 |  |
+| `knowledge-assistant` | Knowledge Assistant | Chat with your documents — grounded, cited answers from unstructured content. | 230×54 |  |
+| `supervisor-agent` | Supervisor Agent | Routes a question to the right specialist agent and composes the answer. | 230×54 |  |
 | `agent-bricks` | Agent Bricks | Databricks' managed agents — a multi-agent supervisor plus information extraction, document parsing, and classification, built and governed for you. | 230×170 | Managed MULTI-agent system: a Supervisor orchestrating Knowledge Assistant / Genie / MCP / Functions (with extraction·parsing·classification chips). Use when the agent layer is a supervisor routing to specialists; if the demo uses only one agent capability, use that single tile instead. |
-| `ml-training-serving` | ML Models | Train, register, and serve models on governed data. | 200×56 |  |
+| `ml-training-serving` | ML Models | Train, register, and serve models on governed data. | 230×54 |  |
 | `ml-model` | Machine Learning Model | A trained model on governed data — classification, forecasting, recommendations, and more. | 230×54 |  |
 | `model-training` | Model Training | Train + track experiments with MLflow — parameters, metrics, and artifacts, all governed. | 230×54 |  |
 | `mlops` | MLOps | The full model lifecycle — train, evaluate, register, deploy, and monitor, governed end to end. | 230×54 |  |
-| `bronze-layer` | Bronze | Raw ingested data, landed as-is. | 200×56 |  |
-| `silver-layer` | Silver | Cleaned, conformed, deduplicated. | 200×56 |  |
-| `gold-layer` | Gold | Curated, business-ready aggregates. | 200×56 |  |
+| `bronze-layer` | Bronze | Raw ingested data, landed as-is. | 230×54 |  |
+| `silver-layer` | Silver | Cleaned, conformed, deduplicated. | 230×54 |  |
+| `gold-layer` | Gold | Curated, business-ready aggregates. | 230×54 |  |
 | `medallion-table` | Medallion Table | Bronze → Silver → Gold in one block — the medallion refinement of a governed table. | 268×96 | The whole medallion (bronze → silver → gold) as ONE block, with the metal-toned layer marks and an internal flow. Prefer this over three separate bronze/silver/gold tiles when you just want to show the layered data itself. OPTIONS (params): `feature_store` and `metric_views` — each adds a fork off the GOLD layer (Feature Store above, Metric Views below) shown inside the block, and exposes an extra right-side OUTPUT handle so you can wire it: `@out-gold` (always), `@out-fs` (when feature_store), `@out-mv` (when metric_views). |
 | | | | | **ports:** `l` ← sources / ingest · `out-gold` → gold output · `out-fs` → feature store (when enabled) · `out-mv` → metric views (when enabled) |
 | `feature-store` | Feature Store | Governed, reusable features for training and real-time serving — consistent offline and online. | 230×54 |  |
 | `uc-model-registry` | UC Model Registry | Version, stage, and govern models in Unity Catalog with full lineage. | 230×54 |  |
 | `model-serving` | Model Serving Endpoint | Serve a custom model behind a governed, autoscaling REST endpoint for real-time inference. | 230×54 | A deployed serving endpoint (real-time inference over a custom/registered model). Use when the demo calls a live endpoint; for the train→register→batch-score story use ml-training-serving instead. |
 | `hosted-mcps` | Hosted MCPs | Managed MCP servers that let agents call external tools — Genie, Atlassian, GitHub, Slack, SharePoint, Gmail, and more. | 230×54 | The governed tool/connector layer for agents — hosted MCP servers (Genie / Atlassian / GitHub / Slack / SharePoint / Gmail …). Use when the demo's agent reaches OUT to external systems via MCP. |
-| `vector-search` | Vector Search | Embeddings | 200×56 |  |
-| `information-extraction` | Information Extraction | Pull specific data points, entities, and fields from unstructured text (ai_extract). | 200×56 |  |
-| `document-parsing` | Document Parsing | Extract structured content from documents — text, tables, and metadata (ai_parse_document). | 200×56 |  |
-| `text-classification` | Text Classification | Categorize text into predefined or dynamic labels (ai_classify). | 200×56 |  |
+| `vector-search` | Vector Search | Embeddings | 230×54 |  |
+| `information-extraction` | Information Extraction | Pull specific data points, entities, and fields from unstructured text (ai_extract). | 230×54 |  |
+| `document-parsing` | Document Parsing | Extract structured content from documents — text, tables, and metadata (ai_parse_document). | 230×54 |  |
+| `text-classification` | Text Classification | Categorize text into predefined or dynamic labels (ai_classify). | 230×54 |  |
 | `genie-code` | Built with Genie Code | A copilot for everyone — describe what you want and Genie Code builds the pipeline, dashboard or app for you, directly on Databricks. | 360×112 | Standalone 'describe it → Genie Code builds it' beat. Use only when NOT already using lakeflow-genie-block (which has the Genie Code footer built in). |
 
 ### Agentic Apps `agentic-apps`
@@ -319,7 +334,7 @@ Use the `type` id; the renderer supplies the icon, label, default description an
 
 | type | default title | default description (shown on the tile) | size | when to use |
 |------|---------------|-----------------------------------------|------|-------------|
-| `databricks-apps` | Databricks Apps | Custom web app where the team does the work — queue, actions, all in one place. | 200×56 |  |
+| `databricks-apps` | Databricks Apps | Custom web app where the team does the work — queue, actions, all in one place. | 230×54 |  |
 | `ai-bi-dashboard` | AI/BI Dashboard | Governed dashboards on the same data — one set of numbers, one page. | 230×54 |  |
 
 ### Unified Governance `unified-governance`
@@ -330,11 +345,11 @@ Use the `type` id; the renderer supplies the icon, label, default description an
 |------|---------------|-----------------------------------------|------|-------------|
 | `governance-block` | Unified Governance | One control plane for data + AI: Unity Catalog governs access, lineage and quality; the Unity AI Gateway governs every foundation-model call (OpenAI, Anthropic, Gemini, …); Genie Ontology is the shared semantic layer. | 580×108 | One governance bar: Unity Catalog + Unity AI Gateway (access any model) + a live Genie Ontology graph. Prefer over the loose unity-catalog / ai-gateway / data-quality / abac / data-classification tiles (use those only to spotlight one feature). |
 | `db-platform` | Databricks Platform | The Databricks Data + AI platform — one governed foundation for all data + AI. | 380×60 | Title banner (the Databricks wordmark). Pin it top-left, usually paired with a big background box (z:-1) wrapping everything → reads as 'all of this is the platform'. |
-| `unity-catalog` | Unity Catalog | One governed catalog — access, lineage, and semantics across data + AI. | 200×56 |  |
+| `unity-catalog` | Unity Catalog | One governed catalog — access, lineage, and semantics across data + AI. | 230×54 |  |
 | `ai-gateway` | Unity AI Gateway | Security, governance, cost and rate limits. | 240×104 | The Unity AI Gateway tile with a row of foundation-model logos (OpenAI · Anthropic · Gemini · Grok · Kimi) across the top — conveys 'govern + access ANY model' at a glance. Use standalone; the Unified Governance bar already embeds a compact gateway if you want the whole control plane. |
-| `data-quality` | Data Quality | Expectations and monitors keep bad data out of the gold layer. | 200×56 |  |
-| `abac` | ABAC | Attribute-based access control — fine-grained, policy-driven permissions. | 200×56 |  |
-| `data-classification` | Data Classification | Automatically tag and govern sensitive data. | 200×56 |  |
+| `data-quality` | Data Quality | Expectations and monitors keep bad data out of the gold layer. | 230×54 |  |
+| `abac` | ABAC | Attribute-based access control — fine-grained, policy-driven permissions. | 230×54 |  |
+| `data-classification` | Data Classification | Automatically tag and govern sensitive data. | 230×54 |  |
 
 > Sources are demo-authored (not in this catalog): use `type:"source"` with a vendor `icon` (`file:vendor/<name>`; see the icon bank below) and wire the edge to the Lakeflow block's ingest port via an explicit `@in-*` handle.
 
@@ -387,12 +402,7 @@ Also: `file:persona/user` (a person — normally the business-user persona is bu
 
 ## Reference files
 
-Copy the closest one and adapt (strip `//`, emit plain JSON):
-
-- `reference/architecture-complete.jsonc` — the flagship end-to-end platform (2 tabs). The minimal shape is inlined in **The format** above.
-- `reference/agent-bricks.jsonc` — a multi-agent Supervisor over Knowledge Assistant · Genie · Hosted MCPs → Genie One + dashboard. Shows `alignY` + `below` relative placement.
-- `reference/ml-platform.jsonc` — end-to-end ML: medallion SDP → Feature Store + Vector Search → MLflow training → UC Model Registry → real-time / RAG / batch serving, all inside a Unity Catalog box. Shows nested boxes (`sdp-box` inside `uc-box`), a pinned `unity-catalog` banner, and the `#N` instance-id rule for two `model-serving` tiles.
+The `reference/*.jsonc` examples are listed with when-to-use in **Pick a starting point** at the top — copy the closest, strip `//`, emit plain JSON. Each file's own header comment explains what it demonstrates.
 <!-- BEGIN: local-render-files (stripped inside Solution Builder — renderer/ isn't shipped into a project) -->
-- `renderer/architecture-viewer.html` / `architecture-editor.html` — copy one, edit its inline JSON.
-- `renderer/render-arch.mjs` — `node renderer/render-arch.mjs <file>.html` → a PNG to read.
+Local render helpers: `renderer/architecture-viewer.html` / `architecture-editor.html` (copy one, edit its inline JSON) · `renderer/render-arch.mjs` (`node renderer/render-arch.mjs <file>.html` → PNG).
 <!-- END: local-render-files -->

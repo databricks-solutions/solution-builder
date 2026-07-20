@@ -321,7 +321,7 @@ const FlowEdge = memo(function FlowEdge(props: EdgeProps) {
   // which end is source/target:
   //   • user      → the arrow points INTO Genie One   (the user enters there).
   //   • Genie One → the arrow points AWAY from Genie One, to the resource
-  //                 (dashboard / Genie Room / app).
+  //                 (dashboard / Genie Space / app).
   // We pick "end" (arrow at target) vs "start" (arrow at source) accordingly.
   const isUser = (node: typeof sNode) => {
     const icon = (node?.data as { annotation?: { icon?: string } } | undefined)?.annotation?.icon;
