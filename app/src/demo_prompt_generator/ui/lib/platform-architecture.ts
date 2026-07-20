@@ -142,6 +142,9 @@ export interface PlatformSchema {
    *  on the schema so it ROUND-TRIPS: symbolic `col` refs are meaningless without
    *  it, so serialize must re-emit it even after a node is dragged/pinned. */
   columns?: string[];
+  /** Shared-row-grid opt-in (file-level `rowGrid`), kept on the schema so it
+   *  round-trips like `columns`. See ArchitectureFile.rowGrid. */
+  rowGrid?: boolean;
   bands: PlatformBand[];
   /** Canvas layout — node positions + edges. Persisted by the interactive
    *  editor; auto-seeded by band when absent. */
@@ -461,6 +464,16 @@ export interface ArchitectureFile {
   /** Ordered left→right lane names. Nodes reference one via `col`. Optional —
    *  only needed when authoring with symbolic (col-based) placement. */
   columns?: string[];
+  /** Opt-in SHARED ROW GRID. When true, a node's `row` is a GLOBAL grid row
+   *  aligned across EVERY column (not just order within its own lane): all
+   *  nodes with row:1 share the same top band, row:2 the band below it, etc.,
+   *  so columns register into horizontal rows even when they hold different
+   *  node counts. A column that skips a row simply leaves that slot empty. Each
+   *  band's height = the tallest node in it; bands stack top→bottom (ROW_GAP
+   *  between) centered on y=0. Nodes without a `row` keep appearance order,
+   *  packed after the numbered rows. Off (default) → `row` orders within-lane
+   *  as before. Relational (`alignY`/`below`/…) and `at` still override. */
+  rowGrid?: boolean;
   /** Inline custom SVG logos: `[{ id, svg }]`. Reference one from any node's
    *  `icon` as `"custom:<id>"` (works as a logo node OR a source tile). */
   custom_logos?: { id: string; svg: string }[];
@@ -887,17 +900,42 @@ export function computeLayout(file: ArchitectureFile): Map<string, ResolvedBox> 
       rightEdge = cx + w / 2;
     });
   }
-  for (const [col, list] of byCol) {
-    list.sort((a, b) => (a.row ?? 0) - (b.row ?? 0)); // stable-ish; appearance order kept for ties
-    const x = colX.get(col) ?? 0;
-    const heights = list.map((n) => sizeOf(n).h);
-    const total = heights.reduce((s, h) => s + h, 0) + ROW_GAP * (list.length - 1);
-    let cy = -total / 2; // center the stack on y=0
-    list.forEach((n, i) => {
+  if (file.rowGrid) {
+    // SHARED ROW GRID: `row` aligns across ALL columns. Every laned node with the
+    // same `row` shares one horizontal band; the band's height is the tallest
+    // node in it; bands stack top→bottom (ROW_GAP apart) centered on y=0. A node
+    // without a `row` gets its own trailing band (appearance order) so it still
+    // lands somewhere sensible. X still comes from the node's own column lane.
+    const rowKey = (n: FileNode, seq: number) => n.row ?? 1000 + seq; // unnumbered → after
+    const rowOf = new Map<string, number>();
+    laned.forEach((n, i) => rowOf.set(n.id, rowKey(n, i)));
+    const rowKeys = [...new Set(laned.map((n) => rowOf.get(n.id)!))].sort((a, b) => a - b);
+    // Band height = tallest node anywhere in that row.
+    const bandH = new Map<number, number>();
+    for (const n of laned) {
+      const r = rowOf.get(n.id)!;
+      bandH.set(r, Math.max(bandH.get(r) ?? 0, sizeOf(n).h));
+    }
+    const totalH = rowKeys.reduce((s, r) => s + bandH.get(r)!, 0) + ROW_GAP * (rowKeys.length - 1);
+    const bandCenterY = new Map<number, number>();
+    { let cy = -totalH / 2; for (const r of rowKeys) { const h = bandH.get(r)!; bandCenterY.set(r, cy + h / 2); cy += h + ROW_GAP; } }
+    for (const n of laned) {
       const s = sizeOf(n);
-      out.set(n.id, { x, y: cy + heights[i] / 2, w: s.w, h: s.h });
-      cy += heights[i] + ROW_GAP;
-    });
+      out.set(n.id, { x: colX.get(n.col!) ?? 0, y: bandCenterY.get(rowOf.get(n.id)!)!, w: s.w, h: s.h });
+    }
+  } else {
+    for (const [col, list] of byCol) {
+      list.sort((a, b) => (a.row ?? 0) - (b.row ?? 0)); // stable-ish; appearance order kept for ties
+      const x = colX.get(col) ?? 0;
+      const heights = list.map((n) => sizeOf(n).h);
+      const total = heights.reduce((s, h) => s + h, 0) + ROW_GAP * (list.length - 1);
+      let cy = -total / 2; // center the stack on y=0
+      list.forEach((n, i) => {
+        const s = sizeOf(n);
+        out.set(n.id, { x, y: cy + heights[i] / 2, w: s.w, h: s.h });
+        cy += heights[i] + ROW_GAP;
+      });
+    }
   }
 
   // 3) Any node still unplaced (no `at`, no resolvable `col`, not a wrapper) →
@@ -1416,6 +1454,7 @@ export function parseArchitecture(content: string): PlatformSchema {
     story: file?.story,
     enableTrademarkLogos: file?.options?.trademarkLogos ?? false,
     ...(file?.columns?.length ? { columns: file.columns } : {}),
+    ...(file?.rowGrid ? { rowGrid: true } : {}),
     bands: catalogSchemaBands(),
     layout: { nodes, edges, hidden: [] },
     ...(Object.keys(customLogos).length ? { customLogos } : {}),
@@ -1709,6 +1748,9 @@ export function serializeArchitecture(
     // meaningless without it, so dropping it (as the old serializer did) made a
     // single drag collapse every remaining symbolic node to the origin.
     ...(schema.columns?.length ? { columns: schema.columns } : {}),
+    // Re-emit the shared-row-grid opt-in so `row`'s cross-column meaning survives
+    // a save (same round-trip reason as `columns`).
+    ...(schema.rowGrid ? { rowGrid: true } : {}),
     ...(custom_logos.length ? { custom_logos } : {}),
     nodes,
     edges,

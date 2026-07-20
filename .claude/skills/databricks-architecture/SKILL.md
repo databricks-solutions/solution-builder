@@ -150,6 +150,7 @@ label. This lets one diagram hold several views (e.g. "Ingestion", "Serving",
 | `story` | No | One-line description of this architecture. Metadata (kept in the file); not rendered on the canvas. |
 | `options.trademarkLogos` | No | `true` → render real third-party brand logos. Default `false` (neutral badges). |
 | `columns` | No | Ordered left→right **lane names**. Nodes reference one via `col`. Add/rename/insert lanes freely for a different shape — no fixed taxonomy. |
+| `rowGrid` | No | `true` → a node's `row` becomes a **shared grid row aligned across ALL columns** (row 1 = the same top line in every lane, row 2 the next line, …), so columns register into horizontal rows even with different node counts. A skipped row leaves an empty slot. Each band's height = its tallest node. Default (off) → `row` orders WITHIN a lane. Use when you want a clean matrix layout; relational (`alignY`/`below`/…) + `at` still override per node. |
 | `custom_logos` | No | `[{ id, svg }]` — inline SVG logos. Reference one from any node's `icon` as `"custom:<id>"`. See *Custom logos & images*. |
 | `nodes` | Yes | The components on the canvas (see below). |
 | `edges` | Yes | The lines between them. |
@@ -160,7 +161,7 @@ label. This lets one diagram hold several views (e.g. "Ingestion", "Serving",
 | `id` | Yes | Unique node id. For a 2nd placement of the same component use `genie#2` (the `#N` suffix). |
 | `type` | Yes | A **catalog component id** (`genie`, `sql-lakehouse`, `lakeflow-genie-block`, `governance-block`, `db-platform`, … — see the catalog below; this folds in the old composite "kind") OR a special kind: `source` · `box` · `text` · `logo` · `image`. |
 | `col` | placement | The lane (from `columns`) this node sits in. Nodes in a lane stack vertically, centered. **Primary way to place a node.** |
-| `row` | No | Order within the lane (else order of appearance). |
+| `row` | No | Order within the lane (else order of appearance). With top-level `rowGrid: true`, `row` instead aligns across ALL columns into a shared horizontal band (row N = same line in every lane). |
 | `wraps` | container | On a `type:"box"`: the node ids this box ENCLOSES. The box auto-sizes around them (+ `pad`, default 24). Nesting works (a box may wrap boxes) — see *Containers*. |
 | `bounds` | container | On a `type:"box"`: per-side edge anchors `{ left?, right?, top?, bottom? }`. Each side = `"<nodeId>:<anchor>"` (anchor ∈ `left`/`right`/`center` for x, `top`/`bottom`/`center` for y), or `"col:<name>:<anchor>"` (a lane's edge/midpoint), or `"wrap"`. Lets the box edge cut HALFWAY through a node/column. Unspecified sides fall back to `wraps`. |
 | `pin` | placement | Dock this node into a box corner (overrides `col`). An object `{ at, to?, pad?, float? }`: `at` = one of `top-left`·`top`·`top-right`·`left`·`center`·`right`·`bottom-left`·`bottom`·`bottom-right`; `to` = box id to dock into (default: the largest box); `pad` = inset px (default 16); `float` = `false`/omitted → **reserve a band** (the box GROWS so this never overlaps content — top pin pushes content down, bottom extends the box down), `true` → **overlay** at the corner (may sit over content). Use for banners / personas. |
