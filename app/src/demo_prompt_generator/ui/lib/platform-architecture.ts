@@ -169,6 +169,9 @@ export interface NodePosition {
   /** Canvas-edited label (double-click to rename). Overrides the catalog/agent
    *  label for this node only. */
   label?: string;
+  /** Authoring NOTE (never rendered) — see FileNode.note. Carried so it survives
+   *  the RF round-trip on save. */
+  note?: string;
   /** Canvas-picked icon — set when the node's TYPE was changed on the canvas.
    *  Overrides the component's default icon. */
   icon?: IconKey;
@@ -321,6 +324,8 @@ export interface PlatformEdge {
   centerX?: number;
   /** Optional edge label. */
   label?: string;
+  /** Authoring NOTE (never rendered) — see FileEdge.note. */
+  note?: string;
 }
 
 export interface PlatformLayout {
@@ -410,6 +415,12 @@ export interface FileNode {
   desc?: string;
   /** Whether the description line is shown (undefined → default resolution). */
   showDesc?: boolean;
+  /** Free-text authoring NOTE — never rendered, never affects layout. Explains
+   *  WHY this node is here / what a non-obvious choice means (e.g. that a
+   *  `lakeflow-jobs` tile is relabeled as a batch scoring job, or why a `row` is
+   *  what it is). Round-trips verbatim so a saved example stays self-documenting.
+   *  Distinct from `desc` (the tile's visible description line). */
+  note?: string;
   icon?: IconKey;
   /** box/text/logo/image annotation props. */
   text?: string;
@@ -454,6 +465,11 @@ export interface FileEdge {
   flowStyle?: FlowStyle;
   centerX?: number;
   label?: string;
+  /** Free-text authoring NOTE — never rendered, never affects layout. Explains
+   *  WHY this edge exists (the reasoning that isn't obvious from from/to). Kept
+   *  verbatim through the save round-trip so an example stays self-documenting.
+   *  Use `label` for text drawn ON the edge; use `note` for the reasoning. */
+  note?: string;
 }
 
 /** The whole flat file. */
@@ -1368,6 +1384,7 @@ export function parseArchitecture(content: string): PlatformSchema {
       ...(n.z !== undefined ? { z: n.z } : {}),
       ...(n.group !== undefined ? { groupId: n.group } : {}),
       ...(n.label !== undefined ? { label: n.label } : {}),
+      ...(n.note !== undefined ? { note: n.note } : {}),
       ...(n.desc !== undefined ? { desc: n.desc } : {}),
       ...(n.showDesc !== undefined ? { showDesc: n.showDesc } : {}),
       ...(n.icon !== undefined ? { icon: n.icon } : {}),
@@ -1474,6 +1491,7 @@ export function parseArchitecture(content: string): PlatformSchema {
       ...(e.arrow && e.arrow !== "auto" ? { arrow: e.arrow } : {}),
       ...(typeof e.centerX === "number" ? { centerX: e.centerX } : {}),
       ...(e.label ? { label: e.label } : {}),
+      ...(e.note ? { note: e.note } : {}),
     };
   });
 
@@ -1695,6 +1713,7 @@ export function serializeArchitecture(
       ...(pos.groupId ? { group: pos.groupId } : {}),
       ...(pos.params && Object.keys(pos.params).length ? { params: pos.params } : {}),
       ...(sanitizeStack(pos.stack) ? { stack: sanitizeStack(pos.stack)! } : {}),
+      ...(pos.note ? { note: pos.note } : {}),
     };
     const style = styleOf(pos);
 
@@ -1761,6 +1780,7 @@ export function serializeArchitecture(
       ...(e.flowStyle ? { flowStyle: e.flowStyle } : {}),
       ...(typeof e.centerX === "number" ? { centerX: e.centerX } : {}),
       ...(e.label ? { label: e.label } : {}),
+      ...(e.note ? { note: e.note } : {}),
     };
   });
 

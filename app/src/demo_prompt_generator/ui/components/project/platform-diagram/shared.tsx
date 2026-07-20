@@ -82,6 +82,9 @@ export interface NodeData {
   /** Render as a STACK of N cards (blank offset copies peeking bottom-right) to
    *  signal "many of these". 1/undefined = single card. See RotatableCard. */
   stack?: number;
+  /** Authoring NOTE (never rendered) — carried only so it survives the RF
+   *  round-trip on save. See FileNode.note in platform-architecture.ts. */
+  note?: string;
   /** For canvas-added sources ("+ more data sources"): the logo-catalog key,
    *  persisted so the source round-trips without a catalog entry. */
   sourceKey?: string;

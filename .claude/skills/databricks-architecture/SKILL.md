@@ -170,6 +170,7 @@ label. This lets one diagram hold several views (e.g. "Ingestion", "Serving",
 | `rot` · `scale` · `z` · `pad` | No | Rotation° (0/90/180/270), content scale, stacking order (negative = behind), container padding. |
 | `group` | No | A shared string id stamped on several nodes → they form a GROUP: selecting one selects all, and they move together on the canvas. |
 | `label` · `icon` | No | Override the catalog default label/icon (only when it differs). `icon` may be a built-in name, a `file:vendor/…`/`file:cloud/…` key, or a `custom:<id>` (see *Custom logos & images*). |
+| `note` | No | **Authoring note — NEVER rendered, never affects layout.** Free text explaining WHY this node is here or what a non-obvious choice means (a relabeled generic tile, why a `row`/`col` was picked, a param's effect). Round-trips verbatim (survives drags/saves). Distinct from `desc` (the visible line). Use it so an example stays self-documenting — see rule 10. |
 | `desc` | No | The node's **description line** — one line under the label. On a catalog tile it overrides the default blurb; on a `source`/`logo` it's the tile's only descriptive text. `""` (empty string) deliberately CLEARS it (renders nothing); omit to keep the catalog default. See *Node text: title · description · caption*. |
 | `showDesc` | No | `true`/`false` to force the description line on/off. **Default:** a catalog tile shows its description when it has one; a `source`/`logo` shows it only when you set `desc`. |
 | `caption` | source · logo | Where the label sits relative to the icon: `right` · `left` · `top` · `bottom`. **Default:** `right` for a source, below (`bottom`) for a logo. |
@@ -180,13 +181,14 @@ label. This lets one diagram hold several views (e.g. "Ingestion", "Serving",
 The **band** a component belongs to (which sets its tile color) is derived from its `type` — you never write it.
 
 ### An edge
-`{ "id"?, "from": "<srcId>[@handle]", "to": "<tgtId>[@handle]", "flow"?, "arrow"?, "dashed"?, "shape"?, "flowStyle"?, "centerX"?, "label"? }`
+`{ "id"?, "from": "<srcId>[@handle]", "to": "<tgtId>[@handle]", "flow"?, "arrow"?, "dashed"?, "shape"?, "flowStyle"?, "centerX"?, "label"?, "note"? }`
 
 - **Write `from`/`to` by node id; the `@handle` is INFERRED** from geometry: left→right ⇒ source `@r` → target `@l`; vertical ⇒ `@b`/`@t`. A **source** feeding the Lakeflow block must name the target ingest port EXPLICITLY on the handle — `@in-lakeflow-connect` (databases/SaaS), `@in-zerobus` (realtime streams/sensors), or `@in-direct` (files: PDF/CSV/Parquet). That handle also picks the flow animation: `@in-zerobus` → particle stream, `@in-direct` → travelling docs, else → laser beam.
 - Add an explicit **`@handle`** only to override the inference — a composite port (`in-lakeflow-connect`, `in-zerobus`, `in-direct`, `r`) or a side (`l`/`r`/`t`/`b`). E.g. force a vertical link with `@b`/`@t`.
 - `flow: true` → animated "data flowing" line. Omit for a static line.
 - `arrow`: omit/`"auto"` (default — auto-draws an arrowhead for edges touching the **user persona** or **Genie One**) · `"none"` · `"end"` · `"start"` · `"both"`. An explicit arrow is a static relationship line.
 - `shape`: `smooth` (default) · `straight` · `step`. `flowStyle`: `dot`·`particles`·`docs`·`laser`.
+- `label` = text drawn ON the edge (short — it's rendered). `note` = an authoring note that is **NEVER rendered** — the *reasoning* for the edge (why it exists, why a handle was chosen, a "don't add X" caution). It round-trips verbatim, so use it to make an example self-explanatory. See rule 10.
 
 ### Containers (wrapper boxes)
 A `type:"box"` with `wraps: [ids]` becomes a **labeled container** that auto-sizes to enclose those nodes (+ `pad`). It's how the big white **platform box** works (`wraps` the whole flow, `z:-1`). Nesting is recursive — model a cloud diagram by wrapping wrappers:
@@ -427,6 +429,7 @@ Also: `file:persona/user` (a person — normally the business-user persona is bu
 7. **Descriptions are the point.** Make `desc`s demo-specific and human, not datasheet copy.
 8. **Genie One / user edges are auto-arrows** (leave `arrow`/`flow` out). Pipeline edges use `flow: true`.
 9. **Crowded / unreadable edge labels? Add vertical space.** Render to a PNG and look — if edge labels between two rows overlap each other or their lines, spread the rows apart. With `rowGrid`, just **skip a row number** (put the two rows at `0` and `2` instead of `0` and `1`) — the empty row becomes a band of blank space the labels sit in. Without `rowGrid`, bump the `gap` on a `below`/`above` node. Prefer more space over shrinking or dropping labels.
+10. **Explain non-obvious choices with `note` (never rendered).** Anything a fresh reader couldn't infer from the diagram alone — a generic tile relabeled for a specific role (`lakeflow-jobs` → "Batch Scoring Job"), why a component connects the way it does, a deliberate omission ("features only, no gold→training"), or why the layout is arranged as it is — put in a `note` on the relevant node/edge (the tab's `story` covers the overall arc). It round-trips and isn't drawn, so the file stays self-documenting: the next edit is grounded in the reasoning, not a guess. The reference examples use `note` this way.
 
 ---
 

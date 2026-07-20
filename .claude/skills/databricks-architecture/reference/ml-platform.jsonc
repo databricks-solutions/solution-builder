@@ -50,7 +50,8 @@
       { "id": "src-kafka", "type": "source", "icon": "file:vendor/kafka", "label": "Kafka", "col": "sources", "row": 2 },
       { "id": "src-pdf", "type": "src-pdf", "col": "sources", "row": 3 },
 
-      { "id": "medallion-table", "type": "medallion-table", "col": "medallion", "row": 1, "params": { "feature_store": true, "metric_views": true } },
+      { "id": "medallion-table", "type": "medallion-table", "col": "medallion", "row": 1, "params": { "feature_store": true, "metric_views": true },
+        "note": "params.feature_store + metric_views each add a fork off GOLD inside the block and expose an output handle — @out-fs, @out-mv (@out-gold is always there). The edges below wire to those handles. NEVER rendered; `note` is authoring-only." },
 
       { "id": "vector-search", "type": "vector-search", "col": "medallion", "below": "medallion-table", "gap": 70 },
 
@@ -58,8 +59,10 @@
       { "id": "uc-model-registry", "type": "uc-model-registry", "col": "ml", "alignY": "medallion-table" },
 
       { "id": "model-serving", "type": "model-serving", "col": "serving", "alignY": "uc-model-registry" },
-      { "id": "model-serving#2", "type": "model-serving", "label": "RAG Endpoint", "desc": "Retrieval-augmented generation — grounds answers on the Vector Search index.", "col": "serving", "below": "model-serving", "gap": 44 },
-      { "id": "lakeflow-jobs", "type": "lakeflow-jobs", "label": "Batch Scoring Job", "desc": "Scheduled bulk inference — scores in one pass and writes predictions to a gold table.", "col": "serving", "below": "model-serving#2", "gap": 44 },
+      { "id": "model-serving#2", "type": "model-serving", "label": "RAG Endpoint", "desc": "Retrieval-augmented generation — grounds answers on the Vector Search index.", "col": "serving", "below": "model-serving", "gap": 44,
+        "note": "A SECOND model-serving tile → id MUST be `model-serving#2` (the #N rule for a repeated type). A made-up id like `rag-endpoint` would re-key to its type and collide with the first serving node." },
+      { "id": "lakeflow-jobs", "type": "lakeflow-jobs", "label": "Batch Scoring Job", "desc": "Scheduled bulk inference — scores in one pass and writes predictions to a gold table.", "col": "serving", "below": "model-serving#2", "gap": 44,
+        "note": "Generic `lakeflow-jobs` (Jobs) tile RELABELED as a batch scoring job — there's no dedicated batch-scoring type. Reuse lakeflow-jobs + label/desc for any scheduled job." },
 
       { "id": "databricks-apps", "type": "databricks-apps", "col": "consumers", "alignY": "model-serving" },
       { "id": "ai-bi-dashboard", "type": "ai-bi-dashboard", "col": "consumers", "below": "databricks-apps", "gap": 44 },

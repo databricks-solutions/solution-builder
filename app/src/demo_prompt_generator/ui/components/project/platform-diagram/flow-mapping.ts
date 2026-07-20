@@ -195,6 +195,7 @@ export function schemaToFlow(
     if (pos.pinned) d.pinned = true;
     if (pos.params) d.params = pos.params;
     if (pos.stack && pos.stack > 1) d.stack = pos.stack;
+    if (pos.note) d.note = pos.note;
   }
 
   // Heal saved edge handles against the handles a node ACTUALLY exposes right
@@ -350,6 +351,7 @@ export function flowToLayout(nds: Node[], eds: Edge[], schema: PlatformSchema): 
       ...(dd.pinned ? { pinned: true } : {}),
       ...(dd.params && Object.keys(dd.params).length ? { params: dd.params } : {}),
       ...(dd.stack && dd.stack > 1 ? { stack: dd.stack } : {}),
+      ...(dd.note ? { note: dd.note } : {}),
     };
   });
   // `hidden` is keyed by catalog (base) ids: a component is hidden iff NO
