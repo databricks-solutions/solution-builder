@@ -369,9 +369,13 @@ function PlatformDiagram({ content, deployedResources, projectId, defaultEditMod
   return (
     <div className="flex h-full w-full flex-col">
       <CustomLogosContext.Provider value={schema.customLogos ?? {}}>
-        <ReactFlowProvider>
+        {/* Key the PROVIDER (not just the Canvas) by tab so the whole ReactFlow
+            store is recreated on a tab switch — reproducing the cold-mount path
+            that a page refresh takes. That's what makes the built-in `fitView`
+            prop's queued initial fit fire fresh (and correctly framed) for each
+            tab; a persisted store only queued the fit once, at first mount. */}
+        <ReactFlowProvider key={activeIndex}>
           <Canvas
-            key={activeIndex}
             schema={schema}
             deepLinks={deepLinks}
             onPersist={onPersist}

@@ -22,7 +22,6 @@ import {
   addEdge,
   useReactFlow,
   useStoreApi,
-  useNodesInitialized,
   type Node,
   type Edge,
   type Connection,
@@ -170,27 +169,15 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
       return sel.map((n) => n.id);
     });
   }, []);
-  const { screenToFlowPosition, getInternalNode, fitView } = useReactFlow();
+  const { screenToFlowPosition, getInternalNode } = useReactFlow();
   const rfStore = useStoreApi();
-  // Fit-view when a tab OPENS, matching a click of the <Controls> fit button
-  // (which calls fitView() bare → RF defaults). Canvas is remounted per tab
-  // (key={activeIndex}), so this runs fresh on every tab open.
-  //
-  // TIMING is the subtlety: useNodesInitialized flips true as soon as every node
-  // has MEASURED dimensions — but the WRAPPER box (z:-2, sized by computeLayout
-  // to enclose its members) and the relational de-overlap positions settle a
-  // frame LATER. Fitting on that first frame fits to the inner nodes only (box
-  // still tiny) → zooms in too far. So we defer the fit to the next animation
-  // frame, by which point the full bounds (incl. the platform box) are stable —
-  // giving the same framing as clicking the button after everything settled.
-  const nodesInitialized = useNodesInitialized();
-  const didFit = useRef(false);
-  useEffect(() => {
-    if (!nodesInitialized || didFit.current) return;
-    didFit.current = true;
-    const raf = requestAnimationFrame(() => requestAnimationFrame(() => fitView()));
-    return () => cancelAnimationFrame(raf);
-  }, [nodesInitialized, fitView]);
+  // NOTE: fit-view on tab open is handled by the built-in `fitView` prop on
+  // <ReactFlow> below. The ReactFlowProvider is keyed by tab in the shell, so
+  // the store is recreated per tab and that prop's QUEUED initial fit (which RF
+  // runs at exactly the right moment — when nodes are measured) fires fresh for
+  // each tab. That's the same path a page refresh takes, so the framing matches.
+  // A manual useNodesInitialized+fitView() effect here fought that queue and
+  // fit against a mid-transition bbox (box not yet sized → zoomed in too far).
   const wrapRef = useRef<HTMLDivElement>(null);
 
   // "Copy style → paste onto others" mode. While `copiedStyle` is set, a banner
