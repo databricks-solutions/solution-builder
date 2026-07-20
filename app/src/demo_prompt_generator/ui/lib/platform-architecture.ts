@@ -649,7 +649,7 @@ export const CATALOG: Record<BandId, CatalogComponent[]> = {
       desc: "The Databricks Data + AI platform — one governed foundation for all data + AI.",
       authoring: "Title banner (the Databricks wordmark). Pin it top-left, usually paired with a big background box (z:-1) wrapping everything → reads as 'all of this is the platform'." },
     { id: "unity-catalog", label: "Unity Catalog", icon: "unityCatalogBrand", desc: "One governed catalog — access, lineage, and semantics across data + AI." },
-    { id: "ai-gateway", label: "Unity AI Gateway", icon: "aiGatewayBrand", kind: "ai-gateway", desc: "Security, cost, and rate limits.",
+    { id: "ai-gateway", label: "Unity AI Gateway", icon: "aiGatewayBrand", kind: "ai-gateway", desc: "Security, governance, cost and rate limits.",
       authoring: "The Unity AI Gateway tile with a row of foundation-model logos (OpenAI · Anthropic · Gemini · Grok · Kimi) across the top — conveys 'govern + access ANY model' at a glance. Use standalone; the Unified Governance bar already embeds a compact gateway if you want the whole control plane." },
     { id: "data-quality", label: "Data Quality", icon: "unityCatalog", desc: "Expectations and monitors keep bad data out of the gold layer." },
     { id: "abac", label: "ABAC", icon: "unityCatalog", desc: "Attribute-based access control — fine-grained, policy-driven permissions." },

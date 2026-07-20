@@ -27,7 +27,7 @@ const FM_LOGOS: { key: string; label: string }[] = [
   { key: "file:vendor/kimi", label: "Kimi" },
 ];
 
-const DEFAULT_DESC = "Security, cost, and rate limits.";
+const DEFAULT_DESC = "Security, governance, cost and rate limits.";
 
 export const AIGatewayBlock = memo(function AIGatewayBlock({ data, selected }: NodeProps) {
   const d = data as NodeData;
