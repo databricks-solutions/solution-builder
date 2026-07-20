@@ -83,7 +83,7 @@ export const ContextMenu = memo(function ContextMenu({
         <div className="my-1 border-t border-border/60" />
         <div className="px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Flow style</div>
         <Item icon={<Wand2 className="h-3.5 w-3.5" />} label="Auto (by source)" onClick={() => onSetFlowStyle(undefined)} active={ed?.flowStyle == null} />
-        {(["laser", "particles", "docs", "dot"] as const).map((fs) => (
+        {(["model", "laser", "particles", "docs", "dot"] as const).map((fs) => (
           <button
             key={fs}
             type="button"

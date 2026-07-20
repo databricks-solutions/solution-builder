@@ -145,7 +145,11 @@ const FlowEdge = memo(function FlowEdge(props: EdgeProps) {
     sourcePosition: sPos, targetPosition: tPos,
     ...(centerX !== undefined ? { centerX } : {}),
   };
-  const [rawPath] =
+  // These helpers also return the label X/Y they compute ON the drawn path — for
+  // a step (L-shaped) route that's the true centre of the elbow, NOT the midpoint
+  // of the endpoints. We reuse them so the label sits on the line even when it
+  // bends (see labelX/labelY below).
+  const [rawPath, pathLabelX, pathLabelY] =
     shape === "straight"
       ? getStraightPath({ sourceX: sPt.x, sourceY: sPt.y, targetX: tPt.x, targetY: tPt.y })
       : shape === "step"
@@ -167,9 +171,10 @@ const FlowEdge = memo(function FlowEdge(props: EdgeProps) {
     if (!drag || !(e.buttons & 1)) return;
     e.stopPropagation();
     const f = ops!.toFlow(e.clientX, e.clientY);
-    const over = ops!.nodeAt(f.x, f.y);
+    // Exclude the edge's OTHER endpoint so a nearby valid target isn't shadowed
+    // by it (nodeAt returns a single nearest node within margin).
     const otherEnd = drag.end === "source" ? target : source;
-    const valid = over && over !== otherEnd ? over : null;
+    const valid = ops!.nodeAt(f.x, f.y, undefined, otherEnd);
     ops!.setDropTarget(valid);
     if (valid) {
       const r = ops!.rectOf(valid);
@@ -200,9 +205,12 @@ const FlowEdge = memo(function FlowEdge(props: EdgeProps) {
     if (!drag) return;
     e.stopPropagation();
     const f = ops!.toFlow(e.clientX, e.clientY);
-    const over = ops!.nodeAt(f.x, f.y);
+    // Exclude the OTHER endpoint, exactly as the `move` preview does — otherwise
+    // the preview could snap to a valid nearby target while this commit resolves
+    // to the (nearer, excluded) other endpoint and silently drops the reconnect.
     const otherEnd = drag.end === "source" ? target : source;
-    if (over && over !== otherEnd) ops!.retarget(id, drag.end, over, drag.handle ?? drag.side); // else keep old edge
+    const over = ops!.nodeAt(f.x, f.y, undefined, otherEnd);
+    if (over) ops!.retarget(id, drag.end, over, drag.handle ?? drag.side); // else keep old edge
     ops!.setDropTarget(null);
     setDrag(null);
   };
@@ -233,7 +241,27 @@ const FlowEdge = memo(function FlowEdge(props: EdgeProps) {
   // that case.
   const elbowX = centerDrag ?? d?.centerX ?? fan.centerX ?? (sp.x + tp.x) / 2;
   const HAS_H_RUN = Math.abs(tp.x - sp.x) > 8;
-  const labelX = hasElbow && HAS_H_RUN ? elbowX : (sp.x + tp.x) / 2;
+  // Where the label sits. If the user parked the vertical-elbow handle (manual
+  // centerX) on a horizontal-run edge, honour that. Otherwise use the label X/Y
+  // getSmoothStepPath/getStraightPath computed ON THE PATH — for an L-shaped
+  // (step) route that's the elbow centre, so the label lands on the line instead
+  // of floating in the gap between the two boxes (the "Feedback loop" bug).
+  const manualElbow = hasElbow && HAS_H_RUN && (centerDrag != null || d?.centerX != null);
+  // getSmoothStepPath's returned label X/Y usually sits on the drawn path, BUT for
+  // "overshoot" geometries (a backward step where the elbow is pushed past an
+  // endpoint) it returns a point OUTSIDE the endpoint span — the label then floats
+  // off the line (the "Load" label drifting left of the UC Model Registry). When
+  // the path-computed label falls outside the source↔target box, fall back to the
+  // endpoint midpoint (always between the two boxes); otherwise trust the path
+  // label (correct elbow centre for normal L-shapes).
+  // Clamp/fallback against the SAME endpoints the drawn path used (`sPt`/`tPt`),
+  // not the resting `sp`/`tp` — during an endpoint reconnect drag they diverge,
+  // and comparing the dragged path label to the resting box would jump the label
+  // off the line for a frame.
+  const inBox = (v: number, a: number, b: number) => v >= Math.min(a, b) - 1 && v <= Math.max(a, b) + 1;
+  const pathLabelOk = !manualElbow && inBox(pathLabelX, sPt.x, tPt.x) && inBox(pathLabelY, sPt.y, tPt.y);
+  const labelX = manualElbow ? elbowX : pathLabelOk ? pathLabelX : (sPt.x + tPt.x) / 2;
+  const labelY = manualElbow ? elbowY : pathLabelOk ? pathLabelY : (sPt.y + tPt.y) / 2;
   const startCenterDrag = (e: React.PointerEvent) => {
     e.stopPropagation();
     (e.target as Element).setPointerCapture(e.pointerId);
@@ -254,18 +282,36 @@ const FlowEdge = memo(function FlowEdge(props: EdgeProps) {
   // The flowing-data animation: a single dot, streaming particles (dots + red
   // squares), moving documents, or a laser beam.
   // Flow style: an explicit edge choice wins; when NONE is set, derive it from
-  // the edge's TARGET HANDLE — the Lakeflow block's named ingest ports say HOW
-  // the data arrives, so the animation matches with zero extra config:
+  // the edge's endpoints — the SOURCE kind + the target's named ingest port say
+  // HOW the data arrives, so the animation matches with zero extra config:
+  //   • an edge touching the UC MODEL REGISTRY → `model` — an ML model glyph
+  //     travelling the line (a registered/served model flowing through).
+  //   • FROM a PDF / document source, OR into an `in-direct` file port → `docs` —
+  //     travelling document glyphs.
   //   • `in-zerobus` (realtime streams / sensors) → `particles` — a dense river.
-  //   • `in-direct`  (files: PDF / CSV / Parquet) → `docs` — travelling docs.
   //   • any other edge FROM a data source → `laser` — a bright ingest beam.
   //   • a non-source origin → a plain `dot`.
   const targetHandle = props.targetHandleId ?? undefined;
-  const isSource = !!(sNode?.data as { sourceKey?: string } | undefined)?.sourceKey
-    || source.startsWith("src-");
+  const sData = sNode?.data as { sourceKey?: string; component?: { icon?: string } } | undefined;
+  const isSource = !!sData?.sourceKey || source.startsWith("src-");
+  // Base ids (strip a `#N` duplicate suffix) — computed once, reused below.
+  const srcBase = source.replace(/#\d+$/, "");
+  const tgtBase = target.replace(/#\d+$/, "");
+  // A document/PDF source (by id or icon) → its ingest is files, so `docs` even
+  // when it lands on a plain tile (e.g. the medallion @l), not just an `in-direct`
+  // Lakeflow port. Only a SOURCE origin can be a doc source, so gate on it.
+  const isDocSource =
+    isSource
+    && (srcBase === "src-pdf"
+      || /pdf|doc/i.test(sData?.sourceKey ?? "")
+      || /pdf|doc/i.test(sData?.component?.icon ?? ""));
+  // Either endpoint is the UC Model Registry? (base id, so `uc-model-registry#2`
+  // counts too). A model leaving/entering the registry rides the line as a model.
+  const touchesModelReg = srcBase === "uc-model-registry" || tgtBase === "uc-model-registry";
   const autoStyle: FlowStyle =
-    targetHandle === "in-zerobus" ? "particles"
-    : targetHandle === "in-direct" ? "docs"
+    touchesModelReg ? "model"
+    : targetHandle === "in-zerobus" ? "particles"
+    : targetHandle === "in-direct" || isDocSource ? "docs"
     : isSource ? "laser"
     : "dot";
   const flowStyle = d?.flowStyle ?? autoStyle;
@@ -277,13 +323,12 @@ const FlowEdge = memo(function FlowEdge(props: EdgeProps) {
   //   • Genie One → the arrow points AWAY from Genie One, to the resource
   //                 (dashboard / Genie Room / app).
   // We pick "end" (arrow at target) vs "start" (arrow at source) accordingly.
-  const isGenieOne = (nid: string) => nid.replace(/#\d+$/, "") === "genie-one";
   const isUser = (node: typeof sNode) => {
     const icon = (node?.data as { annotation?: { icon?: string } } | undefined)?.annotation?.icon;
     return typeof icon === "string" && icon.includes("persona/user");
   };
   const srcUser = isUser(sNode), tgtUser = isUser(tNode);
-  const srcGO = isGenieOne(source), tgtGO = isGenieOne(target);
+  const srcGO = srcBase === "genie-one", tgtGO = tgtBase === "genie-one";
   const arrowSetting = (d?.arrow ?? "auto") as "auto" | "none" | "end" | "start" | "both";
   let arrow: "none" | "end" | "start" | "both";
   if (arrowSetting !== "auto") {
@@ -294,6 +339,11 @@ const FlowEdge = memo(function FlowEdge(props: EdgeProps) {
   } else if (srcGO || tgtGO) {
     // arrow points away from Genie One, toward the resource
     arrow = srcGO ? "end" : "start";
+  } else if (srcBase === "uc-model-registry") {
+    // An edge LEAVING the UC Model Registry shows direction by default — the
+    // registered model flows OUT to its target (serving / batch job). An edge
+    // merely arriving at a model node gets no auto arrow.
+    arrow = "end";
   } else {
     arrow = "none";
   }
@@ -316,13 +366,26 @@ const FlowEdge = memo(function FlowEdge(props: EdgeProps) {
   // base goes transparent — but only while the animation is actually rendered.
   // When it's suppressed (zoomed out), fall back to a visible base line.
   const beamish = flowing && showFlow && (flowStyle === "particles" || flowStyle === "laser");
+  // The model glyph rides a DASHED line in the model's own orange (#FF5F46) so
+  // the "a model flows here" cue reads even before you spot the travelling icon.
+  const MODEL_ORANGE = "#FF5F46";
   const baseStyle = !flowing
     ? { ...style, stroke: "var(--muted-foreground)", opacity: 0.55 }
     : beamish
       ? { ...style, stroke: "transparent" as const, opacity: 1 }
-      : flowStyle === "docs"
-        ? { ...style, stroke: "var(--muted-foreground)", strokeWidth: 1, opacity: 0.3 }
-        : { ...style, stroke: "var(--muted-foreground)", opacity: 0.55 };
+      : flowStyle === "model"
+        ? { ...style, stroke: MODEL_ORANGE, strokeWidth: 1.5, strokeDasharray: "5 4", opacity: 0.7 }
+        : flowStyle === "docs"
+          ? { ...style, stroke: "var(--muted-foreground)", strokeWidth: 1, opacity: 0.3 }
+          : { ...style, stroke: "var(--muted-foreground)", opacity: 0.55 };
+  // SELECTION feedback: a selected edge draws a THICKER, fully-opaque primary
+  // stroke so it clearly reads as picked — even for beamish styles whose normal
+  // base is transparent (we force a visible line under the animation). Preserves
+  // the resolved dasharray (model stays dashed).
+  const selBaseWidth = ((baseStyle as { strokeWidth?: number }).strokeWidth ?? 1.5) + 2;
+  const finalBaseStyle = selected
+    ? { ...baseStyle, stroke: "var(--primary)", strokeWidth: selBaseWidth, opacity: 1 }
+    : baseStyle;
   // Arrowheads come from the resolved `arrow` (end/start/both) and paint via a
   // dedicated overlay path (below) so they sit on top of any line style. We
   // define the marker INLINE in this edge's own SVG output (unique id per edge)
@@ -333,20 +396,23 @@ const FlowEdge = memo(function FlowEdge(props: EdgeProps) {
   const mid = `arrowhead-${id}`;
   const markerEndUrl = arrowEnd ? `url(#${mid})` : undefined;
   const markerStartUrl = arrowStart ? `url(#${mid})` : undefined;
+  // The model edge's arrowhead matches its orange line; everything else keeps the
+  // neutral grey marker.
+  const arrowFill = flowStyle === "model" ? "#FF5F46" : "var(--muted-foreground)";
 
   return (
     <>
       {isArrow && (
         <defs>
-          <marker id={mid} viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-            <path d="M0,0 L10,5 L0,10 z" fill="var(--muted-foreground)" opacity="0.7" />
+          <marker id={mid} viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8.5" markerHeight="8.5" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill={arrowFill} opacity="0.7" />
           </marker>
         </defs>
       )}
       {/* interactionWidth kept modest: a fat stripe blankets the source/target
           anchors and steals the pointer, so you can't start a NEW link (fork)
           from an already-connected anchor. 10px still clicks the line easily. */}
-      <BaseEdge path={path} style={baseStyle} interactionWidth={connecting ? 0 : 10} />
+      <BaseEdge path={path} style={finalBaseStyle} interactionWidth={connecting ? 0 : 10} />
       {/* Double-click the line → open the inline mid-line label editor. A wide
           transparent hit path (only in edit mode, not mid-connection) so a
           double-click anywhere along the edge triggers it. */}
@@ -388,7 +454,7 @@ const FlowEdge = memo(function FlowEdge(props: EdgeProps) {
           backing rect keeps it readable. While editing, an inline input replaces
           the pill (commit on Enter/blur, cancel on Escape; empty removes it). */}
       {labelDraft !== null ? (
-        <foreignObject x={labelX - 70} y={elbowY - 12} width={140} height={24} style={{ overflow: "visible" }}>
+        <foreignObject x={labelX - 70} y={labelY - 12} width={140} height={24} style={{ overflow: "visible" }}>
           <input
             autoFocus
             value={labelDraft}
@@ -408,7 +474,7 @@ const FlowEdge = memo(function FlowEdge(props: EdgeProps) {
         </foreignObject>
       ) : (
         typeof label === "string" && label && (
-          <g transform={`translate(${labelX} ${elbowY})`}
+          <g transform={`translate(${labelX} ${labelY})`}
              style={{ pointerEvents: ops?.editMode ? "all" : "none", cursor: ops?.editMode ? "pointer" : "default" }}
              onDoubleClick={ops?.editMode ? (e) => { e.stopPropagation(); setLabelDraft(label); } : undefined}>
             <rect x={-label.length * 3.2 - 5} y={-8} width={label.length * 6.4 + 10} height={16} rx={4}

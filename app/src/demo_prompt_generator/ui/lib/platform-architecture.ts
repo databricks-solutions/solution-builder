@@ -81,18 +81,37 @@ export interface PlatformComponent {
    *  { "in-lakeflow-connect": "← databases / SaaS apps", "r": "→ compute" }.
    *  THE key metadata — tells the agent which port maps to what. */
   ports?: Record<string, string>;
+  /** Optional toggleable PARAMS a component exposes. Each renders as a checkbox
+   *  in the right edit panel; enabled values live on the NODE as `params`
+   *  (NodePosition.params → the flat file's `params`). A composite reads
+   *  `d.params?.<key>` to render conditionally (e.g. the medallion table shows a
+   *  Feature Store / Metric Views fork when enabled). General — any component
+   *  can declare options; the panel + round-trip are shared. */
+  options?: ComponentOption[];
+}
+
+/** One toggleable component param. */
+export interface ComponentOption {
+  /** Stored under `node.params[key]`. */
+  key: string;
+  /** Checkbox label in the edit panel. */
+  label: string;
+  /** Default when the node has no explicit value (default false). */
+  default?: boolean;
 }
 
 /** The animated-flow rendering style of an edge. `dot` = a single travelling
  *  dot; `particles` = a dense river of cubes/circles/triangles (realtime);
  *  `docs` = travelling document glyphs (file landing); `laser` = a comet with a
- *  fading tail (explicit-choice only — never auto-derived). Canonical home for
- *  the union; the UI layer re-uses it so schema + renderer + menu never drift. */
-export type FlowStyle = "dot" | "particles" | "docs" | "laser";
+ *  fading tail (explicit-choice only — never auto-derived); `model` = a small ML
+ *  model glyph travelling the line (auto-default for edges touching the UC Model
+ *  Registry — a served/registered model flowing through). Canonical home for the
+ *  union; the UI layer re-uses it so schema + renderer + menu never drift. */
+export type FlowStyle = "dot" | "particles" | "docs" | "laser" | "model";
 
 /** Composite block kinds (super-set components that draw an inner mini-diagram
  *  and expose multiple named ports). Extend this as we add more blocks. */
-export type CompositeKind = "lakeflow" | "genie-code" | "governance" | "lakeflow-genie" | "agent-bricks" | "db-platform" | "genie-one";
+export type CompositeKind = "lakeflow" | "genie-code" | "governance" | "lakeflow-genie" | "agent-bricks" | "db-platform" | "genie-one" | "medallion-table" | "ai-gateway";
 
 /** The 3 left input ports a "lakeflow" composite exposes. Edge handle ids on
  *  the block are `in-${port}` (+ a single `r` output on the right). */
@@ -123,6 +142,9 @@ export interface PlatformSchema {
    *  on the schema so it ROUND-TRIPS: symbolic `col` refs are meaningless without
    *  it, so serialize must re-emit it even after a node is dragged/pinned. */
   columns?: string[];
+  /** Shared-row-grid opt-in (file-level `rowGrid`), kept on the schema so it
+   *  round-trips like `columns`. See ArchitectureFile.rowGrid. */
+  rowGrid?: boolean;
   bands: PlatformBand[];
   /** Canvas layout — node positions + edges. Persisted by the interactive
    *  editor; auto-seeded by band when absent. */
@@ -147,6 +169,9 @@ export interface NodePosition {
   /** Canvas-edited label (double-click to rename). Overrides the catalog/agent
    *  label for this node only. */
   label?: string;
+  /** Authoring NOTE (never rendered) — see FileNode.note. Carried so it survives
+   *  the RF round-trip on save. */
+  note?: string;
   /** Canvas-picked icon — set when the node's TYPE was changed on the canvas.
    *  Overrides the component's default icon. */
   icon?: IconKey;
@@ -217,6 +242,13 @@ export interface NodePosition {
    *  authored with an explicit `at`). A pinned node serializes as `at`; an
    *  un-pinned node with `placement` re-emits its symbolic fields. */
   pinned?: boolean;
+  /** Enabled toggleable component options (round-trips to the file's `params`).
+   *  See PlatformComponent.options. */
+  params?: Record<string, boolean>;
+  /** Render this node as a STACK of N cards (N-1 blank offset copies peeking out
+   *  the bottom-right of the front card) to signal "many of these" — e.g. deploy
+   *  N apps. 1 or absent = a single normal card. Works on any node kind. */
+  stack?: number;
 }
 
 /** A free-form canvas annotation — not a Databricks catalog component. One node
@@ -292,6 +324,8 @@ export interface PlatformEdge {
   centerX?: number;
   /** Optional edge label. */
   label?: string;
+  /** Authoring NOTE (never rendered) — see FileEdge.note. */
+  note?: string;
 }
 
 export interface PlatformLayout {
@@ -321,6 +355,13 @@ export interface FileNode {
    *  `at` is set. */
   col?: string;
   row?: number;
+  /** Enabled toggleable component options (see PlatformComponent.options), e.g.
+   *  `{ "feature_store": true }`. Only keys the component declares are meaningful. */
+  params?: Record<string, boolean>;
+  /** Render as a STACK of N cards to signal "many of these" (e.g. N apps): N-1
+   *  blank offset copies peek out the bottom-right of the front card. 1/absent =
+   *  single card. Works on any node type. */
+  stack?: number;
   /** Relational placement — position this node against ANOTHER node's resolved
    *  box, evaluated AFTER columns (so the anchor keeps its own col/row default).
    *  Use these instead of guessing `at` coordinates.
@@ -374,6 +415,12 @@ export interface FileNode {
   desc?: string;
   /** Whether the description line is shown (undefined → default resolution). */
   showDesc?: boolean;
+  /** Free-text authoring NOTE — never rendered, never affects layout. Explains
+   *  WHY this node is here / what a non-obvious choice means (e.g. that a
+   *  `lakeflow-jobs` tile is relabeled as a batch scoring job, or why a `row` is
+   *  what it is). Round-trips verbatim so a saved example stays self-documenting.
+   *  Distinct from `desc` (the tile's visible description line). */
+  note?: string;
   icon?: IconKey;
   /** box/text/logo/image annotation props. */
   text?: string;
@@ -418,6 +465,11 @@ export interface FileEdge {
   flowStyle?: FlowStyle;
   centerX?: number;
   label?: string;
+  /** Free-text authoring NOTE — never rendered, never affects layout. Explains
+   *  WHY this edge exists (the reasoning that isn't obvious from from/to). Kept
+   *  verbatim through the save round-trip so an example stays self-documenting.
+   *  Use `label` for text drawn ON the edge; use `note` for the reasoning. */
+  note?: string;
 }
 
 /** The whole flat file. */
@@ -428,6 +480,16 @@ export interface ArchitectureFile {
   /** Ordered left→right lane names. Nodes reference one via `col`. Optional —
    *  only needed when authoring with symbolic (col-based) placement. */
   columns?: string[];
+  /** Opt-in SHARED ROW GRID. When true, a node's `row` is a GLOBAL grid row
+   *  aligned across EVERY column (not just order within its own lane): all
+   *  nodes with row:1 share the same top band, row:2 the band below it, etc.,
+   *  so columns register into horizontal rows even when they hold different
+   *  node counts. A column that skips a row simply leaves that slot empty. Each
+   *  band's height = the tallest node in it; bands stack top→bottom (ROW_GAP
+   *  between) centered on y=0. Nodes without a `row` keep appearance order,
+   *  packed after the numbered rows. Off (default) → `row` orders within-lane
+   *  as before. Relational (`alignY`/`below`/…) and `at` still override. */
+  rowGrid?: boolean;
   /** Inline custom SVG logos: `[{ id, svg }]`. Reference one from any node's
    *  `icon` as `"custom:<id>"` (works as a logo node OR a source tile). */
   custom_logos?: { id: string; svg: string }[];
@@ -489,26 +551,35 @@ export const DBX_ARCH_PRESET_BY_ID: Record<string, AnnotationPreset> = Object.fr
 // Band metadata — the fixed marketing framing (top → bottom)
 // =============================================================================
 
-export const BAND_META: Record<BandId, { label: string; sublabel: string }> = {
+// `sublabel` is the marketing tagline shown in the app's band rail. `blurb` is a
+// FUNCTIONAL one-liner for the skill catalog — what the band IS and when to pull a
+// component from it — emitted under each generated section header (falls back to
+// `sublabel` if absent). Keep both in code so the skill can't drift from the app.
+export const BAND_META: Record<BandId, { label: string; sublabel: string; blurb?: string }> = {
   "agentic-apps": {
     label: "Agentic Apps",
     sublabel: "Deploy agents and apps at scale to transform work",
+    blurb: "The delivery surface — dashboards and custom apps the business actually opens. Reach here for what a user SEES and clicks.",
   },
   "agentic-work": {
     label: "Agentic Work",
     sublabel: "Data-smart coworkers for every employee",
+    blurb: "The intelligence layer — models, agents, RAG, ML lifecycle, and the entry points (Genie, Genie One) that answer questions and act on the governed data.",
   },
   "unified-governance": {
     label: "Unified Governance",
     sublabel: "One control plane for data + AI — security, lineage, cost",
+    blurb: "The control plane over everything — Unity Catalog, the AI Gateway, and the Databricks-platform banner. Prefer the one `governance-block` bar over the loose tiles unless spotlighting a single feature.",
   },
   "agentic-data": {
     label: "Agentic Data",
     sublabel: "Unified, real-time data foundation",
+    blurb: "The data foundation — ingest + the medallion pipeline (bronze→silver→gold) + the lakehouse / Lakebase it lands in. Where the demo's data comes IN and is refined.",
   },
   sources: {
     label: "Sources",
     sublabel: "The systems your business already runs on",
+    blurb: "The upstream systems feeding the platform — NOT catalog components; authored as `type:\"source\"` tiles (see the Sources section).",
   },
 };
 
@@ -576,11 +647,28 @@ export const CATALOG: Record<BandId, CatalogComponent[]> = {
       desc: "Databricks' managed agents — a multi-agent supervisor plus information extraction, document parsing, and classification, built and governed for you.",
       authoring: "Managed MULTI-agent system: a Supervisor orchestrating Knowledge Assistant / Genie / MCP / Functions (with extraction·parsing·classification chips). Use when the agent layer is a supervisor routing to specialists; if the demo uses only one agent capability, use that single tile instead." },
     { id: "ml-training-serving", label: "ML Models", icon: "mlModel", desc: "Train, register, and serve models on governed data." },
+    { id: "ml-model", label: "Machine Learning Model", icon: "mlModelBrand", desc: "A trained model on governed data — classification, forecasting, recommendations, and more." },
+    { id: "model-training", label: "Model Training", icon: "mlflowBrand", desc: "Train + track experiments with MLflow — parameters, metrics, and artifacts, all governed." },
+    { id: "mlops", label: "MLOps", icon: "mlopsBrand", desc: "The full model lifecycle — train, evaluate, register, deploy, and monitor, governed end to end." },
+    // Medallion layers (orange brand marks) — used inside the SDP/pipeline block.
+    { id: "bronze-layer", label: "Bronze", icon: "bronzeLayer", desc: "Raw ingested data, landed as-is." },
+    { id: "silver-layer", label: "Silver", icon: "silverLayer", desc: "Cleaned, conformed, deduplicated." },
+    { id: "gold-layer", label: "Gold", icon: "goldLayer", desc: "Curated, business-ready aggregates." },
+    { id: "medallion-table", label: "Medallion Table", icon: "goldLayer", kind: "medallion-table",
+      desc: "Bronze → Silver → Gold in one block — the medallion refinement of a governed table.",
+      authoring: "The whole medallion (bronze → silver → gold) as ONE block, with the metal-toned layer marks and an internal flow. Prefer this over three separate bronze/silver/gold tiles when you just want to show the layered data itself. OPTIONS (params): `feature_store` and `metric_views` — each adds a fork off the GOLD layer (Feature Store above, Metric Views below) shown inside the block, and exposes an extra right-side OUTPUT handle so you can wire it: `@out-gold` (always), `@out-fs` (when feature_store), `@out-mv` (when metric_views).",
+      options: [
+        { key: "feature_store", label: "Feature store" },
+        { key: "metric_views", label: "Metric views" },
+      ],
+      ports: { "l": "← sources / ingest", "out-gold": "→ gold output", "out-fs": "→ feature store (when enabled)", "out-mv": "→ metric views (when enabled)" } },
+    { id: "feature-store", label: "Feature Store", icon: "featureStoreBrand", desc: "Governed, reusable features for training and real-time serving — consistent offline and online." },
+    { id: "uc-model-registry", label: "UC Model Registry", icon: "modelRegistryBrand", desc: "Version, stage, and govern models in Unity Catalog with full lineage." },
     { id: "model-serving", label: "Model Serving Endpoint", icon: "modelServing", desc: "Serve a custom model behind a governed, autoscaling REST endpoint for real-time inference.",
       authoring: "A deployed serving endpoint (real-time inference over a custom/registered model). Use when the demo calls a live endpoint; for the train→register→batch-score story use ml-training-serving instead." },
     { id: "hosted-mcps", label: "Hosted MCPs", icon: "mcp", desc: "Managed MCP servers that let agents call external tools — Genie, Atlassian, GitHub, Slack, SharePoint, Gmail, and more.",
       authoring: "The governed tool/connector layer for agents — hosted MCP servers (Genie / Atlassian / GitHub / Slack / SharePoint / Gmail …). Use when the demo's agent reaches OUT to external systems via MCP." },
-    { id: "vector-search", label: "Vector Search", icon: "vectorSearch", desc: "Semantic search and retrieval that grounds agents in your data." },
+    { id: "vector-search", label: "Vector Search", icon: "vectorSearchBrand", desc: "Embeddings" },
     { id: "information-extraction", label: "Information Extraction", icon: "unstructuredData", desc: "Pull specific data points, entities, and fields from unstructured text (ai_extract)." },
     // The Agent Bricks building blocks (also surfaced inside the composite).
     { id: "document-parsing", label: "Document Parsing", icon: "inputData", desc: "Extract structured content from documents — text, tables, and metadata (ai_parse_document)." },
@@ -596,10 +684,11 @@ export const CATALOG: Record<BandId, CatalogComponent[]> = {
       desc: "One control plane for data + AI: Unity Catalog governs access, lineage and quality; the Unity AI Gateway governs every foundation-model call (OpenAI, Anthropic, Gemini, …); Genie Ontology is the shared semantic layer.",
       authoring: "One governance bar: Unity Catalog + Unity AI Gateway (access any model) + a live Genie Ontology graph. Prefer over the loose unity-catalog / ai-gateway / data-quality / abac / data-classification tiles (use those only to spotlight one feature)." },
     { id: "db-platform", label: "Databricks Platform", icon: "file:vendor/databricks-wordmark", kind: "db-platform",
-      desc: "The Databricks Data Intelligence Platform — one governed foundation for all data + AI.",
+      desc: "The Databricks Data + AI platform — one governed foundation for all data + AI.",
       authoring: "Title banner (the Databricks wordmark). Pin it top-left, usually paired with a big background box (z:-1) wrapping everything → reads as 'all of this is the platform'." },
     { id: "unity-catalog", label: "Unity Catalog", icon: "unityCatalogBrand", desc: "One governed catalog — access, lineage, and semantics across data + AI." },
-    { id: "ai-gateway", label: "Unity AI Gateway", icon: "aiGatewayBrand", desc: "Every model and agent call governed — security, cost, and rate limits." },
+    { id: "ai-gateway", label: "Unity AI Gateway", icon: "aiGatewayBrand", kind: "ai-gateway", desc: "Security, governance, cost and rate limits.",
+      authoring: "The Unity AI Gateway tile with a row of foundation-model logos (OpenAI · Anthropic · Gemini · Grok · Kimi) across the top — conveys 'govern + access ANY model' at a glance. Use standalone; the Unified Governance bar already embeds a compact gateway if you want the whole control plane." },
     { id: "data-quality", label: "Data Quality", icon: "unityCatalog", desc: "Expectations and monitors keep bad data out of the gold layer." },
     { id: "abac", label: "ABAC", icon: "unityCatalog", desc: "Attribute-based access control — fine-grained, policy-driven permissions." },
     { id: "data-classification", label: "Data Classification", icon: "unityCatalog", desc: "Automatically tag and govern sensitive data." },
@@ -672,9 +761,37 @@ const ANNOTATION_SIZE: Record<AnnotationVariant, { w: number; h: number }> = {
   image: { w: 200, h: 140 },
 };
 
+/** Medallion-table footprint — grows when a fork option (`feature_store` /
+ *  `metric_views`) is on: the last column becomes a vertical MV/Gold/FS stack,
+ *  so it gets a bit WIDER (labels) and TALLER (one row per option). SINGLE
+ *  source of truth for the medallion box — `naturalSize` (→ layout/`sizeOf`),
+ *  `nodeFootprint` (the ReactFlow selection frame), and the composite render
+ *  (`shared.tsx` re-exports this) all resolve through here, so symbolic layout,
+ *  the resize frame, and the visual always agree. */
+export function medallionSize(params?: Record<string, boolean>): { w: number; h: number } {
+  const fs = !!params?.feature_store;
+  const mv = !!params?.metric_views;
+  if (!fs && !mv) return { w: 268, h: 96 }; // title + 3 layer marks + labels + connectors
+  const forkRows = 1 + (fs ? 1 : 0) + (mv ? 1 : 0);
+  return { w: 300, h: Math.max(96, 44 + forkRows * 38) };
+}
+
+/** Normalize a `stack` value from the file (agent- or hand-authored, so it may
+ *  be a float, string, huge, or garbage) to a clean integer in [2, 5], or
+ *  `undefined` when there's no meaningful stack (≤1, NaN, non-finite). The
+ *  renderer caps at 5 anyway; coercing here keeps the file honest and avoids a
+ *  fractional value silently floor-truncating the shadow-card count. */
+export function sanitizeStack(v: unknown): number | undefined {
+  const n = Math.floor(Number(v));
+  if (!Number.isFinite(n) || n <= 1) return undefined;
+  return Math.min(n, 5);
+}
+
 /** Natural [w,h] for a file `type` (catalog id / composite kind / source /
- *  annotation variant). Mirrors shared.tsx `baseSize`. */
-export function naturalSize(type: string): { w: number; h: number } {
+ *  annotation variant). Mirrors shared.tsx `baseSize`. `params` is only read for
+ *  a `medallion-table` (its fork options change the footprint); pass `n.params`
+ *  so symbolic layout reserves the same box the node actually renders at. */
+export function naturalSize(type: string, params?: Record<string, boolean>): { w: number; h: number } {
   if (ANNOTATION_TYPES.has(type as AnnotationVariant)) return ANNOTATION_SIZE[type as AnnotationVariant];
   const c = CATALOG_BY_ID.get(type)?.c;
   const kind = c?.kind;
@@ -685,6 +802,8 @@ export function naturalSize(type: string): { w: number; h: number } {
   if (kind === "governance") return { w: 580, h: 108 };
   if (kind === "db-platform") return { w: 380, h: 60 };
   if (kind === "genie-one") return { w: 230, h: 78 }; // tile; persona pill floats over the top edge
+  if (kind === "ai-gateway") return { w: 240, h: 104 }; // model-logo row on top + gateway body below
+  if (kind === "medallion-table") return medallionSize(params);
   if (type === "sdp") return { w: 230, h: 112 };
   // Standard "compute / serving" tiles share ONE default footprint so they line
   // up in a column (Lakehouse, Lakebase, Model Serving, Hosted MCPs, …). 230 wide,
@@ -697,7 +816,10 @@ export function naturalSize(type: string): { w: number; h: number } {
 /** Single-line catalog tiles that should default to the STANDARD compute-tile
  *  footprint (same as Lakehouse/Lakebase) so a column of them lines up, even
  *  though they carry no `sublabel`. */
-const STANDARD_TILE_TYPES = new Set(["model-serving", "hosted-mcps"]);
+const STANDARD_TILE_TYPES = new Set([
+  "model-serving", "hosted-mcps",
+  "ml-model", "model-training", "mlops", "feature-store", "uc-model-registry",
+]);
 
 // =============================================================================
 // Build: catalog + resources.json defaults + agent override → final schema
@@ -748,7 +870,7 @@ export function computeLayout(file: ArchitectureFile): Map<string, ResolvedBox> 
   // On-canvas footprint: explicit `size` (or natural), with w/h SWAPPED for a
   // 90°/270° rotation — a rotated tall node is a narrow one on the canvas.
   const sizeOf = (n: FileNode): { w: number; h: number } => {
-    const s = n.size ? { w: n.size[0], h: n.size[1] } : naturalSize(n.type);
+    const s = n.size ? { w: n.size[0], h: n.size[1] } : naturalSize(n.type, n.params);
     const q = (((n.rot ?? 0) % 360) + 360) % 360;
     return q === 90 || q === 270 ? { w: s.h, h: s.w } : s;
   };
@@ -803,17 +925,75 @@ export function computeLayout(file: ArchitectureFile): Map<string, ResolvedBox> 
       rightEdge = cx + w / 2;
     });
   }
-  for (const [col, list] of byCol) {
-    list.sort((a, b) => (a.row ?? 0) - (b.row ?? 0)); // stable-ish; appearance order kept for ties
-    const x = colX.get(col) ?? 0;
-    const heights = list.map((n) => sizeOf(n).h);
-    const total = heights.reduce((s, h) => s + h, 0) + ROW_GAP * (list.length - 1);
-    let cy = -total / 2; // center the stack on y=0
-    list.forEach((n, i) => {
+  if (file.rowGrid) {
+    // SHARED ROW GRID: `row` aligns across ALL columns. Every laned node with the
+    // same `row` shares one horizontal band; the band's height is the tallest
+    // node in it; bands stack top→bottom (ROW_GAP apart) centered on y=0. X still
+    // comes from the node's own column lane.
+    //
+    // A node WITHOUT a `row` falls back to stacking within its OWN column, exactly
+    // like non-grid mode: it takes the next free band DOWN from that column's last
+    // numbered node (so two unnumbered nodes in a lane stack, they don't each grab
+    // a separate band). So `rowGrid` works with or without `row` set — set it to
+    // align across columns, omit it to just stack in the lane.
+    const rowOf = new Map<string, number>();
+    const nextFree = new Map<string, number>(); // per-column running row for unnumbered nodes
+    for (const n of laned) {
+      if (n.row !== undefined) {
+        rowOf.set(n.id, n.row);
+        // an unnumbered node in this lane resumes stacking BELOW this row
+        nextFree.set(n.col!, Math.max(nextFree.get(n.col!) ?? 1, n.row + 1));
+      } else {
+        const r = nextFree.get(n.col!) ?? 1;
+        rowOf.set(n.id, r);
+        nextFree.set(n.col!, r + 1);
+      }
+    }
+    // Band height = tallest node anywhere in that row.
+    const bandH = new Map<number, number>();
+    for (const n of laned) {
+      const r = rowOf.get(n.id)!;
+      bandH.set(r, Math.max(bandH.get(r) ?? 0, sizeOf(n).h));
+    }
+    // Walk EVERY integer row from min→max (not just the occupied ones), so a
+    // SKIPPED row number leaves a real empty band's worth of vertical space.
+    // That's the lever for readability: spread nodes onto rows 0, 2, 4… (instead
+    // of 0,1,2…) when edges have labels that need room. An empty row uses a
+    // default band height. Contiguous rows (1,2,3,…) are unchanged (no gaps).
+    const present = [...bandH.keys()];
+    const minR = Math.min(...present);
+    const maxR = Math.max(...present);
+    const EMPTY_BAND = 96; // a standard tile's height — one skipped row ≈ one tile of space
+    const bandCenterY = new Map<number, number>();
+    {
+      let cy = -0; // provisional; recentered below
+      for (let r = minR; r <= maxR; r++) {
+        const h = bandH.get(r) ?? EMPTY_BAND;
+        bandCenterY.set(r, cy + h / 2);
+        cy += h + ROW_GAP;
+      }
+      // Center the whole grid on y=0 (cy is now the full stacked height + a
+      // trailing ROW_GAP; subtract that gap back out for the true total).
+      const totalH = cy - ROW_GAP;
+      for (const [r, y] of bandCenterY) bandCenterY.set(r, y - totalH / 2);
+    }
+    for (const n of laned) {
       const s = sizeOf(n);
-      out.set(n.id, { x, y: cy + heights[i] / 2, w: s.w, h: s.h });
-      cy += heights[i] + ROW_GAP;
-    });
+      out.set(n.id, { x: colX.get(n.col!) ?? 0, y: bandCenterY.get(rowOf.get(n.id)!)!, w: s.w, h: s.h });
+    }
+  } else {
+    for (const [col, list] of byCol) {
+      list.sort((a, b) => (a.row ?? 0) - (b.row ?? 0)); // stable-ish; appearance order kept for ties
+      const x = colX.get(col) ?? 0;
+      const heights = list.map((n) => sizeOf(n).h);
+      const total = heights.reduce((s, h) => s + h, 0) + ROW_GAP * (list.length - 1);
+      let cy = -total / 2; // center the stack on y=0
+      list.forEach((n, i) => {
+        const s = sizeOf(n);
+        out.set(n.id, { x, y: cy + heights[i] / 2, w: s.w, h: s.h });
+        cy += heights[i] + ROW_GAP;
+      });
+    }
   }
 
   // 3) Any node still unplaced (no `at`, no resolvable `col`, not a wrapper) →
@@ -1187,7 +1367,7 @@ export function parseArchitecture(content: string): PlatformSchema {
 
   for (const n of file?.nodes ?? []) {
     if (!n?.id || !n.type) continue;
-    const box = placed.get(n.id) ?? { x: 0, y: 0, ...naturalSize(n.type) };
+    const box = placed.get(n.id) ?? { x: 0, y: 0, ...naturalSize(n.type, n.params) };
     const [x, y] = [box.x, box.y];
     const st = n.style ?? {};
     // A container box's size is derived by computeLayout (from `wraps` and/or
@@ -1205,12 +1385,15 @@ export function parseArchitecture(content: string): PlatformSchema {
       y: y ?? 0,
       ...(placement ? { placement } : {}),
       ...(pinned ? { pinned: true } : {}),
+      ...(n.params && Object.keys(n.params).length ? { params: n.params } : {}),
+      ...(sanitizeStack(n.stack) ? { stack: sanitizeStack(n.stack)! } : {}),
       ...(n.rot !== undefined ? { rot: n.rot } : {}),
       ...(derivedSize ? { w: derivedSize[0], h: derivedSize[1] } : {}),
       ...(n.scale !== undefined ? { scale: n.scale } : {}),
       ...(n.z !== undefined ? { z: n.z } : {}),
       ...(n.group !== undefined ? { groupId: n.group } : {}),
       ...(n.label !== undefined ? { label: n.label } : {}),
+      ...(n.note !== undefined ? { note: n.note } : {}),
       ...(n.desc !== undefined ? { desc: n.desc } : {}),
       ...(n.showDesc !== undefined ? { showDesc: n.showDesc } : {}),
       ...(n.icon !== undefined ? { icon: n.icon } : {}),
@@ -1266,6 +1449,19 @@ export function parseArchitecture(content: string): PlatformSchema {
     if (!ANNOTATION_TYPES.has(n.type as AnnotationVariant) && n.type !== "source" && baseId(n.id) !== n.type) {
       nodeId = n.type;
     }
+    // Collision guard: if that id is already taken (two nodes re-keyed to the
+    // same `type`, or two files sharing an id), disambiguate with `type#N`
+    // instead of blindly overwriting — otherwise the earlier node is SILENTLY
+    // LOST and any edge to it re-targets the survivor. `#N` still baseId-resolves
+    // to the catalog type, so flow-mapping renders both. (The authoring
+    // convention is `type` / `type#2`; this makes an off-convention duplicate
+    // safe rather than destructive.)
+    if (nodes[nodeId]) {
+      const base = baseId(nodeId);
+      let k = 2;
+      while (nodes[`${base}#${k}`]) k++;
+      nodeId = `${base}#${k}`;
+    }
     nodes[nodeId] = pos;
     fileToNode.set(n.id, nodeId);
     boxOf.set(n.id, box);
@@ -1304,6 +1500,7 @@ export function parseArchitecture(content: string): PlatformSchema {
       ...(e.arrow && e.arrow !== "auto" ? { arrow: e.arrow } : {}),
       ...(typeof e.centerX === "number" ? { centerX: e.centerX } : {}),
       ...(e.label ? { label: e.label } : {}),
+      ...(e.note ? { note: e.note } : {}),
     };
   });
 
@@ -1317,6 +1514,7 @@ export function parseArchitecture(content: string): PlatformSchema {
     story: file?.story,
     enableTrademarkLogos: file?.options?.trademarkLogos ?? false,
     ...(file?.columns?.length ? { columns: file.columns } : {}),
+    ...(file?.rowGrid ? { rowGrid: true } : {}),
     bands: catalogSchemaBands(),
     layout: { nodes, edges, hidden: [] },
     ...(Object.keys(customLogos).length ? { customLogos } : {}),
@@ -1522,6 +1720,9 @@ export function serializeArchitecture(
       ...(pos.scale !== undefined && pos.scale !== 1 ? { scale: pos.scale } : {}),
       ...(pos.z ? { z: pos.z } : {}),
       ...(pos.groupId ? { group: pos.groupId } : {}),
+      ...(pos.params && Object.keys(pos.params).length ? { params: pos.params } : {}),
+      ...(sanitizeStack(pos.stack) ? { stack: sanitizeStack(pos.stack)! } : {}),
+      ...(pos.note ? { note: pos.note } : {}),
     };
     const style = styleOf(pos);
 
@@ -1588,6 +1789,7 @@ export function serializeArchitecture(
       ...(e.flowStyle ? { flowStyle: e.flowStyle } : {}),
       ...(typeof e.centerX === "number" ? { centerX: e.centerX } : {}),
       ...(e.label ? { label: e.label } : {}),
+      ...(e.note ? { note: e.note } : {}),
     };
   });
 
@@ -1608,6 +1810,9 @@ export function serializeArchitecture(
     // meaningless without it, so dropping it (as the old serializer did) made a
     // single drag collapse every remaining symbolic node to the origin.
     ...(schema.columns?.length ? { columns: schema.columns } : {}),
+    // Re-emit the shared-row-grid opt-in so `row`'s cross-column meaning survives
+    // a save (same round-trip reason as `columns`).
+    ...(schema.rowGrid ? { rowGrid: true } : {}),
     ...(custom_logos.length ? { custom_logos } : {}),
     nodes,
     edges,

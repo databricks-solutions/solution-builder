@@ -61,7 +61,7 @@
 # MAGIC %md
 # MAGIC ## What you'll show at the end
 # MAGIC
-# MAGIC A governed, end-to-end solution on the Databricks Data Intelligence Platform —
+# MAGIC A governed, end-to-end solution on the Databricks Data + AI platform —
 # MAGIC all built by prompting, all on the same Unity Catalog data:
 # MAGIC
 # MAGIC - **Lakeflow / SDP** — a declarative bronze→silver→gold pipeline

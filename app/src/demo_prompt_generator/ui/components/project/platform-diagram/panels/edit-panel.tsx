@@ -14,7 +14,7 @@
  * context menu (panels/style-controls), so there's one source of truth.
  */
 import { memo } from "react";
-import { type AnnotationData } from "@/lib/platform-architecture";
+import { type AnnotationData, type ComponentOption } from "@/lib/platform-architecture";
 import { type StylePatch } from "../shared";
 import { StyleControls, AnnotationMenu, type MenuItemFn } from "./style-controls";
 import {
@@ -23,6 +23,7 @@ import {
   Check,
   RotateCw,
   Scaling,
+  Layers,
   Replace,
   BringToFront,
   SendToBack,
@@ -40,6 +41,8 @@ export const EditPanel = memo(function EditPanel({
   selectionCount,
   annotation,
   nodeScale = 1,
+  nodeStack = 1,
+  onSetStack,
   style,
   isGroup = false,
   canGroup = false,
@@ -50,6 +53,11 @@ export const EditPanel = memo(function EditPanel({
   onSetSourceFontSize,
   showDescription,
   onSetShowDescription,
+  options,
+  params,
+  onSetParam,
+  nodeTitle,
+  onSetTitle,
   onClose,
   onRotate,
   onRemove,
@@ -68,6 +76,9 @@ export const EditPanel = memo(function EditPanel({
   /** Present when the (single) selected node is a free-form annotation. */
   annotation?: AnnotationData;
   nodeScale?: number;
+  /** Stack count (N cards) for the single selection; 1 = single. Setter writes it. */
+  nodeStack?: number;
+  onSetStack?: (n: number) => void;
   /** Current style of the selection (single node, or the first when multi). */
   style?: StylePatch;
   /** Selection belongs to a group → offer Ungroup. */
@@ -88,6 +99,16 @@ export const EditPanel = memo(function EditPanel({
    *  writes an explicit true/false. Undefined → no toggle for this selection. */
   showDescription?: boolean;
   onSetShowDescription?: (show: boolean) => void;
+  /** Toggleable component options (checkboxes). Set when the single selection is
+   *  a component that declares `options`. `params` is the node's current values;
+   *  `onSetParam` writes one key. */
+  options?: ComponentOption[];
+  params?: Record<string, boolean>;
+  onSetParam?: (key: string, value: boolean) => void;
+  /** Editable block title (composites like the medallion table). `nodeTitle` is
+   *  the current text (or its default placeholder); `onSetTitle` renames it. */
+  nodeTitle?: string;
+  onSetTitle?: (title: string) => void;
   onClose: () => void;
   onRotate: () => void;
   onRemove: () => void;
@@ -189,6 +210,45 @@ export const EditPanel = memo(function EditPanel({
             <Item icon={<Replace className="h-3.5 w-3.5" />} label="Change type…" onClick={onChangeType} />
             {(isGroup || isAgentBricks) && <Item icon={<Ungroup className="h-3.5 w-3.5" />} label="Ungroup" onClick={onUngroup} hint="⇧⌘G" />}
             <Item icon={<RotateCw className="h-3.5 w-3.5" />} label="Rotate 90°" onClick={onRotate} hint="R" />
+            {/* Editable block title (composites that expose one, e.g. medallion). */}
+            {onSetTitle && (
+              <div className="px-2 py-1.5">
+                <div className="mb-1 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                  <Type className="h-3.5 w-3.5" /> Title
+                </div>
+                <input
+                  type="text"
+                  value={nodeTitle ?? ""}
+                  placeholder="Title…"
+                  onClick={(e) => e.stopPropagation()}
+                  onChange={(e) => onSetTitle(e.target.value)}
+                  className="w-full rounded border border-border bg-background px-2 py-1 text-[11px] outline-none focus:border-primary"
+                />
+              </div>
+            )}
+            {/* Component options — checkboxes for any component declaring `options`
+                (e.g. the medallion table's Feature store / Metric views forks). */}
+            {options && options.length > 0 && onSetParam && (
+              <>
+                <Divider />
+                <div className="px-2 pb-0.5 pt-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Options</div>
+                {options.map((o) => {
+                  const on = params?.[o.key] ?? o.default ?? false;
+                  return (
+                    <label key={o.key} className="flex cursor-pointer items-center gap-2 px-2 py-1 text-[12.5px] hover:bg-muted">
+                      <input
+                        type="checkbox"
+                        checked={on}
+                        onChange={(e) => { e.stopPropagation(); onSetParam(o.key, e.target.checked); }}
+                        onClick={(e) => e.stopPropagation()}
+                        className="h-3.5 w-3.5 accent-primary"
+                      />
+                      {o.label}
+                    </label>
+                  );
+                })}
+              </>
+            )}
             {/* Source tiles: where the label sits relative to the icon. */}
             {onSetSourceCaption && (() => {
               const cur = sourceCaption ?? "right";
@@ -242,6 +302,26 @@ export const EditPanel = memo(function EditPanel({
                 className="h-1.5 w-full cursor-pointer accent-primary"
               />
             </div>
+            {/* Stack slider — render the node as N cards (blank offsets peeking
+                bottom-right) to show "many of these" (e.g. N apps). 1 = single. */}
+            {onSetStack && (
+              <div className="px-2 py-1.5">
+                <div className="mb-1 flex items-center justify-between text-[11px] text-muted-foreground">
+                  <span className="flex items-center gap-1.5"><Layers className="h-3.5 w-3.5" /> Stack</span>
+                  <span>{nodeStack > 1 ? `×${nodeStack}` : "off"}</span>
+                </div>
+                <input
+                  type="range"
+                  min={1}
+                  max={5}
+                  step={1}
+                  value={nodeStack}
+                  onChange={(e) => onSetStack(Number(e.target.value))}
+                  onClick={(e) => e.stopPropagation()}
+                  className="h-1.5 w-full cursor-pointer accent-primary"
+                />
+              </div>
+            )}
             <Divider />
             <StyleControls style={style} onStyle={onStyle} />
             <Item icon={<Copy className="h-3.5 w-3.5" />} label="Copy style" onClick={onCopyStyle} />

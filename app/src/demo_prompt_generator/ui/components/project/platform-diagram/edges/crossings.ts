@@ -93,6 +93,10 @@ const MAX_HOPS = 8;
  * hops. Returns Map<edgeId, Hop[]>.
  */
 export function computeCrossings(edges: CrossEdge[], nodeLookup: NodeLookup): Map<string, Hop[]> {
+  // No input-identity short-circuit — see the NOTE in fan-layout.ts
+  // computeFanLayout: v12 mutates nodeLookup in place and keeps `edges` stable
+  // across a drag, so identity would be stale. The signature folds node
+  // positions and is the correct invalidator.
   const sig = signature(edges, nodeLookup);
   if (sig === cacheSig) return cacheMap;
 

@@ -139,16 +139,25 @@ function PlatformDiagram({ content, deployedResources, projectId, defaultEditMod
   // Genuine external loads + tab switches produce a DIFFERENT body → re-parse.
   const selfAuthoredBody = useRef<string | null>(null);
   const builtRef = useRef<PlatformSchema | null>(null);
+  // The exact body string `builtRef` was parsed from. Reuse the prior schema
+  // identity ONLY when the current active body is BOTH our own echo AND the same
+  // string we last built — otherwise (e.g. switching to a different tab whose
+  // body happens to equal a stale selfAuthoredBody) we'd hand back another tab's
+  // schema. Keying reuse on the built body makes tab switches always re-parse.
+  const builtBody = useRef<string | null>(null);
 
   // Parse the ACTIVE tab's body into the internal schema. The file is the sole
   // source of truth for what's shown (no capability-state seeding). Skip the
-  // re-parse (reuse the prior schema identity) when the body is our own save.
+  // re-parse (reuse the prior schema identity) when the body is our own save AND
+  // it's the same body we already built (so the canvas isn't re-seeded on our
+  // own echo, which would drop the live selection).
   const built = useMemo(() => {
-    if (activeBody === selfAuthoredBody.current && builtRef.current) {
+    if (activeBody === selfAuthoredBody.current && activeBody === builtBody.current && builtRef.current) {
       return builtRef.current;
     }
     const parsed = parseArchitecture(activeBody);
     builtRef.current = parsed;
+    builtBody.current = activeBody;
     return parsed;
   }, [activeBody]);
   // Trademark-logo opt-in is editable on the canvas; keep it as local state
@@ -203,11 +212,16 @@ function PlatformDiagram({ content, deployedResources, projectId, defaultEditMod
       .finally(() => { savePending.current = false; });
   }, [projectId, onSave, onDirty]);
 
-  // Splice a new body for the ACTIVE tab into the array + write. Keeps the tab's
+  // Splice a new body into a SPECIFIC tab index + write. Takes the index
+  // explicitly (never reads activeIndexRef): a debounced save scheduled on tab A
+  // must land in tab A even if the user has already switched to tab B before the
+  // 700ms timer fires — reading the live active index here wrote A's layout into
+  // B's slot (the "wrong tab after switching" corruption). Keeps the tab's
   // display name in sync with the body's `name` (in case a rename rode along).
-  const persistActive = useCallback((body: string) => {
+  const persistTab = useCallback((index: number, body: string) => {
     const bodies = tabBodiesRef.current.slice();
-    bodies[activeIndexRef.current] = body;
+    if (index < 0 || index >= bodies.length) return; // tab removed meanwhile
+    bodies[index] = body;
     // Mark this as our own body so the resulting tabBodies update doesn't
     // re-parse + re-seed the canvas (which would drop the live selection).
     selfAuthoredBody.current = body;
@@ -215,11 +229,20 @@ function PlatformDiagram({ content, deployedResources, projectId, defaultEditMod
     writeTabs(bodies);
   }, [writeTabs]);
 
+  const persistActive = useCallback(
+    (body: string) => persistTab(activeIndexRef.current, body),
+    [persistTab],
+  );
+
+  // The Canvas is REMOUNTED per tab (key={activeIndex}); bind its onPersist to
+  // THIS tab's index so a save always targets the tab it was scheduled on, even
+  // if a late debounce fires after a switch. Recreated when activeIndex changes,
+  // which is exactly when the Canvas remounts — so the closure is always correct.
   const onPersist = useCallback(
     (layout: PlatformSchema["layout"]) => {
-      persistActive(serializeArchitecture(schemaRef.current, layout));
+      persistTab(activeIndex, serializeArchitecture(schemaRef.current, layout));
     },
-    [persistActive],
+    [persistTab, activeIndex],
   );
 
   // Toggle the trademark-logo opt-in and persist (re-serializes with the flag).
@@ -346,9 +369,13 @@ function PlatformDiagram({ content, deployedResources, projectId, defaultEditMod
   return (
     <div className="flex h-full w-full flex-col">
       <CustomLogosContext.Provider value={schema.customLogos ?? {}}>
-        <ReactFlowProvider>
+        {/* Key the PROVIDER (not just the Canvas) by tab so the whole ReactFlow
+            store is recreated on a tab switch — reproducing the cold-mount path
+            that a page refresh takes. That's what makes the built-in `fitView`
+            prop's queued initial fit fire fresh (and correctly framed) for each
+            tab; a persisted store only queued the fit once, at first mount. */}
+        <ReactFlowProvider key={activeIndex}>
           <Canvas
-            key={activeIndex}
             schema={schema}
             deepLinks={deepLinks}
             onPersist={onPersist}

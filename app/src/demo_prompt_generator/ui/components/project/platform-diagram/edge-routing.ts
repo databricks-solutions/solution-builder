@@ -70,7 +70,7 @@ export const POS_OF: Record<Side, Position> = {
 export interface EdgeOps {
   editMode: boolean;
   retarget: (edgeId: string, end: "source" | "target", nodeId: string, handle?: string) => void;
-  nodeAt: (fx: number, fy: number) => string | null;
+  nodeAt: (fx: number, fy: number, margin?: number, exclude?: string) => string | null;
   rectOf: (nodeId: string) => Rect | null;
   setDropTarget: (nodeId: string | null) => void;
   toFlow: (clientX: number, clientY: number) => { x: number; y: number };
@@ -92,6 +92,46 @@ export const rectOf = (n: { internals: { positionAbsolute: { x: number; y: numbe
   h: n.measured.height ?? 56,
 });
 
+/** A ReactFlow measured handle (from `node.internals.handleBounds`). x/y are
+ *  node-LOCAL (relative to the node's top-left), width/height the hit box.
+ *  Structurally matches RF's `Handle` (id may be null/undefined; position is the
+ *  `Position` enum whose string values are top/right/bottom/left). */
+export interface HandleBound {
+  id?: string | null;
+  position: Position;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+const POSITION_TO_SIDE: Record<string, Side> = {
+  [Position.Left]: "l", [Position.Right]: "r", [Position.Top]: "t", [Position.Bottom]: "b",
+};
+
+/** Resolve a handle id to its `{side, frac}` from ReactFlow's MEASURED handle
+ *  bounds — the ground truth for where a handle actually sits on the node, so
+ *  edges anchor exactly at the rendered anchor (no per-handle frac table to keep
+ *  in sync). Frac is the handle CENTER along its side, clamped to [0,1]. Returns
+ *  null when the handle isn't measured (falls back to the frac heuristics). */
+export function anchorFromBounds(
+  bounds: HandleBound[] | null | undefined,
+  handleId: string | null | undefined,
+  nodeW: number,
+  nodeH: number,
+): { side: Side; frac: number } | null {
+  if (!bounds || !handleId) return null;
+  const b = bounds.find((h) => h.id === handleId);
+  if (!b) return null;
+  const side = POSITION_TO_SIDE[b.position];
+  const cx = b.x + b.width / 2;
+  const cy = b.y + b.height / 2;
+  const frac = side === "l" || side === "r"
+    ? (nodeH > 0 ? cy / nodeH : 0.5)
+    : (nodeW > 0 ? cx / nodeW : 0.5);
+  return { side, frac: Math.min(1, Math.max(0, frac)) };
+}
+
 /** Which side of a node a given edge-end attaches to (explicit handle wins,
  *  else the side facing the other node's center). Module-level so the store
  *  selector and the edge can agree. */
@@ -109,15 +149,23 @@ export function endSide(
  *  (lakeflow / lakeflow-genie: `in-*` on the left, `bl` bottom-left, + r/t/b) or
  *  the plain 4 sides (t/r/b/l). When moving to a type WITHOUT ports, collapse a
  *  port handle to its equivalent SIDE so the edge still attaches there:
- *    in-<port> → "l"  (ports live on the left)
- *    bl        → "b"  (bottom-left anchor → bottom side)
+ *    in-<port>  → "l"  (ingest ports live on the left)
+ *    out-<port> → "r"  (medallion output ports live on the right)
+ *    bl         → "b"  (bottom-left anchor → bottom side)
  *  Side handles (t/r/b/l) are valid on both, so they pass through. Returns
- *  null/undefined unchanged (auto-derive). */
+ *  null/undefined unchanged (auto-derive).
+ *
+ *  NOTE `newHasPorts` only means the NEW type is a Lakeflow composite (which has
+ *  `in-*`/`bl`). A medallion's `out-*` ports are NOT covered by that flag, so an
+ *  `out-*` handle is always collapsed to "r" here unless the caller separately
+ *  knows the new type keeps them — safe because "r" is a valid side everywhere. */
 export function remapHandleForType(
   handleId: string | null | undefined,
   newHasPorts: boolean,
 ): string | null | undefined {
-  if (!handleId || newHasPorts) return handleId; // valid as-is on a ported type
+  if (!handleId) return handleId; // auto-derive
+  if (handleId.startsWith("out-")) return "r"; // medallion output → right side
+  if (newHasPorts) return handleId; // Lakeflow in-*/bl valid as-is on a ported type
   if (handleId.startsWith("in-")) return "l";
   if (handleId === "bl") return "b";
   return handleId; // already a plain side (t/r/b/l) or "r"

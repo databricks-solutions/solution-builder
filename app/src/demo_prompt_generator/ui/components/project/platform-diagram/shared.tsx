@@ -6,9 +6,13 @@
  */
 import { createContext, useContext, useRef, type CSSProperties } from "react";
 import { Handle, Position, NodeResizeControl, useStore } from "@xyflow/react";
-import { naturalSize, type PlatformComponent, type BandId, type FlowStyle, type NodePosition } from "@/lib/platform-architecture";
+import { naturalSize, medallionSize, type PlatformComponent, type BandId, type FlowStyle, type NodePosition } from "@/lib/platform-architecture";
 
 export type { FlowStyle };
+// Re-exported so the composite + node components keep importing it from here
+// (the size formula itself now lives in platform-architecture.ts, so symbolic
+// layout and the rendered box can't diverge). See `medallionSize` there.
+export { medallionSize };
 
 // ---------------------------------------------------------------------------
 // Node data + props
@@ -72,6 +76,15 @@ export interface NodeData {
   /** True once the node was authored with `at` or the user dragged it → it
    *  serializes as pixel `at`, not symbolic. See NodePosition.pinned. */
   pinned?: boolean;
+  /** Enabled toggleable component options (checkboxes in the edit panel). A
+   *  composite reads these to render conditionally. See PlatformComponent.options. */
+  params?: Record<string, boolean>;
+  /** Render as a STACK of N cards (blank offset copies peeking bottom-right) to
+   *  signal "many of these". 1/undefined = single card. See RotatableCard. */
+  stack?: number;
+  /** Authoring NOTE (never rendered) — carried only so it survives the RF
+   *  round-trip on save. See FileNode.note in platform-architecture.ts. */
+  note?: string;
   /** For canvas-added sources ("+ more data sources"): the logo-catalog key,
    *  persisted so the source round-trips without a catalog entry. */
   sourceKey?: string;
@@ -228,6 +241,8 @@ export function nodeTypeFor(c: PlatformComponent): string {
   if (c.kind === "agent-bricks") return "agentBricks";
   if (c.kind === "db-platform") return "dbPlatform";
   if (c.kind === "genie-one") return "genieOne";
+  if (c.kind === "ai-gateway") return "aiGateway";
+  if (c.kind === "medallion-table") return "medallion";
   return "component";
 }
 
@@ -246,6 +261,8 @@ export function baseSize(c: PlatformComponent): { w: number; h: number } {
   if (c.kind === "genie-code") return { w: 360, h: 112 };
   if (c.kind === "governance") return { w: 580, h: 108 };
   if (c.kind === "db-platform") return { w: 380, h: 60 };
+  if (c.kind === "ai-gateway") return { w: 240, h: 104 };
+  if (c.kind === "medallion-table") return medallionSize();
   return naturalSize(c.id);
 }
 
@@ -286,10 +303,13 @@ export function logoFitSize(text: string, horizontal: boolean, fontSize = 13, bo
  *  `sourceCaption` (top/bottom) switches an unsized source to the taller box. */
 export function nodeFootprint(
   c: PlatformComponent,
-  pos: { w?: number; h?: number; rot?: number; sourceCaption?: "right" | "left" | "top" | "bottom" },
+  pos: { w?: number; h?: number; rot?: number; sourceCaption?: "right" | "left" | "top" | "bottom"; params?: Record<string, boolean> },
 ): { w: number; h: number } {
   const vertical = pos.sourceCaption === "top" || pos.sourceCaption === "bottom";
-  const nat = vertical ? VERTICAL_SOURCE_SIZE : baseSize(c);
+  // Medallion grows with its fork options — size from params so the ReactFlow
+  // node box (this) matches the composite's render.
+  const nat = c.kind === "medallion-table" ? medallionSize(pos.params)
+    : vertical ? VERTICAL_SOURCE_SIZE : baseSize(c);
   const w = pos.w ?? nat.w;
   const h = pos.h ?? nat.h;
   const q = (((pos.rot ?? 0) % 360) + 360) % 360;
@@ -382,6 +402,9 @@ export function RotatableCard({
   selected,
   forceDots = false,
   hideHandles = false,
+  stack = 1,
+  stackRadius,
+  stackBorderColor,
   onContext,
   onResize,
   onScale,
@@ -391,6 +414,14 @@ export function RotatableCard({
   w: number;
   h: number;
   scale: number;
+  /** Render as a STACK of N cards: N-1 blank offset copies peek out the
+   *  bottom-right of the front card ("many of these"). 1 = single card. */
+  stack?: number;
+  /** Corner radius for the stack shadow cards (match the card's own radius). */
+  stackRadius?: number;
+  /** Border color for the stack shadow cards — pass the front card's own border
+   *  so the peeking cards read as the same component (defaults to a subtle line). */
+  stackBorderColor?: string;
   /** Natural (un-resized) content size. Accepted for callers' convenience but
    *  no longer used for sizing — the box (w×h) drives the visible size and
    *  `scale` (--cs) scales the inner content. */
@@ -537,6 +568,35 @@ export function RotatableCard({
           content) FILL this box, so any resize handle moves the visible box.
           `--cs` = scale lets the inner content scale (corner/slider) inside it;
           a side drag changes w/h only → box grows, content keeps its scale. */}
+      {/* STACK shadows — N-1 blank cards peeking out the bottom-right, drawn
+          BEFORE (behind) the front card so they read as "many of these". Each
+          step is offset down+right; the deepest sits farthest back. */}
+      {stack > 1 && Array.from({ length: Math.min(stack, 6) - 1 }).map((_, i) => {
+        const depth = Math.min(stack, 6) - 1 - i; // i=0 → deepest (largest offset)
+        const offX = depth * 8;   // px per step, sideways
+        const offY = depth * 9;   // px per step, downward — slightly more than sideways
+        return (
+          <div
+            key={i}
+            className="pointer-events-none absolute bg-card"
+            style={{
+              top: "50%",
+              left: "50%",
+              width: cardW,
+              height: cardH,
+              transform: `translate(calc(-50% + ${offX}px), calc(-50% + ${offY}px)) rotate(${quarter}deg)`,
+              transformOrigin: "center center",
+              borderRadius: stackRadius ?? 12,
+              // Match the front card's border so the peeking cards read as the
+              // same component (more visible than a faint neutral line).
+              borderWidth: 1,
+              borderStyle: "solid",
+              borderColor: stackBorderColor ?? "var(--border)",
+              zIndex: -1,
+            }}
+          />
+        );
+      })}
       <div
         style={
           {
@@ -610,8 +670,14 @@ export function ConnectionDot({
   const zoom = useStore((s) => s.transform[2]);
   const inv = 1 / (zoom || 1);
   // A middling dot — between the old fat plain-node dot (12) and the tiny
-  // composite square (~7). One size for every anchor in the diagram.
-  const DOT = dotOn ? 10 : 8;
+  // composite square (~7). One size for every anchor in the diagram. CONSTANT
+  // box size (emphasis comes from a `scale()` transform, NOT width/height) so a
+  // hover/drop-target change never resizes the handle subtree — a size change
+  // would trip ReactFlow's per-node ResizeObserver → updateNodeInternals → a
+  // global handle re-measure that transiently drops EVERY edge ("all lines
+  // vanish" flash).
+  const DOT = 9;
+  const dotScale = dotOn ? 1.15 : 1;
   const OUT = 8; // px the dot floats outside the border (screen-constant)
   // Hit area (~2x the dot) so aiming at the round lands on the handle even when
   // an edge is attached. High zIndex to beat a connected edge's stripe.
@@ -655,6 +721,7 @@ export function ConnectionDot({
     transform: cross[side].push,
   };
   // … and the decorative dot (visual only, floats OUT px outside the border).
+  // Emphasis is a `scale()` (not a width/height change) so the box never resizes.
   const dStyle: CSSProperties = {
     position: "absolute",
     width: dot,
@@ -662,14 +729,25 @@ export function ConnectionDot({
     ...alongPos,
     ...(side === "r" ? { right: -OUT * inv } : side === "l" ? { left: -OUT * inv } : {}),
     ...(side === "b" ? { bottom: -OUT * inv } : side === "t" ? { top: -OUT * inv } : {}),
-    transform: alongCenter,
+    transform: `${alongCenter} scale(${dotScale})`,
   };
-  // Suppress entirely while a line is selected (no Handle ⇒ not connectable).
-  if (edgeSelected) return null;
+  // While a line is selected we make the anchor NON-connectable + invisible, but
+  // KEEP the <Handle> mounted. Unmounting it (the old `return null`) removed a
+  // handle from the node → ReactFlow re-measured the node's handleBounds →
+  // during that frame every edge failed getEdgePosition and the whole diagram's
+  // lines flashed away. Staying mounted (just isConnectable=false) avoids the
+  // churn entirely.
   return (
     <>
-      <Handle type="source" position={DOT_POSITION[side]} id={id} className={handleCls} style={hStyle} isConnectable={editMode} />
-      <span className={dotCls} style={dStyle} />
+      <Handle
+        type="source"
+        position={DOT_POSITION[side]}
+        id={id}
+        className={`${handleCls} ${edgeSelected ? "!pointer-events-none" : ""}`}
+        style={hStyle}
+        isConnectable={editMode && !edgeSelected}
+      />
+      {!edgeSelected && <span className={dotCls} style={dStyle} />}
     </>
   );
 }

@@ -13,12 +13,28 @@
 import {
   type Side,
   type Rect,
+  type HandleBound,
   sidePoint,
   spreadFrac,
   endSide,
   rectOf,
+  anchorFromBounds,
 } from "./edge-routing";
-import { PORT_FRAC, portAnchor } from "./composite-lakeflow";
+import { portAnchor } from "./composite-lakeflow";
+
+/** A named port anchor for an edge end: prefer ReactFlow's MEASURED handle
+ *  bounds (ground truth — works for ANY composite's custom handles with zero
+ *  per-handle config), fall back to the hand-tuned `portAnchor` table. Only
+ *  consulted for non-plain-side handles (a `t/r/b/l` handle keeps the fan). */
+function resolvePort(
+  bounds: HandleBound[] | null | undefined,
+  handleId: string | null | undefined,
+  w: number,
+  h: number,
+): { side: Side; frac: number } | null {
+  if (handleId && ["t", "r", "b", "l"].includes(handleId)) return null;
+  return anchorFromBounds(bounds, handleId, w, h) ?? portAnchor(handleId);
+}
 
 export interface FanEntry {
   sSide: Side;
@@ -38,7 +54,10 @@ interface FanEdge {
 }
 /** Minimal shape of ReactFlow's internal node (from `s.nodeLookup`). */
 interface FanNode {
-  internals: { positionAbsolute: { x: number; y: number } };
+  internals: {
+    positionAbsolute: { x: number; y: number };
+    handleBounds?: { source?: HandleBound[] | null; target?: HandleBound[] | null } | null;
+  };
   measured: { width?: number; height?: number };
 }
 type NodeLookup = Map<string, FanNode>;
@@ -67,7 +86,13 @@ function signature(edges: FanEdge[], nodeLookup: NodeLookup): string {
       const n = nodeLookup.get(nid);
       if (!n) continue;
       const p = n.internals.positionAbsolute;
-      s += `${nid}:${Math.round(p.x)},${Math.round(p.y)},${n.measured.width ?? 0}x${n.measured.height ?? 0};`;
+      s += `${nid}:${Math.round(p.x)},${Math.round(p.y)},${n.measured.width ?? 0}x${n.measured.height ?? 0}`;
+      // Fold in the source-handle bounds (id@y) so a re-measure of custom ports
+      // — e.g. after toggling a fork option — busts the cache even if the node
+      // rect is unchanged. Cheap: a handful of handles per node.
+      const hb = n.internals.handleBounds?.source;
+      if (hb) for (const h of hb) s += `~${h.id}@${Math.round(h.y)}`;
+      s += ";";
     }
   }
   return s;
@@ -75,12 +100,32 @@ function signature(edges: FanEdge[], nodeLookup: NodeLookup): string {
 
 /** Compute (or return cached) fan entries for every edge. */
 export function computeFanLayout(edges: FanEdge[], nodeLookup: NodeLookup): Map<string, FanEntry> {
+  // NOTE: we intentionally do NOT short-circuit on input IDENTITY
+  // (edges===last && nodeLookup===last). In @xyflow/react v12 the store's
+  // `nodeLookup` Map is created ONCE and mutated in place (adoptUserNodes clears
+  // + repopulates the same Map), and `edges` keeps its reference across a whole
+  // node drag — so an identity check would be TRUE every tick and freeze the fan
+  // geometry mid-drag. The signature (which folds in node positions) is the
+  // correct, cheap-enough invalidator; every FlowEdge selector rebuilds the O(E)
+  // string per tick but the heavy grouping/sort work is shared via the sig memo.
   const sig = signature(edges, nodeLookup);
   if (sig === cacheSig) return cacheMap;
 
   const rect = (nid: string): Rect | null => {
     const n = nodeLookup.get(nid);
     return n ? rectOf(n as never) : null;
+  };
+  // Measured source-handle bounds for a node (ground truth for custom handle
+  // positions). Node-local coords; sized by `measured`.
+  const boundsOf = (nid: string): HandleBound[] | null =>
+    nodeLookup.get(nid)?.internals?.handleBounds?.source ?? null;
+  const sizeOf = (nid: string): { w: number; h: number } => {
+    const n = nodeLookup.get(nid);
+    return { w: n?.measured.width ?? 0, h: n?.measured.height ?? 0 };
+  };
+  const portOf = (nid: string, handleId: string | null | undefined) => {
+    const { w, h } = sizeOf(nid);
+    return resolvePort(boundsOf(nid), handleId, w, h);
   };
   const sideForEnd = (e: FanEdge, end: "source" | "target"): Side | null => {
     const selfR = rect(end === "source" ? e.source : e.target);
@@ -107,7 +152,9 @@ export function computeFanLayout(edges: FanEdge[], nodeLookup: NodeLookup): Map<
           ? otherR.y + otherR.h / 2
           : otherR.x + otherR.w / 2;
       const handle = end === "source" ? e.sourceHandle : e.targetHandle;
-      const port = handle && handle in PORT_FRAC ? handle : null;
+      // A handle counts as a distinct PORT (own group, no side-fan) when it
+      // resolves to a fixed anchor (measured bounds or the hand-tuned table).
+      const port = portOf(nid, handle) ? handle : null;
       const key = port ? `${nid}|${port}` : `${nid}|${side}`;
       const arr = groups.get(key) ?? [];
       arr.push({ id: e.id, key: sortKey });
@@ -136,8 +183,8 @@ export function computeFanLayout(edges: FanEdge[], nodeLookup: NodeLookup): Map<
     const tCtr = { x: tR.x + tR.w / 2, y: tR.y + tR.h / 2 };
     const ss = endSide(sR, e.sourceHandle, tCtr);
     const ts = endSide(tR, e.targetHandle, sCtr);
-    const sPort = portAnchor(e.sourceHandle);
-    const tPort = portAnchor(e.targetHandle);
+    const sPort = portOf(e.source, e.sourceHandle);
+    const tPort = portOf(e.target, e.targetHandle);
     const sg = idxIn(sPort ? `${e.source}|${e.sourceHandle}` : `${e.source}|${ss}`, e.id);
     const tg = idxIn(tPort ? `${e.target}|${e.targetHandle}` : `${e.target}|${ts}`, e.id);
 
