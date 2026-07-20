@@ -1,0 +1,91 @@
+schema_version: 1
+id: healthcare
+skill: databricks-demo-generator
+description: >-
+  Patient-readmission risk demo for a hospital network. Combine clinical notes
+  (knowledge assistant and vector search) with a tabular ML model for 30-day
+  readmission risk.
+capabilities: [knowledge-assistant, vector-search, ml-training-serving]
+timeout_seconds: 3600
+target_stage: BUILT
+live_resources:
+  cleanup_owner: solution-builder
+  expected_resource_kinds: [catalog, schema, table, volume, vector_index, knowledge_assistant, model, serving_endpoint, mlflow_experiment]
+  additional_resource_kinds: []
+  evaluation_prefix: sb_eval_
+steps:
+  - id: capture-story
+    prompt: >-
+      Build a patient-readmission risk demo. Knowledge Assistant over
+      discharge-summary documents, vector search over the same corpus, and a
+      tabular ML model that scores 30-day readmission risk on synthetic patient data.
+    expected_project_stage: SUMMARIZED
+    required_artifacts:
+      - {path: README.md, description: Approved clinical story}
+      - {path: resources.json, description: Capability and resource manifest}
+    semantic_assertions:
+      - The story explains distinct, complementary roles for document retrieval and tabular risk scoring.
+      - The clinical narrative uses synthetic data and avoids claims that the demo provides medical advice.
+    expected_facts: [The demo combines discharge summaries with a 30-day readmission risk model.]
+    expected_patterns: ['(?i)readmission', '(?i)(discharge|clinical)']
+    tool_expectations: {required: [Read, Write], banned: []}
+    verification_commands:
+      - fact: README.md and resources.json exist after story capture.
+        command: "bash -lc 'test -f README.md && test -f resources.json && echo {\"ok\":true}'"
+        check: .ok == true
+    regression_intent: Detects healthcare stories that collapse RAG and predictive ML into an incoherent or unsafe workflow.
+    sources:
+      - &skill_source
+        type: github
+        uri: repo://.claude/skills/databricks-demo-generator/SKILL.md
+        title: Databricks Demo Generator workflow and coherence contract
+        retrieved_at: 2026-07-17T00:00:00Z
+        snippet: Data, pipeline, dashboard, Genie, and agents must align; one broken link ruins the demo.
+  - id: design-architecture
+    prompt: "Proceed: architect the components and produce architecture.md."
+    expected_project_stage: ARCHITECTED
+    required_artifacts: [{path: architecture.md, description: Renderable architecture diagram JSON}]
+    semantic_assertions:
+      - The architecture separates document ingestion and vector retrieval from feature engineering, training, and serving while showing their user-facing convergence.
+    expected_facts: [The project contains architecture.md.]
+    expected_patterns: ['architecture\.md', '(?i)(vector|model|assistant)']
+    tool_expectations: {required: [Read, Write], banned: []}
+    verification_commands:
+      - fact: architecture.md exists and is not empty.
+        command: "bash -lc 'test -s architecture.md && echo {\"ok\":true}'"
+        check: .ok == true
+    regression_intent: Detects architectures that omit the shared corpus, model-serving path, or governance boundaries.
+    sources: [*skill_source]
+  - id: write-specifications
+    prompt: Write the per-component specifications under specifications/.
+    expected_project_stage: SPECIFICATION
+    required_artifacts: [{path: specifications/*.md, description: Functional component specifications}]
+    semantic_assertions:
+      - Specs define a consistent patient identifier, temporal split, discharge corpus, vector index, model target, and serving contract.
+    expected_facts: [Per-component specifications are written under specifications/.]
+    expected_patterns: ['specifications/', '(?i)(30-day|readmission)']
+    tool_expectations: {required: [Read, Write], banned: []}
+    verification_commands:
+      - fact: At least one Markdown specification exists.
+        command: "bash -lc 'find specifications -name \"*.md\" -type f -print -quit | grep -q . && echo {\"ok\":true}'"
+        check: .ok == true
+    regression_intent: Detects temporal leakage, mismatched patient keys, or a Knowledge Assistant corpus disconnected from the story.
+    sources: [*skill_source]
+  - id: build-demo
+    prompt: Build it now — generate the code, training notebook, and resources.json.
+    expected_project_stage: BUILT
+    required_artifacts:
+      - {path: resources.json, description: Populated deployed resource manifest}
+      - {path: '**/*.{py,sql,json}', description: Buildable implementation artifacts}
+    semantic_assertions:
+      - Training and retrieval artifacts implement the specifications and resources.json contains only validated IDs.
+      - Live resource names use the evaluation namespace supplied in the environment when present.
+    expected_facts: [Training code, retrieval configuration, and resource identifiers are produced.]
+    expected_patterns: ['resources\.json', '(?i)(train|vector|knowledge)']
+    tool_expectations: {required: [Read, Write], banned: []}
+    verification_commands:
+      - fact: resources.json is valid JSON and Python or SQL code exists.
+        command: "bash -lc 'python3 -m json.tool resources.json >/dev/null && find . -type f -name \"*.py\" -print -quit | grep -q . && echo {\"ok\":true}'"
+        check: .ok == true
+    regression_intent: Detects builds that claim live RAG or serving assets without code, identifiers, or cleanup-safe names.
+    sources: [*skill_source]

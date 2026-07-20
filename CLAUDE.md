@@ -16,6 +16,10 @@ A **system that generates Databricks demos**. Not one app — **three**, plus a 
 
 Plus: **ai_dev_kit** (`app/ai_dev_kit/`) — a cloned external repo (`github.com/databricks-solutions/ai-dev-kit`) holding ~26 sub-skills for creating individual Databricks resources (pipelines, dashboards, Genie spaces, KAs, MAS, etc.). The generator's agent uses these during the Build stage.
 
+Versioned **pipeline scenario contracts** live under `evaluation/`. They are
+runner-neutral test data and are not imported by or packaged with the deployed
+generator app, copied into projects, or exposed through application routes.
+
 ## Mental model
 
 ```
@@ -81,6 +85,7 @@ industry-demo-prompts/
 │       ├── app.md                        # How to design+spec a demo app (read during Stage 2)
 │       └── app_template/                 # ★ The template app emitted by the generator
 ├── initial_templates/                    # Pre-built seed templates (retail/loyalty-segmentation)
+├── evaluation/                           # Versioned pipeline scenario contracts + schema
 ├── tests/                                # Playwright E2E for the generator (targets :9000)
 ├── install.sh                            # End-user installer (downloads skill + ai-dev-kit)
 └── docs/                                 # Screenshots for README
@@ -197,6 +202,13 @@ For the **test app** (separate from the generator):
 ```bash
 cd app/test/app_template_test/app
 ./start.sh                    # Boots the LuxeBeauty test app on :8765
+```
+
+To validate the shared pipeline scenarios (from the repository root):
+
+```bash
+uv run sb-eval cases validate
+uv run python -m evaluation.schema_generator --check
 ```
 
 ## Conventions
