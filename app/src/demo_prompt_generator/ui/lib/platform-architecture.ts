@@ -903,12 +903,27 @@ export function computeLayout(file: ArchitectureFile): Map<string, ResolvedBox> 
   if (file.rowGrid) {
     // SHARED ROW GRID: `row` aligns across ALL columns. Every laned node with the
     // same `row` shares one horizontal band; the band's height is the tallest
-    // node in it; bands stack top→bottom (ROW_GAP apart) centered on y=0. A node
-    // without a `row` gets its own trailing band (appearance order) so it still
-    // lands somewhere sensible. X still comes from the node's own column lane.
-    const rowKey = (n: FileNode, seq: number) => n.row ?? 1000 + seq; // unnumbered → after
+    // node in it; bands stack top→bottom (ROW_GAP apart) centered on y=0. X still
+    // comes from the node's own column lane.
+    //
+    // A node WITHOUT a `row` falls back to stacking within its OWN column, exactly
+    // like non-grid mode: it takes the next free band DOWN from that column's last
+    // numbered node (so two unnumbered nodes in a lane stack, they don't each grab
+    // a separate band). So `rowGrid` works with or without `row` set — set it to
+    // align across columns, omit it to just stack in the lane.
     const rowOf = new Map<string, number>();
-    laned.forEach((n, i) => rowOf.set(n.id, rowKey(n, i)));
+    const nextFree = new Map<string, number>(); // per-column running row for unnumbered nodes
+    for (const n of laned) {
+      if (n.row !== undefined) {
+        rowOf.set(n.id, n.row);
+        // an unnumbered node in this lane resumes stacking BELOW this row
+        nextFree.set(n.col!, Math.max(nextFree.get(n.col!) ?? 1, n.row + 1));
+      } else {
+        const r = nextFree.get(n.col!) ?? 1;
+        rowOf.set(n.id, r);
+        nextFree.set(n.col!, r + 1);
+      }
+    }
     const rowKeys = [...new Set(laned.map((n) => rowOf.get(n.id)!))].sort((a, b) => a - b);
     // Band height = tallest node anywhere in that row.
     const bandH = new Map<number, number>();
