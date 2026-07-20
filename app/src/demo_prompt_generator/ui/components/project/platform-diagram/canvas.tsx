@@ -125,9 +125,6 @@ const preventDefault = (e: { preventDefault: () => void }) => e.preventDefault()
 //     (i.e. every drag frame), churning its internal store. ---
 const NODE_ORIGIN: [number, number] = [0.5, 0.5];
 const SNAP_GRID: [number, number] = [16, 16];
-// Cap the initial fit at 0.75 so the diagram starts zoomed OUT a bit
-// (components render smaller) instead of filling the viewport at 1×.
-const FIT_VIEW_OPTIONS = { padding: 0.2, maxZoom: 0.75 };
 const PRO_OPTIONS = { hideAttribution: true };
 const DEFAULT_EDGE_OPTIONS = { type: "flow" };
 const PAN_ON_DRAG: [number, number] = [1, 2];
@@ -179,13 +176,17 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
   // but with symbolic layout the composite nodes haven't been MEASURED yet, so
   // it fits to a stale/zero bbox. Wait for nodes to be initialized (measured),
   // then fit once. Canvas is remounted per tab (key={activeIndex}), so this runs
-  // fresh on every tab open — matching a click of the "fit view" control.
+  // fresh on every tab open.
+  // Call fitView() BARE — no options — so it's IDENTICAL to clicking the
+  // <Controls> fit button (which passes no fitViewOptions → RF defaults: padding
+  // 0.1, maxZoom = the flow's maxZoom of 2). A custom padding/maxZoom here made
+  // the auto-fit noticeably SMALLER than the button — the mismatch the user hit.
   const nodesInitialized = useNodesInitialized();
   const didFit = useRef(false);
   useEffect(() => {
     if (nodesInitialized && !didFit.current) {
       didFit.current = true;
-      fitView(FIT_VIEW_OPTIONS);
+      fitView();
     }
   }, [nodesInitialized, fitView]);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -1667,8 +1668,11 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
           // focused node to the 16px grid on every arrow press (Shift jumps even
           // further). Our own window keydown handler does the precise 1px nudge.
           disableKeyboardA11y
+          // Initial fit uses RF defaults (same as the <Controls> fit button);
+          // the useNodesInitialized effect above re-fits once nodes are measured,
+          // also bare, so the auto-fit matches the button exactly (no custom
+          // padding/maxZoom that made it render smaller).
           fitView
-          fitViewOptions={FIT_VIEW_OPTIONS}
           minZoom={0.3}
           maxZoom={2}
           proOptions={PRO_OPTIONS}
