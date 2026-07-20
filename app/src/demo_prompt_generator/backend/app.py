@@ -37,6 +37,9 @@ def _build_app() -> FastAPI:
     )
 
     built = create_app(routers=[router, preview_router])
+    # Expose the preview registry on app.state so route handlers (e.g. project
+    # delete) can drop a project's preview bookkeeping via registry.forget().
+    built.state.preview_registry = preview_registry
 
     # Tie the registry's background idle-sweep task to the app lifespan.
     # (create_app wires a composed lifespan for its internal deps; we wrap on top.)

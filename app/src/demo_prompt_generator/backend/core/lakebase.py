@@ -635,27 +635,12 @@ class _LakebaseDependency(LifespanDependency):
             )
         app.state.fmapi_refresh_task = fmapi_task
 
-        # Idle-client reaper: walk the pool every 5 min, disconnect any client
-        # that's been unused longer than CLIENT_IDLE_TIMEOUT. This frees the
-        # SDK subprocess + pipes proactively. Without this the same eviction
-        # only happens on the NEXT turn that hits get_client(), so a project
-        # the user abandoned would hold its subprocess until the app restarts.
-        from ..services.agent import get_client_pool, CLIENT_IDLE_TIMEOUT
-
-        async def _client_reaper_loop():
-            pool = get_client_pool()
-            while True:
-                try:
-                    await pool.reap_idle()
-                except Exception as e:
-                    logger.warning(f"[client-pool] reaper error: {e!r}")
-                await asyncio.sleep(CLIENT_IDLE_TIMEOUT)
-
-        reaper_task = asyncio.create_task(_client_reaper_loop())
-        app.state.client_reaper_task = reaper_task
-        logger.info(
-            f"[client-pool] idle reaper started (every {CLIENT_IDLE_TIMEOUT}s)"
-        )
+        # Background reapers (agent-session idle reap + 12h project-file disk
+        # cleanup). Grouped in core/reapers.py; started here because they need
+        # the DB engine + file_sync that this lifespan just brought up. The
+        # preview-apps idle sweep is wired separately in app.py (needs no DB).
+        from .reapers import start_reapers
+        start_reapers(app)
 
         # ─── Eager SSE-stream cancellation on SIGTERM ────────────────────
         #
@@ -761,17 +746,24 @@ class _LakebaseDependency(LifespanDependency):
         except Exception as e:
             logger.warning(f"[shutdown] stream cancel failed: {e!r}")
 
-        # 2. Cancel background loops. cancel() is non-blocking; the
-        #    coroutines may not unwind synchronously but the event loop
-        #    is about to be torn down anyway.
-        for name, task in (("fmapi-refresh", fmapi_task), ("client-reaper", reaper_task)):
-            if task is not None:
-                task.cancel()
-                logger.info(f"[shutdown] cancelled {name} task")
+        # 2. Cancel background loops. The reapers (agent-session + project-file)
+        #    are grouped in core/reapers.py and cancelled together via
+        #    stop_reapers; the fmapi refresher is cancelled here. cancel() is
+        #    non-blocking; the coroutines may not unwind synchronously but the
+        #    event loop is about to be torn down anyway.
+        try:
+            from .reapers import stop_reapers
+            await stop_reapers(app)
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[shutdown] stop_reapers failed: {e!r}")
+        if fmapi_task is not None:
+            fmapi_task.cancel()
+            logger.info("[shutdown] cancelled fmapi-refresh task")
 
         # 3. Disconnect every pooled Claude SDK client with a per-client
         #    timeout. SDK disconnect waits for the Node subprocess to
         #    exit; if the subprocess is wedged, abandon it.
+        from ..services.agent import get_client_pool
         try:
             dropped = await asyncio.wait_for(
                 get_client_pool().shutdown_all(timeout=3.0),

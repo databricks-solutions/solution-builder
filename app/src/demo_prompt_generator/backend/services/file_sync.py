@@ -359,6 +359,38 @@ class FileSyncService:
             Number of files synced
         """
         project_dir = self._project_dir(project_id)
+
+        # ── DB-preservation guard ────────────────────────────────────────────
+        # The DB is the DURABLE store; the on-disk folder is a disposable local
+        # cache that the reapers (core/reapers.py) delete to reclaim space, and
+        # that a container restart / crash can also wipe. A per-file "deleted"
+        # event must NOT be taken at face value when the folder is being torn
+        # down — deleting the matching ProjectFile rows would destroy the only
+        # durable copy (incl. the `.claude/projects/**` session transcript that
+        # powers resume). Skip the whole sync in two cases; the next
+        # `restore_project_from_db` rebuilds the folder from these very rows:
+        #
+        #   1. The ENTIRE folder is gone (crash / full rmtree completed / manual rm).
+        #   2. The project is actively being cleaned (`is_cleaning`) — `shutil.rmtree`
+        #      unlinks children BEFORE the directory, so mid-rmtree the folder still
+        #      exists() while files vanish one by one; a flush in that window would
+        #      otherwise delete rows the cleanup is committed to preserving.
+        #
+        # A normal single-file delete (folder present, NOT cleaning) falls through
+        # and correctly prunes that one row below.
+        try:
+            from ..routes.project_files import is_cleaning  # lazy: avoid import cycle
+            cleaning = is_cleaning(project_id)
+        except Exception:  # noqa: BLE001 — never let the guard's own failure delete rows
+            cleaning = True  # fail SAFE: if we can't tell, don't delete
+        if cleaning or not project_dir.exists():
+            reason = "being cleaned" if cleaning else "folder missing"
+            logger.info(
+                f"[sync] project {project_id} {reason} — skipping "
+                f"(DB rows preserved; folder is a disposable cache, restored on open)"
+            )
+            return 0
+
         synced = 0
 
         with Session(self.engine) as session:

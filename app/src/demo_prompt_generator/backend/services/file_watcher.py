@@ -236,6 +236,15 @@ class FileWatcherService:
 
         logger.info("File watcher stopped")
 
+    def forget(self, project_id: str) -> None:
+        """Drop a project's pending-paths + debounce task (called on delete/reap)
+        so `_pending` doesn't accumulate a permanent empty-set entry per project
+        ever touched. Cancels any in-flight debounce for it."""
+        self._pending.pop(project_id, None)
+        task = self._debounce_tasks.pop(project_id, None)
+        if task is not None:
+            task.cancel()
+
     def _on_file_change(self, project_id: str, relative_path: str, event_type: str) -> None:
         """Called from watchdog thread - updates the listing cache synchronously,
         then schedules an async DB flush."""
@@ -288,8 +297,11 @@ class FileWatcherService:
         try:
             await asyncio.sleep(DEBOUNCE_SECONDS)
 
-            paths = list(self._pending[project_id])
-            self._pending[project_id].clear()
+            # Atomically take-and-remove the pending set (dict.pop is a single
+            # op) instead of list()+clear() — the latter had a cross-thread gap
+            # where a path the watchdog thread add()ed between the two calls was
+            # silently dropped, and it left a permanent empty-set key per project.
+            paths = list(self._pending.pop(project_id, set()))
 
             if not paths:
                 return

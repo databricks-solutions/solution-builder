@@ -7,7 +7,6 @@ import base64
 import hashlib
 import json
 import re
-import shutil
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from pathlib import PurePosixPath
@@ -1669,24 +1668,53 @@ def delete_project(
     session.delete(project)
     session.commit()
 
-    # Disconnect + drop the pooled SDK subprocess. Without this it would
-    # linger up to CLIENT_IDLE_TIMEOUT before the reaper sweeps it. Bridge
-    # the async pool API from this sync handler — the threadpool worker
-    # running this request has no event loop, so asyncio.run is safe.
-    asyncio.run(get_client_pool().remove_client(project_id))
-
-    # Drop the per-project restore lock + file cache (best-effort cleanup).
-    from .project_files import _restore_locks, _restore_locks_lock, cache_evict_project
-    with _restore_locks_lock:
-        _restore_locks.pop(project_id, None)
-    cache_evict_project(project_id)
-
+    # Disconnect + drop the pooled SDK subprocess. force=True because the project
+    # is being destroyed — disconnect NOW (don't defer to a turn's finally; the
+    # guard's "a turn owns it" case would otherwise pop the entry without
+    # disconnecting → orphaned subprocess). Bridge to the MAIN event loop via
+    # run_coroutine_threadsafe: this sync handler runs on a threadpool worker, and
+    # the pool's asyncio.Lock is bound to the app loop — a fresh asyncio.run() loop
+    # would raise a loop-mismatch. Fall back to asyncio.run only if the app loop
+    # isn't recorded (e.g. tests).
+    async def _drop_client() -> None:
+        await get_client_pool().remove_client(project_id, force=True)
+    app_loop = getattr(request.app.state, "event_loop", None)
     try:
-        project_dir = get_project_directory(project_id)
-        if project_dir.exists():
-            shutil.rmtree(project_dir)
-    except Exception as e:
-        logger.warning(f"Failed to remove project directory for {project_id}: {e}")
+        if app_loop is not None and app_loop.is_running():
+            asyncio.run_coroutine_threadsafe(_drop_client(), app_loop).result(timeout=10)
+        else:
+            asyncio.run(_drop_client())
+    except Exception as e:  # noqa: BLE001 — never fail the delete on pool teardown
+        logger.warning(f"[delete] client teardown failed for {project_id}: {e!r}")
+
+    # Remove the on-disk folder + drop in-memory caches (shared with the idle
+    # reaper). The DB rows were already deleted above, on purpose — the folder
+    # is just the disposable local cache.
+    from .project_files import remove_project_files_on_disk
+    remove_project_files_on_disk(project_id)
+
+    # Permanent delete → evict every per-project in-memory bookkeeping entry so
+    # nothing accumulates for a project that no longer exists. (The idle
+    # file-reaper does NOT do this — a reaped-but-still-existing project must be
+    # able to re-register on reopen; only a real delete forgets these.)
+    try:
+        from ..services.active_stream import get_stream_manager
+        get_stream_manager().forget(project_id)
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"[delete] stream forget failed for {project_id}: {e!r}")
+    try:
+        from ..services.file_watcher import get_watcher
+        w = get_watcher()
+        if w is not None:
+            w.forget(project_id)
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"[delete] watcher forget failed for {project_id}: {e!r}")
+    try:
+        reg = getattr(request.app.state, "preview_registry", None)
+        if reg is not None:
+            reg.forget(project_id)
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"[delete] preview forget failed for {project_id}: {e!r}")
 
     return {"success": True, "deleted_project_id": project_id}
 

@@ -201,6 +201,33 @@ _cache_lock = threading.RLock()
 _restore_locks: dict[str, threading.Lock] = {}
 _restore_locks_lock = threading.Lock()
 
+# Projects whose on-disk folder is being torn down RIGHT NOW by the reaper /
+# delete path. The file watcher's debounced flush deletes the ProjectFile DB row
+# for any path missing on disk (file_sync `_sync_files_to_db_blocking`), and
+# `shutil.rmtree` unlinks children before the directory — so during a rmtree the
+# folder still `exists()` while individual files are already gone. Without this
+# flag a flush firing mid-rmtree would delete the DURABLE DB rows we're trying to
+# preserve. `_sync_files_to_db_blocking` consults `is_cleaning` and skips ALL
+# delete-processing for a project in this set (covers the whole rmtree window,
+# not just the fully-gone end state the folder-existence check catches).
+_cleaning_projects: set[str] = set()
+_cleaning_lock = threading.Lock()
+
+
+def mark_cleaning(project_id: str) -> None:
+    with _cleaning_lock:
+        _cleaning_projects.add(project_id)
+
+
+def clear_cleaning(project_id: str) -> None:
+    with _cleaning_lock:
+        _cleaning_projects.discard(project_id)
+
+
+def is_cleaning(project_id: str) -> bool:
+    with _cleaning_lock:
+        return project_id in _cleaning_projects
+
 
 def _get_restore_lock(project_id: str) -> threading.Lock:
     """Return (creating if missing) the restore lock for one project."""
@@ -539,6 +566,79 @@ def cache_evict_project(project_id: str) -> None:
     """Drop the whole cache for a project (e.g. after a bulk restore from DB)."""
     with _cache_lock:
         _file_cache.pop(project_id, None)
+
+
+def remove_project_files_on_disk(project_id: str, *, file_sync=None) -> bool:
+    """Delete a project's on-disk folder + drop its in-memory file caches,
+    WITHOUT touching the database and WITHOUT the agent pool.
+
+    The DB (Project row, Message rows, ProjectFile rows incl. the Claude session
+    transcript) is the durable store; the `<PROJECTS_BASE_DIR>/<id>/` folder is a
+    disposable local cache that `restore_project_from_db` rebuilds on next open.
+    Shared by BOTH the explicit owner-delete (`delete_project`, which already
+    removed the DB rows itself, first — passes NO file_sync so we do NOT resync)
+    and the idle project-file reaper (`core/reapers.py`, which KEEPS the DB rows
+    and passes `file_sync=` so we flush disk→DB first). Each caller is responsible
+    for dropping the pooled SDK client (`get_client_pool().remove_client`) in its
+    own sync/async context — kept out of here so this stays a plain, loop-agnostic
+    sync function.
+
+    Coordination (prevents the mid-rmtree row-deletion + restore races):
+      1. `mark_cleaning` so the watcher's flush skips delete-processing for the
+         whole rmtree window (see `_cleaning_projects`).
+      2. Hold the per-project RESTORE lock across the flush + rmtree so a
+         concurrent `restore_project_from_db` can't interleave and capture a
+         half-deleted tree. (Cleanup runs on a worker thread via `to_thread`, and
+         restore is threadpool too, so this threading.Lock serializes them.)
+      3. If `file_sync` is given, `full_sync_project` (delete-free) flushes any
+         un-synced on-disk change to the DB BEFORE rmtree — atomic with it under
+         the lock+flag.
+
+    Returns True if a folder was removed.
+    """
+    import shutil
+    from ..services.skills_manager import get_project_directory
+
+    removed = False
+    restore_lock = _get_restore_lock(project_id)
+    mark_cleaning(project_id)
+    try:
+        # Hold the restore lock so restore_project_from_db can't run concurrently.
+        with restore_lock:
+            try:
+                project_dir = get_project_directory(project_id)
+                if not project_dir.exists():
+                    return False
+                # Flush disk→DB first (reaper path only). full_sync_project never
+                # deletes rows, so a delete_project caller (rows already gone) must
+                # NOT pass file_sync or it would resurrect them.
+                if file_sync is not None:
+                    try:
+                        file_sync.full_sync_project(project_id)
+                    except Exception as e:  # noqa: BLE001
+                        # Can't guarantee the DB is current → do NOT delete the
+                        # folder this pass; retry next sweep.
+                        logger.warning(
+                            f"[cleanup] pre-delete sync failed for {project_id}; "
+                            f"leaving folder in place: {e!r}"
+                        )
+                        return False
+                shutil.rmtree(project_dir)
+                removed = True
+            except Exception as e:  # noqa: BLE001
+                logger.warning(
+                    f"[cleanup] failed to remove project dir for {project_id}: {e}"
+                )
+            finally:
+                cache_evict_project(project_id)
+    finally:
+        clear_cleaning(project_id)
+        # Drop the restore lock entry only AFTER releasing it (never mid-hold —
+        # popping a held lock lets a concurrent caller mint a second lock object
+        # and defeats the serialization). Safe now: we're outside the `with`.
+        with _restore_locks_lock:
+            _restore_locks.pop(project_id, None)
+    return removed
 
 
 def _get_user_email(headers) -> str:
@@ -1012,6 +1112,7 @@ _RESOURCE_URL_PATTERNS: dict[str, tuple[str, str]] = {
 # new id, but we'd re-resolve on next miss anyway). In-process dict,
 # bounded to a few hundred entries in practice.
 _MLFLOW_EXPERIMENT_ID_CACHE: dict[str, str] = {}
+_MLFLOW_CACHE_MAX = 512  # drop-oldest above this; bounds the module-global
 
 
 def _resolve_mlflow_experiment_id(
@@ -1038,6 +1139,10 @@ def _resolve_mlflow_experiment_id(
         return None
     exp_id = getattr(getattr(exp, "experiment", None), "experiment_id", None)
     if exp_id:
+        # Simple size cap (drop-oldest) so this module-global never grows without
+        # bound across many projects/experiments over the app's lifetime.
+        if len(_MLFLOW_EXPERIMENT_ID_CACHE) >= _MLFLOW_CACHE_MAX:
+            _MLFLOW_EXPERIMENT_ID_CACHE.pop(next(iter(_MLFLOW_EXPERIMENT_ID_CACHE)), None)
         _MLFLOW_EXPERIMENT_ID_CACHE[experiment_path] = str(exp_id)
         return str(exp_id)
     return None

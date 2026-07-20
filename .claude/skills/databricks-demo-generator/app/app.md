@@ -306,6 +306,8 @@ ALWAYS stop the smoke-test process — whether it booted, crashed, or we're stil
 
 Once the initial run is done, **Never run `./start.sh` casually.** Only during the one-shot smoke test described above, or when a user explicitly asks you to debug a boot issue — and always kill it immediately after. The UI is the single supervisor of the app process; any other `start.sh` run will collide with it.
 
+> Backstop (don't rely on it): the generator auto-kills any `start.sh`-spawned preview left running outside the UI after ~15 min. This exists to protect the shared container from leaks — it is NOT a substitute for stopping your own smoke test, which you must still do explicitly.
+
 Tell the user the build is complete and point them at the **App** tab to start it.
 
 **Record the app name in `resources.json` now** (before any deploy). The app's initial setup is done, so persist `created_resources.app.name` = the resolved app name (`dbgen-<demo_short_name>`). This alone marks the app capability "built" in the UI — a preview-only app that never deploys still counts as complete. (`app.id`/`app.url` come later, only if the user deploys — Step 6.)
