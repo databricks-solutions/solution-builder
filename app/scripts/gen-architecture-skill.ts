@@ -69,11 +69,12 @@ function renderCatalog(): string {
     lines.push("|------|---------------|-----------------------------------------|------|-------------|");
     for (const c of comps) {
       const sz = naturalSize(c.id);
-      // Prefer the authoring guidance for "when to use"; fall back to the desc so
-      // the column is never empty. The default description column ALWAYS shows the
-      // rendered `desc` (what the tile actually displays), even when authoring exists.
-      const whenToUse = c.authoring ?? c.desc ?? "";
+      // "default description" ALWAYS shows the rendered `desc` (what the tile
+      // displays). "when to use" shows the `authoring` guidance ONLY — left blank
+      // when there's none, rather than duplicating `desc` into both columns (the
+      // description already says what it is; a repeat is noise).
       const shown = c.desc ?? "";
+      const whenToUse = c.authoring ?? "";
       lines.push(`| \`${c.id}\` | ${esc(c.label)} | ${esc(shown)} | ${sz.w}×${sz.h} | ${esc(whenToUse)} |`);
       if (c.ports && Object.keys(c.ports).length) {
         const ports = Object.entries(c.ports)
