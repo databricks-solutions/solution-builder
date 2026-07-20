@@ -551,26 +551,35 @@ export const DBX_ARCH_PRESET_BY_ID: Record<string, AnnotationPreset> = Object.fr
 // Band metadata — the fixed marketing framing (top → bottom)
 // =============================================================================
 
-export const BAND_META: Record<BandId, { label: string; sublabel: string }> = {
+// `sublabel` is the marketing tagline shown in the app's band rail. `blurb` is a
+// FUNCTIONAL one-liner for the skill catalog — what the band IS and when to pull a
+// component from it — emitted under each generated section header (falls back to
+// `sublabel` if absent). Keep both in code so the skill can't drift from the app.
+export const BAND_META: Record<BandId, { label: string; sublabel: string; blurb?: string }> = {
   "agentic-apps": {
     label: "Agentic Apps",
     sublabel: "Deploy agents and apps at scale to transform work",
+    blurb: "The delivery surface — dashboards and custom apps the business actually opens. Reach here for what a user SEES and clicks.",
   },
   "agentic-work": {
     label: "Agentic Work",
     sublabel: "Data-smart coworkers for every employee",
+    blurb: "The intelligence layer — models, agents, RAG, ML lifecycle, and the entry points (Genie, Genie One) that answer questions and act on the governed data.",
   },
   "unified-governance": {
     label: "Unified Governance",
     sublabel: "One control plane for data + AI — security, lineage, cost",
+    blurb: "The control plane over everything — Unity Catalog, the AI Gateway, and the Databricks-platform banner. Prefer the one `governance-block` bar over the loose tiles unless spotlighting a single feature.",
   },
   "agentic-data": {
     label: "Agentic Data",
     sublabel: "Unified, real-time data foundation",
+    blurb: "The data foundation — ingest + the medallion pipeline (bronze→silver→gold) + the lakehouse / Lakebase it lands in. Where the demo's data comes IN and is refined.",
   },
   sources: {
     label: "Sources",
     sublabel: "The systems your business already runs on",
+    blurb: "The upstream systems feeding the platform — NOT catalog components; authored as `type:\"source\"` tiles (see the Sources section).",
   },
 };
 

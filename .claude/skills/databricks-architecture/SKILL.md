@@ -325,6 +325,8 @@ Use the `type` id; the renderer supplies the icon, label, default description an
 
 ### Agentic Data `agentic-data`
 
+*The data foundation — ingest + the medallion pipeline (bronze→silver→gold) + the lakehouse / Lakebase it lands in. Where the demo's data comes IN and is refined.*
+
 | type | default title | default description (shown on the tile) | size | when to use |
 |------|---------------|-----------------------------------------|------|-------------|
 | `lakeflow-block` | Lakeflow | One block: managed ingest (Lakeflow Connect), real-time streams (Zerobus) and direct file landing, all flowing into a declarative bronze → silver → gold pipeline. | 224×148 | The whole ingest + bronze→silver→gold SDP in one block (no Genie Code framing). Contains SDP — never add a separate sdp tile beside it. |
@@ -343,6 +345,8 @@ Use the `type` id; the renderer supplies the icon, label, default description an
 | `sql-lakehouse` | Lakehouse | One copy of governed data for BI + AI — real-time queries at scale (SQL Warehouse; RT = Lakehouse Real Time). | 230×54 | One copy of governed data for BI + AI — real-time queries at scale (SQL Warehouse; RT = Lakehouse Real Time). |
 
 ### Agentic Work `agentic-work`
+
+*The intelligence layer — models, agents, RAG, ML lifecycle, and the entry points (Genie, Genie One) that answer questions and act on the governed data.*
 
 | type | default title | default description (shown on the tile) | size | when to use |
 |------|---------------|-----------------------------------------|------|-------------|
@@ -373,12 +377,16 @@ Use the `type` id; the renderer supplies the icon, label, default description an
 
 ### Agentic Apps `agentic-apps`
 
+*The delivery surface — dashboards and custom apps the business actually opens. Reach here for what a user SEES and clicks.*
+
 | type | default title | default description (shown on the tile) | size | when to use |
 |------|---------------|-----------------------------------------|------|-------------|
 | `databricks-apps` | Databricks Apps | Custom web app where the team does the work — queue, actions, all in one place. | 200×56 | Custom web app where the team does the work — queue, actions, all in one place. |
 | `ai-bi-dashboard` | AI/BI Dashboard | Governed dashboards on the same data — one set of numbers, one page. | 230×54 | Governed dashboards on the same data — one set of numbers, one page. |
 
 ### Unified Governance `unified-governance`
+
+*The control plane over everything — Unity Catalog, the AI Gateway, and the Databricks-platform banner. Prefer the one `governance-block` bar over the loose tiles unless spotlighting a single feature.*
 
 | type | default title | default description (shown on the tile) | size | when to use |
 |------|---------------|-----------------------------------------|------|-------------|

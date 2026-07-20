@@ -60,6 +60,8 @@ function renderCatalog(): string {
     if (!comps.length) continue;
     lines.push(`### ${BAND_META[band].label} \`${band}\``);
     lines.push("");
+    const blurb = BAND_META[band].blurb ?? BAND_META[band].sublabel;
+    if (blurb) { lines.push(`*${esc(blurb)}*`); lines.push(""); }
     // Columns: `type` (the id you write) · label + default description = the TEXT
     // RENDERED on the tile (title line + grey sub-line) so you know exactly what
     // shows without opening the app · size · authoring guidance (when to use).
