@@ -47,7 +47,7 @@ import {
   type CapabilityMeta,
 } from "@/lib/capabilities";
 import { estimateBuild, formatMinutes, formatElapsed, elapsedMinutes } from "@/lib/build-eta";
-import type { DeployedResourceLink, ProjectFile, Project } from "@/lib/custom-api";
+import type { CapabilityBuildStatus, DeployedResourceLink, ProjectFile, Project } from "@/lib/custom-api";
 import { BrandCard } from "./brand-card";
 import { detectStageFromFiles, getLifecycleStages } from "./build-stepper";
 import { cn } from "@/lib/utils";
@@ -157,53 +157,54 @@ interface Widget {
 function buildWidgets(
   buildable: string[],
   deployed: DeployedResourceLink[],
-  /** True when `app/start.sh` exists on disk (project has a runnable local
-   *  app). Used as a fallback "ready" signal for the `databricks-apps`
-   *  capability: if the app isn't deployed to Databricks Apps yet but can
-   *  run via the local Preview, we still count it live in the resources
-   *  grid — the user can demo it from the Preview button. Without this,
-   *  the "8 of 9 ready" pill stalls indefinitely on projects that build
-   *  but never deploy the app. */
-  hasLocalApp: boolean = false,
+  /** Authoritative per-capability build status from the backend
+   *  (`DeployedResources.capabilities`). When present it drives BOTH which
+   *  tiles exist and their live/pending state — the backend already omits
+   *  non-buildable / talking-track slugs. Each tile's deep-link URL (if any)
+   *  still comes from the matching `DeployedResourceLink`; a built resource
+   *  with no URL renders live but non-clickable (e.g. a preview-only app or a
+   *  Lakebase DB with no recorded id). Absent on legacy payloads → fall back
+   *  to the old `buildable` + URL-inference path. */
+  capabilities?: CapabilityBuildStatus[],
 ): Widget[] {
   const byType = new Map<string, DeployedResourceLink>();
   for (const r of deployed) byType.set(r.resource_type, r);
 
+  /** Resolve a capability's deep-link URL from the deployed links, if one
+   *  exists for its `deployed_type`. Independent of readiness. */
+  const urlFor = (meta: CapabilityMeta): string | undefined => {
+    if (!meta.deployed_type) return undefined;
+    const types = Array.isArray(meta.deployed_type) ? meta.deployed_type : [meta.deployed_type];
+    for (const t of types) {
+      const hit = byType.get(t);
+      if (hit?.url) return hit.url;
+    }
+    return undefined;
+  };
+
   const seen = new Set<string>();
   const widgets: Widget[] = [];
 
-  // Only render tiles for slugs explicitly listed as buildable in
-  // resources.json. Talking-track-only items (incl. Unity Catalog) are
-  // discussed in the story, not surfaced as workspace links — anything
-  // outside `buildable` would be misleading because we don't have a
-  // deployment signal to mark it ready/pending.
-  for (const slug of buildable) {
-    if (seen.has(slug) || HIDDEN_SLUGS.has(slug)) continue;
+  // Preferred path: render exactly the capabilities the backend reports (built
+  // or pending), reading readiness from `built` — NOT from URL presence.
+  const source: Array<{ slug: string; built?: boolean }> =
+    capabilities && capabilities.length > 0
+      ? capabilities
+      : buildable
+          .filter((slug) => !HIDDEN_SLUGS.has(slug) && CAPABILITY_META[slug]?.deployed_type)
+          .map((slug) => ({ slug, built: undefined }));
+
+  for (const entry of source) {
+    const slug = entry.slug;
+    if (seen.has(slug)) continue;
     seen.add(slug);
     const meta = CAPABILITY_META[slug];
-    if (!meta || !meta.deployed_type) continue;
+    if (!meta) continue;
     const group = SOURCE_TO_DISPLAY[meta.group];
-    let state: WidgetState = "pending";
-    let url: string | undefined;
-    const deployedTypes = Array.isArray(meta.deployed_type)
-      ? meta.deployed_type
-      : [meta.deployed_type];
-    let live: DeployedResourceLink | undefined;
-    for (const t of deployedTypes) {
-      const hit = byType.get(t);
-      if (hit) { live = hit; break; }
-    }
-    if (live?.url) {
-      state = "live";
-      url = live.url;
-    } else if (slug === "databricks-apps" && hasLocalApp) {
-      // Not deployed to Databricks Apps, but the project has a local
-      // app ready for Preview — count it live without a URL. The
-      // Analyst Layer block reads the same `hasApp` signal to render
-      // the Preview button.
-      state = "live";
-    }
-    widgets.push({ slug, meta, group, state, url });
+    const url = urlFor(meta);
+    // `built` from the backend when present; else (legacy) infer from a URL.
+    const isLive = entry.built !== undefined ? entry.built : !!url;
+    widgets.push({ slug, meta, group, state: isLive ? "live" : "pending", url });
   }
 
   // Sort: live first (descending by group order so the rendering reads
@@ -290,7 +291,7 @@ const ResourceTile = memo(function ResourceTile({ widget }: { widget: Widget }) 
             )}
           </div>
         </div>
-        {isLive && (
+        {isLive && widget.url && (
           <span
             className="shrink-0 inline-flex items-center gap-1 self-center px-2 py-1 rounded-md text-[11px] font-semibold tracking-wide text-white shadow-sm transition-transform group-hover:scale-[1.05]"
             style={{ backgroundColor: cfg.stripe }}
@@ -369,6 +370,10 @@ export interface HeaderStatusPillProps {
   deployed: DeployedResourceLink[];
   hasStarted: boolean;
   isStreaming: boolean;
+  /** Authoritative per-capability build status from the backend. Drives
+   *  readiness + the N/N count; when all are built the pill reads "Ready"
+   *  regardless of deep-link URLs, and a later chat turn can't revert it. */
+  capabilities?: CapabilityBuildStatus[];
   onClick?: () => void;
 }
 
@@ -377,13 +382,16 @@ export const HeaderStatusPill = memo(function HeaderStatusPill({
   deployed,
   hasStarted,
   isStreaming,
+  capabilities,
   onClick,
 }: HeaderStatusPillProps) {
   const est = useMemo(
-    () => estimateBuild(buildable, deployed, hasStarted),
-    [buildable, deployed, hasStarted],
+    () => estimateBuild(buildable, deployed, hasStarted, capabilities),
+    [buildable, deployed, hasStarted, capabilities],
   );
 
+  // "ready" now comes from the backend's per-capability status (all built),
+  // so it's stable across later chat turns and doesn't depend on deep-links.
   const isReady = est.phase === "ready";
   // "Building" = work is actively happening (agent streaming). If the
   // phase says "building" but nothing is streaming, the agent stopped
@@ -436,6 +444,9 @@ export const HeaderStatusPill = memo(function HeaderStatusPill({
           };
 
   const showCount = !isDrafting && est.totalCount > 0;
+  // liveCount is authoritative (from the backend's per-capability status), so
+  // it already reads N/N when ready — no deep-link-vs-count contradiction.
+  const displayLive = est.liveCount;
 
   const inner = (
     <>
@@ -451,7 +462,7 @@ export const HeaderStatusPill = memo(function HeaderStatusPill({
       </span>
       {showCount && (
         <span className="tabular-nums text-[11px] font-medium text-foreground/80">
-          {est.liveCount}<span className="text-muted-foreground/60">/</span>{est.totalCount}
+          {displayLive}<span className="text-muted-foreground/60">/</span>{est.totalCount}
         </span>
       )}
       {isBuilding && (
@@ -906,10 +917,12 @@ const StageSteps = memo(function StageSteps({
 const BuildTimer = memo(function BuildTimer({
   buildable,
   deployed,
+  capabilities,
   createdAt,
 }: {
   buildable: string[];
   deployed: DeployedResourceLink[];
+  capabilities?: CapabilityBuildStatus[];
   createdAt?: string | null;
 }) {
   const [now, setNow] = useState(() => Date.now());
@@ -917,7 +930,10 @@ const BuildTimer = memo(function BuildTimer({
     const id = window.setInterval(() => setNow(Date.now()), 60_000);
     return () => window.clearInterval(id);
   }, []);
-  const est = useMemo(() => estimateBuild(buildable, deployed, true), [buildable, deployed]);
+  const est = useMemo(
+    () => estimateBuild(buildable, deployed, true, capabilities),
+    [buildable, deployed, capabilities],
+  );
   const budget = est.remainingMinutes;
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const elapsed = useMemo(() => elapsedMinutes(createdAt), [createdAt, now]);
@@ -1163,7 +1179,10 @@ const AnalystLayerBlock = memo(function AnalystLayerBlock({
               ) : (
                 <span className="inline-flex items-center gap-1.5 text-[11px] text-blue-100/60">
                   <LakebaseIcon className="h-3.5 w-3.5" />
-                  Lakebase pending
+                  {/* Live but no deep-link URL (build done, id not recorded):
+                      say it's ready without a click-through. Truly pending
+                      (not yet built) still reads "pending". */}
+                  {lakebaseDeployed ? "Lakebase ready" : "Lakebase pending"}
                 </span>
               )}
             </div>
@@ -1223,6 +1242,9 @@ export interface ProjectOverviewProps {
   onRegenerateNarrative?: () => void;
   capabilities: { buildable: string[]; talking_track?: string[] } | null;
   deployedResources?: DeployedResourceLink[];
+  /** Authoritative per-capability build status from the backend — drives the
+   *  grid tiles' live/pending state + the "N of N ready" count. */
+  deployedCapabilities?: CapabilityBuildStatus[];
   deployedExtractionError?: string | null;
   readmeContent?: string | null;
   hasReadme: boolean;
@@ -1256,6 +1278,7 @@ export const ProjectOverview = memo(function ProjectOverview({
   onRegenerateNarrative,
   capabilities,
   deployedResources,
+  deployedCapabilities,
   deployedExtractionError,
   hasReadme,
   hasArchitecture = false,
@@ -1270,14 +1293,6 @@ export const ProjectOverview = memo(function ProjectOverview({
 }: ProjectOverviewProps) {
   const buildable = capabilities?.buildable ?? [];
   const deployed = deployedResources ?? [];
-
-  const widgets = useMemo(
-    () => buildWidgets(buildable, deployed, hasApp),
-    [buildable, deployed, hasApp],
-  );
-  const hasAnyResources = widgets.length > 0;
-  const liveCount = widgets.filter((w) => w.state === "live").length;
-  const totalCount = widgets.length;
 
   // The demo is "built" once the backend settled its stage on BUILT/BUNDLED
   // (all resources ready AND a prior turn finished). Once built we never show
@@ -1298,6 +1313,18 @@ export const ProjectOverview = memo(function ProjectOverview({
     ? notebookCount > 0 && !isStreaming
     : project?.stage === "BUILT" || project?.stage === "BUNDLED";
   const buildActive = isStreaming && !buildComplete;
+
+  // Tile live/pending comes straight from the backend's per-capability status
+  // (resources.json-derived) — a built resource reads live even with no
+  // deep-link URL (preview-only app, Lakebase DB with no recorded id). No
+  // BUILT/BUNDLED promotion needed; the backend already reports each as built.
+  const widgets = useMemo(
+    () => buildWidgets(buildable, deployed, deployedCapabilities),
+    [buildable, deployed, deployedCapabilities],
+  );
+  const hasAnyResources = widgets.length > 0;
+  const liveCount = widgets.filter((w) => w.state === "live").length;
+  const totalCount = widgets.length;
 
   // Group widgets by their display group for the column layout. Empty
   // groups are dropped, and group order matches the original platform
@@ -1428,7 +1455,7 @@ export const ProjectOverview = memo(function ProjectOverview({
               <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
                 {buildActive && (
                   <>
-                    <BuildTimer buildable={buildable} deployed={deployed} createdAt={createdAt} />
+                    <BuildTimer buildable={buildable} deployed={deployed} capabilities={deployedCapabilities} createdAt={createdAt} />
                     <span className="hidden items-center gap-1.5 text-[12px] text-muted-foreground xl:inline-flex">
                       <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
                       The AI is working for you — please wait.

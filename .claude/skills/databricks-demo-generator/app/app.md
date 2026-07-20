@@ -129,7 +129,7 @@ When this app step runs, add the following fields to `created_resources` in `res
 - `lakebase_project_id` — UUID (`databricks postgres get-project | jq -r .uid`). Powers the `lakebase/projects/<uuid>` link.
 - `lakebase_project_slug` — human-readable slug. Used by CLI commands and DAB variable substitution.
 - `lakebase_database` — DB name (`dbgen_<demo-short-name>`).
-- `app.name` and `app.id` — recorded after the app deploy step.
+- `app.name` — record as soon as the app's initial setup is done (scaffold + config), BEFORE deploy. `app.name` alone marks the app capability "built" in the UI (a preview-only app that never deploys still counts). `app.id`/`app.url` are added later, only after the deploy step.
 - `agent_mlflow_experiment_path` — the MLflow experiment for AGENT traces (distinct from any ML-training `mlflow_experiment_path`). Convention: `/Shared/solution_builder/<app_name>-agent-traces`. **You usually don't need to set anything** — when `AGENT_MLFLOW_EXPERIMENT_PATH` is unset, the app self-derives exactly this path from the auto-injected `DATABRICKS_APP_NAME` at boot and get-or-creates the experiment. Persist this key (and/or set the env var) only to pin an explicit non-default path.
 
 **`config/app.json` — `agentModel` and `agentEndpointName`:** the assistant talks to TWO things, don't conflate them.
@@ -306,7 +306,15 @@ ALWAYS stop the smoke-test process — whether it booted, crashed, or we're stil
 
 Once the initial run is done, **Never run `./start.sh` casually.** Only during the one-shot smoke test described above, or when a user explicitly asks you to debug a boot issue — and always kill it immediately after. The UI is the single supervisor of the app process; any other `start.sh` run will collide with it.
 
+> Backstop (don't rely on it): the generator auto-kills any `start.sh`-spawned preview left running outside the UI after ~15 min. This exists to protect the shared container from leaks — it is NOT a substitute for stopping your own smoke test, which you must still do explicitly.
+
 Tell the user the build is complete and point them at the **App** tab to start it.
+
+**Record the app name in `resources.json` now** (before any deploy). The app's initial setup is done, so persist `created_resources.app.name` = the resolved app name (`dbgen-<demo_short_name>`). This alone marks the app capability "built" in the UI — a preview-only app that never deploys still counts as complete. (`app.id`/`app.url` come later, only if the user deploys — Step 6.)
+
+```json
+"app": { "name": "dbgen-<demo_short_name>" }
+```
 
 ### Step 6: Deploy the app (only on explicit user request, don't do it by default)
 
@@ -351,7 +359,7 @@ The script reads `.env` and does it all: rebuilds `dist/` from source (never shi
 
 **Redeploy after a delete:** the recreated app gets a new SP, but the old SP still owns the Lakebase schemas → boot `28P01`/`must be owner`. `lakebase_grant_app_credential.sh` fixes this automatically (reassigns ownership via `postgres delete-role --reassign-owned-to`). If you ever hit it by hand, that's the one command (use the role's `name` path, not the SP UUID).
 
-**After deploying, record the app in `resources.json` `created_resources`:**
+**After deploying, add the `id` to the app block in `resources.json` `created_resources`** (`name` was already recorded at the end of Step 5):
 
 ```json
 "app": {

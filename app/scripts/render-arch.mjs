@@ -159,22 +159,46 @@ async function main() {
   if (!ready) console.error("warning: ready signal not seen; screenshotting anyway");
   await new Promise((r) => setTimeout(r, 300)); // let the final frame paint
 
-  // Clip to the ReactFlow CONTAINER (the framed window). The diagram is fitView'd
-  // into it on load, so the container shows the whole diagram nicely padded. (We
-  // must NOT clip to `.react-flow__viewport` — that's the inner transformed layer
-  // whose bounding box is the panned/zoomed extent, not the visible frame.)
+  // Clip to the TIGHT CONTENT BOUNDS — the union of the rendered node elements'
+  // screen rects (+ a small uniform pad), NOT the ReactFlow container. This
+  // matches the in-app PNG/SVG export (export-image.ts) exactly: the output is
+  // the diagram's true extent — no fitView dead margin, nothing cut off.
+  //
+  // Nodes (incl. annotations) carry `.react-flow__node`; measuring their screen
+  // rects and unioning them gives the visible frame directly, so we don't need
+  // to undo the viewport transform here (unlike the in-app path, we clip in
+  // screen space). Falls back to the `.react-flow` container box if there are no
+  // measurable nodes (empty diagram).
+  const PAD = 24; // screen px, mirrors export-image.ts's uniform pad intent
   const box = await evalJs(`(() => {
+    const pad = ${PAD};
+    const nodes = document.querySelectorAll('.react-flow__node');
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const n of nodes) {
+      const r = n.getBoundingClientRect();
+      if (r.width === 0 && r.height === 0) continue;
+      minX = Math.min(minX, r.left); minY = Math.min(minY, r.top);
+      maxX = Math.max(maxX, r.right); maxY = Math.max(maxY, r.bottom);
+    }
+    if (Number.isFinite(minX)) {
+      return { x: Math.max(0, minX - pad), y: Math.max(0, minY - pad),
+               w: (maxX - minX) + pad * 2, h: (maxY - minY) + pad * 2 };
+    }
+    // Fallback: empty diagram — clip to the container so we still emit something.
     const el = document.querySelector('.react-flow');
     if (!el) return null;
     const r = el.getBoundingClientRect();
     return { x: Math.max(0, r.x), y: Math.max(0, r.y), w: r.width, h: r.height };
   })()`);
 
+  // scale: 2 → crisp 2× render (mirrors the in-app export's pixelRatio: 2), so
+  // the PNG stays sharp even when the diagram was fitView'd to a small on-screen
+  // size. captureBeyondViewport lets the clip exceed the window if needed.
   const clip = box && box.w > 1 && box.h > 1
-    ? { x: box.x, y: box.y, width: box.w, height: box.h, scale: 1 }
+    ? { x: box.x, y: box.y, width: box.w, height: box.h, scale: 2 }
     : undefined;
 
-  const shot = await S("Page.captureScreenshot", { format: "png", ...(clip ? { clip } : { captureBeyondViewport: true }) });
+  const shot = await S("Page.captureScreenshot", { format: "png", captureBeyondViewport: true, ...(clip ? { clip } : {}) });
   const buf = Buffer.from(shot.result.data, "base64");
   const { writeFileSync } = await import("node:fs");
   writeFileSync(outPath, buf);

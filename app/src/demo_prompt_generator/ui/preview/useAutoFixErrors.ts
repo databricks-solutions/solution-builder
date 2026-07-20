@@ -76,13 +76,18 @@ function cheapHash(s: string): string {
 export interface UseAutoFixErrorsOptions {
   projectId: string;
   enabled: boolean;
-  /** True iff the preview's child process is currently up and serving
-   *  (state.status === "ready"). Auto-fix refuses to dispatch when the
-   *  app is down — a crash log analyzed after the process exited produces
-   *  hallucinated root causes (the LLM sees a half-broken WebSocket
-   *  reconnect attempt and invents a `port mismatch in routes.py`
-   *  diagnosis when the real story is "the process died, restart it"). */
-  appRunning: boolean;
+  /** The preview process status. Auto-fix analyzes when the app is `ready`
+   *  (steady-state runtime errors) OR `failed` (a crash — including an instant
+   *  startup crash that never reached `ready`; that's the MOST actionable case
+   *  and its logs carry the real error, so we must send it to chat). It does
+   *  NOT analyze while `starting` (transient boot noise) or `stopped` (nothing
+   *  to fix). The old design gated on a plain `appRunning` boolean, which
+   *  dropped the startup-crash case entirely — the app died before `ready`, so
+   *  the crash was never sent. The hallucination risk the old comment worried
+   *  about (analyzing a half-broken WebSocket reconnect after a mid-run exit)
+   *  is bounded by the restart boundary below: after a (re)start we only ever
+   *  analyze logs from the CURRENT process, never stale pre-restart noise. */
+  status: "stopped" | "starting" | "ready" | "failed" | undefined;
   /** Current preview logs (full array — we track `seq` to know what's new). */
   logs: PreviewLogLine[];
   /** True while an agent stream is in-flight. We never send during streaming. */
@@ -103,12 +108,16 @@ export interface UseAutoFixErrorsReturn {
 export function useAutoFixErrors({
   projectId,
   enabled,
-  appRunning,
+  status,
   logs,
   isStreaming,
   onSend,
   onSystemLog,
 }: UseAutoFixErrorsOptions): UseAutoFixErrorsReturn {
+  // Analyze when the app is serving (runtime errors) OR when it crashed
+  // (`failed` — the crash output is the actionable error). Not while booting
+  // (`starting`) or idle (`stopped`).
+  const analyzable = status === "ready" || status === "failed";
   const [budgetRemaining, setBudgetRemaining] = useState(DEFAULT_BUDGET);
 
   // --- Refs (stay stable across renders; all state-machine bookkeeping) ---
@@ -145,8 +154,8 @@ export function useAutoFixErrors({
   useEffect(() => { logsRef.current = logs; }, [logs]);
   const enabledRef = useRef(enabled);
   useEffect(() => { enabledRef.current = enabled; }, [enabled]);
-  const appRunningRef = useRef(appRunning);
-  useEffect(() => { appRunningRef.current = appRunning; }, [appRunning]);
+  const analyzableRef = useRef(analyzable);
+  useEffect(() => { analyzableRef.current = analyzable; }, [analyzable]);
 
   /** Rate-limit the "app is down" sidecar log so a long-stopped app doesn't
    *  spam the panel. One notice per `PAUSE_NOTICE_INTERVAL_MS` window. */
@@ -223,12 +232,11 @@ export function useAutoFixErrors({
     if (isStreamingRef.current) return;
     if (analysisInFlightRef.current) return;
 
-    // App-down gate: don't analyze logs from a dead process. The most
-    // common case is the process crashed during startup (npm install, vite
-    // boot, etc.) — the logs are full of one-shot errors that aren't worth
-    // sending to the assistant. Surfacing a clear "app is stopped" message
-    // in the panel is better than blasting bogus fixes at the agent.
-    if (!appRunningRef.current) {
+    // Analyzable gate: only analyze when the app is `ready` (runtime errors) or
+    // `failed` (a crash — send its error to chat). While `starting`/`stopped`
+    // there's nothing actionable, so surface a clear notice instead of blasting
+    // bogus fixes at the agent.
+    if (!analyzableRef.current) {
       const now = Date.now();
       if (now - lastAppDownNoticeAtRef.current >= PAUSE_NOTICE_INTERVAL_MS) {
         lastAppDownNoticeAtRef.current = now;
@@ -260,12 +268,13 @@ export function useAutoFixErrors({
     analysisInFlightRef.current = true;
     try {
       const { errors } = await analyzePreviewLogs(projectId, window);
-      // Re-check streaming + enabled + app-running — they may have changed
-      // during the network call. App can crash MID-analysis (the analyzer
-      // takes a few seconds); without this recheck we'd send a fix for a
-      // process that's already dead.
+      // Re-check streaming + enabled + analyzable — they may have changed
+      // during the network call (the analyzer takes a few seconds). Note a
+      // `ready → failed` transition mid-analysis is STILL analyzable (a crash
+      // we want to surface), so we only bail if the app went fully idle
+      // (`stopped`/`starting`) — where sending a fix would be pointless.
       if (!enabledRef.current || isStreamingRef.current) return;
-      if (!appRunningRef.current) {
+      if (!analyzableRef.current) {
         onSystemLog(
           "[auto-fix] App stopped during analysis — restart it manually before retrying.",
         );
@@ -284,6 +293,32 @@ export function useAutoFixErrors({
       analysisInFlightRef.current = false;
     }
   }, [projectId, sendError]);
+
+  // --- Restart boundary: exclude pre-restart logs from analysis ---
+  //
+  // Every start/restart passes through `starting`. When we see that transition,
+  // fast-forward the analyzed-seq cursor past ALL current log lines, so only
+  // logs from the NEW process get analyzed. Without this, a restart (often the
+  // user's or agent's response to a previous error) would re-feed stale
+  // pre-restart errors — which may already be fixed — polluting the auto-fix
+  // and burning budget on ghosts.
+  const prevStatusRef = useRef<typeof status>(undefined);
+  useEffect(() => {
+    const prev = prevStatusRef.current;
+    prevStatusRef.current = status;
+    if (status === "starting" && prev !== "starting") {
+      const all = logsRef.current;
+      if (all.length > 0) {
+        lastAnalyzedSeqRef.current = all[all.length - 1].seq;
+      }
+      // Also clear dedup/timing so the fresh process starts clean.
+      recentHashesRef.current.clear();
+      if (settleTimerRef.current) {
+        clearTimeout(settleTimerRef.current);
+        settleTimerRef.current = null;
+      }
+    }
+  }, [status]);
 
   // --- Watch logs: (re)arm the settle timer whenever new lines arrive ---
 

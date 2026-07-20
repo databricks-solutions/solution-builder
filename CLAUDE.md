@@ -110,6 +110,85 @@ industry-demo-prompts/
 - The agent gets `CLAUDE_CONFIG_DIR=<project>/.claude` so it reads project-local skills (the demo-generator skill is copied into each project on creation by `skills_manager.py`).
 - **The chat panel in the UI is the agent's mouth.** Reasoning/thinking blocks render there.
 
+## Reapers / background sweeps (memory + disk reclamation)
+
+Four periodic sweeps keep resource use bounded. The three that need the DB engine /
+stream manager live in **`backend/core/reapers.py`** (the single home) and are
+started/stopped by `start_reapers(app)` / `stop_reapers(app)` from the **Lakebase
+lifespan** (where the engine + `file_sync` are up). The preview-apps idle sweep is
+wired separately in `app.py` (needs no DB).
+
+| Sweep | Where started | Cadence | What it reclaims |
+|---|---|---|---|
+| **Agent-session reaper** | `reapers.py` ← Lakebase lifespan | 5 min (`CLIENT_IDLE_TIMEOUT`) | Disconnects idle `ClaudeSDKClient` Node subprocesses (`ClientPool.reap_idle()`); also `sweep_expired()`s terminal `ActiveStream`s so `_streams` stays bounded. |
+| **Project-file cleanup** | `reapers.py` ← Lakebase lifespan | 30 min, 12 h threshold | Deletes a project's **on-disk folder** (orphan = no DB row, OR untouched >12 h). |
+| **Rogue-preview reaper** | `reapers.py` ← Lakebase lifespan | 5 min, 15 min threshold | Kills a `start.sh` preview the AGENT left running outside the registry (see below). |
+| **Preview-apps sweep** | `preview/registry.py` ← `app.py` | 5 min | Stops idle registry-launched `start.sh` preview web-server subprocesses. |
+
+**Invariants — do not break these:**
+- **The DB is the durable store; the on-disk `projects/<id>/` folder is a disposable
+  cache.** No reaper deletes DB rows (Project / Message / ProjectFile, incl. the
+  `.claude/projects/**` Claude session transcript that powers resume). The project-file
+  cleanup only rmtrees the folder; `restore_project_from_db` rebuilds it (and re-anchors
+  the transcript so `resume=session_id` still works) on next open. Before removing a
+  still-existing project's folder it `full_sync_project`s (delete-free) to flush any
+  un-synced change to the DB first — atomic with the rmtree under the cleaning flag +
+  restore lock.
+- **⚠️ Folder deletion must never cascade to DB-row deletion.** The file watcher is a
+  single recursive Observer over `projects/`; its flush (`sync_files_to_db`) deletes the
+  `ProjectFile` row for any path missing on disk. `shutil.rmtree` unlinks children before
+  the dir, so mid-rmtree the folder still `exists()` while files vanish. `sync_files_to_db`
+  therefore **skips ALL delete-processing when the project is in the cleaning-set
+  (`is_cleaning`) OR its folder is absent** — a vanished/mid-delete folder means "cache
+  gone", never "user emptied the project". `remove_project_files_on_disk` sets that flag
+  and holds the per-project **restore lock** across `full_sync`+`rmtree` (so a concurrent
+  `restore_project_from_db` can't capture a half-deleted tree). Keep both.
+- **Nothing is reaped/disconnected while a turn is in flight.** Authoritative signal =
+  the **ActiveStream** (`get_stream_manager().get_project_stream`), NOT the pool's
+  `is_busy`. A background run (tabs closed) stays alive because its stream is live.
+  `reap_idle` **force-reaps a stuck `is_busy`+no-stream client** as a backstop; the
+  historical leak was a cancelled/abandoned turn leaving `is_busy=True` forever (release
+  was outside the try/finally, and `CancelledError`/`GeneratorExit` bypassed it), so
+  `stream_agent_response` now clears `is_busy` in a `finally` on every exit. `register_client`/
+  `remove_client` also refuse to disconnect a client whose project has a live stream
+  (they drop the pool entry and let that turn's finally close it) — this prevents the
+  Stop→re-send and clear-session-mid-turn use-after-disconnect. Idle timing uses
+  `time.monotonic()` (clock-step safe).
+
+**Rogue-preview reaper + the two preview paths.** There are TWO ways `start.sh` runs:
+(1) the **UI Start-Preview** button → the `PreviewRegistry` spawns it and writes
+`.preview.server.pid` (registry-owned); (2) the **agent's Bash tool** running `./start.sh`
+for a smoke test and forgetting to kill it (rogue). `start.sh` itself writes `.preview.pgid`
+(the Node process group) for **both**. So the discriminator is: **`.preview.pgid` present +
+`.preview.server.pid` ABSENT = agent-spawned/untracked.** The rogue reaper kills such a
+group only when it's >15 min old (grace for a legit smoke test), the project has no
+in-flight stream, and the process validates as a node/start.sh tree; registry-owned
+previews (both files) are left to the preview-apps sweep. The registry writes
+`.preview.server.pid` right after spawn — before start.sh writes `.preview.pgid` — so a
+starting UI preview never looks rogue.
+
+**Preview kill = double `setsid`.** `start.sh` does `exec setsid npm run dev`, so Node
+runs in a process group that ESCAPES start.sh's own group. Killing must target BOTH:
+start.sh's group AND the Node group from `.preview.pgid`. `preview/process.py`'s shared
+`kill_process_tree(ident, is_pgid=, validate=)` handles this, walks descendants via
+`pgrep`→`ps` (works without `pgrep`, which prod containers may lack). `validate=True`
+guards PID/PGID reuse by checking the command looks like a preview tree — for a GROUP,
+iff ANY LIVE MEMBER matches (via `ps -g`), NOT the group leader: `setsid` makes the
+leader's pid == pgid at creation, but that leader routinely exits while the group lives
+on via node/tsx/esbuild children, so validating the (dead) leader would refuse to kill
+exactly the orphans we're reaping. `psutil` is NOT a dependency — stdlib + `pgrep`/`ps`.
+
+**Session teardown is by client OBJECT identity, not project_id.** A turn's finally
+tears down the specific `PooledClient` it owns (`release_client(..., own=)` /
+`remove_client(..., own=)`), guarded by `_clients[pid] is own`. A newer turn
+(Stop→re-send) can replace `_clients[pid]` before the old turn's finally runs; looking
+up by project_id would then orphan the old client's subprocess AND clear the new turn's
+`is_busy`. When superseded, the old turn disconnects its OWN client (register_client
+declined to, on that promise). External callers (clear-session/delete) pass no `own`
+and act by project_id (delete uses `force=True` + `run_coroutine_threadsafe` onto the
+app loop — the pool's `asyncio.Lock` is bound to that loop, so a fresh `asyncio.run()`
+loop would mismatch).
+
 ## The preview/review mode
 
 Every generated demo ships with a Databricks App under `<project>/app/`. The user clicks **Start Preview** in the project workspace and the generator runs that app **inside the generator's own container**, then proxies it into an iframe. Live HTML + live agent, no deploy step.

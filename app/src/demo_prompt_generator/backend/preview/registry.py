@@ -12,8 +12,8 @@ via the attached LogBuffer.
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
-import signal
 import socket
 import time
 from dataclasses import dataclass, field
@@ -21,7 +21,9 @@ from pathlib import Path
 from typing import Callable, Literal
 
 from .logbuffer import LogBuffer
-from .process import PreviewProcess, _descendant_pids
+from .process import PGID_FILENAME, PreviewProcess, kill_process_tree
+
+logger = logging.getLogger(__name__)
 
 
 Status = Literal["stopped", "starting", "ready", "failed"]
@@ -205,6 +207,15 @@ class PreviewRegistry:
     def has_running(self, project_id: str) -> bool:
         s = self._states.get(project_id)
         return bool(s and s.status in ("starting", "ready"))
+
+    def forget(self, project_id: str) -> None:
+        """Drop a project's in-memory PreviewState + lock. Called when the
+        project is deleted or its folder is reaped, so `_states`/`_locks` stay
+        bounded to live projects (they're created on-demand by `get()` and were
+        otherwise never removed → slow unbounded growth). Does NOT stop a running
+        preview — callers stop first; this only reclaims the bookkeeping."""
+        self._states.pop(project_id, None)
+        self._locks.pop(project_id, None)
 
     def app_dir(self, project_id: str) -> Path:
         """Resolve `<project>/app/`. Does NOT assume it exists."""
@@ -445,10 +456,16 @@ class PreviewRegistry:
 
     def _sweep_stale_pid_files(self) -> None:
         """
-        Called on registry startup. For every project that has a leftover
-        .preview.server.pid from a previous parent run, walk that PID's tree
-        and SIGKILL everything, then delete the file. Safe to call multiple
-        times; no-op when no files exist.
+        Called on registry startup. For every project with a leftover PID file
+        from a PREVIOUS parent run, kill the recorded process tree and delete
+        the file. Handles BOTH markers:
+          - `.preview.server.pid` — start.sh's PID (written by the registry).
+          - `.preview.pgid`       — Node's process-group id (written by start.sh;
+             the group that escapes start.sh via its inner setsid). Killing only
+             the server PID left Node orphaned — this now reaps it too.
+        Every kill is VALIDATED (the target's command must look like a preview
+        tree) so a recycled PID from a prior boot can't be friendly-fired.
+        Safe to call repeatedly; no-op when no files exist.
         """
         # Each project's `app/` sits at `<projects_root>/<id>/app/`. We derive
         # <projects_root> from any one project's dir (they share a parent).
@@ -458,27 +475,23 @@ class PreviewRegistry:
             return
         if not sample_root.exists():
             return
-        for pid_file in sample_root.glob(f"*/app/{SERVER_PID_FILENAME}"):
-            try:
-                raw = pid_file.read_text().strip()
-                pid = int(raw) if raw.isdigit() else None
-            except OSError:
-                pid = None
-            if pid is not None:
-                # Kill descendants first (leaves → parent), then the root.
-                for d in _descendant_pids(pid):
-                    try:
-                        os.kill(d, signal.SIGKILL)
-                    except ProcessLookupError:
-                        pass
+        # (glob pattern, is_pgid) — Node group by pgid, start.sh by root pid.
+        for filename, is_pgid in ((PGID_FILENAME, True), (SERVER_PID_FILENAME, False)):
+            for pid_file in sample_root.glob(f"*/app/{filename}"):
                 try:
-                    os.kill(pid, signal.SIGKILL)
-                except ProcessLookupError:
+                    raw = pid_file.read_text().strip()
+                    ident = int(raw) if raw.lstrip("-").isdigit() else None
+                except OSError:
+                    ident = None
+                if ident is not None:
+                    try:
+                        kill_process_tree(ident, is_pgid=is_pgid, validate=True)
+                    except Exception as e:  # noqa: BLE001
+                        logger.warning(f"[preview] stale-pid sweep kill failed: {e!r}")
+                try:
+                    pid_file.unlink(missing_ok=True)
+                except OSError:
                     pass
-            try:
-                pid_file.unlink(missing_ok=True)
-            except OSError:
-                pass
 
     # ------------------------------------------------------------------
     # Idle auto-stop

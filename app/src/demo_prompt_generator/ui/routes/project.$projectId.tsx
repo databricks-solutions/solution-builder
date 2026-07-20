@@ -2109,6 +2109,7 @@ function ProjectPage() {
                         files.some((f) => f.path.startsWith("specifications/")) ||
                         (deployedResources?.resources.length ?? 0) > 0
                       }
+                      capabilities={deployedResources?.capabilities}
                       isStreaming={isStreaming}
                       onClick={() => {
                         if (!isChatOpen) handleToggleChat();
@@ -2376,6 +2377,7 @@ function ProjectPage() {
             }}
             onResourcesClick={() => setIsResourcesOpen(true)}
             deployedResources={deployedResources?.resources}
+            deployedCapabilities={deployedResources?.capabilities}
             deployedExtractionError={deployedResources?.extraction_error}
             capabilities={capabilities}
             // Auto-fix runs the agent — allow it only when we CAN send (driver,

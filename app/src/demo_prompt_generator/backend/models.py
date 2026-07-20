@@ -126,12 +126,82 @@ def _iter_string_values(node: object):
             yield from _iter_string_values(item)
 
 
+def capability_build_status(resources_json_text: str) -> list["CapabilityBuildStatus"]:
+    """Per-capability build status derived from resources.json — the single
+    source of truth for the UI's live "N of N ready" meter AND the BUILT gate.
+
+    Returns one entry per `capabilities.buildable` slug that maps to a
+    deployable resource (has an entry in `_CAPABILITY_RESOURCE_KEYS`); each is
+    `built=True` once ANY of its required keys is present + non-empty anywhere
+    in the JSON tree. Slugs with no required keys (talking-track, `unity-catalog`,
+    unknown-to-us) are OMITTED — they aren't buildable resources, so they never
+    count toward the meter (this is what the frontend used to express via its
+    `HIDDEN_SLUGS` set). NOT streaming-gated, so it's valid to read live as keys
+    land during a build.
+
+    Conservative on parse failure / missing manifest: returns [] (no basis to
+    report per-capability status).
+    """
+    import json
+    try:
+        data = json.loads(resources_json_text)
+    except (ValueError, TypeError):
+        return []
+    if not isinstance(data, dict):
+        return []
+
+    caps_section = data.get("capabilities") or {}
+    buildable = caps_section.get("buildable") if isinstance(caps_section, dict) else None
+    if not isinstance(buildable, list) or not buildable:
+        return []
+
+    populated_keys: set[str] = {k for k, _ in _iter_string_values(data)}
+    # The app block is conventionally NESTED (`app: {name, id, url}`) — see
+    # SKILL.md + resources_extractor's flattening rule. The tree-walk above
+    # yields its sub-keys as bare `name`/`id`/`url`, which don't match the
+    # canonical `app_name`/`app_id`/`app_url` in _CAPABILITY_RESOURCE_KEYS. Map
+    # them here so a nested (and preview-only, id-less) app still registers as
+    # built via `app_name`. Mirrors the extractor so the meter + BUILT gate
+    # agree with the extracted flat shape the UI links off.
+    created = data.get("created_resources")
+    app_obj = created.get("app") if isinstance(created, dict) else None
+    if isinstance(app_obj, dict):
+        for nested, canonical in (("name", "app_name"), ("id", "app_id"), ("url", "app_url")):
+            v = app_obj.get(nested)
+            if isinstance(v, str) and v.strip():
+                populated_keys.add(canonical)
+
+    out: list[CapabilityBuildStatus] = []
+    seen: set[str] = set()
+    for slug in buildable:
+        if not isinstance(slug, str) or slug in seen:
+            continue
+        required = _CAPABILITY_RESOURCE_KEYS.get(slug)
+        if not required:
+            # No deployable resource (e.g. unity-catalog) or unknown slug —
+            # not part of the buildable meter.
+            continue
+        seen.add(slug)
+        out.append(
+            CapabilityBuildStatus(
+                slug=slug,
+                built=any(k in populated_keys for k in required),
+            )
+        )
+    return out
+
+
 def _all_buildable_capabilities_built(resources_json_text: str) -> bool:
-    """True when every entry in `capabilities.buildable` has at least one
-    matching deployed-resource key populated in the JSON. Conservative on
-    parse failure (returns False) so we don't claim BUILT on broken JSON.
-    Capabilities with no required keys (or unknown to us) are skipped —
-    forward-compatible with new capability slugs."""
+    """True when every buildable, deployable `capabilities.buildable` entry has
+    a matching deployed-resource key populated. Shares its per-capability logic
+    with `capability_build_status` so the boolean gate and the UI meter can
+    never disagree. Conservative on parse failure (returns False so we don't
+    claim BUILT on broken JSON).
+
+    When there's no usable capability manifest, `capability_build_status`
+    returns [] — we treat that as "all built" (True) to preserve the prior
+    file-based heuristic: the agent hasn't populated the structured manifest
+    yet, so there's no basis to gate on."""
     import json
     try:
         data = json.loads(resources_json_text)
@@ -140,27 +210,11 @@ def _all_buildable_capabilities_built(resources_json_text: str) -> bool:
     if not isinstance(data, dict):
         return False
 
-    caps_section = data.get("capabilities") or {}
-    buildable = caps_section.get("buildable") if isinstance(caps_section, dict) else None
-    if not isinstance(buildable, list) or not buildable:
-        # No capability manifest — fall back to the file-based heuristic by
-        # treating "all built" as true. The agent hasn't started populating
-        # the structured manifest yet, so we don't have a basis to gate on.
+    statuses = capability_build_status(resources_json_text)
+    # No per-capability basis (missing/empty manifest) → don't block BUILT.
+    if not statuses:
         return True
-
-    populated_keys: set[str] = {k for k, _ in _iter_string_values(data)}
-
-    for slug in buildable:
-        if not isinstance(slug, str):
-            continue
-        required = _CAPABILITY_RESOURCE_KEYS.get(slug)
-        if not required:
-            # Capability has no deployed resource (e.g. unity-catalog) or is
-            # unknown to us — don't block on it.
-            continue
-        if not any(k in populated_keys for k in required):
-            return False
-    return True
+    return all(s.built for s in statuses)
 
 
 def compute_project_stage(
@@ -995,6 +1049,18 @@ class DeployedResourceLink(BaseModel):
     resource_id: Optional[str] = None
 
 
+class CapabilityBuildStatus(BaseModel):
+    """Build status for one buildable capability, derived from resources.json.
+
+    `built` is True once the capability's resource exists in `created_resources`
+    (any of its `_CAPABILITY_RESOURCE_KEYS`). This is the authoritative,
+    resources.json-driven signal the UI renders directly — it does NOT re-infer
+    readiness from deep-link URLs (a built resource may legitimately have no
+    URL, e.g. a preview-only app or a Lakebase DB with no recorded id)."""
+    slug: str
+    built: bool
+
+
 class DeployedResourcesOut(BaseModel):
     """All deployed resources for a project, parsed from resources.json.
 
@@ -1002,10 +1068,17 @@ class DeployedResourcesOut(BaseModel):
     fails (auth, model unavailable, malformed response, etc.). The UI
     should surface this so users don't see an empty list and assume nothing
     was deployed when in reality the extraction step blew up.
+
+    `capabilities` / `all_built` are the single source of truth for the
+    build-progress meter (live "N of N ready") and the "done" state — computed
+    once here from resources.json (see `capability_build_status`). The UI
+    renders them instead of re-deriving readiness from `resources` URLs.
     """
     resources: list[DeployedResourceLink] = Field(default_factory=list)
     deployed_at: Optional[datetime] = None
     extraction_error: Optional[str] = None
+    capabilities: list[CapabilityBuildStatus] = Field(default_factory=list)
+    all_built: bool = False
 
 
 class MessageOut(BaseModel):

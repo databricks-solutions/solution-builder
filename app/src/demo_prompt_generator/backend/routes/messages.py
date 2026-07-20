@@ -214,6 +214,26 @@ async def clear_project_session(
     import asyncio
     user_email = _get_user_email(headers)
 
+    # Cancel any in-flight turn FIRST. Resetting the session / removing the
+    # pooled client while a turn is mid-`receive_response` would disconnect the
+    # client out from under it (use-after-disconnect) AND the turn's completion
+    # would re-persist the session_id we're about to clear (the reset wouldn't
+    # stick). Cancelling flips the stream terminal so remove_client's guard sees
+    # no in-flight turn and the turn's own finally does the teardown cleanly.
+    from ..services.active_stream import get_stream_manager
+    mgr = get_stream_manager()
+    live = mgr.get_project_stream(project_id)
+    if live is not None:
+        live.mark_cancelled()
+        task = getattr(live, "task", None)
+        if task is not None and not task.done():
+            task.cancel()
+        # Give the cancellation a moment to unwind the turn's teardown.
+        for _ in range(20):
+            if mgr.get_project_stream(project_id) is None:
+                break
+            await asyncio.sleep(0.05)
+
     # DB work on a worker thread — sync psycopg would otherwise block the loop.
     def _reset_db_state() -> int:
         project = _require_write_access(

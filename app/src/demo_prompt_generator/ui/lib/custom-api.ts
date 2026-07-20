@@ -173,6 +173,13 @@ export interface DeployedResourceLink {
   resource_id: string | null;
 }
 
+/** Per-capability build status, computed once in the backend from
+ *  resources.json (the authoritative signal — NOT re-inferred from URLs). */
+export interface CapabilityBuildStatus {
+  slug: string;
+  built: boolean;
+}
+
 export interface DeployedResources {
   resources: DeployedResourceLink[];
   deployed_at: string | null;
@@ -180,6 +187,13 @@ export interface DeployedResources {
    *  model unavailable, malformed response). Surface this so users don't
    *  see an empty list and assume nothing was deployed. */
   extraction_error?: string | null;
+  /** Authoritative per-buildable-capability status from resources.json. The
+   *  UI's live "N of N ready" meter + tile live/pending state read this
+   *  directly instead of inferring readiness from deep-link URLs. Absent on
+   *  older payloads (frontend falls back to URL inference then). */
+  capabilities?: CapabilityBuildStatus[];
+  /** True when every buildable capability is built — the "done" latch. */
+  all_built?: boolean;
 }
 
 // Reasoning entry types for ordered thinking/tool display

@@ -78,7 +78,12 @@ class ActiveStream:
         self.session_id = session_id
 
     def mark_error(self, error_message: str) -> None:
-        """Mark stream as errored."""
+        """Mark stream as errored. Idempotent: a single failure can reach this
+        via up to three paths (the generator's except, run_agent's except, and
+        start_stream's wrapper) — without this guard each appends another
+        `{"type":"error"}` event, so the UI renders 2–3 duplicate red bubbles."""
+        if self.is_error:
+            return
         self.is_error = True
         self.error_message = error_message
         self.add_event({"type": "error", "error": error_message})
@@ -188,27 +193,42 @@ class ActiveStreamManager:
             logger.debug(f"Removed stream {execution_id}")
 
     def _maybe_cleanup(self) -> None:
-        """Clean up old completed streams periodically."""
+        """Best-effort cleanup on the hot path (create_stream). Bounded by a
+        5-min guard so it rarely does work; the AUTHORITATIVE bound is
+        `sweep_expired`, driven by the reaper loop (a quiet instance never calls
+        create_stream, so relying on this alone leaked terminal streams forever)."""
         now = time.time()
         if now - self._last_cleanup < self._cleanup_interval:
             return
-
         self._last_cleanup = now
+        self.sweep_expired()
+
+    def sweep_expired(self) -> int:
+        """Drop terminal (complete/error/cancelled) streams past TTL. Called from
+        the reaper loop on a fixed cadence — NOT gated on create_stream — so
+        `_streams` is bounded even on an idle instance. Each ActiveStream holds
+        its full event list (can be MBs), so an unbounded `_streams` was a real
+        memory leak. A terminal stream with NO events is dropped immediately
+        (it's done and carries nothing). Returns the number removed."""
+        now = time.time()
         to_remove = []
-
-        for execution_id, stream in self._streams.items():
-            # Remove completed/errored/cancelled streams older than TTL
-            if stream.is_complete or stream.is_error or stream.is_cancelled:
-                if stream.events:
-                    last_event_time = stream.events[-1].timestamp
-                    if now - last_event_time > self._stream_ttl:
-                        to_remove.append(execution_id)
-
+        for execution_id, stream in list(self._streams.items()):
+            if not (stream.is_complete or stream.is_error or stream.is_cancelled):
+                continue
+            if not stream.events:
+                to_remove.append(execution_id)  # terminal + empty → safe to drop
+            elif now - stream.events[-1].timestamp > self._stream_ttl:
+                to_remove.append(execution_id)
         for execution_id in to_remove:
             self.remove_stream(execution_id)
-
         if to_remove:
-            logger.info(f"Cleaned up {len(to_remove)} old streams")
+            logger.info(f"[streams] swept {len(to_remove)} terminal stream(s)")
+        return len(to_remove)
+
+    def forget(self, project_id: str) -> None:
+        """Drop a project's per-project lock (called when a project is deleted).
+        Any terminal streams for it are reclaimed by sweep_expired on cadence."""
+        self._project_locks.pop(project_id, None)
 
     def cancel_all(self) -> int:
         """Mark every active stream as cancelled. Used at app shutdown

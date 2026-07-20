@@ -137,16 +137,20 @@ class PooledClient:
     """Wrapper around a ClaudeSDKClient with metadata."""
     client: Any  # ClaudeSDKClient
     project_id: str
-    created_at: float = field(default_factory=time.time)
-    last_used_at: float = field(default_factory=time.time)
+    created_at: float = field(default_factory=time.time)  # wall clock — display only
+    # Idle tracking uses MONOTONIC time (not wall clock): an NTP step-back would
+    # make `now - last_used_at` negative → is_idle_expired() False forever →
+    # the reaper never reclaims the client (leak); a step-forward reaps a
+    # just-used client. monotonic is immune. Matches the preview registry.
+    last_used_at: float = field(default_factory=time.monotonic)
     is_busy: bool = False
     session_id: str | None = None
 
     def mark_used(self):
-        self.last_used_at = time.time()
+        self.last_used_at = time.monotonic()
 
     def is_idle_expired(self) -> bool:
-        return time.time() - self.last_used_at > CLIENT_IDLE_TIMEOUT
+        return time.monotonic() - self.last_used_at > CLIENT_IDLE_TIMEOUT
 
 
 class ClientPool:
@@ -173,12 +177,28 @@ class ClientPool:
         client: Any,
         session_id: str | None = None,
     ) -> PooledClient:
-        """Register a new client in the pool."""
+        """Register a new client in the pool, replacing any existing one.
+
+        Use-after-disconnect guard: only disconnect the OUTGOING client when no
+        agent turn is actively streaming on it. `stream_agent_response`'s finally
+        is the sole owner of a turn's client teardown; if we disconnected an
+        `is_busy` client here (e.g. a Stop→immediate re-send where turn 1's
+        teardown hasn't landed yet) we'd yank the client out from under turn 1's
+        live `receive_response` loop. In that case we DROP the old entry from the
+        pool WITHOUT disconnecting — turn 1's finally still holds a reference and
+        will disconnect/release it itself. Only a truly idle stale client is
+        disconnected here."""
         async with self._lock:
-            # Disconnect any existing client first
             existing = self._clients.get(project_id)
             if existing:
-                await self._disconnect_client(existing)
+                if self._turn_in_flight(project_id) or existing.is_busy:
+                    logger.info(
+                        f"[pool] replacing client for {project_id} without "
+                        f"disconnecting the outgoing one (a turn still owns it; "
+                        f"its finally will tear it down)"
+                    )
+                else:
+                    await self._disconnect_client(existing)
 
             pooled = PooledClient(
                 client=client,
@@ -190,10 +210,47 @@ class ClientPool:
             logger.info(f"Registered new client for project {project_id}")
             return pooled
 
-    async def release_client(self, project_id: str, session_id: str | None = None):
-        """Mark a client as available for reuse."""
+    @staticmethod
+    def _turn_in_flight(project_id: str) -> bool:
+        """True iff a non-terminal ActiveStream exists for the project — the
+        authoritative 'a turn is running' signal (same as routes'
+        _project_is_streaming). Best-effort; import lazily (no cycle)."""
+        try:
+            from .active_stream import get_stream_manager
+            return get_stream_manager().get_project_stream(project_id) is not None
+        except Exception:  # noqa: BLE001
+            return False
+
+    async def release_client(
+        self,
+        project_id: str,
+        session_id: str | None = None,
+        *,
+        own: "PooledClient | None" = None,
+    ):
+        """Mark a client idle + reusable. Called by a turn's OWN teardown (passes
+        `own`) and — historically — by project_id.
+
+        IDENTITY GUARD: a turn must only release the client IT owns. Between a
+        turn starting and its finally, a newer turn (Stop→re-send) can replace
+        `_clients[project_id]` via register_client. If we released by project_id
+        we'd clear the NEWER turn's `is_busy` (marking a live client idle → it
+        could be handed to a third turn or reaped mid-stream). So when `own` is
+        given, only mutate the map entry if it's still `own`."""
         async with self._lock:
             pooled = self._clients.get(project_id)
+            if own is not None and pooled is not own:
+                # A newer turn (Stop→re-send) replaced our slot with its own
+                # client. register_client declined to disconnect us THERE on the
+                # promise that our turn's teardown would — so we must DISCONNECT
+                # our own client now, or its subprocess orphans (it's no longer
+                # reachable via the pool). Do NOT touch the newer entry.
+                await self._disconnect_client(own)
+                logger.info(
+                    f"[pool] our client for {project_id} was superseded — "
+                    f"disconnected it (newer turn owns the slot)"
+                )
+                return
             if pooled:
                 pooled.is_busy = False
                 pooled.mark_used()
@@ -201,25 +258,84 @@ class ClientPool:
                     pooled.session_id = session_id
                 logger.debug(f"Released client for project {project_id}")
 
-    async def remove_client(self, project_id: str):
-        """Remove and disconnect a client from the pool."""
+    async def remove_client(
+        self,
+        project_id: str,
+        *,
+        force: bool = False,
+        own: "PooledClient | None" = None,
+    ):
+        """Disconnect + drop a client.
+
+        Two callers:
+          - A turn's OWN error-path teardown passes `own` (its PooledClient). We
+            ALWAYS disconnect `own.client` (its subprocess must be freed even if a
+            newer turn already replaced the map slot — otherwise it orphans), and
+            we only `pop` the map entry if it's still `own` (don't evict a newer
+            turn's client).
+          - External callers (`clear_project_session`, `delete_project`) pass only
+            project_id. Use-after-disconnect guard: if a turn is still streaming
+            (and not `force`), LEAVE the entry — the turn's finally owns teardown.
+            `force=True` (delete_project, or a turn's own error path) bypasses the
+            guard and disconnects now."""
         async with self._lock:
+            if own is not None:
+                # Turn's own teardown: free OUR subprocess unconditionally; only
+                # remove the map slot if we still own it.
+                if self._clients.get(project_id) is own:
+                    self._clients.pop(project_id, None)
+                await self._disconnect_client(own)
+                logger.info(f"Removed own client for project {project_id}")
+                return
+            # External path.
+            if not force and self._turn_in_flight(project_id):
+                logger.info(
+                    f"[pool] leaving client for {project_id} in place "
+                    f"(turn still streaming; its finally will close it)"
+                )
+                return
             pooled = self._clients.pop(project_id, None)
             if pooled:
                 await self._disconnect_client(pooled)
                 logger.info(f"Removed client for project {project_id}")
 
     async def reap_idle(self) -> int:
-        """Disconnect + drop any pooled client that's idle past the timeout
-        and not busy. Run from a background task so subprocesses + pipes get
-        freed proactively instead of lingering until the next turn forces
-        eviction inside `get_client`. Returns the number reaped.
+        """Disconnect + drop any pooled client that's safe to reclaim. Run from a
+        background task so subprocesses + pipes get freed proactively instead of
+        lingering until the next turn forces eviction inside `get_client`.
+        Returns the number reaped.
+
+        Two reap conditions, both requiring the client to be idle-expired:
+          1. `not is_busy` — the normal case (turn finished, released).
+          2. `is_busy` BUT no in-flight ActiveStream — the BACKSTOP. is_busy
+             should always be cleared by stream_agent_response's finally, but if
+             any path ever fails to (the historical leak), a stuck flag would make
+             the client immortal here. So we no longer trust is_busy alone as
+             "hands off"; the authoritative "a turn is actually running" signal is
+             the ActiveStream (same check as routes' _project_is_streaming). A
+             client with is_busy=True but NO running stream, idle past the
+             timeout, is a leaked flag → reap it. This makes a missed release
+             self-heal within one sweep instead of leaking until app restart.
         """
+        # Lazy import (avoids any import-order coupling; active_stream has no
+        # dependency back on this module, so there's no cycle).
+        from .active_stream import get_stream_manager
+        mgr = get_stream_manager()
+
         async with self._lock:
-            stale = [
-                pid for pid, p in self._clients.items()
-                if not p.is_busy and p.is_idle_expired()
-            ]
+            stale: list[str] = []
+            for pid, p in self._clients.items():
+                if not p.is_idle_expired():
+                    continue
+                if not p.is_busy:
+                    stale.append(pid)
+                elif mgr.get_project_stream(pid) is None:
+                    # is_busy=True but nothing is actually streaming → leaked flag.
+                    logger.warning(
+                        f"[client-pool] reaping stuck-busy client for {pid} "
+                        f"(is_busy=True but no in-flight stream) — leaked release?"
+                    )
+                    stale.append(pid)
             for pid in stale:
                 pooled = self._clients.pop(pid, None)
                 if pooled:
@@ -336,6 +452,21 @@ async def stream_agent_response(
     client = None
     final_session_id = None
     created_new_client = False
+
+    # Pool-teardown intent, resolved in the `finally` below. Both get_client and
+    # register_client mark the pool entry is_busy=True; the finally is the ONLY
+    # guaranteed place it's cleared. Default = release (mark idle, keep for reuse)
+    # — covers success AND cancellation (a cancelled turn leaves the SDK client
+    # healthy; interrupt() only stops the current turn). A real error flips this
+    # to remove (disconnect + drop) since the client may be wedged.
+    #
+    # Why a finally at all: release/remove used to live only on the success + the
+    # `except Exception` paths — but asyncio.CancelledError is a BaseException
+    # (not Exception), and the generator can be abandoned via GeneratorExit when
+    # the SSE consumer disconnects. Both bypassed the old release, pinning
+    # is_busy=True forever so the idle reaper (skips busy clients) never reclaimed
+    # the subprocess → the leak. A finally runs on all four exits.
+    teardown_remove = False  # False → release (reuse); True → remove (disconnect)
 
     # Declared at function scope so the except handler can inspect it
     # whether or not we made it into the create-new-client path.
@@ -611,9 +742,8 @@ async def stream_agent_response(
             except asyncio.CancelledError:
                 pass
 
-        # Success - mark complete and release client for reuse
+        # Success - mark complete. Pool release happens in the finally (below).
         stream.mark_complete(session_id=final_session_id)
-        await pool.release_client(project_id, final_session_id)
         logger.info(f"Agent completed for project {project_id}")
 
     except Exception as e:
@@ -630,9 +760,42 @@ async def stream_agent_response(
         full_error = "".join(parts)
         logger.error(f"Agent error: {full_error}")
         stream.mark_error(full_error)
+        # A real failure — the client may be wedged; drop it (finally).
+        teardown_remove = True
         yield {"type": "error", "error": full_error}
-        # On error, remove the client from pool
-        await pool.remove_client(project_id)
+
+    finally:
+        # GUARANTEED pool bookkeeping on EVERY exit: success, error,
+        # CancelledError (user Stop / task cancel), and GeneratorExit (SSE
+        # consumer disconnected). The one invariant that matters: is_busy MUST
+        # end up False so the idle reaper can reclaim the subprocess (a stuck
+        # is_busy=True was the leak). NEVER yield here — a yield during
+        # GeneratorExit raises "async generator ignored GeneratorExit".
+        #
+        # remove (error path): disconnect a possibly-wedged client, bounded +
+        # shielded so a concurrent cancel of THIS turn can't abort it half-done.
+        # release (every other path): fast lock+flag-flip, no I/O.
+        #
+        # We pass `own=pooled` (this turn's OWN PooledClient) so teardown acts on
+        # OUR client by identity, not on whatever currently sits at
+        # _clients[project_id]. A newer turn (Stop→re-send) may have replaced the
+        # slot; without the identity guard our finally would orphan our own
+        # subprocess AND clear the newer turn's is_busy. `pooled` is None only if
+        # we failed before acquiring/registering a client — then there's nothing
+        # to tear down.
+        if pooled is not None:
+            try:
+                if teardown_remove:
+                    await asyncio.wait_for(
+                        asyncio.shield(
+                            pool.remove_client(project_id, force=True, own=pooled)
+                        ),
+                        timeout=5.0,
+                    )
+                else:
+                    await pool.release_client(project_id, final_session_id, own=pooled)
+            except Exception as _teardown_exc:  # noqa: BLE001 (incl. TimeoutError)
+                logger.warning(f"[pool] teardown for {project_id} did not complete: {_teardown_exc!r}")
 
 
 # Substring detector for the SDK's "stale resume" failure. The CLI's exact
