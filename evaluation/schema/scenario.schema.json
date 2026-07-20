@@ -1,0 +1,324 @@
+{
+  "$defs": {
+    "ArtifactExpectation": {
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "minLength": 1,
+          "title": "Description",
+          "type": "string"
+        },
+        "path": {
+          "minLength": 1,
+          "title": "Path",
+          "type": "string"
+        },
+        "required": {
+          "default": true,
+          "title": "Required",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "path",
+        "description"
+      ],
+      "title": "ArtifactExpectation",
+      "type": "object"
+    },
+    "LiveResourceExpectations": {
+      "additionalProperties": false,
+      "properties": {
+        "additional_resource_kinds": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Additional Resource Kinds",
+          "type": "array"
+        },
+        "cleanup_owner": {
+          "const": "solution-builder",
+          "default": "solution-builder",
+          "title": "Cleanup Owner",
+          "type": "string"
+        },
+        "evaluation_prefix": {
+          "default": "sb_eval_",
+          "pattern": "^[a-z][a-z0-9_]*_$",
+          "title": "Evaluation Prefix",
+          "type": "string"
+        },
+        "expected_resource_kinds": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Expected Resource Kinds",
+          "type": "array"
+        }
+      },
+      "title": "LiveResourceExpectations",
+      "type": "object"
+    },
+    "ProjectStage": {
+      "enum": [
+        "DRAFTING",
+        "SUMMARIZED",
+        "ARCHITECTED",
+        "SPECIFICATION",
+        "BUILT",
+        "BUNDLED"
+      ],
+      "title": "ProjectStage",
+      "type": "string"
+    },
+    "ScenarioStep": {
+      "additionalProperties": false,
+      "properties": {
+        "expected_facts": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Expected Facts",
+          "type": "array"
+        },
+        "expected_patterns": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Expected Patterns",
+          "type": "array"
+        },
+        "expected_project_stage": {
+          "$ref": "#/$defs/ProjectStage"
+        },
+        "id": {
+          "pattern": "^[a-z0-9][a-z0-9-]*$",
+          "title": "Id",
+          "type": "string"
+        },
+        "prompt": {
+          "minLength": 1,
+          "title": "Prompt",
+          "type": "string"
+        },
+        "regression_intent": {
+          "minLength": 1,
+          "title": "Regression Intent",
+          "type": "string"
+        },
+        "required_artifacts": {
+          "items": {
+            "$ref": "#/$defs/ArtifactExpectation"
+          },
+          "minItems": 1,
+          "title": "Required Artifacts",
+          "type": "array"
+        },
+        "semantic_assertions": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Semantic Assertions",
+          "type": "array"
+        },
+        "sources": {
+          "items": {
+            "$ref": "#/$defs/SourceCitation"
+          },
+          "minItems": 1,
+          "title": "Sources",
+          "type": "array"
+        },
+        "tool_expectations": {
+          "$ref": "#/$defs/ToolExpectations"
+        },
+        "verification_commands": {
+          "items": {
+            "$ref": "#/$defs/VerificationCommand"
+          },
+          "title": "Verification Commands",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "prompt",
+        "expected_project_stage",
+        "required_artifacts",
+        "semantic_assertions",
+        "expected_facts",
+        "expected_patterns",
+        "tool_expectations",
+        "regression_intent",
+        "sources"
+      ],
+      "title": "ScenarioStep",
+      "type": "object"
+    },
+    "SourceCitation": {
+      "additionalProperties": false,
+      "properties": {
+        "retrieved_at": {
+          "format": "date-time",
+          "title": "Retrieved At",
+          "type": "string"
+        },
+        "snippet": {
+          "maxLength": 280,
+          "minLength": 1,
+          "title": "Snippet",
+          "type": "string"
+        },
+        "title": {
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "type": {
+          "enum": [
+            "docs",
+            "blog",
+            "glean",
+            "confluence",
+            "slack",
+            "github",
+            "manual"
+          ],
+          "title": "Type",
+          "type": "string"
+        },
+        "uri": {
+          "minLength": 1,
+          "title": "Uri",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "uri",
+        "title",
+        "retrieved_at",
+        "snippet"
+      ],
+      "title": "SourceCitation",
+      "type": "object"
+    },
+    "ToolExpectations": {
+      "additionalProperties": false,
+      "properties": {
+        "banned": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Banned",
+          "type": "array"
+        },
+        "required": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Required",
+          "type": "array"
+        }
+      },
+      "title": "ToolExpectations",
+      "type": "object"
+    },
+    "VerificationCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "check": {
+          "minLength": 1,
+          "title": "Check",
+          "type": "string"
+        },
+        "command": {
+          "minLength": 1,
+          "title": "Command",
+          "type": "string"
+        },
+        "fact": {
+          "minLength": 1,
+          "title": "Fact",
+          "type": "string"
+        }
+      },
+      "required": [
+        "fact",
+        "command",
+        "check"
+      ],
+      "title": "VerificationCommand",
+      "type": "object"
+    }
+  },
+  "$id": "https://github.com/databricks-solutions/solution-builder/evaluation/schema/scenario.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "capabilities": {
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1,
+      "title": "Capabilities",
+      "type": "array"
+    },
+    "description": {
+      "minLength": 1,
+      "title": "Description",
+      "type": "string"
+    },
+    "id": {
+      "pattern": "^[a-z0-9][a-z0-9-]*$",
+      "title": "Id",
+      "type": "string"
+    },
+    "live_resources": {
+      "$ref": "#/$defs/LiveResourceExpectations"
+    },
+    "schema_version": {
+      "const": 1,
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "skill": {
+      "minLength": 1,
+      "title": "Skill",
+      "type": "string"
+    },
+    "steps": {
+      "items": {
+        "$ref": "#/$defs/ScenarioStep"
+      },
+      "minItems": 1,
+      "title": "Steps",
+      "type": "array"
+    },
+    "target_stage": {
+      "$ref": "#/$defs/ProjectStage"
+    },
+    "timeout_seconds": {
+      "maximum": 14400,
+      "minimum": 60,
+      "title": "Timeout Seconds",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "id",
+    "skill",
+    "description",
+    "capabilities",
+    "timeout_seconds",
+    "target_stage",
+    "steps",
+    "live_resources"
+  ],
+  "title": "Scenario",
+  "type": "object"
+}

@@ -1,0 +1,94 @@
+schema_version: 1
+id: financial-services
+skill: databricks-demo-generator
+description: >-
+  Real-time fraud detection demo for a retail bank. Generate synthetic
+  credit-card transactions, surface anomalies in a Genie space, and visualize
+  trends in an AI/BI dashboard.
+capabilities: [genie, aibi-dashboards, synthetic-data-gen]
+timeout_seconds: 3600
+target_stage: BUILT
+live_resources:
+  cleanup_owner: solution-builder
+  expected_resource_kinds: [catalog, schema, table, dashboard, genie_space]
+  additional_resource_kinds: []
+  evaluation_prefix: sb_eval_
+steps:
+  - id: capture-story
+    prompt: >-
+      Build a fraud-detection demo for a retail bank. Use synthetic credit-card
+      transactions, an anomaly-detection pattern, a Genie space for ad-hoc
+      questions, and an AI/BI dashboard for the trend view.
+    expected_project_stage: SUMMARIZED
+    required_artifacts:
+      - {path: README.md, description: Approved business story}
+      - {path: resources.json, description: Capability and resource manifest}
+    semantic_assertions:
+      - The story has a named banking protagonist, a concrete fraud catalyst, and quantified business impact.
+      - Synthetic transactions, the anomaly narrative, Genie questions, and dashboard measures form one coherent story.
+    expected_facts:
+      - The proposed demo uses synthetic credit-card transactions, Genie, and an AI/BI dashboard.
+    expected_patterns: ['(?i)fraud', '(?i)(revenue|loss|risk|\$)']
+    tool_expectations: {required: [Read, Write], banned: []}
+    verification_commands:
+      - fact: README.md and resources.json exist after story capture.
+        command: "bash -lc 'test -f README.md && test -f resources.json && echo {\"ok\":true}'"
+        check: .ok == true
+    regression_intent: Detects generic fraud stories whose selected products or generated data do not support the same investigation.
+    sources:
+      - &skill_source
+        type: github
+        uri: repo://.claude/skills/databricks-demo-generator/SKILL.md
+        title: Databricks Demo Generator workflow and coherence contract
+        retrieved_at: 2026-07-17T00:00:00Z
+        snippet: Story first and coherence above all; every showcased product must earn a clear beat in the walkthrough.
+  - id: design-architecture
+    prompt: Looks good — proceed to architect the pipeline and produce architecture.md.
+    expected_project_stage: ARCHITECTED
+    required_artifacts:
+      - {path: architecture.md, description: Renderable architecture diagram JSON}
+    semantic_assertions:
+      - The architecture connects transaction generation to governed data, Genie, and the dashboard without orphan components.
+    expected_facts: [The project contains architecture.md.]
+    expected_patterns: ['architecture\.md', '(?i)(genie|dashboard)']
+    tool_expectations: {required: [Read, Write], banned: []}
+    verification_commands:
+      - fact: architecture.md exists and is not empty.
+        command: "bash -lc 'test -s architecture.md && echo {\"ok\":true}'"
+        check: .ok == true
+    regression_intent: Detects architecture output that omits a selected capability or breaks the end-to-end data flow.
+    sources: [*skill_source]
+  - id: write-specifications
+    prompt: Now write the specifications for each component (specifications/*.md).
+    expected_project_stage: SPECIFICATION
+    required_artifacts:
+      - {path: specifications/*.md, description: Functional component specifications}
+    semantic_assertions:
+      - Specifications define compatible transaction fields, fraud measures, dashboard visuals, and Genie questions.
+    expected_facts: [Per-component specifications are written under specifications/.]
+    expected_patterns: ['specifications/', '(?i)(transaction|anomal)']
+    tool_expectations: {required: [Read, Write], banned: []}
+    verification_commands:
+      - fact: At least one Markdown specification exists.
+        command: "bash -lc 'find specifications -name \"*.md\" -type f -print -quit | grep -q . && echo {\"ok\":true}'"
+        check: .ok == true
+    regression_intent: Detects specs that are individually plausible but disagree on schemas, measures, or the investigation path.
+    sources: [*skill_source]
+  - id: build-demo
+    prompt: "Build it: write the SQL/Python and capture deployed resource IDs in resources.json."
+    expected_project_stage: BUILT
+    required_artifacts:
+      - {path: resources.json, description: Populated deployed resource manifest}
+      - {path: '**/*.{py,sql,json}', description: Buildable implementation artifacts}
+    semantic_assertions:
+      - Build artifacts implement the approved specifications and resources.json records only resources actually created.
+      - Live resource names use the evaluation namespace supplied in the environment when present.
+    expected_facts: [SQL or Python implementation artifacts and resource identifiers are produced.]
+    expected_patterns: ['resources\.json', '(?i)(sql|python|dashboard|genie)']
+    tool_expectations: {required: [Read, Write], banned: []}
+    verification_commands:
+      - fact: resources.json is valid JSON and implementation code exists.
+        command: "bash -lc 'python3 -m json.tool resources.json >/dev/null && find . -type f -name \"*.py\" -print -quit | grep -q . && echo {\"ok\":true}'"
+        check: .ok == true
+    regression_intent: Detects claimed builds with placeholders, missing code, dead resource links, or resources outside the evaluation namespace.
+    sources: [*skill_source]

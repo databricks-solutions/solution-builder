@@ -1,0 +1,91 @@
+schema_version: 1
+id: retail
+skill: databricks-demo-generator
+description: >-
+  Demand-forecasting demo for an omnichannel retailer. Stream point-of-sale
+  events into Delta, aggregate into a Lakebase OLTP store, and serve a forecast
+  model via Model Serving.
+capabilities: [lakebase, ml-training-serving, sdp]
+timeout_seconds: 3600
+target_stage: BUILT
+live_resources:
+  cleanup_owner: solution-builder
+  expected_resource_kinds: [catalog, schema, table, pipeline, lakebase, model, serving_endpoint, mlflow_experiment]
+  additional_resource_kinds: []
+  evaluation_prefix: sb_eval_
+steps:
+  - id: capture-story
+    prompt: >-
+      Build a demand-forecasting demo for an omnichannel retailer. Use a
+      Lakeflow Spark Declarative Pipeline (SDP) to ingest synthetic POS events
+      into Delta, land aggregates in Lakebase for fast lookups, and serve a
+      Prophet-style forecast via Model Serving.
+    expected_project_stage: SUMMARIZED
+    required_artifacts:
+      - {path: README.md, description: Approved retail story}
+      - {path: resources.json, description: Capability and resource manifest}
+    semantic_assertions:
+      - The story explains why governed Delta history, Lakebase lookups, and model serving are all needed by one retail protagonist.
+    expected_facts: [The demo uses SDP, Lakebase, and Model Serving for omnichannel demand forecasting.]
+    expected_patterns: ['(?i)(demand|forecast)', '(?i)(retail|point.of.sale|POS)']
+    tool_expectations: {required: [Read, Write], banned: []}
+    verification_commands:
+      - fact: README.md and resources.json exist after story capture.
+        command: "bash -lc 'test -f README.md && test -f resources.json && echo {\"ok\":true}'"
+        check: .ok == true
+    regression_intent: Detects retail stories that select SDP, Lakebase, and serving without a coherent latency and user-value rationale.
+    sources:
+      - &skill_source
+        type: github
+        uri: repo://.claude/skills/databricks-demo-generator/SKILL.md
+        title: Databricks Demo Generator workflow and coherence contract
+        retrieved_at: 2026-07-17T00:00:00Z
+        snippet: Match products to moments and make data, pipeline, consumption layers, and story align end to end.
+  - id: design-architecture
+    prompt: "Proceed: produce architecture.md."
+    expected_project_stage: ARCHITECTED
+    required_artifacts: [{path: architecture.md, description: Renderable architecture diagram JSON}]
+    semantic_assertions:
+      - The architecture orders POS ingestion, Delta transformations, forecasting, Lakebase synchronization, and serving dependencies correctly.
+    expected_facts: [The project contains architecture.md.]
+    expected_patterns: ['architecture\.md', '(?i)(lakebase|serving|pipeline)']
+    tool_expectations: {required: [Read, Write], banned: []}
+    verification_commands:
+      - fact: architecture.md exists and is not empty.
+        command: "bash -lc 'test -s architecture.md && echo {\"ok\":true}'"
+        check: .ok == true
+    regression_intent: Detects architectures that reverse dependencies or leave Lakebase and model serving disconnected.
+    sources: [*skill_source]
+  - id: write-specifications
+    prompt: Write the per-component specifications.
+    expected_project_stage: SPECIFICATION
+    required_artifacts: [{path: specifications/*.md, description: Functional component specifications}]
+    semantic_assertions:
+      - Specs align POS event grain, forecast horizon, aggregate keys, Lakebase schema, and serving inputs and outputs.
+    expected_facts: [Per-component specifications are written under specifications/.]
+    expected_patterns: ['specifications/', '(?i)(forecast|aggregate)']
+    tool_expectations: {required: [Read, Write], banned: []}
+    verification_commands:
+      - fact: At least one Markdown specification exists.
+        command: "bash -lc 'find specifications -name \"*.md\" -type f -print -quit | grep -q . && echo {\"ok\":true}'"
+        check: .ok == true
+    regression_intent: Detects grain, key, or temporal-contract disagreements across pipeline, model, and operational store specs.
+    sources: [*skill_source]
+  - id: build-demo
+    prompt: "Build it: generate the SDP pipeline, the Lakebase sync, the forecast notebook, and resources.json."
+    expected_project_stage: BUILT
+    required_artifacts:
+      - {path: resources.json, description: Populated deployed resource manifest}
+      - {path: '**/*.{py,sql,json}', description: Buildable implementation artifacts}
+    semantic_assertions:
+      - SDP, sync, and forecasting artifacts implement the shared schema and resources.json contains only validated IDs.
+      - Live resource names use the evaluation namespace supplied in the environment when present.
+    expected_facts: [The SDP pipeline, Lakebase sync, forecast code, and resource identifiers are produced.]
+    expected_patterns: ['resources\.json', '(?i)(pipeline|lakebase|forecast)']
+    tool_expectations: {required: [Read, Write], banned: []}
+    verification_commands:
+      - fact: resources.json is valid JSON and Python or SQL code exists.
+        command: "bash -lc 'python3 -m json.tool resources.json >/dev/null && find . -type f -name \"*.py\" -print -quit | grep -q . && echo {\"ok\":true}'"
+        check: .ok == true
+    regression_intent: Detects placeholder builds, broken sync contracts, stale IDs, or resources outside the evaluation namespace.
+    sources: [*skill_source]
