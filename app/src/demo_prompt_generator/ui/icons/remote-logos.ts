@@ -24,7 +24,8 @@ export const REMOTE_VENDOR_LOGOS: Record<string, string> = {
   brevo: "https://cdn.worldvectorlogo.com/logos/brevo.svg",
   confluence: "https://cdn.svglogos.dev/logos/confluence.svg",
   dropbox: "https://cdn.svglogos.dev/logos/dropbox.svg",
-  gemini: "https://cdn.svglogos.dev/logos/google-gemini.svg",
+  gemini: "https://upload.wikimedia.org/wikipedia/commons/1/1d/Google_Gemini_icon_2025.svg", // colored 4-point-star icon (2025), not the wordmark
+
   github: "https://cdn.svglogos.dev/logos/github-icon.svg",
   gitlab: "https://cdn.svglogos.dev/logos/gitlab-icon.svg",
   glean: "https://upload.wikimedia.org/wikipedia/commons/f/f4/Glean_logo.svg",
