@@ -316,70 +316,70 @@ Use the `type` id; the renderer supplies the icon, label, default description an
 
 ### Agentic Data `agentic-data`
 
-| type | label | size | what it is / when to use |
-|------|-------|------|--------------------------|
-| `lakeflow-block` | Lakeflow | 224×148 | The whole ingest + bronze→silver→gold SDP in one block (no Genie Code framing). Contains SDP — never add a separate sdp tile beside it. |
-| | | | **ports:** `in-lakeflow-connect` ← databases / SaaS apps · `in-zerobus` ← realtime streams / sensors · `in-direct` ← files: PDF / CSV / Parquet · `r` → the compute layer |
-| `lakeflow-genie-block` | Lakeflow + Genie | 360×208 | The PREFERRED data-layer block — ingest + bronze→silver→gold SDP, built/maintained by Genie Code. It IS the data layer; contains SDP + Genie Code, so never add separate sdp / genie-code tiles beside it. |
-| | | | **ports:** `in-lakeflow-connect` ← databases / SaaS apps · `in-zerobus` ← realtime streams / sensors · `in-direct` ← files: PDF / CSV / Parquet · `r` → the compute layer |
-| `lakeflow-connect` | Lakeflow Connect | 200×56 | A few-click interface to connect and ingest data from 100+ sources — SaaS apps, databases, files and knowledge systems. |
-| `zerobus-ingest` | Lakeflow Zerobus | 200×56 | Real-time, direct ingest of streaming events into the lakehouse. |
-| `sdp` | Lakeflow SDP | 230×112 | Spark Declarative Pipelines — declarative bronze → silver → gold that self-heal and scale. |
-| `uc-volume` | UC Volume | 200×56 | Governed file storage in Unity Catalog — where raw documents (PDFs) land. |
-| `lakeflow-jobs` | Lakeflow Jobs | 230×54 | Orchestrate the whole pipeline on a schedule or trigger. |
-| `notebooks-eda` | Notebooks | 200×56 | Interactive exploration and analysis on governed data. |
-| `delta-sharing` | Delta Sharing | 200×56 | Open, cross-org data sharing with no copies. |
-| `marketplace` | Marketplace | 200×56 | Discover and consume third-party data and AI assets. |
-| `lakebase` | Lakebase | 230×54 | Managed Postgres for app state — reads/writes the live queue. |
-| `sql-lakehouse` | Lakehouse | 230×54 | One copy of governed data for BI + AI — real-time queries at scale (SQL Warehouse; RT = Lakehouse Real Time). |
+| type | default title | default description (shown on the tile) | size | when to use |
+|------|---------------|-----------------------------------------|------|-------------|
+| `lakeflow-block` | Lakeflow | One block: managed ingest (Lakeflow Connect), real-time streams (Zerobus) and direct file landing, all flowing into a declarative bronze → silver → gold pipeline. | 224×148 | The whole ingest + bronze→silver→gold SDP in one block (no Genie Code framing). Contains SDP — never add a separate sdp tile beside it. |
+| | | | | **ports:** `in-lakeflow-connect` ← databases / SaaS apps · `in-zerobus` ← realtime streams / sensors · `in-direct` ← files: PDF / CSV / Parquet · `r` → the compute layer |
+| `lakeflow-genie-block` | Lakeflow + Genie | Lakeflow ingest + declarative pipeline, with Genie Code building and maintaining it — one box, end to end. | 360×208 | The PREFERRED data-layer block — ingest + bronze→silver→gold SDP, built/maintained by Genie Code. It IS the data layer; contains SDP + Genie Code, so never add separate sdp / genie-code tiles beside it. |
+| | | | | **ports:** `in-lakeflow-connect` ← databases / SaaS apps · `in-zerobus` ← realtime streams / sensors · `in-direct` ← files: PDF / CSV / Parquet · `r` → the compute layer |
+| `lakeflow-connect` | Lakeflow Connect | A few-click interface to connect and ingest data from 100+ sources — SaaS apps, databases, files and knowledge systems. | 200×56 | A few-click interface to connect and ingest data from 100+ sources — SaaS apps, databases, files and knowledge systems. |
+| `zerobus-ingest` | Lakeflow Zerobus | Real-time, direct ingest of streaming events into the lakehouse. | 200×56 | Real-time, direct ingest of streaming events into the lakehouse. |
+| `sdp` | Lakeflow SDP | Spark Declarative Pipelines — declarative bronze → silver → gold that self-heal and scale. | 230×112 | Spark Declarative Pipelines — declarative bronze → silver → gold that self-heal and scale. |
+| `uc-volume` | UC Volume | Governed file storage in Unity Catalog — where raw documents (PDFs) land. | 200×56 | Governed file storage in Unity Catalog — where raw documents (PDFs) land. |
+| `lakeflow-jobs` | Lakeflow Jobs | Orchestrate the whole pipeline on a schedule or trigger. | 230×54 | Orchestrate the whole pipeline on a schedule or trigger. |
+| `notebooks-eda` | Notebooks | Interactive exploration and analysis on governed data. | 200×56 | Interactive exploration and analysis on governed data. |
+| `delta-sharing` | Delta Sharing | Open, cross-org data sharing with no copies. | 200×56 | Open, cross-org data sharing with no copies. |
+| `marketplace` | Marketplace | Discover and consume third-party data and AI assets. | 200×56 | Discover and consume third-party data and AI assets. |
+| `lakebase` | Lakebase | Managed Postgres for app state — reads/writes the live queue. | 230×54 | Managed Postgres for app state — reads/writes the live queue. |
+| `sql-lakehouse` | Lakehouse | One copy of governed data for BI + AI — real-time queries at scale (SQL Warehouse; RT = Lakehouse Real Time). | 230×54 | One copy of governed data for BI + AI — real-time queries at scale (SQL Warehouse; RT = Lakehouse Real Time). |
 
 ### Agentic Work `agentic-work`
 
-| type | label | size | what it is / when to use |
-|------|-------|------|--------------------------|
-| `databricks-apps-work` | Databricks Apps | 230×54 | The custom business app — PREFERRED over the legacy databricks-apps tile. Runs on Lakebase; can embed the dashboard + Genie Room. |
-| `genie-one` | Genie One - Mobile app | 230×78 | The business-user / mobile entry point. It has a Business-users persona built IN (a small user icon docked above the Genie One mark) — so you do NOT need a separate file:persona/user node beside it. Wire Genie One --> dashboard / Genie Room / app (auto-arrows; leave `arrow` out). |
-| `genie` | Genie Room | 230×54 | ask anything about your data |
-| `knowledge-assistant` | Knowledge Assistant | 200×56 | Chat with your documents — grounded, cited answers from unstructured content. |
-| `supervisor-agent` | Supervisor Agent | 200×56 | Routes a question to the right specialist agent and composes the answer. |
-| `agent-bricks` | Agent Bricks | 230×170 | Managed MULTI-agent system: a Supervisor orchestrating Knowledge Assistant / Genie / MCP / Functions (with extraction·parsing·classification chips). Use when the agent layer is a supervisor routing to specialists; if the demo uses only one agent capability, use that single tile instead. |
-| `ml-training-serving` | ML Models | 200×56 | Train, register, and serve models on governed data. |
-| `ml-model` | Machine Learning Model | 230×54 | A trained model on governed data — classification, forecasting, recommendations, and more. |
-| `model-training` | Model Training | 230×54 | Train + track experiments with MLflow — parameters, metrics, and artifacts, all governed. |
-| `mlops` | MLOps | 230×54 | The full model lifecycle — train, evaluate, register, deploy, and monitor, governed end to end. |
-| `bronze-layer` | Bronze | 200×56 | Raw ingested data, landed as-is. |
-| `silver-layer` | Silver | 200×56 | Cleaned, conformed, deduplicated. |
-| `gold-layer` | Gold | 200×56 | Curated, business-ready aggregates. |
-| `medallion-table` | Medallion Table | 268×96 | The whole medallion (bronze → silver → gold) as ONE block, with the metal-toned layer marks and an internal flow. Prefer this over three separate bronze/silver/gold tiles when you just want to show the layered data itself. OPTIONS (params): `feature_store` and `metric_views` — each adds a fork off the GOLD layer (Feature Store above, Metric Views below) shown inside the block, and exposes an extra right-side OUTPUT handle so you can wire it: `@out-gold` (always), `@out-fs` (when feature_store), `@out-mv` (when metric_views). |
-| | | | **ports:** `l` ← sources / ingest · `out-gold` → gold output · `out-fs` → feature store (when enabled) · `out-mv` → metric views (when enabled) |
-| `feature-store` | Feature Store | 230×54 | Governed, reusable features for training and real-time serving — consistent offline and online. |
-| `uc-model-registry` | UC Model Registry | 230×54 | Version, stage, and govern models in Unity Catalog with full lineage. |
-| `model-serving` | Model Serving Endpoint | 230×54 | A deployed serving endpoint (real-time inference over a custom/registered model). Use when the demo calls a live endpoint; for the train→register→batch-score story use ml-training-serving instead. |
-| `hosted-mcps` | Hosted MCPs | 230×54 | The governed tool/connector layer for agents — hosted MCP servers (Genie / Atlassian / GitHub / Slack / SharePoint / Gmail …). Use when the demo's agent reaches OUT to external systems via MCP. |
-| `vector-search` | Vector Search | 200×56 | Embeddings |
-| `information-extraction` | Information Extraction | 200×56 | Pull specific data points, entities, and fields from unstructured text (ai_extract). |
-| `document-parsing` | Document Parsing | 200×56 | Extract structured content from documents — text, tables, and metadata (ai_parse_document). |
-| `text-classification` | Text Classification | 200×56 | Categorize text into predefined or dynamic labels (ai_classify). |
-| `genie-code` | Built with Genie Code | 360×112 | Standalone 'describe it → Genie Code builds it' beat. Use only when NOT already using lakeflow-genie-block (which has the Genie Code footer built in). |
+| type | default title | default description (shown on the tile) | size | when to use |
+|------|---------------|-----------------------------------------|------|-------------|
+| `databricks-apps-work` | Databricks Apps | Deploy business apps | 230×54 | The custom business app — PREFERRED over the legacy databricks-apps tile. Runs on Lakebase; can embed the dashboard + Genie Room. |
+| `genie-one` | Genie One - Mobile app | Databricks access for business user | 230×78 | The business-user / mobile entry point. It has a Business-users persona built IN (a small user icon docked above the Genie One mark) — so you do NOT need a separate file:persona/user node beside it. Wire Genie One --> dashboard / Genie Room / app (auto-arrows; leave `arrow` out). |
+| `genie` | Genie Room | ask anything about your data | 230×54 | ask anything about your data |
+| `knowledge-assistant` | Knowledge Assistant | Chat with your documents — grounded, cited answers from unstructured content. | 200×56 | Chat with your documents — grounded, cited answers from unstructured content. |
+| `supervisor-agent` | Supervisor Agent | Routes a question to the right specialist agent and composes the answer. | 200×56 | Routes a question to the right specialist agent and composes the answer. |
+| `agent-bricks` | Agent Bricks | Databricks' managed agents — a multi-agent supervisor plus information extraction, document parsing, and classification, built and governed for you. | 230×170 | Managed MULTI-agent system: a Supervisor orchestrating Knowledge Assistant / Genie / MCP / Functions (with extraction·parsing·classification chips). Use when the agent layer is a supervisor routing to specialists; if the demo uses only one agent capability, use that single tile instead. |
+| `ml-training-serving` | ML Models | Train, register, and serve models on governed data. | 200×56 | Train, register, and serve models on governed data. |
+| `ml-model` | Machine Learning Model | A trained model on governed data — classification, forecasting, recommendations, and more. | 230×54 | A trained model on governed data — classification, forecasting, recommendations, and more. |
+| `model-training` | Model Training | Train + track experiments with MLflow — parameters, metrics, and artifacts, all governed. | 230×54 | Train + track experiments with MLflow — parameters, metrics, and artifacts, all governed. |
+| `mlops` | MLOps | The full model lifecycle — train, evaluate, register, deploy, and monitor, governed end to end. | 230×54 | The full model lifecycle — train, evaluate, register, deploy, and monitor, governed end to end. |
+| `bronze-layer` | Bronze | Raw ingested data, landed as-is. | 200×56 | Raw ingested data, landed as-is. |
+| `silver-layer` | Silver | Cleaned, conformed, deduplicated. | 200×56 | Cleaned, conformed, deduplicated. |
+| `gold-layer` | Gold | Curated, business-ready aggregates. | 200×56 | Curated, business-ready aggregates. |
+| `medallion-table` | Medallion Table | Bronze → Silver → Gold in one block — the medallion refinement of a governed table. | 268×96 | The whole medallion (bronze → silver → gold) as ONE block, with the metal-toned layer marks and an internal flow. Prefer this over three separate bronze/silver/gold tiles when you just want to show the layered data itself. OPTIONS (params): `feature_store` and `metric_views` — each adds a fork off the GOLD layer (Feature Store above, Metric Views below) shown inside the block, and exposes an extra right-side OUTPUT handle so you can wire it: `@out-gold` (always), `@out-fs` (when feature_store), `@out-mv` (when metric_views). |
+| | | | | **ports:** `l` ← sources / ingest · `out-gold` → gold output · `out-fs` → feature store (when enabled) · `out-mv` → metric views (when enabled) |
+| `feature-store` | Feature Store | Governed, reusable features for training and real-time serving — consistent offline and online. | 230×54 | Governed, reusable features for training and real-time serving — consistent offline and online. |
+| `uc-model-registry` | UC Model Registry | Version, stage, and govern models in Unity Catalog with full lineage. | 230×54 | Version, stage, and govern models in Unity Catalog with full lineage. |
+| `model-serving` | Model Serving Endpoint | Serve a custom model behind a governed, autoscaling REST endpoint for real-time inference. | 230×54 | A deployed serving endpoint (real-time inference over a custom/registered model). Use when the demo calls a live endpoint; for the train→register→batch-score story use ml-training-serving instead. |
+| `hosted-mcps` | Hosted MCPs | Managed MCP servers that let agents call external tools — Genie, Atlassian, GitHub, Slack, SharePoint, Gmail, and more. | 230×54 | The governed tool/connector layer for agents — hosted MCP servers (Genie / Atlassian / GitHub / Slack / SharePoint / Gmail …). Use when the demo's agent reaches OUT to external systems via MCP. |
+| `vector-search` | Vector Search | Embeddings | 200×56 | Embeddings |
+| `information-extraction` | Information Extraction | Pull specific data points, entities, and fields from unstructured text (ai_extract). | 200×56 | Pull specific data points, entities, and fields from unstructured text (ai_extract). |
+| `document-parsing` | Document Parsing | Extract structured content from documents — text, tables, and metadata (ai_parse_document). | 200×56 | Extract structured content from documents — text, tables, and metadata (ai_parse_document). |
+| `text-classification` | Text Classification | Categorize text into predefined or dynamic labels (ai_classify). | 200×56 | Categorize text into predefined or dynamic labels (ai_classify). |
+| `genie-code` | Built with Genie Code | A copilot for everyone — describe what you want and Genie Code builds the pipeline, dashboard or app for you, directly on Databricks. | 360×112 | Standalone 'describe it → Genie Code builds it' beat. Use only when NOT already using lakeflow-genie-block (which has the Genie Code footer built in). |
 
 ### Agentic Apps `agentic-apps`
 
-| type | label | size | what it is / when to use |
-|------|-------|------|--------------------------|
-| `databricks-apps` | Databricks Apps | 200×56 | Custom web app where the team does the work — queue, actions, all in one place. |
-| `ai-bi-dashboard` | AI/BI Dashboard | 230×54 | Governed dashboards on the same data — one set of numbers, one page. |
+| type | default title | default description (shown on the tile) | size | when to use |
+|------|---------------|-----------------------------------------|------|-------------|
+| `databricks-apps` | Databricks Apps | Custom web app where the team does the work — queue, actions, all in one place. | 200×56 | Custom web app where the team does the work — queue, actions, all in one place. |
+| `ai-bi-dashboard` | AI/BI Dashboard | Governed dashboards on the same data — one set of numbers, one page. | 230×54 | Governed dashboards on the same data — one set of numbers, one page. |
 
 ### Unified Governance `unified-governance`
 
-| type | label | size | what it is / when to use |
-|------|-------|------|--------------------------|
-| `governance-block` | Unified Governance | 580×108 | One governance bar: Unity Catalog + Unity AI Gateway (access any model) + a live Genie Ontology graph. Prefer over the loose unity-catalog / ai-gateway / data-quality / abac / data-classification tiles (use those only to spotlight one feature). |
-| `db-platform` | Databricks Platform | 380×60 | Title banner (the Databricks wordmark). Pin it top-left, usually paired with a big background box (z:-1) wrapping everything → reads as 'all of this is the platform'. |
-| `unity-catalog` | Unity Catalog | 200×56 | One governed catalog — access, lineage, and semantics across data + AI. |
-| `ai-gateway` | Unity AI Gateway | 240×104 | The Unity AI Gateway tile with a row of foundation-model logos (OpenAI · Anthropic · Gemini · Grok · Kimi) across the top — conveys 'govern + access ANY model' at a glance. Use standalone; the Unified Governance bar already embeds a compact gateway if you want the whole control plane. |
-| `data-quality` | Data Quality | 200×56 | Expectations and monitors keep bad data out of the gold layer. |
-| `abac` | ABAC | 200×56 | Attribute-based access control — fine-grained, policy-driven permissions. |
-| `data-classification` | Data Classification | 200×56 | Automatically tag and govern sensitive data. |
+| type | default title | default description (shown on the tile) | size | when to use |
+|------|---------------|-----------------------------------------|------|-------------|
+| `governance-block` | Unified Governance | One control plane for data + AI: Unity Catalog governs access, lineage and quality; the Unity AI Gateway governs every foundation-model call (OpenAI, Anthropic, Gemini, …); Genie Ontology is the shared semantic layer. | 580×108 | One governance bar: Unity Catalog + Unity AI Gateway (access any model) + a live Genie Ontology graph. Prefer over the loose unity-catalog / ai-gateway / data-quality / abac / data-classification tiles (use those only to spotlight one feature). |
+| `db-platform` | Databricks Platform | The Databricks Data + AI platform — one governed foundation for all data + AI. | 380×60 | Title banner (the Databricks wordmark). Pin it top-left, usually paired with a big background box (z:-1) wrapping everything → reads as 'all of this is the platform'. |
+| `unity-catalog` | Unity Catalog | One governed catalog — access, lineage, and semantics across data + AI. | 200×56 | One governed catalog — access, lineage, and semantics across data + AI. |
+| `ai-gateway` | Unity AI Gateway | Security, governance, cost and rate limits. | 240×104 | The Unity AI Gateway tile with a row of foundation-model logos (OpenAI · Anthropic · Gemini · Grok · Kimi) across the top — conveys 'govern + access ANY model' at a glance. Use standalone; the Unified Governance bar already embeds a compact gateway if you want the whole control plane. |
+| `data-quality` | Data Quality | Expectations and monitors keep bad data out of the gold layer. | 200×56 | Expectations and monitors keep bad data out of the gold layer. |
+| `abac` | ABAC | Attribute-based access control — fine-grained, policy-driven permissions. | 200×56 | Attribute-based access control — fine-grained, policy-driven permissions. |
+| `data-classification` | Data Classification | Automatically tag and govern sensitive data. | 200×56 | Automatically tag and govern sensitive data. |
 
 > Sources are demo-authored (not in this catalog): use `type:"source"` with a vendor `icon` (`file:vendor/<name>`; see the icon bank below) and wire the edge to the Lakeflow block's ingest port via an explicit `@in-*` handle.
 

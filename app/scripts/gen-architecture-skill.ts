@@ -60,17 +60,24 @@ function renderCatalog(): string {
     if (!comps.length) continue;
     lines.push(`### ${BAND_META[band].label} \`${band}\``);
     lines.push("");
-    lines.push("| type | label | size | what it is / when to use |");
-    lines.push("|------|-------|------|--------------------------|");
+    // Columns: `type` (the id you write) · label + default description = the TEXT
+    // RENDERED on the tile (title line + grey sub-line) so you know exactly what
+    // shows without opening the app · size · authoring guidance (when to use).
+    lines.push("| type | default title | default description (shown on the tile) | size | when to use |");
+    lines.push("|------|---------------|-----------------------------------------|------|-------------|");
     for (const c of comps) {
       const sz = naturalSize(c.id);
-      const note = c.authoring ?? c.desc ?? "";
-      lines.push(`| \`${c.id}\` | ${esc(c.label)} | ${sz.w}×${sz.h} | ${esc(note)} |`);
+      // Prefer the authoring guidance for "when to use"; fall back to the desc so
+      // the column is never empty. The default description column ALWAYS shows the
+      // rendered `desc` (what the tile actually displays), even when authoring exists.
+      const whenToUse = c.authoring ?? c.desc ?? "";
+      const shown = c.desc ?? "";
+      lines.push(`| \`${c.id}\` | ${esc(c.label)} | ${esc(shown)} | ${sz.w}×${sz.h} | ${esc(whenToUse)} |`);
       if (c.ports && Object.keys(c.ports).length) {
         const ports = Object.entries(c.ports)
           .map(([h, v]) => `\`${h}\` ${esc(v)}`)
           .join(" · ");
-        lines.push(`| | | | **ports:** ${ports} |`);
+        lines.push(`| | | | | **ports:** ${ports} |`);
       }
     }
     lines.push("");
