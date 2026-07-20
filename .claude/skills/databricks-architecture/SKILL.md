@@ -100,6 +100,26 @@ One tab's shape — your starting point. Emit an array of these (`[ … ]`, see 
 
 Top level is a JSON **array**, one element (the shape above) per **tab**; its `name` is the tab label. Multiple tabs = multiple views of one diagram (e.g. "Ingestion" / "Serving"). **Always emit the full array** `[ { … } ]`, even for one tab (a bare object is accepted but re-serialized as an array). Emit every tab each time.
 
+### Positioning: columns, and the optional row-grid
+
+Default placement: **`col` = X** (which lane), **`row` = order WITHIN that lane** (top→bottom); each lane centers its own stack independently. Lanes don't line up row-for-row.
+
+Set top-level **`rowGrid: true`** to turn `row` into a **shared horizontal band across ALL lanes** — same `row` number = same Y line in every column. `col` still sets X; only Y changes. Use it when you want a clean matrix (rows reading straight across):
+
+```
+rowGrid: true                columns →   pipeline    ml            serving
+                            row 0                     UC Registry   Model Serving
+                            row 1   ← (skipped: empty band = vertical space)
+                            row 2    Batch Job        Model Training
+                            row 3    Medallion        …             Lakebase
+```
+
+Rules under `rowGrid`:
+- **Band Y** = the row's line; **band height** = the tallest node in that row. Rows stack top→bottom, whole grid centered on y=0.
+- **`row` numbers are grid coordinates, not just order.** SKIP a number to insert an empty band of vertical space (rows `0,2,4` are more spread out than `0,1,2`) — the lever for opening room when edge labels between two rows collide.
+- **No `row`** → that node falls back to stacking within its own `col` (e.g. leave the data sources row-less to just stack them).
+- **`at` / `alignY` / `below` / `above` still override** a node's grid position (per node).
+
 ### Top level  *(each element of the tabs array)*
 | Field | Required | Description |
 |-------|----------|-------------|
@@ -107,7 +127,7 @@ Top level is a JSON **array**, one element (the shape above) per **tab**; its `n
 | `story` | No | One-line description of this architecture. Metadata (kept in the file); not rendered on the canvas. |
 | `options.trademarkLogos` | No | `true` → render real third-party brand logos. Default `false` (neutral badges). |
 | `columns` | No | Ordered left→right **lane names**. Nodes reference one via `col`. Add/rename/insert lanes freely for a different shape — no fixed taxonomy. |
-| `rowGrid` | No | `true` → a node's `row` becomes a **shared grid row aligned across ALL columns** (row N = the same horizontal line in every lane), so columns register into rows even with different node counts. Each band's height = its tallest node. A node with **no `row`** falls back to stacking within its own column (so you can leave e.g. the data sources without a `row`). **Row numbers are grid coordinates — SKIPPING a number inserts an empty band of vertical space** (rows `0, 2, 4` are more spread out than `0, 1, 2`). Default (off) → `row` orders WITHIN a lane. Relational (`alignY`/`below`/…) + `at` still override per node. |
+| `rowGrid` | No | `true` → `row` aligns across ALL lanes into shared horizontal bands (a matrix). Off (default) → `row` orders within a lane. Full rules in *Positioning* above. |
 | `custom_logos` | No | `[{ id, svg }]` — inline SVG logos. Reference one from any node's `icon` as `"custom:<id>"`. See *Custom logos & images*. |
 | `nodes` | Yes | The components on the canvas (see below). |
 | `edges` | Yes | The lines between them. |
@@ -118,7 +138,7 @@ Top level is a JSON **array**, one element (the shape above) per **tab**; its `n
 | `id` | Yes | Unique node id. For a 2nd placement of the same component use `genie#2` (the `#N` suffix). |
 | `type` | Yes | A **catalog component id** (`genie`, `sql-lakehouse`, `lakeflow-genie-block`, `governance-block`, `db-platform`, … — see the catalog below; this folds in the old composite "kind") OR a special kind: `source` · `box` · `text` · `logo` · `image`. |
 | `col` | placement | The lane (from `columns`) this node sits in. Nodes in a lane stack vertically, centered. **Primary way to place a node.** |
-| `row` | No | Order within the lane (else order of appearance). With top-level `rowGrid: true`, `row` instead aligns across ALL columns into a shared horizontal band (row N = same line in every lane). |
+| `row` | No | Within-lane order (default), or a shared cross-lane band with `rowGrid: true` — see *Positioning* above. |
 | `wraps` | container | On a `type:"box"`: the node ids this box ENCLOSES. The box auto-sizes around them (+ `pad`, default 24). Nesting works (a box may wrap boxes) — see *Containers*. |
 | `bounds` | container | On a `type:"box"`: per-side edge anchors `{ left?, right?, top?, bottom? }`. Each side = `"<nodeId>:<anchor>"` (anchor ∈ `left`/`right`/`center` for x, `top`/`bottom`/`center` for y), or `"col:<name>:<anchor>"` (a lane's edge/midpoint), or `"wrap"`. Lets the box edge cut HALFWAY through a node/column. Unspecified sides fall back to `wraps`. |
 | `pin` | placement | Dock this node into a box corner (overrides `col`). An object `{ at, to?, pad?, float? }`: `at` = one of `top-left`·`top`·`top-right`·`left`·`center`·`right`·`bottom-left`·`bottom`·`bottom-right`; `to` = box id to dock into (default: the largest box); `pad` = inset px (default 16); `float` = `false`/omitted → **reserve a band** (the box GROWS so this never overlaps content — top pin pushes content down, bottom extends the box down), `true` → **overlay** at the corner (may sit over content). Use for banners / personas. |
