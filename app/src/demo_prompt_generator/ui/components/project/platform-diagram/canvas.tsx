@@ -22,6 +22,7 @@ import {
   addEdge,
   useReactFlow,
   useStoreApi,
+  useNodesInitialized,
   type Node,
   type Edge,
   type Connection,
@@ -172,8 +173,21 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
       return sel.map((n) => n.id);
     });
   }, []);
-  const { screenToFlowPosition, getInternalNode } = useReactFlow();
+  const { screenToFlowPosition, getInternalNode, fitView } = useReactFlow();
   const rfStore = useStoreApi();
+  // Fit-view when a tab OPENS. The static `fitView` prop fires on first render —
+  // but with symbolic layout the composite nodes haven't been MEASURED yet, so
+  // it fits to a stale/zero bbox. Wait for nodes to be initialized (measured),
+  // then fit once. Canvas is remounted per tab (key={activeIndex}), so this runs
+  // fresh on every tab open — matching a click of the "fit view" control.
+  const nodesInitialized = useNodesInitialized();
+  const didFit = useRef(false);
+  useEffect(() => {
+    if (nodesInitialized && !didFit.current) {
+      didFit.current = true;
+      fitView(FIT_VIEW_OPTIONS);
+    }
+  }, [nodesInitialized, fitView]);
   const wrapRef = useRef<HTMLDivElement>(null);
 
   // "Copy style → paste onto others" mode. While `copiedStyle` is set, a banner
