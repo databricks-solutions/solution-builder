@@ -1,45 +1,73 @@
 // =============================================================================
-// AGENT BRICKS — a multi-agent "Agent Bricks" architecture.
+// AGENT BRICKS — a multi-agent "Agent Bricks" architecture over a governed
+// medallion + a document Knowledge Assistant.
 //
-// This is JSONC (JSON + // comments) for YOU, the agent, to read. When you write
-// the project's `architecture.md`, emit PLAIN JSON (no comments) inside a ```json
-// fence — strip these comments.
+// JSONC (JSON + // comments) for YOU to read. Emit PLAIN JSON (strip //) in the
+// architecture.md ```json fence.
 //
-// What it shows:
-//   • A data SOURCE (`src-pdf`) aligned to the block it feeds via `alignY` — the
-//     source sits IN its own lane but at the SAME height as the Knowledge
-//     Assistant, so the feed edge is a clean horizontal line (no hand-placed at).
-//   • A "tools" column (Knowledge Assistant · Genie · Hosted MCPs) fanning into a
-//     Supervisor Agent.
-//   • `ai-bi-dashboard` placed with `below` (relative to the Supervisor) instead
-//     of a hand-computed coordinate.
-//   • `genie-one` as the business-user entry (rotated), with auto-arrow serving
-//     edges (no `flow`) vs. the animated `flow: true` data edges upstream.
+// WHAT IT SHOWS:
+//   • rowGrid layout — `row` aligns across ALL lanes into shared bands:
+//       row 1              Hosted MCPs
+//       row 2              Genie Space          Supervisor Agent
+//       row 3   Postgres · Medallion · AI/BI Dashboard
+//       row 4   PDF docs ·            Knowledge Assistant
+//     so PDF (row 4) lines up with the Knowledge Assistant it feeds, and
+//     Postgres (row 3) lines up with the medallion — clean horizontal feeds.
+//   • A governed medallion (`medallion-table`, params.metric_views on) forks a
+//     Metric Views layer off GOLD and exposes `@out-gold` + `@out-mv`:
+//       – Genie Space reads GOLD (`@out-gold` → genie).
+//       – the AI/BI Dashboard reads the METRIC VIEWS (`@out-mv` → dashboard).
+//   • PDF documents feed the Knowledge Assistant DIRECTLY (unstructured RAG),
+//     NOT through the medallion.
+//   • A Supervisor Agent orchestrates the three tools (Knowledge Assistant ·
+//     Genie Space · Hosted MCPs) and serves business users through Genie One.
 //
-// AUTHOR STRUCTURE, NOT PIXELS: columns + col/row lanes, `alignY`/`below` for
-// relative placement. The renderer computes all coordinates.
+// AUTHOR STRUCTURE, NOT PIXELS. See the medallion catalog row for the
+// `@out-gold` / `@out-mv` / `@l` handles.
 // =============================================================================
 [
   {
     "name": "Agent Bricks",
-    "story": "PDF documents feed a Knowledge Assistant — either directly, or landed via the Lakeflow + Genie block's direct-file (raw docs) ingest port and processed by the declarative pipeline before flowing on to the Knowledge Assistant. A Supervisor Agent orchestrates the Knowledge Assistant, Genie, and hosted MCP tool servers, then serves answers to business users through Genie One alongside an AI/BI dashboard.",
-    "columns": ["sources", "tools", "supervisor", "entry"],
+    "story": "Ingest our Postgres data into a governed medallion (bronze→silver→gold) with a Metric Views layer; a Genie Space queries the gold tables and an AI/BI dashboard reads the governed metric views. Separately, our PDF documents feed a Knowledge Assistant for grounded Q&A. A Supervisor Agent orchestrates the Knowledge Assistant, Genie Space, and hosted MCP tools, and serves answers to business users through Genie One.",
+    "columns": ["sources", "pipeline", "tools", "supervisor", "entry"],
+    "rowGrid": true,
     "nodes": [
-      { "id": "src-pdf", "type": "src-pdf", "col": "sources", "alignY": "knowledge-assistant" },
-      { "id": "knowledge-assistant", "type": "knowledge-assistant", "col": "tools", "row": 1 },
+      { "id": "src-postgres", "type": "source", "col": "sources", "row": 3, "label": "Postgres", "icon": "file:vendor/postgresql" },
+      { "id": "src-pdf", "type": "source", "col": "sources", "row": 4, "label": "PDF documents", "icon": "pdfLogo",
+        "note": "PDFs feed the Knowledge Assistant DIRECTLY (unstructured RAG) — NOT through the medallion. Placed on row 4 to line up with the Knowledge Assistant." },
+
+      { "id": "medallion-table", "type": "medallion-table", "col": "pipeline", "row": 3, "params": { "metric_views": true },
+        "note": "params.metric_views on → a Metric Views fork off GOLD + the `@out-mv` handle (plus the always-present `@out-gold`). Genie reads gold, the dashboard reads metric views." },
+
+      { "id": "hosted-mcps", "type": "hosted-mcps", "col": "tools", "row": 1,
+        "note": "The three `tools` (rows 1-3, this + genie + knowledge-assistant) each fan INTO the Supervisor on the right — it routes a question to whichever tool answers it. Hosted MCPs = the agent's external-tool reach." },
       { "id": "genie", "type": "genie", "col": "tools", "row": 2 },
-      { "id": "hosted-mcps", "type": "hosted-mcps", "col": "tools", "row": 3 },
-      { "id": "supervisor-agent", "type": "supervisor-agent", "col": "supervisor" },
-      { "id": "ai-bi-dashboard", "type": "ai-bi-dashboard", "below": "supervisor-agent" },
-      { "id": "genie-one", "type": "genie-one", "col": "entry", "rot": 90 }
+      { "id": "ai-bi-dashboard", "type": "ai-bi-dashboard", "col": "tools", "row": 3,
+        "note": "Sits in the `tools` lane on row 3 (aligned with the medallion it reads) but is NOT a Supervisor tool — it's a consumption surface fed by the metric views, wired straight to Genie One." },
+      { "id": "knowledge-assistant", "type": "knowledge-assistant", "col": "tools", "row": 4,
+        "note": "Row 4 to line up with the PDF source that feeds it. Managed RAG over the docs (no separate Vector Search node needed — KA handles chunk/index/retrieve)." },
+
+      { "id": "supervisor-agent", "type": "supervisor-agent", "col": "supervisor", "row": 2,
+        "note": "Row 2 = centered against the tool stack it fans in from, so the three `@l` inbound edges stay balanced." },
+
+      { "id": "genie-one", "type": "genie-one", "col": "entry", "row": 2, "rot": 90,
+        "note": "Business-user entry point — the persona pill is built INTO the tile (no separate user node). Rotated 90° into a slim right-hand lane. Its inbound edges (from Supervisor + Dashboard) auto-arrow — leave `arrow`/`flow` off." }
     ],
     "edges": [
-      { "id": "e-pdf-ka", "from": "src-pdf@r", "to": "knowledge-assistant@l", "flow": true },
+      { "id": "e-pg-med", "from": "src-postgres@r", "to": "medallion-table@l", "flow": true },
+      { "id": "e-pdf-ka", "from": "src-pdf@r", "to": "knowledge-assistant@l", "flow": true, "label": "Split and index documents",
+        "note": "Label describes what KA does to the docs on the way in (chunk → embed → index). The `docs` travelling-glyph animation is auto-picked because the source is a PDF." },
+
+      { "id": "e-med-genie", "from": "medallion-table@out-gold", "to": "genie@l", "flow": true, "label": "Query gold",
+        "note": "Genie reads the GOLD tables directly — `@out-gold` handle." },
+      { "id": "e-med-dash", "from": "medallion-table@out-mv", "to": "ai-bi-dashboard@l", "flow": true, "label": "Aggregations",
+        "note": "Dashboard reads the METRIC VIEWS fork — `@out-mv` handle. 'Aggregations' = the governed aggregate metrics the metric-views layer exposes." },
+
       { "id": "e-ka-sup", "from": "knowledge-assistant@r", "to": "supervisor-agent@l", "flow": true },
       { "id": "e-genie-sup", "from": "genie@r", "to": "supervisor-agent@l", "flow": true },
       { "id": "e-mcp-sup", "from": "hosted-mcps@r", "to": "supervisor-agent@l", "flow": true },
+
       { "id": "e-sup-genieone", "from": "supervisor-agent@r", "to": "genie-one@l" },
-      { "id": "e-sup-dash", "from": "supervisor-agent@b", "to": "ai-bi-dashboard@t", "flow": true },
       { "id": "e-dash-genieone", "from": "ai-bi-dashboard@r", "to": "genie-one@l" }
     ]
   }

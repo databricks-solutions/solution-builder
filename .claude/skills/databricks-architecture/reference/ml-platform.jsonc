@@ -1,95 +1,285 @@
 // =============================================================================
-// ML PLATFORM — an end-to-end machine-learning architecture on Databricks.
+// ML PLATFORM — end-to-end machine learning on Databricks, laid out as a GRID.
 //
-// JSONC (JSON + // comments) for YOU, the agent, to read. When you write the
-// project's architecture.md, emit PLAIN JSON (no comments) in a ```json fence.
+// JSONC (JSON + // comments) for YOU to read. Emit PLAIN JSON (strip //) in the
+// architecture.md ```json fence.
 //
-// What it shows:
-//   • Sources → a `medallion-table` composite (Bronze · Silver · Gold in one
-//     block, with an internal flow) built by a Spark Declarative Pipeline — a
-//     titled `box` (sdp-box) wraps it = the SDP.
-//   • The medallion has BOTH fork OPTIONS on (`params: feature_store +
-//     metric_views`): a Feature Store and a Metric Views layer fork off GOLD
-//     INSIDE the block, each with its own right-side output handle
-//     (`@out-fs` / `@out-gold` / `@out-mv`). This replaces the old separate
-//     Feature Store tile — prefer the built-in fork.
-//   • A bigger UNTITLED `box` (uc-box) wraps the whole governed layer — the
-//     medallion (with its FS + MV forks) + Vector Search + Model Registry — and
-//     a `unity-catalog` component PINNED to its top-left corner reads as "all of
-//     this is governed by Unity Catalog" (the pin reserves a top band so the box
-//     grows to enclose it, clear of the SDP box's own title).
-//   • Vector Search (NOT a medallion fork option) sits `below` gold in UC but
-//     OUTSIDE the SDP box — it's derived embeddings, not a pipeline stage.
-//   • Model Training (MLflow) trains on the gold + feature outputs, registers to
-//     the UC Model Registry.
-//   • Serving column: a real-time Model Serving Endpoint loads the model (an app
-//     pulls features via `@out-fs` + calls it), a RAG Endpoint grounds on Vector
-//     Search, and a Batch Scoring Job writes bulk predictions back to gold.
-//   • An AI/BI Dashboard consumes the Metric Views fork (`@out-mv`).
+// WHY THIS EXAMPLE (what it demonstrates):
+//   • `rowGrid: true` — `row` aligns across ALL lanes into shared bands (a matrix):
+//       row 0  UC Registry · Model Serving
+//       row 2  Batch Job · Model Training · App     (row 1 SKIPPED = blank band =
+//       row 3  Medallion · Lakebase · AI Gateway     vertical space so the dense
+//       row 4  Vector Search · RAG Endpoint          registry↔training labels fit)
+//   • Data sources are `type:"source"` tiles; here they carry rows 1-3 to line up
+//     with the grid. Leaving `row` off would just stack them in their lane. `col`
+//     always sets X.
+//   • medallion-table `params.feature_store` → the Feature Store fork + `@out-fs`
+//     handle (training/app read features, NOT gold — see the notes).
+//   • The Unity AI Gateway tile (foundation-model logos) governs frontier calls.
+//   • `note` on nodes/edges = authoring reasoning, NEVER rendered, round-trips.
+//   • One platform `box` wraps the whole flow (not the sources); `db-platform`
+//     banner pinned top-left.
 //
-// KEY AUTHORING NOTES:
-//   • A node's `id` MUST be a catalog id, OR `<catalogid>#N` for a 2nd placement
-//     of the same component (two model-serving tiles → "model-serving" and
-//     "model-serving#2"). A made-up id like "rag-endpoint" would be re-keyed to
-//     its type's base id and COLLIDE with the other model-serving node.
-//   • The medallion's fork outputs are addressed by handle: `@out-fs` (feature
-//     store row), `@out-gold` (gold row), `@out-mv` (metric views row). They
-//     appear only when the matching param is on; an edge to a missing handle
-//     falls back to `@out-gold`.
-//   • AUTHOR STRUCTURE, NOT PIXELS: columns + col/row, `alignY` (line a tile up
-//     with another), `below`/`above` (stack relative), `wraps` (box encloses),
-//     `pin` (dock a banner on a box corner). The renderer computes coordinates.
+// Prefer this shape for an ML / model-serving demo. For a simpler
+// ingest→lakehouse→dashboard story use the inline example in SKILL.md's
+// "The format"; for the full platform use architecture-complete.jsonc.
 // =============================================================================
 [
   {
     "name": "ML Platform",
-    "story": "Sources land in a governed Unity Catalog lakehouse; a Spark Declarative Pipeline builds bronze → silver → gold, forking gold into a Feature Store and a Metric Views layer, plus a Vector Search index. MLflow trains a model on the features + gold data and registers it to the UC Model Registry. A real-time serving endpoint loads the model, an app pulls features and calls it, a RAG endpoint grounds on Vector Search, a batch job scores in bulk back to a gold table, and an AI/BI dashboard reads the metric views.",
-    "columns": ["sources", "medallion", "ml", "serving", "consumers"],
+    "story": "Build an end-to-end ML platform: ingest our Postgres, sensor, and PDF data into a governed lakehouse, engineer features, train and register a model with MLflow, then serve it in real time to an app and as a nightly batch job. Add a RAG endpoint over the documents, keep app state in Lakebase, and put everything behind the Unity AI Gateway.",
+    "columns": [
+      "sources",
+      "pipeline",
+      "ml",
+      "serving",
+      "consumers"
+    ],
+    "rowGrid": true,
     "nodes": [
-      { "id": "src-postgres", "type": "source", "icon": "file:vendor/postgresql", "label": "Postgres", "col": "sources", "row": 1 },
-      { "id": "src-kafka", "type": "source", "icon": "file:vendor/kafka", "label": "Kafka", "col": "sources", "row": 2 },
-      { "id": "src-pdf", "type": "src-pdf", "col": "sources", "row": 3 },
-
-      { "id": "medallion-table", "type": "medallion-table", "col": "medallion", "row": 1, "params": { "feature_store": true, "metric_views": true },
-        "note": "params.feature_store + metric_views each add a fork off GOLD inside the block and expose an output handle — @out-fs, @out-mv (@out-gold is always there). The edges below wire to those handles. NEVER rendered; `note` is authoring-only." },
-
-      { "id": "vector-search", "type": "vector-search", "col": "medallion", "below": "medallion-table", "gap": 70 },
-
-      { "id": "model-training", "type": "model-training", "col": "ml", "above": "uc-model-registry", "gap": 70 },
-      { "id": "uc-model-registry", "type": "uc-model-registry", "col": "ml", "alignY": "medallion-table" },
-
-      { "id": "model-serving", "type": "model-serving", "col": "serving", "alignY": "uc-model-registry" },
-      { "id": "model-serving#2", "type": "model-serving", "label": "RAG Endpoint", "desc": "Retrieval-augmented generation — grounds answers on the Vector Search index.", "col": "serving", "below": "model-serving", "gap": 44,
-        "note": "A SECOND model-serving tile → id MUST be `model-serving#2` (the #N rule for a repeated type). A made-up id like `rag-endpoint` would re-key to its type and collide with the first serving node." },
-      { "id": "lakeflow-jobs", "type": "lakeflow-jobs", "label": "Batch Scoring Job", "desc": "Scheduled bulk inference — scores in one pass and writes predictions to a gold table.", "col": "serving", "below": "model-serving#2", "gap": 44,
-        "note": "Generic `lakeflow-jobs` (Jobs) tile RELABELED as a batch scoring job — there's no dedicated batch-scoring type. Reuse lakeflow-jobs + label/desc for any scheduled job." },
-
-      { "id": "databricks-apps", "type": "databricks-apps", "col": "consumers", "alignY": "model-serving" },
-      { "id": "ai-bi-dashboard", "type": "ai-bi-dashboard", "col": "consumers", "below": "databricks-apps", "gap": 44 },
-
-      { "id": "sdp-box", "type": "box", "title": "Spark Declarative Pipeline", "z": -1, "pad": 22, "wraps": ["medallion-table"] },
-      { "id": "uc-box", "type": "box", "z": -2, "pad": 44, "wraps": ["medallion-table", "vector-search", "uc-model-registry"] },
-      { "id": "unity-catalog", "type": "unity-catalog", "pin": { "at": "top-left", "to": "uc-box" } }
+      {
+        "id": "src-postgres",
+        "type": "source",
+        "col": "sources",
+        "row": 1,
+        "label": "Postgres",
+        "icon": "file:vendor/postgresql",
+        "note": "A data source = `type:\"source\"` (NOT a catalog component): a demo-authored tile with a vendor/generic `icon` + a `label`/`desc` you set. The library palette's built-in source presets already carry clean labels (Postgres \u00b7 Sensor data \u00b7 PDF documents), so adding one from the palette shows the clean name \u2014 keep the explicit `label` when hand-authoring."
+      },
+      {
+        "id": "src-sensors",
+        "type": "source",
+        "col": "sources",
+        "row": 2,
+        "label": "Sensor data",
+        "icon": "sensorSource"
+      },
+      {
+        "id": "src-pdf",
+        "type": "source",
+        "col": "sources",
+        "row": 3,
+        "label": "PDF documents",
+        "icon": "pdfLogo"
+      },
+      {
+        "id": "uc-model-registry",
+        "type": "uc-model-registry",
+        "col": "ml",
+        "row": 0,
+        "note": "rowGrid layout \u2014 `row` aligns across ALL columns into shared horizontal bands. This tab uses rows 0 \u00b7 2 \u00b7 3 \u00b7 4 (row 1 is deliberately SKIPPED to open a blank band of vertical space between this top ML row and the batch/training row below, so the 'Register model' / 'Load model' / 'Feedback loop' labels there stay readable). Registry + Model Serving are the top band (row 0)."
+      },
+      {
+        "id": "model-serving",
+        "type": "model-serving",
+        "col": "serving",
+        "row": 0
+      },
+      {
+        "id": "lakeflow-jobs",
+        "type": "lakeflow-jobs",
+        "col": "pipeline",
+        "row": 2,
+        "note": "This is the generic `lakeflow-jobs` (orchestration/Jobs) tile RELABELED as a batch scoring job \u2014 there is no dedicated batch-scoring type. For any other scheduled job, reuse `lakeflow-jobs` + a `label`/`desc`.",
+        "label": "Batch Scoring Job",
+        "desc": "Scheduled bulk inference \u2014 loads the registered model and writes predictions back to a gold table."
+      },
+      {
+        "id": "model-training",
+        "type": "model-training",
+        "col": "ml",
+        "row": 2
+      },
+      {
+        "id": "databricks-apps",
+        "type": "databricks-apps",
+        "col": "consumers",
+        "row": 2
+      },
+      {
+        "id": "medallion-table",
+        "type": "medallion-table",
+        "col": "pipeline",
+        "row": 3,
+        "params": {
+          "feature_store": true
+        },
+        "note": "`params.feature_store: true` adds the Feature Store fork off GOLD inside the block AND exposes the `@out-fs` output handle (the `@out-gold` handle is always present). Add `metric_views: true` for a Metric Views fork + `@out-mv`. Edges target these handles: `@out-fs` (features), `@out-gold` (gold), `@l` (ingest in)."
+      },
+      {
+        "id": "lakebase",
+        "type": "lakebase",
+        "col": "serving",
+        "row": 3
+      },
+      {
+        "id": "ai-gateway",
+        "type": "ai-gateway",
+        "col": "consumers",
+        "row": 3
+      },
+      {
+        "id": "vector-search",
+        "type": "vector-search",
+        "col": "ml",
+        "row": 4
+      },
+      {
+        "id": "model-serving#2",
+        "type": "model-serving",
+        "col": "serving",
+        "row": 4,
+        "label": "RAG Endpoint",
+        "desc": "Retrieval-augmented generation \u2014 grounds answers on the Vector Search index."
+      },
+      {
+        "id": "platform-box",
+        "type": "box",
+        "wraps": [
+          "uc-model-registry",
+          "model-serving",
+          "lakeflow-jobs",
+          "model-training",
+          "databricks-apps",
+          "medallion-table",
+          "lakebase",
+          "ai-gateway",
+          "vector-search",
+          "model-serving#2"
+        ],
+        "pad": 40,
+        "z": -2
+      },
+      {
+        "id": "db-platform",
+        "type": "db-platform",
+        "pin": {
+          "at": "top-left",
+          "to": "platform-box"
+        }
+      }
     ],
     "edges": [
-      { "id": "e-pg-med", "from": "src-postgres@r", "to": "medallion-table@l", "flow": true },
-      { "id": "e-kafka-med", "from": "src-kafka@r", "to": "medallion-table@l", "flow": true },
-      { "id": "e-pdf-med", "from": "src-pdf@r", "to": "medallion-table@l", "flow": true },
-      { "id": "e-med-vs", "from": "medallion-table@b", "to": "vector-search@t", "flow": true },
-
-      { "id": "e-gold-train", "from": "medallion-table@out-gold", "to": "model-training@l", "flow": true },
-      { "id": "e-fs-train", "from": "medallion-table@out-fs", "to": "model-training@l", "flow": true },
-      { "id": "e-train-registry", "from": "model-training@b", "to": "uc-model-registry@t", "flow": true },
-
-      { "id": "e-registry-serving", "from": "uc-model-registry@r", "to": "model-serving@l", "flow": true },
-      { "id": "e-vs-rag", "from": "vector-search@r", "to": "model-serving#2@l", "flow": true },
-
-      { "id": "e-fs-app", "from": "medallion-table@out-fs", "to": "databricks-apps@l", "arrow": "end" },
-      { "id": "e-app-serving", "from": "databricks-apps@l", "to": "model-serving@r", "arrow": "end" },
-      { "id": "e-mv-dashboard", "from": "medallion-table@out-mv", "to": "ai-bi-dashboard@l", "flow": true },
-
-      { "id": "e-registry-batch", "from": "uc-model-registry@r", "to": "lakeflow-jobs@l", "flow": true },
-      { "id": "e-batch-med", "from": "lakeflow-jobs@l", "to": "medallion-table@b", "arrow": "end", "shape": "step" }
+      {
+        "id": "e-pg-med",
+        "from": "src-postgres@r",
+        "to": "medallion-table@l",
+        "flow": true
+      },
+      {
+        "id": "e-sensors-med",
+        "from": "src-sensors@r",
+        "to": "medallion-table@l",
+        "flow": true
+      },
+      {
+        "id": "e-pdf-med",
+        "from": "src-pdf@r",
+        "to": "medallion-table@l",
+        "flow": true
+      },
+      {
+        "id": "e-fs-train",
+        "from": "medallion-table@out-fs",
+        "to": "model-training@l",
+        "flow": true,
+        "label": "Train on features"
+      },
+      {
+        "id": "e-med-vs",
+        "from": "medallion-table@out-gold",
+        "to": "vector-search@l",
+        "flow": true,
+        "label": "Sync to embeddings"
+      },
+      {
+        "id": "e-train-registry",
+        "from": "model-training@t",
+        "to": "uc-model-registry@b",
+        "flow": true,
+        "arrow": "end",
+        "label": "Register model"
+      },
+      {
+        "id": "e-registry-serving",
+        "from": "uc-model-registry@r",
+        "to": "model-serving@l",
+        "flow": true,
+        "label": "Load model"
+      },
+      {
+        "id": "e-registry-batch",
+        "from": "uc-model-registry@l",
+        "to": "lakeflow-jobs@r",
+        "flow": true,
+        "label": "Load model"
+      },
+      {
+        "id": "e-batch-med",
+        "from": "lakeflow-jobs@b",
+        "to": "medallion-table@t",
+        "flow": true,
+        "arrow": "end",
+        "label": "Write predictions to gold"
+      },
+      {
+        "id": "e-vs-rag",
+        "from": "vector-search@r",
+        "to": "model-serving#2@l",
+        "flow": true,
+        "label": "Search text"
+      },
+      {
+        "id": "e-serving-feedback",
+        "from": "model-serving@b",
+        "to": "model-training@t",
+        "arrow": "end",
+        "dashed": true,
+        "shape": "step",
+        "label": "Feedback loop"
+      },
+      {
+        "id": "e-fs-app",
+        "from": "medallion-table@out-fs",
+        "to": "databricks-apps@l",
+        "flow": true,
+        "label": "Features"
+      },
+      {
+        "id": "e-app-serving",
+        "from": "databricks-apps@l",
+        "to": "model-serving@r",
+        "arrow": "end",
+        "label": "Predict"
+      },
+      {
+        "id": "e-app-rag",
+        "from": "databricks-apps@l",
+        "to": "model-serving#2@r",
+        "arrow": "end",
+        "label": "Ask (RAG)"
+      },
+      {
+        "id": "e-gold-lakebase",
+        "from": "medallion-table@out-gold",
+        "to": "lakebase@l",
+        "flow": true,
+        "label": "Sync gold \u2192 Postgres"
+      },
+      {
+        "id": "e-lakebase-app",
+        "from": "lakebase@r",
+        "to": "databricks-apps@l",
+        "flow": true,
+        "label": "Live state"
+      },
+      {
+        "id": "e-app-gateway",
+        "from": "databricks-apps@b",
+        "to": "ai-gateway@t",
+        "arrow": "both",
+        "label": "Frontier-model calls"
+      }
     ]
   }
 ]
