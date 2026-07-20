@@ -434,6 +434,22 @@ uv run uvicorn demo_prompt_generator.backend.app:app --host 127.0.0.1 --port 900
 databricks bundle deploy -t staging
 ```
 
+### Observability (OpenTelemetry) — telemetry-gated, no-op when off
+
+Enabling the Apps **Observability** option (UI + UC target tables) makes Databricks
+inject the OTLP collector env (`OTEL_EXPORTER_OTLP_ENDPOINT` + protocol/headers/attrs)
+at runtime. `app/start.sh` detects that var and launches uvicorn under
+**`opentelemetry-instrument`** (auto-instruments FastAPI request spans + logs);
+otherwise it execs plain uvicorn — **byte-identical to before when telemetry is off**
+(local dev, telemetry-disabled deploys). CPU/memory/process metrics are NOT
+auto-wired for FastAPI, so `backend/core/observability.py::init_system_metrics()`
+(called from `app.py`'s `_build_app`) explicitly starts `SystemMetricsInstrumentor`
+when the OTLP endpoint is present. Deps live in `pyproject.toml` (the
+`opentelemetry-*` block, incl. `-system-metrics` → pulls `psutil`). Only
+`OTEL_TRACES_SAMPLER=always_on` + `OTEL_SERVICE_NAME` are set by us (in
+`databricks.prod.yml` `app_env`); the endpoint/headers are Databricks-injected — never
+hardcode them.
+
 ### ⚠️ Dev database: `RESET_DB` is DESTRUCTIVE — know the mode first
 
 The dev DB mode is chosen in `backend/core/lakebase.py` `_is_pglite_mode()`: PGLite iff `USE_PGLITE=1` **or** `LAKEBASE_DATABASE_PATH` is unset. **Local dev normally sets `LAKEBASE_DATABASE_PATH` in `app/.env` → it points at a real remote Lakebase branch** (a named branch under the shared Lakebase project, NOT prod). So:

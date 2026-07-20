@@ -22,12 +22,17 @@ if (_v.major, _v.minor) < _MIN or (_v.major, _v.minor) >= _MAX_EXCLUSIVE:
 from fastapi import APIRouter, FastAPI  # noqa: E402
 
 from .core import create_app  # noqa: E402
+from .core.observability import init_system_metrics  # noqa: E402
 from .preview import register_routes as _register_preview_routes  # noqa: E402
 from .router import router  # noqa: E402
 from .services.skills_manager import get_project_directory  # noqa: E402
 
 
 def _build_app() -> FastAPI:
+    # Start CPU/memory/process metrics when Apps telemetry is on (no-op otherwise).
+    # FastAPI request spans + logs are auto-wired by `opentelemetry-instrument`
+    # (start.sh); system metrics must be started explicitly — see observability.py.
+    init_system_metrics()
     # --- Preview feature (isolated; see backend/preview/README.md) ----------
     # Build an unprefixed router; the preview module owns both `/api/preview/*`
     # and `/preview/*` paths and we need them at the app root (not under /api).
