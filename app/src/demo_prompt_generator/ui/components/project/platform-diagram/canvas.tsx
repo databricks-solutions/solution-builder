@@ -172,22 +172,24 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
   }, []);
   const { screenToFlowPosition, getInternalNode, fitView } = useReactFlow();
   const rfStore = useStoreApi();
-  // Fit-view when a tab OPENS. The static `fitView` prop fires on first render —
-  // but with symbolic layout the composite nodes haven't been MEASURED yet, so
-  // it fits to a stale/zero bbox. Wait for nodes to be initialized (measured),
-  // then fit once. Canvas is remounted per tab (key={activeIndex}), so this runs
-  // fresh on every tab open.
-  // Call fitView() BARE — no options — so it's IDENTICAL to clicking the
-  // <Controls> fit button (which passes no fitViewOptions → RF defaults: padding
-  // 0.1, maxZoom = the flow's maxZoom of 2). A custom padding/maxZoom here made
-  // the auto-fit noticeably SMALLER than the button — the mismatch the user hit.
+  // Fit-view when a tab OPENS, matching a click of the <Controls> fit button
+  // (which calls fitView() bare → RF defaults). Canvas is remounted per tab
+  // (key={activeIndex}), so this runs fresh on every tab open.
+  //
+  // TIMING is the subtlety: useNodesInitialized flips true as soon as every node
+  // has MEASURED dimensions — but the WRAPPER box (z:-2, sized by computeLayout
+  // to enclose its members) and the relational de-overlap positions settle a
+  // frame LATER. Fitting on that first frame fits to the inner nodes only (box
+  // still tiny) → zooms in too far. So we defer the fit to the next animation
+  // frame, by which point the full bounds (incl. the platform box) are stable —
+  // giving the same framing as clicking the button after everything settled.
   const nodesInitialized = useNodesInitialized();
   const didFit = useRef(false);
   useEffect(() => {
-    if (nodesInitialized && !didFit.current) {
-      didFit.current = true;
-      fitView();
-    }
+    if (!nodesInitialized || didFit.current) return;
+    didFit.current = true;
+    const raf = requestAnimationFrame(() => requestAnimationFrame(() => fitView()));
+    return () => cancelAnimationFrame(raf);
   }, [nodesInitialized, fitView]);
   const wrapRef = useRef<HTMLDivElement>(null);
 
