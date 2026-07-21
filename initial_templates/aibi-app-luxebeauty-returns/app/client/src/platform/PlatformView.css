@@ -1,0 +1,1274 @@
+/*
+ * Platform view — wide visual scenes on the left, pitch + capabilities right.
+ * Pure CSS motion (no framer-motion). Theme tokens drive all color.
+ */
+
+/* -------- Page chrome -------- */
+
+.dx-platform {
+  height: 100%;
+  overflow-y: auto;
+  background: linear-gradient(
+    to bottom,
+    var(--background) 0%,
+    color-mix(in oklch, var(--primary) 4%, var(--background)) 100%
+  );
+}
+
+.dx-platform-inner {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 4rem 2rem 6rem;
+}
+
+@media (max-width: 640px) {
+  /* Outer container — tighter side gutters so cards stretch the full width. */
+  .dx-platform-inner {
+    padding: 1.5rem 0.75rem 3rem;
+  }
+
+  /* Hero */
+  .dx-hero {
+    margin-bottom: 2rem;
+  }
+  .dx-hero-sub {
+    font-size: 0.9rem;
+  }
+
+  /* Layer cards: smaller padding, rounded a touch less so they don't
+     hug the tiny gutter awkwardly. */
+  .dx-layer {
+    border-radius: 1rem;
+    padding: 1.25rem 1rem;
+    gap: 1.25rem;
+  }
+
+  /* Title/tagline/pitch — knock the type size down so the headline
+     doesn't break across 3 lines on a 375px screen. */
+  .dx-layer-title {
+    font-size: 1.5rem;
+    line-height: 1.15;
+  }
+  .dx-layer-tagline {
+    font-size: 0.9rem;
+  }
+  .dx-layer-pitch {
+    font-size: 0.88rem;
+    margin-bottom: 1rem;
+  }
+
+  /* Scene block: tighter padding/radius, centered, no min-height (let
+     the SVG viewBox aspect ratio drive height — capping it makes
+     fixed-position content drift off its anchor). */
+  .dx-layer-scene {
+    padding: 0.85rem;
+    border-radius: 0.85rem;
+    justify-content: center;
+    align-items: center;
+    min-height: 0;
+  }
+  .dx-scene-svg {
+    max-height: none;
+  }
+
+  /* "Bare scene" modifier — drop the tinted card chrome AND tighten
+     the outer layer padding. Used by layers whose scene draws its own
+     frame (Act's mock browser) or wastes whitespace in the card
+     (Govern's chip ring). Add the `dx-layer--bare-scene` class in JSX
+     to opt a layer in. */
+  .dx-layer--bare-scene .dx-layer-scene {
+    padding: 0.25rem 0;
+    background: transparent;
+    border: none;
+  }
+  .dx-layer--bare-scene {
+    padding-top: 1.25rem;
+    padding-bottom: 1.25rem;
+    row-gap: 0.5rem;
+  }
+
+  /* Govern scene: cap SVG width — its consumer chips sit at the
+     viewBox corners with a big empty middle, so at full container
+     width it reads sparse. Bump the SVG text size to compensate. */
+  .dx-layer[data-layer-id='govern'] .dx-scene-svg {
+    max-width: 260px;
+  }
+  .dx-layer[data-layer-id='govern'] .dx-scene-svg text {
+    font-size: 12px;
+  }
+
+  /* Act scene operator: relocate the avatar to the browser frame's
+     top-right (which sits at SVG x=80-300, y=32-192). y=48 keeps the
+     full pulse ring (r=26 max) inside the tight viewBox (top y=20).
+     Hide the OPERATOR label — the position carries the meaning. */
+  .dx-act-operator-avatar {
+    transform: translate(290px, 48px);
+  }
+  .dx-act-operator-label {
+    display: none;
+  }
+
+  /* Capability accordion rows — slightly tighter so two rows fit in
+     the same vertical slot as one on desktop. */
+  .dx-cap-row {
+    gap: 0.55rem;
+    padding: 0.55rem 0.7rem;
+  }
+  .dx-cap-name {
+    font-size: 0.86rem;
+  }
+  .dx-cap-product {
+    font-size: 0.72rem;
+  }
+
+  /* Genie Code + Agentic Apps strips — head label + demo stage stack
+     vertically (already done at 720px); we just trim the gap. */
+  .dx-genie-strip {
+    padding: 0.55rem 0.7rem;
+  }
+  .dx-genie-strip-label strong {
+    font-size: 0.85rem;
+  }
+  .dx-genie-strip-sub {
+    font-size: 0.75rem;
+  }
+  /* Center the typed prompt + artifact under the head label so the
+     "$ … pipeline.sql" demo doesn't hug the left edge. */
+  .dx-genie-stage {
+    justify-items: center;
+  }
+  .dx-genie-prompt,
+  .dx-genie-artifact {
+    width: 100%;
+    max-width: 18rem;
+  }
+
+  /* Ingest scene: SVG is fixed-coord and unreadable below ~360px wide.
+     Swap it for a stacked HTML rendering on phone. */
+  .dx-ingest-svg {
+    display: none;
+  }
+  .dx-ingest-mobile {
+    display: flex;
+  }
+  /* Ingest scene mobile card holds its own padding — drop the outer
+     scene card's chrome so the stack doesn't look boxed-in-a-box. */
+  .dx-layer-scene:has(.dx-ingest-mobile) {
+    background: transparent;
+    border: none;
+    padding: 0;
+    min-height: 0;
+  }
+
+  /* Flow connector between layers — shorten so the page doesn't have
+     a giant gap between bands on a tiny screen. */
+  .dx-flow-connector {
+    height: 32px;
+  }
+  .dx-flow-connector svg {
+    height: 32px;
+  }
+
+  /* Closing block — was 4rem top margin + 3rem top padding = a wasteland
+     of empty space on phone. Tighten to roughly the same as the layer
+     gap. */
+  .dx-closing {
+    margin-top: 2rem;
+    padding-top: 1.5rem;
+  }
+  .dx-closing-rule {
+    margin-bottom: 1.25rem;
+  }
+  .dx-closing-text {
+    font-size: 0.92rem;
+  }
+}
+
+/* -------- Ingest scene: mobile fallback (HTML stack) --------
+   Hidden on desktop/tablet; shown by the @media (max-width: 640px)
+   block above which sets `display: flex` and hides the SVG. */
+.dx-ingest-mobile {
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.55rem;
+  width: 100%;
+}
+.dx-ingest-mobile-sources {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.4rem;
+}
+.dx-ingest-mobile-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.3rem 0.55rem;
+  border-radius: 999px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--foreground);
+  white-space: nowrap;
+}
+.dx-ingest-mobile-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.dx-ingest-mobile-arrow {
+  font-size: 1rem;
+  font-weight: 700;
+  color: color-mix(in oklch, var(--primary) 55%, var(--muted-foreground));
+  line-height: 1;
+}
+.dx-ingest-mobile-hub {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 0.4rem 0.6rem;
+  padding: 0.55rem 0.85rem 0.65rem;
+  border-radius: 0.85rem;
+  background: color-mix(in oklch, var(--primary) 6%, var(--background));
+  border: 1px solid color-mix(in oklch, var(--primary) 32%, var(--border));
+}
+.dx-ingest-mobile-tier {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.2rem 0.5rem;
+  border-radius: 0.4rem;
+  background: var(--card);
+  border: 1px solid var(--border);
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--foreground);
+}
+.dx-ingest-mobile-tier-dot {
+  display: inline-block;
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 999px;
+}
+.dx-ingest-mobile-hub-label {
+  flex-basis: 100%;
+  text-align: center;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--primary);
+}
+
+/* -------- Hero -------- */
+
+.dx-hero {
+  text-align: center;
+  margin-bottom: 4rem;
+  animation: dx-fade-up 700ms ease-out both;
+}
+
+.dx-hero-eyebrow {
+  display: inline-block;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--primary);
+  padding: 0.35rem 0.85rem;
+  border-radius: 9999px;
+  background: color-mix(in oklch, var(--primary) 10%, transparent);
+  border: 1px solid color-mix(in oklch, var(--primary) 25%, transparent);
+}
+
+.dx-hero-title {
+  font-family: var(--font-display, serif);
+  font-size: clamp(2rem, 4.5vw, 3.25rem);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+  color: var(--foreground);
+  margin: 1.25rem auto 1rem;
+  max-width: 24ch;
+}
+
+.dx-hero-sub {
+  font-size: 1.05rem;
+  line-height: 1.6;
+  color: var(--muted-foreground);
+  max-width: 62ch;
+  margin: 0 auto;
+}
+
+/* -------- Layer band (wide, two-column) -------- */
+
+.dx-layer {
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
+  gap: 2.5rem;
+  align-items: center;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 1.5rem;
+  padding: 2.5rem 2.5rem;
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.02),
+    0 10px 30px -12px color-mix(in oklch, var(--primary) 14%, transparent);
+  opacity: 0;
+  animation: dx-fade-up 700ms ease-out both;
+}
+
+/* Alternate scene side every other layer for rhythm */
+.dx-layer:nth-of-type(even) {
+  /* CSS Grid + dx-layer-content / dx-layer-scene swap via order */
+}
+.dx-layer:nth-of-type(even) .dx-layer-scene {
+  order: 2;
+}
+.dx-layer:nth-of-type(even) .dx-layer-content {
+  order: 1;
+}
+
+@media (max-width: 840px) {
+  .dx-layer {
+    grid-template-columns: 1fr;
+    gap: 1.75rem;
+    padding: 1.75rem 1.5rem;
+  }
+  .dx-layer:nth-of-type(even) .dx-layer-scene,
+  .dx-layer:nth-of-type(even) .dx-layer-content {
+    order: initial;
+  }
+}
+
+.dx-layer-scene {
+  position: relative;
+  background: color-mix(in oklch, var(--primary) 3%, var(--background));
+  border-radius: 1.25rem;
+  padding: 1.5rem;
+  border: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 320px;
+}
+
+.dx-scene-svg {
+  width: 100%;
+  height: auto;
+  max-height: 320px;
+}
+
+/* -------- Right column content -------- */
+
+.dx-layer-content {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.dx-layer-step {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--primary);
+  margin-bottom: 0.4rem;
+}
+
+.dx-layer-title {
+  font-family: var(--font-display, serif);
+  font-size: 1.95rem;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  color: var(--foreground);
+  margin: 0;
+}
+
+.dx-layer-tagline {
+  font-size: 1rem;
+  font-style: italic;
+  color: var(--primary);
+  margin-top: 0.35rem;
+  margin-bottom: 0.85rem;
+}
+
+.dx-layer-pitch {
+  font-size: 0.95rem;
+  line-height: 1.6;
+  color: var(--muted-foreground);
+  margin: 0 0 1.25rem;
+}
+
+.dx-layer-caps {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+/* -------- Capability accordion -------- */
+
+.dx-cap {
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  background: var(--background);
+  transition:
+    border-color 200ms ease,
+    box-shadow 200ms ease;
+}
+
+.dx-cap:hover {
+  border-color: color-mix(in oklch, var(--primary) 35%, var(--border));
+}
+
+.dx-cap.is-open {
+  border-color: color-mix(in oklch, var(--primary) 45%, var(--border));
+  box-shadow: 0 6px 20px -10px color-mix(in oklch, var(--primary) 25%, transparent);
+}
+
+.dx-cap-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  padding: 0.7rem 0.85rem;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  text-align: left;
+  color: inherit;
+}
+
+.dx-cap-icon {
+  flex-shrink: 0;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 0.5rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in oklch, var(--primary) 12%, transparent);
+  color: var(--primary);
+}
+
+.dx-cap-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.dx-cap-name {
+  font-weight: 600;
+  font-size: 0.92rem;
+  color: var(--foreground);
+  line-height: 1.3;
+}
+
+.dx-cap-product {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  margin-top: 0.25rem;
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--primary);
+  padding: 0.1rem 0.45rem;
+  border-radius: 9999px;
+  background: color-mix(in oklch, var(--primary) 10%, transparent);
+  border: 1px solid color-mix(in oklch, var(--primary) 22%, transparent);
+}
+
+.dx-cap-pitch {
+  font-size: 0.84rem;
+  color: var(--foreground);
+  line-height: 1.5;
+  margin: 0 0 0.7rem;
+}
+
+.dx-cap-chev {
+  flex-shrink: 0;
+  color: var(--muted-foreground);
+  transition: transform 200ms ease;
+}
+
+.dx-cap-chev.rotate-180 {
+  transform: rotate(180deg);
+}
+
+.dx-cap-details {
+  padding: 0 0.85rem 0.85rem 3.35rem; /* aligns under text column */
+  animation: dx-fade-in 300ms ease-out both;
+}
+
+.dx-cap-details ul {
+  list-style: disc;
+  padding-left: 1rem;
+  margin: 0.25rem 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.dx-cap-details li {
+  font-size: 0.82rem;
+  line-height: 1.55;
+  color: var(--foreground);
+}
+
+.dx-cap-doc {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-top: 0.7rem;
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: var(--primary);
+  text-decoration: none;
+}
+
+.dx-cap-doc:hover {
+  text-decoration: underline;
+}
+
+/* -------- Flow connector -------- */
+
+.dx-flow-connector {
+  height: 56px;
+  display: flex;
+  justify-content: center;
+  margin: -0.25rem 0;
+  pointer-events: none;
+}
+
+.dx-flow-connector svg {
+  width: 24px;
+  height: 56px;
+}
+
+/* -------- Closing -------- */
+
+.dx-closing {
+  text-align: center;
+  margin-top: 4rem;
+  padding-top: 3rem;
+  animation: dx-fade-up 700ms ease-out both;
+}
+
+.dx-closing-rule {
+  width: 60px;
+  height: 2px;
+  background: color-mix(in oklch, var(--primary) 50%, transparent);
+  margin: 0 auto 2rem;
+  border-radius: 9999px;
+}
+
+.dx-closing-text {
+  font-size: 1rem;
+  line-height: 1.7;
+  color: var(--muted-foreground);
+  max-width: 56ch;
+  margin: 0 auto;
+}
+
+.dx-closing-text strong {
+  font-family: var(--font-display, serif);
+  font-size: 1.3rem;
+  font-weight: 600;
+  color: var(--foreground);
+  letter-spacing: -0.015em;
+}
+
+/* -------- Scene pulse helpers (Intelligence scene staggered light-up) -------- */
+
+.dx-pulse-1 { animation: dx-glow 4s ease-in-out infinite; animation-delay: 0s; }
+.dx-pulse-2 { animation: dx-glow 4s ease-in-out infinite; animation-delay: 1s; }
+.dx-pulse-3 { animation: dx-glow 4s ease-in-out infinite; animation-delay: 2s; }
+.dx-pulse-4 { animation: dx-glow 4s ease-in-out infinite; animation-delay: 3s; }
+
+@keyframes dx-glow {
+  0%, 100% { filter: drop-shadow(0 0 0 transparent); }
+  50% { filter: drop-shadow(0 0 10px color-mix(in oklch, var(--primary) 50%, transparent)); }
+}
+
+/* -------- Genie Code strip (full-width band inside Ingest+Transform) -------- */
+
+/* Make the layer a 3-row grid so the strip sits below both columns at full width. */
+.dx-layer.has-genie-strip {
+  /* Drop horizontal + bottom padding so the strip can flush to the layer's
+     rounded edges. Top padding stays so scene/content keep breathing room. */
+  padding: 2.5rem 0 0;
+  column-gap: 2.5rem;
+  grid-template-rows: auto auto;
+  row-gap: 1rem;
+}
+.dx-layer.has-genie-strip .dx-layer-scene {
+  grid-row: 1;
+  margin-left: 2.5rem;
+}
+.dx-layer.has-genie-strip .dx-layer-content {
+  grid-row: 1;
+  margin-right: 2.5rem;
+}
+.dx-layer.has-genie-strip .dx-genie-strip {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  /* Square off the top corners; round only the bottom to match the layer card */
+  border-radius: 0 0 calc(1.5rem - 1px) calc(1.5rem - 1px);
+  /* Replace the top border with a divider; outer card already provides
+     left/right/bottom edges. */
+  border-left: 0;
+  border-right: 0;
+  border-bottom: 0;
+}
+@media (max-width: 840px) {
+  .dx-layer.has-genie-strip {
+    padding: 1.75rem 0 0;
+    grid-template-rows: none;
+    row-gap: 1.25rem;
+  }
+  /* Reset the desktop row pinning — at single-column phone width,
+     scene + content + strip must flow naturally (scene → content → strip),
+     not all share row 1 (which would overlap them). */
+  .dx-layer.has-genie-strip .dx-layer-scene,
+  .dx-layer.has-genie-strip .dx-layer-content {
+    grid-row: auto;
+    margin-left: 1.5rem;
+    margin-right: 1.5rem;
+  }
+  .dx-layer.has-genie-strip .dx-genie-strip {
+    grid-row: auto;
+  }
+}
+
+.dx-genie-strip {
+  position: relative;
+  padding: 0.55rem 0.85rem;
+  border-radius: 0.75rem;
+  background: linear-gradient(
+    135deg,
+    color-mix(in oklch, var(--primary) 10%, var(--background)) 0%,
+    color-mix(in oklch, var(--primary) 4%, var(--background)) 100%
+  );
+  border: 1px solid color-mix(in oklch, var(--primary) 32%, var(--border));
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+@media (max-width: 720px) {
+  .dx-genie-strip {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.7rem;
+  }
+}
+
+.dx-genie-strip-head {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  flex-shrink: 0;
+}
+
+.dx-genie-strip-icon {
+  flex-shrink: 0;
+  width: 1.85rem;
+  height: 1.85rem;
+  border-radius: 0.5rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--primary);
+  color: var(--primary-foreground);
+  box-shadow: 0 0 0 0 color-mix(in oklch, var(--primary) 50%, transparent);
+  animation: dx-genie-strip-pulse 2.4s ease-in-out infinite;
+}
+
+@keyframes dx-genie-strip-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 color-mix(in oklch, var(--primary) 60%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 8px color-mix(in oklch, var(--primary) 0%, transparent);
+  }
+}
+
+.dx-genie-strip-label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.dx-genie-strip-label strong {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--primary);
+  letter-spacing: 0.01em;
+  line-height: 1.2;
+}
+
+.dx-genie-strip-sub {
+  font-size: 0.82rem;
+  line-height: 1.4;
+  color: var(--muted-foreground);
+}
+
+/* ----- Stage: prompt → arrow → artifact ----- */
+
+/* One shared cycle so prompt typing, arrow flow, and artifact reveal stay in sync */
+:root {
+  --dx-genie-cycle: 7s;
+}
+
+.dx-genie-stage {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 0;
+}
+
+@media (max-width: 720px) {
+  .dx-genie-stage {
+    grid-template-columns: 1fr;
+    gap: 0.6rem;
+  }
+  .dx-genie-arrow { display: none; }
+}
+
+/* Prompt input */
+
+.dx-genie-prompt {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.3rem 0.65rem;
+  border-radius: 0.5rem;
+  background: var(--card);
+  border: 1px solid color-mix(in oklch, var(--primary) 22%, var(--border));
+  font-family: var(--font-mono, ui-monospace, "SF Mono", Menlo, Consolas, monospace);
+  font-size: 0.75rem;
+  color: var(--foreground);
+  overflow: hidden;
+}
+
+.dx-genie-prompt-chev {
+  color: var(--primary);
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.dx-genie-prompt-text {
+  display: inline-flex;
+  align-items: baseline;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.dx-genie-prompt-typed {
+  display: inline-block;
+  overflow: hidden;
+  white-space: nowrap;
+  max-width: 0;
+  animation: dx-genie-type var(--dx-genie-cycle) steps(40, end) infinite;
+}
+
+@keyframes dx-genie-type {
+  /* 0–35% of the cycle: type out (0 → full width).
+     35–80%: hold full.
+     80–95%: hold empty (reset).
+     95–100%: ready for next cycle. */
+  0%   { max-width: 0; }
+  35%  { max-width: 48ch; }
+  80%  { max-width: 48ch; }
+  85%  { max-width: 0; }
+  100% { max-width: 0; }
+}
+
+.dx-genie-prompt-caret {
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  margin-left: 2px;
+  background: var(--primary);
+  animation: dx-genie-caret 0.9s steps(2, end) infinite;
+}
+
+@keyframes dx-genie-caret {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0; }
+}
+
+/* Arrow connector — solid track stretching edge-to-edge between siblings,
+   with a primary-tinted dot that travels across in sync with the cycle. */
+
+.dx-genie-arrow {
+  position: relative;
+  align-self: center;
+  height: 14px;
+  width: 64px;
+  /* Slight negative margins so the line tucks under the prompt + artifact
+     borders, killing the visual gap. */
+  margin: 0 -6px;
+}
+
+.dx-genie-arrow-track {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 10px;
+  height: 2px;
+  transform: translateY(-50%);
+  background: color-mix(in oklch, var(--primary) 40%, var(--border));
+  border-radius: 9999px;
+}
+
+.dx-genie-arrow-dot {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 8px;
+  height: 8px;
+  margin-top: -4px;
+  border-radius: 9999px;
+  background: var(--primary);
+  box-shadow: 0 0 8px color-mix(in oklch, var(--primary) 60%, transparent);
+  opacity: 0;
+  animation: dx-genie-arrow-dot var(--dx-genie-cycle) ease-in-out infinite;
+}
+
+@keyframes dx-genie-arrow-dot {
+  0%, 32%   { transform: translateX(0); opacity: 0; }
+  36%       { transform: translateX(0); opacity: 1; }
+  55%       { transform: translateX(38px); opacity: 1; }
+  60%       { transform: translateX(38px); opacity: 0; }
+  100%      { transform: translateX(38px); opacity: 0; }
+}
+
+.dx-genie-arrow-head {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--primary);
+  font-size: 0.7rem;
+  line-height: 1;
+}
+
+/* Artifact: mini dashboard card */
+
+.dx-genie-artifact {
+  border-radius: 0.7rem;
+  background: var(--card);
+  border: 1px solid color-mix(in oklch, var(--primary) 30%, var(--border));
+  overflow: hidden;
+  opacity: 0;
+  transform: translateY(6px) scale(0.98);
+  animation: dx-genie-artifact-in var(--dx-genie-cycle) ease-out infinite;
+  box-shadow: 0 6px 18px -10px color-mix(in oklch, var(--primary) 35%, transparent);
+}
+
+@keyframes dx-genie-artifact-in {
+  0%, 50%   { opacity: 0; transform: translateY(6px) scale(0.98); }
+  58%       { opacity: 1; transform: translateY(0) scale(1); }
+  80%       { opacity: 1; transform: translateY(0) scale(1); }
+  88%       { opacity: 0; transform: translateY(6px) scale(0.98); }
+  100%      { opacity: 0; transform: translateY(6px) scale(0.98); }
+}
+
+.dx-genie-artifact-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.25rem 0.55rem;
+  background: color-mix(in oklch, var(--primary) 10%, var(--background));
+  border-bottom: 1px solid color-mix(in oklch, var(--primary) 18%, var(--border));
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: var(--foreground);
+}
+
+.dx-genie-artifact-bar > svg {
+  color: var(--primary);
+  flex-shrink: 0;
+}
+
+.dx-genie-artifact-status {
+  margin-left: auto;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #22c55e;
+  padding: 0.1rem 0.4rem;
+  border-radius: 9999px;
+  background: color-mix(in oklch, #22c55e 14%, transparent);
+}
+
+.dx-genie-artifact-body {
+  padding: 0.35rem 0.55rem 0.45rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.dx-genie-artifact-kpis {
+  display: flex;
+  gap: 0.4rem;
+  flex-shrink: 0;
+}
+
+.dx-genie-artifact-kpi {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 0.2rem 0.4rem;
+  border-radius: 0.35rem;
+  background: color-mix(in oklch, var(--primary) 6%, var(--background));
+  border: 1px solid color-mix(in oklch, var(--primary) 12%, var(--border));
+  line-height: 1.1;
+}
+
+.dx-genie-artifact-kpi-label {
+  font-size: 0.55rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+}
+
+.dx-genie-artifact-kpi-value {
+  font-size: 0.74rem;
+  font-weight: 700;
+  color: var(--foreground);
+}
+
+.dx-genie-artifact-kpi-accent {
+  color: var(--primary);
+}
+
+.dx-genie-artifact-bars {
+  flex: 1;
+  display: flex;
+  align-items: flex-end;
+  gap: 0.15rem;
+  height: 20px;
+  min-width: 60px;
+}
+
+.dx-genie-artifact-bars > span {
+  flex: 1;
+  background: linear-gradient(
+    to top,
+    var(--primary) 0%,
+    color-mix(in oklch, var(--primary) 60%, var(--background)) 100%
+  );
+  border-radius: 2px 2px 0 0;
+  transform: scaleY(0);
+  transform-origin: bottom;
+  animation: dx-genie-bar-grow var(--dx-genie-cycle) ease-out infinite;
+}
+
+.dx-genie-artifact-bars > span:nth-child(1) { animation-delay: calc(var(--dx-genie-cycle) * 0.42); }
+.dx-genie-artifact-bars > span:nth-child(2) { animation-delay: calc(var(--dx-genie-cycle) * 0.45); }
+.dx-genie-artifact-bars > span:nth-child(3) { animation-delay: calc(var(--dx-genie-cycle) * 0.48); }
+.dx-genie-artifact-bars > span:nth-child(4) { animation-delay: calc(var(--dx-genie-cycle) * 0.51); }
+.dx-genie-artifact-bars > span:nth-child(5) { animation-delay: calc(var(--dx-genie-cycle) * 0.54); }
+.dx-genie-artifact-bars > span:nth-child(6) { animation-delay: calc(var(--dx-genie-cycle) * 0.57); }
+.dx-genie-artifact-bars > span:nth-child(7) { animation-delay: calc(var(--dx-genie-cycle) * 0.60); }
+
+@keyframes dx-genie-bar-grow {
+  0%, 50%   { transform: scaleY(0); }
+  62%       { transform: scaleY(1); }
+  82%       { transform: scaleY(1); }
+  88%       { transform: scaleY(0); }
+  100%      { transform: scaleY(0); }
+}
+
+/* Pipeline DAG body (Bronze → Silver → Gold) */
+
+.dx-pipeline-body {
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 0.3rem;
+  padding: 0.5rem 0.55rem;
+}
+
+.dx-pipeline-stage {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.18rem 0.45rem;
+  border-radius: 9999px;
+  background: color-mix(in oklch, var(--primary) 5%, var(--background));
+  border: 1px solid var(--border);
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--muted-foreground);
+  opacity: 0.45;
+  animation: dx-pipeline-stage-in var(--dx-genie-cycle) ease-out infinite;
+}
+
+.dx-pipeline-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 9999px;
+  flex-shrink: 0;
+}
+
+.dx-pipeline-stage-bronze .dx-pipeline-dot { background: #a16207; }
+.dx-pipeline-stage-silver .dx-pipeline-dot { background: #9ca3af; }
+.dx-pipeline-stage-gold   .dx-pipeline-dot { background: #eab308; }
+
+.dx-pipeline-stage-bronze { animation-delay: calc(var(--dx-genie-cycle) * 0.45); }
+.dx-pipeline-stage-silver { animation-delay: calc(var(--dx-genie-cycle) * 0.55); }
+.dx-pipeline-stage-gold   { animation-delay: calc(var(--dx-genie-cycle) * 0.65); }
+
+@keyframes dx-pipeline-stage-in {
+  0%, 35%   { opacity: 0.35; border-color: var(--border); color: var(--muted-foreground); }
+  45%       { opacity: 1;    border-color: color-mix(in oklch, var(--primary) 50%, var(--border)); color: var(--foreground); }
+  82%       { opacity: 1;    border-color: color-mix(in oklch, var(--primary) 50%, var(--border)); color: var(--foreground); }
+  90%       { opacity: 0.35; border-color: var(--border); color: var(--muted-foreground); }
+  100%      { opacity: 0.35; border-color: var(--border); color: var(--muted-foreground); }
+}
+
+.dx-pipeline-arrow {
+  color: var(--primary);
+  font-size: 0.7rem;
+  font-weight: 700;
+  opacity: 0.6;
+}
+
+/* ----- MAS stage: question → supervisor → specialist agents → answer ----- */
+
+:root {
+  --dx-mas-cycle: 5s;
+}
+
+.dx-mas-stage {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  /* 3 columns: question | supervisor | agents */
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1.2fr);
+  align-items: center;
+  gap: 0.7rem;
+}
+
+@media (max-width: 980px) {
+  .dx-mas-stage {
+    grid-template-columns: 1fr;
+    gap: 0.4rem;
+  }
+}
+
+/* Question chip */
+
+.dx-mas-question {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.3rem 0.6rem;
+  border-radius: 0.5rem;
+  background: var(--card);
+  border: 1px solid color-mix(in oklch, var(--primary) 22%, var(--border));
+  font-size: 0.72rem;
+  color: var(--foreground);
+  line-height: 1.25;
+  min-width: 0;
+}
+
+.dx-mas-question-chev {
+  flex-shrink: 0;
+  color: var(--primary);
+  font-weight: 700;
+}
+
+.dx-mas-question-text {
+  min-width: 0;
+  display: inline-flex;
+  align-items: baseline;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.dx-mas-question-typed {
+  display: inline-block;
+  overflow: hidden;
+  white-space: nowrap;
+  max-width: 0;
+  animation: dx-mas-type var(--dx-mas-cycle) steps(20, end) infinite;
+}
+
+@keyframes dx-mas-type {
+  0%   { max-width: 0; }
+  22%  { max-width: 20ch; }
+  88%  { max-width: 20ch; }
+  92%  { max-width: 0; }
+  100% { max-width: 0; }
+}
+
+.dx-mas-question-caret {
+  display: inline-block;
+  width: 2px;
+  height: 0.9em;
+  margin-left: 2px;
+  background: var(--primary);
+  animation: dx-mas-caret 0.9s steps(2, end) infinite;
+}
+
+@keyframes dx-mas-caret {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0; }
+}
+
+/* Supervisor router */
+
+.dx-mas-router {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.3rem 0.55rem;
+  border-radius: 9999px;
+  background: color-mix(in oklch, var(--primary) 14%, var(--background));
+  border: 1px solid color-mix(in oklch, var(--primary) 38%, var(--border));
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: var(--primary);
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  position: relative;
+}
+
+.dx-mas-router::before {
+  /* Subtle pulse halo */
+  content: '';
+  position: absolute;
+  inset: -2px;
+  border-radius: 9999px;
+  border: 1px solid color-mix(in oklch, var(--primary) 50%, transparent);
+  opacity: 0;
+  animation: dx-mas-router-pulse var(--dx-mas-cycle) ease-out infinite;
+}
+
+@keyframes dx-mas-router-pulse {
+  /* typing fills 0–22%, then supervisor pulses */
+  0%, 24%   { transform: scale(0.92); opacity: 0; }
+  30%       { transform: scale(1.08); opacity: 0.9; }
+  40%       { transform: scale(1.18); opacity: 0; }
+  100%      { transform: scale(1.18); opacity: 0; }
+}
+
+.dx-mas-router-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.1rem;
+  height: 1.1rem;
+  border-radius: 9999px;
+  background: var(--primary);
+  color: var(--primary-foreground);
+  flex-shrink: 0;
+}
+
+/* Specialist agents column */
+
+.dx-mas-agents {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+.dx-mas-agent {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.22rem 0.5rem;
+  border-radius: 0.45rem;
+  background: var(--card);
+  border: 1px solid var(--border);
+  font-size: 0.7rem;
+  color: var(--muted-foreground);
+  opacity: 0.35;
+  transform: translateX(-4px);
+  animation: dx-mas-agent-in var(--dx-mas-cycle) ease-out infinite;
+  min-width: 0;
+}
+
+.dx-mas-agent-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 1.1rem;
+  height: 1.1rem;
+  border-radius: 0.35rem;
+  background: color-mix(in oklch, var(--primary) 14%, var(--background));
+  color: var(--primary);
+}
+
+.dx-mas-agent-name {
+  font-weight: 700;
+  color: var(--foreground);
+  flex-shrink: 0;
+  font-size: 0.7rem;
+}
+
+.dx-mas-agent-task {
+  font-size: 0.66rem;
+  color: var(--muted-foreground);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono, ui-monospace, "SF Mono", Menlo, Consolas, monospace);
+}
+
+@keyframes dx-mas-agent-in {
+  /* typing fills 0–22%; agents activate after, staggered via delays */
+  0%, 28%   { opacity: 0.3; transform: translateX(-4px); border-color: var(--border); }
+  36%       { opacity: 1;   transform: translateX(0);   border-color: color-mix(in oklch, var(--primary) 50%, var(--border)); }
+  78%       { opacity: 1;   transform: translateX(0);   border-color: color-mix(in oklch, var(--primary) 50%, var(--border)); }
+  90%       { opacity: 0.6; transform: translateX(0);   border-color: var(--border); }
+  100%      { opacity: 0.3; transform: translateX(-4px); border-color: var(--border); }
+}
+
+.dx-mas-agent-1 { animation-delay: calc(var(--dx-mas-cycle) * 0.00); }
+.dx-mas-agent-2 { animation-delay: calc(var(--dx-mas-cycle) * 0.05); }
+.dx-mas-agent-3 { animation-delay: calc(var(--dx-mas-cycle) * 0.10); }
+
+
+/* -------- Reveal keyframes -------- */
+
+@keyframes dx-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(28px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes dx-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}

@@ -1,0 +1,387 @@
+@import "@databricks/appkit-ui/styles.css";
+/* Leaflet base CSS — imported here (not in CityMap.tsx) so tile sizing is
+ * correct on first paint and HMR doesn't race the component import. */
+@import "leaflet/dist/leaflet.css";
+
+@plugin "@tailwindcss/typography";
+
+/* Google Fonts (Fraunces + Geist + Geist Mono) are loaded via <link>
+ * tags in index.html so the PostCSS `@import must precede all other
+ * statements` warning doesn't fire against Tailwind v4's ordering. */
+
+@theme {
+  --font-sans: "Geist", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Fraunces", Georgia, serif;
+  --font-mono: "Geist Mono", ui-monospace, SFMono-Regular, monospace;
+}
+
+:root {
+  /* ========================================================================
+   * BRAND PALETTE — single source of truth.
+   *
+   * These five stops mirror the LuxeBeauty AI/BI dashboard's
+   * visualizationColors theme so the app + dashboard read as one product.
+   * Every other token below derives from these — change a stop here and
+   * the whole app shifts. Edit cautiously.
+   *
+   * To re-skin the app for a different demo, replace these 5 hex stops
+   * (and the canvas/font/selection block right below) — that is the
+   * complete branding surface. Component code does NOT hardcode hex
+   * outside of intentionally-decorative SVGs (the source-pill tints in
+   * PlatformView also point back to these tokens).
+   * ====================================================================== */
+  --brand-1: #094074;   /* deep navy   — primary, chart anchor */
+  --brand-2: #3C6997;   /* slate blue  — primary tint, chart 2 */
+  --brand-3: #5ADBFF;   /* electric cyan — chart 3, highlights */
+  --brand-4: #FFDD4A;   /* lemon       — chart 4, warning-adjacent */
+  --brand-5: #FE9000;   /* warm orange — accent / CTA, chart 5 */
+
+  /* Dashboard-theme surfaces */
+  --brand-canvas: #F5F7FB;     /* dashboard canvas */
+  --brand-surface: #FFFFFF;    /* dashboard widget background */
+  --brand-ink: #1F2530;        /* dashboard font color */
+  --brand-selection: #4F7CE3;  /* dashboard selection */
+
+  /* ========================================================================
+   * SEMANTIC TOKENS — what components actually consume.
+   * Always reference via these (NOT brand-* directly) so future re-themes
+   * don't require touching component code.
+   * ====================================================================== */
+
+  --radius: 0.625rem;
+
+  /* Neutrals (anchored to dashboard canvas + ink) */
+  --background: var(--brand-canvas);
+  --foreground: var(--brand-ink);
+  --card: var(--brand-surface);
+  --card-foreground: var(--brand-ink);
+  --popover: var(--brand-surface);
+  --popover-foreground: var(--brand-ink);
+  --muted: #ECF0F6;             /* canvas tinted 1 step toward ink */
+  --muted-foreground: #5B6573;
+  --border: #E1E6EE;
+  --input: #E1E6EE;
+  --ring: var(--brand-selection);
+  --overlay: rgb(31 37 48 / 0.4);
+
+  /* Brand — primary = deep navy, accent = warm orange */
+  --primary: var(--brand-1);
+  --primary-foreground: var(--brand-surface);
+  --primary-light: var(--brand-2);
+  --on-primary-hover: rgb(255 255 255 / 0.1);
+
+  --secondary: var(--muted);
+  --secondary-foreground: var(--foreground);
+
+  --accent: var(--brand-5);
+  --accent-foreground: var(--brand-ink);
+
+  /* Status colors — semantic, not from brand palette */
+  --destructive: #D64545;
+  --destructive-foreground: var(--brand-surface);
+  --success: #2F9E6F;
+  --success-foreground: var(--brand-surface);
+  --warning: var(--brand-4);
+  --warning-foreground: var(--brand-ink);
+
+  /* Subtle status tints (light bg + dark text for badges, pills) */
+  --success-subtle: #DCF1E7;
+  --success-subtle-foreground: #1F6F4E;
+  --warning-subtle: #FFF4CC;
+  --warning-subtle-foreground: #7A5A00;
+  --info-subtle: #D9E3F8;
+  --info-subtle-foreground: #1F3A78;
+
+  /* Tier badges (domain-specific, easy to swap per demo) */
+  --tier-gold: #FFF4CC;
+  --tier-gold-foreground: #7A5A00;
+  --tier-silver: #EAECF1;
+  --tier-silver-foreground: #4A5466;
+  --tier-bronze: #FAE3D1;
+  --tier-bronze-foreground: #7A4A1F;
+  --tier-platinum: #EDE3F5;
+  --tier-platinum-foreground: #5A3585;
+
+  /* Status indicator dots */
+  --status-running: var(--success);
+  --status-idle: var(--brand-4);
+
+  /* Severity colors for inline text (return rate, anger score, etc.)
+     — distinct from --warning (which is a fill color, too light to
+     read as text on white). Same family but darker. */
+  --severity-warning: #C26A00;
+  --severity-danger:  var(--destructive);
+
+  /* Charts — full dashboard 5-stop palette in canonical order.
+     Recharts / appkit charts read --chart-1..5 by index, so this
+     mapping makes any "first series" land on navy, just like the
+     dashboard's "Refunds (90d)" counter. */
+  --chart-1: var(--brand-1);
+  --chart-2: var(--brand-2);
+  --chart-3: var(--brand-3);
+  --chart-4: var(--brand-4);
+  --chart-5: var(--brand-5);
+
+  /* Sidebar — light surface, slightly cooler than canvas */
+  --sidebar: #EEF2F8;
+  --sidebar-foreground: var(--brand-ink);
+  --sidebar-primary: var(--primary);
+  --sidebar-primary-foreground: var(--primary-foreground);
+  --sidebar-accent: #DDE4EE;
+  --sidebar-accent-foreground: var(--brand-ink);
+  --sidebar-border: #D0D8E3;
+  --sidebar-ring: var(--ring);
+
+  /* ========================================================================
+   * SCENE-LEVEL DECORATIONS (PlatformView)
+   * Source-pill tints mapped onto the brand palette so the platform page
+   * stays unified with the dashboard. Medallion tier dots and traffic-light
+   * dots get their own tokens too — change them once here, never in JSX.
+   * ====================================================================== */
+  --platform-source-saas:     var(--brand-1);
+  --platform-source-erp:      var(--brand-2);
+  --platform-source-streams:  var(--brand-3);
+  --platform-source-object:   var(--brand-4);
+  --platform-source-db:       var(--brand-5);
+
+  --medal-bronze: #A16207;
+  --medal-silver: #9CA3AF;
+  --medal-gold:   #EAB308;
+
+  --trafficlight-red:    #EF4444;
+  --trafficlight-yellow: #EAB308;
+  --trafficlight-green:  #22C55E;
+
+  /* Databricks brand red — used by the sidebar "Data + AI" pitch glow.
+     External brand asset, not part of LuxeBeauty's palette. */
+  --databricks-red: #EE3D2C;
+}
+
+/* Force light even if OS is dark — this is a business-facing demo */
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: light;
+  }
+}
+
+html,
+body {
+  font-family: var(--font-sans);
+  font-feature-settings: "cv11", "ss01", "ss03";
+}
+
+/* Every interactive control — buttons, links, role=button, checkboxes, etc. —
+   gets a pointer cursor. Disabled controls fall back to not-allowed. */
+button:not(:disabled),
+a[href],
+[role="button"]:not([aria-disabled="true"]),
+summary,
+label[for],
+input[type="checkbox"]:not(:disabled),
+input[type="radio"]:not(:disabled),
+select:not(:disabled) {
+  cursor: pointer;
+}
+
+button:disabled,
+[role="button"][aria-disabled="true"],
+input:disabled,
+select:disabled,
+textarea:disabled {
+  cursor: not-allowed;
+}
+
+/* Indeterminate top-line progress bar used on data tables while reloading. */
+@keyframes loadingBar {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(400%); }
+}
+
+/* -------- "What just changed" pulse — `usePulseOnChange` hook ----------- *
+ * Whenever the agent's write tool fires dataMutated, refetched surfaces use
+ * `usePulseOnChange(value)` and toggle one of these classes for ~1.5s on
+ * the specific elements whose value moved (a KPI count, a queue row's
+ * status badge, a map bubble's radius). Specific > screen-wide flash. */
+
+/* Soft expanding ring around a card/element — KPI cards use this. */
+@keyframes pulseRing {
+  0%   { box-shadow: 0 0 0 0   color-mix(in oklch, var(--primary) 55%, transparent); }
+  60%  { box-shadow: 0 0 0 12px color-mix(in oklch, var(--primary) 0%,  transparent); }
+  100% { box-shadow: 0 0 0 0   color-mix(in oklch, var(--primary) 0%,  transparent); }
+}
+.animate-pulse-ring { animation: pulseRing 1.5s ease-out 1; }
+
+/* Subtle background highlight — queue rows that flipped status. */
+@keyframes pulseRow {
+  0%   { background-color: color-mix(in oklch, var(--primary) 18%, transparent); }
+  100% { background-color: transparent; }
+}
+.animate-pulse-row { animation: pulseRow 1.5s ease-out 1; }
+
+/* (Map bubbles pulse via Leaflet's setStyle on stroke weight — see
+ * CityMap.tsx. A CSS-keyframe pulse on the SVG path doesn't survive
+ * Leaflet's redraws, so we don't define one here.) */
+
+h1,
+h2,
+h3,
+.display {
+  font-family: var(--font-display);
+  font-feature-settings: "ss01";
+  letter-spacing: -0.01em;
+}
+
+/* Chat dock trigger — slide-up entrance + synced sparkle & color breathe.
+   The two diagonal gradients (one in --primary, one in --primary-light)
+   appear in 4 places; the @property declarations let dockBreathe
+   crossfade between them via CSS animation. */
+/* Animatable color custom prop so dockBreathe can crossfade the
+   gradient by reassigning --dock-tint instead of redefining the whole
+   linear-gradient on every keyframe. */
+@property --dock-tint {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: #094074;
+}
+/* dockBreathe sets `--dock-tint` on the breathing element; for static
+   uses (the dock entry button before it starts breathing) we anchor it
+   to --primary at the document root. */
+:root {
+  --dock-tint: var(--primary);
+  --dock-gradient: linear-gradient(
+    135deg,
+    color-mix(in oklch, var(--dock-tint) 82%, white) 0%,
+    var(--dock-tint) 55%,
+    color-mix(in oklch, var(--dock-tint) 88%, black) 100%
+  );
+}
+
+@keyframes dockEnter {
+  from { opacity: 0; transform: translateY(16px) scale(0.95); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes sparkle {
+  0%, 100% { opacity: 1;   transform: rotate(0deg)  scale(1); }
+  50%      { opacity: 0.4; transform: rotate(20deg) scale(1.15); }
+}
+@keyframes dockBreathe {
+  0%, 100% {
+    --dock-tint: var(--primary);
+    box-shadow: 0 4px 14px oklch(from var(--primary) l c h / 0.3);
+  }
+  50% {
+    --dock-tint: var(--primary-light);
+    box-shadow: 0 4px 20px oklch(from var(--primary-light) l c h / 0.45);
+  }
+}
+.animate-dock-enter  { animation: dockEnter 0.4s ease-out, dockBreathe 3s ease-in-out 1s infinite; }
+.animate-sparkle     { animation: sparkle 3s ease-in-out infinite 1s; }
+
+/* -------- Sidebar pitch box (Databricks Data + AI) -------- */
+
+.dx-sidebar-pitch {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.65rem 0.75rem;
+  border-radius: 0.7rem;
+  background: linear-gradient(
+    135deg,
+    color-mix(in oklch, var(--accent) 18%, var(--sidebar)) 0%,
+    color-mix(in oklch, var(--accent) 9%, var(--sidebar)) 100%
+  );
+  border: 1px solid color-mix(in oklch, var(--accent) 42%, var(--sidebar-border));
+  text-decoration: none;
+  color: var(--sidebar-foreground);
+  overflow: hidden;
+  transition:
+    transform 200ms ease,
+    border-color 200ms ease,
+    box-shadow 200ms ease;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03),
+              0 8px 20px -10px color-mix(in oklch, var(--accent) 35%, transparent);
+}
+
+.dx-sidebar-pitch:hover {
+  transform: translateY(-1px);
+  border-color: color-mix(in oklch, var(--accent) 60%, var(--sidebar-border));
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04),
+              0 12px 28px -10px color-mix(in oklch, var(--accent) 50%, transparent);
+}
+
+.dx-sidebar-pitch-glow {
+  position: absolute;
+  top: -40%;
+  right: -20%;
+  width: 100px;
+  height: 100px;
+  border-radius: 9999px;
+  background: radial-gradient(
+    circle,
+    color-mix(in oklch, var(--accent) 35%, transparent) 0%,
+    transparent 70%
+  );
+  pointer-events: none;
+  animation: dx-sidebar-pitch-pulse 3.5s ease-in-out infinite;
+}
+
+@keyframes dx-sidebar-pitch-pulse {
+  0%, 100% { opacity: 0.55; transform: scale(1); }
+  50%      { opacity: 1;    transform: scale(1.15); }
+}
+
+.dx-sidebar-pitch-icon {
+  position: relative;
+  flex-shrink: 0;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 0.5rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--card);
+  border: 1px solid color-mix(in oklch, var(--databricks-red) 30%, var(--sidebar-border));
+  box-shadow: 0 0 0 0 color-mix(in oklch, var(--databricks-red) 50%, transparent);
+  animation: dx-sidebar-pitch-icon-pulse 2.4s ease-in-out infinite;
+}
+
+@keyframes dx-sidebar-pitch-icon-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in oklch, var(--databricks-red) 55%, transparent); }
+  50%      { box-shadow: 0 0 0 6px color-mix(in oklch, var(--databricks-red) 0%, transparent); }
+}
+
+.dx-sidebar-pitch-text {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.05rem;
+  min-width: 0;
+}
+
+.dx-sidebar-pitch-eyebrow {
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  color: var(--muted-foreground);
+  line-height: 1.2;
+}
+
+.dx-sidebar-pitch-title {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--primary);
+  letter-spacing: -0.005em;
+  line-height: 1.2;
+}
+
+/* Constrain Leaflet's stacking context. Leaflet's panes (tile=200, marker=600,
+ * popup=700, tooltip=650) all default to a z-index that floats ABOVE Tailwind's
+ * `z-40` chat dock and any other floating UI. Capping the map container's own
+ * stacking context (z-index: 0 + isolation: isolate) keeps Leaflet from
+ * escaping its parent. Without this, the city bubble map overlaps the chat
+ * dock when the dock is open over the Operations page. */
+.leaflet-container {
+  z-index: 0;
+  isolation: isolate;
+}

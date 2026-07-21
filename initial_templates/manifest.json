@@ -2,13 +2,108 @@
   "owner_email": "system@databricks.com",
   "templates": [
     {
-      "id": "00000000-seed-4000-a001-000000000010",
-      "directory": "retail/loyalty-segmentation",
-      "name": "Harvestly Co. — Loyalty Segmentation",
-      "customer": "Harvestly Co.",
-      "description": "Loyalty segmentation demo: a VP of Customer Marketing investigates why a mass-blast 15% off coupon cost $4.2M in margin to generate only $1.8M in incremental revenue. Genie segments the 800K-member base into Champions / New Loyalists / Cooling Off / Win-Back; Knowledge Assistant returns the Customer Marketing Playbook's segment-specific tactics; Multi-Agent Supervisor synthesizes a per-segment campaign plan.",
+      "id": "aibi-customer-support",
+      "directory": "aibi-customer-support",
+      "name": "AI/BI Customer Support: AI Efficiency",
+      "customer": "",
+      "description": "A travel company deploys an AI Support Copilot (built on Databricks with Agent Bricks) that reaches GA on 2025-06-02 and auto-resolves How-To/Access/Billing cases. Average resolution time drops ~26h to ~11h and cost per case halves. See the impact on an AI/BI Dashboard, then ask Genie WHY - it traces the gain to the Copilot's GA release and rising daily usage. Synthetic data, governed metric view, Dashboard + Genie.",
       "industry": "Retail & CPG",
-      "capabilities": ["synthetic-data-gen", "sdp", "aibi-dashboards", "genie", "knowledge-assistant", "supervisor-agent"]
+      "capabilities": [
+        "synthetic-data-gen",
+        "metric-views",
+        "aibi-dashboards",
+        "genie"
+      ]
+    },
+    {
+      "id": "aibi-marketing-campaign",
+      "directory": "aibi-marketing-campaign",
+      "name": "AI/BI: Marketing Campaign effectiveness",
+      "customer": "",
+      "description": "Track multi-channel marketing performance (TikTok, Instagram, Google Ads, Email) on an AI/BI Dashboard, then ask Genie why revenue and conversions dropped in late 2025 - tracing it to one underperforming creative in the Q4 Growth Push campaign, in Germany and France, while spend stayed flat. Synthetic data, governed metric view, Dashboard + Genie.",
+      "industry": "Media & Entertainment",
+      "capabilities": [
+        "synthetic-data-gen",
+        "metric-views",
+        "aibi-dashboards",
+        "genie"
+      ]
+    },
+    {
+      "id": "aibi-sales-pipeline",
+      "directory": "aibi-sales-pipeline",
+      "name": "AI/BI Sales Pipeline Review",
+      "customer": "",
+      "description": "A global beauty brand tracks sales against a company-wide quarterly target. The AI/BI dashboard's AI_FORECAST projects beating the Q2 2026 target (~158%); ask Genie why and it traces the surge to the new Fragrance line that launched in EMEA on 2026-05-04. Data unified from CRM (Salesforce), ERP (orders), Finance (targets) and the product catalog. Synthetic data, governed metric view, Dashboard + Genie.",
+      "industry": "Retail & CPG",
+      "capabilities": [
+        "synthetic-data-gen",
+        "metric-views",
+        "aibi-dashboards",
+        "genie"
+      ]
+    },
+    {
+      "id": "aibi-supply-chain",
+      "directory": "aibi-supply-chain",
+      "name": "AI/BI Supply Chain Optimization",
+      "customer": "",
+      "description": "An e-bike manufacturer is about to run out of the shared Battery Cell. See weeks of cover, a projected stockout and an AI demand forecast on an AI/BI Dashboard, then ask Genie why - it traces the crunch to a new EMEA market launch that surged demand, blocked by an 8-week supplier lead time. Synthetic data, governed metric view, Dashboard + Genie.",
+      "industry": "Manufacturing",
+      "capabilities": [
+        "synthetic-data-gen",
+        "metric-views",
+        "aibi-dashboards",
+        "genie"
+      ]
+    },
+    {
+      "id": "aibi-portfolio-assistant",
+      "directory": "aibi-portfolio-assistant",
+      "name": "AI/BI Portfolio Assistant",
+      "customer": "",
+      "description": "A wealth manager's flagship AI Growth Fund beats its benchmark (Nasdaq-100) by riding the AI rally - but a 2025-08-04 pivot left it ~77% concentrated in core-AI names. See cumulative return vs benchmark, Value at Risk and rising concentration on an AI/BI Dashboard, then ask Genie how the fund got so concentrated. Real stock prices. Synthetic portfolio, governed metric view, Dashboard + Genie.",
+      "industry": "Financial Services",
+      "capabilities": [
+        "synthetic-data-gen",
+        "metric-views",
+        "aibi-dashboards",
+        "genie"
+      ]
+    },
+    {
+      "id": "aibi-app-luxebeauty-returns",
+      "directory": "aibi-app-luxebeauty-returns",
+      "name": "LuxeBeauty Returns \u2014 Full App + Platform",
+      "customer": "LuxeBeauty",
+      "description": "The flagship full-stack demo. A non-technical VP Ops asks an agent why refunds are spiking; a Multi-Agent Supervisor (Genie + Knowledge Assistant) traces it to a bad production lot, and one click resolves the ticket queue \u2014 a Databricks App on Lakebase over the full platform. Showcases SDP pipeline, metric view, AI/BI dashboard, Genie, Knowledge Assistant, Multi-Agent Supervisor, an ML premium classifier, Lakebase, and a Databricks App. Ships a complete DAB.",
+      "industry": "Retail & CPG",
+      "capabilities": [
+        "synthetic-data-gen",
+        "sdp",
+        "metric-views",
+        "aibi-dashboards",
+        "genie",
+        "knowledge-assistant",
+        "supervisor-agent",
+        "ml-training-serving",
+        "lakebase",
+        "databricks-apps"
+      ]
+    },
+    {
+      "id": "aibi-patient-genomics",
+      "directory": "aibi-patient-genomics",
+      "name": "AI/BI Patient Genomics Review for Oncology",
+      "customer": "",
+      "description": "Real-world evidence for a new targeted cancer therapy (OncoTarget-1) across a ~10,000-patient TCGA-style oncology cohort. The drug works overall but unevenly; responders share a molecular gene-expression signature (a UMAP cluster), not an organ - within breast cancer a responder subtype reaches ~99% survival vs ~84-89% on standard of care, while it is not indicated for ovarian and prostate cancer. AI/BI dashboard + Genie over a governed metric view.",
+      "industry": "Healthcare & Life Sciences",
+      "capabilities": [
+        "synthetic-data-gen",
+        "metric-views",
+        "aibi-dashboards",
+        "genie"
+      ]
     }
   ]
 }

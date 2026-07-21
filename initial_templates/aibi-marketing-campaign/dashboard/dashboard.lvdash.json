@@ -1,0 +1,1305 @@
+{
+  "datasets": [
+    {
+      "name": "ds_metrics",
+      "displayName": "Campaign metrics",
+      "asset_name": "metrics_campaign"
+    },
+    {
+      "name": "ds_forecast",
+      "displayName": "Revenue / $ trend + AI forecast",
+      "queryLines": [
+        "WITH monthly AS (\n",
+        "  SELECT date_trunc('month', date) AS month, sum(revenue)/nullif(sum(spend),0) AS rev_per_dollar\n",
+        "  FROM campaign_performance_enriched\n",
+        "  WHERE date < date_trunc('month', (SELECT max(date) FROM campaign_performance_enriched))\n",
+        "  GROUP BY 1\n",
+        "),\n",
+        "fc AS (\n",
+        "  SELECT month, rev_per_dollar_forecast, rev_per_dollar_lower, rev_per_dollar_upper\n",
+        "  FROM AI_FORECAST(TABLE(SELECT month, rev_per_dollar FROM monthly), horizon => '2026-09-01', time_col => 'month', value_col => 'rev_per_dollar')\n",
+        "),\n",
+        "actuals AS (\n",
+        "  SELECT month, rev_per_dollar, CAST(NULL AS DOUBLE) AS rev_per_dollar_forecast, CAST(NULL AS DOUBLE) AS rev_per_dollar_lower, CAST(NULL AS DOUBLE) AS rev_per_dollar_upper\n",
+        "  FROM monthly WHERE month <> (SELECT max(month) FROM monthly)\n",
+        "),\n",
+        "bridge AS (\n",
+        "  SELECT month, rev_per_dollar, rev_per_dollar, rev_per_dollar, rev_per_dollar FROM monthly WHERE month = (SELECT max(month) FROM monthly)\n",
+        "),\n",
+        "forecast AS (\n",
+        "  SELECT month, CAST(NULL AS DOUBLE) AS rev_per_dollar, rev_per_dollar_forecast, rev_per_dollar_lower, rev_per_dollar_upper FROM fc\n",
+        ")\n",
+        "SELECT * FROM actuals UNION ALL SELECT * FROM bridge UNION ALL SELECT * FROM forecast\n",
+        "ORDER BY month"
+      ]
+    },
+    {
+      "name": "ds_map",
+      "displayName": "Performance by market (last 6 months)",
+      "queryLines": [
+        "SELECT country, latitude, longitude,\n",
+        "  sum(spend) AS spend,\n",
+        "  sum(revenue)/nullif(sum(spend),0) AS rev_per_dollar\n",
+        "FROM campaign_performance_enriched\n",
+        "WHERE date >= add_months((SELECT max(date) FROM campaign_performance_enriched), -6)\n",
+        "GROUP BY 1,2,3\n",
+        "ORDER BY rev_per_dollar ASC"
+      ]
+    },
+    {
+      "name": "ds_damage",
+      "displayName": "Damage from the underperforming creative",
+      "queryLines": [
+        "WITH bad AS (\n",
+        "  SELECT sum(spend) AS spend_wasted, sum(clicks) AS clicks, sum(conversions) AS conv,\n",
+        "    sum(conversions)/nullif(sum(clicks),0) AS cvr\n",
+        "  FROM campaign_performance_enriched\n",
+        "  WHERE creative_status = 'underperforming'\n",
+        "),\n",
+        "bench AS (\n",
+        "  SELECT sum(conversions)/nullif(sum(clicks),0) AS cvr, sum(revenue)/nullif(sum(conversions),0) AS rev_per_conv\n",
+        "  FROM campaign_performance_enriched\n",
+        "  WHERE channel_name = 'TikTok' AND creative_status = 'active'\n",
+        ")\n",
+        "SELECT bad.spend_wasted, bad.cvr AS bad_cvr, bench.cvr AS benchmark_cvr,\n",
+        "  (bad.clicks * bench.cvr - bad.conv) * bench.rev_per_conv AS lost_revenue\n",
+        "FROM bad, bench"
+      ]
+    },
+    {
+      "name": "ds_campaign",
+      "displayName": "Campaign performance (since Sept)",
+      "queryLines": [
+        "SELECT campaign_name,\n",
+        "  sum(revenue)/nullif(sum(spend),0) AS rev_per_dollar,\n",
+        "  CASE WHEN campaign_name = 'Q4 Growth Push' THEN 'Failing' ELSE 'Healthy' END AS health\n",
+        "FROM campaign_performance_enriched\n",
+        "WHERE date >= DATE'2025-09-01'\n",
+        "GROUP BY 1\n",
+        "ORDER BY rev_per_dollar ASC"
+      ]
+    },
+    {
+      "name": "ds_q4_creatives",
+      "displayName": "Creatives within Q4 Growth Push",
+      "queryLines": [
+        "SELECT creative_name,\n",
+        "  sum(revenue)/nullif(sum(spend),0) AS rev_per_dollar,\n",
+        "  CASE WHEN creative_status = 'underperforming' THEN 'Underperforming' ELSE 'Healthy' END AS health\n",
+        "FROM campaign_performance_enriched\n",
+        "WHERE campaign_name = 'Q4 Growth Push'\n",
+        "GROUP BY 1, creative_status\n",
+        "ORDER BY rev_per_dollar ASC"
+      ]
+    }
+  ],
+  "pages": [
+    {
+      "name": "overview",
+      "displayName": "Marketing Performance",
+      "layout": [
+        {
+          "widget": {
+            "name": "title",
+            "multilineTextboxSpec": {
+              "lines": [
+                "# Multi-Channel Marketing Performance\n",
+                "\n",
+                "We spend the same across TikTok, Instagram, Google Ads & Email — yet from late 2025 revenue and conversions fell off a cliff. Same budget, fewer results. **What happened?**"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 12,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_revenue",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_metrics",
+                  "fields": [
+                    {
+                      "name": "measure(Revenue)",
+                      "expression": "MEASURE(`Revenue`)"
+                    },
+                    {
+                      "name": "monthly(Date)",
+                      "expression": "DATE_TRUNC(\"MONTH\", `Date`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "measure(Revenue)",
+                  "displayName": "Revenue",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  },
+                  "color": {
+                    "value": "#4FB8D6"
+                  }
+                },
+                "period": {
+                  "fieldName": "monthly(Date)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Revenue"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 2,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_conv",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_metrics",
+                  "fields": [
+                    {
+                      "name": "monthly(Date)",
+                      "expression": "DATE_TRUNC(\"MONTH\", `Date`)"
+                    },
+                    {
+                      "name": "measure(Conversions)",
+                      "expression": "MEASURE(`Conversions`)"
+                    }
+                  ],
+                  "disaggregated": false,
+                  "orders": [
+                    {
+                      "direction": "DESC",
+                      "expression": "DATE_TRUNC(\"MONTH\", `Date`)"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "showTitle": true,
+                "title": "Conversions"
+              },
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "measure(Conversions)",
+                  "displayName": "Conversions",
+                  "color": {
+                    "value": "#4FB8D6"
+                  }
+                },
+                "period": {
+                  "fieldName": "monthly(Date)"
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 2,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_convrate",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_metrics",
+                  "fields": [
+                    {
+                      "name": "measure(Conversion Rate)",
+                      "expression": "MEASURE(`Conversion Rate`)"
+                    },
+                    {
+                      "name": "monthly(Date)",
+                      "expression": "DATE_TRUNC(\"MONTH\", `Date`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "measure(Conversion Rate)",
+                  "displayName": "Conversion Rate",
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "exact",
+                      "places": 2
+                    }
+                  },
+                  "color": {
+                    "value": "#4FB8D6"
+                  }
+                },
+                "period": {
+                  "fieldName": "monthly(Date)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Conversion Rate"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 2,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_spend",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_metrics",
+                  "fields": [
+                    {
+                      "name": "measure(Total Spend)",
+                      "expression": "MEASURE(`Total Spend`)"
+                    },
+                    {
+                      "name": "monthly(Date)",
+                      "expression": "DATE_TRUNC(\"MONTH\", `Date`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "measure(Total Spend)",
+                  "displayName": "Spend",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  },
+                  "color": {
+                    "value": "#4FB8D6"
+                  }
+                },
+                "period": {
+                  "fieldName": "monthly(Date)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Spend (steady)"
+              }
+            }
+          },
+          "position": {
+            "x": 9,
+            "y": 2,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "revenue_forecast",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_forecast",
+                  "fields": [
+                    {
+                      "name": "month",
+                      "expression": "`month`"
+                    },
+                    {
+                      "name": "rev_per_dollar",
+                      "expression": "`rev_per_dollar`"
+                    },
+                    {
+                      "name": "rev_per_dollar_forecast",
+                      "expression": "`rev_per_dollar_forecast`"
+                    },
+                    {
+                      "name": "rev_per_dollar_upper",
+                      "expression": "`rev_per_dollar_upper`"
+                    },
+                    {
+                      "name": "rev_per_dollar_lower",
+                      "expression": "`rev_per_dollar_lower`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 1,
+              "widgetType": "forecast-line",
+              "encodings": {
+                "x": {
+                  "fieldName": "month",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "displayName": "Month"
+                },
+                "y": {
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "original": {
+                    "fieldName": "rev_per_dollar",
+                    "displayName": "Revenue per $ spent"
+                  },
+                  "prediction": {
+                    "fieldName": "rev_per_dollar_forecast",
+                    "displayName": "AI Forecast"
+                  },
+                  "predictionUpper": {
+                    "fieldName": "rev_per_dollar_upper",
+                    "displayName": "Upper"
+                  },
+                  "predictionLower": {
+                    "fieldName": "rev_per_dollar_lower",
+                    "displayName": "Lower"
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "📉 Revenue per $ spent dropped in Sept and stayed down — AI forecast sees no recovery"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 5,
+            "width": 8,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "channel_perf",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_metrics",
+                  "fields": [
+                    {
+                      "name": "Channel",
+                      "expression": "`Channel`"
+                    },
+                    {
+                      "name": "Audience",
+                      "expression": "`Audience`"
+                    },
+                    {
+                      "name": "measure(Revenue per Dollar)",
+                      "expression": "MEASURE(`Revenue per Dollar`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "Channel",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Channel"
+                },
+                "y": {
+                  "fieldName": "measure(Revenue per Dollar)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Revenue per $ spent"
+                },
+                "color": {
+                  "fieldName": "Audience",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Audience"
+                },
+                "mark": {
+                  "layout": "group"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Revenue per $ by channel & audience"
+              }
+            }
+          },
+          "position": {
+            "x": 8,
+            "y": 5,
+            "width": 4,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "section_geo",
+            "multilineTextboxSpec": {
+              "lines": [
+                "## The drop is concentrated in specific markets"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 11,
+            "width": 12,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "map_perf",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_map",
+                  "fields": [
+                    {
+                      "name": "latitude",
+                      "expression": "`latitude`"
+                    },
+                    {
+                      "name": "longitude",
+                      "expression": "`longitude`"
+                    },
+                    {
+                      "name": "country",
+                      "expression": "`country`"
+                    },
+                    {
+                      "name": "sum(spend)",
+                      "expression": "SUM(`spend`)"
+                    },
+                    {
+                      "name": "avg(rev_per_dollar)",
+                      "expression": "AVG(`rev_per_dollar`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "symbol-map",
+              "encodings": {
+                "coordinates": {
+                  "latitude": {
+                    "fieldName": "latitude"
+                  },
+                  "longitude": {
+                    "fieldName": "longitude"
+                  }
+                },
+                "size": {
+                  "fieldName": "sum(spend)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Spend"
+                },
+                "color": {
+                  "fieldName": "avg(rev_per_dollar)",
+                  "scale": {
+                    "type": "quantitative",
+                    "colorRamp": {
+                      "mode": "custom-sequential",
+                      "colors": {
+                        "start": "#FF7E5C",
+                        "end": "#5FCFC6"
+                      }
+                    }
+                  },
+                  "displayName": "Revenue per $ spent"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Revenue per $ by market (last 6 months) — Germany & France went red"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 12,
+            "width": 8,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "country_table",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_map",
+                  "fields": [
+                    {
+                      "name": "country",
+                      "expression": "`country`"
+                    },
+                    {
+                      "name": "rev_per_dollar",
+                      "expression": "`rev_per_dollar`"
+                    },
+                    {
+                      "name": "spend",
+                      "expression": "`spend`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "country",
+                    "displayName": "Country"
+                  },
+                  {
+                    "fieldName": "rev_per_dollar",
+                    "displayName": "Rev per $",
+                    "format": {
+                      "type": "number",
+                      "decimalPlaces": {
+                        "type": "exact",
+                        "places": 2
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "spend",
+                    "displayName": "Spend",
+                    "format": {
+                      "type": "number-currency",
+                      "currencyCode": "USD",
+                      "abbreviation": "compact",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 1
+                      }
+                    }
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Markets — last 6 months (worst first)"
+              }
+            }
+          },
+          "position": {
+            "x": 8,
+            "y": 12,
+            "width": 4,
+            "height": 7
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1"
+    },
+    {
+      "name": "rootcause",
+      "displayName": "Root Cause",
+      "layout": [
+        {
+          "widget": {
+            "name": "rc_title",
+            "multilineTextboxSpec": {
+              "lines": [
+                "# Why is revenue down?\n",
+                "\n",
+                "Revenue dropped from September while spend held steady. Here's the impact, then the trail: **which campaign, which creative.**"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 12,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "impact_header",
+            "multilineTextboxSpec": {
+              "lines": [
+                "## Lost revenue impact"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 2,
+            "width": 12,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "dmg_lost",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_damage",
+                  "fields": [
+                    {
+                      "name": "lost_revenue",
+                      "expression": "`lost_revenue`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "lost_revenue",
+                  "displayName": "Est. lost revenue",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Estimated lost revenue (vs benchmark)"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 3,
+            "width": 4,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "dmg_spend",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_damage",
+                  "fields": [
+                    {
+                      "name": "spend_wasted",
+                      "expression": "`spend_wasted`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "spend_wasted",
+                  "displayName": "Spend on failing creative",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Spend on the failing creative"
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 3,
+            "width": 4,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "dmg_cvr",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_damage",
+                  "fields": [
+                    {
+                      "name": "bad_cvr",
+                      "expression": "`bad_cvr`"
+                    },
+                    {
+                      "name": "benchmark_cvr",
+                      "expression": "`benchmark_cvr`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "bad_cvr",
+                  "displayName": "Conv rate",
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "exact",
+                      "places": 2
+                    }
+                  }
+                },
+                "target": {
+                  "fieldName": "benchmark_cvr",
+                  "displayName": "Benchmark"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Conv rate vs TikTok benchmark"
+              }
+            }
+          },
+          "position": {
+            "x": 8,
+            "y": 3,
+            "width": 4,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "step1_header",
+            "multilineTextboxSpec": {
+              "lines": [
+                "## Which campaign is failing?\n",
+                "\n",
+                "All campaigns return ~$4.6 per $ spent since September — except one. **Q4 Growth Push** earns just $3.07."
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 6,
+            "width": 12,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "step1_campaigns",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_campaign",
+                  "fields": [
+                    {
+                      "name": "campaign_name",
+                      "expression": "`campaign_name`"
+                    },
+                    {
+                      "name": "rev_per_dollar",
+                      "expression": "`rev_per_dollar`"
+                    },
+                    {
+                      "name": "health",
+                      "expression": "`health`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "rev_per_dollar",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Revenue per $ spent"
+                },
+                "y": {
+                  "fieldName": "campaign_name",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Campaign"
+                },
+                "color": {
+                  "fieldName": "health",
+                  "displayName": "",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Failing",
+                        "color": "#FF7E5C"
+                      },
+                      {
+                        "value": "Underperforming",
+                        "color": "#FF7E5C"
+                      },
+                      {
+                        "value": "Healthy",
+                        "color": "#5FCFC6"
+                      }
+                    ]
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Revenue per $ by campaign (since Sept) — Q4 Growth Push is the outlier"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 8,
+            "width": 12,
+            "height": 5
+          }
+        },
+        {
+          "widget": {
+            "name": "step2_header",
+            "multilineTextboxSpec": {
+              "lines": [
+                "## Why? Which creative inside that campaign?\n",
+                "\n",
+                "Inside **Q4 Growth Push**, one creative drags it down: **\"Fall Sale - v2 (DE/FR)\"** — a localized EU video launched Sept 1 that barely converts (0.37% vs ~3%)."
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 13,
+            "width": 12,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "step2_creatives",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_q4_creatives",
+                  "fields": [
+                    {
+                      "name": "creative_name",
+                      "expression": "`creative_name`"
+                    },
+                    {
+                      "name": "rev_per_dollar",
+                      "expression": "`rev_per_dollar`"
+                    },
+                    {
+                      "name": "health",
+                      "expression": "`health`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "rev_per_dollar",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Revenue per $ spent"
+                },
+                "y": {
+                  "fieldName": "creative_name",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Creative"
+                },
+                "color": {
+                  "fieldName": "health",
+                  "displayName": "",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Failing",
+                        "color": "#FF7E5C"
+                      },
+                      {
+                        "value": "Underperforming",
+                        "color": "#FF7E5C"
+                      },
+                      {
+                        "value": "Healthy",
+                        "color": "#5FCFC6"
+                      }
+                    ]
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Creatives within Q4 Growth Push — 'Fall Sale - v2 (DE/FR)' is the culprit"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 15,
+            "width": 8,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "step2_card",
+            "multilineTextboxSpec": {
+              "lines": [
+                "### The culprit creative\n",
+                "\n",
+                "**Fall Sale - v2 (DE/FR)**\n",
+                "\n",
+                "- **Campaign:** Q4 Growth Push\n",
+                "- **Channel:** TikTok\n",
+                "- **Launched:** 2025-09-01\n",
+                "- **Markets:** Germany & France (localized EU batch)\n",
+                "- **Message:** Aggressive Discount\n",
+                "- **Status:** underperforming\n",
+                "- **Conv. rate:** 0.37% vs ~3% benchmark"
+              ]
+            }
+          },
+          "position": {
+            "x": 8,
+            "y": 15,
+            "width": 4,
+            "height": 6
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1"
+    },
+    {
+      "name": "filters",
+      "displayName": "Filters",
+      "layout": [
+        {
+          "widget": {
+            "name": "f_date",
+            "queries": [
+              {
+                "name": "f_date_q",
+                "query": {
+                  "datasetName": "ds_metrics",
+                  "fields": [
+                    {
+                      "name": "Date",
+                      "expression": "`Date`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-date-range-picker",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "Date",
+                    "displayName": "Date",
+                    "queryName": "f_date_q"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Date"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 3,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "f_channel",
+            "queries": [
+              {
+                "name": "f_channel_q",
+                "query": {
+                  "datasetName": "ds_metrics",
+                  "fields": [
+                    {
+                      "name": "Channel",
+                      "expression": "`Channel`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "Channel",
+                    "displayName": "Channel",
+                    "queryName": "f_channel_q"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Channel"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 0,
+            "width": 3,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "f_platform",
+            "queries": [
+              {
+                "name": "f_platform_q",
+                "query": {
+                  "datasetName": "ds_metrics",
+                  "fields": [
+                    {
+                      "name": "Platform",
+                      "expression": "`Platform`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "Platform",
+                    "displayName": "Platform",
+                    "queryName": "f_platform_q"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Platform"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 0,
+            "width": 3,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "f_country",
+            "queries": [
+              {
+                "name": "f_country_q",
+                "query": {
+                  "datasetName": "ds_metrics",
+                  "fields": [
+                    {
+                      "name": "Country",
+                      "expression": "`Country`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "Country",
+                    "displayName": "Country",
+                    "queryName": "f_country_q"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Country"
+              }
+            }
+          },
+          "position": {
+            "x": 9,
+            "y": 0,
+            "width": 3,
+            "height": 1
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_GLOBAL_FILTERS",
+      "layoutVersion": "GRID_V1"
+    }
+  ],
+  "uiSettings": {
+    "theme": {
+      "canvasBackgroundColor": {
+        "light": "#FCFCFC",
+        "dark": "#1F272D"
+      },
+      "widgetBackgroundColor": {
+        "light": "#FFFFFF",
+        "dark": "#11171C"
+      },
+      "fontColor": {
+        "light": "#11171C",
+        "dark": "#E8ECF0"
+      },
+      "selectionColor": {
+        "light": "#2272B4",
+        "dark": "#8ACAFF"
+      },
+      "visualizationColors": [
+        "#5C8AAA",
+        "#5FA6DE",
+        "#4FB8D6",
+        "#5FCFC6",
+        "#88D4AC",
+        "#BBE4F4",
+        "#C8EFD6",
+        "#E4F5E9"
+      ],
+      "widgetHeaderAlignment": "LEFT"
+    },
+    "genieSpace": {
+      "isEnabled": true,
+      "overrideId": "",
+      "enablementMode": "ENABLED"
+    }
+  }
+}

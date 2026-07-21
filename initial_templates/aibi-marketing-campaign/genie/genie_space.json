@@ -1,0 +1,73 @@
+{
+  "version": 2,
+  "config": {
+    "sample_questions": [
+      { "id": "10000000000000000000000000000001", "question": ["Why did our marketing revenue and conversions drop in late 2025?"] },
+      { "id": "10000000000000000000000000000002", "question": ["Which campaign is underperforming since September 2025?"] },
+      { "id": "10000000000000000000000000000003", "question": ["Inside the Q4 Growth Push campaign, which creative is dragging performance down?"] },
+      { "id": "10000000000000000000000000000004", "question": ["Which markets have the lowest revenue per dollar?"] },
+      { "id": "10000000000000000000000000000005", "question": ["Show monthly revenue, spend and conversions over the last year"] }
+    ]
+  },
+  "data_sources": {
+    "tables": [
+      { "identifier": "{{CATALOG}}.{{SCHEMA}}.campaign_performance_enriched" },
+      { "identifier": "{{CATALOG}}.{{SCHEMA}}.campaigns" },
+      { "identifier": "{{CATALOG}}.{{SCHEMA}}.creatives" },
+      { "identifier": "{{CATALOG}}.{{SCHEMA}}.metrics_campaign" }
+    ]
+  },
+  "instructions": {
+    "text_instructions": [
+      {
+        "id": "30000000000000000000000000000001",
+        "content": [
+          "THE STORY. A multi-channel marketing team runs campaigns across TikTok, Instagram, Google Ads and Email. Through mid-2025 every channel is healthy - revenue grows, conversions are steady. From 2025-09-01 revenue and conversions collapse even though spend stays flat.\n",
+          "WHEN ASKED WHY revenue, conversions, or revenue-per-dollar dropped (or what changed in late 2025), trace it in three steps: (1) the failing campaign Q4 Growth Push has the lowest revenue_per_dollar since 2025-09-01; (2) inside it, the creative 'Fall Sale - v2 (DE/FR)' (creative_status = 'underperforming', launched 2025-09-01 on TikTok, a localized Germany & France batch) has a conversion rate of ~0.35% vs ~3% for healthy creatives; (3) the affected markets are Germany & France (lowest revenue_per_dollar). Spend never dropped - only conversions and revenue did.\n",
+          "Revenue per Dollar = revenue / spend (a.k.a. ROAS). The performance fact only carries a creative_id; the WHY (creative_name, creative_status) lives joined into campaign_performance_enriched.\n",
+          "If asked for a forecast, use the ai_forecast SQL function.\n",
+          "metrics_campaign is a governed METRIC VIEW: query its measures with MEASURE(`Revenue`), MEASURE(`Total Spend`), MEASURE(`Conversions`), MEASURE(`Revenue per Dollar`), MEASURE(`Conversion Rate`), MEASURE(`CTR`), MEASURE(`Cost per Conversion`) and group by its dimensions (e.g. `Channel`, `Campaign`, `Country`, `Creative`, `Platform`, `Creative Status`). Prefer it for clean aggregated KPIs."
+        ]
+      }
+    ],
+    "example_question_sqls": [
+      {
+        "id": "20000000000000000000000000000001",
+        "question": ["Monthly revenue, spend and conversions trend"],
+        "sql": [
+          "SELECT DATE_TRUNC('MONTH', date) AS month,\n",
+          "       ROUND(SUM(revenue)) AS revenue,\n",
+          "       ROUND(SUM(spend)) AS spend,\n",
+          "       SUM(conversions) AS conversions,\n",
+          "       ROUND(SUM(revenue)/NULLIF(SUM(spend),0), 2) AS revenue_per_dollar\n",
+          "FROM {{CATALOG}}.{{SCHEMA}}.campaign_performance_enriched\n",
+          "GROUP BY 1 ORDER BY 1"
+        ]
+      },
+      {
+        "id": "20000000000000000000000000000002",
+        "question": ["Revenue per dollar by campaign since the drop (Sept 2025)"],
+        "sql": [
+          "SELECT campaign_name,\n",
+          "       ROUND(SUM(revenue)/NULLIF(SUM(spend),0), 2) AS revenue_per_dollar,\n",
+          "       ROUND(SUM(spend)) AS spend\n",
+          "FROM {{CATALOG}}.{{SCHEMA}}.campaign_performance_enriched\n",
+          "WHERE date >= DATE'2025-09-01'\n",
+          "GROUP BY 1 ORDER BY revenue_per_dollar ASC"
+        ]
+      },
+      {
+        "id": "20000000000000000000000000000003",
+        "question": ["Creatives inside the failing campaign (Q4 Growth Push)"],
+        "sql": [
+          "SELECT creative_name, message_theme, target_market, creative_status,\n",
+          "       ROUND(SUM(conversions)/NULLIF(SUM(clicks),0)*100, 2) AS conv_rate_pct,\n",
+          "       ROUND(SUM(revenue)/NULLIF(SUM(spend),0), 2) AS revenue_per_dollar\n",
+          "FROM {{CATALOG}}.{{SCHEMA}}.campaign_performance_enriched\n",
+          "WHERE campaign_name = 'Q4 Growth Push'\n",
+          "GROUP BY 1,2,3,4 ORDER BY revenue_per_dollar ASC"
+        ]
+      }
+    ]
+  }
+}

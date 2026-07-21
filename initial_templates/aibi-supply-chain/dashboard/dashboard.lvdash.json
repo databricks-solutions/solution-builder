@@ -1,0 +1,1569 @@
+{
+  "datasets": [
+    {
+      "name": "ds_metrics",
+      "displayName": "Demand metrics",
+      "asset_name": "metrics_demand"
+    },
+    {
+      "name": "ds_component_status",
+      "displayName": "Component supply risk",
+      "queryLines": [
+        "SELECT component_name, plant_name, supplier_name, lead_time_weeks,\n",
+        "  on_hand_units, safety_stock_units, weekly_supply_units, avg_weekly_demand,\n",
+        "  weeks_of_cover, status\n",
+        "FROM component_status\n",
+        "ORDER BY weeks_of_cover ASC"
+      ]
+    },
+    {
+      "name": "ds_kpi",
+      "displayName": "Battery Cell risk KPIs (by plant)",
+      "queryLines": [
+        "WITH maxw AS (SELECT max(week) mw FROM demand_enriched),\n",
+        "pl AS (SELECT plant_id FROM plants WHERE plant_name = :plant),\n",
+        "inv AS (SELECT on_hand_units oh FROM inventory WHERE component_id = 1 AND plant_id = (SELECT plant_id FROM pl)),\n",
+        "cs AS (SELECT weeks_of_cover, lead_time_weeks FROM component_status WHERE component_id = 1 AND plant_id = (SELECT plant_id FROM pl)),\n",
+        "hist AS (SELECT d.week w, sum(d.demand_units*b.qty_per_unit) dmd FROM demand_enriched d JOIN bom b ON d.product_id=b.product_id WHERE b.component_id=1 AND ((:plant = 'Rotterdam Plant' AND d.region IN ('EMEA','APAC')) OR (:plant = 'Detroit Plant' AND d.region IN ('AMER','LATAM'))) GROUP BY 1),\n",
+        "rr AS (SELECT avg(dmd) run_rate FROM hist WHERE w >= DATE'2026-05-01'),\n",
+        "future AS (SELECT explode(sequence((SELECT mw FROM maxw), DATE'2026-09-21', INTERVAL 1 WEEK)) AS w),\n",
+        "proj AS (SELECT w, (ROW_NUMBER() OVER (ORDER BY w)) AS k FROM future),\n",
+        "bal AS (SELECT w, (SELECT oh FROM inv) - (k-1) * (SELECT run_rate FROM rr) AS onhand FROM proj)\n",
+        "SELECT (SELECT weeks_of_cover FROM cs) AS weeks_of_cover,\n",
+        "       (SELECT lead_time_weeks FROM cs) AS lead_time_weeks,\n",
+        "       (SELECT min(w) FROM bal WHERE onhand <= 0) AS stockout_week,\n",
+        "       1 AS components_at_risk"
+      ],
+      "parameters": [
+        {
+          "displayName": "Plant",
+          "keyword": "plant",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "Rotterdam Plant"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "ds_onhand",
+      "displayName": "Component on-hand depletion + forecast",
+      "queryLines": [
+        "WITH maxw AS (SELECT max(week) mw FROM demand_enriched),\n",
+        "cmp AS (SELECT component_id FROM components WHERE component_name = :component),\n",
+        "pl AS (SELECT plant_id FROM plants WHERE plant_name = :plant),\n",
+        "inv AS (SELECT sum(on_hand_units) oh, sum(safety_stock_units) ss, sum(weekly_supply_units) s FROM inventory WHERE component_id = (SELECT component_id FROM cmp) AND plant_id = (SELECT plant_id FROM pl)),\n",
+        "hist AS (SELECT d.week w, sum(d.demand_units*b.qty_per_unit) dmd FROM demand_enriched d JOIN bom b ON d.product_id=b.product_id WHERE b.component_id=(SELECT component_id FROM cmp) AND ((:plant = 'Rotterdam Plant' AND d.region IN ('EMEA','APAC')) OR (:plant = 'Detroit Plant' AND d.region IN ('AMER','LATAM'))) GROUP BY 1),\n",
+        "rr AS (SELECT avg(dmd) run_rate FROM hist WHERE w >= DATE'2026-05-01'),\n",
+        "future AS (SELECT explode(sequence((SELECT mw FROM maxw), DATE'2026-09-21', INTERVAL 1 WEEK)) AS w),\n",
+        "proj AS (SELECT w, (ROW_NUMBER() OVER (ORDER BY w)) AS k FROM future),\n",
+        "fcast AS (SELECT w, GREATEST((SELECT oh FROM inv) - (k-1) * (SELECT run_rate FROM rr), 0) AS onhand FROM proj),\n",
+        "actuals AS (SELECT w FROM hist WHERE w >= DATE'2026-03-01' AND w < (SELECT mw FROM maxw))\n",
+        "SELECT w AS week, CAST((SELECT oh FROM inv) AS DOUBLE) AS actual_on_hand, CAST(NULL AS DOUBLE) AS forecast_on_hand, (SELECT ss FROM inv) AS safety_stock FROM actuals\n",
+        "UNION ALL\n",
+        "SELECT w AS week, CAST(NULL AS DOUBLE), onhand, (SELECT ss FROM inv) FROM fcast\n",
+        "ORDER BY week"
+      ],
+      "parameters": [
+        {
+          "displayName": "Component",
+          "keyword": "component",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "Battery Cell"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "Plant",
+          "keyword": "plant",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "Rotterdam Plant"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "ds_demand_forecast",
+      "displayName": "Total weekly demand + AI forecast",
+      "queryLines": [
+        "WITH maxw AS (SELECT max(week) mw FROM demand_enriched),\n",
+        "weekly AS (SELECT week AS w, sum(demand_units) AS demand FROM demand_enriched WHERE week < (SELECT mw FROM maxw) GROUP BY 1),\n",
+        "fc AS (SELECT w, demand_forecast, demand_lower, demand_upper FROM AI_FORECAST(TABLE(SELECT w, demand FROM weekly), horizon => '2026-08-10', time_col => 'w', value_col => 'demand')),\n",
+        "actuals AS (SELECT w AS week, demand AS actual_demand, CAST(NULL AS DOUBLE) AS forecast_demand, CAST(NULL AS DOUBLE) AS demand_lower, CAST(NULL AS DOUBLE) AS demand_upper FROM weekly WHERE w <> (SELECT max(w) FROM weekly)),\n",
+        "bridge AS (SELECT w AS week, demand, demand, demand, demand FROM weekly WHERE w = (SELECT max(w) FROM weekly)),\n",
+        "forecast AS (SELECT w AS week, CAST(NULL AS DOUBLE), demand_forecast, demand_lower, demand_upper FROM fc)\n",
+        "SELECT * FROM actuals UNION ALL SELECT * FROM bridge UNION ALL SELECT * FROM forecast ORDER BY week"
+      ]
+    },
+    {
+      "name": "ds_product_trend",
+      "displayName": "Weekly demand by product",
+      "queryLines": [
+        "SELECT week, product_name, sum(demand_units) AS demand\n",
+        "FROM demand_enriched\n",
+        "WHERE week >= DATE'2026-01-01'\n",
+        "GROUP BY 1,2 ORDER BY week"
+      ]
+    },
+    {
+      "name": "ds_region_demand",
+      "displayName": "Weekly demand by region",
+      "queryLines": [
+        "SELECT date_trunc('week', week) AS week, region, sum(demand_units) AS demand\n",
+        "FROM demand_enriched\n",
+        "WHERE week >= DATE'2026-01-01'\n",
+        "GROUP BY 1,2 ORDER BY week"
+      ]
+    },
+    {
+      "name": "ds_bom_risk",
+      "displayName": "Products using the Battery Cell",
+      "queryLines": [
+        "SELECT p.product_name, b.qty_per_unit AS battery_cells_per_unit\n",
+        "FROM bom b\n",
+        "JOIN products p ON b.product_id = p.product_id\n",
+        "WHERE b.component_id = 1\n",
+        "ORDER BY b.qty_per_unit DESC"
+      ]
+    }
+  ],
+  "pages": [
+    {
+      "name": "risk",
+      "displayName": "Component supply risk",
+      "layout": [
+        {
+          "widget": {
+            "name": "title",
+            "multilineTextboxSpec": {
+              "lines": [
+                "# Supply Chain — are we about to run out of a part?\n",
+                "\n",
+                "A demand surge is quietly burning through our **Battery Cells**. At the **Rotterdam** plant only ~2 weeks of stock remain — but the supplier needs **8 weeks** to restock. Catch it now, or the line stops."
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 12,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_cover",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_kpi",
+                  "fields": [
+                    {
+                      "name": "weeks_of_cover",
+                      "expression": "`weeks_of_cover`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "showTitle": true,
+                "title": "Battery Cell — weeks of cover",
+                "showDescription": false
+              },
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "weeks_of_cover",
+                  "format": {
+                    "type": "number-plain",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 2
+                    }
+                  },
+                  "formatTemplate": "{{ @formatted }} weeks",
+                  "displayName": "Weeks of cover"
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 3,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_stockout",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_kpi",
+                  "fields": [
+                    {
+                      "name": "stockout_week",
+                      "expression": "`stockout_week`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "stockout_week",
+                  "displayName": "Projected stockout"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Battery Cell — projected stockout"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 3,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_lead",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_kpi",
+                  "fields": [
+                    {
+                      "name": "lead_time_weeks",
+                      "expression": "`lead_time_weeks`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "showTitle": true,
+                "title": "Supplier lead time (weeks)"
+              },
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "lead_time_weeks",
+                  "format": {
+                    "type": "number-plain",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 2
+                    }
+                  },
+                  "formatTemplate": "{{ @formatted }} weeks",
+                  "displayName": "Supplier lead time (weeks)"
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 3,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_demand_trend",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_metrics",
+                  "fields": [
+                    {
+                      "name": "Week",
+                      "expression": "`Week`"
+                    },
+                    {
+                      "name": "measure(Demand Units)",
+                      "expression": "MEASURE(`Demand Units`)"
+                    }
+                  ],
+                  "disaggregated": false,
+                  "orders": [
+                    {
+                      "direction": "DESC",
+                      "expression": "`Week`"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "measure(Demand Units)",
+                  "displayName": "Weekly demand",
+                  "color": {
+                    "value": "#5FA6DE"
+                  }
+                },
+                "period": {
+                  "fieldName": "Week"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Total demand (weekly trend)"
+              }
+            }
+          },
+          "position": {
+            "x": 9,
+            "y": 3,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "hero_onhand",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_onhand",
+                  "fields": [
+                    {
+                      "name": "week",
+                      "expression": "`week`"
+                    },
+                    {
+                      "name": "actual_on_hand",
+                      "expression": "`actual_on_hand`"
+                    },
+                    {
+                      "name": "forecast_on_hand",
+                      "expression": "`forecast_on_hand`"
+                    },
+                    {
+                      "name": "safety_stock",
+                      "expression": "`safety_stock`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "week",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "displayName": "Week"
+                },
+                "y": {
+                  "scale": {
+                    "type": "quantitative",
+                    "domainMin": 0
+                  },
+                  "fields": [
+                    {
+                      "fieldName": "actual_on_hand",
+                      "displayName": "On-hand (actual)"
+                    },
+                    {
+                      "fieldName": "forecast_on_hand",
+                      "displayName": "On-hand (forecast)"
+                    },
+                    {
+                      "fieldName": "safety_stock",
+                      "displayName": "Safety stock"
+                    }
+                  ]
+                },
+                "color": {
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "On-hand (actual)",
+                        "color": "#3E8FD0"
+                      },
+                      {
+                        "value": "On-hand (forecast)",
+                        "color": "#FF5A47"
+                      },
+                      {
+                        "value": "Safety stock",
+                        "color": "#FFB454"
+                      }
+                    ]
+                  }
+                }
+              },
+              "annotations": [
+                {
+                  "type": "vertical-line",
+                  "encodings": {
+                    "x": {
+                      "dataValue": "2026-06-22T00:00:00.000",
+                      "dataType": "DATETIME"
+                    },
+                    "label": {
+                      "value": "Projected stockout"
+                    },
+                    "color": {
+                      "value": "#FFB454"
+                    }
+                  }
+                }
+              ],
+              "frame": {
+                "showTitle": true,
+                "title": "Battery Cell on-hand at Rotterdam — projected to run out in ~2 weeks"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 6,
+            "width": 8,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "cover_bar",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_component_status",
+                  "fields": [
+                    {
+                      "name": "component_name",
+                      "expression": "`component_name`"
+                    },
+                    {
+                      "name": "plant_name",
+                      "expression": "`plant_name`"
+                    },
+                    {
+                      "name": "weeks_of_cover",
+                      "expression": "`weeks_of_cover`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "weeks_of_cover",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Weeks of cover"
+                },
+                "y": {
+                  "fieldName": "component_name",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Component"
+                },
+                "color": {
+                  "fieldName": "plant_name",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Plant"
+                },
+                "mark": {
+                  "layout": "group"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Weeks of cover by component & plant — the Battery Cell is short at both plants"
+              }
+            }
+          },
+          "position": {
+            "x": 8,
+            "y": 6,
+            "width": 4,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "comp_table",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_component_status",
+                  "fields": [
+                    {
+                      "name": "component_name",
+                      "expression": "`component_name`"
+                    },
+                    {
+                      "name": "status",
+                      "expression": "`status`"
+                    },
+                    {
+                      "name": "weeks_of_cover",
+                      "expression": "`weeks_of_cover`"
+                    },
+                    {
+                      "name": "on_hand_units",
+                      "expression": "`on_hand_units`"
+                    },
+                    {
+                      "name": "lead_time_weeks",
+                      "expression": "`lead_time_weeks`"
+                    },
+                    {
+                      "name": "supplier_name",
+                      "expression": "`supplier_name`"
+                    },
+                    {
+                      "name": "safety_stock_units",
+                      "expression": "`safety_stock_units`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "showTitle": true,
+                "title": "Component supply status (inventory, supplier & lead time)"
+              },
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "component_name",
+                    "displayName": "Component"
+                  },
+                  {
+                    "fieldName": "status",
+                    "displayName": "Status"
+                  },
+                  {
+                    "fieldName": "weeks_of_cover",
+                    "displayName": "Weeks of cover"
+                  },
+                  {
+                    "fieldName": "on_hand_units",
+                    "displayName": "On hand"
+                  },
+                  {
+                    "fieldName": "lead_time_weeks",
+                    "displayName": "Lead time (wk)"
+                  },
+                  {
+                    "fieldName": "supplier_name",
+                    "displayName": "Supplier"
+                  },
+                  {
+                    "fieldName": "safety_stock_units",
+                    "displayName": "Safety stock"
+                  }
+                ]
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 12,
+            "width": 7,
+            "height": 5
+          }
+        },
+        {
+          "widget": {
+            "name": "risk_demand_header",
+            "multilineTextboxSpec": {
+              "lines": [
+                "## What's driving the drain"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 17,
+            "width": 12,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "demand_by_product_bar",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_product_trend",
+                  "fields": [
+                    {
+                      "name": "week",
+                      "expression": "`week`"
+                    },
+                    {
+                      "name": "product_name",
+                      "expression": "`product_name`"
+                    },
+                    {
+                      "name": "sum(demand)",
+                      "expression": "SUM(`demand`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "week",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "displayName": "Week"
+                },
+                "y": {
+                  "fieldName": "sum(demand)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Weekly demand (units)"
+                },
+                "color": {
+                  "fieldName": "product_name",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Product"
+                }
+              },
+              "annotations": [
+                {
+                  "type": "vertical-line",
+                  "encodings": {
+                    "x": {
+                      "dataValue": "2026-04-20T00:00:00.000",
+                      "dataType": "DATETIME"
+                    },
+                    "label": {
+                      "value": "EMEA market opens"
+                    },
+                    "color": {
+                      "value": "#FFB454"
+                    }
+                  }
+                }
+              ],
+              "frame": {
+                "showTitle": true,
+                "title": "Weekly demand by product (stacked) — City E-Bike jumps after the new EMEA market opens"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 18,
+            "width": 12,
+            "height": 5
+          }
+        },
+        {
+          "widget": {
+            "name": "risk_geo_header",
+            "multilineTextboxSpec": {
+              "lines": [
+                "## Where demand sits"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 23,
+            "width": 12,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "map_demand",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_metrics",
+                  "fields": [
+                    {
+                      "name": "measure(Demand Units)",
+                      "expression": "MEASURE(`Demand Units`)"
+                    },
+                    {
+                      "name": "Latitude",
+                      "expression": "`Latitude`"
+                    },
+                    {
+                      "name": "Longitude",
+                      "expression": "`Longitude`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "showTitle": true,
+                "title": "Demand by distribution center"
+              },
+              "widgetType": "symbol-map",
+              "encodings": {
+                "coordinates": {
+                  "latitude": {
+                    "fieldName": "Latitude"
+                  },
+                  "longitude": {
+                    "fieldName": "Longitude"
+                  }
+                },
+                "color": {
+                  "fieldName": "measure(Demand Units)",
+                  "displayName": "Demand",
+                  "scale": {
+                    "type": "quantitative",
+                    "colorRamp": {
+                      "mode": "custom-sequential",
+                      "colors": {
+                        "start": "#3E8FD0",
+                        "end": "#5FBE8A"
+                      }
+                    }
+                  }
+                },
+                "size": {
+                  "fieldName": "measure(Demand Units)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Demand"
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 24,
+            "width": 12,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "cover_heatmap",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_component_status",
+                  "fields": [
+                    {
+                      "name": "sum(weeks_of_cover)",
+                      "expression": "SUM(`weeks_of_cover`)"
+                    },
+                    {
+                      "name": "plant_name",
+                      "expression": "`plant_name`"
+                    },
+                    {
+                      "name": "component_name",
+                      "expression": "`component_name`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "frame": {
+                "showTitle": true,
+                "title": "Weeks of cover heatmap — red = at risk"
+              },
+              "widgetType": "heatmap",
+              "encodings": {
+                "x": {
+                  "fieldName": "plant_name",
+                  "axis": {
+                    "hideTitle": true
+                  },
+                  "displayName": "Plant",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "y": {
+                  "fieldName": "component_name",
+                  "axis": {
+                    "hideTitle": true
+                  },
+                  "displayName": "Component",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "color": {
+                  "fieldName": "sum(weeks_of_cover)",
+                  "displayName": "Weeks of cover",
+                  "scale": {
+                    "type": "quantitative",
+                    "colorRamp": {
+                      "mode": "custom-sequential",
+                      "colors": {
+                        "start": "#FF5A47",
+                        "end": "#5FBE8A"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 7,
+            "y": 12,
+            "width": 5,
+            "height": 5
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1"
+    },
+    {
+      "name": "why",
+      "displayName": "Why — demand driver",
+      "layout": [
+        {
+          "widget": {
+            "name": "why_title",
+            "multilineTextboxSpec": {
+              "lines": [
+                "# Why is the Battery Cell draining?\n",
+                "\n",
+                "Every e-bike uses the Battery Cell. A sharp demand surge in the City E-Bike from late April is consuming cells faster than they're replenished — and a map of where demand sits."
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 12,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "why_fc_header",
+            "multilineTextboxSpec": {
+              "lines": [
+                "## Demand forecast — and what caused it\n",
+                "\n",
+                "A new EMEA market opened on 2026-04-20, lifting City E-Bike demand. The AI forecast shows the elevated demand continuing — which is what drains the Battery Cell."
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 2,
+            "width": 12,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "demand_forecast_line",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_demand_forecast",
+                  "fields": [
+                    {
+                      "name": "week",
+                      "expression": "`week`"
+                    },
+                    {
+                      "name": "actual_demand",
+                      "expression": "`actual_demand`"
+                    },
+                    {
+                      "name": "forecast_demand",
+                      "expression": "`forecast_demand`"
+                    },
+                    {
+                      "name": "demand_upper",
+                      "expression": "`demand_upper`"
+                    },
+                    {
+                      "name": "demand_lower",
+                      "expression": "`demand_lower`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 1,
+              "widgetType": "forecast-line",
+              "encodings": {
+                "x": {
+                  "fieldName": "week",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "displayName": "Week"
+                },
+                "y": {
+                  "scale": {
+                    "type": "quantitative",
+                    "domainMin": 0
+                  },
+                  "original": {
+                    "fieldName": "actual_demand",
+                    "displayName": "Weekly demand"
+                  },
+                  "prediction": {
+                    "fieldName": "forecast_demand",
+                    "displayName": "AI forecast"
+                  },
+                  "predictionUpper": {
+                    "fieldName": "demand_upper",
+                    "displayName": "Upper"
+                  },
+                  "predictionLower": {
+                    "fieldName": "demand_lower",
+                    "displayName": "Lower"
+                  }
+                }
+              },
+              "annotations": [
+                {
+                  "type": "vertical-line",
+                  "encodings": {
+                    "x": {
+                      "dataValue": "2026-04-20T00:00:00.000",
+                      "dataType": "DATETIME"
+                    },
+                    "label": {
+                      "value": "EMEA market opens"
+                    },
+                    "color": {
+                      "value": "#FFB454"
+                    }
+                  }
+                }
+              ],
+              "frame": {
+                "showTitle": true,
+                "title": "Total weekly demand + AI forecast"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 5,
+            "width": 8,
+            "height": 4
+          }
+        },
+        {
+          "widget": {
+            "name": "market_launch_card",
+            "multilineTextboxSpec": {
+              "lines": [
+                "### The cause\n",
+                "\n",
+                "**City E-Bike — EMEA market launch**\n",
+                "\n",
+                "- **Date:** 2026-04-20\n",
+                "- **Region:** EMEA\n",
+                "- A major new EMEA market opened, driving a sharp, sustained jump in City E-Bike demand — which (via the BOM) is what's draining the Battery Cell at Rotterdam."
+              ]
+            }
+          },
+          "position": {
+            "x": 8,
+            "y": 5,
+            "width": 4,
+            "height": 4
+          }
+        },
+        {
+          "widget": {
+            "name": "why_step1",
+            "multilineTextboxSpec": {
+              "lines": [
+                "## Every product uses the Battery Cell (BOM)\n",
+                "\n",
+                "The surge in any e-bike consumes shared Battery Cells — here's how many per unit, and where demand sits."
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 9,
+            "width": 12,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "bom_table",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_bom_risk",
+                  "fields": [
+                    {
+                      "name": "product_name",
+                      "expression": "`product_name`"
+                    },
+                    {
+                      "name": "battery_cells_per_unit",
+                      "expression": "`battery_cells_per_unit`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "product_name",
+                    "displayName": "Product"
+                  },
+                  {
+                    "fieldName": "battery_cells_per_unit",
+                    "displayName": "Battery cells / unit"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Products using the Battery Cell (BOM) — all affected"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 11,
+            "width": 8,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "why_region_header",
+            "multilineTextboxSpec": {
+              "lines": [
+                "## Demand by region — EMEA breaks away\n",
+                "\n",
+                "The new EMEA market lifts EMEA demand sharply, while every other region stays flat — confirming the launch is the driver."
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 17,
+            "width": 12,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "region_demand_area",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_region_demand",
+                  "fields": [
+                    {
+                      "name": "region",
+                      "expression": "`region`"
+                    },
+                    {
+                      "name": "week",
+                      "expression": "`week`"
+                    },
+                    {
+                      "name": "sum(demand)",
+                      "expression": "SUM(`demand`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "frame": {
+                "showTitle": true,
+                "title": "Weekly demand by region — EMEA surges after the market opens"
+              },
+              "annotations": [
+                {
+                  "type": "vertical-line",
+                  "encodings": {
+                    "x": {
+                      "dataValue": "2026-04-20T00:00:00.000",
+                      "dataType": "DATETIME"
+                    },
+                    "label": {
+                      "value": "EMEA market opens"
+                    },
+                    "color": {
+                      "value": "#FFB454"
+                    }
+                  }
+                }
+              ],
+              "widgetType": "area",
+              "encodings": {
+                "x": {
+                  "fieldName": "week",
+                  "displayName": "Week",
+                  "scale": {
+                    "type": "temporal"
+                  }
+                },
+                "y": {
+                  "fieldName": "sum(demand)",
+                  "displayName": "Weekly demand (units)",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "color": {
+                  "fieldName": "region",
+                  "displayName": "Region",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 19,
+            "width": 12,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "region_pie",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_metrics",
+                  "fields": [
+                    {
+                      "name": "Region",
+                      "expression": "`Region`"
+                    },
+                    {
+                      "name": "measure(Demand Units)",
+                      "expression": "MEASURE(`Demand Units`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "pie",
+              "encodings": {
+                "angle": {
+                  "fieldName": "measure(Demand Units)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Demand"
+                },
+                "color": {
+                  "fieldName": "Region",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Region"
+                },
+                "label": {
+                  "show": true
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Demand share by region"
+              }
+            }
+          },
+          "position": {
+            "x": 8,
+            "y": 11,
+            "width": 4,
+            "height": 6
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1"
+    },
+    {
+      "name": "filters",
+      "displayName": "Filters",
+      "layout": [
+        {
+          "widget": {
+            "name": "f_week",
+            "queries": [
+              {
+                "name": "f_week_q",
+                "query": {
+                  "datasetName": "ds_metrics",
+                  "fields": [
+                    {
+                      "name": "Week",
+                      "expression": "`Week`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "f_week_pt",
+                "query": {
+                  "datasetName": "ds_product_trend",
+                  "fields": [
+                    {
+                      "name": "week",
+                      "expression": "`week`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-date-range-picker",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "Week",
+                    "displayName": "Week",
+                    "queryName": "f_week_q"
+                  },
+                  {
+                    "fieldName": "week",
+                    "displayName": "Week",
+                    "queryName": "f_week_pt"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Week"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 4,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "f_product",
+            "queries": [
+              {
+                "name": "f_product_q",
+                "query": {
+                  "datasetName": "ds_metrics",
+                  "fields": [
+                    {
+                      "name": "Product",
+                      "expression": "`Product`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "f_product_pt",
+                "query": {
+                  "datasetName": "ds_product_trend",
+                  "fields": [
+                    {
+                      "name": "product_name",
+                      "expression": "`product_name`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "f_product_bom",
+                "query": {
+                  "datasetName": "ds_bom_risk",
+                  "fields": [
+                    {
+                      "name": "product_name",
+                      "expression": "`product_name`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "Product",
+                    "displayName": "Product",
+                    "queryName": "f_product_q"
+                  },
+                  {
+                    "fieldName": "product_name",
+                    "displayName": "Product",
+                    "queryName": "f_product_pt"
+                  },
+                  {
+                    "fieldName": "product_name",
+                    "displayName": "Product",
+                    "queryName": "f_product_bom"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Product"
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 0,
+            "width": 4,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "f_region",
+            "queries": [
+              {
+                "name": "f_region_q",
+                "query": {
+                  "datasetName": "ds_metrics",
+                  "fields": [
+                    {
+                      "name": "Region",
+                      "expression": "`Region`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "Region",
+                    "displayName": "Region",
+                    "queryName": "f_region_q"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Region"
+              }
+            }
+          },
+          "position": {
+            "x": 8,
+            "y": 0,
+            "width": 4,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "f_plant",
+            "queries": [
+              {
+                "name": "f_plant_q",
+                "query": {
+                  "datasetName": "ds_component_status",
+                  "fields": [
+                    {
+                      "name": "plant_name",
+                      "expression": "`plant_name`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-single-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "plant_name",
+                    "displayName": "Plant",
+                    "queryName": "f_plant_q",
+                    "parameterName": "plant"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Plant"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 1,
+            "width": 4,
+            "height": 1
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_GLOBAL_FILTERS",
+      "layoutVersion": "GRID_V1"
+    }
+  ],
+  "uiSettings": {
+    "theme": {
+      "canvasBackgroundColor": {
+        "light": "#FCFCFC",
+        "dark": "#1F272D"
+      },
+      "widgetBackgroundColor": {
+        "light": "#FFFFFF",
+        "dark": "#11171C"
+      },
+      "fontColor": {
+        "light": "#11171C",
+        "dark": "#E8ECF0"
+      },
+      "selectionColor": {
+        "light": "#2272B4",
+        "dark": "#8ACAFF"
+      },
+      "visualizationColors": [
+        "#3E8FD0",
+        "#2FB6C0",
+        "#5FBE8A",
+        "#E8B54E",
+        "#E0795A",
+        "#9B6A9E",
+        "#6E8FD8",
+        "#9CC6A6"
+      ],
+      "widgetHeaderAlignment": "LEFT"
+    },
+    "genieSpace": {
+      "isEnabled": true,
+      "overrideId": "",
+      "enablementMode": "ENABLED"
+    }
+  }
+}
