@@ -8,6 +8,16 @@
       "customer": "",
       "description": "A travel company deploys an AI Support Copilot (built on Databricks with Agent Bricks) that reaches GA on 2025-06-02 and auto-resolves How-To/Access/Billing cases. Average resolution time drops ~26h to ~11h and cost per case halves. See the impact on an AI/BI Dashboard, then ask Genie WHY - it traces the gain to the Copilot's GA release and rising daily usage. Synthetic data, governed metric view, Dashboard + Genie.",
       "industry": "Retail & CPG",
+      "capabilities": ["synthetic-data-gen", "sdp", "aibi-dashboards", "genie", "knowledge-assistant", "supervisor-agent"]
+    },
+    {
+      "id": "00000000-seed-4000-a001-000000000020",
+      "directory": "healthcare/budget-variance-comp-controls",
+      "name": "Healthcare CFO — Budget Variance & Comp Controls",
+      "customer": "Office of the CFO",
+      "description": "Office-of-the-CFO demo for a regional health system: the full-year opex forecast is ~$4.1M over budget while revenue is flat, so it's a cost problem, not a demand problem. A two-page AI/BI dashboard uses AI_FORECAST to project the miss to year-end, then drills from the headline to a single root cause — Nursing Contract Labor (+$3.58M), RN vacancies backfilled with agency nurses at ~2× cost through one vendor. Genie answers 'Why is Nursing over budget?' in plain language, and Unity Catalog column masking (comp controls) shows Finance full compensation detail while Operations managers see headcount only.",
+      "industry": "Healthcare & Life Sciences",
+      "capabilities": ["synthetic-data-gen", "sdp", "ai-functions", "aibi-dashboards", "genie", "unity-catalog"]
       "capabilities": [
         "synthetic-data-gen",
         "metric-views",

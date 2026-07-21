@@ -1,0 +1,18 @@
+{
+  "capabilities": {
+    "buildable": [
+      "synthetic-data-gen",
+      "sdp",
+      "ai-functions",
+      "aibi-dashboards",
+      "genie",
+      "unity-catalog"
+    ],
+    "talking_track": [
+      "lakeflow-connect",
+      "genie-one",
+      "genie-code"
+    ]
+  },
+  "created_resources": {}
+}
