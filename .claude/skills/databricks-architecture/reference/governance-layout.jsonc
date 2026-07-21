@@ -1,0 +1,84 @@
+// =============================================================================
+// GOVERNANCE / PHYSICAL LAYOUT — the Unity Catalog hierarchy as NESTED BOXES.
+//
+// JSONC (JSON + // comments) for YOU to read. Emit PLAIN JSON (strip //) in the
+// architecture.md ```json fence.
+//
+// WHEN TO USE THIS SHAPE (not the data-flow one): the ask is about UC objects /
+// org structure — "show our workspace, metastore, catalogs, schemas", "our
+// governance layout", "how Unity Catalog is organized". A CONTAINMENT picture
+// (who-lives-inside-what), NOT a left→right data flow.
+//
+// WHAT THIS EXAMPLE DEMONSTRATES (the positioning strategies, composed):
+//   • CONTAINMENT via `wraps` only — Account ⊃ Workspaces ⊃ Catalogs ⊃ schemas,
+//     + Metastore ⊃ Unity Catalog. No pixel `at` anywhere.
+//   • COLUMNS for the leaves — each catalog is a `columns` lane; its schemas are
+//     `logo` leaves placed by col/row so the catalog box has positioned children
+//     to wrap. Sibling schemas line up in tidy per-catalog stacks.
+//   • MEDALLION-COLORED schema logos — `bronzeLayer`/`silverLayer`/`goldLayer`
+//     render in their metallic hue by default (label matches).
+//   • AUTO-SEED — the lone `unity-catalog` tile has NO col/row/at; its only
+//     placement is being in the metastore's `wraps`, so it auto-seeds inside it.
+//   • BOX PLACED BELOW ANOTHER BOX — the metastore uses `below: ws-prod` (a
+//     wrapping box may use below/above/alignY) to sit UNDER the two workspaces,
+//     with a `bounds` hint spanning both catalog columns. Its whole subtree
+//     shifts with it and the Account box re-sizes around the result.
+//   • DESCENDING Z on nested boxes — a box is opaque and paints OVER whatever
+//     shares its z, so each level sits BEHIND the one it contains
+//     (account -4 < workspace -2 < catalog -1 < schema logos 0, on top). Omit
+//     this and only the outermost box shows.
+//
+// Keep it to schema level (don't nest a table box under every schema — it gets
+// unreadable); list a schema's key tables in its `desc` if you want that detail.
+// =============================================================================
+[
+  {
+    "name": "Unity Catalog layout",
+    "story": "How Unity Catalog is organized: a Databricks account with a prod and a dev workspace (each with its catalog + bronze/silver/gold schemas + models), and one metastore holding the governed Unity Catalog below them.",
+    "columns": ["prod", "dev"],
+    "nodes": [
+      // Schemas = medallion-colored logo leaves, placed in their catalog's lane
+      // by col/row so the engine gives them a position (the catalog box wraps them).
+      { "id": "prod-bronze", "type": "logo", "icon": "bronzeLayer", "text": "Bronze", "caption": "right", "col": "prod", "row": 1 },
+      { "id": "prod-silver", "type": "logo", "icon": "silverLayer", "text": "Silver", "caption": "right", "col": "prod", "row": 2 },
+      { "id": "prod-gold",   "type": "logo", "icon": "goldLayer",   "text": "Gold",   "caption": "right", "col": "prod", "row": 3 },
+      { "id": "prod-models", "type": "logo", "icon": "mlModelBrand", "text": "Models", "caption": "right", "col": "prod", "row": 4 },
+
+      { "id": "dev-bronze", "type": "logo", "icon": "bronzeLayer", "text": "Bronze", "caption": "right", "col": "dev", "row": 1 },
+      { "id": "dev-silver", "type": "logo", "icon": "silverLayer", "text": "Silver", "caption": "right", "col": "dev", "row": 2 },
+      { "id": "dev-gold",   "type": "logo", "icon": "goldLayer",   "text": "Gold",   "caption": "right", "col": "dev", "row": 3 },
+      { "id": "dev-models", "type": "logo", "icon": "mlModelBrand", "text": "Models", "caption": "right", "col": "dev", "row": 4 },
+
+      // AUTO-SEED: no col/row/at — its only placement is `wraps` by the metastore.
+      // The metastore sizes around it, then its `below` shift drops it inside.
+      { "id": "unity-catalog", "type": "unity-catalog",
+        "desc": "One governed catalog — access, lineage, Attribute Based Access Control and semantics across data + AI.",
+        "style": { "border": 0, "shadow": 0 },
+        "note": "NO col/row/at — auto-seeded: its only placement is `wraps` by the metastore, which sizes around it and carries it below the workspaces via the box's `below`." },
+
+      // Catalog boxes wrap their lane's schema logos (dbCatalog title icon).
+      { "id": "cat-prod", "type": "box", "title": "Catalog Prod", "titleIcon": "dbCatalog", "z": -1, "wraps": ["prod-bronze", "prod-silver", "prod-gold", "prod-models"] },
+      { "id": "cat-dev",  "type": "box", "title": "Catalog Dev",  "titleIcon": "dbCatalog", "z": -1, "wraps": ["dev-bronze", "dev-silver", "dev-gold", "dev-models"] },
+
+      // Each workspace wraps its catalog; both sit side by side (prod / dev lanes).
+      { "id": "ws-prod", "type": "box", "title": "Prod Workspace", "titleIcon": "file:vendor/databricks", "z": -2, "wraps": ["cat-prod"] },
+      { "id": "ws-dev",  "type": "box", "title": "Dev Workspace",  "titleIcon": "file:vendor/databricks", "z": -2, "wraps": ["cat-dev"] },
+
+      // Metastore placed BELOW the workspaces (box-level `below`), spanning both
+      // catalog columns via `bounds`; wraps the one Unity Catalog tile.
+      { "id": "metastore", "type": "box", "title": "Databricks Metastore", "titleIcon": "databricksMetastore", "z": -3,
+        "wraps": ["unity-catalog"], "below": "ws-prod", "gap": 50,
+        "bounds": { "left": "col:prod:left", "right": "col:dev:right" },
+        "note": "Placed BELOW the workspaces via `below: ws-prod`; `bounds` spans both catalog columns; height auto-fits its wrapped Unity Catalog tile. No pixels." },
+
+      // Outermost: the account wraps both workspaces + the metastore.
+      { "id": "account", "type": "box", "title": "Databricks Admin Account", "titleIcon": "file:vendor/databricks-admin", "z": -4,
+        "wraps": ["ws-prod", "ws-dev", "metastore"],
+        "note": "Full containment via `wraps` (no `at`): Account ⊃ (Workspace ⊃ Catalog ⊃ schema logos) + Metastore ⊃ Unity Catalog. Descending z outward (account -4 < ws -2 < catalog -1 < logos 0). Only the metastore uses a `bounds` hint to span the bottom." }
+    ],
+    "edges": [
+      { "id": "e-cat-prod-meta", "from": "cat-prod@b", "to": "metastore@t", "flow": true },
+      { "id": "e-cat-dev-meta",  "from": "cat-dev@b",  "to": "metastore@t", "flow": true }
+    ]
+  }
+]

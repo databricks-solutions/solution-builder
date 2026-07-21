@@ -101,6 +101,12 @@ interface FileViewerProps {
   /** Fired when a user edit changes the architecture diagram — the route uses
    *  it to mark the architecture.png snapshot dirty (re-captured on chat focus). */
   onArchitectureDirty?: () => void;
+  /** Deep-link: the diagram sub-tab (BY NAME) to open inside the Architecture
+   *  view, from the URL ?archTab=. */
+  initialArchTab?: string;
+  /** Fired when the active diagram sub-tab changes — the route syncs it to the
+   *  URL so refresh/share reopens the same diagram tab. */
+  onArchTabChange?: (name: string) => void;
   /** Architecture-first project awaiting its build: hide Overview + Story
    *  tabs and default the workspace to the Architecture tab. */
   architectureFirst?: boolean;
@@ -208,6 +214,8 @@ interface ArchitectureViewProps {
   deployedResources?: DeployedResourceLink[];
   projectId: string;
   onArchitectureDirty?: () => void;
+  initialArchTab?: string;
+  onArchTabChange?: (name: string) => void;
 }
 
 const ArchitectureView = memo(function ArchitectureView({
@@ -220,6 +228,8 @@ const ArchitectureView = memo(function ArchitectureView({
   deployedResources,
   projectId,
   onArchitectureDirty,
+  initialArchTab,
+  onArchTabChange,
 }: ArchitectureViewProps) {
   if (isCreatingArchitecture) {
     return (
@@ -255,6 +265,8 @@ const ArchitectureView = memo(function ArchitectureView({
               deployedResources={deployedResources}
               projectId={projectId}
               onDirty={onArchitectureDirty}
+              initialArchTab={initialArchTab}
+              onArchTabChange={onArchTabChange}
             />
           </Suspense>
           {/* Reload spinner: the agent rewrote architecture.md and we're
@@ -816,6 +828,8 @@ export const FileViewer = memo(function FileViewer({
   isCreatingArchitecture = false,
   onCreateArchitecture,
   onArchitectureDirty,
+  initialArchTab,
+  onArchTabChange,
   architectureFirst = false,
   isStreaming = false,
   resources,
@@ -996,6 +1010,8 @@ export const FileViewer = memo(function FileViewer({
               deployedResources={deployedResources}
               projectId={projectId}
               onArchitectureDirty={onArchitectureDirty}
+              initialArchTab={initialArchTab}
+              onArchTabChange={onArchTabChange}
             />
           ) : activeTab === "app" ? (
             <AppPreviewTab

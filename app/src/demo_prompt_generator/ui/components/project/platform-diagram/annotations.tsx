@@ -7,7 +7,7 @@
  */
 import { memo, useContext, useState, useMemo, useRef, useLayoutEffect, useEffect } from "react";
 import { useReactFlow, type NodeProps } from "@xyflow/react";
-import { DATABRICKS_ICONS, BRAND_ICONS, type DatabricksIconName } from "../../databricks-icons";
+import { DATABRICKS_ICONS, BRAND_ICONS, BRAND_ICON_LABEL_COLOR, type DatabricksIconName } from "../../databricks-icons";
 import { FILE_ICONS, FileSvgIcon, isFileIconKey, logoMetaByName, logoAliases } from "../../file-icons";
 import INDUSTRY_MAP from "../../../icons/industry-map.json";
 import { BrandMark } from "./brand-mark";
@@ -157,6 +157,9 @@ export const AnnotationNode = memo(function AnnotationNode({ data, selected }: N
     // renders OUTSIDE the box on the chosen side, so it never shrinks the logo.
     const pos = capNorm ?? "bottom";
     const fontSize = a.fontSize ?? 13;
+    // Caption color: explicit fontColor wins; otherwise, if the icon has a
+    // signature hue (medallion layers), match the label to it; else foreground.
+    const labelColor = d.fontColor ?? (a.icon ? BRAND_ICON_LABEL_COLOR[a.icon as DatabricksIconName] : undefined);
     // Where the caption sits relative to the box + which way it grows so it stays
     // centered on the logo's edge (top/bottom center horizontally; left/right
     // center vertically and grow away from the box).
@@ -166,7 +169,10 @@ export const AnnotationNode = memo(function AnnotationNode({ data, selected }: N
       : pos === "left" ? "right-full top-1/2 -translate-y-1/2 mr-1.5 text-right"
       : "left-full top-1/2 -translate-y-1/2 ml-1.5 text-left"; // right
     const hasText = !!a.text;
-    const caption = (editing !== null || hasText || editMode) ? (
+    // Show the caption when: editing, or it has text, OR it's edit-mode AND
+    // SELECTED (the faint "Add label…" placeholder only appears once the logo is
+    // selected — not on every logo in edit mode, which was noisy).
+    const caption = (editing !== null || hasText || (editMode && selected)) ? (
       editing !== null ? (
         <input
           autoFocus
@@ -181,8 +187,8 @@ export const AnnotationNode = memo(function AnnotationNode({ data, selected }: N
         />
       ) : hasText ? (
         <span
-          className={`whitespace-nowrap font-medium ${d.fontColor ? "" : "text-foreground"}`}
-          style={{ fontSize, ...(a.bold ? { fontWeight: 700 } : {}), ...(d.fontColor ? { color: d.fontColor } : {}) }}
+          className={`whitespace-nowrap font-medium ${labelColor ? "" : "text-foreground"}`}
+          style={{ fontSize, ...(a.bold ? { fontWeight: 700 } : {}), ...(labelColor ? { color: labelColor } : {}) }}
           title="Double-click to edit"
           onDoubleClick={(e) => { e.stopPropagation(); setEditing(a.text ?? ""); }}
         >
@@ -212,8 +218,14 @@ export const AnnotationNode = memo(function AnnotationNode({ data, selected }: N
         onResize={(w, h, center) => d.onResize(d.nodeId, w, h, undefined, center)}
         onContext={(e) => { e.preventDefault(); d.onContext(d.nodeId, e.clientX, e.clientY); }}
       >
-        {/* Wrapper is relative so the caption can float OUTSIDE the box. */}
-        <div className="relative h-full w-full" onClick={() => d.onSelect(d.nodeId)}>
+        {/* Wrapper is relative so the caption can float OUTSIDE the box.
+            Double-clicking the LOGO ITSELF (not just the caption) opens label
+            editing — the mark fills the box, so this is the obvious target. */}
+        <div
+          className="relative h-full w-full"
+          onClick={() => d.onSelect(d.nodeId)}
+          onDoubleClick={editMode ? (e) => { e.stopPropagation(); setEditing(a.text ?? ""); } : undefined}
+        >
           <AnyIcon
             iconKey={a.icon ?? "data"}
             className="h-full w-full [&_svg]:h-full [&_svg]:w-full"
