@@ -1054,9 +1054,10 @@ function Index() {
             {([
               { v: "story" as const, label: "Describe your story" },
               { v: "architecture" as const, label: "Describe your architecture" },
-              // Preview-gated: only shown when ?preview=on (persisted).
+              // Preview-gated: only shown when ?preview=on (persisted). Flagged
+              // "Private preview" — not yet GA.
               ...(previewEnabled
-                ? [{ v: "workshop" as const, label: "Genie Code workshop" }]
+                ? [{ v: "workshop" as const, label: "Genie Code workshop", badge: "Private preview" }]
                 : []),
             ]).map((t) => {
               const active = mode === t.v;
@@ -1066,13 +1067,18 @@ function Index() {
                   type="button"
                   onClick={() => setMode(t.v)}
                   className={cn(
-                    "relative -mb-px cursor-pointer rounded-t-lg border border-b-0 px-4 py-2 text-sm font-medium transition-colors",
+                    "relative -mb-px inline-flex cursor-pointer items-center gap-2 rounded-t-lg border border-b-0 px-4 py-2 text-sm font-medium transition-colors",
                     active
                       ? "z-10 border-primary/10 bg-card/80 text-foreground backdrop-blur-md"
                       : "border-border/60 bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground",
                   )}
                 >
                   {t.label}
+                  {"badge" in t && t.badge && (
+                    <span className="rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-400">
+                      {t.badge}
+                    </span>
+                  )}
                 </button>
               );
             })}

@@ -1327,8 +1327,31 @@ export interface TemplateListItem {
   /** Customer the source demo was built for (null → "Not specified"). */
   customer?: string | null;
   capabilities: string[] | null;
+  /** Curated/seeded template — featured treatment + surfaced on /internal-demos. */
+  official?: boolean;
+  /** Whether a hero screenshot exists (fetch via templateScreenshotUrl). */
+  has_screenshot?: boolean;
   submitted_at: string;
   reviewed_at: string | null;
+}
+
+/** URL for a template's hero screenshot (PNG). Use as an <img src>. */
+export function templateScreenshotUrl(templateId: string): string {
+  return apiUrl(`/api/templates/${templateId}/screenshot`);
+}
+
+/** Admin-only: toggle a template's `official` (curated) flag. */
+export async function setTemplateOfficial(
+  templateId: string,
+  official: boolean,
+): Promise<TemplateListItem> {
+  const resp = await fetch(apiUrl(`/api/templates/${templateId}/official`), {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ official }),
+  });
+  if (!resp.ok) throw new Error(`Failed to set official: ${resp.status}`);
+  return resp.json();
 }
 
 export interface TemplateDetail extends TemplateListItem {
@@ -1336,6 +1359,15 @@ export interface TemplateDetail extends TemplateListItem {
   reviewed_by: string | null;
   source_project_id: string | null;
   file_count: number;
+}
+
+/** Live-resource links for an official demo, keyed by template id/slug. Used
+ *  ONLY by the internal /internal-demos gallery (never stored in the DB). */
+export interface DemoResourceLinks {
+  dashboard?: string;
+  genie?: string;
+  data?: string;
+  app?: string;
 }
 
 export interface TemplateFile {
@@ -1437,11 +1469,16 @@ export async function updateTemplateStatus(
 export async function createProjectFromTemplate(
   templateId: string,
   name: string,
+  adaptInstructions?: string,
 ): Promise<Project> {
+  const body: { name: string; adapt_instructions?: string } = { name };
+  if (adaptInstructions && adaptInstructions.trim()) {
+    body.adapt_instructions = adaptInstructions.trim();
+  }
   const resp = await fetch(apiUrl(`/api/templates/${templateId}/create-project`), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name }),
+    body: JSON.stringify(body),
   });
   if (!resp.ok) throw new Error(`Failed to create project from template: ${resp.status}`);
   return resp.json();

@@ -15,16 +15,19 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { AppLayout } from "@/components/layout/app-layout";
-import { TemplateTile } from "@/components/template/template-tile";
-import { TemplateDetailPopup } from "@/components/template/template-detail-popup";
+import { TemplateGalleryTile } from "@/components/template/gallery/template-gallery-tile";
+import { TemplateGallerySheet } from "@/components/template/gallery/template-gallery-sheet";
 import {
   listTemplates,
+  searchTemplates,
   getIndustries,
   getCurrentUser,
   updateTemplateStatus,
   deleteTemplate,
   openTemplateProject,
+  createProjectFromTemplate,
   type TemplateListItem,
+  type TemplateDetail,
 } from "@/lib/custom-api";
 import {
   Library,
@@ -37,6 +40,7 @@ import {
   XCircle,
   Edit,
   User,
+  Search,
 } from "lucide-react";
 
 function TemplatesWithLayout() {
@@ -67,6 +71,62 @@ function TemplatesPage() {
   const [industryFilter, setIndustryFilter] = useState<string>("ALL");
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [isForking, setIsForking] = useState(false);
+  // Semantic (pgvector) search over the template summaries. Empty = no search.
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchRank, setSearchRank] = useState<string[] | null>(null); // ordered template ids, or null
+
+  const selectedTemplate = useMemo(
+    () => templates.find((t) => t.id === selectedTemplateId) ?? null,
+    [templates, selectedTemplateId],
+  );
+
+  // Debounced vector search: hit /templates/search, keep the ranked id order.
+  // Falls back to text search server-side (PGLite). Clearing the box restores
+  // the plain listing.
+  useEffect(() => {
+    const q = searchQuery.trim();
+    if (!q) {
+      setSearchRank(null);
+      return;
+    }
+    let cancelled = false;
+    const t = setTimeout(() => {
+      searchTemplates(q, 50)
+        .then((results) => {
+          if (!cancelled) setSearchRank(results.map((r) => r.id));
+        })
+        .catch((e) => {
+          console.error("Template search failed:", e);
+          if (!cancelled) setSearchRank(null);
+        });
+    }, 250);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+  }, [searchQuery]);
+
+  // Apply the search ranking to a template list: keep only matched ids, in
+  // rank order. When no search is active, return the list unchanged.
+  const applySearch = (list: TemplateListItem[]): TemplateListItem[] => {
+    if (searchRank === null) return list;
+    const byId = new Map(list.map((t) => [t.id, t]));
+    return searchRank.map((id) => byId.get(id)).filter((t): t is TemplateListItem => Boolean(t));
+  };
+
+  // Fork a template into a new editable project (same flow as the sheet's CTA).
+  const handleFork = async (template: TemplateDetail, adaptInstructions?: string) => {
+    setIsForking(true);
+    try {
+      const project = await createProjectFromTemplate(template.id, template.name, adaptInstructions);
+      navigate({ to: "/project/$projectId", params: { projectId: project.id } });
+    } catch (error) {
+      console.error("Failed to fork template:", error);
+      toast.error("Failed to fork template");
+      setIsForking(false);
+    }
+  };
 
   // Load initial data
   useEffect(() => {
@@ -89,14 +149,14 @@ function TemplatesPage() {
   // Compute "My Templates" - templates owned by the current user
   const myTemplates = useMemo(() => {
     if (!userEmail) return [];
-    return templates.filter((t) => t.owner_email === userEmail);
-  }, [templates, userEmail]);
+    return applySearch(templates.filter((t) => t.owner_email === userEmail));
+  }, [templates, userEmail, searchRank]);
 
   // Compute "Sponsored Templates" - all templates excluding the user's own
   const sponsoredTemplates = useMemo(() => {
-    if (!userEmail) return templates;
-    return templates.filter((t) => t.owner_email !== userEmail);
-  }, [templates, userEmail]);
+    const base = userEmail ? templates.filter((t) => t.owner_email !== userEmail) : templates;
+    return applySearch(base);
+  }, [templates, userEmail, searchRank]);
 
   // Edit template handler - opens the source project
   const handleEditTemplate = async (templateId: string, e: React.MouseEvent) => {
@@ -231,9 +291,31 @@ function TemplatesPage() {
           </div>
         )}
 
+        {/* Semantic search (pgvector over the template summaries) */}
+        <div className="relative w-full sm:w-[320px]">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search templates by meaning — e.g. 'forecast demand', 'churn'…"
+            className="w-full rounded-lg border border-border/70 bg-background py-2 pl-9 pr-8 text-sm outline-none transition-colors placeholder:text-muted-foreground hover:border-border focus-visible:ring-2 focus-visible:ring-primary/40"
+          />
+          {searchQuery && (
+            <button
+              type="button"
+              onClick={() => setSearchQuery("")}
+              className="absolute right-2 top-1/2 -translate-y-1/2 cursor-pointer rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+              aria-label="Clear search"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
+
         {/* Industry filter */}
         <Select value={industryFilter} onValueChange={setIndustryFilter}>
-          <SelectTrigger className="w-[180px]">
+          <SelectTrigger className="w-[180px] cursor-pointer">
             <SelectValue placeholder="All Industries" />
           </SelectTrigger>
           <SelectContent>
@@ -248,7 +330,7 @@ function TemplatesPage() {
 
         {/* Results count */}
         <span className="text-sm text-muted-foreground ml-auto">
-          {sponsoredTemplates.length} sponsored{myTemplates.length > 0 ? `, ${myTemplates.length} mine` : ""}
+          {searchRank !== null ? `${sponsoredTemplates.length + myTemplates.length} match` : `${sponsoredTemplates.length} sponsored${myTemplates.length > 0 ? `, ${myTemplates.length} mine` : ""}`}
         </span>
       </div>
 
@@ -265,10 +347,9 @@ function TemplatesPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 items-stretch">
             {myTemplates.map((template) => (
               <div key={template.id} className="relative group h-full">
-                <TemplateTile
+                <TemplateGalleryTile
                   template={template}
-                  onClick={() => setSelectedTemplateId(template.id)}
-                  showStatus={true}
+                  onOpen={() => setSelectedTemplateId(template.id)}
                 />
 
                 {/* Owner action buttons */}
@@ -362,10 +443,9 @@ function TemplatesPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 items-stretch">
             {sponsoredTemplates.map((template) => (
               <div key={template.id} className="relative group h-full">
-                <TemplateTile
+                <TemplateGalleryTile
                   template={template}
-                  onClick={() => setSelectedTemplateId(template.id)}
-                  showStatus={isAdmin && statusFilter === "ALL"}
+                  onOpen={() => setSelectedTemplateId(template.id)}
                 />
 
                 {/* Admin actions overlay */}
@@ -420,11 +500,23 @@ function TemplatesPage() {
         </div>
       )}
 
-      {/* Template detail popup */}
-      <TemplateDetailPopup
-        templateId={selectedTemplateId}
+      {/* Template detail slide-over */}
+      <TemplateGallerySheet
+        template={selectedTemplate}
         onClose={() => setSelectedTemplateId(null)}
+        onFork={handleFork}
       />
+
+      {/* Full-screen forking overlay */}
+      {isForking && (
+        <div className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-background/95 backdrop-blur-sm">
+          <div className="flex flex-col items-center gap-4">
+            <Loader2 className="h-12 w-12 animate-spin text-primary" />
+            <p className="text-lg font-semibold">Forking template…</p>
+            <p className="text-sm text-muted-foreground">Setting up your editable copy</p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
