@@ -40,6 +40,43 @@ env:
     valueFrom: sql-warehouse
   - name: LAKEBASE_ENDPOINT
     valueFrom: postgres
+  # Pin the Lakebase database explicitly. The platform injects PG* from the
+  # Lakebase association, but we point the app at a FRESH database the app SP
+  # owns (dbgen_luxebeauty_demo_v2) — so it creates all schemas (app/appkit/
+  # drizzle) itself with no leftover-ownership conflicts from a prior deploy.
+  - name: PGDATABASE
+    value: dbgen_luxebeauty_demo_v2
+  # MLflow experiment for agent traces. OPTIONAL now — server.ts self-derives
+  # /Shared/solution_builder/<DATABRICKS_APP_NAME>-agent-traces at boot when this
+  # is unset, so tracing works with no env plumbing. Pinned here to the same
+  # canonical value (= resources.json's agent_mlflow_experiment_path) as an
+  # explicit override + documentation. The app get-or-creates it on boot.
+  - name: AGENT_MLFLOW_EXPERIMENT_PATH
+    value: /Shared/solution_builder/sln-builder-luxebeauty-demo-agent-traces
+
+  # ── Harvested resource vars ─────────────────────────────────────────
+  # On the DAB path finalize_app.sh appends these from the setup job's
+  # export_resources output. The interactive deploy skips that step, so
+  # they're pinned by hand here (values mirror resources.json).
+  - name: DEMO_CATALOG
+    value: retail_consumer_goods
+  - name: DEMO_SCHEMA
+    value: luxebeauty_demo
+  - name: GENIE_SPACE_ID
+    value: 01f165c3f19e19968a1e180ff8fd5e94
+  - name: MAS_ENDPOINT_NAME
+    value: mas-73efcd8f-endpoint
+  - name: KA_ENDPOINT_NAME
+    value: ka-a700b36c-endpoint
+  - name: DASHBOARD_ID
+    value: 01f165c28bfd13a79fb66a71c49d56ca
+  - name: PIPELINE_ID
+    value: 6899b481-76df-47cc-bb0e-5311bbbd22d7
+  - name: LAKEBASE_PROJECT_ID
+    value: 8423d8ac-55d8-4761-aeed-8668fbbfa2d2
+  - name: APP_URL
+    value: https://sln-builder-luxebeauty-demo-2556758628403379.aws.databricksapps.com
+
   # Mirror DATABRICKS_WAREHOUSE_ID into WAREHOUSE_ID for config/app.json
   # placeholder resolution.
   - name: WAREHOUSE_ID
