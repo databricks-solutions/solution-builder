@@ -245,9 +245,8 @@ export const TemplatePublishDialog = memo(function TemplatePublishDialog({
               </span>
             </div>
             <p className="text-xs text-muted-foreground leading-relaxed">
-              The narrative, architecture and specs travel with the template.
-              Code and live Databricks resources are regenerated fresh in each
-              fork, so every clone stays clean.
+              The whole demo travels with the template, so each fork is ready to
+              go.
             </p>
           </div>
         </div>

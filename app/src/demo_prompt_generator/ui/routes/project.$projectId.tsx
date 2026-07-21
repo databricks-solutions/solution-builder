@@ -92,7 +92,7 @@ import {
 import { AUTO_BUILD_KICKOFF, ARCHITECTURE_MIGRATION_PROMPT } from "@/lib/auto-build-prompt";
 import { isLegacyArchitectureFormat } from "@/lib/platform-architecture";
 import { captureDiagramPngDataUrl } from "@/components/project/platform-diagram/export-image";
-import { cn } from "@/lib/utils";
+import { cn, isTemplateEligible } from "@/lib/utils";
 
 /** Tabs the project page can deep-link to. Mirrors `ViewTab` in
  *  file-viewer.tsx. Kept here as a literal-union so the router can
@@ -2682,7 +2682,7 @@ function ProjectPage() {
         projectId={projectId}
         projectName={project?.name || ""}
         projectDescription={project?.description || null}
-        fileCount={files.filter((f) => f.path.toLowerCase().endsWith(".md") && !f.path.startsWith(".claude/")).length}
+        fileCount={files.filter((f) => isTemplateEligible(f.path)).length}
         linkedTemplate={linkedTemplate}
         isOpen={isTemplateDialogOpen}
         onClose={() => setIsTemplateDialogOpen(false)}

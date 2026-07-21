@@ -83,6 +83,23 @@ def _should_include_in_template(relative_path: str) -> bool:
     return True
 
 
+def _clear_created_resources(resources_json_bytes: bytes) -> bytes:
+    """Return a resources.json with `created_resources` emptied but `capabilities`
+    (and any other keys) preserved. Used when forking a template into a new project
+    so the fork inherits the capability selection but points at NO live Databricks
+    objects (the template's stored IDs are the author's workspace — dead links +
+    false "built" status otherwise). Mirrors projects._fresh_resources_from /
+    clone_project. On parse failure, returns the bytes unchanged."""
+    try:
+        data = json.loads(resources_json_bytes.decode("utf-8"))
+        if isinstance(data, dict):
+            data["created_resources"] = {}
+            return json.dumps(data, indent=2).encode("utf-8")
+    except (json.JSONDecodeError, UnicodeDecodeError, ValueError):
+        pass
+    return resources_json_bytes
+
+
 def _upsert_template_content(
     session: Session,
     template_id: str,
@@ -516,21 +533,41 @@ class TemplateService:
         )
         session.add(project)
 
-        # Bulk create project files from template (more efficient than individual adds)
-        project_files = [
-            ProjectFile(
-                project_id=project_id,
-                relative_path=tf.relative_path,
-                content_compressed=tf.content_compressed,
-                content_hash=tf.content_hash,
-                file_size=tf.file_size,
-            )
-            for tf in template_files
-        ]
+        # Materialize each template file for the fork. resources.json is rewritten
+        # with created_resources cleared (the fork points at no live Databricks
+        # objects until its owner builds — the template's IDs are the author's
+        # workspace). Everything else copies through verbatim (compressed bytes
+        # reused, no re-compress).
+        def _fork_bytes(tf) -> Optional[bytes]:
+            """Decompressed content for the fork, with resources.json transformed.
+            Returns None to fall back to the verbatim compressed copy (perf path)."""
+            if tf.relative_path.lower() == "resources.json":
+                return _clear_created_resources(decompress_content(tf.content_compressed))
+            return None
+
+        project_files = []
+        for tf in template_files:
+            new_bytes = _fork_bytes(tf)
+            if new_bytes is None:
+                project_files.append(ProjectFile(
+                    project_id=project_id,
+                    relative_path=tf.relative_path,
+                    content_compressed=tf.content_compressed,
+                    content_hash=tf.content_hash,
+                    file_size=tf.file_size,
+                ))
+            else:
+                project_files.append(ProjectFile(
+                    project_id=project_id,
+                    relative_path=tf.relative_path,
+                    content_compressed=compress_content(new_bytes),
+                    content_hash=compute_file_hash(new_bytes),
+                    file_size=len(new_bytes),
+                ))
         session.add_all(project_files)
         session.commit()
 
-        # Copy files to local filesystem
+        # Copy files to local filesystem (same transform for resources.json).
         project_dir = Path(PROJECTS_BASE_DIR) / project_id
         project_dir.mkdir(parents=True, exist_ok=True)
 
@@ -538,7 +575,8 @@ class TemplateService:
             file_path = project_dir / tf.relative_path
             file_path.parent.mkdir(parents=True, exist_ok=True)
             try:
-                content = decompress_content(tf.content_compressed)
+                new_bytes = _fork_bytes(tf)
+                content = new_bytes if new_bytes is not None else decompress_content(tf.content_compressed)
                 file_path.write_bytes(content)
             except Exception as e:
                 logger.error(f"Failed to write file {tf.relative_path}: {e}")
