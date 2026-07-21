@@ -9,6 +9,7 @@ import { Prose } from "../markdown-prose";
 import { ProjectOverview } from "./project-overview";
 import { Skeleton } from "../ui/skeleton";
 import { ChevronRight, ChevronDown, ChevronLeft, Folder, FolderOpen, FileText, FileCode, Braces, Settings, File, Sparkles, RefreshCw, Network, BookOpen, Database, Eye, EyeOff, Code, Globe, Loader2, Server } from "lucide-react";
+import type { StoryAdaptMode } from "./story-adapt-dialog";
 import { UnityCatalogIcon } from "../databricks-icons";
 import { Button } from "../ui/button";
 import type { CapabilityBuildStatus, ProjectFile, ProjectFileContent, DeployedResourceLink, Project } from "../../lib/custom-api";
@@ -119,6 +120,13 @@ interface FileViewerProps {
   /** Wire auto-fix-from-logs on the App tab. Without this, the toggle is hidden. */
   onAutoFixSend?: (message: string) => void;
   autoFixApiRef?: import("../../preview").AutoFixApiRef;
+  /** True for a project forked from a template — shows the "adapt this story"
+   *  shortcuts under the Story tab. */
+  isForkedProject?: boolean;
+  /** Kick off an agent-driven story adaptation from the Story tab shortcuts. */
+  onAdaptStory?: (mode: StoryAdaptMode, instructions: string) => Promise<void> | void;
+  /** Build the forked demo as-is (keep the story, generate everything). */
+  onForkBuildAsIs?: () => void;
 }
 
 interface TreeNode {
@@ -826,6 +834,9 @@ export const FileViewer = memo(function FileViewer({
   capabilities,
   onAutoFixSend,
   autoFixApiRef,
+  isForkedProject,
+  onAdaptStory,
+  onForkBuildAsIs,
 }: FileViewerProps) {
   // The tab is controlled by the parent route when `activeTabProp` is
   // supplied (URL-synced for back/forward). Local state is kept as a
@@ -979,6 +990,9 @@ export const FileViewer = memo(function FileViewer({
               onShowArchitecture={() => setActiveTab("architecture")}
               onShowApp={() => setActiveTab("app")}
               onEditDescription={onEditDescription}
+              isForkedProject={isForkedProject}
+              onAdaptStory={onAdaptStory}
+              onForkBuildAsIs={onForkBuildAsIs}
             />
           ) : activeTab === "story" ? (
             <StoryView

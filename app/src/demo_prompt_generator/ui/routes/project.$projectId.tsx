@@ -16,6 +16,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { FileViewer } from "@/components/project/file-viewer";
+import type { StoryAdaptMode } from "@/components/project/story-adapt-dialog";
 import type { AutoFixApi } from "@/preview";
 import { BuildStepper } from "@/components/project/build-stepper";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -1685,6 +1686,53 @@ function ProjectPage() {
     );
   }, [isStreaming, handleSendMessage]);
 
+  // Fork "build as-is" — the default path. Keep the forked story/specs
+  // untouched and go straight to generating the demo end-to-end.
+  const handleForkBuildAsIs = useCallback(() => {
+    if (isStreaming) return;
+    const templateName = project?.source_template_name;
+    const provenance = templateName
+      ? `This project is a fork of the "${templateName}" template.`
+      : "This project is a fork of a template.";
+    handleSendMessage(
+      `${provenance} The story (README.md), architecture, and specifications are already written and I want to keep them exactly as-is — do NOT rewrite the story or re-design anything.\n\n` +
+        `Build the demo end-to-end from what's already here. ${AUTO_BUILD_KICKOFF}`,
+    );
+  }, [isStreaming, handleSendMessage, project?.source_template_name]);
+
+  // Fork "start here" shortcuts: turn a one-line intent into a fully-formed
+  // agent prompt so a fresh fork has an obvious first action instead of a
+  // blank chat box. Mirrors handleCreateSpec's shape.
+  const handleAdaptStory = useCallback(
+    (mode: StoryAdaptMode, instructions: string) => {
+      if (isStreaming) return;
+      const templateName = project?.source_template_name;
+      const provenance = templateName
+        ? `This project was forked from the "${templateName}" template.`
+        : "This project was forked from a template.";
+      if (mode === "customer") {
+        handleSendMessage(
+          `${provenance} I want to re-brand it for a different customer while keeping the same solution, capabilities, and architecture — this is a re-skin, not a redesign.\n\n` +
+            `Customer details:\n${instructions}\n\n` +
+            `Please:\n` +
+            `1. Rewrite \`README.md\` to swap in the new customer name and details — company name, industry specifics, persona names, and product/brand references — while preserving the story's structure and the underlying solution.\n` +
+            `2. Sweep the other project files (specifications/, architecture.md, data-generation, app copy, etc.) for the old customer's name and branding and update them to match.\n` +
+            `3. When done, briefly summarize the swaps you made.`,
+        );
+      } else {
+        handleSendMessage(
+          `${provenance} I want to substantially revise its story and take it in a new direction.\n\n` +
+            `New direction:\n${instructions}\n\n` +
+            `Please:\n` +
+            `1. Rewrite \`README.md\` to reflect this new direction — update the narrative, persona, industry framing, and business context as needed while keeping the overall story format.\n` +
+            `2. Briefly summarize what changed.\n` +
+            `3. Ask me whether I'd like the architecture and specification files updated to match before you touch them.`,
+        );
+      }
+    },
+    [isStreaming, handleSendMessage, project?.source_template_name],
+  );
+
   // Handle update specifications - send message to agent
   const handleUpdateSpec = useCallback(() => {
     if (isStreaming) return;
@@ -2385,6 +2433,9 @@ function ProjectPage() {
             // blocked non-driver so we don't toast-spam / fire wasted 409s.
             onAutoFixSend={canSend ? (msg) => handleSendMessage(msg, { isAutoFix: true }) : undefined}
             autoFixApiRef={autoFixApiRef}
+            isForkedProject={!!project?.source_template_id}
+            onAdaptStory={handleAdaptStory}
+            onForkBuildAsIs={handleForkBuildAsIs}
           />
         </div>
 

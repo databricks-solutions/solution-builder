@@ -52,6 +52,7 @@ import { BrandCard } from "./brand-card";
 import { detectStageFromFiles, getLifecycleStages } from "./build-stepper";
 import { cn } from "@/lib/utils";
 import { useAppPreview } from "../../preview";
+import { StoryAdaptActions, type StoryAdaptMode } from "./story-adapt-dialog";
 
 // ---------------------------------------------------------------------------
 // Capability → display group mapping (kept stable across the redesign).
@@ -1267,6 +1268,13 @@ export interface ProjectOverviewProps {
   onShowApp?: () => void;
   /** Kept for future re-introduction of a manual description editor. */
   onEditDescription?: () => void;
+  /** True for a project forked from a template — surfaces the "Make it yours"
+   *  adapt shortcuts right under the hero (the fork's first action). */
+  isForkedProject?: boolean;
+  /** Kick off an agent-driven story adaptation from those shortcuts. */
+  onAdaptStory?: (mode: StoryAdaptMode, instructions: string) => Promise<void> | void;
+  /** Build the forked demo as-is (the default "just generate" action). */
+  onForkBuildAsIs?: () => void;
 }
 
 export const ProjectOverview = memo(function ProjectOverview({
@@ -1290,6 +1298,9 @@ export const ProjectOverview = memo(function ProjectOverview({
   onShowFullStory,
   onShowArchitecture,
   onShowApp,
+  isForkedProject,
+  onAdaptStory,
+  onForkBuildAsIs,
 }: ProjectOverviewProps) {
   const buildable = capabilities?.buildable ?? [];
   const deployed = deployedResources ?? [];
@@ -1380,6 +1391,18 @@ export const ProjectOverview = memo(function ProjectOverview({
           onRegenerateNarrative={onRegenerateNarrative}
           onOpenChat={onOpenChat}
         />
+
+        {/* Fork "start here" band — the first, most obvious action on a freshly
+            forked project: build it as-is, or tell the agent how to make this
+            copy yours. Only for forks, and only until the build has produced
+            live resources (after that it recedes — the job's done). */}
+        {isForkedProject && onAdaptStory && onForkBuildAsIs && deployed.length === 0 && (
+          <StoryAdaptActions
+            isStreaming={isStreaming}
+            onUseAsIs={onForkBuildAsIs}
+            onAdaptStory={onAdaptStory}
+          />
+        )}
 
         {/* Extraction-error notice (rare) */}
         {deployedExtractionError && (
