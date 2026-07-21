@@ -1,0 +1,65 @@
+{
+  "version": 2,
+  "config": {
+    "sample_questions": [
+      { "id": "10000000000000000000000000000001", "question": ["Which component is about to run out?"] },
+      { "id": "10000000000000000000000000000002", "question": ["When does the Battery Cell stock out, and why can't we reorder in time?"] },
+      { "id": "10000000000000000000000000000003", "question": ["Why is Battery Cell demand surging?"] },
+      { "id": "10000000000000000000000000000004", "question": ["Show weekly demand by region since March 2026"] },
+      { "id": "10000000000000000000000000000005", "question": ["Which products use the Battery Cell, and how many per unit?"] }
+    ]
+  },
+  "data_sources": {
+    "tables": [
+      { "identifier": "{{CATALOG}}.{{SCHEMA}}.bom" },
+      { "identifier": "{{CATALOG}}.{{SCHEMA}}.component_status" },
+      { "identifier": "{{CATALOG}}.{{SCHEMA}}.demand_enriched" },
+      { "identifier": "{{CATALOG}}.{{SCHEMA}}.inventory" },
+      { "identifier": "{{CATALOG}}.{{SCHEMA}}.market_launches" },
+      { "identifier": "{{CATALOG}}.{{SCHEMA}}.metrics_demand" },
+      { "identifier": "{{CATALOG}}.{{SCHEMA}}.suppliers" }
+    ]
+  },
+  "instructions": {
+    "text_instructions": [
+      {
+        "id": "30000000000000000000000000000001",
+        "content": [
+          "THE STORY. This data is for an e-bike manufacturer (products: City E-Bike, Cargo E-Bike, Folding E-Bike, E-Scooter, E-Moped) built from components via a bill of materials (bom). A new EMEA market opened on 2026-04-20 (market_launches), driving a sharp City E-Bike demand surge in EMEA.\n",
+          "Because every product uses the shared Battery Cell, that surge is draining the Battery Cell faster than its supplier (PowerCell Industries, 8-week lead_time_weeks) can replenish it - so it is projected to stock out, worst at the Rotterdam plant. Rotterdam serves EMEA+APAC; Detroit serves AMER.\n",
+          "Use component_status for 'weeks of cover' and which component is at risk (a component is At risk when weeks_of_cover <= the supplier lead_time_weeks). Only the Battery Cell is at risk. 'Weeks of cover' = on_hand_units / average weekly demand, where weekly demand is rolled up from demand x bom.qty_per_unit.\n",
+          "To project a stockout date or forecast demand, use the AI_FORECAST SQL function on weekly demand. When asked WHY demand surged, point to market_launches (the EMEA City E-Bike launch). When asked why we can't just reorder, point to the 8-week supplier lead time on the Battery Cell supplier.\n",
+          "metrics_demand is a governed METRIC VIEW: query its measure with MEASURE(`Demand Units`) and group by dimensions like `Region`, `Product`, `Week`."
+        ]
+      }
+    ],
+    "example_question_sqls": [
+      {
+        "id": "20000000000000000000000000000001",
+        "question": ["Which components are at risk (weeks of cover vs supplier lead time)"],
+        "sql": [
+          "SELECT component_name, plant_name, supplier_name, lead_time_weeks, on_hand_units, weeks_of_cover, status\n",
+          "FROM {{CATALOG}}.{{SCHEMA}}.component_status\n",
+          "ORDER BY weeks_of_cover ASC"
+        ]
+      },
+      {
+        "id": "20000000000000000000000000000002",
+        "question": ["Weekly demand by region (EMEA surge after the market launch)"],
+        "sql": [
+          "SELECT DATE_TRUNC('WEEK', week) AS week, region, SUM(demand_units) AS demand\n",
+          "FROM {{CATALOG}}.{{SCHEMA}}.demand_enriched\n",
+          "WHERE week >= DATE'2026-03-01'\n",
+          "GROUP BY 1,2 ORDER BY 1,2"
+        ]
+      },
+      {
+        "id": "20000000000000000000000000000003",
+        "question": ["What launched recently, and which products use the Battery Cell"],
+        "sql": [
+          "SELECT * FROM {{CATALOG}}.{{SCHEMA}}.market_launches ORDER BY launch_date DESC"
+        ]
+      }
+    ]
+  }
+}

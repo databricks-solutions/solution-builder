@@ -1,0 +1,197 @@
+{
+  "version": 2,
+  "config": {
+    "sample_questions": [
+      {
+        "id": "1ce1cb6c76bf4c34bd8cb0d7e49fda03",
+        "question": [
+          "What's our return rate this month, and how does it compare to baseline?"
+        ]
+      },
+      {
+        "id": "43a5e8d4258c4b33b69aa0b50e4a5908",
+        "question": [
+          "Why do I have so many returns? Trace it to the products and the lot."
+        ]
+      },
+      {
+        "id": "5497c26d65db461bb3be062ef435e90b",
+        "question": [
+          "Where are the affected customers? Group by country."
+        ]
+      },
+      {
+        "id": "62bdc60296914036b8304621a6a37e0a",
+        "question": [
+          "Are refunds recovering? Show the trend and what's next."
+        ]
+      },
+      {
+        "id": "8aa724e899034a3caa53428c732b0ab6",
+        "question": [
+          "How many affected customers are premium (tagged or model-predicted)?"
+        ]
+      },
+      {
+        "id": "a8235356769f477d9baf46050e85c676",
+        "question": [
+          "What are affected customers saying? Show the angriest comments."
+        ]
+      },
+      {
+        "id": "de184b2bf1664664a988e62c87f6d06d",
+        "question": [
+          "Which production lot is driving the spike, and what does the QC note say?"
+        ]
+      }
+    ]
+  },
+  "data_sources": {
+    "tables": [
+      {
+        "identifier": "retail_consumer_goods.luxebeauty_demo.gold_customer_premium_predictions"
+      },
+      {
+        "identifier": "retail_consumer_goods.luxebeauty_demo.gold_customer_returns"
+      },
+      {
+        "identifier": "retail_consumer_goods.luxebeauty_demo.gold_daily_summary"
+      },
+      {
+        "identifier": "retail_consumer_goods.luxebeauty_demo.mv_returns"
+      },
+      {
+        "identifier": "retail_consumer_goods.luxebeauty_demo.silver_returns"
+      },
+      {
+        "identifier": "retail_consumer_goods.luxebeauty_demo.silver_production_lots"
+      }
+    ]
+  },
+  "instructions": {
+    "example_question_sqls": [
+      {
+        "id": "0a5a9883ae5044b594afa79c1fe3488c",
+        "question": [
+          "Why do I have so many returns? Trace it to the products and the lot."
+        ],
+        "sql": [
+          "-- Step 1: top products by return volume \u2192 SKU-1001/1002/1003\n",
+          "SELECT product_name, category, COUNT(*) AS returns, SUM(refund_amount_usd) AS refunds_usd\n",
+          "FROM retail_consumer_goods.luxebeauty_demo.silver_returns\n",
+          "GROUP BY 1,2 ORDER BY returns DESC LIMIT 10"
+        ]
+      },
+      {
+        "id": "40618500f7724f68bed8f94c60123dc0",
+        "question": [
+          "Which production lot is driving the spike, and what does the QC note say?"
+        ],
+        "sql": [
+          "-- Find the lot dominating the 3 affected SKUs, then quote the incident_summary\n",
+          "WITH top_lot AS (\n",
+          "  SELECT lot_id, COUNT(*) AS n\n",
+          "  FROM retail_consumer_goods.luxebeauty_demo.silver_returns\n",
+          "  WHERE product_id IN ('SKU-1001','SKU-1002','SKU-1003')\n",
+          "  GROUP BY 1 ORDER BY n DESC LIMIT 1\n",
+          ")\n",
+          "SELECT l.lot_id, l.facility, l.production_date, l.status, l.incident_summary\n",
+          "FROM retail_consumer_goods.luxebeauty_demo.silver_production_lots l\n",
+          "JOIN top_lot t ON t.lot_id = l.lot_id"
+        ]
+      },
+      {
+        "id": "890d3e7f0eb34734aed75212e0cea9ee",
+        "question": [
+          "Are refunds recovering? Show the trend and what's next."
+        ],
+        "sql": [
+          "-- Decay confirmation \u2014 last few weeks should trend back toward baseline\n",
+          "SELECT date_trunc('week', date) AS week, MEASURE(total_refunds) AS refunds\n",
+          "FROM retail_consumer_goods.luxebeauty_demo.mv_returns\n",
+          "WHERE date >= DATEADD(week, -6, current_date())\n",
+          "GROUP BY 1 ORDER BY 1"
+        ]
+      },
+      {
+        "id": "9a1db435534c430b8a780c27da8f3b9c",
+        "question": [
+          "Where are the affected customers? Group by country."
+        ],
+        "sql": [
+          "-- Blast-radius geography \u2014 FR leads, then IT / GB / DE / US\n",
+          "SELECT country, COUNT(DISTINCT customer_id) AS affected_customers,\n",
+          "       SUM(refund_amount_usd) AS refunds_usd\n",
+          "FROM retail_consumer_goods.luxebeauty_demo.silver_returns\n",
+          "WHERE is_bad_lot = true\n",
+          "GROUP BY 1 ORDER BY affected_customers DESC"
+        ]
+      },
+      {
+        "id": "e70e94084bf84adfb832fd0dbc0f8dce",
+        "question": [
+          "What's our return rate this month, and how does it compare to baseline?"
+        ],
+        "sql": [
+          "-- Spike-vs-baseline headline \u00b7 3-week peak ~$180K vs $60K normal\n",
+          "SELECT date_trunc('week', date) AS week,\n",
+          "       MEASURE(total_refunds) AS refunds,\n",
+          "       MEASURE(return_rate)   AS return_rate\n",
+          "FROM retail_consumer_goods.luxebeauty_demo.mv_returns\n",
+          "GROUP BY 1 ORDER BY 1 DESC LIMIT 8"
+        ]
+      },
+      {
+        "id": "ea0f0f3b6d5a403daf032602edfd9d27",
+        "question": [
+          "What are affected customers saying? Show the angriest comments."
+        ],
+        "sql": [
+          "-- ai_classify sorted comments \u2014 texture complaints cluster on the bad lot\n",
+          "SELECT customer_comment, anger_score, lot_id, return_date\n",
+          "FROM retail_consumer_goods.luxebeauty_demo.silver_returns\n",
+          "WHERE is_bad_lot = true\n",
+          "ORDER BY anger_score DESC LIMIT 10"
+        ]
+      },
+      {
+        "id": "fcc27387da5440bc9b8babd1b22cb5d2",
+        "question": [
+          "How many affected customers are premium (tagged or model-predicted)?"
+        ],
+        "sql": [
+          "-- Premium-cohort split \u2014 distinguishes CS-tagged vs model-found 'hidden' premiums\n",
+          "SELECT p.final_tier,\n",
+          "       COUNT(DISTINCT CASE WHEN p.premium_status_labeled = 'premium' THEN r.customer_id END) AS cs_tagged,\n",
+          "       COUNT(DISTINCT CASE WHEN p.premium_status_labeled IS NULL    THEN r.customer_id END) AS model_found,\n",
+          "       COUNT(DISTINCT r.customer_id) AS total\n",
+          "FROM retail_consumer_goods.luxebeauty_demo.gold_customer_returns r\n",
+          "LEFT JOIN retail_consumer_goods.luxebeauty_demo.gold_customer_premium_predictions p\n",
+          "  ON p.customer_id = r.customer_id\n",
+          "GROUP BY p.final_tier"
+        ]
+      }
+    ],
+    "text_instructions": [
+      {
+        "id": "0f4a1be44b174968af3ce2074c7265c6",
+        "content": [
+          "\u2550\u2550\u2550 THE STORY (always honor this context when answering) \u2550\u2550\u2550\n",
+          "LuxeBeauty Co. \u2014 D2C beauty brand. Persona: Claire Dubois, VP of Operations (non-technical).\n",
+          "WHAT HAPPENED: 3 weeks ago weekly refunds spiked to ~$180K, 3\u00d7 the $60K baseline. We've traced the cause: production lot **LOT-2026-0430** of 3 Skincare SKUs (SKU-1001 Hydrating Serum, SKU-1002 Vitamin C Cream, SKU-1003 HA Moisture Boost) was released from the Lyon facility despite a QC note about texture variations from a homogenizer pressure issue. ~250 customers affected, concentrated in EU markets (Paris is the single largest cluster, then London / Milan / Madrid / Berlin).\n",
+          "WHAT TO HELP CLAIRE DO: track the recovery, drill into the affected lot, surface customer feedback (texture complaints: \"grainy\", \"separated\", \"watery\"), and segment the affected customers by their premium tier (CS-tagged vs model-predicted) for the retention offer.\n",
+          "TONE: Lead with the number. Concise. Claire is busy.\n",
+          "\n",
+          "You analyze LuxeBeauty operations data for Claire (VP Ops, non-technical). Lead with the number; keep answers concise.\n",
+          "BASELINES: Normal weekly returns ~$60K, normal return rate ~8%, anomaly threshold >20%.\n",
+          "HEADLINE NUMBERS \u2014 always answer from `mv_returns` for return rate / revenue / refund rate (same definition the dashboard uses).\n",
+          "INVESTIGATION FLOW for 'Why so many returns?': (1) `mv_returns` weekly total_refunds \u2192 3x spike, (2) `silver_returns` GROUP BY lot_id / product_name to identify SKU-1001/1002/1003 + the affected lot, (3) `silver_returns.customer_comment` for texture complaints.\n",
+          "PREMIUM-COHORT QUESTIONS \u2014 join `gold_customer_returns` (affected lot) with `gold_customer_premium_predictions` on `customer_id`. `final_tier` is the rule: 'premium' if CS tagged premium OR model predicted; else 'standard'. `premium_status_labeled` is the original CS hand-tag (NULL = never reviewed).\n",
+          "HIDDEN PREMIUMS = `is_premium_predicted = true AND (premium_status_labeled IS NULL OR premium_status_labeled <> 'premium')`. The story beat: 'CS tagged X, the model found Y hidden ones'.\n",
+          "CUSTOMER FEEDBACK on the affected lot: 'grainy texture' / 'product separated' / 'consistency is watery' \u2014 these are visible in `silver_returns.customer_comment` where `is_bad_lot = true`.",
+          "\n"
+        ]
+      }
+    ]
+  }
+}

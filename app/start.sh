@@ -136,4 +136,24 @@ echo "[start.sh] VIRTUAL_ENV:    ${VIRTUAL_ENV:-<unset>}"
 # keep connections open and uvicorn hangs indefinitely → the app gets stuck in
 # "Stopping". 10s leaves headroom under the platform's ~15s SIGKILL window while
 # our lifespan teardown (bounded, in core/lakebase.py) runs.
-exec uvicorn demo_prompt_generator.backend.app:app --workers 1 --timeout-graceful-shutdown 10
+#
+# --workers 1 is REQUIRED: ActiveStreamManager (and the client pool / reapers) are
+# per-process singletons — a second worker would fork a second, disconnected set.
+UVICORN_ARGS=(demo_prompt_generator.backend.app:app --workers 1 --timeout-graceful-shutdown 10)
+
+# ── Databricks Apps observability (OpenTelemetry) ───────────────────────────
+# When the Apps telemetry option is enabled, Databricks injects the OTLP collector
+# env (OTEL_EXPORTER_OTLP_ENDPOINT + protocol/headers/resource attrs). We detect
+# that and launch uvicorn under `opentelemetry-instrument`, which auto-instruments
+# FastAPI (request spans) and wires logs; CPU/memory/process metrics are started
+# explicitly in core/observability.py at app startup. When telemetry is OFF (local
+# dev, or a deploy without it) OTEL_EXPORTER_OTLP_ENDPOINT is unset → we exec plain
+# uvicorn, byte-identical to before. `opentelemetry-instrument` resolves from the
+# venv already fronted on PATH above.
+if [[ -n "${OTEL_EXPORTER_OTLP_ENDPOINT:-}" ]]; then
+    export OTEL_SERVICE_NAME="${OTEL_SERVICE_NAME:-solution-builder-generator}"
+    echo "[start.sh] telemetry on (OTEL_EXPORTER_OTLP_ENDPOINT set) — launching under opentelemetry-instrument as '$OTEL_SERVICE_NAME'"
+    exec opentelemetry-instrument uvicorn "${UVICORN_ARGS[@]}"
+else
+    exec uvicorn "${UVICORN_ARGS[@]}"
+fi

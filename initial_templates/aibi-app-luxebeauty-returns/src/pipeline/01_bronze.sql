@@ -1,0 +1,4 @@
+-- Bronze layer intentionally removed for this demo.
+-- Silver MVs read raw_* tables directly (synth output) — bronze pass-throughs
+-- added no value and just inflated the table count.
+-- The medallion story is still: raw → silver (cleaned + AI-scored) → gold.

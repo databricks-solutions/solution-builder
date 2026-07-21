@@ -1,0 +1,1140 @@
+{
+  "datasets": [
+    {
+      "name": "ds_metrics",
+      "displayName": "Sales metrics",
+      "asset_name": "metrics_sales"
+    },
+    {
+      "name": "ds_target",
+      "displayName": "Quarter attainment vs target (AI forecast)",
+      "queryLines": [
+        "WITH maxd AS (SELECT max(order_date) md FROM orders_enriched),\n",
+        "daily AS (\n",
+        "  SELECT order_date AS d, sum(revenue) AS rev\n",
+        "  FROM orders_enriched\n",
+        "  WHERE order_date >= DATE'2026-04-01' AND order_date <= (SELECT md FROM maxd)\n",
+        "  GROUP BY 1),\n",
+        "fc AS (SELECT d, rev_forecast FROM AI_FORECAST(TABLE(SELECT d, rev FROM daily), horizon => '2026-06-30', time_col => 'd', value_col => 'rev')),\n",
+        "qtd AS (SELECT sum(rev) actual FROM daily),\n",
+        "rest AS (SELECT sum(rev_forecast) fcast FROM fc WHERE d > (SELECT md FROM maxd)),\n",
+        "tgt AS (SELECT target_revenue FROM sales_targets WHERE quarter_start = DATE'2026-04-01')\n",
+        "SELECT (SELECT actual FROM qtd) AS qtd_actual,\n",
+        "       (SELECT target_revenue FROM tgt) AS target,\n",
+        "       (SELECT actual FROM qtd) + COALESCE((SELECT fcast FROM rest),0) AS projected_quarter,\n",
+        "       ((SELECT actual FROM qtd) + COALESCE((SELECT fcast FROM rest),0)) / (SELECT target_revenue FROM tgt) AS attainment_pct"
+      ]
+    },
+    {
+      "name": "ds_forecast",
+      "displayName": "Weekly revenue + AI forecast",
+      "queryLines": [
+        "WITH maxd AS (SELECT max(order_date) md FROM orders_enriched),\n",
+        "weekly AS (\n",
+        "  SELECT date_trunc('week', order_date) AS w, sum(revenue) AS rev\n",
+        "  FROM orders_enriched\n",
+        "  WHERE order_date >= DATE'2025-09-01' AND order_date < date_trunc('week', (SELECT md FROM maxd))\n",
+        "  GROUP BY 1),\n",
+        "fc AS (SELECT w, rev_forecast, rev_lower, rev_upper FROM AI_FORECAST(TABLE(SELECT w, rev FROM weekly), horizon => '2026-08-31', time_col => 'w', value_col => 'rev')),\n",
+        "actuals AS (SELECT w AS week, rev AS actual_revenue, CAST(NULL AS DOUBLE) AS forecast_revenue, CAST(NULL AS DOUBLE) AS rev_lower, CAST(NULL AS DOUBLE) AS rev_upper FROM weekly WHERE w <> (SELECT max(w) FROM weekly)),\n",
+        "bridge AS (SELECT w AS week, rev, rev, rev, rev FROM weekly WHERE w = (SELECT max(w) FROM weekly)),\n",
+        "forecast AS (SELECT w AS week, CAST(NULL AS DOUBLE), rev_forecast, rev_lower, rev_upper FROM fc)\n",
+        "SELECT * FROM actuals UNION ALL SELECT * FROM bridge UNION ALL SELECT * FROM forecast ORDER BY week"
+      ]
+    },
+    {
+      "name": "ds_region_trend",
+      "displayName": "Daily revenue by region",
+      "queryLines": [
+        "SELECT order_date AS day, region,\n",
+        "  sum(revenue) AS revenue\n",
+        "FROM orders_enriched\n",
+        "WHERE order_date >= DATE'2026-02-01' AND order_date < (SELECT max(order_date) FROM orders_enriched)\n",
+        "GROUP BY 1,2 ORDER BY day"
+      ]
+    },
+    {
+      "name": "ds_emea_line",
+      "displayName": "EMEA weekly revenue by product line",
+      "queryLines": [
+        "SELECT date_trunc('week', order_date) AS week, product_line,\n",
+        "  sum(revenue) AS revenue\n",
+        "FROM orders_enriched\n",
+        "WHERE region = 'EMEA' AND order_date >= DATE'2026-01-01'\n",
+        "GROUP BY 1,2 ORDER BY week"
+      ]
+    },
+    {
+      "name": "ds_launch",
+      "displayName": "Product launches (PIM)",
+      "queryLines": [
+        "SELECT product_line, region, launch_date, launch_name, description\n",
+        "FROM product_launches\n",
+        "WHERE region = 'EMEA' OR region = 'Global'\n",
+        "ORDER BY launch_date"
+      ]
+    }
+  ],
+  "pages": [
+    {
+      "name": "overview",
+      "displayName": "Are we hitting the number?",
+      "layout": [
+        {
+          "widget": {
+            "name": "title",
+            "multilineTextboxSpec": {
+              "lines": [
+                "# Beauty Sales — are we hitting the number?\n",
+                "\n",
+                "One question every CRO asks. We track actual revenue against the quarter's target and let AI forecast where we'll land — by unifying Salesforce, ERP, Finance and the product catalog in one place."
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 12,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_projected",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_target",
+                  "fields": [
+                    {
+                      "name": "projected_quarter",
+                      "expression": "`projected_quarter`"
+                    },
+                    {
+                      "name": "target",
+                      "expression": "`target`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "projected_quarter",
+                  "displayName": "Forecasted quarter-end",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                },
+                "target": {
+                  "fieldName": "target",
+                  "displayName": "Target"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Forecasted quarter-end revenue vs target"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 2,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_revenue_trend",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_metrics",
+                  "fields": [
+                    {
+                      "name": "monthly(Order Date)",
+                      "expression": "DATE_TRUNC(\"MONTH\", `Order Date`)"
+                    },
+                    {
+                      "name": "measure(Revenue)",
+                      "expression": "MEASURE(`Revenue`)"
+                    }
+                  ],
+                  "disaggregated": false,
+                  "orders": [
+                    {
+                      "direction": "DESC",
+                      "expression": "DATE_TRUNC(\"MONTH\", `Order Date`)"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "measure(Revenue)",
+                  "displayName": "Revenue",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                },
+                "period": {
+                  "fieldName": "monthly(Order Date)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Total revenue (monthly trend)"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 2,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_target",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_target",
+                  "fields": [
+                    {
+                      "name": "target",
+                      "expression": "`target`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "target",
+                  "displayName": "Quarter target",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Quarter target"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 2,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_attain",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_target",
+                  "fields": [
+                    {
+                      "name": "attainment_pct",
+                      "expression": "`attainment_pct`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "attainment_pct",
+                  "displayName": "Projected attainment",
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 0
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Projected attainment of target"
+              }
+            }
+          },
+          "position": {
+            "x": 9,
+            "y": 2,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "hero_forecast",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_forecast",
+                  "fields": [
+                    {
+                      "name": "week",
+                      "expression": "`week`"
+                    },
+                    {
+                      "name": "actual_revenue",
+                      "expression": "`actual_revenue`"
+                    },
+                    {
+                      "name": "forecast_revenue",
+                      "expression": "`forecast_revenue`"
+                    },
+                    {
+                      "name": "rev_upper",
+                      "expression": "`rev_upper`"
+                    },
+                    {
+                      "name": "rev_lower",
+                      "expression": "`rev_lower`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 1,
+              "widgetType": "forecast-line",
+              "encodings": {
+                "x": {
+                  "fieldName": "week",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "displayName": "Week"
+                },
+                "y": {
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "original": {
+                    "fieldName": "actual_revenue",
+                    "displayName": "Weekly revenue"
+                  },
+                  "prediction": {
+                    "fieldName": "forecast_revenue",
+                    "displayName": "AI forecast"
+                  },
+                  "predictionUpper": {
+                    "fieldName": "rev_upper",
+                    "displayName": "Upper"
+                  },
+                  "predictionLower": {
+                    "fieldName": "rev_lower",
+                    "displayName": "Lower"
+                  }
+                }
+              },
+              "annotations": [
+                {
+                  "type": "vertical-line",
+                  "encodings": {
+                    "x": {
+                      "dataValue": "2026-05-04T00:00:00.000",
+                      "dataType": "DATETIME"
+                    },
+                    "label": {
+                      "value": "Fragrance launches in EMEA"
+                    },
+                    "color": {
+                      "value": {
+                        "themeColorType": "visualizationColors",
+                        "position": 3
+                      }
+                    }
+                  }
+                }
+              ],
+              "frame": {
+                "showTitle": true,
+                "title": "Weekly revenue — the AI forecast projects us beating target, led by a late surge"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 5,
+            "width": 8,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "rev_by_line",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_metrics",
+                  "fields": [
+                    {
+                      "name": "Product Line",
+                      "expression": "`Product Line`"
+                    },
+                    {
+                      "name": "measure(Revenue)",
+                      "expression": "MEASURE(`Revenue`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "Product Line",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Product Line"
+                },
+                "y": {
+                  "fieldName": "measure(Revenue)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Revenue",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact"
+                  }
+                },
+                "color": {
+                  "fieldName": "Product Line",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Revenue by product line"
+              }
+            }
+          },
+          "position": {
+            "x": 8,
+            "y": 5,
+            "width": 4,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "section_geo",
+            "multilineTextboxSpec": {
+              "lines": [
+                "## Revenue by market"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 11,
+            "width": 12,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "map_rev",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_metrics",
+                  "fields": [
+                    {
+                      "name": "measure(Revenue)",
+                      "expression": "MEASURE(`Revenue`)"
+                    },
+                    {
+                      "name": "Latitude",
+                      "expression": "`Latitude`"
+                    },
+                    {
+                      "name": "Longitude",
+                      "expression": "`Longitude`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "showTitle": true,
+                "title": "Revenue by market (bubble size = revenue)"
+              },
+              "widgetType": "symbol-map",
+              "encodings": {
+                "coordinates": {
+                  "latitude": {
+                    "fieldName": "Latitude"
+                  },
+                  "longitude": {
+                    "fieldName": "Longitude"
+                  }
+                },
+                "color": {
+                  "fieldName": "measure(Revenue)",
+                  "displayName": "Revenue",
+                  "scale": {
+                    "type": "quantitative",
+                    "colorRamp": {
+                      "mode": "custom-sequential",
+                      "colors": {
+                        "start": "#EFF3FF",
+                        "end": "#077A9D"
+                      }
+                    }
+                  }
+                },
+                "size": {
+                  "fieldName": "measure(Revenue)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Revenue"
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 12,
+            "width": 8,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "region_pie",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_metrics",
+                  "fields": [
+                    {
+                      "name": "Region",
+                      "expression": "`Region`"
+                    },
+                    {
+                      "name": "measure(Revenue)",
+                      "expression": "MEASURE(`Revenue`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "pie",
+              "encodings": {
+                "angle": {
+                  "fieldName": "measure(Revenue)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Revenue"
+                },
+                "color": {
+                  "fieldName": "Region",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Region"
+                },
+                "label": {
+                  "show": true
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Revenue share by region"
+              }
+            }
+          },
+          "position": {
+            "x": 8,
+            "y": 12,
+            "width": 4,
+            "height": 7
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1"
+    },
+    {
+      "name": "why",
+      "displayName": "Why are we beating?",
+      "layout": [
+        {
+          "widget": {
+            "name": "why_title",
+            "multilineTextboxSpec": {
+              "lines": [
+                "# Why are we beating the target?\n",
+                "\n",
+                "The surge is concentrated in **EMEA**, right after the new **Fragrance** line became available there on **2026-05-04** (product catalog). Here's the trail."
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 12,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "step1_header",
+            "multilineTextboxSpec": {
+              "lines": [
+                "## 1. Which region is surging?\n",
+                "\n",
+                "Monthly revenue by region — EMEA pulls away from the pack in recent months."
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 2,
+            "width": 12,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "region_trend",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_region_trend",
+                  "fields": [
+                    {
+                      "name": "day",
+                      "expression": "`day`"
+                    },
+                    {
+                      "name": "region",
+                      "expression": "`region`"
+                    },
+                    {
+                      "name": "sum(revenue)",
+                      "expression": "SUM(`revenue`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "day",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "displayName": "Day"
+                },
+                "y": {
+                  "fieldName": "sum(revenue)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Revenue",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact"
+                  }
+                },
+                "color": {
+                  "fieldName": "region",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Region"
+                }
+              },
+              "annotations": [
+                {
+                  "type": "vertical-line",
+                  "encodings": {
+                    "x": {
+                      "dataValue": "2026-05-04T00:00:00.000",
+                      "dataType": "DATETIME"
+                    },
+                    "label": {
+                      "value": "Fragrance launches in EMEA"
+                    },
+                    "color": {
+                      "value": {
+                        "themeColorType": "visualizationColors",
+                        "position": 3
+                      }
+                    }
+                  }
+                }
+              ],
+              "frame": {
+                "showTitle": true,
+                "title": "Daily revenue by region (stacked) — EMEA grows after the launch"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 4,
+            "width": 12,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "step2_header",
+            "multilineTextboxSpec": {
+              "lines": [
+                "## 2. Why EMEA? A new product line went live\n",
+                "\n",
+                "Within EMEA, the **Fragrance** line was near-zero until it launched on **2026-05-04**, then took off — that single launch is driving the beat."
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 10,
+            "width": 12,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "emea_line",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_emea_line",
+                  "fields": [
+                    {
+                      "name": "product_line",
+                      "expression": "`product_line`"
+                    },
+                    {
+                      "name": "week",
+                      "expression": "`week`"
+                    },
+                    {
+                      "name": "sum(revenue)",
+                      "expression": "SUM(`revenue`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "frame": {
+                "showTitle": true,
+                "title": "EMEA weekly revenue by product line — Fragrance surges after the May 4 launch"
+              },
+              "annotations": [
+                {
+                  "type": "vertical-line",
+                  "encodings": {
+                    "x": {
+                      "dataValue": "2026-05-04T00:00:00.000",
+                      "dataType": "DATETIME"
+                    },
+                    "label": {
+                      "value": "Fragrance launches in EMEA"
+                    },
+                    "color": {
+                      "value": {
+                        "themeColorType": "visualizationColors",
+                        "position": 3
+                      }
+                    }
+                  }
+                }
+              ],
+              "widgetType": "area",
+              "encodings": {
+                "x": {
+                  "fieldName": "week",
+                  "displayName": "Week",
+                  "scale": {
+                    "type": "temporal"
+                  }
+                },
+                "y": {
+                  "fieldName": "sum(revenue)",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact"
+                  },
+                  "displayName": "EMEA revenue",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "color": {
+                  "fieldName": "product_line",
+                  "displayName": "Product Line",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 12,
+            "width": 8,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "launch_table",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_launch",
+                  "fields": [
+                    {
+                      "name": "product_line",
+                      "expression": "`product_line`"
+                    },
+                    {
+                      "name": "region",
+                      "expression": "`region`"
+                    },
+                    {
+                      "name": "launch_date",
+                      "expression": "`launch_date`"
+                    },
+                    {
+                      "name": "launch_name",
+                      "expression": "`launch_name`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "launch_name",
+                    "displayName": "Launch"
+                  },
+                  {
+                    "fieldName": "product_line",
+                    "displayName": "Product Line"
+                  },
+                  {
+                    "fieldName": "region",
+                    "displayName": "Region"
+                  },
+                  {
+                    "fieldName": "launch_date",
+                    "displayName": "Launch Date"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Product launches (catalog) — the EMEA Fragrance launch is the trigger"
+              }
+            }
+          },
+          "position": {
+            "x": 8,
+            "y": 12,
+            "width": 4,
+            "height": 6
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1"
+    },
+    {
+      "name": "filters",
+      "displayName": "Filters",
+      "layout": [
+        {
+          "widget": {
+            "name": "f_date",
+            "queries": [
+              {
+                "name": "f_date_q",
+                "query": {
+                  "datasetName": "ds_metrics",
+                  "fields": [
+                    {
+                      "name": "Order Date",
+                      "expression": "`Order Date`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-date-range-picker",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "Order Date",
+                    "displayName": "Date",
+                    "queryName": "f_date_q"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Date"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 3,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "f_region",
+            "queries": [
+              {
+                "name": "f_region_q",
+                "query": {
+                  "datasetName": "ds_metrics",
+                  "fields": [
+                    {
+                      "name": "Region",
+                      "expression": "`Region`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "Region",
+                    "displayName": "Region",
+                    "queryName": "f_region_q"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Region"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 0,
+            "width": 3,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "f_line",
+            "queries": [
+              {
+                "name": "f_line_q",
+                "query": {
+                  "datasetName": "ds_metrics",
+                  "fields": [
+                    {
+                      "name": "Product Line",
+                      "expression": "`Product Line`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "Product Line",
+                    "displayName": "Product Line",
+                    "queryName": "f_line_q"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Product Line"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 0,
+            "width": 3,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "f_segment",
+            "queries": [
+              {
+                "name": "f_segment_q",
+                "query": {
+                  "datasetName": "ds_metrics",
+                  "fields": [
+                    {
+                      "name": "Segment",
+                      "expression": "`Segment`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "Segment",
+                    "displayName": "Segment",
+                    "queryName": "f_segment_q"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Retailer Segment"
+              }
+            }
+          },
+          "position": {
+            "x": 9,
+            "y": 0,
+            "width": 3,
+            "height": 1
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_GLOBAL_FILTERS",
+      "layoutVersion": "GRID_V1"
+    }
+  ],
+  "uiSettings": {
+    "theme": {
+      "visualizationColors": [
+        "#077A9D",
+        "#FF3621",
+        "#FFAB00",
+        "#00A972",
+        "#8BCAE7",
+        "#AB4057",
+        "#99DDB4",
+        "#FCA4A1"
+      ],
+      "widgetHeaderAlignment": "ALIGNMENT_UNSPECIFIED"
+    },
+    "genieSpace": {
+      "isEnabled": true,
+      "overrideId": "",
+      "enablementMode": "ENABLED"
+    }
+  }
+}

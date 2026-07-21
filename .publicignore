@@ -1,0 +1,19 @@
+# Paths that must NOT be synced to the PUBLIC repo
+# (github.com/databricks-solutions/solution-builder).
+#
+# This repo (databricks-field-eng/industry-demo-prompts) is the PRIVATE source;
+# the public repo is a mirror. Whatever job mirrors private→public MUST exclude
+# every path listed here. Each is internal-only content (live Demo-West links,
+# internal catalogs) that should never appear in the open-source project.
+#
+# Syntax: gitignore-style globs, repo-root-relative.
+
+# Internal demo catalog page (/internal-demos) + its data/components.
+app/src/demo_prompt_generator/ui/routes/internal-demos.tsx
+app/src/demo_prompt_generator/ui/components/internal/
+
+# NOTE: app/src/demo_prompt_generator/ui/routeTree.gen.ts is AUTO-GENERATED and
+# will contain an `internal-demos` route entry. Do NOT hand-edit it; the public
+# mirror should regenerate the route tree AFTER removing the route file above
+# (running the frontend build regenerates routeTree.gen.ts from whatever routes/
+# files are present), so the public tree simply won't include the route.

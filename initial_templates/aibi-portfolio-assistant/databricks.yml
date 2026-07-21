@@ -1,0 +1,82 @@
+# Databricks Asset Bundle — AI/BI Portfolio Assistant (no app, no Lakebase).
+#
+# Re-creates the whole demo from scratch on any workspace:
+#   1. `databricks bundle deploy` — creates the schema + dashboard shell + setup job.
+#   2. `databricks bundle run portfolio_assistant_setup` — generates data (REAL prices
+#      via yfinance) + builds the medallion (generate_data.py) and deploys the Genie space.
+# The dashboard is a DAB `dashboards` resource; its datasets are rebound to the
+# target catalog/schema via dataset_catalog / dataset_schema (needs CLI >= 0.283.0).
+#
+# Deploy is documented in dab_instructions.md — do NOT run it as part of authoring.
+bundle:
+  name: aibi-portfolio-assistant
+
+variables:
+  catalog:
+    description: Unity Catalog for the demo.
+    default: dbdemos_templates
+  schema:
+    description: Schema for the demo tables, dashboard, and Genie space.
+    default: aibi_portfolio_assistant
+  warehouse_id:
+    description: SQL warehouse the dashboard + Genie space use.
+
+resources:
+  schemas:
+    demo_schema:
+      catalog_name: ${var.catalog}
+      name: ${var.schema}
+      comment: "AI/BI Portfolio Assistant demo — synthetic data (real prices), dashboard, Genie."
+
+  dashboards:
+    portfolio_assistant_dashboard:
+      display_name: "[AI/BI] AIBI - Portfolio Assistant"
+      file_path: ./dashboard/dashboard.lvdash.json
+      warehouse_id: ${var.warehouse_id}
+      # Rebind the dashboard's datasets to the deployed catalog/schema.
+      dataset_catalog: ${var.catalog}
+      dataset_schema: ${resources.schemas.demo_schema.name}
+
+  jobs:
+    portfolio_assistant_setup:
+      name: "[AI/BI] AI/BI Portfolio Assistant — setup"
+      tasks:
+        - task_key: generate_data_and_build
+          spark_python_task:
+            python_file: ./data_generation/generate_data.py
+            parameters:
+              - "--catalog"
+              - ${var.catalog}
+              - "--schema"
+              - ${resources.schemas.demo_schema.name}
+          environment_key: sdk_default
+        - task_key: deploy_genie
+          depends_on:
+            - task_key: generate_data_and_build
+          notebook_task:
+            notebook_path: ./src/deploy/deploy_genie.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${resources.schemas.demo_schema.name}
+              warehouse_id: ${var.warehouse_id}
+          environment_key: sdk_latest
+      environments:
+        - environment_key: sdk_default
+          spec:
+            client: "4"
+            dependencies:
+              - numpy
+              - pandas
+              - yfinance
+        - environment_key: sdk_latest
+          spec:
+            client: "4"
+            dependencies:
+              - databricks-sdk>=0.114.0
+
+targets:
+  dev:
+    mode: development
+    default: true
+  prod:
+    mode: production

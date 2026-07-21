@@ -1,0 +1,70 @@
+{
+  "version": 2,
+  "config": {
+    "sample_questions": [
+      { "id": "10000000000000000000000000000001", "question": ["Why did our average support resolution time drop in 2025?"] },
+      { "id": "10000000000000000000000000000002", "question": ["How much did support cost per case fall after the AI Copilot launched?"] },
+      { "id": "10000000000000000000000000000003", "question": ["What percentage of cases does the AI assistant auto-resolve, and for which categories?"] },
+      { "id": "10000000000000000000000000000004", "question": ["Show average resolution time and customer satisfaction by month"] },
+      { "id": "10000000000000000000000000000005", "question": ["Which region has the slowest resolution time?"] }
+    ]
+  },
+  "data_sources": {
+    "tables": [
+      { "identifier": "{{CATALOG}}.{{SCHEMA}}.ai_assistant_releases" },
+      { "identifier": "{{CATALOG}}.{{SCHEMA}}.ai_assistant_usage" },
+      { "identifier": "{{CATALOG}}.{{SCHEMA}}.support_cases_enriched" },
+      { "identifier": "{{CATALOG}}.{{SCHEMA}}.support_metrics" }
+    ]
+  },
+  "instructions": {
+    "text_instructions": [
+      {
+        "id": "30000000000000000000000000000001",
+        "content": [
+          "THE STORY. A travel company deployed an AI Support Copilot (built on Databricks with Agent Bricks) that reached GA on 2025-06-02 and auto-resolves How-To, Access and Billing cases end to end. From that date, average resolution time falls (~26h to ~11h), cost per case roughly halves, satisfaction rises, and human agents focus on complex Outage / Bug / Performance cases.\n",
+          "WHEN ASKED WHY resolution time, cost, or reopen rate dropped (or what changed in 2025): explain it using the ai_assistant_releases table (the v1.0 GA release notes on 2025-06-02) and show that ai_assistant_usage.ai_deflections jumped from 0 at that date while resolution_hours fell.\n",
+          "Use the boolean column ai_era (TRUE when opened_date >= 2025-06-02) to compare before vs after.\n",
+          "ai_handled = TRUE means the case was auto-resolved by the AI. support_cost is in USD. satisfaction_score is 2-5 (higher is better; ~26% null = no survey returned).\n",
+          "support_metrics is a governed METRIC VIEW: query its measures with MEASURE(`Total Cases`), MEASURE(`Avg Resolution Hours`), MEASURE(`Avg Satisfaction`), MEASURE(`Avg Cost per Case`), MEASURE(`AI Resolved Rate`) and group by its dimensions (e.g. `AI Era`, `Region`, `Category`). Prefer it for clean aggregated KPIs.\n",
+          "APAC is the slowest region (higher resolution_hours), so a regional breakdown shows a real difference."
+        ]
+      }
+    ],
+    "example_question_sqls": [
+      {
+        "id": "20000000000000000000000000000001",
+        "question": ["Average resolution time and AI deflection by month"],
+        "sql": [
+          "SELECT DATE_TRUNC('MONTH', opened_at) AS month,\n",
+          "       ROUND(AVG(resolution_hours), 1) AS avg_resolution_hours,\n",
+          "       ROUND(AVG(CASE WHEN ai_handled THEN 1 ELSE 0 END) * 100, 0) AS pct_ai_resolved\n",
+          "FROM {{CATALOG}}.{{SCHEMA}}.support_cases_enriched\n",
+          "GROUP BY 1 ORDER BY 1"
+        ]
+      },
+      {
+        "id": "20000000000000000000000000000002",
+        "question": ["Support cost and satisfaction before vs after the AI Copilot"],
+        "sql": [
+          "SELECT CASE WHEN ai_era THEN 'After AI Copilot' ELSE 'Before AI Copilot' END AS era,\n",
+          "       ROUND(AVG(resolution_hours), 1) AS avg_resolution_hours,\n",
+          "       ROUND(AVG(satisfaction_score), 2) AS avg_satisfaction,\n",
+          "       ROUND(AVG(support_cost), 0) AS avg_cost_per_case,\n",
+          "       COUNT(*) AS cases\n",
+          "FROM {{CATALOG}}.{{SCHEMA}}.support_cases_enriched\n",
+          "GROUP BY 1 ORDER BY 1"
+        ]
+      },
+      {
+        "id": "20000000000000000000000000000003",
+        "question": ["When did the AI Support Copilot launch and what does it do?"],
+        "sql": [
+          "SELECT version, release_date, status, capability_summary, release_notes\n",
+          "FROM {{CATALOG}}.{{SCHEMA}}.ai_assistant_releases\n",
+          "ORDER BY release_date"
+        ]
+      }
+    ]
+  }
+}

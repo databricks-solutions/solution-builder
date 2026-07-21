@@ -1,0 +1,25 @@
+{
+  "short_description": "Aggregate marketing spend looks fine \u2014 but one channel burns budget while another quietly drives most of the return. Genie pinpoints the underperforming creative.",
+  "capabilities": {
+    "buildable": [
+      "synthetic-data-gen",
+      "metric-views",
+      "aibi-dashboards",
+      "genie"
+    ],
+    "talking_track": [
+      "lakeflow-connect",
+      "unity-catalog",
+      "agent-bricks",
+      "genie-one"
+    ]
+  },
+  "created_resources": {
+    "catalog": "dbdemos_templates",
+    "schema": "aibi_marketing_campaign",
+    "warehouse_id": "e9b34f7a2e4b0561",
+    "metric_view_name": "dbdemos_templates.aibi_marketing_campaign.metrics_campaign",
+    "dashboard_id": "01f184f2766e1c559693eb53f7e64624",
+    "genie_space_id": "01f165b1d2cb10778eea91cf6bc9b3c6"
+  }
+}

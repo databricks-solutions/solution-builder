@@ -480,13 +480,23 @@ class _LakebaseDependency(LifespanDependency):
         def init_db():
             validate_db(engine)
             initialize_models(engine)
-            try:
-                from ..services.seed_templates import seed_default_templates
-                seed_default_templates(engine)
-            except Exception as e:
-                logger.warning(f"Template seeding failed (non-fatal): {e}")
+            # DB is usable now — flip readiness BEFORE seeding so DB-backed routes
+            # don't wait on it. Template seeding is fire-and-forget in its own
+            # thread (it reads/hashes template files + may embed — up to a few
+            # seconds on a cold first boot; unchanged restarts short-circuit via a
+            # stat-based signature). The gallery is briefly empty on a cold first
+            # boot, then fills; every other route is unaffected.
             app.state.db_ready = True
             logger.info("Database ready")
+
+            def _seed():
+                try:
+                    from ..services.seed_templates import seed_default_templates
+                    seed_default_templates(engine)
+                except Exception as e:
+                    logger.warning(f"Template seeding failed (non-fatal): {e}")
+
+            threading.Thread(target=_seed, name="seed-templates", daemon=True).start()
 
         executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
         db_future = executor.submit(init_db)

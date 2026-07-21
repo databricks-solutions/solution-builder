@@ -36,8 +36,10 @@ bundle:
 variables:
   catalog:
     description: "Unity Catalog for demo resources"
+    default: retail_consumer_goods   # LuxeBeauty's canonical local catalog
   schema:
     description: "Schema within the catalog (created by this bundle)"
+    default: luxebeauty_demo          # LuxeBeauty's canonical local schema
   warehouse_id:
     description: "SQL Warehouse ID — powers the dashboard"
 
@@ -147,6 +149,11 @@ resources:
       photon: true
       development: true
       channel: current
+      # SDP substitutes these into the silver/gold read_files('/Volumes/${catalog}/
+      # ${schema}/raw_data/...') paths at parse time — no hardcoded path.
+      configuration:
+        catalog: ${resources.schemas.demo_schema.catalog_name}
+        schema: ${resources.schemas.demo_schema.name}
       libraries:
         - file:
             path: ./src/pipeline/01_bronze.sql
@@ -287,8 +294,13 @@ resources:
 
         # Create or update the Genie space using the curated questions + SQLs.
         - task_key: deploy_genie
+          # The genie space references mv_returns (deploy_metric_view) and
+          # gold_customer_premium_predictions (train_score_ml) — Genie validates
+          # every table on create, so it must wait for BOTH, not just the pipeline.
           depends_on:
             - task_key: run_pipeline
+            - task_key: deploy_metric_view
+            - task_key: train_score_ml
           notebook_task:
             notebook_path: ./src/deploy/deploy_genie.py
             base_parameters:

@@ -54,6 +54,18 @@ dependencies = [
     # fingerprints (navigator.webdriver, plugins, WebGL vendor…) so JS-based
     # bot-checks let us through — recovers sites like SAP (Akamai JS check).
     "playwright-stealth>=2.0.3",
+    # Databricks Apps observability (OpenTelemetry). Only ACTIVE when the Apps
+    # telemetry option is enabled — start.sh runs uvicorn under
+    # `opentelemetry-instrument` iff Databricks injected OTEL_EXPORTER_OTLP_ENDPOINT,
+    # so these are inert in local dev / telemetry-off deploys. distro = the
+    # auto-instrumentation bootstrap + `opentelemetry-instrument` CLI; otlp-grpc =
+    # the exporter the Apps collector expects; fastapi = request spans;
+    # system-metrics = CPU / memory / process gauges (NOT auto-wired for FastAPI —
+    # started explicitly in core/observability.py).
+    "opentelemetry-distro>=0.48b0",
+    "opentelemetry-exporter-otlp-proto-grpc>=1.27.0",
+    "opentelemetry-instrumentation-fastapi>=0.48b0",
+    "opentelemetry-instrumentation-system-metrics>=0.48b0",
 ]
 
 # Local path dependencies for Databricks MCP tools

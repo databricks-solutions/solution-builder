@@ -1,0 +1,69 @@
+{
+  "version": 2,
+  "config": {
+    "sample_questions": [
+      { "id": "10000000000000000000000000000001", "question": ["Are we going to hit our revenue target this quarter?"] },
+      { "id": "10000000000000000000000000000002", "question": ["What is driving the recent revenue spike?"] },
+      { "id": "10000000000000000000000000000003", "question": ["Why is EMEA revenue surging?"] },
+      { "id": "10000000000000000000000000000004", "question": ["Show weekly revenue by region since March 2026"] },
+      { "id": "10000000000000000000000000000005", "question": ["Which product line grew the most in EMEA, and when did it launch there?"] }
+    ]
+  },
+  "data_sources": {
+    "tables": [
+      { "identifier": "{{CATALOG}}.{{SCHEMA}}.metrics_sales" },
+      { "identifier": "{{CATALOG}}.{{SCHEMA}}.orders_enriched" },
+      { "identifier": "{{CATALOG}}.{{SCHEMA}}.product_launches" },
+      { "identifier": "{{CATALOG}}.{{SCHEMA}}.sales_targets" }
+    ]
+  },
+  "instructions": {
+    "text_instructions": [
+      {
+        "id": "30000000000000000000000000000001",
+        "content": [
+          "THE STORY. A global beauty brand tracks sales against a company-wide quarterly revenue target. Data is unified from several systems: Salesforce (crm_accounts, crm_opportunities, crm_reps), the ERP (erp_orders = actual revenue, the fact behind orders_enriched), Finance (sales_targets) and the product catalog (product_launches).\n",
+          "The current fiscal quarter is Q2 2026 (2026-04-01 to 2026-06-30); its target is in sales_targets. When asked whether we'll HIT the target, compare quarter-to-date revenue (and, if asked to forecast, use the ai_forecast SQL function on daily revenue to project quarter-end) against the Q2 target.\n",
+          "WHEN ASKED WHY revenue is spiking / why we're beating: explain that the new Fragrance product line became available in EMEA on 2026-05-04 (product_launches) and EMEA Fragrance revenue surged afterwards - drill region (EMEA) then product_line (Fragrance) then join product_launches for the date.\n",
+          "metrics_sales is a governed METRIC VIEW: query its measures with MEASURE(`Revenue`), MEASURE(`Units`), MEASURE(`Orders`), MEASURE(`Avg Order Value`) and group by its dimensions (e.g. `Region`, `Product Line`, `Segment`, `Sales Rep`); prefer it for clean aggregated KPIs."
+        ]
+      }
+    ],
+    "example_question_sqls": [
+      {
+        "id": "20000000000000000000000000000001",
+        "question": ["Quarter-to-date revenue vs target (Q2 2026)"],
+        "sql": [
+          "SELECT ROUND(SUM(o.revenue)) AS qtd_revenue,\n",
+          "       (SELECT target_revenue FROM {{CATALOG}}.{{SCHEMA}}.sales_targets WHERE quarter_start = DATE'2026-04-01') AS quarter_target\n",
+          "FROM {{CATALOG}}.{{SCHEMA}}.orders_enriched o\n",
+          "WHERE o.order_date >= DATE'2026-04-01' AND o.order_date <= DATE'2026-06-30';"
+        ]
+      },
+      {
+        "id": "20000000000000000000000000000002",
+        "question": ["Weekly revenue by region since the spike"],
+        "sql": [
+          "SELECT DATE_TRUNC('WEEK', order_date) AS week, region, ROUND(SUM(revenue)) AS revenue\n",
+          "FROM {{CATALOG}}.{{SCHEMA}}.orders_enriched\n",
+          "WHERE order_date >= DATE'2026-03-01'\n",
+          "GROUP BY 1,2 ORDER BY 1,2;"
+        ]
+      },
+      {
+        "id": "20000000000000000000000000000003",
+        "question": ["EMEA revenue by product line, and when each launched there"],
+        "sql": [
+          "SELECT o.product_line,\n",
+          "       ROUND(SUM(o.revenue)) AS emea_revenue,\n",
+          "       MAX(l.launch_date) AS emea_launch_date\n",
+          "FROM {{CATALOG}}.{{SCHEMA}}.orders_enriched o\n",
+          "LEFT JOIN {{CATALOG}}.{{SCHEMA}}.product_launches l\n",
+          "  ON l.product_line = o.product_line AND l.region = 'EMEA'\n",
+          "WHERE o.region = 'EMEA'\n",
+          "GROUP BY 1 ORDER BY emea_revenue DESC;"
+        ]
+      }
+    ]
+  }
+}

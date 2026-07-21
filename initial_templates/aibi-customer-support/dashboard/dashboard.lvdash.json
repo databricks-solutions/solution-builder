@@ -1,0 +1,1507 @@
+{
+  "datasets": [
+    {
+      "name": "ds_metrics",
+      "displayName": "Support metrics",
+      "asset_name": "support_metrics"
+    },
+    {
+      "name": "ds_forecast",
+      "displayName": "Weekly human-handled volume + forecast",
+      "queryLines": [
+        "WITH cutoff AS (\n",
+        "  SELECT DATE_TRUNC('WEEK', MAX(opened_at)) AS last_week_start\n",
+        "  FROM support_cases_enriched\n",
+        "),\n",
+        "original_table AS (\n",
+        "  SELECT DATE_TRUNC('WEEK', opened_at) AS opened_at, COUNT(*) AS count\n",
+        "  FROM support_cases_enriched, cutoff\n",
+        "  WHERE ai_handled = false\n",
+        "    AND (:region_filter IS NULL OR size(:region_filter) = 0 OR array_contains(:region_filter, region_name))\n",
+        "    AND DATE_TRUNC('WEEK', opened_at) < cutoff.last_week_start\n",
+        "  GROUP BY 1\n",
+        "),\n",
+        "dates AS (SELECT MAX(opened_at) AS max_date_column, MIN(opened_at) AS min_date_column FROM original_table),\n",
+        "forecast_table AS (\n",
+        "  SELECT opened_at, count_forecast, count_upper, count_lower, NULL AS count\n",
+        "  FROM AI_FORECAST(TABLE(original_table),\n",
+        "    horizon => (SELECT max_date_column + MAKE_DT_INTERVAL(CAST(FLOOR(DATEDIFF(max_date_column, min_date_column)*0.25) AS INT),0,0,0) FROM dates),\n",
+        "    time_col => 'opened_at', value_col => 'count')\n",
+        ")\n",
+        "SELECT opened_at, count_forecast, count_upper, count_lower, count FROM forecast_table\n",
+        "UNION ALL\n",
+        "SELECT opened_at, NULL, NULL, NULL, count FROM original_table\n",
+        "UNION ALL\n",
+        "SELECT max_date_column, count, count, count, count FROM dates JOIN original_table ON original_table.opened_at = dates.max_date_column"
+      ],
+      "parameters": [
+        {
+          "displayName": "Region",
+          "keyword": "region_filter",
+          "dataType": "STRING",
+          "complexType": "MULTI",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": []
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "ds_usage",
+      "displayName": "AI assistant usage",
+      "queryLines": [
+        "SELECT DATE_TRUNC('MONTH', usage_date) AS month, SUM(ai_queries) AS ai_queries, SUM(ai_deflections) AS ai_deflections, SUM(ai_compute_cost) AS ai_compute_cost ",
+        "FROM ai_assistant_usage GROUP BY 1 ORDER BY 1"
+      ]
+    },
+    {
+      "name": "ds_usage_total",
+      "displayName": "AI usage totals",
+      "queryLines": [
+        "SELECT SUM(ai_queries) AS ai_queries, SUM(ai_deflections) AS ai_deflections, SUM(ai_compute_cost) AS ai_compute_cost FROM ai_assistant_usage"
+      ]
+    },
+    {
+      "name": "ds_releases",
+      "displayName": "AI Copilot releases",
+      "queryLines": [
+        "SELECT version, release_date, status, capability_summary, release_notes FROM ai_assistant_releases ORDER BY release_date"
+      ]
+    }
+  ],
+  "pages": [
+    {
+      "name": "support",
+      "displayName": "Customer Support",
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1",
+      "layout": [
+        {
+          "widget": {
+            "name": "s_title",
+            "multilineTextboxSpec": {
+              "lines": [
+                "# Customer Support Overview\n",
+                "\n",
+                "Every week, thousands of support cases across 4 regions. In mid-2025 something changed \u2014 resolution got faster, cheaper, and customers happier. See the **AI Copilot Impact** tab for the why."
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 12,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "s_kpi_cases",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_metrics",
+                  "fields": [
+                    {
+                      "name": "measure(Total Cases)",
+                      "expression": "MEASURE(`Total Cases`)"
+                    },
+                    {
+                      "name": "monthly(Opened Date)",
+                      "expression": "DATE_TRUNC(\"MONTH\", `Opened Date`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "measure(Total Cases)",
+                  "displayName": "Total Cases",
+                  "format": {
+                    "type": "number",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 0
+                    }
+                  }
+                },
+                "period": {
+                  "fieldName": "monthly(Opened Date)"
+                }
+              },
+              "frame": {
+                "title": "Total Support Cases",
+                "showTitle": true
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 2,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "s_kpi_res",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_metrics",
+                  "fields": [
+                    {
+                      "name": "measure(Avg Resolution Hours)",
+                      "expression": "MEASURE(`Avg Resolution Hours`)"
+                    },
+                    {
+                      "name": "monthly(Opened Date)",
+                      "expression": "DATE_TRUNC(\"MONTH\", `Opened Date`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "measure(Avg Resolution Hours)",
+                  "displayName": "Avg Resolution (hrs)",
+                  "format": {
+                    "type": "number",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    },
+                    "suffix": "h"
+                  }
+                },
+                "period": {
+                  "fieldName": "monthly(Opened Date)"
+                }
+              },
+              "frame": {
+                "title": "Avg Resolution Time (hrs)",
+                "showTitle": true
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 2,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "s_kpi_sat",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_metrics",
+                  "fields": [
+                    {
+                      "name": "measure(Avg Satisfaction)",
+                      "expression": "MEASURE(`Avg Satisfaction`)"
+                    },
+                    {
+                      "name": "monthly(Opened Date)",
+                      "expression": "DATE_TRUNC(\"MONTH\", `Opened Date`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "measure(Avg Satisfaction)",
+                  "displayName": "Avg Satisfaction",
+                  "format": {
+                    "type": "number",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 2
+                    }
+                  }
+                },
+                "period": {
+                  "fieldName": "monthly(Opened Date)"
+                }
+              },
+              "frame": {
+                "title": "Avg Satisfaction (2-5)",
+                "showTitle": true
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 2,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "s_kpi_reopen",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_metrics",
+                  "fields": [
+                    {
+                      "name": "measure(Reopen Rate)",
+                      "expression": "MEASURE(`Reopen Rate`)"
+                    },
+                    {
+                      "name": "monthly(Opened Date)",
+                      "expression": "DATE_TRUNC(\"MONTH\", `Opened Date`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "measure(Reopen Rate)",
+                  "displayName": "Reopen Rate",
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                },
+                "period": {
+                  "fieldName": "monthly(Opened Date)"
+                }
+              },
+              "frame": {
+                "title": "Reopen Rate",
+                "showTitle": true
+              }
+            }
+          },
+          "position": {
+            "x": 9,
+            "y": 2,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "s_sec_trend",
+            "multilineTextboxSpec": {
+              "lines": [
+                "## Support volume & forecast"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 5,
+            "width": 12,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "s_forecast",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_forecast",
+                  "fields": [
+                    {
+                      "name": "opened_at",
+                      "expression": "`opened_at`"
+                    },
+                    {
+                      "name": "count",
+                      "expression": "`count`"
+                    },
+                    {
+                      "name": "count_forecast",
+                      "expression": "`count_forecast`"
+                    },
+                    {
+                      "name": "count_upper",
+                      "expression": "`count_upper`"
+                    },
+                    {
+                      "name": "count_lower",
+                      "expression": "`count_lower`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 1,
+              "widgetType": "forecast-line",
+              "encodings": {
+                "x": {
+                  "fieldName": "opened_at",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "displayName": "Week"
+                },
+                "y": {
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "original": {
+                    "fieldName": "count",
+                    "displayName": "Human-handled cases / week"
+                  },
+                  "prediction": {
+                    "fieldName": "count_forecast",
+                    "displayName": "Forecast"
+                  },
+                  "predictionUpper": {
+                    "fieldName": "count_upper",
+                    "displayName": "Upper"
+                  },
+                  "predictionLower": {
+                    "fieldName": "count_lower",
+                    "displayName": "Lower"
+                  }
+                }
+              },
+              "annotations": [
+                {
+                  "type": "vertical-line",
+                  "encodings": {
+                    "x": {
+                      "dataValue": "2025-06-02T00:00:00.000",
+                      "dataType": "DATETIME"
+                    },
+                    "label": {
+                      "value": "AI Copilot GA (rollout begins)"
+                    },
+                    "color": {
+                      "value": {
+                        "themeColorType": "visualizationColors",
+                        "position": 3
+                      }
+                    }
+                  }
+                }
+              ],
+              "frame": {
+                "showTitle": true,
+                "title": "Weekly human-handled cases + forecast (all regions)"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 6,
+            "width": 8,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "s_pie_cat",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_metrics",
+                  "fields": [
+                    {
+                      "name": "Category",
+                      "expression": "`Category`"
+                    },
+                    {
+                      "name": "measure(Total Cases)",
+                      "expression": "MEASURE(`Total Cases`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "pie",
+              "encodings": {
+                "angle": {
+                  "fieldName": "measure(Total Cases)",
+                  "displayName": "Cases",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "color": {
+                  "fieldName": "Category",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Bug",
+                        "color": {
+                          "themeColorType": "visualizationColors",
+                          "position": 0
+                        }
+                      },
+                      {
+                        "value": "How-To",
+                        "color": {
+                          "themeColorType": "visualizationColors",
+                          "position": 1
+                        }
+                      },
+                      {
+                        "value": "Access",
+                        "color": {
+                          "themeColorType": "visualizationColors",
+                          "position": 2
+                        }
+                      },
+                      {
+                        "value": "Performance",
+                        "color": {
+                          "themeColorType": "visualizationColors",
+                          "position": 3
+                        }
+                      },
+                      {
+                        "value": "Billing",
+                        "color": {
+                          "themeColorType": "visualizationColors",
+                          "position": 4
+                        }
+                      },
+                      {
+                        "value": "Outage",
+                        "color": {
+                          "themeColorType": "visualizationColors",
+                          "position": 5
+                        }
+                      }
+                    ]
+                  },
+                  "displayName": "Category"
+                },
+                "label": {
+                  "show": true
+                }
+              },
+              "frame": {
+                "title": "Cases by Category",
+                "showTitle": true
+              }
+            }
+          },
+          "position": {
+            "x": 8,
+            "y": 6,
+            "width": 4,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "s_sec_break",
+            "multilineTextboxSpec": {
+              "lines": [
+                "## Resolution & geography"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 12,
+            "width": 12,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "s_bar_priority",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_metrics",
+                  "fields": [
+                    {
+                      "name": "Priority Level",
+                      "expression": "`Priority Level`"
+                    },
+                    {
+                      "name": "Channel",
+                      "expression": "`Channel`"
+                    },
+                    {
+                      "name": "measure(Total Cases)",
+                      "expression": "MEASURE(`Total Cases`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "mark": {
+                "layout": "group"
+              },
+              "encodings": {
+                "x": {
+                  "fieldName": "Channel",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Channel"
+                },
+                "y": {
+                  "fieldName": "measure(Total Cases)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Cases"
+                },
+                "color": {
+                  "fieldName": "Priority Level",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Priority"
+                }
+              },
+              "frame": {
+                "title": "Volume by Channel & Priority",
+                "showTitle": true
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 13,
+            "width": 6,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "s_map",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_metrics",
+                  "fields": [
+                    {
+                      "name": "Destination Latitude",
+                      "expression": "`Destination Latitude`"
+                    },
+                    {
+                      "name": "Destination Longitude",
+                      "expression": "`Destination Longitude`"
+                    },
+                    {
+                      "name": "measure(Total Cases)",
+                      "expression": "MEASURE(`Total Cases`)"
+                    },
+                    {
+                      "name": "measure(Avg Satisfaction)",
+                      "expression": "MEASURE(`Avg Satisfaction`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "symbol-map",
+              "encodings": {
+                "coordinates": {
+                  "latitude": {
+                    "fieldName": "Destination Latitude"
+                  },
+                  "longitude": {
+                    "fieldName": "Destination Longitude"
+                  }
+                },
+                "size": {
+                  "fieldName": "measure(Total Cases)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Cases"
+                },
+                "color": {
+                  "fieldName": "measure(Avg Satisfaction)",
+                  "scale": {
+                    "type": "quantitative",
+                    "colorRamp": {
+                      "mode": "scheme",
+                      "scheme": "magma"
+                    }
+                  },
+                  "legend": {
+                    "hide": false
+                  },
+                  "displayName": "Avg satisfaction"
+                }
+              },
+              "mark": {
+                "opacity": 0.7
+              },
+              "frame": {
+                "title": "Support volume by destination",
+                "showTitle": true
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 13,
+            "width": 6,
+            "height": 6
+          }
+        }
+      ]
+    },
+    {
+      "name": "ai_impact",
+      "displayName": "AI Copilot Impact",
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1",
+      "layout": [
+        {
+          "widget": {
+            "name": "a_title",
+            "multilineTextboxSpec": {
+              "lines": [
+                "# Making Support More Efficient with AI, powered by Databricks\n\nThe **AI Support Copilot (Agent Bricks)** reached GA on **2025-06-02** and auto-resolves How-To, Access & Billing cases. This is *why* resolution time, cost and reopen rate dropped. Ask Genie: *\"why did resolution time drop in 2025?\"*"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 12,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "a_kpi_ai",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_metrics",
+                  "fields": [
+                    {
+                      "name": "measure(AI Resolved Rate)",
+                      "expression": "MEASURE(`AI Resolved Rate`)"
+                    },
+                    {
+                      "name": "monthly(Opened Date)",
+                      "expression": "DATE_TRUNC(\"MONTH\", `Opened Date`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "measure(AI Resolved Rate)",
+                  "displayName": "AI Resolved",
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 0
+                    }
+                  }
+                },
+                "period": {
+                  "fieldName": "monthly(Opened Date)"
+                }
+              },
+              "frame": {
+                "title": "Cases Auto-Resolved by AI",
+                "showTitle": true,
+                "description": "All-time; 0% before the 2025-06 launch",
+                "showDescription": true
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 3,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "a_kpi_cost_pre",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_metrics",
+                  "fields": [
+                    {
+                      "name": "measure(Avg Cost per Case)",
+                      "expression": "MEASURE(`Avg Cost per Case`)"
+                    },
+                    {
+                      "name": "monthly(Opened Date)",
+                      "expression": "DATE_TRUNC(\"MONTH\", `Opened Date`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "measure(Avg Cost per Case)",
+                  "displayName": "Avg Cost / Case",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 0
+                    },
+                    "abbreviation": "compact"
+                  }
+                },
+                "period": {
+                  "fieldName": "monthly(Opened Date)"
+                }
+              },
+              "frame": {
+                "title": "Avg Cost per Case",
+                "showTitle": true,
+                "description": "Filter by AI Era to compare",
+                "showDescription": true
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 3,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "a_kpi_queries",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_usage_total",
+                  "fields": [
+                    {
+                      "name": "ai_queries",
+                      "expression": "`ai_queries`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "ai_queries",
+                  "displayName": "AI Queries",
+                  "format": {
+                    "type": "number",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "title": "Total AI Queries",
+                "showTitle": true
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 3,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "a_kpi_defl",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_usage_total",
+                  "fields": [
+                    {
+                      "name": "ai_deflections",
+                      "expression": "`ai_deflections`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "ai_deflections",
+                  "displayName": "Cases Auto-Resolved",
+                  "format": {
+                    "type": "number",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "title": "Cases Auto-Resolved by AI",
+                "showTitle": true
+              }
+            }
+          },
+          "position": {
+            "x": 9,
+            "y": 3,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "a_sec_ramp",
+            "multilineTextboxSpec": {
+              "lines": [
+                "## AI adoption ramps as resolution time falls"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 6,
+            "width": 12,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "a_area_usage",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_usage",
+                  "fields": [
+                    {
+                      "name": "month",
+                      "expression": "`month`"
+                    },
+                    {
+                      "name": "ai_deflections",
+                      "expression": "`ai_deflections`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "area",
+              "encodings": {
+                "x": {
+                  "fieldName": "month",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "displayName": "Month"
+                },
+                "y": {
+                  "fieldName": "ai_deflections",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Cases auto-resolved"
+                }
+              },
+              "frame": {
+                "title": "Cases auto-resolved by AI per month",
+                "showTitle": true,
+                "description": "Zero before the June 2025 launch"
+              },
+              "annotations": [
+                {
+                  "type": "vertical-line",
+                  "encodings": {
+                    "x": {
+                      "dataValue": "2025-06-02T00:00:00.000",
+                      "dataType": "DATETIME"
+                    },
+                    "label": {
+                      "value": "AI Copilot GA"
+                    },
+                    "color": {
+                      "value": {
+                        "themeColorType": "visualizationColors",
+                        "position": 3
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 7,
+            "width": 6,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "a_line_res",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_metrics",
+                  "fields": [
+                    {
+                      "name": "Opened Month",
+                      "expression": "`Opened Month`"
+                    },
+                    {
+                      "name": "measure(Avg Resolution Hours)",
+                      "expression": "MEASURE(`Avg Resolution Hours`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "Opened Month",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "displayName": "Month"
+                },
+                "y": {
+                  "fieldName": "measure(Avg Resolution Hours)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Avg resolution (hrs)"
+                }
+              },
+              "frame": {
+                "title": "Avg resolution time by month",
+                "showTitle": true,
+                "description": "Drops at the AI Copilot launch"
+              },
+              "annotations": [
+                {
+                  "type": "vertical-line",
+                  "encodings": {
+                    "x": {
+                      "dataValue": "2025-06-02T00:00:00.000",
+                      "dataType": "DATETIME"
+                    },
+                    "label": {
+                      "value": "AI Copilot GA"
+                    },
+                    "color": {
+                      "value": {
+                        "themeColorType": "visualizationColors",
+                        "position": 3
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 7,
+            "width": 6,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "a_sec_cat",
+            "multilineTextboxSpec": {
+              "lines": [
+                "## What the AI resolves & the release log (the \"why\")"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 13,
+            "width": 12,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "a_bar_cat",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_metrics",
+                  "fields": [
+                    {
+                      "name": "Category",
+                      "expression": "`Category`"
+                    },
+                    {
+                      "name": "AI Era",
+                      "expression": "`AI Era`"
+                    },
+                    {
+                      "name": "measure(Avg Resolution Hours)",
+                      "expression": "MEASURE(`Avg Resolution Hours`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "mark": {
+                "layout": "group"
+              },
+              "encodings": {
+                "x": {
+                  "fieldName": "Category",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Category"
+                },
+                "y": {
+                  "fieldName": "measure(Avg Resolution Hours)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Avg resolution (hrs)"
+                },
+                "color": {
+                  "fieldName": "AI Era",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": ""
+                }
+              },
+              "frame": {
+                "title": "Resolution hours by category: before vs after AI",
+                "showTitle": true,
+                "description": "How-To / Access / Billing collapse after AI auto-resolution"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 14,
+            "width": 6,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "a_table_rel",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_releases",
+                  "fields": [
+                    {
+                      "name": "version",
+                      "expression": "`version`"
+                    },
+                    {
+                      "name": "release_date",
+                      "expression": "`release_date`"
+                    },
+                    {
+                      "name": "status",
+                      "expression": "`status`"
+                    },
+                    {
+                      "name": "capability_summary",
+                      "expression": "`capability_summary`"
+                    },
+                    {
+                      "name": "release_notes",
+                      "expression": "`release_notes`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "version",
+                    "displayName": "Version"
+                  },
+                  {
+                    "fieldName": "release_date",
+                    "displayName": "Date"
+                  },
+                  {
+                    "fieldName": "status",
+                    "displayName": "Status"
+                  },
+                  {
+                    "fieldName": "capability_summary",
+                    "displayName": "Summary"
+                  },
+                  {
+                    "fieldName": "release_notes",
+                    "displayName": "Release notes"
+                  }
+                ]
+              },
+              "frame": {
+                "title": "AI Support Copilot release log",
+                "showTitle": true,
+                "description": "The June 2025 v1.0 GA is the root cause of the gains"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 14,
+            "width": 6,
+            "height": 6
+          }
+        }
+      ]
+    },
+    {
+      "name": "global_filters",
+      "displayName": "Filters",
+      "pageType": "PAGE_TYPE_GLOBAL_FILTERS",
+      "layoutVersion": "GRID_V1",
+      "layout": [
+        {
+          "widget": {
+            "name": "f_date",
+            "queries": [
+              {
+                "name": "f_date_m",
+                "query": {
+                  "datasetName": "ds_metrics",
+                  "fields": [
+                    {
+                      "name": "Opened Date",
+                      "expression": "`Opened Date`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-date-range-picker",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "Opened Date",
+                    "displayName": "Opened date",
+                    "queryName": "f_date_m"
+                  }
+                ]
+              },
+              "selection": {
+                "defaultSelection": {
+                  "range": {
+                    "dataType": "DATE",
+                    "min": {
+                      "value": "2025-01-05"
+                    },
+                    "max": {
+                      "value": "2026-01-05"
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "title": "Opened date",
+                "showTitle": true
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 3,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "f_region",
+            "queries": [
+              {
+                "name": "f_region_m",
+                "query": {
+                  "datasetName": "ds_metrics",
+                  "fields": [
+                    {
+                      "name": "Region",
+                      "expression": "`Region`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "f_region_fc",
+                "query": {
+                  "datasetName": "ds_forecast",
+                  "parameters": [
+                    {
+                      "name": "region_filter",
+                      "keyword": "region_filter"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "Region",
+                    "displayName": "Region",
+                    "queryName": "f_region_m"
+                  },
+                  {
+                    "parameterName": "region_filter",
+                    "queryName": "f_region_fc"
+                  }
+                ]
+              },
+              "frame": {
+                "title": "Region",
+                "showTitle": true
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 0,
+            "width": 3,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "f_segment",
+            "queries": [
+              {
+                "name": "f_seg_m",
+                "query": {
+                  "datasetName": "ds_metrics",
+                  "fields": [
+                    {
+                      "name": "Customer Segment",
+                      "expression": "`Customer Segment`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-single-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "Customer Segment",
+                    "displayName": "Segment",
+                    "queryName": "f_seg_m"
+                  }
+                ]
+              },
+              "frame": {
+                "title": "Segment",
+                "showTitle": true
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 0,
+            "width": 3,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "f_era",
+            "queries": [
+              {
+                "name": "f_era_m",
+                "query": {
+                  "datasetName": "ds_metrics",
+                  "fields": [
+                    {
+                      "name": "AI Era",
+                      "expression": "`AI Era`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-single-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "AI Era",
+                    "displayName": "AI Era",
+                    "queryName": "f_era_m"
+                  }
+                ]
+              },
+              "frame": {
+                "title": "AI Era",
+                "showTitle": true
+              }
+            }
+          },
+          "position": {
+            "x": 9,
+            "y": 0,
+            "width": 3,
+            "height": 1
+          }
+        }
+      ]
+    }
+  ],
+  "uiSettings": {
+    "genieSpace": {
+      "isEnabled": true,
+      "overrideId": "",
+      "enablementMode": "ENABLED"
+    },
+    "theme": {
+      "canvasBackgroundColor": {
+        "light": "#FCFCFC",
+        "dark": "#1F272D"
+      },
+      "widgetBackgroundColor": {
+        "light": "#FFFFFF",
+        "dark": "#11171C"
+      },
+      "fontColor": {
+        "light": "#11171C",
+        "dark": "#E8ECF0"
+      },
+      "selectionColor": {
+        "light": "#2272B4",
+        "dark": "#8ACAFF"
+      },
+      "visualizationColors": [
+        "#FFA600",
+        "#FF7054",
+        "#DE5582",
+        "#995495",
+        "#4E5185",
+        "#1D425C",
+        "#99DDB4"
+      ],
+      "widgetHeaderAlignment": "LEFT"
+    }
+  }
+}

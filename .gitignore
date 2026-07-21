@@ -69,3 +69,13 @@ scripts/publish-skill-to-vibe.sh
 # Internal vibe working notes / overlap audit — local scratch, not for the public repo
 .vibe-work-notes.md
 .vibe-overlap-diffs.md
+
+# Build/state junk inside seed template folders (regenerates on deploy — never commit)
+initial_templates/**/.databricks/
+initial_templates/**/node_modules/
+initial_templates/**/dist/
+initial_templates/**/client/dist/
+initial_templates/**/.env
+initial_templates/**/.env.*
+initial_templates/**/.DS_Store
+initial_templates/**/.venv/

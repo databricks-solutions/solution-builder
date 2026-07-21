@@ -156,8 +156,20 @@ if [[ -d "../.claude/skills/databricks-architecture" ]]; then
 fi
 
 # initial_templates/ — pre-authored seed templates.
+# Copy, then STRIP build/dep/state junk so it never ships to prod/staging: a
+# deploy-test (bundle deploy / build-app.sh) can leave .databricks/, node_modules/,
+# dist/, __pycache__/, .venv/, or a local .env inside a template folder. Those are
+# regenerated at deploy time and must never be baked into the wheel (they'd bloat
+# it + could leak local state). Mirrors seed_templates._should_include_in_template.
 if [[ -d "../initial_templates" ]]; then
     cp -r "../initial_templates" "$PKG_DIR/initial_templates"
+    for junk in .databricks node_modules dist __pycache__ .venv .turbo .next; do
+        find "$PKG_DIR/initial_templates" -type d -name "$junk" -prune -print0 2>/dev/null \
+            | xargs -0 rm -rf 2>/dev/null || true
+    done
+    find "$PKG_DIR/initial_templates" -type f \
+        \( -name ".env" -o -name ".env.*" -o -name "*.pyc" -o -name ".preview.*" \
+           -o -name ".DS_Store" \) -delete 2>/dev/null || true
 fi
 
 # ai_dev_kit/ — clone the same branch dev.sh uses so the deployed app has

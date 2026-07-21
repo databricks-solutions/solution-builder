@@ -1,0 +1,24 @@
+{
+  "short_description": "An EMEA launch surges demand and the manufacturer is about to run out of a critical part \u2014 2 weeks of cover against an 8-week lead time. Genie traces the crunch.",
+  "capabilities": {
+    "buildable": [
+      "synthetic-data-gen",
+      "metric-views",
+      "aibi-dashboards",
+      "genie"
+    ],
+    "talking_track": [
+      "lakeflow-connect",
+      "unity-catalog",
+      "genie-one"
+    ]
+  },
+  "created_resources": {
+    "catalog": "dbdemos_templates",
+    "schema": "aibi_supply_chain",
+    "warehouse_id": "e9b34f7a2e4b0561",
+    "metric_view_name": "dbdemos_templates.aibi_supply_chain.metrics_demand",
+    "dashboard_id": "01f184f30cd11277bc8f9086d05d5476",
+    "genie_space_id": "01f16fa907701099b8bc86569dc7f9ec"
+  }
+}

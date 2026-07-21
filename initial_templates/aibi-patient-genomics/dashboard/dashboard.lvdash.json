@@ -1,0 +1,1254 @@
+{
+  "datasets": [
+    {
+      "name": "ds_metrics",
+      "displayName": "Genomics metrics",
+      "asset_name": "genomics_metrics"
+    },
+    {
+      "name": "ds_kpi_treated",
+      "displayName": "Survival treated",
+      "queryLines": [
+        "SELECT survival_pct FROM arm_summary WHERE treatment_arm='OncoTarget-1'"
+      ]
+    },
+    {
+      "name": "ds_kpi_soc",
+      "displayName": "Survival SoC",
+      "queryLines": [
+        "SELECT survival_pct FROM arm_summary WHERE treatment_arm='Standard of care'"
+      ]
+    },
+    {
+      "name": "ds_kpi_patients",
+      "displayName": "Patients",
+      "queryLines": [
+        "SELECT count(*) AS patients FROM patient_cohort"
+      ]
+    },
+    {
+      "name": "ds_kpi_lift",
+      "displayName": "Responder lift",
+      "queryLines": [
+        "SELECT round(max(CASE WHEN treatment_arm='OncoTarget-1' THEN survival_pct END)\n",
+        "  - max(CASE WHEN treatment_arm='Standard of care' THEN survival_pct END),1) AS lift\n",
+        "FROM breast_deepdive WHERE subgroup='Responder subtype'"
+      ]
+    },
+    {
+      "name": "ds_arm",
+      "displayName": "Survival by arm",
+      "queryLines": [
+        "SELECT treatment_arm, survival_pct, patients FROM arm_summary ORDER BY treatment_arm"
+      ]
+    },
+    {
+      "name": "ds_curve",
+      "displayName": "Survival curve (overall)",
+      "queryLines": [
+        "SELECT month, treatment_arm, pct_surviving FROM survival_curve ORDER BY month, treatment_arm"
+      ]
+    },
+    {
+      "name": "ds_curve_resp",
+      "displayName": "Survival curve (responder subtype)",
+      "queryLines": [
+        "SELECT month, treatment_arm, pct_surviving FROM survival_curve_responder ORDER BY month, treatment_arm"
+      ]
+    },
+    {
+      "name": "ds_spark_treated",
+      "displayName": "Treated survival trend (sparkline)",
+      "queryLines": [
+        "SELECT month, pct_surviving FROM survival_curve WHERE treatment_arm='OncoTarget-1' ORDER BY month"
+      ]
+    },
+    {
+      "name": "ds_spark_soc",
+      "displayName": "SoC survival trend (sparkline)",
+      "queryLines": [
+        "SELECT month, pct_surviving FROM survival_curve WHERE treatment_arm='Standard of care' ORDER BY month"
+      ]
+    },
+    {
+      "name": "ds_site",
+      "displayName": "Survival by cancer site x arm",
+      "queryLines": [
+        "SELECT tissue, treatment_arm, survival_pct, patients FROM survival_by_arm\n",
+        "WHERE patients > 80 ORDER BY tissue, treatment_arm"
+      ]
+    },
+    {
+      "name": "ds_lift",
+      "displayName": "Survival lift by cancer site",
+      "queryLines": [
+        "SELECT tissue, survival_lift, patients,\n",
+        "  CASE WHEN survival_lift >= 3 THEN 'Benefits' WHEN survival_lift <= -3 THEN 'Not indicated' ELSE 'No effect' END AS verdict\n",
+        "FROM lift_by_site ORDER BY survival_lift DESC"
+      ]
+    },
+    {
+      "name": "ds_umap",
+      "displayName": "UMAP molecular map",
+      "queryLines": [
+        "SELECT c1, c2, tissue,\n",
+        "  CASE WHEN responder_subtype THEN 'Responder subtype' ELSE tissue END AS cluster,\n",
+        "  treatment_arm, survived_24mo\n",
+        "FROM patient_cohort\n",
+        "WHERE c1 IS NOT NULL AND tissue IN ('Breast, NOS','Kidney, NOS','Upper lobe, lung','Thyroid gland','Prostate gland','Liver','Ovary','Skin, NOS')"
+      ]
+    },
+    {
+      "name": "ds_breast",
+      "displayName": "Breast deep-dive",
+      "queryLines": [
+        "SELECT subgroup, treatment_arm, survival_pct, patients FROM breast_deepdive ORDER BY subgroup, treatment_arm"
+      ]
+    },
+    {
+      "name": "ds_umap_breast",
+      "displayName": "UMAP breast responders",
+      "queryLines": [
+        "SELECT c1, c2, CASE WHEN responder_subtype THEN 'Responder subtype' ELSE 'Other breast' END AS subgroup, treatment_arm, survived_24mo\n",
+        "FROM patient_cohort WHERE tissue='Breast, NOS' AND c1 IS NOT NULL"
+      ]
+    },
+    {
+      "name": "ds_responder_demo",
+      "displayName": "Responder demographics",
+      "queryLines": [
+        "SELECT race, count(*) patients, round(avg(age)) avg_age\n",
+        "FROM patient_cohort WHERE responder_subtype GROUP BY 1 HAVING patients>10 ORDER BY patients DESC"
+      ]
+    },
+    {
+      "name": "ds_patients",
+      "displayName": "Patient table",
+      "queryLines": [
+        "SELECT case_id, primary_diagnosis, gender, age, treatment_arm,\n",
+        "  CASE WHEN survived_24mo THEN 'Survived' ELSE 'Deceased' END AS outcome_24mo, months_survived\n",
+        "FROM patient_cohort WHERE tissue='Breast, NOS' AND responder_subtype ORDER BY treatment_arm, months_survived DESC LIMIT 200"
+      ]
+    }
+  ],
+  "pages": [
+    {
+      "name": "evidence",
+      "displayName": "Real-world evidence",
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1",
+      "layout": [
+        {
+          "widget": {
+            "name": "title",
+            "multilineTextboxSpec": {
+              "lines": [
+                "# OncoTarget-1 \u2014 it works\u2026 but not everywhere. *Where* should we use it?\n\nWe rolled out a new targeted therapy across a real 10,000-patient oncology cohort. Overall, treated patients survive better \u2014 but the benefit is **wildly uneven**: a near-miracle in some cancers, nothing in others, and in a couple it may even do harm. The chart below ranks every cancer by survival lift. The obvious follow-up: *what separates the responders from the rest?* (Answer on page 2 \u2014 and it's molecular.)"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 12,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_patients",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_kpi_patients",
+                  "fields": [
+                    {
+                      "name": "patients",
+                      "expression": "`patients`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "patients",
+                  "displayName": "Patients",
+                  "format": {
+                    "type": "number-plain",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 0
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Patients in cohort"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 2,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_treated",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_spark_treated",
+                  "fields": [
+                    {
+                      "name": "pct_surviving",
+                      "expression": "`pct_surviving`"
+                    },
+                    {
+                      "name": "month",
+                      "expression": "`month`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "pct_surviving",
+                  "displayName": "Treated",
+                  "format": {
+                    "type": "number-plain",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  },
+                  "formatTemplate": "{{ @formatted }}%",
+                  "color": {
+                    "default": "#077A9D"
+                  }
+                },
+                "period": {
+                  "fieldName": "month"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "OncoTarget-1 survival (24mo)"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 2,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_soc",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_spark_soc",
+                  "fields": [
+                    {
+                      "name": "pct_surviving",
+                      "expression": "`pct_surviving`"
+                    },
+                    {
+                      "name": "month",
+                      "expression": "`month`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "pct_surviving",
+                  "displayName": "Standard",
+                  "format": {
+                    "type": "number-plain",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  },
+                  "formatTemplate": "{{ @formatted }}%",
+                  "color": {
+                    "default": "#FCA4A1"
+                  }
+                },
+                "period": {
+                  "fieldName": "month"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Standard of care survival (24mo)"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 2,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_lift",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_kpi_lift",
+                  "fields": [
+                    {
+                      "name": "lift",
+                      "expression": "`lift`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "lift",
+                  "displayName": "Responder lift",
+                  "format": {
+                    "type": "number-plain",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  },
+                  "formatTemplate": "+{{ @formatted }} pts",
+                  "color": {
+                    "default": "#00A972"
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Best-responder survival lift"
+              }
+            }
+          },
+          "position": {
+            "x": 9,
+            "y": 2,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "lift_bar",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_lift",
+                  "fields": [
+                    {
+                      "name": "tissue",
+                      "expression": "`tissue`"
+                    },
+                    {
+                      "name": "survival_lift",
+                      "expression": "`survival_lift`"
+                    },
+                    {
+                      "name": "verdict",
+                      "expression": "`verdict`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "y": {
+                  "fieldName": "tissue",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Cancer site"
+                },
+                "x": {
+                  "fieldName": "survival_lift",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Survival lift vs standard of care (pts)"
+                },
+                "color": {
+                  "fieldName": "verdict",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Benefits",
+                        "color": "#00A972"
+                      },
+                      {
+                        "value": "No effect",
+                        "color": "#9AA7B4"
+                      },
+                      {
+                        "value": "Not indicated",
+                        "color": "#E92828"
+                      }
+                    ]
+                  },
+                  "displayName": ""
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Survival lift by cancer site \u2014 where OncoTarget-1 helps (green), does nothing (grey), or harms (red)"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 5,
+            "width": 7,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "umap_map",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_umap",
+                  "fields": [
+                    {
+                      "name": "c1",
+                      "expression": "`c1`"
+                    },
+                    {
+                      "name": "c2",
+                      "expression": "`c2`"
+                    },
+                    {
+                      "name": "cluster",
+                      "expression": "`cluster`"
+                    },
+                    {
+                      "name": "tissue",
+                      "expression": "`tissue`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "scatter",
+              "encodings": {
+                "x": {
+                  "fieldName": "c1",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "UMAP-1"
+                },
+                "y": {
+                  "fieldName": "c2",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "UMAP-2"
+                },
+                "color": {
+                  "fieldName": "cluster",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Molecular cluster"
+                },
+                "extra": [
+                  {
+                    "fieldName": "tissue",
+                    "displayName": "Cancer site"
+                  },
+                  {
+                    "fieldName": "cluster",
+                    "displayName": "Cluster"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Gene-expression map (UMAP) \u2014 the responders share a molecular signature, not an organ"
+              }
+            }
+          },
+          "position": {
+            "x": 7,
+            "y": 5,
+            "width": 5,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "km_overall",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_curve",
+                  "fields": [
+                    {
+                      "name": "month",
+                      "expression": "`month`"
+                    },
+                    {
+                      "name": "pct_surviving",
+                      "expression": "`pct_surviving`"
+                    },
+                    {
+                      "name": "treatment_arm",
+                      "expression": "`treatment_arm`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "month",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Months since treatment start"
+                },
+                "y": {
+                  "fieldName": "pct_surviving",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "% surviving"
+                },
+                "color": {
+                  "fieldName": "treatment_arm",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "OncoTarget-1",
+                        "color": "#077A9D"
+                      },
+                      {
+                        "value": "Standard of care",
+                        "color": "#FCA4A1"
+                      }
+                    ]
+                  },
+                  "displayName": "Treatment"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Overall survival over time \u2014 treated vs standard of care (the average hides the unevenness above)"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 12,
+            "width": 12,
+            "height": 6
+          }
+        }
+      ]
+    },
+    {
+      "name": "responders",
+      "displayName": "Who benefits most",
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1",
+      "layout": [
+        {
+          "widget": {
+            "name": "d_title",
+            "multilineTextboxSpec": {
+              "lines": [
+                "# Who benefits most \u2014 the breast responder subtype\n\nDeep-dive into breast cancer. Patients split into a **responder molecular subtype** (a distinct gene-expression cluster) and the rest. In the responder subtype, OncoTarget-1 lifts 24-month survival from ~89% to ~99% \u2014 far more than in other breast patients. This is the kind of precision-oncology signal that turns a good drug into the *right* drug for the *right* patient."
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 12,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "d_step1",
+            "multilineTextboxSpec": {
+              "lines": [
+                "## 1. In the responder subtype, the survival curves split wide open"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 2,
+            "width": 12,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "km_responder",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_curve_resp",
+                  "fields": [
+                    {
+                      "name": "month",
+                      "expression": "`month`"
+                    },
+                    {
+                      "name": "pct_surviving",
+                      "expression": "`pct_surviving`"
+                    },
+                    {
+                      "name": "treatment_arm",
+                      "expression": "`treatment_arm`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "month",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Months since treatment start"
+                },
+                "y": {
+                  "fieldName": "pct_surviving",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "% surviving"
+                },
+                "color": {
+                  "fieldName": "treatment_arm",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "OncoTarget-1",
+                        "color": "#077A9D"
+                      },
+                      {
+                        "value": "Standard of care",
+                        "color": "#FCA4A1"
+                      }
+                    ]
+                  },
+                  "displayName": "Treatment"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Responder-subtype survival over time \u2014 OncoTarget-1 holds near 99% while standard of care falls"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 3,
+            "width": 7,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "umap_breast",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_umap_breast",
+                  "fields": [
+                    {
+                      "name": "c1",
+                      "expression": "`c1`"
+                    },
+                    {
+                      "name": "c2",
+                      "expression": "`c2`"
+                    },
+                    {
+                      "name": "subgroup",
+                      "expression": "`subgroup`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "scatter",
+              "encodings": {
+                "x": {
+                  "fieldName": "c1",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "UMAP-1"
+                },
+                "y": {
+                  "fieldName": "c2",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "UMAP-2"
+                },
+                "color": {
+                  "fieldName": "subgroup",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Responder subtype",
+                        "color": "#00A972"
+                      },
+                      {
+                        "value": "Other breast",
+                        "color": "#9AA7B4"
+                      }
+                    ]
+                  },
+                  "displayName": "Subgroup"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Breast cancer gene-expression \u2014 the responder subtype is a distinct molecular cluster"
+              }
+            }
+          },
+          "position": {
+            "x": 7,
+            "y": 3,
+            "width": 5,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "d_step2",
+            "multilineTextboxSpec": {
+              "lines": [
+                "## 2. Responder subtype vs the rest of breast \u2014 and who the responders are"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 9,
+            "width": 12,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "breast_bar",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_breast",
+                  "fields": [
+                    {
+                      "name": "subgroup",
+                      "expression": "`subgroup`"
+                    },
+                    {
+                      "name": "survival_pct",
+                      "expression": "`survival_pct`"
+                    },
+                    {
+                      "name": "treatment_arm",
+                      "expression": "`treatment_arm`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "y": {
+                  "fieldName": "subgroup",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Breast subgroup"
+                },
+                "x": {
+                  "fieldName": "survival_pct",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "24-month survival %"
+                },
+                "color": {
+                  "fieldName": "treatment_arm",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "OncoTarget-1",
+                        "color": "#077A9D"
+                      },
+                      {
+                        "value": "Standard of care",
+                        "color": "#FCA4A1"
+                      }
+                    ]
+                  },
+                  "displayName": "Treatment"
+                },
+                "mark": {
+                  "layout": "group"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Breast survival \u2014 responder subtype vs other (treated vs standard of care)"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 10,
+            "width": 5,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "responder_demo",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_responder_demo",
+                  "fields": [
+                    {
+                      "name": "race",
+                      "expression": "`race`"
+                    },
+                    {
+                      "name": "patients",
+                      "expression": "`patients`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "pie",
+              "encodings": {
+                "angle": {
+                  "fieldName": "patients",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Patients"
+                },
+                "color": {
+                  "fieldName": "race",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Race"
+                },
+                "label": {
+                  "show": true
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Responder subtype \u2014 patient mix"
+              }
+            }
+          },
+          "position": {
+            "x": 5,
+            "y": 10,
+            "width": 3,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "patient_table",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_patients",
+                  "fields": [
+                    {
+                      "name": "case_id",
+                      "expression": "`case_id`"
+                    },
+                    {
+                      "name": "primary_diagnosis",
+                      "expression": "`primary_diagnosis`"
+                    },
+                    {
+                      "name": "gender",
+                      "expression": "`gender`"
+                    },
+                    {
+                      "name": "age",
+                      "expression": "`age`"
+                    },
+                    {
+                      "name": "treatment_arm",
+                      "expression": "`treatment_arm`"
+                    },
+                    {
+                      "name": "outcome_24mo",
+                      "expression": "`outcome_24mo`"
+                    },
+                    {
+                      "name": "months_survived",
+                      "expression": "`months_survived`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "case_id",
+                    "displayName": "Patient"
+                  },
+                  {
+                    "fieldName": "primary_diagnosis",
+                    "displayName": "Diagnosis"
+                  },
+                  {
+                    "fieldName": "gender",
+                    "displayName": "Gender"
+                  },
+                  {
+                    "fieldName": "age",
+                    "displayName": "Age"
+                  },
+                  {
+                    "fieldName": "treatment_arm",
+                    "displayName": "Treatment"
+                  },
+                  {
+                    "fieldName": "outcome_24mo",
+                    "displayName": "24mo outcome"
+                  },
+                  {
+                    "fieldName": "months_survived",
+                    "displayName": "Months"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Responder-subtype patients"
+              }
+            }
+          },
+          "position": {
+            "x": 8,
+            "y": 10,
+            "width": 4,
+            "height": 6
+          }
+        }
+      ]
+    },
+    {
+      "name": "filters",
+      "displayName": "Filters",
+      "pageType": "PAGE_TYPE_GLOBAL_FILTERS",
+      "layoutVersion": "GRID_V1",
+      "layout": [
+        {
+          "widget": {
+            "name": "f_arm",
+            "queries": [
+              {
+                "name": "f_a",
+                "query": {
+                  "datasetName": "ds_metrics",
+                  "fields": [
+                    {
+                      "name": "Treatment Arm",
+                      "expression": "`Treatment Arm`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "Treatment Arm",
+                    "displayName": "Treatment Arm",
+                    "queryName": "f_a"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Treatment Arm"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 3,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "f_site",
+            "queries": [
+              {
+                "name": "f_s",
+                "query": {
+                  "datasetName": "ds_metrics",
+                  "fields": [
+                    {
+                      "name": "Cancer Site",
+                      "expression": "`Cancer Site`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "Cancer Site",
+                    "displayName": "Cancer Site",
+                    "queryName": "f_s"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Cancer Site"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 0,
+            "width": 3,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "f_gender",
+            "queries": [
+              {
+                "name": "f_g",
+                "query": {
+                  "datasetName": "ds_metrics",
+                  "fields": [
+                    {
+                      "name": "Gender",
+                      "expression": "`Gender`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "Gender",
+                    "displayName": "Gender",
+                    "queryName": "f_g"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Gender"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 0,
+            "width": 3,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "f_race",
+            "queries": [
+              {
+                "name": "f_r",
+                "query": {
+                  "datasetName": "ds_metrics",
+                  "fields": [
+                    {
+                      "name": "Race",
+                      "expression": "`Race`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "Race",
+                    "displayName": "Race",
+                    "queryName": "f_r"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Race"
+              }
+            }
+          },
+          "position": {
+            "x": 9,
+            "y": 0,
+            "width": 3,
+            "height": 1
+          }
+        }
+      ]
+    }
+  ],
+  "uiSettings": {
+    "theme": {
+      "canvasBackgroundColor": {
+        "light": "#FCFCFC",
+        "dark": "#1F272D"
+      },
+      "widgetBackgroundColor": {
+        "light": "#FFFFFF",
+        "dark": "#11171C"
+      },
+      "fontColor": {
+        "light": "#11171C",
+        "dark": "#E8ECF0"
+      },
+      "selectionColor": {
+        "light": "#077A9D",
+        "dark": "#5BC2D6"
+      },
+      "visualizationColors": [
+        "#077A9D",
+        "#FCA4A1",
+        "#00A972",
+        "#FB8D3D",
+        "#356AFF",
+        "#9B6A9E",
+        "#5BC2D6",
+        "#9CC6A6"
+      ],
+      "widgetHeaderAlignment": "LEFT"
+    },
+    "genieSpace": {
+      "isEnabled": true,
+      "overrideId": "",
+      "enablementMode": "ENABLED"
+    }
+  }
+}
