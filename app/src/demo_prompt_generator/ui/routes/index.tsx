@@ -120,6 +120,21 @@ function Index() {
       // localStorage/URL unavailable — leave preview off.
     }
   }, []);
+  // Deep-link from the welcome guide's start cards: `?start=<mode>` pre-selects
+  // the matching entry tab (story / architecture / workshop). Workshop rides
+  // the preview flag, which the guide also sets (?preview=on) — the effect
+  // above turns it on, so the tab renders before this selects it.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const start = new URLSearchParams(window.location.search).get("start");
+      if (start === "story" || start === "architecture" || start === "workshop") {
+        setMode(start);
+      }
+    } catch {
+      // URL unavailable — leave mode at its default.
+    }
+  }, []);
   const [selectedProducts, setSelectedProducts] = useState<Set<string>>(
     new Set(DEFAULT_SELECTED_PRODUCTS)
   );

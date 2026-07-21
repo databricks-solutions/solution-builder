@@ -284,6 +284,11 @@ export interface BuildStepperProps {
    *  shared ("Share as template"); a status → already linked ("Update template"
    *  + a Pending/Approved badge). */
   templateStatus?: string | null;
+  /** Home-page entry mode ("story" | "architecture" | "workshop"). In
+   *  "workshop" mode the deliverable is a set of Genie Code notebooks, not
+   *  provisioned resources — so the Build step keys off notebook count and the
+   *  DAB/package actions (which don't apply) are suppressed. */
+  mode?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -307,7 +312,18 @@ export function BuildStepper({
   onDownloadDAB,
   onPublishTemplate,
   templateStatus,
+  mode,
 }: BuildStepperProps) {
+  const isWorkshop = mode === "workshop";
+  // Workshop deliverable is notebooks, not resources — the RESOURCES lifecycle
+  // step keys off notebook count (null in every other mode → resource logic).
+  const workshopNotebookCount = useMemo(
+    () =>
+      isWorkshop
+        ? files.filter((f) => f.path.startsWith("notebooks/") && f.path.endsWith(".py")).length
+        : null,
+    [isWorkshop, files],
+  );
   // Auto-detect stage from files + live deploy state. The 6-state result
   // drives action-button logic (which "next step" button to surface);
   // the rendered pills below collapse to 4 lifecycle stages.
@@ -318,8 +334,14 @@ export function BuildStepper({
   const { hasReadme, hasArch, hasSpecifications, hasCode, hasDab } = stageInfo;
   const lifecycle = useMemo(
     () =>
-      getLifecycleStages(stageInfo, deployedResourceCount, expectedResourceCount, isStreaming),
-    [stageInfo, deployedResourceCount, expectedResourceCount, isStreaming],
+      getLifecycleStages(
+        stageInfo,
+        deployedResourceCount,
+        expectedResourceCount,
+        isStreaming,
+        workshopNotebookCount,
+      ),
+    [stageInfo, deployedResourceCount, expectedResourceCount, isStreaming, workshopNotebookCount],
   );
 
   // Build the list of available actions based on current state
@@ -381,40 +403,47 @@ export function BuildStepper({
     });
   }
 
-  // Build actions
+  // Build actions. Workshop mode produces notebooks, so the action reads
+  // "…workshop notebooks" and there's no downstream DAB step.
   if (!hasCode && onBuildResources) {
     actions.push({
-      label: "Build Databricks Resources",
+      label: isWorkshop ? "Generate workshop notebooks" : "Build Databricks Resources",
       icon: Hammer,
       onClick: onBuildResources,
       variant: !hasSpecifications ? undefined : "primary",
     });
   } else if (hasCode && onUpdateResources) {
     actions.push({
-      label: "Update Resources",
+      label: isWorkshop ? "Update workshop notebooks" : "Update Resources",
       icon: Hammer,
       onClick: onUpdateResources,
     });
   }
 
-  // DAB actions
-  if (!hasDab && onPackageDAB) {
-    actions.push({
-      label: "Package as DAB",
-      icon: Rocket,
-      onClick: onPackageDAB,
-      variant: !hasCode ? undefined : "primary",
-    });
-  } else if (hasDab && onUpdateDAB) {
-    actions.push({
-      label: "Update DAB",
-      icon: Rocket,
-      onClick: onUpdateDAB,
-    });
+  // DAB actions — packaging as a Databricks Asset Bundle doesn't apply to the
+  // workshop (its deliverable is notebooks uploaded to a workspace), so skip.
+  if (!isWorkshop) {
+    if (!hasDab && onPackageDAB) {
+      actions.push({
+        label: "Package as DAB",
+        icon: Rocket,
+        onClick: onPackageDAB,
+        variant: !hasCode ? undefined : "primary",
+      });
+    } else if (hasDab && onUpdateDAB) {
+      actions.push({
+        label: "Update DAB",
+        icon: Rocket,
+        onClick: onUpdateDAB,
+      });
+    }
   }
 
-  // If all stages are done, make Download ZIP the primary action
-  const allDone = hasReadme && hasArch && hasSpecifications && hasCode;
+  // If all stages are done, make Download ZIP the primary action. Workshop
+  // mode has no architecture step, so it completes on story + specs + notebooks.
+  const allDone = isWorkshop
+    ? hasReadme && hasSpecifications && hasCode
+    : hasReadme && hasArch && hasSpecifications && hasCode;
   if (allDone && onDownloadDAB) {
     actions.push({
       label: "Download ZIP",

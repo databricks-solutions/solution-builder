@@ -758,9 +758,14 @@ const WORKSHOP_NB_LABELS: Record<string, string> = {
 const WorkshopNotebooks = memo(function WorkshopNotebooks({
   files,
   isStreaming,
+  workspaceUrl,
 }: {
   files: ProjectFile[];
   isStreaming: boolean;
+  /** Deep-link to the workspace folder the notebooks were uploaded to
+   *  (from resources.json → created_resources.workspace_folder). Null until
+   *  the agent has loaded the workshop into the workspace. */
+  workspaceUrl?: string | null;
 }) {
   const notebooks = useMemo(
     () =>
@@ -790,24 +795,55 @@ const WorkshopNotebooks = memo(function WorkshopNotebooks({
   }
 
   return (
-    <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
-      {notebooks.map((nb) => (
-        <div
-          key={nb}
-          className="flex items-center gap-2.5 rounded-xl border border-border/60 bg-card px-3.5 py-3 shadow-sm"
-        >
-          <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary">
-            <BookOpen className="h-4 w-4" />
-          </span>
+    <div className="space-y-4">
+      {/* Run-it band — the notebooks live in the workspace; this is the one
+          obvious "go here to run the workshop" affordance. Only rendered once
+          the folder link is available (agent has uploaded + recorded it). */}
+      {workspaceUrl && !isStreaming && (
+        <div className="flex flex-col gap-3 rounded-xl border border-primary/25 bg-primary/[0.04] p-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0">
-            <div className="truncate text-[13px] font-medium text-foreground">
-              {WORKSHOP_NB_LABELS[nb] ?? nb}
+            <div className="text-[13px] font-semibold text-foreground">
+              Your workshop is loaded in Databricks
             </div>
-            <div className="truncate text-[11px] text-muted-foreground">{nb}.py</div>
+            <p className="mt-1 text-[12px] leading-relaxed text-muted-foreground">
+              Open the folder, start with{" "}
+              <span className="font-medium text-foreground">00_introduction</span>, prime
+              the Assistant (✨) with <span className="font-medium text-foreground">CONTEXT.md</span>,
+              then work each notebook top-to-bottom — pasting its prompts to build the demo live.
+            </p>
           </div>
-          <Check className="ml-auto h-4 w-4 shrink-0 text-primary/70" />
+          <Button
+            asChild
+            size="default"
+            className="h-9 shrink-0 gap-1.5 text-[13px] font-medium"
+          >
+            <a href={workspaceUrl} target="_blank" rel="noopener noreferrer">
+              <ExternalLink className="h-4 w-4" />
+              Open in workspace
+            </a>
+          </Button>
         </div>
-      ))}
+      )}
+
+      <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
+        {notebooks.map((nb) => (
+          <div
+            key={nb}
+            className="flex items-center gap-2.5 rounded-xl border border-border/60 bg-card px-3.5 py-3 shadow-sm"
+          >
+            <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary">
+              <BookOpen className="h-4 w-4" />
+            </span>
+            <div className="min-w-0">
+              <div className="truncate text-[13px] font-medium text-foreground">
+                {WORKSHOP_NB_LABELS[nb] ?? nb}
+              </div>
+              <div className="truncate text-[11px] text-muted-foreground">{nb}.py</div>
+            </div>
+            <Check className="ml-auto h-4 w-4 shrink-0 text-primary/70" />
+          </div>
+        ))}
+      </div>
     </div>
   );
 });
@@ -1319,6 +1355,13 @@ export const ProjectOverview = memo(function ProjectOverview({
     () => files.filter((f) => f.path.startsWith("notebooks/") && f.path.endsWith(".py")).length,
     [files],
   );
+  // Workshop deliverable link: the workspace folder the notebooks were
+  // uploaded to (backend builds this from resources.json.workspace_folder).
+  const workshopWorkspaceUrl = useMemo(
+    () =>
+      (deployedResources ?? []).find((r) => r.resource_type === "workspace_folder")?.url ?? null,
+    [deployedResources],
+  );
 
   const buildComplete = isWorkshop
     ? notebookCount > 0 && !isStreaming
@@ -1533,7 +1576,11 @@ export const ProjectOverview = memo(function ProjectOverview({
             {isWorkshop ? (
               /* Workshop mode: the deliverable is notebooks, not provisioned
                  resources — list the generated notebooks instead of resource tiles. */
-              <WorkshopNotebooks files={files} isStreaming={isStreaming} />
+              <WorkshopNotebooks
+                files={files}
+                isStreaming={isStreaming}
+                workspaceUrl={workshopWorkspaceUrl}
+              />
             ) : (
               <>
                 <div

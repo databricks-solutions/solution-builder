@@ -2240,6 +2240,7 @@ function ProjectPage() {
               onDownloadDAB={handleDownloadDAB}
               onPublishTemplate={() => setIsTemplateDialogOpen(true)}
               templateStatus={linkedTemplate?.status ?? null}
+              mode={project?.mode}
             />
 
             <div className="h-5 w-px bg-border" />
