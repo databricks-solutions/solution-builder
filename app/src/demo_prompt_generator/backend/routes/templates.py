@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import io
 import json
+import zipfile
 from pathlib import Path
 from typing import Optional
 
-from fastapi import HTTPException, Request
+from fastapi import HTTPException, Request, Response
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlmodel import func, select
 
@@ -25,6 +28,7 @@ from ..models import (
     TemplateSearchResult,
     TemplateStatusUpdateRequest,
 )
+from ..services.file_sync import decompress_content
 from ..services.llm_service import LLMService
 from ..services.template_service import TemplateService
 from .projects import _find_shared_warehouse, _generate_schema_name
@@ -55,6 +59,23 @@ def _parse_capabilities(capabilities_json: Optional[str]) -> Optional[list[str]]
         return json.loads(capabilities_json)
     except (json.JSONDecodeError, TypeError):
         return None
+
+
+def _build_adapt_prompt(template_name: str, instructions: str) -> str:
+    """User message seeded after a fork WHEN the user gave adapt instructions.
+    Framed so the agent orients itself in the cloned demo before making changes."""
+    return (
+        f"This project was bootstrapped from an existing template ({template_name}) — "
+        "a complete, coherent demo (README story, specifications, and implementation "
+        "assets like data generation, dashboard, Genie space, and any pipeline/app).\n\n"
+        "Before changing anything, take a moment to read the README, the files under "
+        "`specifications/`, and `resources.json` so you understand the story, the data "
+        "model, and how the pieces connect.\n\n"
+        "Then adapt the project per these instructions, propagating every change "
+        "coherently across the story, specs, and assets (data → pipeline → dashboard → "
+        "Genie/agents must stay aligned):\n\n"
+        f"{instructions.strip()}"
+    )
 
 
 def _build_fork_greeting(template_name: str) -> str:
@@ -120,6 +141,12 @@ def list_templates(
 
     templates = session.exec(query).all()
 
+    # `has_screenshot` without loading the ~half-MB blob per row: one cheap query
+    # for the set of template_ids that have a non-null screenshot.
+    ids_with_shot = set(session.exec(
+        select(Template.id).where(Template.screenshot.isnot(None))
+    ).all())
+
     return [
         TemplateListItem(
             id=t.id,
@@ -130,6 +157,8 @@ def list_templates(
             description=t.description,
             customer=t.customer,
             capabilities=_parse_capabilities(t.capabilities),
+            official=t.official,
+            has_screenshot=t.id in ids_with_shot,
             submitted_at=t.submitted_at,
             reviewed_at=t.reviewed_at,
         )
@@ -180,6 +209,8 @@ def get_template(
         customer=template.customer,
         full_description=template.full_description,
         capabilities=_parse_capabilities(template.capabilities),
+        official=template.official,
+        has_screenshot=template.screenshot is not None,
         submitted_at=template.submitted_at,
         reviewed_at=template.reviewed_at,
         reviewed_by=template.reviewed_by,
@@ -280,6 +311,142 @@ def get_template_file_content(
     )
 
 
+@router.get(
+    "/templates/{template_id}/screenshot",
+    operation_id="getTemplateScreenshot",
+    responses={200: {"content": {"image/png": {}}}},
+)
+def get_template_screenshot(
+    template_id: str,
+    session: Dependencies.Session,
+    headers: Dependencies.Headers,
+    config: Dependencies.Config,
+):
+    """Serve a template's hero screenshot (PNG bytes). 404 if none.
+
+    Same visibility rule as the detail endpoint: admins see all; others see
+    APPROVED templates or their own submissions."""
+    user_email = _get_user_email(headers)
+    is_admin = user_email in config.template_admin_emails
+
+    template = session.exec(
+        select(Template).where(Template.id == template_id)
+    ).first()
+    if not template:
+        raise HTTPException(status_code=404, detail="Template not found")
+    if not is_admin and template.status != "APPROVED" and template.owner_email != user_email:
+        raise HTTPException(status_code=404, detail="Template not found")
+    if not template.screenshot:
+        raise HTTPException(status_code=404, detail="No screenshot for this template")
+
+    return Response(
+        content=template.screenshot,
+        media_type="image/png",
+        headers={"Cache-Control": "public, max-age=3600"},
+    )
+
+
+@router.get(
+    "/templates/{template_id}/export",
+    operation_id="exportTemplate",
+    responses={200: {"content": {"application/zip": {}}}},
+)
+def export_template(
+    template_id: str,
+    session: Dependencies.Session,
+    headers: Dependencies.Headers,
+    config: Dependencies.Config,
+):
+    """Download a template as a zip — the deployable DAB bundle.
+
+    Zips every stored TemplateContent file at its relative path. For an official
+    demo the zip root has `databricks.yml` + `dab_instructions.md`, so it unzips
+    into a ready-to-`databricks bundle deploy` project. Same visibility rule as
+    the detail endpoint."""
+    user_email = _get_user_email(headers)
+    is_admin = user_email in config.template_admin_emails
+
+    template = session.exec(
+        select(Template).where(Template.id == template_id)
+    ).first()
+    if not template:
+        raise HTTPException(status_code=404, detail="Template not found")
+    if not is_admin and template.status != "APPROVED" and template.owner_email != user_email:
+        raise HTTPException(status_code=404, detail="Template not found")
+
+    files = session.exec(
+        select(TemplateContent).where(TemplateContent.template_id == template_id)
+    ).all()
+    if not files:
+        raise HTTPException(status_code=404, detail="Template has no files")
+
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+        for f in files:
+            try:
+                zf.writestr(f.relative_path, decompress_content(f.content_compressed))
+            except Exception:
+                # Skip an unreadable file rather than fail the whole download.
+                continue
+    zip_buffer.seek(0)
+
+    safe = "".join(c if c.isalnum() or c in "._-" else "_" for c in (template.id or "template"))
+    return StreamingResponse(
+        zip_buffer,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{safe}.zip"'},
+    )
+
+
+class TemplateOfficialUpdateRequest(BaseModel):
+    """Request body for toggling a template's official flag."""
+    official: bool
+
+
+@router.patch(
+    "/templates/{template_id}/official",
+    response_model=TemplateListItem,
+    operation_id="updateTemplateOfficial",
+)
+def update_template_official(
+    template_id: str,
+    body: TemplateOfficialUpdateRequest,
+    session: Dependencies.Session,
+    headers: Dependencies.Headers,
+    config: Dependencies.Config,
+):
+    """Toggle a template's `official` (curated) flag. Admin-only."""
+    user_email = _get_user_email(headers)
+    if user_email not in config.template_admin_emails:
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    template = session.exec(
+        select(Template).where(Template.id == template_id)
+    ).first()
+    if not template:
+        raise HTTPException(status_code=404, detail="Template not found")
+
+    template.official = body.official
+    session.add(template)
+    session.commit()
+    session.refresh(template)
+
+    return TemplateListItem(
+        id=template.id,
+        name=template.name,
+        status=template.status,
+        owner_email=template.owner_email,
+        industry=template.industry,
+        description=template.description,
+        customer=template.customer,
+        capabilities=_parse_capabilities(template.capabilities),
+        official=template.official,
+        has_screenshot=template.screenshot is not None,
+        submitted_at=template.submitted_at,
+        reviewed_at=template.reviewed_at,
+    )
+
+
 class SearchTemplatesRequest(BaseModel):
     """Request body for template search."""
     query: str
@@ -369,6 +536,8 @@ def submit_template_from_project(
         customer=template.customer,
         full_description=template.full_description,
         capabilities=_parse_capabilities(template.capabilities),
+        official=template.official,
+        has_screenshot=template.screenshot is not None,
         submitted_at=template.submitted_at,
         reviewed_at=template.reviewed_at,
         reviewed_by=template.reviewed_by,
@@ -474,15 +643,25 @@ def create_project_from_template(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    # Seed an assistant greeting so the project opens with friendly framing
-    # ("this is your editable copy — what do you want to adapt?") instead of a
-    # canned user message that the user never typed.
-    greeting = _build_fork_greeting(template.name)
-    session.add(Message(
-        project_id=project.id,
-        role="assistant",
-        content=greeting,
-    ))
+    # Seed the opening message. Two modes:
+    #  - "tune for my use case" (adapt_instructions given) → a USER message with
+    #    the adapt prompt, so the agent immediately reviews the demo + applies the
+    #    changes on the first turn.
+    #  - "use as is" (no instructions) → a friendly ASSISTANT greeting inviting
+    #    the user to describe what to adapt (a canned message they never typed).
+    adapt = (body.adapt_instructions or "").strip()
+    if adapt:
+        session.add(Message(
+            project_id=project.id,
+            role="user",
+            content=_build_adapt_prompt(template.name, adapt),
+        ))
+    else:
+        session.add(Message(
+            project_id=project.id,
+            role="assistant",
+            content=_build_fork_greeting(template.name),
+        ))
     session.commit()
     message_count = 1
 
@@ -547,6 +726,8 @@ def get_template_by_project(
         customer=template.customer,
         full_description=template.full_description,
         capabilities=_parse_capabilities(template.capabilities),
+        official=template.official,
+        has_screenshot=template.screenshot is not None,
         submitted_at=template.submitted_at,
         reviewed_at=template.reviewed_at,
         reviewed_by=template.reviewed_by,
@@ -611,6 +792,8 @@ def update_template_from_project(
         customer=updated_template.customer,
         full_description=updated_template.full_description,
         capabilities=_parse_capabilities(updated_template.capabilities),
+        official=updated_template.official,
+        has_screenshot=updated_template.screenshot is not None,
         submitted_at=updated_template.submitted_at,
         reviewed_at=updated_template.reviewed_at,
         reviewed_by=updated_template.reviewed_by,

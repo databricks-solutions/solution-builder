@@ -638,6 +638,15 @@ class Template(SQLModel, table=True):
     capabilities: Optional[str] = SQLField(default=None, sa_column=Column(Text))  # JSON array
     customer: Optional[str] = SQLField(default=None, max_length=255)  # Inherited from source project
 
+    # Curated "official" templates (seeded from initial_templates/). Shown with a
+    # featured treatment + surfaced on the internal /internal-demos gallery.
+    official: bool = SQLField(default=False, index=True)
+    # Optional hero screenshot (PNG bytes) for the gallery tile + slide-over.
+    screenshot: Optional[bytes] = SQLField(default=None, sa_column=Column(LargeBinary))
+    # Hash of the seeded folder's file-set — lets the startup seeder skip unchanged
+    # templates and diff-update only changed ones (see seed_templates.py).
+    content_checksum: Optional[str] = SQLField(default=None, max_length=64)
+
     # Note: embedding column is created via migration (vector type not supported in SQLModel)
 
     submitted_at: datetime = SQLField(default_factory=utc_now)
@@ -648,6 +657,7 @@ class Template(SQLModel, table=True):
     __table_args__ = (
         Index("ix_templates_status", "status"),
         Index("ix_templates_industry", "industry"),
+        Index("ix_templates_official", "official"),
     )
 
 
@@ -1153,6 +1163,8 @@ class TemplateListItem(BaseModel):
     description: Optional[str]
     customer: Optional[str] = None  # Customer the source demo was built for
     capabilities: Optional[list[str]] = None  # Parsed from JSON
+    official: bool = False  # Curated/seeded template (featured treatment)
+    has_screenshot: bool = False  # Whether a hero screenshot is available (GET .../screenshot)
     submitted_at: datetime
     reviewed_at: Optional[datetime] = None
 
@@ -1168,6 +1180,8 @@ class TemplateDetail(BaseModel):
     full_description: Optional[str]
     customer: Optional[str] = None  # Customer the source demo was built for
     capabilities: Optional[list[str]] = None
+    official: bool = False
+    has_screenshot: bool = False
     submitted_at: datetime
     reviewed_at: Optional[datetime] = None
     reviewed_by: Optional[str] = None
@@ -1208,6 +1222,13 @@ class TemplateStatusUpdateRequest(BaseModel):
 class CreateProjectFromTemplateRequest(BaseModel):
     """Request to create a project from a template."""
     name: str = Field(..., description="Name for the new project")
+    adapt_instructions: Optional[str] = Field(
+        None,
+        description="Optional free-text describing how to adapt the template. When "
+        "provided, the new project opens with a user message asking the agent to "
+        "review the cloned demo and apply these changes; when omitted, a friendly "
+        "assistant greeting is seeded instead.",
+    )
 
 
 # ---------------------------------------------------------------------------
