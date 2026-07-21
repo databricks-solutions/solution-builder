@@ -1,6 +1,6 @@
 -- Silver Layer — clean joined fact + ai_classify anger score.
 -- Reads the RAW PARQUET FILES straight from the UC Volume landing zone
--- (`/Volumes/retail_consumer_goods/luxebeauty_demo/raw_data/<dataset>/`) via
+-- (`/Volumes/${catalog}/${schema}/raw_data/<dataset>/`) via
 -- read_files() — no bronze pass-through. The data-gen script lands one parquet
 -- dataset per raw_* table there. Emits the three silver tables consumed
 -- downstream:
@@ -19,7 +19,7 @@ COMMENT 'Distinct customer comments → ai_classify anger score. Read by silver_
 AS
 WITH distinct_comments AS (
   SELECT DISTINCT customer_comment
-  FROM read_files('/Volumes/retail_consumer_goods/luxebeauty_demo/raw_data/returns', format => 'parquet')
+  FROM read_files('/Volumes/${catalog}/${schema}/raw_data/returns', format => 'parquet')
   WHERE customer_comment IS NOT NULL
 )
 SELECT
@@ -49,7 +49,7 @@ SELECT
   units_produced,
   status,
   incident_summary
-FROM read_files('/Volumes/retail_consumer_goods/luxebeauty_demo/raw_data/production_lots', format => 'parquet');
+FROM read_files('/Volumes/${catalog}/${schema}/raw_data/production_lots', format => 'parquet');
 
 -- silver_order_items: one row per order line, denormalized with order
 -- date/region + product/category + lot/facility/production_date so the
@@ -76,12 +76,12 @@ SELECT
   i.quantity,
   i.unit_price_usd,
   i.line_total_usd
-FROM read_files('/Volumes/retail_consumer_goods/luxebeauty_demo/raw_data/order_items', format => 'parquet') i
-JOIN read_files('/Volumes/retail_consumer_goods/luxebeauty_demo/raw_data/orders', format => 'parquet') o
+FROM read_files('/Volumes/${catalog}/${schema}/raw_data/order_items', format => 'parquet') i
+JOIN read_files('/Volumes/${catalog}/${schema}/raw_data/orders', format => 'parquet') o
   ON o.order_id = i.order_id
-JOIN read_files('/Volumes/retail_consumer_goods/luxebeauty_demo/raw_data/products', format => 'parquet') p
+JOIN read_files('/Volumes/${catalog}/${schema}/raw_data/products', format => 'parquet') p
   ON p.product_id = i.product_id
-LEFT JOIN read_files('/Volumes/retail_consumer_goods/luxebeauty_demo/raw_data/production_lots', format => 'parquet') l
+LEFT JOIN read_files('/Volumes/${catalog}/${schema}/raw_data/production_lots', format => 'parquet') l
   ON l.lot_id = i.lot_id AND l.product_id = i.product_id;
 
 -- silver_returns: each return carries customer city/lat/lng + region/country
@@ -113,12 +113,12 @@ SELECT
   r.region,
   r.status,
   r.is_bad_lot
-FROM read_files('/Volumes/retail_consumer_goods/luxebeauty_demo/raw_data/returns', format => 'parquet') r
-JOIN read_files('/Volumes/retail_consumer_goods/luxebeauty_demo/raw_data/products', format => 'parquet') p
+FROM read_files('/Volumes/${catalog}/${schema}/raw_data/returns', format => 'parquet') r
+JOIN read_files('/Volumes/${catalog}/${schema}/raw_data/products', format => 'parquet') p
   ON r.product_id  = p.product_id
-LEFT JOIN read_files('/Volumes/retail_consumer_goods/luxebeauty_demo/raw_data/customers', format => 'parquet') c
+LEFT JOIN read_files('/Volumes/${catalog}/${schema}/raw_data/customers', format => 'parquet') c
   ON r.customer_id = c.customer_id
-LEFT JOIN read_files('/Volumes/retail_consumer_goods/luxebeauty_demo/raw_data/orders', format => 'parquet') o
+LEFT JOIN read_files('/Volumes/${catalog}/${schema}/raw_data/orders', format => 'parquet') o
   ON r.order_id    = o.order_id
 LEFT JOIN comment_anger_scores s
   ON r.customer_comment = s.customer_comment;
@@ -140,7 +140,7 @@ SELECT
   -- raw_orders has no order-level status in this synth; emit NULL so the
   -- sync's expected column exists. The app's drawer treats it as optional.
   CAST(NULL AS STRING)       AS status
-FROM read_files('/Volumes/retail_consumer_goods/luxebeauty_demo/raw_data/orders', format => 'parquet') o;
+FROM read_files('/Volumes/${catalog}/${schema}/raw_data/orders', format => 'parquet') o;
 
 -- silver_customers — the customer dimension the app's Lakebase mirror needs
 -- (customer_id + identity + geo + tier + premium_status + registration_date).
@@ -163,4 +163,4 @@ SELECT
   c.loyalty_tier,
   c.premium_status,
   CAST(c.registration_date AS DATE) AS registration_date
-FROM read_files('/Volumes/retail_consumer_goods/luxebeauty_demo/raw_data/customers', format => 'parquet') c;
+FROM read_files('/Volumes/${catalog}/${schema}/raw_data/customers', format => 'parquet') c;
