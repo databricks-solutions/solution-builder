@@ -598,7 +598,7 @@ export function VectorSearchBrandIcon(props: IconProps) {
 // Medallion layer orange product icons (line-art, self-colored #FF5F46). Brand.
 export function BronzeLayerIcon(props: IconProps) {
   return (
-    <svg viewBox="0 0 150 150" fill="none" xmlns="http://www.w3.org/2000/svg" {...props} style={{ color: "#FF5F46", ...(props.style || {}) }}>
+    <svg viewBox="0 0 150 150" fill="none" xmlns="http://www.w3.org/2000/svg" {...props} style={{ color: "#B08D57", ...(props.style || {}) }}>
       <g clipPath="url(#bronzeClip)">
         <path fillRule="evenodd" clipRule="evenodd" d="M49.6 42.4C46.5625 42.4 44.1 44.8624 44.1 47.9C44.1 50.9376 46.5625 53.4 49.6 53.4C52.6376 53.4 55.1 50.9376 55.1 47.9C55.1 44.8624 52.6376 42.4 49.6 42.4ZM41.1 47.9C41.1 43.2056 44.9056 39.4 49.6 39.4C54.2945 39.4 58.1 43.2056 58.1 47.9C58.1 52.5944 54.2945 56.4 49.6 56.4C44.9056 56.4 41.1 52.5944 41.1 47.9Z" fill="currentColor"/>
         <path fillRule="evenodd" clipRule="evenodd" d="M106.5 53.7C103.462 53.7 101 56.1624 101 59.2C101 62.2376 103.462 64.7 106.5 64.7C109.538 64.7 112 62.2376 112 59.2C112 56.1624 109.538 53.7 106.5 53.7ZM98 59.2C98 54.5056 101.806 50.7 106.5 50.7C111.194 50.7 115 54.5056 115 59.2C115 63.8944 111.194 67.7 106.5 67.7C101.806 67.7 98 63.8944 98 59.2Z" fill="currentColor"/>
@@ -618,7 +618,7 @@ export function BronzeLayerIcon(props: IconProps) {
 
 export function SilverLayerIcon(props: IconProps) {
   return (
-    <svg viewBox="0 0 150 150" fill="none" xmlns="http://www.w3.org/2000/svg" {...props} style={{ color: "#FF5F46", ...(props.style || {}) }}>
+    <svg viewBox="0 0 150 150" fill="none" xmlns="http://www.w3.org/2000/svg" {...props} style={{ color: "#9BA7B0", ...(props.style || {}) }}>
       <g clipPath="url(#silverClip)">
         <path fillRule="evenodd" clipRule="evenodd" d="M52.8 36.8C49.7625 36.8 47.3 39.2624 47.3 42.3C47.3 45.3376 49.7625 47.8 52.8 47.8C55.8376 47.8 58.3 45.3376 58.3 42.3C58.3 39.2624 55.8376 36.8 52.8 36.8ZM44.3 42.3C44.3 37.6056 48.1056 33.8 52.8 33.8C57.4945 33.8 61.3 37.6056 61.3 42.3C61.3 46.9944 57.4945 50.8 52.8 50.8C48.1056 50.8 44.3 46.9944 44.3 42.3Z" fill="currentColor"/>
         <path fillRule="evenodd" clipRule="evenodd" d="M89.8 34.9H104.6V49.7H89.8V34.9ZM92.8 37.9V46.7H101.6V37.9H92.8Z" fill="currentColor"/>
@@ -638,7 +638,7 @@ export function SilverLayerIcon(props: IconProps) {
 
 export function GoldLayerIcon(props: IconProps) {
   return (
-    <svg viewBox="0 0 150 150" fill="none" xmlns="http://www.w3.org/2000/svg" {...props} style={{ color: "#FF5F46", ...(props.style || {}) }}>
+    <svg viewBox="0 0 150 150" fill="none" xmlns="http://www.w3.org/2000/svg" {...props} style={{ color: "#D4A82C", ...(props.style || {}) }}>
       <g clipPath="url(#goldClip)">
         <path fillRule="evenodd" clipRule="evenodd" d="M52.5 48.4C49.4624 48.4 47 50.8624 47 53.9C47 56.9376 49.4624 59.4 52.5 59.4C55.5376 59.4 58 56.9376 58 53.9C58 50.8624 55.5376 48.4 52.5 48.4ZM44 53.9C44 49.2056 47.8056 45.4 52.5 45.4C57.1944 45.4 61 49.2056 61 53.9C61 58.5944 57.1944 62.4 52.5 62.4C47.8056 62.4 44 58.5944 44 53.9Z" fill="currentColor"/>
         <path fillRule="evenodd" clipRule="evenodd" d="M89.5 46.4H104.3V61.2H89.5V46.4ZM92.5 49.4V58.2H101.3V49.4H92.5Z" fill="currentColor"/>
@@ -928,6 +928,16 @@ export const BRAND_ICONS = new Set<DatabricksIconName>([
   "deltaLakeLogo",
   "icebergLogo",
 ]);
+
+/** Default LABEL color for icons whose caption reads best in the icon's own hue
+ *  (the medallion layers are DEFINED by their metallic color, so a black label
+ *  looks disconnected). Used as the caption fallback when no explicit `fontColor`
+ *  is set. Matches the `color` baked into each layer icon above. */
+export const BRAND_ICON_LABEL_COLOR: Partial<Record<DatabricksIconName, string>> = {
+  bronzeLayer: "#B08D57",
+  silverLayer: "#9BA7B0",
+  goldLayer: "#D4A82C",
+};
 
 /** Built-in icon keys that are THIRD-PARTY trademarked brand marks — gated
  *  behind `enableTrademarkLogos` (otherwise rendered as a neutral text badge).

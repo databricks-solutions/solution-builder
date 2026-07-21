@@ -51,7 +51,17 @@
         "note": "Row 2 = centered against the tool stack it fans in from, so the three `@l` inbound edges stay balanced." },
 
       { "id": "genie-one", "type": "genie-one", "col": "entry", "row": 2, "rot": 90,
-        "note": "Business-user entry point — the persona pill is built INTO the tile (no separate user node). Rotated 90° into a slim right-hand lane. Its inbound edges (from Supervisor + Dashboard) auto-arrow — leave `arrow`/`flow` off." }
+        "note": "Business-user entry point — the persona pill is built INTO the tile (no separate user node). Rotated 90° into a slim right-hand lane. Its inbound edges (from Supervisor + Dashboard) auto-arrow — leave `arrow`/`flow` off." },
+
+      // The Databricks Platform box wraps EVERYTHING EXCEPT the data sources —
+      // the sources sit OUTSIDE (they're external systems feeding the platform).
+      // db-platform is the wordmark banner pinned to the box's top-left corner
+      // (renders with no border/shadow by default).
+      { "id": "db-platform", "type": "db-platform", "pin": { "at": "top-left", "to": "platform-box" },
+        "desc": "The Databricks Data + AI platform — one governed foundation for all data + AI." },
+      { "id": "platform-box", "type": "box", "z": -1, "pad": 40,
+        "wraps": ["medallion-table", "hosted-mcps", "genie", "ai-bi-dashboard", "knowledge-assistant", "supervisor-agent", "genie-one"],
+        "note": "Wraps all on-platform components; the two data SOURCES are intentionally left out so they read as external systems feeding in. z:-1 so it sits behind the tiles." }
     ],
     "edges": [
       { "id": "e-pg-med", "from": "src-postgres@r", "to": "medallion-table@l", "flow": true },

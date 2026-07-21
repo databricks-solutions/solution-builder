@@ -133,15 +133,22 @@ export const Route = createFileRoute("/project/$projectId")({
    *  to "overview" — keeps the page robust to typos in shared links. */
   validateSearch: (
     search: Record<string, unknown>,
-  ): { tab?: ProjectTab } => {
+  ): { tab?: ProjectTab; archTab?: string } => {
+    const out: { tab?: ProjectTab; archTab?: string } = {};
     const raw = search.tab;
     if (
       typeof raw === "string" &&
       (PROJECT_TABS as readonly string[]).includes(raw)
     ) {
-      return { tab: raw as ProjectTab };
+      out.tab = raw as ProjectTab;
     }
-    return {};
+    // Which diagram tab (BY NAME, so shared links survive reordering) is open
+    // inside the Architecture view. Kept as a plain string — PlatformDiagram
+    // resolves it to an index and ignores it if no tab matches.
+    if (typeof search.archTab === "string" && search.archTab) {
+      out.archTab = search.archTab;
+    }
+    return out;
   },
 });
 
@@ -216,7 +223,7 @@ function ProjectPage() {
   // URL-synced active tab — drives FileViewer's visible tab. Changing it
   // calls `navigate({ search })` which pushes a new browser history
   // entry, so the back/forward arrows walk through tab history.
-  const { tab: tabFromUrl } = Route.useSearch();
+  const { tab: tabFromUrl, archTab: archTabFromUrl } = Route.useSearch();
   // NOTE: `activeTab` is derived AFTER the project state below — an
   // architecture-first project defaults to the Architecture tab.
   const setActiveTab = useCallback(
@@ -224,15 +231,30 @@ function ProjectPage() {
       // Drop the `tab` key entirely when picking the default so URLs
       // stay clean for the most common landing state. Pinning `to` makes
       // TanStack pick this route's typed search schema instead of the
-      // global union (which collapses to `never`).
+      // global union (which collapses to `never`). Preserve `archTab` (it's
+      // independent of the workspace tab) so leaving + returning to the
+      // Architecture tab reopens the same diagram.
       void navigate({
         to: "/project/$projectId",
         params: { projectId },
-        search:
-          next === "overview"
-            ? { tab: undefined }
-            : { tab: next },
+        search: (prev) => ({
+          ...(next === "overview" ? { tab: undefined } : { tab: next }),
+          archTab: prev.archTab,
+        }),
         replace: false,
+      });
+    },
+    [navigate, projectId],
+  );
+  // Sync the active DIAGRAM sub-tab (by name) to ?archTab= — replace: true so
+  // switching diagram tabs doesn't spam browser history. No-op if unchanged.
+  const setArchTab = useCallback(
+    (name: string) => {
+      void navigate({
+        to: "/project/$projectId",
+        params: { projectId },
+        search: (prev) => (prev.archTab === name ? prev : { ...prev, archTab: name }),
+        replace: true,
       });
     },
     [navigate, projectId],
@@ -2417,6 +2439,8 @@ function ProjectPage() {
             isCreatingArchitecture={isCreatingArchitecture}
             onCreateArchitecture={handleCreateArchitecture}
             onArchitectureDirty={markArchitectureDirty}
+            initialArchTab={archTabFromUrl}
+            onArchTabChange={setArchTab}
             architectureFirst={!!project?.architecture_first}
             isStreaming={isStreaming}
             resources={{

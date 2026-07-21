@@ -513,6 +513,11 @@ export interface AnnotationPreset {
 }
 export const DBX_ARCH_PRESETS: AnnotationPreset[] = [
   {
+    id: "dbx-account",
+    label: "Databricks Admin Account",
+    annotation: { title: "Databricks Admin Account", titleIcon: "file:vendor/databricks-admin" },
+  },
+  {
     id: "dbx-workspace",
     label: "Databricks Workspace",
     annotation: { title: "Databricks Workspace", titleIcon: "file:vendor/databricks" },
@@ -847,8 +852,10 @@ function splitHandle(ref: string): { id: string; handle?: string } {
 
 const INTER_COL_GAP = 78; // x gap between the EDGES of adjacent lanes (tight — lanes hug their content)
 const DEFAULT_COL_W = 200; // assumed width for a declared-but-empty lane
-const ROW_GAP = 28;   // vertical gap between stacked tiles in a lane
-const WRAP_PAD = 24;   // default container padding
+const ROW_GAP = 10;   // vertical gap between stacked tiles in a lane (tight so
+                      //   stacked logos/tiles read as one group, not scattered)
+const WRAP_PAD = 34;   // default container padding (breathing room so wrapped
+                       //   content / nested boxes never sit flush to the border)
 
 export interface ResolvedBox { x: number; y: number; w: number; h: number }
 
@@ -866,7 +873,26 @@ export function computeLayout(file: ArchitectureFile): Map<string, ResolvedBox> 
   // On-canvas footprint: explicit `size` (or natural), with w/h SWAPPED for a
   // 90°/270° rotation — a rotated tall node is a narrow one on the canvas.
   const sizeOf = (n: FileNode): { w: number; h: number } => {
-    const s = n.size ? { w: n.size[0], h: n.size[1] } : naturalSize(n.type, n.params);
+    let s = n.size ? { w: n.size[0], h: n.size[1] } : naturalSize(n.type, n.params);
+    // A LOGO's side/below caption renders OUTSIDE its icon box, so its natural
+    // 60×60 icon size UNDER-reports the real footprint — a `wraps` box or column
+    // built from it would be too small for the label (it spilled outside). When a
+    // logo has caption text and no explicit `size`, widen (right/left/side) or
+    // heighten (top/bottom/below) the footprint to reserve room for the caption.
+    // Text width is ESTIMATED (~0.56em/char + gap/pad) — the lib layer can't
+    // measureText (that's the UI-only `logoFitSize`); an estimate is enough to
+    // size a container. Explicit `size` always wins.
+    if (n.type === "logo" && !n.size && n.text) {
+      const fs = n.fontSize ?? 13;
+      // Estimate the caption box. The label is medium-weight, so ~0.62em/char is
+      // closer than a plain-text 0.56 (an under-estimate made the caption run into
+      // the wrapping box's border). +20 gutter so the label never kisses the edge.
+      const textW = Math.ceil(n.text.length * fs * 0.62) + 20;
+      const horiz = n.caption === "right" || n.caption === "left" || n.caption === "side";
+      const vert = n.caption === "top" || n.caption === "bottom" || n.caption === "below" || n.caption === undefined;
+      if (horiz) s = { w: s.w + 8 + textW, h: s.h };
+      else if (vert) s = { w: Math.max(s.w, textW), h: s.h + 6 + Math.ceil(fs * 1.3) };
+    }
     const q = (((n.rot ?? 0) % 360) + 360) % 360;
     return q === 90 || q === 270 ? { w: s.h, h: s.w } : s;
   };
@@ -911,14 +937,65 @@ export function computeLayout(file: ArchitectureFile): Map<string, ResolvedBox> 
   for (const [col, list] of byCol) {
     colWidth.set(col, Math.max(...list.map((n) => sizeOf(n).w)));
   }
+  // How much a column's content is INSET by the boxes wrapping it: each ancestor
+  // box adds its `pad` to every side, so the box's outer edge sits `Σpad` beyond
+  // the lane content. Two adjacent lanes wrapped in nested boxes would otherwise
+  // have their OUTER boxes overlap (INTER_COL_GAP is a lane-content gap, but the
+  // boxes bulge into it). We widen the lane separation by the facing insets so
+  // the gap survives BETWEEN the boxes, at whatever nesting depth. A node belongs
+  // to a column iff it's laned there; a box wraps the column iff it (transitively)
+  // wraps any of that column's laned nodes.
+  const colNodeIds = new Map<string, Set<string>>();
+  for (const [col, list] of byCol) colNodeIds.set(col, new Set(list.map((n) => n.id)));
+  // The boxes (with their pad) that transitively wrap a given column's content.
+  // Used to space adjacent lanes: a box wrapping BOTH lanes is a common ancestor
+  // and does NOT separate them (it just contains the pair); only boxes wrapping
+  // exactly ONE side push its edge toward the neighbour, so only those count as
+  // "facing" overhang. This keeps the visible gap between adjacent boxes equal to
+  // INTER_COL_GAP at any nesting depth (unboxed lanes → no boxes → plain gap).
+  const boxesForCol = (col: string): Map<string, number> => {
+    const ids = colNodeIds.get(col);
+    const res = new Map<string, number>();
+    if (!ids || !ids.size) return res;
+    const wrapsCol = (boxId: string, seen = new Set<string>()): boolean => {
+      if (seen.has(boxId)) return false;
+      seen.add(boxId);
+      const b = nodes.find((n) => n.id === boxId);
+      for (const cid of b?.wraps ?? []) {
+        if (ids.has(cid) || wrapsCol(cid, seen)) return true;
+      }
+      return false;
+    };
+    for (const n of nodes) {
+      if (n.wraps && n.wraps.length && !Array.isArray(n.at) && wrapsCol(n.id)) {
+        res.set(n.id, n.pad ?? WRAP_PAD);
+      }
+    }
+    return res;
+  };
+  const colBoxes = new Map(cols.map((c) => [c, boxesForCol(c)]));
+  // Facing overhang from a lane toward its right neighbour = Σpad of boxes that
+  // wrap THIS lane but not the neighbour (common ancestors excluded).
+  const facingInset = (col: string, other: string): number => {
+    const mine = colBoxes.get(col) ?? new Map();
+    const theirs = colBoxes.get(other) ?? new Map();
+    let s = 0;
+    for (const [id, pad] of mine) if (!theirs.has(id)) s += pad;
+    return s;
+  };
   const colX = new Map<string, number>();
   {
-    let rightEdge = 0;
+    let prevRightFacing = 0; // right-facing overhang of the previous lane's boxes
+    let contentRight = 0;    // running right edge of the previous lane's CONTENT
     cols.forEach((c, i) => {
       const w = colWidth.get(c) ?? DEFAULT_COL_W;
-      const cx = i === 0 ? 0 : rightEdge + INTER_COL_GAP + w / 2;
+      const leftFacing = i === 0 ? 0 : facingInset(c, cols[i - 1]);
+      // gap between CONTENT edges = INTER_COL_GAP + both facing overhangs, so the
+      // BOX edges end up exactly INTER_COL_GAP apart.
+      const cx = i === 0 ? 0 : contentRight + prevRightFacing + INTER_COL_GAP + leftFacing + w / 2;
       colX.set(c, cx);
-      rightEdge = cx + w / 2;
+      contentRight = cx + w / 2;
+      prevRightFacing = i + 1 < cols.length ? facingInset(c, cols[i + 1]) : 0;
     });
   }
   if (file.rowGrid) {
@@ -994,14 +1071,59 @@ export function computeLayout(file: ArchitectureFile): Map<string, ResolvedBox> 
 
   // 3) Any node still unplaced (no `at`, no resolvable `col`, not a wrapper) →
   //    park at origin (shouldn't happen with well-formed files).
-  for (const n of nodes) {
-    if (!out.has(n.id) && !n.wraps) {
-      const s = sizeOf(n);
-      // A y-relational node that names a real `col` keeps that lane's X (so it
-      // stays IN the column at its relational height); else park at origin.
-      const x = n.col && colX.has(n.col) ? colX.get(n.col)! : 0;
-      out.set(n.id, { x, y: 0, w: s.w, h: s.h });
+  //    EXCEPTION: a node whose ONLY placement is "inside a wrapping box" (no
+  //    col/at/relational, but named in some box's `wraps`) is AUTO-SEEDED: it
+  //    stacks vertically inside its box starting at row 0, in wraps-order. This
+  //    lets you author `wraps:[a,b]` + `below:x` with NO position on a/b at all
+  //    — step 4 sizes the box around the seeds, then recenters them inside it
+  //    (see `autoSeeded` below). Mixed boxes work too: explicit col/row children
+  //    keep their lane; bare children fill the box body underneath.
+  const autoSeeded = new Set<string>();
+  // Provisional Y per wrapped-only child, cumulative by actual height + ROW_GAP,
+  // so the box that wraps them sizes to the SAME tight stack the recenter uses
+  // (a fixed step would size the box wrong for >1 seed). In a MIXED box (some
+  // children placed by col/at/relational, some bare) the bare ones stack BELOW
+  // the placed ones — we start `cy` at the bottom of the already-resolved
+  // wrapped children (they were placed in steps 1–2) so seeds don't overlap them.
+  const isBare = (c: FileNode | undefined): c is FileNode =>
+    !!c && !Array.isArray(c.at) && !c.wraps && !c.col && !c.leftOf && !c.rightOf &&
+    !c.alignX && !c.alignY && !c.below && !c.above;
+  const seedY = new Map<string, number>();
+  for (const b of nodes) {
+    // Bottom of this box's placed (non-bare) wrapped children, if any — bare
+    // children begin their stack a ROW_GAP below that; else at 0 (pure box).
+    let placedBottom = -Infinity;
+    for (const cid of b.wraps ?? []) {
+      const r = out.get(cid);
+      if (r) placedBottom = Math.max(placedBottom, r.y + r.h / 2);
     }
+    let cy = placedBottom > -Infinity ? placedBottom + ROW_GAP : 0;
+    for (const cid of b.wraps ?? []) {
+      if (seedY.has(cid)) continue; // first wrapping box wins
+      const c = nodes.find((x) => x.id === cid);
+      if (!isBare(c)) continue; // only bare children are auto-seeded
+      const h = sizeOf(c).h;
+      seedY.set(cid, cy + h / 2);
+      cy += h + ROW_GAP;
+    }
+  }
+  for (const n of nodes) {
+    if (out.has(n.id) || n.wraps) continue;
+    const s = sizeOf(n);
+    // A y-relational node that names a real `col` keeps that lane's X (so it
+    // stays IN the column at its relational height).
+    if (n.col && colX.has(n.col)) {
+      out.set(n.id, { x: colX.get(n.col)!, y: 0, w: s.w, h: s.h });
+      continue;
+    }
+    // Wrapped-only node with no position → auto-seed, stacked by wraps-order.
+    if (seedY.has(n.id)) {
+      autoSeeded.add(n.id);
+      out.set(n.id, { x: 0, y: seedY.get(n.id)!, w: s.w, h: s.h });
+      continue;
+    }
+    // True orphan → park at origin.
+    out.set(n.id, { x: 0, y: 0, w: s.w, h: s.h });
   }
 
   // 3.5) Relational placement — position a node against ANOTHER node's box.
@@ -1220,7 +1342,17 @@ export function computeLayout(file: ArchitectureFile): Map<string, ResolvedBox> 
     const parent = boxes.find((w) => w.wraps?.includes(id));
     return parent ? 1 + depth(parent.id, seen) : 0;
   };
-  boxes.sort((a, b) => depth(b.id) - depth(a.id)); // deepest children first
+  // Deepest children first (a box sizes around already-placed children); at equal
+  // depth, a box positioned relative to ANOTHER box (below/above/alignY) resolves
+  // AFTER its anchor so the anchor's rect exists when we shift.
+  const relRef = (n: FileNode) => (n.alignY ?? n.above ?? n.below) as string | undefined;
+  boxes.sort((a, b) => {
+    const d = depth(b.id) - depth(a.id);
+    if (d) return d;
+    if (relRef(a) === b.id) return 1;  // a depends on b → a after b
+    if (relRef(b) === a.id) return -1;
+    return 0;
+  });
 
   // Resolve a `bounds` side string → an absolute coordinate on the given axis.
   //   "<nodeId>:<anchor>"  | "col:<name>:<anchor>"  | "wrap"
@@ -1278,6 +1410,64 @@ export function computeLayout(file: ArchitectureFile): Map<string, ResolvedBox> 
     top2 -= bandH("top");
     bottom2 += bandH("bottom");
     out.set(w.id, { x: (left + right) / 2, y: (top2 + bottom2) / 2, w: right - left, h: bottom2 - top2 });
+
+    // A wrapping box may ALSO be positioned relative to another node/box via
+    // `below`/`above`/`alignY` (a box's position is otherwise 100% wrap-derived,
+    // so there was no way to say "metastore BELOW the workspaces"). We do it HERE,
+    // after the box is sized, and SHIFT the box + its whole wrapped subtree by the
+    // delta — so its contents move with it. Boxes resolve deepest-first, so an
+    // ANCESTOR box (resolved later) re-sizes around the moved box automatically.
+    // (leftOf/rightOf intentionally not supported for boxes yet — below/above/
+    // alignY cover the "stack a container under/over another" case.)
+    const bdir = w.alignY ? "alignY" : w.above ? "above" : w.below ? "below" : undefined;
+    if (bdir) {
+      const self = out.get(w.id)!;
+      const a = out.get((w[bdir] as string) ?? "");
+      if (a) {
+        const gap = w.gap ?? 40;
+        const targetY =
+          bdir === "alignY" ? a.y
+          : bdir === "below" ? a.y + a.h / 2 + gap + self.h / 2
+          : a.y - a.h / 2 - gap - self.h / 2; // above
+        const dy = targetY - self.y;
+        if (dy) {
+          // Shift this box + every descendant it (transitively) wraps.
+          const subtree = new Set<string>([w.id]);
+          const collect = (id: string) => {
+            const bx = boxes.find((b) => b.id === id);
+            for (const cid of bx?.wraps ?? []) if (!subtree.has(cid)) { subtree.add(cid); collect(cid); }
+          };
+          collect(w.id);
+          for (const id of subtree) { const r = out.get(id); if (r) r.y += dy; }
+        }
+      }
+    }
+
+    // Recenter this box's AUTO-SEEDED children into its interior: center them on
+    // the box's X and stack them in wraps order. Placed (col/at/relational)
+    // children are untouched — so a MIXED box keeps its explicit children in
+    // place and stacks the bare ones BELOW them (starting a ROW_GAP under the
+    // lowest placed child, or from the top pad if the box is pure auto-seed).
+    // Done last so it uses the box's FINAL rect (after any below/above shift).
+    const self = out.get(w.id);
+    const seeds = (w.wraps ?? []).filter((cid) => autoSeeded.has(cid));
+    if (self && seeds.length) {
+      // Bottom of the placed (non-seed) wrapped children within this box.
+      let placedBottom = -Infinity;
+      for (const cid of w.wraps ?? []) {
+        if (autoSeeded.has(cid)) continue;
+        const r = out.get(cid);
+        if (r) placedBottom = Math.max(placedBottom, r.y + r.h / 2);
+      }
+      let cy = placedBottom > -Infinity ? placedBottom + ROW_GAP : self.y - self.h / 2 + pad;
+      seeds.forEach((cid, i) => {
+        const r = out.get(cid);
+        if (!r) return;
+        r.x = self.x;
+        r.y = cy + r.h / 2;
+        cy += r.h + (i < seeds.length - 1 ? ROW_GAP : 0); // tight in-box stack
+      });
+    }
   }
 
   // 5) Pinned-by-anchor nodes (`pin`) — resolved LAST, after boxes are sized.

@@ -75,11 +75,17 @@ interface PlatformDiagramProps {
    *  re-captures architecture.png on the next chat focus. Not fired in the
    *  standalone (onSave) path. */
   onDirty?: () => void;
+  /** Deep-link: the diagram tab to open on mount, BY NAME. Ignored if no tab
+   *  matches (falls back to the first tab). */
+  initialArchTab?: string;
+  /** Fired when the active diagram tab changes, with its NAME — the project page
+   *  persists it to the URL (?archTab=) so refresh/share reopens the same tab. */
+  onArchTabChange?: (name: string) => void;
 }
 
 type SaveStatus = "idle" | "saving" | "saved" | "error";
 
-function PlatformDiagram({ content, deployedResources, projectId, defaultEditMode = true, readOnly, onSave, hideChrome, toolbarExtras: toolbarExtrasProp, onDirty }: PlatformDiagramProps) {
+function PlatformDiagram({ content, deployedResources, projectId, defaultEditMode = true, readOnly, onSave, hideChrome, toolbarExtras: toolbarExtrasProp, onDirty, initialArchTab, onArchTabChange }: PlatformDiagramProps) {
   // --- Guard against the diagram's own auto-save echoing back and reverting
   //     the canvas to a stale version. -------------------------------------
   // The canvas auto-saves architecture.md (debounced). That write trips the
@@ -123,12 +129,22 @@ function PlatformDiagram({ content, deployedResources, projectId, defaultEditMod
     parseArchitectureTabs(acceptedContent ?? "").map((t) => t.name),
   );
   const [activeIndex, setActiveIndex] = useState(0);
+  // Apply the ?archTab= deep-link exactly ONCE, once tabs are known — after that
+  // the user's own tab switches own the state (we don't keep forcing the URL tab).
+  const deepLinkApplied = useRef(false);
   useEffect(() => {
     const tabs = parseArchitectureTabs(acceptedContent ?? "");
     setTabBodies(tabs.map((t) => t.body));
     setTabNames(tabs.map((t) => t.name));
-    setActiveIndex((i) => Math.min(i, Math.max(0, tabs.length - 1)));
-  }, [acceptedContent]);
+    setActiveIndex((i) => {
+      if (!deepLinkApplied.current && initialArchTab && tabs.length) {
+        const j = tabs.findIndex((t) => t.name === initialArchTab);
+        deepLinkApplied.current = true;
+        if (j >= 0) return j;
+      }
+      return Math.min(i, Math.max(0, tabs.length - 1));
+    });
+  }, [acceptedContent, initialArchTab]);
 
   const activeBody = tabBodies[activeIndex] ?? "";
 
@@ -251,6 +267,17 @@ function PlatformDiagram({ content, deployedResources, projectId, defaultEditMod
     const next: PlatformSchema = { ...schemaRef.current, enableTrademarkLogos: on };
     persistActive(serializeArchitecture(next, next.layout));
   }, [persistActive]);
+
+  // Report the active diagram tab's NAME to the host (→ URL ?archTab=) whenever
+  // it changes — covers select / add / delete / rename uniformly. Skipped until
+  // tabs are known; dedup'd so we don't re-navigate to the same tab.
+  const lastReportedTab = useRef<string | null>(null);
+  useEffect(() => {
+    const name = tabNames[activeIndex];
+    if (!name || name === lastReportedTab.current) return;
+    lastReportedTab.current = name;
+    onArchTabChange?.(name);
+  }, [activeIndex, tabNames, onArchTabChange]);
 
   // --- Tab operations -------------------------------------------------------
   const onSelectTab = useCallback((i: number) => setActiveIndex(i), []);

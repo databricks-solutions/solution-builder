@@ -11,6 +11,29 @@ The file is a **flat list of `nodes` + `edges`** — a node is on the canvas iff
 
 **Before wiring edges, read `reference/platform_architecture.md`** — it's the map of which component feeds which (sources → `lakeflow`/`sdp` → `sql-lakehouse` → `ai-bi-dashboard`/`genie`; `supervisor-agent` → `genie`/`knowledge-assistant`; `lakebase` syncs `sdp` tables + powers apps). That's what makes the data flow correct, not just plausible.
 
+## Designing the architecture from a request (architecture-first)
+
+Design a **coherent, functionally-complete architecture that solves the ask**, from **the user's request** (their prompt / pasted text) — not from any pre-existing file or default, not a literal word-for-word transcription, not a fixed template.
+
+### Step 1 — which KIND of diagram is this?
+
+Decide this FIRST — it picks the whole vocabulary. Most asks are (1).
+
+1. **Solution / demo architecture** — a left→right DATA-FLOW story: sources → pipeline → compute → dashboards/Genie/apps → user, on the governed platform. **The default.** This is what you draw for a use-case ("predictive maintenance", "customer 360") AND for a data+AI feature ask ("Lakeflow Connect + SDP → a model endpoint") — both are functional flows, they only differ in how much you infer (Step 2). Uses the catalog **tiles** + composites.
+2. **Physical / governance architecture** — the Unity Catalog HIERARCHY: workspace → metastore → catalogs → schemas → tables. A **containment** picture (nested boxes), NOT a flow. Trigger: the ask is about UC objects / org structure ("show our metastore, catalogs, schemas"). Use the container-box presets — see *Databricks physical layout* below. Do NOT draw the data-flow tiles for this.
+3. **Infra / networking architecture** — cloud/account topology: VPC / subnets / PrivateLink / cloud services. Also containment (nested cloud boxes, the *Containers* pattern), not a data flow. Trigger: the ask is about networking / deployment / cloud accounts.
+
+If the ask blends kinds (e.g. "the data flow, inside our VPC"), compose them — a flow diagram wrapped in infra boxes.
+
+### Step 2 — (solution/demo only) how much to infer
+
+- **Broad / use-case ask** ("predictive maintenance", "fraud detection", "a governed data platform"): **infer the full end-to-end shape** the use-case implies. Predictive maintenance is a MODEL story → sensors/history → pipeline → ML training → registry → serving → scoring + dashboards. **Don't under-scope** to the couple of nouns typed — add the components that make it actually work.
+- **Named-component ask** ("Lakeflow Connect + SDP into UC, served by a model endpoint"): **assemble exactly those into a working whole** — honor what they named + add the connective tissue that wires it (platform `box`, ingest ports, an entry point, the edges). **Don't over-build** past what they asked, **don't under-build** to isolated unconnected tiles.
+
+Either way, components that belong together, wired so the flow reads correctly, on the governed platform.
+
+**References are building blocks to COMPOSE, not templates to reproduce.** Most asks aren't one example — take the ML platform's serving lane, add the agent-bricks supervisor, drop the full-platform governance bar on top, swap the sources. Don't copy one reference wholesale unless the ask genuinely is that one shape. See **Pick a starting point** for what each offers.
+
 ---
 
 <!-- BEGIN: local-render-workflow (stripped when the skill runs inside Solution Builder — the app renders architecture.md live in its own canvas) -->
@@ -38,16 +61,15 @@ node renderer/render-arch.mjs my-arch.html        # → my-arch.png
 
 ## Pick a starting point
 
-**Build what the user asked for — don't force it into one template.** The references below aren't a fixed menu: **copy the closest, and freely COMBINE and adapt them** — take the ML platform's serving lane, add the agent-bricks supervisor, drop in the full-platform governance bar, swap the sources, re-map the flow. Match the components + connections to the actual request; there is no single "right" diagram. The inline example under *The format* is just the SIMPLEST shape.
+Which reference each request style maps to (copy the closest — and remember these are building blocks to **compose**, per *Designing the architecture* above):
 
 | If the user wants… (example prompt) | Start / borrow from | Shows |
 |---|---|---|
-| "Ingest our data into a lakehouse with a dashboard + Genie for the business to ask questions" | *The format* inline example (below) | The minimal ingest → lakehouse → dashboard/Genie → Genie One flow. |
-| "Build an end-to-end ML platform — features, MLflow training, real-time + batch serving, RAG" | `reference/ml-platform.jsonc` | `rowGrid` matrix layout, medallion Feature Store fork (`@out-fs`), Vector Search / RAG, model registry → serving, `note`s. |
-| "A multi-agent assistant that routes questions across Genie, our docs, and external tools" | `reference/agent-bricks.jsonc` | A Supervisor over Knowledge Assistant · Genie · Hosted MCPs → Genie One; `alignY`/`below` relative placement. |
-| "The whole Databricks platform, end to end" (the flagship story) | `reference/architecture-complete.jsonc` | The full sources → Lakeflow+Genie → lakehouse/Lakebase → dashboard/Genie/app → Genie One shape, 2 tabs. |
-
-Nothing matches, or the ask spans several? **Compose** — mix pieces from multiple references and the *Component catalog* below. The flat format exists precisely so you can assemble any shape, not just reproduce one.
+| A general **data + AI / analytics demo**, or a broad "governed platform / data platform" ask | `reference/architecture-complete.jsonc` — **the canonical demo (solution) architecture** | The full sources → Lakeflow+Genie → lakehouse/Lakebase → dashboard/Genie/app → Genie One shape, 2 tabs. This is the DEFAULT for a broad use-case, not an over-scoped extreme. |
+| Anything **model-driven** — "predictive maintenance", "churn", "recommendations", "fraud", "ML platform" | `reference/ml-platform.jsonc` | `rowGrid` matrix, medallion Feature Store fork (`@out-fs`), Vector Search / RAG, model training → registry → real-time + batch serving. Predictive-maintenance-shaped. |
+| An **assistant / RAG / multi-agent** demo — "route questions across our data + docs + tools" | `reference/agent-bricks.jsonc` | Supervisor over Knowledge Assistant · Genie Space · Hosted MCPs over a governed medallion → Genie One. |
+| A **minimal** "ingest → lakehouse → dashboard + Genie for the business" | *The format* inline example (below) | The smallest ingest → lakehouse → dashboard/Genie → Genie One flow. Use only when the ask is genuinely that small. |
+| A **physical / governance** layout — "show workspace, metastore, catalogs, schemas" | `reference/governance-layout.jsonc` (+ *Databricks physical layout* below) | Nested Workspace / Metastore / Catalog / Schema / Table boxes — a governance picture, not a data-flow one. |
 
 ## The format
 
@@ -56,7 +78,7 @@ The SIMPLEST shape — one tab. **Use it only for a basic ingest→serve demo**;
 ```jsonc
 {
   "name": "Customer 360",
-  "story": "Ingest our Postgres, ERP, sensor, and PDF data into a governed lakehouse, then give the business a dashboard and a Genie room to ask questions in plain language — reached through Genie One, all on Databricks.",
+  "story": "Ingest our Postgres, ERP, sensor, and PDF data into a governed lakehouse, then give the business a dashboard and a Genie Space to ask questions in plain language — reached through Genie One, all on Databricks.",
   "columns": ["sources", "pipeline", "compute", "work", "entry"],
   "nodes": [
     // Sources, each stacked by `row`. The edge (below) names the Lakeflow ingest
@@ -113,7 +135,25 @@ The SIMPLEST shape — one tab. **Use it only for a basic ingest→serve demo**;
 
 Top level is a JSON **array**, one element (the shape above) per **tab**; its `name` is the tab label. Multiple tabs = multiple views of one diagram (e.g. "Ingestion" / "Serving"). **Always emit the full array** `[ { … } ]`, even for one tab (a bare object is accepted but re-serialized as an array). Emit every tab each time.
 
-### Positioning: columns, and the optional row-grid
+### Positioning: how the strategies compose
+
+You have several placement strategies and they are designed to **layer**, not compete. They resolve in this fixed order — each stage respects everything placed before it, so you can freely combine them:
+
+1. **`at`** (explicit `[x,y]` pixels) — used verbatim, **always wins**. Escape hatch; you rarely write it.
+2. **Columns** — `col` (lane) + `row` (order in lane), or a shared **`rowGrid`** matrix. The backbone of most diagrams.
+3. **Auto-seed** — a bare node (no `col`/`at`/relational) that is *only* placed by being in some box's `wraps` gets stacked inside that box automatically (see *Containers*).
+4. **Relational** — `below`/`above`/`leftOf`/`rightOf`/`alignX`/`alignY` position a node against another node's resolved box (see below). Runs after columns, so the anchor already has its place.
+5. **Boxes** — `wraps`/`bounds` size around whatever their children resolved to (columns + relational + seeds), innermost first; a box may itself be placed with `below`/`above`/`alignY`.
+6. **Pins** — `pin` docks a banner/persona into a box corner, last of all.
+
+**Precedence per node:** `at` > `pin` > relational > `col`/`row`. Set at most ONE relational field per node.
+
+**Composition cheatsheet** (all verified to work together):
+- A `rowGrid` matrix (col+row) **with** a `rightOf` satellite off one tile **inside** a `wraps` platform box **with** a pinned governance banner — all at once. The box grows to include the satellite; the pin reserves its band on top.
+- A `wraps` box whose children are a mix of `col`-placed tiles **and** bare auto-seeded ones — the placed tiles keep their lane, the bare ones stack **below** them inside the box.
+- Nested boxes (`wraps` of `wraps`), one placed `below` another via a box-level `below` — the whole subtree shifts together.
+
+### Columns, and the optional row-grid
 
 Default placement: **`col` = X** (which lane), **`row` = order WITHIN that lane** (top→bottom); each lane centers its own stack independently. Lanes don't line up row-for-row.
 
@@ -134,6 +174,23 @@ Rules under `rowGrid`:
 - **`at` / `alignY` / `below` / `above` still override** a node's grid position (per node).
 - **Line the source up with what it feeds** — give a source the SAME `row` as its target so the feed edge is a clean horizontal line (e.g. `src-pdf` and `knowledge-assistant` both on row 4; `src-postgres` and `medallion-table` both on row 3).
 - **A TALL node (medallion, agent-bricks, lakeflow blocks) makes its whole band taller** — so its row centers lower than short tiles sharing that row, and it widens the gap to adjacent rows. If that pushes things apart awkwardly, put the tall node on a row of its own (or use `alignY` to re-center a neighbor onto it) rather than fighting the band.
+
+### Relational placement (place a node against another)
+
+When a node's spot is best described *relative to another node* rather than by a lane, use ONE of these instead of guessing `at`. Each references another node's **id**; it resolves AFTER columns (so the anchor keeps its own place), and the engine auto-de-overlaps the result.
+
+| field | effect |
+|---|---|
+| `alignX: "<id>"` | copy that node's center **X** (keep your own Y from col/row). |
+| `alignY: "<id>"` | copy that node's center **Y** (keep your own X). |
+| `leftOf` / `rightOf: "<id>"` | sit just left/right of that node, centered on its Y; `gap` = px between them (default 40). |
+| `above` / `below: "<id>"` | sit just above/below that node, centered on its X; `gap` = px (default 40). |
+
+- **One per node.** If several are set only one applies (precedence `alignX > alignY > leftOf > rightOf > above > below`). `at` still wins over all.
+- **Chains resolve in order** — `A rightOf B`, `B rightOf C` settles C→B→A.
+- **Siblings fan out** — several nodes `rightOf` the SAME anchor spread along the perpendicular axis instead of stacking on one point.
+- **A satellite inside a `wraps` box is still enclosed** — the box grows to include it. So `rightOf` a tile that's inside the platform box keeps the satellite in the box.
+- **Boxes may use `below`/`above`/`alignY` too** (not leftOf/rightOf) — see *Containers*.
 
 ### Top level  *(each element of the tabs array)*
 | Field | Required | Description |
@@ -193,7 +250,25 @@ A `type:"box"` with `wraps: [ids]` becomes a **labeled container** that auto-siz
 { "id": "db",  "type": "lakebase", "col": "compute" }
 ```
 
-The inner nodes get placed (by `col` or `at`); each box sizes itself around its members, innermost first. You never compute a box's `at`/`size`.
+The inner nodes get placed (by `col` or `at`); each box sizes itself around its members, innermost first. You never compute a box's `at`/`size`. **Give nested boxes DESCENDING `z`** (outermost most-negative: `aws` `z:-3`, `vpc` `z:-2`, `subnet` `z:-1`) — a box is opaque and hides anything sharing its z, so an outer box without a lower z covers everything inside it.
+
+**Auto-seed — a box can arrange its own children.** A child that has NO placement of its own (`col`/`at`/relational) but is listed in a box's `wraps` is **auto-seeded**: it stacks vertically inside that box, in `wraps` order, centered on the box. So the minimal container is just `wraps` + nothing on the children — e.g. one Unity Catalog tile inside a Metastore needs no `col`. **Mixed boxes work**: if some wrapped children ARE placed (by `col`) and some are bare, the placed ones keep their lane and the bare ones stack BELOW them inside the box. (Prefer `col` when you have several siblings you want lined up in a specific order; lean on auto-seed for a lone child or a quick stack.)
+
+**Positioning a box relative to another box** — a box's position is normally derived from what it `wraps`, so two sibling boxes can't be arranged by wrapping alone. To place one under/over/aligned-with another, a box may use **`below` / `above` / `alignY`** (with `gap`) referencing another node or box; it shifts with its whole subtree and its parent re-sizes around it. Width still comes from its contents or `bounds`. E.g. a full-width **Metastore** bar under two side-by-side Workspace boxes: `{ "id":"metastore", "type":"box", "below":"ws-prod", "gap":50, "bounds":{ "left":"col:prod:left", "right":"col:dev:right" }, "wraps":["unity-catalog"] }`.
+
+### Databricks physical layout (workspace / metastore / catalog)
+
+For a **governance / physical** ask ("show our workspace, metastore, catalogs, schemas") draw the Unity Catalog hierarchy as **nested container boxes + logo annotations** — NOT the data-flow tiles. The pieces are ordinary boxes/logos:
+
+- **Admin Account** → `type:"box"` container (`title` "Databricks Admin Account"; icon `file:vendor/databricks-admin` — the Databricks mark + an admin persona). The top of the org hierarchy; wraps the workspace(s).
+- **Workspace** / **Metastore** → `type:"box"` containers (`title` "Databricks Workspace" / "Databricks Metastore"; icons `file:vendor/databricks` / `databricksMetastore`).
+- **Catalog** / **Schema** / **Table** → `type:"logo"` marks (icons `dbCatalog` / `dbSchema` / `dbTable`) with a side caption.
+
+Nest by containment: Workspace `wraps` the Metastore, Metastore `wraps` Catalogs, a Catalog `wraps` its Schemas — same recursive `wraps` as the cloud example above. **Copy `reference/governance-layout.jsonc`** — it's the worked example.
+
+Two things that WILL bite if you author this from scratch (both in that reference):
+- **Placing the leaves.** Use `columns` (one lane per catalog) so sibling schemas line up in tidy per-catalog stacks, then the catalog box `wraps` them. You *can* also leave a leaf **bare** (no `col`/`at`) and let it auto-seed inside its box — good for a lone child (e.g. one Unity Catalog tile inside the Metastore); for several siblings a `col` reads cleaner. Either way the box sizes around them.
+- **Nested boxes need DESCENDING `z`.** A box is opaque and paints OVER whatever shares its z, so each level must sit BEHIND the one it contains: workspace `z:-3` < metastore `z:-2` < catalog `z:-1` < the leaf logos (default 0, on top). Omit this and only the outermost box shows. (Same rule for cloud/VPC nesting.)
 
 ### Annotations (free-form, not catalog components)
 
@@ -374,7 +449,7 @@ Logos you can set as a node `icon`. Keys are self-explanatory; use them verbatim
 
 **Vendor / product logos** — `file:vendor/<name>`:
 
-`adyen`, `agent-bricks`, `airbyte`, `airtable`, `amplitude`, `anthropic`, `apache-airflow`, `apache-couchdb`, `apache-flink`, `apache-hbase`, `apache-nifi`, `apache-spark`, `atlassian`, `aws-redshift`, `bigcommerce`, `box`, `braze`, `brevo`, `cassandra`, `chroma`, `clickhouse`, `cloudflare`, `cockroachdb`, `confluence`, `couchbase`, `csv`, `custom-source`, `databricks`, `databricks-wordmark`, `dbt`, `docker`, `dropbox`, `duckdb`, `elasticsearch`, `fastapi`, `gemini`, `genie-ontology`, `github`, `gitlab`, `glean`, `google-ads`, `google-analytics`, `google-docs`, `google-drive`, `google-sheets`, `gradio`, `grafana`, `grok`, `hootsuite`, `hubspot`, `hugging-face`, `ibm`, `influxdb`, `informatica`, `intercom`, `jira`, `kafka`, `kimi`, `klarna`, `kubernetes`, `looker`, `mailchimp`, `mariadb`, `marketo`, `mastercard`, `mcp`, `meta`, `metabase`, `microsoft`, `microsoft-sql-server`, `milvus`, `mistral`, `mixpanel`, `mongodb`, `mqtt`, `mysql`, `neo4j`, `netlify`, `nextjs`, `node-red`, `nodejs`, `notion`, `openai`, `oracle`, `parquet`, `paypal`, `perplexity`, `pinecone`, `planetscale`, `postgresql`, `power-bi`, `prestashop`, `presto`, `pulsar`, `python`, `qdrant`, `qlik`, `quickbooks`, `rabbitmq`, `react`, `redis`, `salesforce`, `sap`, `scylladb`, `segment`, `sendgrid`, `shopify`, `shopware`, `siemens`, `singlestore`, `slack`, `snapchat`, `snowflake`, `sqlite`, `square`, `streamlit`, `stripe`, `supabase`, `superset`, `tableau`, `talend`, `teradata`, `terraform`, `tiktok`, `trino`, `twilio`, `vercel`, `visa`, `woocommerce`, `xero`, `youtube`, `zapier`, `zendesk`, `zeroops`, `zoho`
+`adyen`, `agent-bricks`, `airbyte`, `airtable`, `amplitude`, `anthropic`, `apache-airflow`, `apache-couchdb`, `apache-flink`, `apache-hbase`, `apache-nifi`, `apache-spark`, `atlassian`, `aws-redshift`, `bigcommerce`, `box`, `braze`, `brevo`, `cassandra`, `chroma`, `clickhouse`, `cloudflare`, `cockroachdb`, `confluence`, `couchbase`, `csv`, `custom-source`, `databricks`, `databricks-admin`, `databricks-wordmark`, `dbt`, `docker`, `dropbox`, `duckdb`, `elasticsearch`, `fastapi`, `gemini`, `genie-ontology`, `github`, `gitlab`, `glean`, `google-ads`, `google-analytics`, `google-docs`, `google-drive`, `google-sheets`, `gradio`, `grafana`, `grok`, `hootsuite`, `hubspot`, `hugging-face`, `ibm`, `influxdb`, `informatica`, `intercom`, `jira`, `kafka`, `kimi`, `klarna`, `kubernetes`, `looker`, `mailchimp`, `mariadb`, `marketo`, `mastercard`, `mcp`, `meta`, `metabase`, `microsoft`, `microsoft-sql-server`, `milvus`, `mistral`, `mixpanel`, `mongodb`, `mqtt`, `mysql`, `neo4j`, `netlify`, `nextjs`, `node-red`, `nodejs`, `notion`, `openai`, `oracle`, `parquet`, `paypal`, `perplexity`, `pinecone`, `planetscale`, `postgresql`, `power-bi`, `prestashop`, `presto`, `pulsar`, `python`, `qdrant`, `qlik`, `quickbooks`, `rabbitmq`, `react`, `redis`, `salesforce`, `sap`, `scylladb`, `segment`, `sendgrid`, `shopify`, `shopware`, `siemens`, `singlestore`, `slack`, `snapchat`, `snowflake`, `sqlite`, `square`, `streamlit`, `stripe`, `supabase`, `superset`, `tableau`, `talend`, `teradata`, `terraform`, `tiktok`, `trino`, `twilio`, `vercel`, `visa`, `woocommerce`, `xero`, `youtube`, `zapier`, `zendesk`, `zeroops`, `zoho`
 
 **Cloud logos** — `file:cloud/<provider>/<category>/<name>` (e.g. `file:cloud/aws/storage/s3`):
 

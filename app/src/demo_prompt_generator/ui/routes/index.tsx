@@ -10,8 +10,7 @@ import { ProjectInvitations } from "@/components/project/project-invitations";
 import { SharedWithMe } from "@/components/project/shared-with-me";
 import { TemplateTile } from "@/components/template/template-tile";
 import { TemplateDetailPopup } from "@/components/template/template-detail-popup";
-import { CapabilitiesPanel, SIMPLE_BASELINE, WORKSHOP_BASELINE } from "@/components/capabilities-panel";
-import { ProductSelector } from "@/components/product-selector";
+import { CapabilitiesPanel, WORKSHOP_BASELINE } from "@/components/capabilities-panel";
 import { DatabricksAnimatedLogo } from "@/components/databricks-animated-logo";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -301,17 +300,9 @@ function Index() {
   // simple-demo baseline pre-selected. Seed ONCE on first entry — after that
   // the user's toggles are theirs (switching story↔architecture doesn't wipe).
   // The baseline is a SOFT default: the explicit map stays EMPTY so the
-  // capabilities-only LLM pass may adjust the whole selection as the user
-  // types; only actual user clicks pin ids (handleToggleProduct records them).
-  const archSeededRef = useRef(false);
-  useEffect(() => {
-    if (mode !== "architecture" || archSeededRef.current) return;
-    archSeededRef.current = true;
-    handleReplaceSelection(
-      new Set<string>(SIMPLE_BASELINE),
-      new Map<string, "selected" | "unselected">(),
-    );
-  }, [mode, handleReplaceSelection]);
+  // (Architecture mode no longer seeds/uses a capability selection — the diagram
+  // is inferred from the user's words, not a preset picker. See the suggest
+  // effect + the architecture-first prompt.)
 
   // Workshop mode seed: start from the workshop baseline (synthetic data → SDP →
   // dashboard → Genie; no app/lakebase). The suggest LLM may still refine it,
@@ -656,10 +647,12 @@ function Index() {
     // typed text gets a generic prompt — the backend sees the file
     // content via context_text and picks ideas from it.
     // Pro mode skips suggestion entirely (story tab only). The ARCHITECTURE
-    // tab streams too — but in capabilities-only mode: the LLM auto-selects
-    // the matching components in the picker, no story ideas.
+    // flow ALSO skips it: we no longer pre-select a capability set for the
+    // diagram — auto-suggesting one over-constrained the architecture to a
+    // single preset shape. The agent infers the right components from the
+    // user's words instead (see the architecture-first prompt + SKILL.md).
     const archMode = mode === "architecture";
-    if ((trimmedTopic.length < 3 && !hasFiles) || !capabilitiesReady || (!archMode && proMode)) {
+    if ((trimmedTopic.length < 3 && !hasFiles) || !capabilitiesReady || proMode || archMode) {
       setIsSuggestingCapabilities(false);
       return;
     }
@@ -668,19 +661,10 @@ function Index() {
 
     const effectivePrompt = trimmedTopic.length >= 3
       ? trimmedTopic
-      : archMode
-        ? "Suggest architecture components based on the uploaded files."
-        : "Suggest demos based on the uploaded files.";
+      : "Suggest demos based on the uploaded files.";
 
     const timer = setTimeout(() => {
-      runSuggestionStream(
-        effectivePrompt,
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        archMode, // capabilities-only in architecture mode
-      );
+      runSuggestionStream(effectivePrompt);
     }, 1000);
 
     return () => {
@@ -801,10 +785,14 @@ function Index() {
     // typed text (or files) since there's no idea fallback.
     if (isCreating || (!topic.trim() && !effectiveIdea && uploadedFiles.length === 0)) return;
 
-    // Capabilities are always from selectedProducts (shared across all ideas).
-    // Sanitize for workshop mode — never ship apps/lakebase/KA/MAS into a
-    // Genie Code workshop even if the LLM or a stale selection included them.
-    const capabilityIds = Array.from(sanitizeSelection(selectedProducts));
+    // Capabilities are from selectedProducts (shared across ideas), sanitized
+    // for workshop mode. EXCEPTION: architecture-first sends NONE — an
+    // architecture diagram is defined by the user's request, not a capability
+    // list. Seeding capabilities here wrote them into resources.json, which the
+    // agent then read as the spec and drew instead of the user's actual ask.
+    const capabilityIds = architectureFirst
+      ? []
+      : Array.from(sanitizeSelection(selectedProducts));
 
     setIsCreating(true);
     setCreateError(null);
@@ -847,20 +835,16 @@ function Index() {
       if (architectureFirst) {
         // Architecture-first entry: the user wants to START by laying out an
         // architecture diagram — NOT a story. Their text can be anything
-        // (a tidy prompt, pasted meeting notes, a transcript). The agent
-        // should extract the platform components it implies and write ONLY
-        // `architecture.md`, then stop. SKILL.md has the matching path.
-        // The capability picker IS shown in architecture mode (defaulting to
-        // the Simple-demo baseline), so the selection is deliberate — the
-        // diagram must reflect exactly it, not resources.json defaults.
-        const archCapsLine = capabilityIds.length > 0
-          ? `\n\nThe user explicitly selected these capabilities for the diagram: ${capabilityIds.join(", ")}. The architecture must show exactly these (plus the data sources their text implies) — do not add other capabilities.`
-          : "";
+        // (a tidy prompt, pasted meeting notes, a transcript). The agent's job
+        // is to design a COHERENT, functionally-complete architecture that
+        // solves the ask (see the architecture-first path in SKILL.md), then
+        // write ONLY `architecture.md` and stop. We deliberately do NOT inject a
+        // capability list here — it over-constrained the diagram to one preset
+        // shape; the agent infers the right components from the user's words.
         initialPrompt =
           `The user wants to START by creating an architecture diagram (architecture-first flow) — not a story yet.\n\n` +
-          `What they wrote (may be a tidy brief OR pasted notes / a transcript — extract intent from it):\n${topic.trim() || description}` +
-          archCapsLine +
-          `\n\nFollow the architecture-first path in SKILL.md: read the databricks-architecture skill (\`.claude/skills/databricks-architecture/SKILL.md\`), extract the main components, and write ONLY \`architecture.md\` at the project root. Do not design a story, write specs, or build resources yet — produce the diagram and stop so the user can review/edit it on the Architecture tab.`;
+          `What they wrote (may be a tidy brief OR pasted notes / a transcript — extract the intent + use-case from it):\n${topic.trim() || description}` +
+          `\n\nFollow the architecture-first path in SKILL.md: read the databricks-architecture skill (\`.claude/skills/databricks-architecture/SKILL.md\`), then design a coherent architecture that functionally solves the use-case (a broad use-case → the full end-to-end demo shape it implies; a technical/named-component ask → those pieces assembled into a working whole). Base the diagram on the request ABOVE — \`resources.json\` is empty at this stage, it is NOT the spec, do not read it and reproduce a canonical diagram from it. Write ONLY \`architecture.md\` at the project root. Do not design a story, write specs, or build resources yet — produce the diagram and stop so the user can review/edit it on the Architecture tab.`;
       } else if (mode === "workshop") {
         // Workshop (Genie Code) mode: same story + spec design as a normal
         // build, but the BUILD stage forks — instead of provisioning Databricks
@@ -1591,23 +1575,10 @@ function Index() {
                     Simple/Custom tabs), with the simple-demo baseline
                     pre-selected (see the seed effect). The selection is what
                     the agent draws in the initial architecture.md. */}
-                {mode === "architecture" && (
-                  <ProductSelector
-                    capabilities={capabilities}
-                    selectedProducts={selectedProducts}
-                    onToggleProduct={handleToggleProduct}
-                    expanded={isHeroCollapsed}
-                    // Dim the tiles while the capabilities-only LLM pass is
-                    // auto-selecting components from the typed description.
-                    isLoading={isSuggestingCapabilities}
-                    explicitSelections={explicitSelections}
-                    title="Select the architecture components you want to see"
-                  />
-                )}
-
-                {/* Architecture tab — once the user has typed (or attached
-                    files), show the "Create my architecture" button below the
-                    capability picker. No story ideas, no templates. */}
+                {/* Architecture tab: NO capability picker. Pre-selecting a
+                    component set over-constrained the diagram to a preset shape;
+                    the agent now infers the architecture from the user's words.
+                    Once they've typed (or attached files), show the create CTA. */}
                 {mode === "architecture" && isHeroCollapsed && (
                   <div className="flex flex-col items-center gap-2 pt-2">
                     <button
