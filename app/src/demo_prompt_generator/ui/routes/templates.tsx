@@ -48,6 +48,11 @@ function TemplatesWithLayout() {
 }
 
 export const Route = createFileRoute("/templates")({
+  // ?template=<slug> deep-links a template's detail slide-over open (shareable +
+  // survives reload). The slug is the template id (folder-name; URL-safe).
+  validateSearch: (search: Record<string, unknown>): { template?: string } => ({
+    template: typeof search.template === "string" ? search.template : undefined,
+  }),
   component: TemplatesWithLayout,
 });
 
@@ -62,6 +67,7 @@ const STATUS_TABS: { value: StatusFilter; label: string; icon: React.ReactNode }
 
 function TemplatesPage() {
   const navigate = useNavigate();
+  const { template: templateParam } = Route.useSearch();
   const [templates, setTemplates] = useState<TemplateListItem[]>([]);
   const [industries, setIndustries] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -69,7 +75,12 @@ function TemplatesPage() {
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("APPROVED");
   const [industryFilter, setIndustryFilter] = useState<string>("ALL");
-  const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
+  // The open template's slug is driven by the URL (?template=<slug>) so it's
+  // deep-linkable + shareable. openTemplate() writes the param; the sheet's
+  // onClose clears it.
+  const selectedTemplateId = templateParam ?? null;
+  const openTemplate = (id: string | null) =>
+    navigate({ to: "/templates", search: (prev) => ({ ...prev, template: id ?? undefined }), replace: true });
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [isForking, setIsForking] = useState(false);
   // Semantic (pgvector) search over the template summaries. Empty = no search.
@@ -345,7 +356,7 @@ function TemplatesPage() {
               <div key={template.id} className="relative group h-full">
                 <TemplateGalleryTile
                   template={template}
-                  onOpen={() => setSelectedTemplateId(template.id)}
+                  onOpen={() => openTemplate(template.id)}
                 />
 
                 {/* Owner action buttons */}
@@ -441,7 +452,7 @@ function TemplatesPage() {
               <div key={template.id} className="relative group h-full">
                 <TemplateGalleryTile
                   template={template}
-                  onOpen={() => setSelectedTemplateId(template.id)}
+                  onOpen={() => openTemplate(template.id)}
                 />
 
                 {/* Admin actions overlay */}
@@ -499,7 +510,7 @@ function TemplatesPage() {
       {/* Template detail slide-over */}
       <TemplateGallerySheet
         templateId={selectedTemplateId}
-        onClose={() => setSelectedTemplateId(null)}
+        onClose={() => openTemplate(null)}
         onFork={handleFork}
       />
 
