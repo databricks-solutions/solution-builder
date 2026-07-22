@@ -1290,6 +1290,11 @@ class ConfigStatus(BaseModel):
     # recommended catalog. Source of truth lives in DEFAULT_CATALOG env
     # var (set by databricks.<target>.yml's app_env block).
     default_catalog: str
+    # Whether the architecture diagram shows vendor LOGOS by default (the
+    # "logos on" toggle's initial state for a diagram that hasn't set it).
+    # Source: ENABLE_LOGO_BY_DEFAULT env (false in the public build; true on
+    # our internal Databricks deploys). See AppConfig.enable_logo_by_default.
+    enable_logo_by_default: bool = False
 
 
 class UserOut(BaseModel):

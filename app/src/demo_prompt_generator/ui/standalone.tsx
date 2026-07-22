@@ -304,6 +304,10 @@ function App() {
           onSave={onSave}
           hideChrome
           toolbarExtras={standaloneToolbar}
+          // The standalone skill build shows vendor logos by default (internal
+          // render loop). A diagram that explicitly toggled the flag still wins;
+          // an end user can turn logos off in the editor.
+          defaultLogosOn
         />
 
         {/* Almost-hidden JSON debug toggle (bottom-right, clear of the zoom

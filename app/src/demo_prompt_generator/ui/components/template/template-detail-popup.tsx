@@ -25,6 +25,7 @@ import {
   getTemplateFileContent,
   createProjectFromTemplate,
   exportTemplate,
+  getConfigStatus,
   type TemplateDetail,
   type TemplateFile,
 } from "../../lib/custom-api";
@@ -71,6 +72,16 @@ export function TemplateDetailPopup({ templateId, onClose }: TemplateDetailPopup
   const [isExporting, setIsExporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showRaw, setShowRaw] = useState(false);
+  // Vendor-logo default for the read-only architecture preview (env
+  // ENABLE_LOGO_BY_DEFAULT): off in the public build, on internally.
+  const [defaultLogosOn, setDefaultLogosOn] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    getConfigStatus()
+      .then((c) => { if (alive) setDefaultLogosOn(!!c.enable_logo_by_default); })
+      .catch(() => { /* best-effort; stays false */ });
+    return () => { alive = false; };
+  }, []);
 
   // Architecture preview (rendered from the template's architecture.md).
   const [archMd, setArchMd] = useState<string | null>(null);
@@ -296,6 +307,7 @@ export function TemplateDetailPopup({ templateId, onClose }: TemplateDetailPopup
                             readOnly
                             hideChrome
                             onSave={() => {}}
+                            defaultLogosOn={defaultLogosOn}
                           />
                         </Suspense>
                       </div>

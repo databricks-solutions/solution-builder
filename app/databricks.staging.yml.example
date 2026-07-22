@@ -66,3 +66,6 @@ targets:
         AI_GATEWAY_MINI: ${var.ai_gateway_mini}
         AI_GATEWAY_EMBEDDING: ${var.ai_gateway_embedding}
         DEFAULT_CATALOG: ${var.default_catalog}
+        # Internal deploy → show vendor logos in the architecture diagram by
+        # default (public build leaves this off; users opt in per diagram).
+        ENABLE_LOGO_BY_DEFAULT: "true"
