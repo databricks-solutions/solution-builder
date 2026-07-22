@@ -1846,6 +1846,11 @@ export interface ConfigStatus {
    *  AppConfig.default_catalog (env: DEFAULT_CATALOG); the resources popover
    *  uses this to mark the right entry as "(default)". */
   default_catalog: string;
+  /** Whether the architecture diagram shows vendor LOGOS by default (initial
+   *  state of the "logos on" toggle for a diagram that hasn't set it). Sourced
+   *  from ENABLE_LOGO_BY_DEFAULT — false in the public build, true on internal
+   *  Databricks deploys. */
+  enable_logo_by_default: boolean;
 }
 
 export async function getConfigStatus(): Promise<ConfigStatus> {

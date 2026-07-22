@@ -227,6 +227,7 @@ def get_config_status(session: Dependencies.Session, config: Dependencies.Config
         current_user=current_user,
         is_configured=is_configured,
         default_catalog=config.default_catalog,
+        enable_logo_by_default=config.enable_logo_by_default,
     )
 
 

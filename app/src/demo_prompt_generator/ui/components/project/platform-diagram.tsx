@@ -81,11 +81,16 @@ interface PlatformDiagramProps {
   /** Fired when the active diagram tab changes, with its NAME — the project page
    *  persists it to the URL (?archTab=) so refresh/share reopens the same tab. */
   onArchTabChange?: (name: string) => void;
+  /** Initial state of the vendor-LOGO toggle for a diagram that hasn't set it
+   *  itself. Public default false; internal Databricks deploys pass true (from
+   *  the ENABLE_LOGO_BY_DEFAULT env via /api/config/status). An explicit
+   *  per-diagram toggle still wins. Defaults false. */
+  defaultLogosOn?: boolean;
 }
 
 type SaveStatus = "idle" | "saving" | "saved" | "error";
 
-function PlatformDiagram({ content, deployedResources, projectId, defaultEditMode = true, readOnly, onSave, hideChrome, toolbarExtras: toolbarExtrasProp, onDirty, initialArchTab, onArchTabChange }: PlatformDiagramProps) {
+function PlatformDiagram({ content, deployedResources, projectId, defaultEditMode = true, readOnly, onSave, hideChrome, toolbarExtras: toolbarExtrasProp, onDirty, initialArchTab, onArchTabChange, defaultLogosOn = false }: PlatformDiagramProps) {
   // --- Guard against the diagram's own auto-save echoing back and reverting
   //     the canvas to a stale version. -------------------------------------
   // The canvas auto-saves architecture.md (debounced). That write trips the
@@ -171,11 +176,11 @@ function PlatformDiagram({ content, deployedResources, projectId, defaultEditMod
     if (activeBody === selfAuthoredBody.current && activeBody === builtBody.current && builtRef.current) {
       return builtRef.current;
     }
-    const parsed = parseArchitecture(activeBody);
+    const parsed = parseArchitecture(activeBody, defaultLogosOn);
     builtRef.current = parsed;
     builtBody.current = activeBody;
     return parsed;
-  }, [activeBody]);
+  }, [activeBody, defaultLogosOn]);
   // Trademark-logo opt-in is editable on the canvas; keep it as local state
   // seeded from the file, and fold it back onto the schema so both render and
   // save see it. (null until the user toggles → use the file's value.)

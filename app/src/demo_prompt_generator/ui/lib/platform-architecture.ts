@@ -1539,7 +1539,13 @@ function pickPlacement(n: FileNode): NodePosition["placement"] | undefined {
   return Object.keys(p).length ? p : undefined;
 }
 
-export function parseArchitecture(content: string): PlatformSchema {
+/** Parse a single-architecture body into the resolved schema.
+ *  `defaultLogosOn` sets the vendor-logo toggle's initial state ONLY when the
+ *  file hasn't explicitly set `options.trademarkLogos` — so an env-driven /
+ *  build-time default (public off, internal on) applies to un-toggled diagrams
+ *  while an explicit per-diagram choice always wins. Defaults to `false` (the
+ *  public default) so existing callers are unchanged. */
+export function parseArchitecture(content: string, defaultLogosOn = false): PlatformSchema {
   const file = parseArchitectureFile(content) ?? {};
   const nodes: Record<string, NodePosition> = {};
 
@@ -1698,7 +1704,7 @@ export function parseArchitecture(content: string): PlatformSchema {
   return {
     name: file?.name ?? "Solution architecture",
     story: file?.story,
-    enableTrademarkLogos: file?.options?.trademarkLogos ?? false,
+    enableTrademarkLogos: file?.options?.trademarkLogos ?? defaultLogosOn,
     ...(file?.columns?.length ? { columns: file.columns } : {}),
     ...(file?.rowGrid ? { rowGrid: true } : {}),
     bands: catalogSchemaBands(),

@@ -56,6 +56,7 @@ import {
   templateScreenshotUrl,
   templateScreenshotAtUrl,
   exportTemplate,
+  getConfigStatus,
   type TemplateDetail,
   type TemplateFile,
   type DemoResourceLinks,
@@ -122,6 +123,16 @@ export function TemplateGallerySheet({
   const [isDownloading, setIsDownloading] = useState(false);
   // Screenshot carousel index (0 = hero). Only meaningful when screenshot_count > 1.
   const [shotIndex, setShotIndex] = useState(0);
+  // Vendor-logo default for the read-only architecture preview (env
+  // ENABLE_LOGO_BY_DEFAULT): off in the public build, on internally.
+  const [defaultLogosOn, setDefaultLogosOn] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    getConfigStatus()
+      .then((c) => { if (alive) setDefaultLogosOn(!!c.enable_logo_by_default); })
+      .catch(() => { /* best-effort; stays false */ });
+    return () => { alive = false; };
+  }, []);
 
   // Included files (collapsible tree + content viewer).
   const [files, setFiles] = useState<TemplateFile[]>([]);
@@ -371,6 +382,7 @@ export function TemplateGallerySheet({
                               readOnly
                               hideChrome
                               onSave={() => {}}
+                              defaultLogosOn={defaultLogosOn}
                             />
                           </Suspense>
                         </div>
