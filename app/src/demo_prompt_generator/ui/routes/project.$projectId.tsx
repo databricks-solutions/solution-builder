@@ -61,6 +61,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import {
   getProject,
+  getConfigStatus,
   listProjectFiles,
   getProjectFile,
   listProjectMessages,
@@ -259,6 +260,18 @@ function ProjectPage() {
     },
     [navigate, projectId],
   );
+
+  // Whether the architecture diagram defaults its vendor-logo toggle ON —
+  // env-driven (ENABLE_LOGO_BY_DEFAULT): false in the public build, true on
+  // internal Databricks deploys. Fetched once from /api/config/status.
+  const [defaultLogosOn, setDefaultLogosOn] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    getConfigStatus()
+      .then((c) => { if (alive) setDefaultLogosOn(!!c.enable_logo_by_default); })
+      .catch(() => { /* best-effort; stays false (public default) */ });
+    return () => { alive = false; };
+  }, []);
 
   // Project state
   const [project, setProject] = useState<Project | null>(null);
@@ -2441,6 +2454,7 @@ function ProjectPage() {
             onArchitectureDirty={markArchitectureDirty}
             initialArchTab={archTabFromUrl}
             onArchTabChange={setArchTab}
+            defaultLogosOn={defaultLogosOn}
             architectureFirst={!!project?.architecture_first}
             isStreaming={isStreaming}
             resources={{

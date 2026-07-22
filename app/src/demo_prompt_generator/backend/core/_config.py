@@ -84,6 +84,17 @@ class AppConfig(BaseSettings):
         validation_alias="DEFAULT_CATALOG",
     )
 
+    # Whether the architecture diagram shows third-party / vendor LOGOS by
+    # default (the "logos on" toggle). Default OFF for the public build (users
+    # opt in per diagram); our internal Databricks deploys (prod/feprod/staging)
+    # set ENABLE_LOGO_BY_DEFAULT=true in databricks.<target>.yml's app_env so
+    # internal users see logos without clicking. A diagram that has EXPLICITLY
+    # toggled the flag keeps its own value — this only sets the default.
+    enable_logo_by_default: bool = Field(
+        default=False,
+        validation_alias="ENABLE_LOGO_BY_DEFAULT",
+    )
+
     # Admin emails for template review. Stored as a comma-separated string
     # so pydantic-settings doesn't try to JSON-decode it (its default
     # `list[str]` parser expects `["a","b"]` syntax and errors on a bare

@@ -108,6 +108,8 @@ interface FileViewerProps {
   /** Fired when the active diagram sub-tab changes — the route syncs it to the
    *  URL so refresh/share reopens the same diagram tab. */
   onArchTabChange?: (name: string) => void;
+  /** Vendor-logo toggle default (env ENABLE_LOGO_BY_DEFAULT) — see PlatformDiagram. */
+  defaultLogosOn?: boolean;
   /** Architecture-first project awaiting its build: hide Overview + Story
    *  tabs and default the workspace to the Architecture tab. */
   architectureFirst?: boolean;
@@ -224,6 +226,7 @@ interface ArchitectureViewProps {
   onArchitectureDirty?: () => void;
   initialArchTab?: string;
   onArchTabChange?: (name: string) => void;
+  defaultLogosOn?: boolean;
 }
 
 const ArchitectureView = memo(function ArchitectureView({
@@ -238,6 +241,7 @@ const ArchitectureView = memo(function ArchitectureView({
   onArchitectureDirty,
   initialArchTab,
   onArchTabChange,
+  defaultLogosOn,
 }: ArchitectureViewProps) {
   if (isCreatingArchitecture) {
     return (
@@ -275,6 +279,7 @@ const ArchitectureView = memo(function ArchitectureView({
               onDirty={onArchitectureDirty}
               initialArchTab={initialArchTab}
               onArchTabChange={onArchTabChange}
+              defaultLogosOn={defaultLogosOn}
             />
           </Suspense>
           {/* Reload spinner: the agent rewrote architecture.md and we're
@@ -838,6 +843,7 @@ export const FileViewer = memo(function FileViewer({
   onArchitectureDirty,
   initialArchTab,
   onArchTabChange,
+  defaultLogosOn,
   architectureFirst = false,
   isStreaming = false,
   resources,
@@ -1026,6 +1032,7 @@ export const FileViewer = memo(function FileViewer({
               onArchitectureDirty={onArchitectureDirty}
               initialArchTab={initialArchTab}
               onArchTabChange={onArchTabChange}
+              defaultLogosOn={defaultLogosOn}
             />
           ) : activeTab === "app" ? (
             <AppPreviewTab
