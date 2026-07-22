@@ -1,0 +1,7 @@
+{
+  "id": "aibi-supply-chain",
+  "name": "AI/BI Supply Chain Optimization",
+  "customer": "",
+  "industry": "Manufacturing",
+  "narrative": "You're the supply-chain planner at an e-bike manufacturer, watching component cover the way a pilot watches fuel. One line is flashing: the shared Battery Cell is projected to run out at the Rotterdam plant in about two weeks — against an eight-week supplier lead time. Every other component is fine, which makes the one bottleneck stand out.\n\nAsk Genie why now, and it traces the crunch to the City E-Bike's new EMEA market launch on April 20, which roughly doubled regional demand — and because every product uses the Battery Cell through the bill of materials, that surge drains it faster than it can be replenished. Synthetic data, a governed metric view, an AI/BI dashboard with a demand forecast, and Genie — a reorder the planner has to place today, not next week."
+}

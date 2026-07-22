@@ -1,0 +1,7 @@
+{
+  "id": "aibi-app-luxebeauty-returns",
+  "name": "LuxeBeauty Returns — Full App + Platform",
+  "customer": "LuxeBeauty",
+  "industry": "Retail & CPG",
+  "narrative": "Claire Dubois, a non-technical VP of Operations, opens her Monday console and sees refunds have tripled — ~$180K a week against a normal $60K — driven by three skincare products all running 30% return rates. She asks the assistant one question: why do I have so many returns?\n\nA Multi-Agent Supervisor routes it — Genie traces the spike through returns to a single bad production lot, a Knowledge Assistant surfaces the manufacturing incident report behind it, and an ML classifier finds the high-value customers hiding in the affected group (18 already tagged premium, 49 more the model surfaces) so the response can be tiered. One click resolves the queue. It's the flagship full-stack demo: an SDP pipeline, metric view, AI/BI dashboard, Genie, Knowledge Assistant, Multi-Agent Supervisor, an ML premium classifier, Lakebase and a Databricks App over the whole platform."
+}

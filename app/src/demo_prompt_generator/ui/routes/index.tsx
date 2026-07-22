@@ -9,7 +9,7 @@ import { ProjectTile } from "@/components/project/project-tile";
 import { ProjectInvitations } from "@/components/project/project-invitations";
 import { SharedWithMe } from "@/components/project/shared-with-me";
 import { TemplateTile } from "@/components/template/template-tile";
-import { TemplateDetailPopup } from "@/components/template/template-detail-popup";
+import { TemplateGallerySheet } from "@/components/template/gallery/template-gallery-sheet";
 import { CapabilitiesPanel, WORKSHOP_BASELINE } from "@/components/capabilities-panel";
 import { DatabricksAnimatedLogo } from "@/components/databricks-animated-logo";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -42,12 +42,14 @@ import {
   toggleProjectStar,
   extractFiles,
   searchTemplates,
+  createProjectFromTemplate,
   getMe,
   getCapabilities,
   streamSuggestCapabilities,
   type ProjectListItem,
   type ProjectShareOut,
   type TemplateSearchResult,
+  type TemplateDetail,
   type Capability,
   type CapabilityInput,
   type UseCaseIdea,
@@ -169,6 +171,20 @@ function Index() {
   const [matchingTemplates, setMatchingTemplates] = useState<TemplateSearchResult[]>([]);
   const [isSearchingTemplates, setIsSearchingTemplates] = useState(false);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
+  const [isForking, setIsForking] = useState(false);
+
+  // Fork a template into a new editable project (as-is — adapt happens post-fork
+  // via the "Make this demo yours" band on the project overview).
+  const handleForkTemplate = async (template: TemplateDetail) => {
+    setIsForking(true);
+    try {
+      const project = await createProjectFromTemplate(template.id, template.name);
+      navigate({ to: "/project/$projectId", params: { projectId: project.id } });
+    } catch (error) {
+      console.error("Failed to fork template:", error);
+      setIsForking(false);
+    }
+  };
 
   // Home-page file upload — drag-drop or paperclip-pick. The backend
   // extracts text once; we hold the result here and ship it BOTH to the
@@ -1819,11 +1835,23 @@ function Index() {
       </main>
       <div className="absolute inset-0 -z-20 h-full w-full bg-background" />
 
-      {/* Template detail popup */}
-      <TemplateDetailPopup
+      {/* Template detail slide-over */}
+      <TemplateGallerySheet
         templateId={selectedTemplateId}
         onClose={() => setSelectedTemplateId(null)}
+        onFork={handleForkTemplate}
       />
+
+      {/* Full-screen forking overlay */}
+      {isForking && (
+        <div className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-background/95 backdrop-blur-sm">
+          <div className="flex flex-col items-center gap-4">
+            <Loader2 className="h-12 w-12 animate-spin text-primary" />
+            <p className="text-lg font-semibold">Forking template…</p>
+            <p className="text-sm text-muted-foreground">Setting up your editable copy</p>
+          </div>
+        </div>
+      )}
 
     </div>
   );

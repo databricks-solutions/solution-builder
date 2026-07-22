@@ -634,6 +634,10 @@ class Template(SQLModel, table=True):
     owner_email: str = SQLField(max_length=255, index=True)
     industry: Optional[str] = SQLField(default=None, max_length=100)
     description: Optional[str] = SQLField(default=None, sa_column=Column(Text))  # Short summary
+    # LLM-style 1-2 paragraph storytelling summary shown at the TOP of the gallery
+    # sheet. NOT generated on the template side: authored in the seed folder's
+    # resources.json, or copied from the source project's `narrative` on publish.
+    narrative: Optional[str] = SQLField(default=None, sa_column=Column(Text))
     full_description: Optional[str] = SQLField(default=None, sa_column=Column(Text))  # Full README
     capabilities: Optional[str] = SQLField(default=None, sa_column=Column(Text))  # JSON array
     customer: Optional[str] = SQLField(default=None, max_length=255)  # Inherited from source project
@@ -659,6 +663,20 @@ class Template(SQLModel, table=True):
         Index("ix_templates_industry", "industry"),
         Index("ix_templates_official", "official"),
     )
+
+
+class TemplateScreenshot(SQLModel, table=True):
+    """An EXTRA gallery screenshot for a template (beyond the hero, which stays
+    on `Template.screenshot`). `ordinal` is 1-based (1 = template_screenshot_1.png)
+    so the sheet can render a small carousel: hero first, then these in order."""
+    __tablename__ = "template_screenshots"
+
+    id: str = SQLField(default_factory=generate_uuid, primary_key=True, max_length=50)
+    template_id: str = SQLField(
+        sa_column=Column(String(50), index=True, nullable=False)
+    )
+    ordinal: int = SQLField()  # 1-based; the hero (Template.screenshot) is 0
+    image: bytes = SQLField(sa_column=Column(LargeBinary, nullable=False))
 
 
 class TemplateContent(SQLModel, table=True):
@@ -1165,6 +1183,8 @@ class TemplateListItem(BaseModel):
     capabilities: Optional[list[str]] = None  # Parsed from JSON
     official: bool = False  # Curated/seeded template (featured treatment)
     has_screenshot: bool = False  # Whether a hero screenshot is available (GET .../screenshot)
+    # Total gallery images (hero + extras). 0 = none, 1 = hero only, >1 = carousel.
+    screenshot_count: int = 0
     submitted_at: datetime
     reviewed_at: Optional[datetime] = None
 
@@ -1177,11 +1197,15 @@ class TemplateDetail(BaseModel):
     owner_email: str
     industry: Optional[str]
     description: Optional[str]
+    # 1-2 paragraph storytelling summary shown atop the gallery sheet.
+    narrative: Optional[str] = None
     full_description: Optional[str]
     customer: Optional[str] = None  # Customer the source demo was built for
     capabilities: Optional[list[str]] = None
     official: bool = False
     has_screenshot: bool = False
+    # Total gallery images (hero + extras). 0 = none, 1 = hero only, >1 = carousel.
+    screenshot_count: int = 0
     submitted_at: datetime
     reviewed_at: Optional[datetime] = None
     reviewed_by: Optional[str] = None

@@ -1,25 +1,25 @@
 {
-  "short_description": "A travel company's AI Support Copilot auto-resolves cases \u2014 resolution time and cost per case drop while satisfaction holds. Ask Genie why: it traces the gain to the Copilot's GA launch.",
-  "capabilities": {
-    "buildable": [
-      "synthetic-data-gen",
-      "metric-views",
-      "aibi-dashboards",
-      "genie"
-    ],
-    "talking_track": [
-      "lakeflow-connect",
-      "unity-catalog",
-      "agent-bricks",
-      "genie-one"
-    ]
-  },
-  "created_resources": {
-    "catalog": "dbdemos_templates",
-    "schema": "aibi_customer_support",
-    "warehouse_id": "e9b34f7a2e4b0561",
-    "metric_view_name": "dbdemos_templates.aibi_customer_support.support_metrics",
-    "dashboard_id": "01f184ea849f1fd5a85191954476a52b",
-    "genie_space_id": "01f184eb55e6160ca97dbec5fb108dfc"
-  }
+    "short_description": "A travel company's AI Support Copilot auto-resolves cases — resolution time and cost per case drop while satisfaction holds. Ask Genie why: it traces the gain to the Copilot's GA launch.",
+    "capabilities": {
+        "buildable": [
+            "synthetic-data-gen",
+            "metric-views",
+            "aibi-dashboards",
+            "genie"
+        ],
+        "talking_track": [
+            "lakeflow-connect",
+            "unity-catalog",
+            "agent-bricks",
+            "genie-one"
+        ]
+    },
+    "created_resources": {
+        "catalog": "dbdemos_templates",
+        "schema": "aibi_customer_support",
+        "warehouse_id": "e9b34f7a2e4b0561",
+        "metric_view_name": "dbdemos_templates.aibi_customer_support.support_metrics",
+        "dashboard_id": "01f184ea849f1fd5a85191954476a52b",
+        "genie_space_id": "01f184eb55e6160ca97dbec5fb108dfc"
+    }
 }

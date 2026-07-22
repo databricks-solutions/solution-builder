@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -66,10 +67,18 @@ def _should_include_in_template(relative_path: str) -> bool:
     JUNK_NAMES = {
         ".env", ".ds_store", ".preview.pgid", ".preview.server.pid",
         "app.yaml.template", "template_screenshot.png",
+        # Seed-only per-folder metadata — read by the seeder, never shipped as a
+        # fork file (a real generated project has no manifest.json).
+        "manifest.json",
     }
     if name.lower() in JUNK_NAMES:
         return False
     if name.startswith(".env."):
+        return False
+    # Extra gallery screenshots (template_screenshot_1.png, _2.png, …) are
+    # gallery-only like the hero — loaded into the template_screenshots table,
+    # never shipped as fork files.
+    if re.fullmatch(r"template_screenshot_\d+\.png", name.lower()):
         return False
 
     # Junk extensions (compiled/binary/archive artifacts).
@@ -81,6 +90,28 @@ def _should_include_in_template(relative_path: str) -> bool:
         return False
 
     return True
+
+
+def _capabilities_from_resources_json(resources_json_text: str) -> list[str]:
+    """The project's REAL capability selection, flattened from its resources.json
+    `capabilities.{buildable, talking_track}` (buildable first, then talking_track,
+    deduped, order preserved). This is the source of truth — far better than
+    LLM-guessing the capabilities from the README. Returns [] on parse failure or
+    when the block is absent (caller falls back to the LLM extraction)."""
+    try:
+        caps = json.loads(resources_json_text).get("capabilities")
+    except (json.JSONDecodeError, AttributeError, ValueError):
+        return []
+    if not isinstance(caps, dict):
+        return list(caps) if isinstance(caps, list) else []
+    out: list[str] = []
+    seen: set[str] = set()
+    for group in ("buildable", "talking_track"):
+        for c in caps.get(group, []) or []:
+            if c not in seen:
+                seen.add(c)
+                out.append(c)
+    return out
 
 
 def _clear_created_resources(resources_json_bytes: bytes) -> bytes:
@@ -255,8 +286,22 @@ class TemplateService:
         if not readme_content:
             readme_content = f"# {project.name}\n\n{project.description or ''}"
 
-        # LLM extraction
+        # Real capabilities come from the project's own resources.json — the
+        # source of truth. Only fall back to the LLM's README guess if that
+        # block is missing/empty.
+        resources_text = None
+        for f in project_files:
+            if f.relative_path.lower() == "resources.json":
+                resources_text = decompress_content(f.content_compressed).decode("utf-8")
+                break
+        real_capabilities = (
+            _capabilities_from_resources_json(resources_text) if resources_text else []
+        )
+
+        # LLM extraction (still used for description + industry, and as the
+        # capabilities fallback when resources.json has none).
         extracted = _summarize_readme(self.llm, readme_content)
+        capabilities = real_capabilities or extracted.get("capabilities", [])
 
         # Generate embedding
         embedding = self.llm.get_embedding(readme_content)
@@ -270,8 +315,11 @@ class TemplateService:
             owner_email=owner_email,
             industry=extracted.get("industry"),
             description=extracted.get("description"),
+            # The story summary the project already generated from its README —
+            # copied verbatim, never re-generated on the template side.
+            narrative=project.narrative,
             full_description=readme_content,
-            capabilities=json.dumps(extracted.get("capabilities", [])),
+            capabilities=json.dumps(capabilities),
             customer=project.customer,
             submitted_at=utc_now(),
             source_project_id=project_id,
@@ -669,8 +717,9 @@ class TemplateService:
         if not project_files:
             raise ValueError(f"Project {project_id} has no files")
 
-        # Filter files (skip excluded) and capture README content
+        # Filter files (skip excluded) and capture README + resources.json content
         readme_content = None
+        resources_text = None
         filtered_files = []
         for f in project_files:
             if not _should_include_in_template(f.relative_path):
@@ -679,6 +728,8 @@ class TemplateService:
             # Capture README for embedding update
             if f.relative_path.lower() == "readme.md":
                 readme_content = decompress_content(f.content_compressed).decode("utf-8")
+            elif f.relative_path.lower() == "resources.json":
+                resources_text = decompress_content(f.content_compressed).decode("utf-8")
 
         # Smooth sync: only touch changed/added/removed files (no delete-all churn).
         _upsert_template_content(
@@ -692,13 +743,18 @@ class TemplateService:
         if not readme_content:
             readme_content = f"# {project.name}\n\n{project.description or ''}"
 
-        # Update template metadata from LLM
+        # Real capabilities from the project's resources.json (source of truth);
+        # LLM only for description/industry + capabilities fallback.
+        real_capabilities = (
+            _capabilities_from_resources_json(resources_text) if resources_text else []
+        )
         extracted = _summarize_readme(self.llm, readme_content)
         template.name = project.name
         template.industry = extracted.get("industry")
         template.description = extracted.get("description")
+        template.narrative = project.narrative
         template.full_description = readme_content
-        template.capabilities = json.dumps(extracted.get("capabilities", []))
+        template.capabilities = json.dumps(real_capabilities or extracted.get("capabilities", []))
         template.customer = project.customer
         template.source_project_id = project_id
 

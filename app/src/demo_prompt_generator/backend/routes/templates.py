@@ -25,6 +25,7 @@ from ..models import (
     TemplateFile,
     TemplateFileContent,
     TemplateListItem,
+    TemplateScreenshot,
     TemplateSearchResult,
     TemplateStatusUpdateRequest,
 )
@@ -142,10 +143,18 @@ def list_templates(
     templates = session.exec(query).all()
 
     # `has_screenshot` without loading the ~half-MB blob per row: one cheap query
-    # for the set of template_ids that have a non-null screenshot.
+    # for the set of template_ids that have a non-null hero screenshot.
     ids_with_shot = set(session.exec(
         select(Template.id).where(Template.screenshot.isnot(None))
     ).all())
+    # Extra-screenshot counts per template (one grouped query, no blobs loaded).
+    extra_counts: dict[str, int] = {
+        tid: n
+        for tid, n in session.exec(
+            select(TemplateScreenshot.template_id, func.count())
+            .group_by(TemplateScreenshot.template_id)
+        ).all()
+    }
 
     return [
         TemplateListItem(
@@ -159,6 +168,7 @@ def list_templates(
             capabilities=_parse_capabilities(t.capabilities),
             official=t.official,
             has_screenshot=t.id in ids_with_shot,
+            screenshot_count=(1 if t.id in ids_with_shot else 0) + extra_counts.get(t.id, 0),
             submitted_at=t.submitted_at,
             reviewed_at=t.reviewed_at,
         )
@@ -199,6 +209,14 @@ def get_template(
         .where(TemplateContent.template_id == template_id)
     ).one()
 
+    # Total gallery images = hero (if any) + extra rows.
+    extra_count = session.exec(
+        select(func.count())
+        .select_from(TemplateScreenshot)
+        .where(TemplateScreenshot.template_id == template_id)
+    ).one()
+    screenshot_count = (1 if template.screenshot is not None else 0) + extra_count
+
     return TemplateDetail(
         id=template.id,
         name=template.name,
@@ -206,11 +224,13 @@ def get_template(
         owner_email=template.owner_email,
         industry=template.industry,
         description=template.description,
+        narrative=template.narrative,
         customer=template.customer,
         full_description=template.full_description,
         capabilities=_parse_capabilities(template.capabilities),
         official=template.official,
         has_screenshot=template.screenshot is not None,
+        screenshot_count=screenshot_count,
         submitted_at=template.submitted_at,
         reviewed_at=template.reviewed_at,
         reviewed_by=template.reviewed_by,
@@ -341,6 +361,53 @@ def get_template_screenshot(
 
     return Response(
         content=template.screenshot,
+        media_type="image/png",
+        headers={"Cache-Control": "public, max-age=3600"},
+    )
+
+
+@router.get(
+    "/templates/{template_id}/screenshot/{index}",
+    operation_id="getTemplateScreenshotAt",
+    responses={200: {"content": {"image/png": {}}}},
+)
+def get_template_screenshot_at(
+    template_id: str,
+    index: int,
+    session: Dependencies.Session,
+    headers: Dependencies.Headers,
+    config: Dependencies.Config,
+):
+    """Serve the Nth gallery image (PNG). index 0 = the hero
+    (`Template.screenshot`); index >= 1 = the extra with `ordinal == index`.
+    404 if that image doesn't exist. Same visibility rule as the detail endpoint."""
+    user_email = _get_user_email(headers)
+    is_admin = user_email in config.template_admin_emails
+
+    template = session.exec(
+        select(Template).where(Template.id == template_id)
+    ).first()
+    if not template:
+        raise HTTPException(status_code=404, detail="Template not found")
+    if not is_admin and template.status != "APPROVED" and template.owner_email != user_email:
+        raise HTTPException(status_code=404, detail="Template not found")
+
+    if index == 0:
+        image = template.screenshot
+    else:
+        shot = session.exec(
+            select(TemplateScreenshot).where(
+                TemplateScreenshot.template_id == template_id,
+                TemplateScreenshot.ordinal == index,
+            )
+        ).first()
+        image = shot.image if shot else None
+
+    if not image:
+        raise HTTPException(status_code=404, detail="No screenshot at this index")
+
+    return Response(
+        content=image,
         media_type="image/png",
         headers={"Cache-Control": "public, max-age=3600"},
     )

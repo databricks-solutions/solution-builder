@@ -1,52 +1,52 @@
 {
-  "short_description": "The flagship full-stack demo: a VP Ops asks an agent why refunds spike, a Multi-Agent Supervisor traces it to a bad production lot, and one click clears the ticket queue \u2014 a Databricks App on Lakebase over the full platform.",
-  "capabilities": {
-    "buildable": [
-      "synthetic-data-gen",
-      "sdp",
-      "metric-views",
-      "aibi-dashboards",
-      "genie",
-      "knowledge-assistant",
-      "supervisor-agent",
-      "ml-training-serving",
-      "lakebase",
-      "databricks-apps"
-    ],
-    "talking_track": [
-      "lakeflow-connect",
-      "unity-catalog",
-      "databricks-one",
-      "genie-code",
-      "ai-functions"
-    ]
-  },
-  "created_resources": {
-    "workspace_folder": "/Workspace/Users/quentin.ambard@databricks.com/luxebeauty_demo",
-    "catalog": "retail_consumer_goods",
-    "schema": "luxebeauty_demo",
-    "warehouse_id": "75fd8278393d07eb",
-    "pipeline_id": "6899b481-76df-47cc-bb0e-5311bbbd22d7",
-    "ml_model_name": "retail_consumer_goods.luxebeauty_demo.customer_premium_classifier",
-    "mlflow_experiment_path": "/Workspace/Users/quentin.ambard@databricks.com/luxebeauty_demo/experiments/premium_classifier",
-    "agent_mlflow_experiment_path": "/Shared/solution_builder/sln-builder-luxebeauty-demo-agent-traces",
-    "metric_view_name": "retail_consumer_goods.luxebeauty_demo.mv_returns",
-    "genie_space_id": "01f165c3f19e19968a1e180ff8fd5e94",
-    "dashboard_id": "01f165c28bfd13a79fb66a71c49d56ca",
-    "knowledge_assistant_id": "a700b36c-e5ca-4825-baee-58f957821308",
-    "knowledge_assistant_endpoint": "ka-a700b36c-endpoint",
-    "multi_agent_supervisor_id": "73efcd8f-2dd3-424d-873b-eb052d1b4cad",
-    "multi_agent_supervisor_endpoint": "mas-73efcd8f-endpoint",
-    "lakebase_project_id": "8423d8ac-55d8-4761-aeed-8668fbbfa2d2",
-    "lakebase_project_slug": "dbdemos-asset-generator",
-    "lakebase_database": "dbgen_luxebeauty_demo",
-    "pdf_volume": "/Volumes/retail_consumer_goods/luxebeauty_demo/manufacturing_reports",
-    "app": {
-      "name": "sln-builder-luxebeauty-demo",
-      "id": "99eb2656-da78-4210-9d41-cc704c9b870c",
-      "url": "https://sln-builder-luxebeauty-demo-2556758628403379.aws.databricksapps.com",
-      "deployment_note": "Deployed to e2-demo-west. SP role 99eb2656... granted public-schema CREATE+USAGE via lakebase_grant_app_credential.sh (role pre-created manually since interactive deploy doesn't auto-provision)."
+    "short_description": "The flagship full-stack demo: a VP Ops asks an agent why refunds spike, a Multi-Agent Supervisor traces it to a bad production lot, and one click clears the ticket queue — a Databricks App on Lakebase over the full platform.",
+    "capabilities": {
+        "buildable": [
+            "synthetic-data-gen",
+            "sdp",
+            "metric-views",
+            "aibi-dashboards",
+            "genie",
+            "knowledge-assistant",
+            "supervisor-agent",
+            "ml-training-serving",
+            "lakebase",
+            "databricks-apps"
+        ],
+        "talking_track": [
+            "lakeflow-connect",
+            "unity-catalog",
+            "databricks-one",
+            "genie-code",
+            "ai-functions"
+        ]
     },
-    "bad_lot_id": "LOT-2026-0430"
-  }
+    "created_resources": {
+        "workspace_folder": "/Workspace/Users/quentin.ambard@databricks.com/luxebeauty_demo",
+        "catalog": "retail_consumer_goods",
+        "schema": "luxebeauty_demo",
+        "warehouse_id": "75fd8278393d07eb",
+        "pipeline_id": "6899b481-76df-47cc-bb0e-5311bbbd22d7",
+        "ml_model_name": "retail_consumer_goods.luxebeauty_demo.customer_premium_classifier",
+        "mlflow_experiment_path": "/Workspace/Users/quentin.ambard@databricks.com/luxebeauty_demo/experiments/premium_classifier",
+        "agent_mlflow_experiment_path": "/Shared/solution_builder/sln-builder-luxebeauty-demo-agent-traces",
+        "metric_view_name": "retail_consumer_goods.luxebeauty_demo.mv_returns",
+        "genie_space_id": "01f165c3f19e19968a1e180ff8fd5e94",
+        "dashboard_id": "01f165c28bfd13a79fb66a71c49d56ca",
+        "knowledge_assistant_id": "a700b36c-e5ca-4825-baee-58f957821308",
+        "knowledge_assistant_endpoint": "ka-a700b36c-endpoint",
+        "multi_agent_supervisor_id": "73efcd8f-2dd3-424d-873b-eb052d1b4cad",
+        "multi_agent_supervisor_endpoint": "mas-73efcd8f-endpoint",
+        "lakebase_project_id": "8423d8ac-55d8-4761-aeed-8668fbbfa2d2",
+        "lakebase_project_slug": "dbdemos-asset-generator",
+        "lakebase_database": "dbgen_luxebeauty_demo",
+        "pdf_volume": "/Volumes/retail_consumer_goods/luxebeauty_demo/manufacturing_reports",
+        "app": {
+            "name": "sln-builder-luxebeauty-demo",
+            "id": "99eb2656-da78-4210-9d41-cc704c9b870c",
+            "url": "https://sln-builder-luxebeauty-demo-2556758628403379.aws.databricksapps.com",
+            "deployment_note": "Deployed to e2-demo-west. SP role 99eb2656... granted public-schema CREATE+USAGE via lakebase_grant_app_credential.sh (role pre-created manually since interactive deploy doesn't auto-provision)."
+        },
+        "bad_lot_id": "LOT-2026-0430"
+    }
 }

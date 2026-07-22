@@ -15,7 +15,6 @@ import { Route as SetupRouteImport } from './routes/setup'
 import { Route as ProjectsRouteImport } from './routes/projects'
 import { Route as ProfileRouteImport } from './routes/profile'
 import { Route as InternalDemosRouteImport } from './routes/internal-demos'
-import { Route as GalleryRouteImport } from './routes/gallery'
 import { Route as BrandRouteImport } from './routes/brand'
 import { Route as AboutRouteImport } from './routes/about'
 import { Route as IndexRouteImport } from './routes/index'
@@ -51,11 +50,6 @@ const InternalDemosRoute = InternalDemosRouteImport.update({
   path: '/internal-demos',
   getParentRoute: () => rootRouteImport,
 } as any)
-const GalleryRoute = GalleryRouteImport.update({
-  id: '/gallery',
-  path: '/gallery',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const BrandRoute = BrandRouteImport.update({
   id: '/brand',
   path: '/brand',
@@ -81,7 +75,6 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
   '/brand': typeof BrandRoute
-  '/gallery': typeof GalleryRoute
   '/internal-demos': typeof InternalDemosRoute
   '/profile': typeof ProfileRoute
   '/projects': typeof ProjectsRoute
@@ -94,7 +87,6 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
   '/brand': typeof BrandRoute
-  '/gallery': typeof GalleryRoute
   '/internal-demos': typeof InternalDemosRoute
   '/profile': typeof ProfileRoute
   '/projects': typeof ProjectsRoute
@@ -108,7 +100,6 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
   '/brand': typeof BrandRoute
-  '/gallery': typeof GalleryRoute
   '/internal-demos': typeof InternalDemosRoute
   '/profile': typeof ProfileRoute
   '/projects': typeof ProjectsRoute
@@ -123,7 +114,6 @@ export interface FileRouteTypes {
     | '/'
     | '/about'
     | '/brand'
-    | '/gallery'
     | '/internal-demos'
     | '/profile'
     | '/projects'
@@ -136,7 +126,6 @@ export interface FileRouteTypes {
     | '/'
     | '/about'
     | '/brand'
-    | '/gallery'
     | '/internal-demos'
     | '/profile'
     | '/projects'
@@ -149,7 +138,6 @@ export interface FileRouteTypes {
     | '/'
     | '/about'
     | '/brand'
-    | '/gallery'
     | '/internal-demos'
     | '/profile'
     | '/projects'
@@ -163,7 +151,6 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AboutRoute: typeof AboutRoute
   BrandRoute: typeof BrandRoute
-  GalleryRoute: typeof GalleryRoute
   InternalDemosRoute: typeof InternalDemosRoute
   ProfileRoute: typeof ProfileRoute
   ProjectsRoute: typeof ProjectsRoute
@@ -217,13 +204,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof InternalDemosRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/gallery': {
-      id: '/gallery'
-      path: '/gallery'
-      fullPath: '/gallery'
-      preLoaderRoute: typeof GalleryRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/brand': {
       id: '/brand'
       path: '/brand'
@@ -259,7 +239,6 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AboutRoute: AboutRoute,
   BrandRoute: BrandRoute,
-  GalleryRoute: GalleryRoute,
   InternalDemosRoute: InternalDemosRoute,
   ProfileRoute: ProfileRoute,
   ProjectsRoute: ProjectsRoute,

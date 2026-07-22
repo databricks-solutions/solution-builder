@@ -20,7 +20,43 @@ import {
   AIBIBrandIcon,
   GenieBrandIcon,
   DatabricksAppsBrandIcon,
+  SDPBrandIcon,
 } from "@/components/databricks-icons";
+
+/** The headline capabilities we surface as brand-icon chips on a tile, in a
+ *  fixed order (data → BI → conversational → app). Keyed by capability id. */
+const CAPABILITY_LOGOS: Array<{
+  id: string;
+  label: string;
+  icon: ComponentType<SVGProps<SVGSVGElement>>;
+}> = [
+  { id: "sdp", label: "SDP pipeline", icon: SDPBrandIcon },
+  { id: "aibi-dashboards", label: "AI/BI Dashboard", icon: AIBIBrandIcon },
+  { id: "genie", label: "Genie", icon: GenieBrandIcon },
+  { id: "databricks-apps", label: "Databricks App", icon: DatabricksAppsBrandIcon },
+];
+
+/** Row of brand-icon chips for the demo's headline capabilities (SDP / Dashboard
+ *  / Genie / App), shown when the template's capabilities include them. */
+function CapabilityLogos({ capabilities }: { capabilities: string[] | null | undefined }) {
+  if (!capabilities || capabilities.length === 0) return null;
+  const present = CAPABILITY_LOGOS.filter((c) => capabilities.includes(c.id));
+  if (present.length === 0) return null;
+  return (
+    <div className="mt-3 flex flex-wrap items-center gap-1.5">
+      {present.map(({ id, label, icon: Icon }) => (
+        <span
+          key={id}
+          title={label}
+          className="inline-flex items-center gap-1 rounded-md border border-border/60 bg-muted/40 px-1.5 py-1 text-[10.5px] font-medium text-muted-foreground"
+        >
+          <Icon className="h-3.5 w-3.5" />
+          {label}
+        </span>
+      ))}
+    </div>
+  );
+}
 import {
   templateScreenshotUrl,
   type TemplateListItem,
@@ -127,10 +163,16 @@ export const TemplateGalleryTile = memo(function TemplateGalleryTile({
           {template.name}
         </h3>
         {template.description && (
-          <p className="mt-2 line-clamp-3 flex-1 text-[12.5px] leading-relaxed text-muted-foreground">
+          <p className="mt-2 line-clamp-3 text-[12.5px] leading-relaxed text-muted-foreground">
             {template.description}
           </p>
         )}
+
+        {/* Headline capability logos (SDP / Dashboard / Genie / App) — what the
+            solution is made of, at a glance. Derived from the capabilities list. */}
+        <div className="flex-1">
+          <CapabilityLogos capabilities={template.capabilities} />
+        </div>
 
         {/* Quick links (internal gallery only) — open app / dashboard / Genie /
             data directly from the tile. */}

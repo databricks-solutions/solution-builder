@@ -1,0 +1,7 @@
+{
+  "id": "aibi-patient-genomics",
+  "name": "AI/BI Patient Genomics Review for Oncology",
+  "customer": "",
+  "industry": "Healthcare & Life Sciences",
+  "narrative": "You're a translational oncology lead deciding where a new targeted therapy, OncoTarget-1, actually belongs. Across a ~10,000-patient TCGA-style cohort the drug shows a modest overall survival benefit — but a flat average hides the truth, and using it everywhere would help some patients and harm others.\n\nAsk Genie which subgroup benefits and the answer isn't an organ — it's a molecular signature. Within breast cancer a distinct gene-expression subtype (a tight cluster in the UMAP view) reaches ~99% two-year survival versus ~84-89% on standard of care, while the drug is not indicated for ovarian and prostate cancer, where treated patients do worse. Synthetic genomics data, a governed metric view, an AI/BI dashboard and Genie — precision oncology grounded in one lakehouse."
+}

@@ -35,7 +35,9 @@ export default defineConfig(({ mode: _mode }) => {
       __IS_ELECTRON__: JSON.stringify(isElectron),
     },
     server: {
-      port: 5173,
+      // Listen port. Override with VITE_PORT to run a second instance in
+      // parallel (dev.sh's PORT_OFFSET sets this + VITE_BACKEND_URL together).
+      port: Number(process.env.VITE_PORT) || 5173,
       proxy: {
         "/api": {
           // Backend origin. Override with VITE_BACKEND_URL when the backend

@@ -1331,6 +1331,8 @@ export interface TemplateListItem {
   official?: boolean;
   /** Whether a hero screenshot exists (fetch via templateScreenshotUrl). */
   has_screenshot?: boolean;
+  /** Total gallery images (hero + extras). >1 → the sheet shows a carousel. */
+  screenshot_count?: number;
   submitted_at: string;
   reviewed_at: string | null;
 }
@@ -1338,6 +1340,11 @@ export interface TemplateListItem {
 /** URL for a template's hero screenshot (PNG). Use as an <img src>. */
 export function templateScreenshotUrl(templateId: string): string {
   return apiUrl(`/api/templates/${templateId}/screenshot`);
+}
+
+/** URL for the Nth gallery image (0 = hero, ≥1 = extras). Use as an <img src>. */
+export function templateScreenshotAtUrl(templateId: string, index: number): string {
+  return apiUrl(`/api/templates/${templateId}/screenshot/${index}`);
 }
 
 /** Admin-only: toggle a template's `official` (curated) flag. */
@@ -1355,6 +1362,8 @@ export async function setTemplateOfficial(
 }
 
 export interface TemplateDetail extends TemplateListItem {
+  /** 1-2 paragraph storytelling summary shown atop the gallery sheet. */
+  narrative: string | null;
   full_description: string | null;
   reviewed_by: string | null;
   source_project_id: string | null;

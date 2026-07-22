@@ -76,11 +76,6 @@ function TemplatesPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [searchRank, setSearchRank] = useState<string[] | null>(null); // ordered template ids, or null
 
-  const selectedTemplate = useMemo(
-    () => templates.find((t) => t.id === selectedTemplateId) ?? null,
-    [templates, selectedTemplateId],
-  );
-
   // Debounced vector search: hit /templates/search, keep the ranked id order.
   // Falls back to text search server-side (PGLite). Clearing the box restores
   // the plain listing.
@@ -115,11 +110,12 @@ function TemplatesPage() {
     return searchRank.map((id) => byId.get(id)).filter((t): t is TemplateListItem => Boolean(t));
   };
 
-  // Fork a template into a new editable project (same flow as the sheet's CTA).
-  const handleFork = async (template: TemplateDetail, adaptInstructions?: string) => {
+  // Fork a template into a new editable project (as-is — adapt happens post-fork
+  // via the "Make this demo yours" band on the project overview).
+  const handleFork = async (template: TemplateDetail) => {
     setIsForking(true);
     try {
-      const project = await createProjectFromTemplate(template.id, template.name, adaptInstructions);
+      const project = await createProjectFromTemplate(template.id, template.name);
       navigate({ to: "/project/$projectId", params: { projectId: project.id } });
     } catch (error) {
       console.error("Failed to fork template:", error);
@@ -502,7 +498,7 @@ function TemplatesPage() {
 
       {/* Template detail slide-over */}
       <TemplateGallerySheet
-        template={selectedTemplate}
+        templateId={selectedTemplateId}
         onClose={() => setSelectedTemplateId(null)}
         onFork={handleFork}
       />
