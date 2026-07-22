@@ -1,0 +1,98 @@
+{
+  "version": 2,
+  "config": {
+    "sample_questions": [
+      { "id": "10000000000000000000000000000001", "question": ["Why is Nursing over budget?"] },
+      { "id": "10000000000000000000000000000002", "question": ["How much of the overrun is agency labor?"] },
+      { "id": "10000000000000000000000000000003", "question": ["Which vendor drove the increase in contract labor?"] },
+      { "id": "10000000000000000000000000000004", "question": ["Which hospitals are driving the overrun?"] },
+      { "id": "10000000000000000000000000000005", "question": ["Is revenue up or down this year?"] },
+      { "id": "10000000000000000000000000000006", "question": ["How does agency nurse cost compare to employed nurses?"] },
+      { "id": "10000000000000000000000000000007", "question": ["What's the full-year opex forecast vs. budget?"] },
+      { "id": "10000000000000000000000000000008", "question": ["What would we save if agency hours returned to last year's level?"] }
+    ]
+  },
+  "data_sources": {
+    "tables": [
+      { "identifier": "{{CATALOG}}.{{SCHEMA}}.gold_budget_variance" },
+      { "identifier": "{{CATALOG}}.{{SCHEMA}}.gold_facility_variance" },
+      { "identifier": "{{CATALOG}}.{{SCHEMA}}.gold_opex_forecast" },
+      { "identifier": "{{CATALOG}}.{{SCHEMA}}.gold_revenue" },
+      { "identifier": "{{CATALOG}}.{{SCHEMA}}.gold_staffing_summary" },
+      { "identifier": "{{CATALOG}}.{{SCHEMA}}.gold_vendor_spend" }
+    ]
+  },
+  "instructions": {
+    "text_instructions": [
+      {
+        "id": "30000000000000000000000000000001",
+        "content": [
+          "You analyze operating-expense budget variance for the CFO (Dana Reyes) of a regional health system. Non-technical, board-focused. Lead with the answer, then the numbers. Use $ and % formatting.\n",
+          "BASELINES: Full-year opex budget is ~$820M; the AI_FORECAST projection lands ~$825M -> ~$4.8M over and still widening. Opex tracked to budget through spring, then crossed above budget over the summer. Recognized revenue is roughly flat YoY (~+1.3%, bumpy month to month) - so this is a COST problem, not a demand problem; say so. A healthy budget variance is within +/-1% by department; Nursing is the outlier (+$3.57M).\n",
+          "THE ROOT CAUSE (the punchline - always drive toward this): the overrun concentrates in ONE department (Nursing) and ONE line item (Contract Labor, +$3.58M ~= the whole Nursing miss). Employed nursing headcount is flat; agency nurse HOURS ramp from an index of ~100 to ~280 (nearly 3x) at ~2x the hourly cost of an employed RN (~$105/hr agency vs ~$52/hr employed); agency labor spend is ~$16.4M. The agency-spend growth traces to ONE vendor: Apex Clinical Staffing (~3.5x YoY, ~$0.9M -> ~$3.2M). Geographically it lands at TWO of the four hospitals: Lakeshore Medical Center and Riverside Community Hospital (~$1.8M of Nursing contract-labor overrun each); North Suburban Hospital and Westgate Regional Medical are near zero.\n",
+          "INVESTIGATION FLOW for 'Why is Nursing over budget?': (1) gold_budget_variance -> Nursing is the top variance; within Nursing, Contract Labor is the driver (+$3.58M). (2) gold_staffing_summary WHERE department='Nursing' -> employed hours flat, agency hours climbing, agency ~2x cost/hr. (3) gold_vendor_spend WHERE department='Nursing' -> Apex Clinical Staffing dominates, up ~3.5x YoY. (4) gold_facility_variance -> the overrun concentrates at Lakeshore + Riverside, not system-wide. (5) Conclude: it's contract labor - RN vacancies backfilled with agency nurses at ~2x cost, mostly through one vendor, concentrated at two hospitals.\n",
+          "TABLES: gold_budget_variance = full-year projected variance by department + expense_category (variance_usd = actual - budget). gold_staffing_summary = monthly hours + cost by department + worker_type (Employed vs Agency); avg_hourly_cost_usd shows the ~2x agency premium. gold_vendor_spend = agency spend by vendor with spend_prior_year_usd and yoy_multiple. gold_opex_forecast = monthly actual + AI_FORECAST projection with budget (series_type = actual/forecast). gold_revenue = monthly revenue vs prior year with revenue_yoy_pct. gold_facility_variance = one row per hospital (facility_name, city, latitude, longitude) with total_variance_usd and nursing_contract_labor_variance_usd - use it for 'which hospitals / where is the overrun' questions.\n",
+          "Answer in a sentence first, then the supporting numbers. Never expose individual compensation - you only have aggregated gold tables."
+        ]
+      }
+    ],
+    "example_question_sqls": [
+      {
+        "id": "20000000000000000000000000000001",
+        "question": ["Variance by department"],
+        "sql": [
+          "SELECT department, ROUND(SUM(variance_usd), 0) AS variance_usd\n",
+          "FROM {{CATALOG}}.{{SCHEMA}}.gold_budget_variance\n",
+          "GROUP BY department ORDER BY variance_usd DESC"
+        ]
+      },
+      {
+        "id": "20000000000000000000000000000002",
+        "question": ["Nursing employed vs agency hours and cost per hour"],
+        "sql": [
+          "SELECT worker_type,\n",
+          "       ROUND(SUM(total_hours), 0) AS total_hours,\n",
+          "       ROUND(SUM(total_labor_cost_usd), 0) AS total_labor_cost_usd,\n",
+          "       ROUND(AVG(avg_hourly_cost_usd), 0) AS avg_hourly_cost_usd\n",
+          "FROM {{CATALOG}}.{{SCHEMA}}.gold_staffing_summary\n",
+          "WHERE department = 'Nursing'\n",
+          "GROUP BY worker_type ORDER BY worker_type"
+        ]
+      },
+      {
+        "id": "20000000000000000000000000000003",
+        "question": ["Which staffing vendor grew the most in Nursing?"],
+        "sql": [
+          "SELECT vendor_name,\n",
+          "       ROUND(spend_ytd_usd, 0) AS spend_ytd_usd,\n",
+          "       ROUND(spend_prior_year_usd, 0) AS spend_prior_year_usd,\n",
+          "       yoy_multiple\n",
+          "FROM {{CATALOG}}.{{SCHEMA}}.gold_vendor_spend\n",
+          "WHERE department = 'Nursing'\n",
+          "ORDER BY spend_ytd_usd DESC"
+        ]
+      },
+      {
+        "id": "20000000000000000000000000000004",
+        "question": ["Full-year opex forecast vs budget"],
+        "sql": [
+          "SELECT ROUND(SUM(forecast_opex_usd), 0) AS forecast_opex_usd,\n",
+          "       ROUND(SUM(budget_opex_usd), 0) AS budget_opex_usd,\n",
+          "       ROUND(SUM(forecast_opex_usd) - SUM(budget_opex_usd), 0) AS variance_usd\n",
+          "FROM {{CATALOG}}.{{SCHEMA}}.gold_opex_forecast"
+        ]
+      },
+      {
+        "id": "20000000000000000000000000000005",
+        "question": ["Which hospitals are driving the overrun?"],
+        "sql": [
+          "SELECT facility_name, city,\n",
+          "       ROUND(total_variance_usd, 0) AS total_variance_usd,\n",
+          "       ROUND(nursing_contract_labor_variance_usd, 0) AS nursing_contract_labor_variance_usd\n",
+          "FROM {{CATALOG}}.{{SCHEMA}}.gold_facility_variance\n",
+          "ORDER BY total_variance_usd DESC"
+        ]
+      }
+    ]
+  }
+}

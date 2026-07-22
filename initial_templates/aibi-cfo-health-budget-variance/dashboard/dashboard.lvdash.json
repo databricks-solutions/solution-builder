@@ -1,0 +1,1401 @@
+{
+  "datasets": [
+    {
+      "name": "ds_kpi",
+      "displayName": "Headline KPIs (YTD, one row per fiscal_month)",
+      "queryLines": [
+        "-- One dataset feeding all four headline counters. One row per fiscal_month carrying each\n",
+        "-- KPI as a running-YTD column; every counter reads the LATEST month via its period encoding\n",
+        "-- (and the fiscal_month column keeps the global date filter working). Merged from the former\n",
+        "-- ds_kpi_variance / ds_kpi_margin / ds_kpi_revenue / ds_kpi_agency.\n",
+        "WITH v AS (\n",
+        "  SELECT fiscal_month,\n",
+        "         SUM(COALESCE(actual_opex_usd, forecast_opex_usd) - budget_opex_usd)\n",
+        "           OVER (ORDER BY fiscal_month) AS full_year_variance_usd\n",
+        "  FROM dbdemos_templates.aibi_cfo_health_budget_variance.gold_opex_forecast\n",
+        "),\n",
+        "mm AS (\n",
+        "  SELECT r.fiscal_month, r.net_patient_revenue_usd - o.opex_usd AS monthly_margin_usd\n",
+        "  FROM dbdemos_templates.aibi_cfo_health_budget_variance.gold_revenue r\n",
+        "  JOIN (SELECT fiscal_month, COALESCE(actual_opex_usd, forecast_opex_usd) AS opex_usd\n",
+        "        FROM dbdemos_templates.aibi_cfo_health_budget_variance.gold_opex_forecast) o USING (fiscal_month)\n",
+        "),\n",
+        "m AS (\n",
+        "  SELECT fiscal_month,\n",
+        "         SUM(monthly_margin_usd) OVER (ORDER BY fiscal_month) AS ytd_operating_margin_usd\n",
+        "  FROM mm\n",
+        "),\n",
+        "r AS (\n",
+        "  SELECT fiscal_month,\n",
+        "         SUM(net_patient_revenue_usd) OVER (ORDER BY fiscal_month)\n",
+        "           / NULLIF(SUM(prior_year_revenue_usd) OVER (ORDER BY fiscal_month), 0) - 1 AS revenue_yoy_pct\n",
+        "  FROM dbdemos_templates.aibi_cfo_health_budget_variance.gold_revenue\n",
+        "),\n",
+        "am AS (\n",
+        "  SELECT fiscal_month, SUM(total_labor_cost_usd) AS monthly_agency_usd\n",
+        "  FROM dbdemos_templates.aibi_cfo_health_budget_variance.gold_staffing_summary\n",
+        "  WHERE worker_type = 'Agency' GROUP BY fiscal_month\n",
+        "),\n",
+        "a AS (\n",
+        "  SELECT fiscal_month,\n",
+        "         SUM(monthly_agency_usd) OVER (ORDER BY fiscal_month) AS agency_labor_spend_usd\n",
+        "  FROM am\n",
+        ")\n",
+        "SELECT v.fiscal_month,\n",
+        "       v.full_year_variance_usd,\n",
+        "       m.ytd_operating_margin_usd,\n",
+        "       r.revenue_yoy_pct,\n",
+        "       a.agency_labor_spend_usd\n",
+        "FROM v\n",
+        "JOIN m USING (fiscal_month)\n",
+        "JOIN r USING (fiscal_month)\n",
+        "JOIN a USING (fiscal_month)\n",
+        "ORDER BY v.fiscal_month"
+      ]
+    },
+    {
+      "name": "ds_revenue",
+      "displayName": "Revenue vs prior year",
+      "queryLines": [
+        "SELECT fiscal_month, 'This year' AS series, net_patient_revenue_usd AS revenue_usd FROM dbdemos_templates.aibi_cfo_health_budget_variance.gold_revenue\n",
+        "UNION ALL\n",
+        "SELECT fiscal_month, 'Prior year' AS series, prior_year_revenue_usd AS revenue_usd FROM dbdemos_templates.aibi_cfo_health_budget_variance.gold_revenue\n",
+        "ORDER BY fiscal_month, series"
+      ]
+    },
+    {
+      "name": "ds_forecast",
+      "displayName": "Opex forecast vs budget",
+      "queryLines": [
+        "-- WIDE format off the pre-built dbdemos_templates.aibi_cfo_health_budget_variance.gold_opex_forecast, one row per\n",
+        "-- fiscal_month, so the native forecast-line widget can plot the actual line, the\n",
+        "-- projected line and its confidence band (opex_upper/opex_lower) with no manual\n",
+        "-- series. Elapsed months carry actual (band null); the last actual month is a bridge\n",
+        "-- row (forecast = actual, band collapsed to the point) so the projected line connects;\n",
+        "-- future months carry the projection + band. Budget is a flat reference annotation on\n",
+        "-- the widget, not a series here.\n",
+        "WITH f AS (SELECT * FROM dbdemos_templates.aibi_cfo_health_budget_variance.gold_opex_forecast),\n",
+        "last_actual AS (SELECT MAX(fiscal_month) AS max_d FROM f WHERE series_type = 'actual')\n",
+        "-- Actual months (excluding the bridge month)\n",
+        "SELECT fiscal_month,\n",
+        "       actual_opex_usd,\n",
+        "       CAST(NULL AS DOUBLE) AS forecast_opex_usd,\n",
+        "       CAST(NULL AS DOUBLE) AS opex_upper,\n",
+        "       CAST(NULL AS DOUBLE) AS opex_lower\n",
+        "FROM f WHERE series_type = 'actual' AND fiscal_month <> (SELECT max_d FROM last_actual)\n",
+        "UNION ALL\n",
+        "-- Bridge row at the last actual month: actual + projected start the same point\n",
+        "SELECT fiscal_month, actual_opex_usd, forecast_opex_usd,\n",
+        "       forecast_opex_usd AS opex_upper, forecast_opex_usd AS opex_lower\n",
+        "FROM f WHERE fiscal_month = (SELECT max_d FROM last_actual)\n",
+        "UNION ALL\n",
+        "-- Future months: projection + confidence band, no actual\n",
+        "SELECT fiscal_month, CAST(NULL AS DOUBLE) AS actual_opex_usd,\n",
+        "       forecast_opex_usd, opex_upper, opex_lower\n",
+        "FROM f WHERE series_type = 'forecast'\n",
+        "ORDER BY fiscal_month"
+      ]
+    },
+    {
+      "name": "ds_cum_var",
+      "displayName": "Cumulative variance to budget",
+      "queryLines": [
+        "SELECT fiscal_month, series_type,\n",
+        "       SUM(COALESCE(actual_opex_usd, forecast_opex_usd)) OVER (ORDER BY fiscal_month)\n",
+        "       - SUM(budget_opex_usd) OVER (ORDER BY fiscal_month) AS cumulative_variance_usd\n",
+        "FROM dbdemos_templates.aibi_cfo_health_budget_variance.gold_opex_forecast"
+      ]
+    },
+    {
+      "name": "ds_variance",
+      "displayName": "Budget variance by department & category",
+      "queryLines": [
+        "-- One dataset at (department, expense_category) grain feeding BOTH the by-department bar and\n",
+        "-- the by-category bar. Merged from the former ds_dept_var + ds_cat_var. Carries two direction\n",
+        "-- columns so each widget stays visually identical after re-aggregation: dept_direction (net over\n",
+        "-- the department, so a department bar is one colored segment) and variance_direction (row/category\n",
+        "-- sign, for the category bar under the Nursing filter). Keeps `department` for the global filter.\n",
+        "SELECT department, expense_category, variance_usd, variance_pct,\n",
+        "       CASE WHEN SUM(variance_usd) OVER (PARTITION BY department) >= 0\n",
+        "            THEN 'Over budget' ELSE 'Under budget' END AS dept_direction,\n",
+        "       CASE WHEN variance_usd >= 0 THEN 'Over budget' ELSE 'Under budget' END AS variance_direction\n",
+        "FROM (\n",
+        "  SELECT department, expense_category,\n",
+        "         SUM(variance_usd) AS variance_usd,\n",
+        "         SUM(variance_usd) / NULLIF(SUM(budget_ytd_usd), 0) AS variance_pct\n",
+        "  FROM dbdemos_templates.aibi_cfo_health_budget_variance.gold_budget_variance\n",
+        "  GROUP BY department, expense_category\n",
+        ")"
+      ]
+    },
+    {
+      "name": "ds_staffing",
+      "displayName": "Staffing hours, cost & indexed hours",
+      "queryLines": [
+        "-- One dataset at (fiscal_month, department, worker_type) grain feeding BOTH the avg-$/hr bar and\n",
+        "-- the indexed-hours line. Merged from the former ds_staffing + ds_staffing_index. hours_indexed is\n",
+        "-- each (department, worker_type) series normalised to its own first (January) month = 100, computed\n",
+        "-- with a window (equivalent to the old MIN(fiscal_month) join) so the SUM the line widget takes over\n",
+        "-- worker_type reproduces the prior curves. Keeps fiscal_month + department for the global filters.\n",
+        "WITH m AS (\n",
+        "  SELECT fiscal_month, department, worker_type,\n",
+        "         SUM(total_hours) AS total_hours,\n",
+        "         SUM(total_labor_cost_usd) AS total_labor_cost_usd,\n",
+        "         SUM(total_labor_cost_usd) / NULLIF(SUM(total_hours),0) AS avg_hourly_cost_usd\n",
+        "  FROM dbdemos_templates.aibi_cfo_health_budget_variance.gold_staffing_summary\n",
+        "  GROUP BY fiscal_month, department, worker_type\n",
+        ")\n",
+        "SELECT fiscal_month, department, worker_type,\n",
+        "       total_hours,\n",
+        "       total_labor_cost_usd,\n",
+        "       avg_hourly_cost_usd,\n",
+        "       total_hours\n",
+        "         / NULLIF(FIRST_VALUE(total_hours) OVER (\n",
+        "             PARTITION BY department, worker_type ORDER BY fiscal_month\n",
+        "             ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING), 0)\n",
+        "         * 100 AS hours_indexed\n",
+        "FROM m\n",
+        "ORDER BY fiscal_month"
+      ]
+    },
+    {
+      "name": "ds_vendor",
+      "displayName": "Agency spend by vendor",
+      "queryLines": [
+        "SELECT vendor_name, department, SUM(spend_ytd_usd) AS spend_ytd_usd,\n",
+        "       MAX(yoy_multiple) AS yoy_multiple\n",
+        "FROM dbdemos_templates.aibi_cfo_health_budget_variance.gold_vendor_spend GROUP BY vendor_name, department ORDER BY spend_ytd_usd DESC"
+      ]
+    },
+    {
+      "name": "ds_facility_map",
+      "displayName": "Over-budget by facility",
+      "queryLines": [
+        "SELECT facility_name, city, latitude, longitude,\n",
+        "       total_variance_usd, nursing_contract_labor_variance_usd\n",
+        "FROM dbdemos_templates.aibi_cfo_health_budget_variance.gold_facility_variance"
+      ]
+    }
+  ],
+  "pages": [
+    {
+      "name": "board_headline",
+      "displayName": "1 \u00b7 The headline",
+      "layout": [
+        {
+          "widget": {
+            "name": "p1_title",
+            "multilineTextboxSpec": {
+              "lines": [
+                "# \ud83c\udfe5 Office of the CFO \u2014 full-year operating budget\n",
+                "\n",
+                "It's board week, and the numbers just turned. Operating expense tracked the plan all spring, then crossed above budget over the summer \u2014 and the **projection to year-end shows the gap widening to a ~$4.8M miss.** Net patient revenue, meanwhile, is essentially flat year over year. So this isn't a demand story \u2014 **it's a cost story.** The map below shows *where* the money is leaking; the next page shows *why*."
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 12,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_miss",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_kpi",
+                  "fields": [
+                    {
+                      "name": "full_year_variance_usd",
+                      "expression": "`full_year_variance_usd`"
+                    },
+                    {
+                      "name": "fiscal_month",
+                      "expression": "`fiscal_month`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "full_year_variance_usd",
+                  "displayName": "Forecast over budget",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  },
+                  "style": {
+                    "rules": [
+                      {
+                        "condition": {
+                          "field": "full_year_variance_usd",
+                          "operator": ">=",
+                          "value": 0
+                        },
+                        "color": {
+                          "themeColorType": "visualizationColors",
+                          "position": 2
+                        }
+                      }
+                    ]
+                  }
+                },
+                "period": {
+                  "fieldName": "fiscal_month"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Full-year variance vs budget \u26a0\ufe0f"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 2,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_margin",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_kpi",
+                  "fields": [
+                    {
+                      "name": "ytd_operating_margin_usd",
+                      "expression": "`ytd_operating_margin_usd`"
+                    },
+                    {
+                      "name": "fiscal_month",
+                      "expression": "`fiscal_month`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "ytd_operating_margin_usd",
+                  "displayName": "Operating margin (rev \u2212 opex)",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                },
+                "period": {
+                  "fieldName": "fiscal_month"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Operating margin \u2014 squeezed"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 2,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_rev",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_kpi",
+                  "fields": [
+                    {
+                      "name": "revenue_yoy_pct",
+                      "expression": "`revenue_yoy_pct`"
+                    },
+                    {
+                      "name": "fiscal_month",
+                      "expression": "`fiscal_month`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "revenue_yoy_pct",
+                  "displayName": "Revenue YoY",
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                },
+                "period": {
+                  "fieldName": "fiscal_month"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Revenue YoY \u2014 roughly flat"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 2,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_agency",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_kpi",
+                  "fields": [
+                    {
+                      "name": "agency_labor_spend_usd",
+                      "expression": "`agency_labor_spend_usd`"
+                    },
+                    {
+                      "name": "fiscal_month",
+                      "expression": "`fiscal_month`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "agency_labor_spend_usd",
+                  "displayName": "Agency (contract) labor",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                },
+                "period": {
+                  "fieldName": "fiscal_month"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Agency labor spend \u2014 climbing"
+              }
+            }
+          },
+          "position": {
+            "x": 9,
+            "y": 2,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "hero_forecast",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_forecast",
+                  "fields": [
+                    {
+                      "name": "fiscal_month",
+                      "expression": "`fiscal_month`"
+                    },
+                    {
+                      "name": "actual_opex_usd",
+                      "expression": "`actual_opex_usd`"
+                    },
+                    {
+                      "name": "forecast_opex_usd",
+                      "expression": "`forecast_opex_usd`"
+                    },
+                    {
+                      "name": "opex_upper",
+                      "expression": "`opex_upper`"
+                    },
+                    {
+                      "name": "opex_lower",
+                      "expression": "`opex_lower`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 1,
+              "widgetType": "forecast-line",
+              "encodings": {
+                "x": {
+                  "fieldName": "fiscal_month",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "displayName": "Month"
+                },
+                "y": {
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "original": {
+                    "fieldName": "actual_opex_usd",
+                    "displayName": "Monthly opex ($)"
+                  },
+                  "prediction": {
+                    "fieldName": "forecast_opex_usd",
+                    "displayName": "Projection"
+                  },
+                  "predictionUpper": {
+                    "fieldName": "opex_upper",
+                    "displayName": "Upper"
+                  },
+                  "predictionLower": {
+                    "fieldName": "opex_lower",
+                    "displayName": "Lower"
+                  }
+                }
+              },
+              "annotations": [
+                {
+                  "type": "horizontal-line",
+                  "encodings": {
+                    "y": {
+                      "dataValue": 68333333
+                    },
+                    "label": {
+                      "value": "Budget $68.3M/mo"
+                    },
+                    "color": {
+                      "value": {
+                        "themeColorType": "visualizationColors",
+                        "position": 3
+                      }
+                    }
+                  }
+                }
+              ],
+              "frame": {
+                "showTitle": true,
+                "title": "Monthly operating expense vs. budget \u2014 actuals and the year-end projection both run above the flat budget line, widening into Q4"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 12,
+            "width": 8,
+            "height": 9
+          }
+        },
+        {
+          "widget": {
+            "name": "cum_var",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_cum_var",
+                  "fields": [
+                    {
+                      "name": "fiscal_month",
+                      "expression": "`fiscal_month`"
+                    },
+                    {
+                      "name": "cumulative_variance_usd",
+                      "expression": "`cumulative_variance_usd`"
+                    },
+                    {
+                      "name": "series_type",
+                      "expression": "`series_type`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "area",
+              "encodings": {
+                "x": {
+                  "fieldName": "fiscal_month",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "displayName": "Month"
+                },
+                "y": {
+                  "fieldName": "cumulative_variance_usd",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Cumulative $ over budget"
+                },
+                "color": {
+                  "fieldName": "series_type",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "actual",
+                        "color": {
+                          "themeColorType": "visualizationColors",
+                          "position": 2
+                        }
+                      },
+                      {
+                        "value": "forecast",
+                        "color": {
+                          "themeColorType": "visualizationColors",
+                          "position": 5
+                        }
+                      }
+                    ]
+                  },
+                  "displayName": "Actual / forecast"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Cumulative overrun \u2014 flat through spring, then compounding to year-end"
+              }
+            }
+          },
+          "position": {
+            "x": 8,
+            "y": 12,
+            "width": 4,
+            "height": 9
+          }
+        },
+        {
+          "widget": {
+            "name": "p1_rev_hdr",
+            "multilineTextboxSpec": {
+              "lines": [
+                "## Revenue is roughly flat \u2014 not a demand problem"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 21,
+            "width": 12,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "rev_line",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_revenue",
+                  "fields": [
+                    {
+                      "name": "fiscal_month",
+                      "expression": "`fiscal_month`"
+                    },
+                    {
+                      "name": "series",
+                      "expression": "`series`"
+                    },
+                    {
+                      "name": "sum(revenue_usd)",
+                      "expression": "SUM(`revenue_usd`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "fiscal_month",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "displayName": "Month"
+                },
+                "y": {
+                  "fieldName": "sum(revenue_usd)",
+                  "scale": {
+                    "type": "quantitative",
+                    "zeroBaseline": false,
+                    "viewMinimum": 60000000,
+                    "viewMaximum": 80000000
+                  },
+                  "displayName": "Net patient revenue ($)"
+                },
+                "color": {
+                  "fieldName": "series",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "This year",
+                        "color": "#094074"
+                      },
+                      {
+                        "value": "Prior year",
+                        "color": "#9AA5B1"
+                      }
+                    ]
+                  },
+                  "displayName": "Series"
+                }
+              },
+              "mark": {
+                "stack": "none"
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Net patient revenue \u2014 this year vs prior (grouped by month)"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 22,
+            "width": 12,
+            "height": 5
+          }
+        },
+        {
+          "widget": {
+            "name": "p2_map",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_facility_map",
+                  "fields": [
+                    {
+                      "name": "latitude",
+                      "expression": "`latitude`"
+                    },
+                    {
+                      "name": "longitude",
+                      "expression": "`longitude`"
+                    },
+                    {
+                      "name": "facility_name",
+                      "expression": "`facility_name`"
+                    },
+                    {
+                      "name": "sum(total_variance_usd)",
+                      "expression": "SUM(`total_variance_usd`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "symbol-map",
+              "encodings": {
+                "coordinates": {
+                  "latitude": {
+                    "fieldName": "latitude"
+                  },
+                  "longitude": {
+                    "fieldName": "longitude"
+                  }
+                },
+                "size": {
+                  "fieldName": "sum(total_variance_usd)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Over-budget ($)"
+                },
+                "color": {
+                  "fieldName": "sum(total_variance_usd)",
+                  "scale": {
+                    "type": "quantitative",
+                    "colorRamp": {
+                      "mode": "custom-sequential",
+                      "colors": {
+                        "start": "#9AC7E8",
+                        "end": "#094074"
+                      }
+                    }
+                  },
+                  "legend": {
+                    "hide": false
+                  },
+                  "displayName": "Over-budget ($)"
+                },
+                "extra": [
+                  {
+                    "fieldName": "facility_name",
+                    "displayName": "Facility"
+                  }
+                ]
+              },
+              "mark": {
+                "opacity": 0.75
+              },
+              "frame": {
+                "title": "Where the overrun is \u2014 Lakeshore & Riverside carry nearly all of it",
+                "showTitle": true
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 5,
+            "width": 12,
+            "height": 7
+          }
+        }
+      ]
+    },
+    {
+      "name": "drill_down",
+      "displayName": "2 \u00b7 The root cause",
+      "layout": [
+        {
+          "widget": {
+            "name": "p2_title",
+            "multilineTextboxSpec": {
+              "lines": [
+                "# \ud83d\udd0e Follow the money: department \u2192 line item \u2192 labor \u2192 vendor\n",
+                "\n",
+                "The whole $4.8M miss traces to a single thread. Watch it narrow at each step: **one department** (Nursing) is the lone outlier \u2192 within it, **one line item** (Contract Labor) is nearly the entire overrun \u2192 that's **agency nurses** backfilling vacancies at ~2\u00d7 an employed RN's cost \u2192 and it concentrates in **one vendor** (Apex). Set the **Department** filter to *Nursing* to follow the story."
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 12,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "p2_dept",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_variance",
+                  "fields": [
+                    {
+                      "name": "department",
+                      "expression": "`department`"
+                    },
+                    {
+                      "name": "sum(variance_usd)",
+                      "expression": "SUM(`variance_usd`)"
+                    },
+                    {
+                      "name": "dept_direction",
+                      "expression": "`dept_direction`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "y": {
+                  "fieldName": "department",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Department"
+                },
+                "x": {
+                  "fieldName": "sum(variance_usd)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Variance vs budget ($)"
+                },
+                "color": {
+                  "fieldName": "dept_direction",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Over budget",
+                        "color": {
+                          "themeColorType": "visualizationColors",
+                          "position": 2
+                        }
+                      },
+                      {
+                        "value": "Under budget",
+                        "color": {
+                          "themeColorType": "visualizationColors",
+                          "position": 4
+                        }
+                      }
+                    ]
+                  },
+                  "displayName": "Direction"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "\u2460 Variance by department \u2014 Nursing is the lone outlier"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 2,
+            "width": 12,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "p2_cat",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_variance",
+                  "fields": [
+                    {
+                      "name": "expense_category",
+                      "expression": "`expense_category`"
+                    },
+                    {
+                      "name": "sum(variance_usd)",
+                      "expression": "SUM(`variance_usd`)"
+                    },
+                    {
+                      "name": "variance_direction",
+                      "expression": "`variance_direction`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "y": {
+                  "fieldName": "expense_category",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Expense category"
+                },
+                "x": {
+                  "fieldName": "sum(variance_usd)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Variance vs budget ($)"
+                },
+                "color": {
+                  "fieldName": "variance_direction",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Over budget",
+                        "color": {
+                          "themeColorType": "visualizationColors",
+                          "position": 2
+                        }
+                      },
+                      {
+                        "value": "Under budget",
+                        "color": {
+                          "themeColorType": "visualizationColors",
+                          "position": 4
+                        }
+                      }
+                    ]
+                  },
+                  "displayName": "Direction"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "\u2461 Within the department \u2014 Contract Labor is the driver (set filter to Nursing)"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 8,
+            "width": 12,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "p2_hours",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_staffing",
+                  "fields": [
+                    {
+                      "name": "fiscal_month",
+                      "expression": "`fiscal_month`"
+                    },
+                    {
+                      "name": "worker_type",
+                      "expression": "`worker_type`"
+                    },
+                    {
+                      "name": "sum(hours_indexed)",
+                      "expression": "SUM(`hours_indexed`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "fiscal_month",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "displayName": "Month"
+                },
+                "y": {
+                  "fieldName": "sum(hours_indexed)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Hours (Jan = 100)"
+                },
+                "color": {
+                  "fieldName": "worker_type",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Employed",
+                        "color": "#094074"
+                      },
+                      {
+                        "value": "Agency",
+                        "color": "#FE9000"
+                      }
+                    ]
+                  },
+                  "displayName": "Worker type"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "\u2462 Hours indexed to Jan \u2014 employed roughly stable (~100), agency surging"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 14,
+            "width": 6,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "p2_cost",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_staffing",
+                  "fields": [
+                    {
+                      "name": "worker_type",
+                      "expression": "`worker_type`"
+                    },
+                    {
+                      "name": "avg(avg_hourly_cost_usd)",
+                      "expression": "AVG(`avg_hourly_cost_usd`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "worker_type",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Worker type"
+                },
+                "y": {
+                  "fieldName": "avg(avg_hourly_cost_usd)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Avg $/hr"
+                },
+                "color": {
+                  "fieldName": "worker_type",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Employed",
+                        "color": "#094074"
+                      },
+                      {
+                        "value": "Agency",
+                        "color": "#FE9000"
+                      }
+                    ]
+                  },
+                  "displayName": "Worker type"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "\u2463 Agency costs ~2\u00d7 an employed RN"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 14,
+            "width": 6,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "p2_vendor",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_vendor",
+                  "fields": [
+                    {
+                      "name": "vendor_name",
+                      "expression": "`vendor_name`"
+                    },
+                    {
+                      "name": "sum(spend_ytd_usd)",
+                      "expression": "SUM(`spend_ytd_usd`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "y": {
+                  "fieldName": "vendor_name",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Vendor"
+                },
+                "x": {
+                  "fieldName": "sum(spend_ytd_usd)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Agency spend ($)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "\u2464 And it's one vendor \u2014 Apex Clinical Staffing dominates (~3.5\u00d7 YoY)"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 20,
+            "width": 12,
+            "height": 6
+          }
+        }
+      ]
+    },
+    {
+      "name": "global_filters",
+      "displayName": "Filters",
+      "pageType": "PAGE_TYPE_GLOBAL_FILTERS",
+      "layout": [
+        {
+          "widget": {
+            "name": "f_department",
+            "queries": [
+              {
+                "name": "f_dept_0",
+                "query": {
+                  "datasetName": "ds_variance",
+                  "fields": [
+                    {
+                      "name": "department",
+                      "expression": "`department`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "f_dept_2",
+                "query": {
+                  "datasetName": "ds_staffing",
+                  "fields": [
+                    {
+                      "name": "department",
+                      "expression": "`department`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "f_dept_4",
+                "query": {
+                  "datasetName": "ds_vendor",
+                  "fields": [
+                    {
+                      "name": "department",
+                      "expression": "`department`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-single-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "department",
+                    "displayName": "Department",
+                    "queryName": "f_dept_0"
+                  },
+                  {
+                    "fieldName": "department",
+                    "displayName": "Department",
+                    "queryName": "f_dept_2"
+                  },
+                  {
+                    "fieldName": "department",
+                    "displayName": "Department",
+                    "queryName": "f_dept_4"
+                  }
+                ]
+              },
+              "frame": {
+                "title": "Department",
+                "showTitle": true
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 3,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "f_date",
+            "queries": [
+              {
+                "name": "f_date_0",
+                "query": {
+                  "datasetName": "ds_kpi",
+                  "fields": [
+                    {
+                      "name": "fiscal_month",
+                      "expression": "`fiscal_month`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "f_date_2",
+                "query": {
+                  "datasetName": "ds_revenue",
+                  "fields": [
+                    {
+                      "name": "fiscal_month",
+                      "expression": "`fiscal_month`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "f_date_4",
+                "query": {
+                  "datasetName": "ds_forecast",
+                  "fields": [
+                    {
+                      "name": "fiscal_month",
+                      "expression": "`fiscal_month`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "f_date_5",
+                "query": {
+                  "datasetName": "ds_cum_var",
+                  "fields": [
+                    {
+                      "name": "fiscal_month",
+                      "expression": "`fiscal_month`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "f_date_6",
+                "query": {
+                  "datasetName": "ds_staffing",
+                  "fields": [
+                    {
+                      "name": "fiscal_month",
+                      "expression": "`fiscal_month`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-date-range-picker",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "fiscal_month",
+                    "displayName": "Month",
+                    "queryName": "f_date_0"
+                  },
+                  {
+                    "fieldName": "fiscal_month",
+                    "displayName": "Month",
+                    "queryName": "f_date_2"
+                  },
+                  {
+                    "fieldName": "fiscal_month",
+                    "displayName": "Month",
+                    "queryName": "f_date_4"
+                  },
+                  {
+                    "fieldName": "fiscal_month",
+                    "displayName": "Month",
+                    "queryName": "f_date_5"
+                  },
+                  {
+                    "fieldName": "fiscal_month",
+                    "displayName": "Month",
+                    "queryName": "f_date_6"
+                  }
+                ]
+              },
+              "frame": {
+                "title": "Fiscal month",
+                "showTitle": true
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 0,
+            "width": 4,
+            "height": 1
+          }
+        }
+      ]
+    }
+  ],
+  "uiSettings": {
+    "theme": {
+      "widgetHeaderAlignment": "ALIGNMENT_UNSET"
+    }
+  }
+}

@@ -10,11 +10,11 @@
       { "id": "src-timekeeping", "type": "source", "col": "sources", "row": 3, "label": "Timekeeping", "icon": "inputData", "desc": "Employed vs. agency hours" },
       { "id": "src-invoices", "type": "source", "col": "sources", "row": 4, "label": "Staffing Invoices", "icon": "pdfLogo", "desc": "Agency vendor bills" },
 
-      { "id": "lakeflow-genie-block", "type": "lakeflow-genie-block", "col": "pipeline", "desc": "Declarative bronze → silver → gold — Genie Code describes the variance + AI_FORECAST transforms, Lakeflow runs them at scale." },
+      { "id": "lakeflow-genie-block", "type": "lakeflow-genie-block", "col": "pipeline", "desc": "Bronze → silver → gold medallion — the variance + AI_FORECAST transforms that turn the raw GL, staffing, comp and revenue feeds into the governed Gold tables." },
 
       { "id": "sql-lakehouse", "type": "sql-lakehouse", "col": "compute", "row": 1, "desc": "One governed copy of GL, staffing, comp + revenue for BI + AI — with AI_FORECAST projecting opex to year-end." },
 
-      { "id": "ai-bi-dashboard", "type": "ai-bi-dashboard", "col": "work", "row": 1, "desc": "FP&A cockpit — board narrative + guided drill-down to the contract-labor root cause." },
+      { "id": "ai-bi-dashboard", "type": "ai-bi-dashboard", "col": "work", "row": 1, "desc": "FP&A cockpit — board narrative (forecast-vs-budget + a hospital map pinning the overrun to two sites) + guided drill-down to the contract-labor root cause." },
       { "id": "genie", "type": "genie", "col": "work", "row": 2, "desc": "Why is Nursing over budget? — plain-language variance Q&A on the same Gold tables." },
 
       { "id": "genie-one", "type": "genie-one", "col": "entry", "rot": 90 },

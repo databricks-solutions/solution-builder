@@ -1,0 +1,107 @@
+# Databricks Asset Bundle — AI/BI Healthcare CFO: Budget Variance & Comp Controls
+# (no app, no Lakebase).
+#
+# Re-creates the whole demo from scratch on any workspace:
+#   1. `databricks bundle deploy` — creates the schema + dashboard shell + setup job.
+#   2. `databricks bundle run healthcare_cfo_setup` — generates data + builds the
+#      medallion (generate_data.py), materialises the AI_FORECAST table on the
+#      warehouse (build_forecast.sql), deploys the Genie space, and applies the
+#      Unity Catalog comp-masking policy (comp_masking.sql).
+# The dashboard is a DAB `dashboards` resource; its datasets are rebound to the
+# target catalog/schema via dataset_catalog / dataset_schema (needs CLI >= 0.283.0).
+#
+# Deploy is documented in dab_instructions.md — do NOT run it as part of authoring.
+bundle:
+  name: aibi-cfo-health-budget-variance
+
+variables:
+  catalog:
+    description: Unity Catalog for the demo.
+    default: dbdemos_templates
+  schema:
+    description: Schema for the demo tables, dashboard, and Genie space.
+    default: aibi_cfo_health_budget_variance
+  warehouse_id:
+    description: SQL warehouse the dashboard, Genie space, AI_FORECAST + comp-masking use.
+
+resources:
+  schemas:
+    demo_schema:
+      catalog_name: ${var.catalog}
+      name: ${var.schema}
+      comment: "AI/BI Healthcare CFO Budget Variance demo — synthetic data, dashboard, Genie, comp controls."
+
+  dashboards:
+    healthcare_cfo_dashboard:
+      # NOTE: Lakeview rejects '/' in dashboard display names — use "AIBI", not "AI/BI".
+      display_name: "[AIBI] Healthcare CFO - Budget Variance"
+      file_path: ./dashboard/dashboard.lvdash.json
+      warehouse_id: ${var.warehouse_id}
+      # Rebind the dashboard's datasets to the deployed catalog/schema.
+      dataset_catalog: ${var.catalog}
+      dataset_schema: ${resources.schemas.demo_schema.name}
+
+  jobs:
+    healthcare_cfo_setup:
+      name: "[AI/BI] AI/BI Healthcare CFO Budget Variance — setup"
+      tasks:
+        - task_key: generate_data_and_build
+          spark_python_task:
+            python_file: ./data_generation/generate_data.py
+            parameters:
+              - "--catalog"
+              - ${var.catalog}
+              - "--schema"
+              - ${resources.schemas.demo_schema.name}
+          environment_key: sdk_default
+        - task_key: build_forecast
+          depends_on:
+            - task_key: generate_data_and_build
+          notebook_task:
+            notebook_path: ./src/deploy/run_sql_on_warehouse.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${resources.schemas.demo_schema.name}
+              warehouse_id: ${var.warehouse_id}
+              sql_file: src/deploy/build_forecast.sql
+          environment_key: sdk_latest
+        - task_key: deploy_genie
+          depends_on:
+            - task_key: build_forecast
+          notebook_task:
+            notebook_path: ./src/deploy/deploy_genie.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${resources.schemas.demo_schema.name}
+              warehouse_id: ${var.warehouse_id}
+          environment_key: sdk_latest
+        - task_key: comp_masking
+          depends_on:
+            - task_key: generate_data_and_build
+          notebook_task:
+            notebook_path: ./src/deploy/run_sql_on_warehouse.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${resources.schemas.demo_schema.name}
+              warehouse_id: ${var.warehouse_id}
+              sql_file: src/deploy/comp_masking.sql
+          environment_key: sdk_latest
+      environments:
+        - environment_key: sdk_default
+          spec:
+            client: "4"
+            dependencies:
+              - numpy
+              - pandas
+        - environment_key: sdk_latest
+          spec:
+            client: "4"
+            dependencies:
+              - databricks-sdk>=0.114.0
+
+targets:
+  dev:
+    mode: development
+    default: true
+  prod:
+    mode: production

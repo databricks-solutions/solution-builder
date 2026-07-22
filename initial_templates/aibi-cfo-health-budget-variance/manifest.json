@@ -1,0 +1,7 @@
+{
+  "id": "aibi-cfo-health-budget-variance",
+  "name": "Healthcare CFO — Budget Variance & Comp Controls",
+  "customer": "Office of the CFO",
+  "industry": "Healthcare & Life Sciences",
+  "narrative": "Dana Reyes is the CFO of a regional health system, and it's the Friday before the board meeting. The full-year operating-expense forecast is tracking about $4.8M over budget while recognized revenue is basically flat — so the board's question writes itself: is this a demand problem or a cost problem? Dana needs a board-ready answer, not a data project.\n\nThe dashboard tells the story in two pages. Page one is the headline: opex actual vs. budget vs. a year-end projection, cumulative overrun, revenue this year vs. prior, and a map of the health system's hospitals where two sites — Lakeshore and Riverside — carry nearly all of the overrun. Page two drills from the headline down through department, expense category, employed-vs-contractor hours, and vendor — landing on one line, Nursing contract labor (+$3.58M), where RN vacancies are backfilled with agency nurses at ~2x cost through a single staffing vendor. Ask Genie \"why is Nursing over budget?\" and it says the same thing in a sentence. Underneath, Unity Catalog enforces comp controls: Finance sees full compensation detail, Operations sees headcount only — same table, masked by policy."
+}

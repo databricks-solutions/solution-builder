@@ -1,0 +1,26 @@
+{
+  "short_description": "A regional health system's opex is projected ~$4.8M over budget on flat revenue — a cost problem, not a demand one. Opex crossed above budget over the summer and the year-end projection keeps widening; drill from the headline to a single root cause (Nursing contract labor, concentrated at two hospitals) and ask Genie why; Unity Catalog comp-masking governs who sees salaries.",
+  "capabilities": {
+    "buildable": [
+      "synthetic-data-gen",
+      "metric-views",
+      "ai-functions",
+      "aibi-dashboards",
+      "genie",
+      "unity-catalog"
+    ],
+    "talking_track": [
+      "lakeflow-connect",
+      "genie-one",
+      "genie-code"
+    ]
+  },
+  "created_resources": {
+    "catalog": "dbdemos_templates",
+    "schema": "aibi_cfo_health_budget_variance",
+    "warehouse_id": "e9b34f7a2e4b0561",
+    "dashboard_id": "01f185c49e311fe8ba9afee48af43079",
+    "genie_space_id": "01f185c724f616ca81b97b7a6ce494f2",
+    "metric_view_name": "metrics_budget_variance"
+  }
+}
