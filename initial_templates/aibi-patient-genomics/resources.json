@@ -1,24 +1,24 @@
 {
-  "short_description": "Real-world evidence across ~10,000 patients: a therapy works unevenly — responders share a molecular signature, ~99% survival. Ask Genie which subgroup benefits.",
-  "capabilities": {
-    "buildable": [
-      "synthetic-data-gen",
-      "metric-views",
-      "aibi-dashboards",
-      "genie"
-    ],
-    "talking_track": [
-      "lakeflow-connect",
-      "unity-catalog",
-      "genie-one"
-    ]
-  },
-  "created_resources": {
-    "catalog": "dbdemos_templates",
-    "schema": "aibi_patient_genomics",
-    "warehouse_id": "e9b34f7a2e4b0561",
-    "metric_view_name": "dbdemos_templates.aibi_patient_genomics.genomics_metrics",
-    "dashboard_id": "01f1851d024f1ed2a89b72cf18c47221",
-    "genie_space_id": "01f165b7c4c510598be721597815a840"
-  }
+    "short_description": "Real-world evidence across ~10,000 patients: a therapy works unevenly — responders share a molecular signature, ~99% survival. Ask Genie which subgroup benefits.",
+    "capabilities": {
+        "buildable": [
+            "synthetic-data-gen",
+            "metric-views",
+            "aibi-dashboards",
+            "genie"
+        ],
+        "talking_track": [
+            "lakeflow-connect",
+            "unity-catalog",
+            "genie-one"
+        ]
+    },
+    "created_resources": {
+        "catalog": "dbdemos_templates",
+        "schema": "aibi_patient_genomics",
+        "warehouse_id": "e9b34f7a2e4b0561",
+        "metric_view_name": "dbdemos_templates.aibi_patient_genomics.genomics_metrics",
+        "dashboard_id": "01f1851d024f1ed2a89b72cf18c47221",
+        "genie_space_id": "01f165b7c4c510598be721597815a840"
+    }
 }

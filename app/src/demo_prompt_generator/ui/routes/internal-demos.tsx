@@ -99,10 +99,10 @@ function InternalDemosPage() {
 
   const filtered = useGalleryFilter(templates, industry, search);
 
-  const handleFork = async (template: TemplateDetail, adaptInstructions?: string) => {
+  const handleFork = async (template: TemplateDetail) => {
     setIsForking(true);
     try {
-      const project = await createProjectFromTemplate(template.id, template.name, adaptInstructions);
+      const project = await createProjectFromTemplate(template.id, template.name);
       navigate({ to: "/project/$projectId", params: { projectId: project.id } });
     } catch (error) {
       console.error("Failed to fork template:", error);
@@ -180,7 +180,7 @@ function InternalDemosPage() {
       </div>
 
       <TemplateGallerySheet
-        template={selected}
+        templateId={selected?.id ?? null}
         onClose={() => setSelected(null)}
         links={selected ? DEMO_LINKS[selected.id] : undefined}
         onFork={handleFork}

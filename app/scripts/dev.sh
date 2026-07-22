@@ -56,6 +56,22 @@ while [[ $# -gt 0 ]]; do
 done
 
 # ============================================================================
+# Port offset — run a SECOND instance in parallel without clobbering the first.
+# PORT_OFFSET shifts BOTH ports together (they must move in lockstep so the
+# frontend's /api proxy still finds the backend). Default 0 → unchanged.
+#   PORT_OFFSET=1 ./scripts/dev.sh   → backend :8001, frontend :5174
+# The kill-lines below only touch THESE ports, so a parallel instance never
+# kills your already-running one.
+# ============================================================================
+PORT_OFFSET="${PORT_OFFSET:-0}"
+BACKEND_PORT=$((8000 + PORT_OFFSET))
+FRONTEND_PORT=$((5173 + PORT_OFFSET))
+# Wire the frontend → backend proxy + Vite's listen port to the shifted values
+# (vite.config.ts reads both). Exported so the `bun run vite` child inherits them.
+export VITE_BACKEND_URL="http://127.0.0.1:${BACKEND_PORT}"
+export VITE_PORT="${FRONTEND_PORT}"
+
+# ============================================================================
 # Clone ai_dev_kit if not present (pure skills - no Python packages)
 # ============================================================================
 AI_DEV_KIT_REPO="https://github.com/databricks-solutions/ai-dev-kit.git"
@@ -265,9 +281,9 @@ echo ""
 # ============================================================================
 # Kill any existing processes on our ports
 # ============================================================================
-echo -e "${CYAN}Cleaning up existing processes...${NC}"
-lsof -ti:8000 | xargs kill -9 2>/dev/null || true
-lsof -ti:5173 | xargs kill -9 2>/dev/null || true
+echo -e "${CYAN}Cleaning up existing processes on :${BACKEND_PORT} / :${FRONTEND_PORT}...${NC}"
+lsof -ti:${BACKEND_PORT} | xargs kill -9 2>/dev/null || true
+lsof -ti:${FRONTEND_PORT} | xargs kill -9 2>/dev/null || true
 sleep 1
 
 # ============================================================================
@@ -290,22 +306,22 @@ trap cleanup SIGINT SIGTERM
 # ============================================================================
 
 # Start frontend first (it's faster)
-echo -e "${GREEN}Starting frontend on http://localhost:5173${NC}"
+echo -e "${GREEN}Starting frontend on http://localhost:${FRONTEND_PORT}${NC}"
 (bun run --cwd "$APP_DIR" vite --config vite.config.ts 2>&1 | while IFS= read -r line; do echo -e "[$(date +%H:%M:%S)] [${CYAN}FRONTEND${NC}] $line"; done) &
 FRONTEND_PID=$!
 
 # Start backend (uvicorn with reload) - prefix output with [BACKEND]
 # Use --reload-dir to only watch src/ (much faster than excluding everything else)
-echo -e "${GREEN}Starting backend on http://127.0.0.1:8000${NC}"
-(.venv/bin/python -u -m uvicorn demo_prompt_generator.backend.app:app --host 127.0.0.1 --port 8000 --reload --reload-dir src --timeout-graceful-shutdown 5 2>&1 | while IFS= read -r line; do echo -e "[$(date +%H:%M:%S)] [${BLUE}BACKEND${NC}] $line"; done) &
+echo -e "${GREEN}Starting backend on http://127.0.0.1:${BACKEND_PORT}${NC}"
+(.venv/bin/python -u -m uvicorn demo_prompt_generator.backend.app:app --host 127.0.0.1 --port ${BACKEND_PORT} --reload --reload-dir src --timeout-graceful-shutdown 5 2>&1 | while IFS= read -r line; do echo -e "[$(date +%H:%M:%S)] [${BLUE}BACKEND${NC}] $line"; done) &
 BACKEND_PID=$!
 
 echo ""
 echo -e "${BLUE}════════════════════════════════════════════════════════════════${NC}"
 echo -e "${GREEN}Development servers running:${NC}"
-echo -e "  Frontend: ${BLUE}http://localhost:5173${NC}"
-echo -e "  Backend:  ${BLUE}http://127.0.0.1:8000${NC}"
-echo -e "  API Docs: ${BLUE}http://127.0.0.1:8000/docs${NC}"
+echo -e "  Frontend: ${BLUE}http://localhost:${FRONTEND_PORT}${NC}"
+echo -e "  Backend:  ${BLUE}http://127.0.0.1:${BACKEND_PORT}${NC}"
+echo -e "  API Docs: ${BLUE}http://127.0.0.1:${BACKEND_PORT}/docs${NC}"
 echo -e "${YELLOW}Press Ctrl+C to stop both servers${NC}"
 echo -e "${BLUE}════════════════════════════════════════════════════════════════${NC}"
 echo ""

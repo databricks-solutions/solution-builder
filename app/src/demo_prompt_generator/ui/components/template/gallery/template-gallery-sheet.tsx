@@ -1,11 +1,18 @@
 /**
  * Shared right slide-over showing a template's screenshot, story, capabilities,
- * the solution ARCHITECTURE (rendered read-only from architecture.md), and —
- * when the internal gallery passes `links` — the live-resource buttons
+ * the solution ARCHITECTURE (rendered read-only from architecture.md), the
+ * INCLUDED FILES (collapsible tree + content viewer with markdown preview/raw),
+ * and — when the internal gallery passes `links` — the live-resource buttons
  * (Dashboard / Ask Genie / Open App / Data).
  *
- * Fetches the full TemplateDetail + file list on open. Optional `onFork` wires
- * the create-project-from-template flow.
+ * Keyed off a template `id` (string) so any surface — the /templates list, the
+ * home-page search results, the internal demos catalog — can open it without
+ * needing a full list-item object. It fetches the full TemplateDetail + file
+ * list on open and renders the header from that.
+ *
+ * "Use this template" forks AS-IS: the place to adapt a demo for your customer
+ * is the "Make this demo yours" band on the forked project's overview
+ * (StoryAdaptActions), so we don't ask for adaptation instructions here.
  */
 
 import { useState, useEffect, lazy, Suspense } from "react";
@@ -18,21 +25,20 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from "@/components/ui/dialog";
-import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
+import { Prose } from "@/components/markdown-prose";
 import {
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   Clock,
+  Code,
   Database,
   Download,
   ExternalLink,
+  Eye,
+  FileText,
+  Folder,
   GitFork,
   Loader2,
   Network,
@@ -48,8 +54,8 @@ import {
   listTemplateFiles,
   getTemplateFileContent,
   templateScreenshotUrl,
+  templateScreenshotAtUrl,
   exportTemplate,
-  type TemplateListItem,
   type TemplateDetail,
   type TemplateFile,
   type DemoResourceLinks,
@@ -97,35 +103,35 @@ function LinkButton({
 }
 
 export function TemplateGallerySheet({
-  template,
+  templateId,
   onClose,
   links,
   onFork,
 }: {
-  template: TemplateListItem | null;
+  /** null → closed. Keyed off the id so any caller can open it. */
+  templateId: string | null;
   onClose: () => void;
   links?: DemoResourceLinks;
-  /** Fork into a new project. `adaptInstructions` (from the "tune it" dialog)
-   *  is empty for "use as is". */
-  onFork?: (t: TemplateDetail, adaptInstructions?: string) => void;
+  /** Fork into a new project (as-is — adapt happens post-fork on the overview). */
+  onFork?: (t: TemplateDetail) => void;
 }) {
-  const templateId = template?.id ?? null;
   const [detail, setDetail] = useState<TemplateDetail | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [archMd, setArchMd] = useState<string | null>(null);
   const [archState, setArchState] = useState<ArchState>("idle");
   const [isDownloading, setIsDownloading] = useState(false);
-  // "Use this template" dialog: choose use-as-is vs tune-it + describe the change.
-  const [useDialogOpen, setUseDialogOpen] = useState(false);
-  const [useMode, setUseMode] = useState<"as-is" | "tune">("as-is");
-  const [adaptText, setAdaptText] = useState("");
+  // Screenshot carousel index (0 = hero). Only meaningful when screenshot_count > 1.
+  const [shotIndex, setShotIndex] = useState(0);
 
-  const confirmUseTemplate = () => {
-    if (!detail || !onFork) return;
-    const instructions = useMode === "tune" ? adaptText.trim() : "";
-    setUseDialogOpen(false);
-    onFork(detail, instructions || undefined);
-  };
+  // Included files (collapsible tree + content viewer).
+  const [files, setFiles] = useState<TemplateFile[]>([]);
+  const [filesOpen, setFilesOpen] = useState(false);
+  const [selectedFile, setSelectedFile] = useState<string | null>(null);
+  const [fileContent, setFileContent] = useState<string>("");
+  const [isLoadingFile, setIsLoadingFile] = useState(false);
+  const [showRaw, setShowRaw] = useState(false);
+
+  const isMarkdownFile = selectedFile?.endsWith(".md") ?? false;
 
   const handleDownloadDab = async () => {
     if (!templateId) return;
@@ -144,6 +150,12 @@ export function TemplateGallerySheet({
       setDetail(null);
       setArchMd(null);
       setArchState("idle");
+      setFiles([]);
+      setFilesOpen(false);
+      setSelectedFile(null);
+      setFileContent("");
+      setShowRaw(false);
+      setShotIndex(0);
       return;
     }
 
@@ -151,10 +163,20 @@ export function TemplateGallerySheet({
     setDetail(null);
     setArchMd(null);
     setArchState("loading");
+    setFiles([]);
+    setFilesOpen(false);
+    setSelectedFile(null);
+    setFileContent("");
+    setShotIndex(0);
 
     Promise.all([getTemplate(templateId), listTemplateFiles(templateId)])
       .then(([templateData, filesData]: [TemplateDetail, TemplateFile[]]) => {
         setDetail(templateData);
+        setFiles(filesData);
+
+        // Default the file viewer's selection to README.md (or the first file).
+        const readme = filesData.find((f) => f.name.toLowerCase() === "readme.md");
+        setSelectedFile(readme?.path ?? filesData[0]?.path ?? null);
 
         const arch = filesData.find(
           (f) => f.name.toLowerCase() === "architecture.md",
@@ -174,40 +196,107 @@ export function TemplateGallerySheet({
       .finally(() => setIsLoading(false));
   }, [templateId]);
 
+  // Load file content when the selected file changes (only worth it once the
+  // Files section has been expanded).
+  useEffect(() => {
+    if (!templateId || !selectedFile || !filesOpen) {
+      return;
+    }
+    setIsLoadingFile(true);
+    getTemplateFileContent(templateId, selectedFile)
+      .then((data) => setFileContent(data.content))
+      .catch(() => setFileContent("// Failed to load file content"))
+      .finally(() => setIsLoadingFile(false));
+  }, [templateId, selectedFile, filesOpen]);
+
   const isApproved = detail?.status === "APPROVED";
+  const fileTree = buildFileTree(files);
 
   return (
-    <Sheet open={template !== null} onOpenChange={(o) => { if (!o) onClose(); }}>
+    <Sheet open={templateId !== null} onOpenChange={(o) => { if (!o) onClose(); }}>
       <SheetContent
         side="right"
-        className="w-full gap-0 overflow-hidden p-0 sm:max-w-2xl"
+        className="w-full gap-0 overflow-hidden p-0 sm:max-w-4xl"
       >
-        {template && (
+        {templateId && (
           <div className="flex h-full flex-col">
             <SheetHeader className="space-y-2 border-b bg-muted/20 px-6 pb-5 pt-6 text-left">
-              {template.industry && (
+              {detail?.industry && (
                 <Badge variant="secondary" className="w-fit text-[10px] font-medium">
-                  {template.industry}
+                  {detail.industry}
                 </Badge>
               )}
               <SheetTitle className="pr-8 text-xl font-semibold leading-tight">
-                {template.name}
+                {detail?.name ?? "Loading…"}
               </SheetTitle>
             </SheetHeader>
 
             <ScrollArea className="flex-1">
               <div className="space-y-6 px-6 py-6">
-                {/* Screenshot */}
-                {template.has_screenshot && (
-                  <div className="overflow-hidden rounded-lg border bg-muted/30">
-                    <img
-                      src={templateScreenshotUrl(template.id)}
-                      alt={`${template.name} screenshot`}
-                      loading="lazy"
-                      className="w-full object-contain"
-                    />
-                  </div>
+                {/* Narrative — the story summary, at the very top (above the image). */}
+                {detail?.narrative && (
+                  <p className="whitespace-pre-line text-[14px] leading-relaxed text-foreground/90">
+                    {detail.narrative}
+                  </p>
                 )}
+
+                {/* Screenshot(s) — hero, or a small carousel when there are extras. */}
+                {detail && (detail.screenshot_count ?? 0) > 0 && (() => {
+                  const count = detail.screenshot_count ?? 0;
+                  const idx = Math.min(shotIndex, count - 1);
+                  return (
+                    <div className="space-y-2">
+                      <div className="relative overflow-hidden rounded-lg border bg-muted/30">
+                        <img
+                          src={
+                            idx === 0
+                              ? templateScreenshotUrl(detail.id)
+                              : templateScreenshotAtUrl(detail.id, idx)
+                          }
+                          alt={`${detail.name} screenshot ${idx + 1}`}
+                          loading="lazy"
+                          className="w-full object-contain"
+                        />
+                        {count > 1 && (
+                          <>
+                            <button
+                              type="button"
+                              aria-label="Previous screenshot"
+                              onClick={() => setShotIndex((i) => (i - 1 + count) % count)}
+                              className="absolute left-2 top-1/2 -translate-y-1/2 flex h-8 w-8 items-center justify-center rounded-full bg-background/80 text-foreground shadow-sm ring-1 ring-border backdrop-blur transition-colors hover:bg-background cursor-pointer"
+                            >
+                              <ChevronLeft className="h-4 w-4" />
+                            </button>
+                            <button
+                              type="button"
+                              aria-label="Next screenshot"
+                              onClick={() => setShotIndex((i) => (i + 1) % count)}
+                              className="absolute right-2 top-1/2 -translate-y-1/2 flex h-8 w-8 items-center justify-center rounded-full bg-background/80 text-foreground shadow-sm ring-1 ring-border backdrop-blur transition-colors hover:bg-background cursor-pointer"
+                            >
+                              <ChevronRight className="h-4 w-4" />
+                            </button>
+                          </>
+                        )}
+                      </div>
+                      {count > 1 && (
+                        <div className="flex items-center justify-center gap-1.5">
+                          {Array.from({ length: count }).map((_, i) => (
+                            <button
+                              key={i}
+                              type="button"
+                              aria-label={`Go to screenshot ${i + 1}`}
+                              onClick={() => setShotIndex(i)}
+                              className={cn(
+                                "h-1.5 rounded-full transition-all cursor-pointer",
+                                i === idx ? "w-4 bg-primary" : "w-1.5 bg-muted-foreground/30 hover:bg-muted-foreground/50",
+                              )}
+                            />
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
 
                 {/* Live-resource links (internal gallery only) */}
                 {links && (links.dashboard || links.genie || links.app || links.data) && (
@@ -235,26 +324,27 @@ export function TemplateGallerySheet({
                   </div>
                 )}
 
-                {/* Description */}
-                {template.description && (
+                {/* Description — fallback Overview only when there's no narrative
+                    (the narrative up top already tells the story). */}
+                {!detail?.narrative && detail?.description && (
                   <section className="space-y-2">
                     <h4 className="text-[11px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
                       Overview
                     </h4>
                     <p className="text-[13.5px] leading-relaxed text-foreground/90">
-                      {template.description}
+                      {detail.description}
                     </p>
                   </section>
                 )}
 
                 {/* Capabilities */}
-                {template.capabilities && template.capabilities.length > 0 && (
+                {detail?.capabilities && detail.capabilities.length > 0 && (
                   <section className="space-y-2">
                     <h4 className="text-[11px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
                       Capabilities
                     </h4>
                     <div className="flex flex-wrap gap-1.5">
-                      {template.capabilities.map((cap) => (
+                      {detail.capabilities.map((cap) => (
                         <Badge key={cap} variant="secondary" className="text-xs">
                           {cap.replace(/-/g, " ")}
                         </Badge>
@@ -271,7 +361,7 @@ export function TemplateGallerySheet({
                     </h4>
                     <div className="overflow-hidden rounded-xl border bg-card">
                       {archState === "ready" && archMd ? (
-                        <div className="h-[380px]">
+                        <div className="h-[440px]">
                           <Suspense fallback={<DiagramFallback />}>
                             <PlatformDiagram
                               content={archMd}
@@ -288,6 +378,97 @@ export function TemplateGallerySheet({
                         <DiagramFallback />
                       )}
                     </div>
+                  </section>
+                )}
+
+                {/* Included files (collapsible tree + content viewer) */}
+                {files.length > 0 && (
+                  <section className="space-y-2">
+                    <button
+                      type="button"
+                      onClick={() => setFilesOpen((o) => !o)}
+                      className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.14em] text-muted-foreground hover:text-foreground cursor-pointer"
+                      aria-expanded={filesOpen}
+                    >
+                      {filesOpen ? (
+                        <ChevronDown className="h-3.5 w-3.5" />
+                      ) : (
+                        <ChevronRight className="h-3.5 w-3.5" />
+                      )}
+                      <Folder className="h-3.5 w-3.5" />
+                      Included files
+                      <span className="font-normal normal-case tracking-normal">
+                        ({files.length})
+                      </span>
+                    </button>
+
+                    {filesOpen && (
+                      <div className="flex h-[440px] rounded-xl border overflow-hidden">
+                        {/* File tree sidebar */}
+                        <div className="w-[240px] border-r flex flex-col min-h-0">
+                          <ScrollArea className="flex-1">
+                            <div className="p-2">
+                              <FileTreeView
+                                nodes={fileTree}
+                                selectedPath={selectedFile}
+                                onSelect={setSelectedFile}
+                              />
+                            </div>
+                          </ScrollArea>
+                        </div>
+
+                        {/* File content viewer */}
+                        <div className="flex-1 flex flex-col min-w-0">
+                          <div className="px-4 py-2 border-b bg-muted/30 flex items-center justify-between">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span className="text-sm font-mono text-muted-foreground truncate">
+                                {selectedFile ?? "Select a file"}
+                              </span>
+                              {isLoadingFile && (
+                                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground shrink-0" />
+                              )}
+                            </div>
+                            {isMarkdownFile && (
+                              <div className="flex items-center gap-1 bg-muted rounded-md p-0.5 shrink-0">
+                                <Button
+                                  variant={!showRaw ? "secondary" : "ghost"}
+                                  size="sm"
+                                  onClick={() => setShowRaw(false)}
+                                  className="h-7 px-2 gap-1"
+                                >
+                                  <Eye className="h-3.5 w-3.5" />
+                                  <span className="text-xs">Preview</span>
+                                </Button>
+                                <Button
+                                  variant={showRaw ? "secondary" : "ghost"}
+                                  size="sm"
+                                  onClick={() => setShowRaw(true)}
+                                  className="h-7 px-2 gap-1"
+                                >
+                                  <Code className="h-3.5 w-3.5" />
+                                  <span className="text-xs">Raw</span>
+                                </Button>
+                              </div>
+                            )}
+                          </div>
+                          <ScrollArea className="flex-1">
+                            <div className="p-4">
+                              {isLoadingFile ? (
+                                <div className="flex items-center justify-center py-12">
+                                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                                </div>
+                              ) : isMarkdownFile && !showRaw ? (
+                                <Prose>{fileContent}</Prose>
+                              ) : (
+                                <pre className="text-sm font-mono whitespace-pre-wrap break-words">
+                                  {fileContent}
+                                </pre>
+                              )}
+                            </div>
+                          </ScrollArea>
+                        </div>
+                      </div>
+                    )}
                   </section>
                 )}
               </div>
@@ -319,7 +500,7 @@ export function TemplateGallerySheet({
                   </span>
                   <Button
                     className="ml-auto"
-                    onClick={() => { setUseMode("as-is"); setAdaptText(""); setUseDialogOpen(true); }}
+                    onClick={() => detail && onFork(detail)}
                     disabled={isLoading || !detail || !isApproved}
                     title={
                       !isApproved && detail
@@ -350,85 +531,135 @@ export function TemplateGallerySheet({
           </div>
         )}
       </SheetContent>
-
-      {/* "Use this template" — pick use-as-is vs tune, then fork. */}
-      <Dialog open={useDialogOpen} onOpenChange={setUseDialogOpen}>
-        <DialogContent className="sm:max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Use “{template?.name}”</DialogTitle>
-            <DialogDescription>
-              You'll get your own editable copy. Start from the demo as-is, or tell the
-              AI how to adapt it and it'll get to work right away.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-3 py-1">
-            <button
-              type="button"
-              onClick={() => setUseMode("as-is")}
-              className={cn(
-                "flex w-full cursor-pointer items-start gap-3 rounded-lg border p-3 text-left transition-colors",
-                useMode === "as-is" ? "border-primary bg-primary/5 ring-1 ring-primary/30" : "border-border/70 hover:border-border",
-              )}
-            >
-              <span className={cn("mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border", useMode === "as-is" ? "border-primary" : "border-muted-foreground/50")}>
-                {useMode === "as-is" && <span className="h-2 w-2 rounded-full bg-primary" />}
-              </span>
-              <span>
-                <span className="block text-sm font-medium">Use this template as is</span>
-                <span className="block text-xs text-muted-foreground">Clone it unchanged — you can ask for edits later.</span>
-              </span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setUseMode("tune")}
-              className={cn(
-                "flex w-full cursor-pointer items-start gap-3 rounded-lg border p-3 text-left transition-colors",
-                useMode === "tune" ? "border-primary bg-primary/5 ring-1 ring-primary/30" : "border-border/70 hover:border-border",
-              )}
-            >
-              <span className={cn("mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border", useMode === "tune" ? "border-primary" : "border-muted-foreground/50")}>
-                {useMode === "tune" && <span className="h-2 w-2 rounded-full bg-primary" />}
-              </span>
-              <span className="flex-1">
-                <span className="block text-sm font-medium">Tune this template for your use case</span>
-                <span className="block text-xs text-muted-foreground">Describe what to adapt — industry, customer, data, capabilities, branding…</span>
-              </span>
-            </button>
-
-            {useMode === "tune" && (
-              <Textarea
-                autoFocus
-                value={adaptText}
-                onChange={(e) => setAdaptText(e.target.value)}
-                placeholder={'e.g. "Rebrand from LuxeBeauty to Acme Pharma, switch the story to medication returns, and drop the ML model."'}
-                className="min-h-[110px] text-sm"
-              />
-            )}
-          </div>
-
-          <DialogFooter>
-            <Button variant="ghost" onClick={() => setUseDialogOpen(false)}>Cancel</Button>
-            <Button
-              onClick={confirmUseTemplate}
-              disabled={useMode === "tune" && !adaptText.trim()}
-            >
-              <GitFork className="mr-2 h-4 w-4" />
-              {useMode === "tune" ? "Create & adapt" : "Create project"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </Sheet>
   );
 }
 
 function DiagramFallback() {
   return (
-    <div className="flex h-[380px] items-center justify-center">
+    <div className="flex h-[440px] items-center justify-center">
       <Loader2 className="h-6 w-6 animate-spin text-primary" />
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// File tree (ported from the former template-detail-popup).
+// ---------------------------------------------------------------------------
+
+interface FileTreeNode {
+  name: string;
+  path: string;
+  isDir: boolean;
+  children: FileTreeNode[];
+}
+
+function buildFileTree(files: TemplateFile[]): FileTreeNode[] {
+  const root: FileTreeNode[] = [];
+  const dirs: Record<string, FileTreeNode> = {};
+  const sorted = [...files].sort((a, b) => a.path.localeCompare(b.path));
+
+  for (const file of sorted) {
+    const parts = file.path.split("/");
+    let currentPath = "";
+    let currentLevel = root;
+
+    for (let i = 0; i < parts.length; i++) {
+      const part = parts[i];
+      const isLast = i === parts.length - 1;
+      currentPath = currentPath ? `${currentPath}/${part}` : part;
+
+      if (isLast) {
+        currentLevel.push({ name: part, path: file.path, isDir: false, children: [] });
+      } else {
+        if (!dirs[currentPath]) {
+          const dirNode: FileTreeNode = { name: part, path: currentPath, isDir: true, children: [] };
+          dirs[currentPath] = dirNode;
+          currentLevel.push(dirNode);
+        }
+        currentLevel = dirs[currentPath].children;
+      }
+    }
+  }
+
+  return root;
+}
+
+function FileTreeView({
+  nodes,
+  selectedPath,
+  onSelect,
+  depth = 0,
+}: {
+  nodes: FileTreeNode[];
+  selectedPath: string | null;
+  onSelect: (path: string) => void;
+  depth?: number;
+}) {
+  return (
+    <div className="space-y-0.5">
+      {nodes.map((node) => (
+        <FileTreeItem
+          key={node.path}
+          node={node}
+          selectedPath={selectedPath}
+          onSelect={onSelect}
+          depth={depth}
+        />
+      ))}
+    </div>
+  );
+}
+
+function FileTreeItem({
+  node,
+  selectedPath,
+  onSelect,
+  depth,
+}: {
+  node: FileTreeNode;
+  selectedPath: string | null;
+  onSelect: (path: string) => void;
+  depth: number;
+}) {
+  const [isExpanded, setIsExpanded] = useState(true);
+  const isSelected = selectedPath === node.path;
+
+  if (node.isDir) {
+    return (
+      <div>
+        <button
+          onClick={() => setIsExpanded(!isExpanded)}
+          className="w-full flex items-center gap-1.5 px-2 py-1 rounded text-sm text-left hover:bg-muted/50 cursor-pointer"
+          style={{ paddingLeft: `${depth * 12 + 8}px` }}
+        >
+          <Folder className="h-4 w-4 text-muted-foreground shrink-0" />
+          <span className="truncate">{node.name}</span>
+        </button>
+        {isExpanded && node.children.length > 0 && (
+          <FileTreeView
+            nodes={node.children}
+            selectedPath={selectedPath}
+            onSelect={onSelect}
+            depth={depth + 1}
+          />
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <button
+      onClick={() => onSelect(node.path)}
+      className={cn(
+        "w-full flex items-center gap-1.5 px-2 py-1 rounded text-sm text-left hover:bg-muted/50 cursor-pointer",
+        isSelected && "bg-primary/10 text-primary",
+      )}
+      style={{ paddingLeft: `${depth * 12 + 8}px` }}
+    >
+      <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
+      <span className="truncate">{node.name}</span>
+    </button>
   );
 }
 

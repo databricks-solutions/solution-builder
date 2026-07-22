@@ -1,0 +1,7 @@
+{
+  "id": "aibi-portfolio-assistant",
+  "name": "AI/BI Portfolio Assistant",
+  "customer": "",
+  "industry": "Financial Services",
+  "narrative": "You're the CIO reviewing your flagship AI Growth Fund, and the headline looks great: it's beating its Nasdaq-100 benchmark by a wide margin, riding the real AI rally on actual market prices. The interesting part is the catch — why is it winning, and what did it cost in risk?\n\nAsk Genie and it walks the paper trail: three portfolio reorganizations that progressively bought AI and sold defensives, capped by a major pivot on August 4, 2025, stepping core-AI concentration from ~30% to ~46% to ~77%. The bet has paid off so far, but the fund is now a large, undiversified position — ~87% Technology — with Value at Risk and volatility both up. Real prices feed governed analysis tables, a metric view, an AI/BI dashboard and Genie."
+}
