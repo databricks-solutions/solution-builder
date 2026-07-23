@@ -477,6 +477,7 @@ export async function createProject(
   contextFiles?: UploadedFile[],
   architectureFirst = false,
   mode: "story" | "architecture" | "workshop" = "story",
+  blankArchitecture = false,
 ): Promise<Project> {
   const resp = await fetch(apiUrl("/api/projects"), {
     method: "POST",
@@ -487,6 +488,7 @@ export async function createProject(
       initial_prompt: initialPrompt,
       context_files: contextFiles ?? [],
       architecture_first: architectureFirst,
+      blank_architecture: blankArchitecture,
       mode,
     }),
   });

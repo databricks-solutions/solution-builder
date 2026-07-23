@@ -67,7 +67,7 @@ Which reference each request style maps to (copy the closest — and remember th
 |---|---|---|
 | A general **data + AI / analytics demo**, or a broad "governed platform / data platform" ask | `reference/architecture-complete.jsonc` — **the canonical demo (solution) architecture** | The full sources → Lakeflow+Genie → lakehouse/Lakebase → dashboard/Genie/app → Genie One shape, 2 tabs. This is the DEFAULT for a broad use-case, not an over-scoped extreme. |
 | Anything **model-driven** — "predictive maintenance", "churn", "recommendations", "fraud", "ML platform" | `reference/ml-platform.jsonc` | `rowGrid` matrix, medallion Feature Store fork (`@out-fs`), Vector Search / RAG, model training → registry → real-time + batch serving. Predictive-maintenance-shaped. |
-| An **assistant / RAG / multi-agent** demo — "route questions across our data + docs + tools" | `reference/agent-bricks.jsonc` | Supervisor over Knowledge Assistant · Genie Space · Hosted MCPs over a governed medallion → Genie One. |
+| An **assistant / RAG / multi-agent** demo — "route questions across our data + docs + tools" | `reference/agent-bricks.jsonc` | Supervisor over Knowledge Assistant · Genie Agent · Hosted MCPs over a governed medallion → Genie One. |
 | A **minimal** "ingest → lakehouse → dashboard + Genie for the business" | *The format* inline example (below) | The smallest ingest → lakehouse → dashboard/Genie → Genie One flow. Use only when the ask is genuinely that small. |
 | A **physical / governance** layout — "show workspace, metastore, catalogs, schemas" | `reference/governance-layout.jsonc` (+ *Databricks physical layout* below) | Nested Workspace / Metastore / Catalog / Schema / Table boxes — a governance picture, not a data-flow one. |
 
@@ -78,7 +78,7 @@ The SIMPLEST shape — one tab. **Use it only for a basic ingest→serve demo**;
 ```jsonc
 {
   "name": "Customer 360",
-  "story": "Ingest our Postgres, ERP, sensor, and PDF data into a governed lakehouse, then give the business a dashboard and a Genie Space to ask questions in plain language — reached through Genie One, all on Databricks.",
+  "story": "Ingest our Postgres, ERP, sensor, and PDF data into a governed lakehouse, then give the business a dashboard and a Genie Agent to ask questions in plain language — reached through Genie One, all on Databricks.",
   "columns": ["sources", "pipeline", "compute", "work", "entry"],
   "nodes": [
     // Sources, each stacked by `row`. The edge (below) names the Lakeflow ingest
@@ -213,6 +213,7 @@ When a node's spot is best described *relative to another node* rather than by a
 | `row` | No | Within-lane order (default), or a shared cross-lane band with `rowGrid: true` — see *Positioning* above. |
 | `wraps` | container | On a `type:"box"`: the node ids this box ENCLOSES. The box auto-sizes around them (+ `pad`, default 24). Nesting works (a box may wrap boxes) — see *Containers*. |
 | `bounds` | container | On a `type:"box"`: per-side edge anchors `{ left?, right?, top?, bottom? }`. Each side = `"<nodeId>:<anchor>"` (anchor ∈ `left`/`right`/`center` for x, `top`/`bottom`/`center` for y), or `"col:<name>:<anchor>"` (a lane's edge/midpoint), or `"wrap"`. Lets the box edge cut HALFWAY through a node/column. Unspecified sides fall back to `wraps`. |
+| `title` · `titleIcon` | box | On a `type:"box"`: the label drawn on the container's top-left corner (`title`) + an optional icon beside it (`titleIcon` — an icon key like `dbCatalog`, `databricksMetastore`, `file:vendor/databricks`). **Prefer these over `label` for a titled container** (Workspace / Metastore / Catalog / platform boxes). `label` also works but has no icon slot. |
 | `pin` | placement | Dock this node into a box corner (overrides `col`). An object `{ at, to?, pad?, float? }`: `at` = one of `top-left`·`top`·`top-right`·`left`·`center`·`right`·`bottom-left`·`bottom`·`bottom-right`; `to` = box id to dock into (default: the largest box); `pad` = inset px (default 16); `float` = `false`/omitted → **reserve a band** (the box GROWS so this never overlaps content — top pin pushes content down, bottom extends the box down), `true` → **overlay** at the corner (may sit over content). Use for banners / personas. |
 | `at` | No | `[x, y]` **explicit** position (node center). **Overrides `col`/`pin`.** Use for fully manual placement. (A user drag also persists here.) |
 | `size` | No | `[w, h]` if resized from the natural size. |
@@ -331,14 +332,14 @@ The renderer gives each kind a different **default** chrome, so the same `style`
 
 ```
 sources (≈3 rows)  →  Lakeflow + Genie (one block)  →  lakehouse + lakebase
-     →  dashboard + Genie Space + app  →  Genie One  →  the end user
+     →  dashboard + Genie Agent + app  →  Genie One  →  the end user
 ```
 
 Per-component facts (title, `ports`/`@handle`s, composite internals, when-to-use) live in the generated **Component catalog** below — the single source of truth; read the row, don't restate it here. This section is only the whole-diagram layout:
 
 - **Platform box:** one `box` `z:-1` `wraps` the whole flow (usually not the raw sources) = "the Databricks Platform".
 - **Banners:** `db-platform` and `governance-block` `pin` to that box's `top-left`/`top-right` (never a raw `at` — it drifts when the node set changes; the non-float pin grows the box to fit).
-- **Genie One** fronts the consumption tiles (dashboard / Genie Space / app) with auto-arrows.
+- **Genie One** fronts the consumption tiles (dashboard / Genie Agent / app) with auto-arrows.
 
 ---
 
@@ -378,9 +379,9 @@ Use the `type` id; the renderer supplies the icon, label, default description an
 
 | type | default title | default description (shown on the tile) | size | when to use |
 |------|---------------|-----------------------------------------|------|-------------|
-| `databricks-apps-work` | Databricks Apps | Deploy business apps | 230×54 | The custom business app — PREFERRED over the legacy databricks-apps tile. Runs on Lakebase; can embed the dashboard + Genie Space. |
-| `genie-one` | Genie One - Mobile app | Databricks access for business user | 230×78 | The business-user / mobile entry point. It has a Business-users persona built IN (a small user icon docked above the Genie One mark) — so you do NOT need a separate file:persona/user node beside it. Wire Genie One --> dashboard / Genie Space / app (auto-arrows; leave `arrow` out). |
-| `genie` | Genie Space | ask anything about your data | 230×54 |  |
+| `databricks-apps-work` | Databricks Apps | Deploy business apps | 230×54 | The custom business app — PREFERRED over the legacy databricks-apps tile. Runs on Lakebase; can embed the dashboard + Genie Agent. |
+| `genie-one` | Genie One - Mobile app | Databricks access for business user | 230×78 | The business-user / mobile entry point. It has a Business-users persona built IN (a small user icon docked above the Genie One mark) — so you do NOT need a separate file:persona/user node beside it. Wire Genie One --> dashboard / Genie Agent / app (auto-arrows; leave `arrow` out). |
+| `genie` | Genie Agent | ask anything about your data | 230×54 |  |
 | `knowledge-assistant` | Knowledge Assistant | Chat with your documents — grounded, cited answers from unstructured content. | 230×54 |  |
 | `supervisor-agent` | Supervisor Agent | Routes a question to the right specialist agent and composes the answer. | 230×54 |  |
 | `agent-bricks` | Agent Bricks | Databricks' managed agents — a multi-agent supervisor plus information extraction, document parsing, and classification, built and governed for you. | 230×170 | Managed MULTI-agent system: a Supervisor orchestrating Knowledge Assistant / Genie / MCP / Functions (with extraction·parsing·classification chips). Use when the agent layer is a supervisor routing to specialists; if the demo uses only one agent capability, use that single tile instead. |

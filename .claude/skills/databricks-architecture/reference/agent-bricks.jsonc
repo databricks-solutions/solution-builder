@@ -8,19 +8,19 @@
 // WHAT IT SHOWS:
 //   • rowGrid layout — `row` aligns across ALL lanes into shared bands:
 //       row 1              Hosted MCPs
-//       row 2              Genie Space          Supervisor Agent
+//       row 2              Genie Agent          Supervisor Agent
 //       row 3   Postgres · Medallion · AI/BI Dashboard
 //       row 4   PDF docs ·            Knowledge Assistant
 //     so PDF (row 4) lines up with the Knowledge Assistant it feeds, and
 //     Postgres (row 3) lines up with the medallion — clean horizontal feeds.
 //   • A governed medallion (`medallion-table`, params.metric_views on) forks a
 //     Metric Views layer off GOLD and exposes `@out-gold` + `@out-mv`:
-//       – Genie Space reads GOLD (`@out-gold` → genie).
+//       – Genie Agent reads GOLD (`@out-gold` → genie).
 //       – the AI/BI Dashboard reads the METRIC VIEWS (`@out-mv` → dashboard).
 //   • PDF documents feed the Knowledge Assistant DIRECTLY (unstructured RAG),
 //     NOT through the medallion.
 //   • A Supervisor Agent orchestrates the three tools (Knowledge Assistant ·
-//     Genie Space · Hosted MCPs) and serves business users through Genie One.
+//     Genie Agent · Hosted MCPs) and serves business users through Genie One.
 //
 // AUTHOR STRUCTURE, NOT PIXELS. See the medallion catalog row for the
 // `@out-gold` / `@out-mv` / `@l` handles.
@@ -28,7 +28,7 @@
 [
   {
     "name": "Agent Bricks",
-    "story": "Ingest our Postgres data into a governed medallion (bronze→silver→gold) with a Metric Views layer; a Genie Space queries the gold tables and an AI/BI dashboard reads the governed metric views. Separately, our PDF documents feed a Knowledge Assistant for grounded Q&A. A Supervisor Agent orchestrates the Knowledge Assistant, Genie Space, and hosted MCP tools, and serves answers to business users through Genie One.",
+    "story": "Ingest our Postgres data into a governed medallion (bronze→silver→gold) with a Metric Views layer; a Genie Agent queries the gold tables and an AI/BI dashboard reads the governed metric views. Separately, our PDF documents feed a Knowledge Assistant for grounded Q&A. A Supervisor Agent orchestrates the Knowledge Assistant, Genie Agent, and hosted MCP tools, and serves answers to business users through Genie One.",
     "columns": ["sources", "pipeline", "tools", "supervisor", "entry"],
     "rowGrid": true,
     "nodes": [
