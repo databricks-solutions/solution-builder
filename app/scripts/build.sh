@@ -82,6 +82,16 @@ if [[ ! -f "src/demo_prompt_generator/__dist__/index.html" ]]; then
     exit 1
 fi
 
+# Drop the heavy vendored microsite architecture SVGs (~5 MB each) from the
+# wheel. They push the wheel over the Apps source-export 10 MB per-file cap
+# (which makes `bundle run` fail), and the microsites render fine without the
+# static SVG. Best-effort — the microsites' index.html/app.js remain.
+for _svg in \
+    "src/demo_prompt_generator/__dist__/architecture.svg" \
+    "src/demo_prompt_generator/__dist__/shift-left/architecture.svg"; do
+    [[ -f "$_svg" ]] && rm -f "$_svg" && echo "  Stripped $_svg from the wheel"
+done
+
 # --- 2. Stage runtime data INTO the package source tree (paths mirror dev) ---
 # The wheel ships .claude/, initial_templates/, and ai_dev_kit/ INSIDE
 # src/demo_prompt_generator/ so paths inside the installed package match the
