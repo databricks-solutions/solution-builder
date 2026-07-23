@@ -840,6 +840,20 @@ def create_project(
         encoding="utf-8",
     )
 
+    # Blank-architecture entry ("Start with a blank architecture" — no prompt):
+    # seed an EMPTY architecture.md (one empty tab) so the canvas opens truly
+    # blank. Without this the agent would draw a full end-to-end diagram on its
+    # first turn; here the injected message just primes it to await the user's
+    # edits (see the frontend's blank-architecture prompt). Only for
+    # architecture-first; a normal arch-first project lets the agent author the
+    # diagram from the user's request.
+    if body.architecture_first and body.blank_architecture:
+        empty_arch = [{"name": "Architecture", "nodes": [], "edges": []}]
+        (project_dir / "architecture.md").write_text(
+            "```json\n" + json.dumps(empty_arch, indent=2) + "\n```\n",
+            encoding="utf-8",
+        )
+
     # Save uploaded context files (home-page widget) + the legacy
     # single-document fallback.
     #

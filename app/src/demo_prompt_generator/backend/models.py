@@ -746,6 +746,15 @@ class ProjectCreateRequest(BaseModel):
         False,
         description="Architecture-first project: opens on the Architecture tab and shows the 'Build the solution' CTA until the build is kicked off.",
     )
+    blank_architecture: bool = Field(
+        False,
+        description=(
+            "Architecture-first with NO prompt: the user clicked 'Start with a blank "
+            "architecture'. Seeds an empty architecture.md (one empty tab) so the "
+            "canvas opens blank instead of the agent drawing a full end-to-end diagram. "
+            "Only meaningful when architecture_first is true."
+        ),
+    )
     mode: str = Field(
         "story",
         description="Home-page entry mode: 'story', 'architecture', or 'workshop' (Genie Code workshop — agent generates notebooks instead of provisioning resources).",

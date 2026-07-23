@@ -1644,6 +1644,13 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
           // pans with the middle/right button (PAN_ON_DRAG).
           selectionOnDrag={editMode}
           panOnDrag={editMode ? PAN_ON_DRAG : true}
+          // Trackpad-first panning (Lucid / Excalidraw behavior): a two-finger
+          // scroll PANS the canvas — no right-click / two-finger click needed.
+          // Pinch (and ctrl/⌘+scroll) still ZOOMS. This is the primary way to
+          // move around on a laptop; the drag-to-pan bindings above stay as a
+          // mouse fallback.
+          panOnScroll
+          zoomOnScroll={false}
           selectNodesOnDrag={false}
           // Shift = additive multi-select (shift-click toggles a node in/out of
           // the selection). selectionKeyCode is DISABLED: ReactFlow's default is
