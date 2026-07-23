@@ -348,6 +348,13 @@ function ProjectPage() {
   const [isLoadingMessages, setIsLoadingMessages] = useState(true);
   const [isClearingSession, setIsClearingSession] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
+  // Synchronous mirror of isStreaming. The useState flag flips asynchronously,
+  // so two sends fired in the same tick (e.g. the auto-kick opener + a
+  // "Create Architecture" button/effect) both see isStreaming===false in their
+  // captured closure and BOTH go through — a double-send. This ref is set the
+  // instant a send starts, so the second caller bails immediately. Keep it in
+  // lockstep with every setIsStreaming(...) call.
+  const isStreamingRef = useRef(false);
   const [streamingContent, setStreamingContent] = useState("");
   const [streamingThinkingBlocks, setStreamingThinkingBlocks] = useState<ThinkingBlock[]>([]);
   const [streamingTools, setStreamingTools] = useState<Map<string, { name: string; input: unknown; result?: string; isError?: boolean; startedAt?: string; completedAt?: string }>>(new Map());
@@ -719,10 +726,14 @@ function ProjectPage() {
       message: string,
       options: { skipOptimisticUserMessage?: boolean; isAutoFix?: boolean } = {},
     ) => {
-      if (isStreaming) return;
+      // Ref guard first (synchronous) — blocks a same-tick double-send that
+      // the async isStreaming state can't catch. Then claim the turn.
+      if (isStreamingRef.current || isStreaming) return;
+      isStreamingRef.current = true;
       // A non-driver may run the agent only while the driver's token is fresh;
       // once expired they must take over. The driver can always send.
       if (!canSend) {
+        isStreamingRef.current = false; // didn't actually start a turn
         toast.error(
           "This conversation's session token has expired — take over to continue.",
         );
@@ -1001,6 +1012,7 @@ function ProjectPage() {
         if (reasoningRef.current) {
           setLastReasoning(reasoningRef.current);
         }
+        isStreamingRef.current = false;
         setIsStreaming(false);
         setStreamingContent("");
         setStreamingThinkingBlocks([]);
@@ -1096,6 +1108,7 @@ function ProjectPage() {
         if (reasoningRef.current) {
           setLastReasoning(reasoningRef.current);
         }
+        isStreamingRef.current = false;
         setIsStreaming(false);
         setStreamingContent("");
         setStreamingThinkingBlocks([]);
@@ -1135,6 +1148,7 @@ function ProjectPage() {
     const exec = execution;
 
     // There's an active execution — resume streaming
+    isStreamingRef.current = true;
     setIsStreaming(true);
     setExecutionId(exec.execution_id);
     abortControllerRef.current = new AbortController();
@@ -1276,6 +1290,7 @@ function ProjectPage() {
         getDeployedResources(projectId).catch(() => null),
       ]);
       if (reasoningRef.current) setLastReasoning(reasoningRef.current);
+      isStreamingRef.current = false;
       setIsStreaming(false);
       setStreamingContent("");
       setStreamingThinkingBlocks([]);
@@ -1301,6 +1316,7 @@ function ProjectPage() {
     } finally {
       // Safety net — success path already cleared these.
       if (reasoningRef.current) setLastReasoning(reasoningRef.current);
+      isStreamingRef.current = false;
       setIsStreaming(false);
       setStreamingContent("");
       setStreamingThinkingBlocks([]);
@@ -1616,12 +1632,19 @@ function ProjectPage() {
     handleSendMessage(ARCHITECTURE_MIGRATION_PROMPT);
   }, [architectureContent, projectId, isStreaming, handleSendMessage]);
 
-  // Handle creating architecture - send message to agent
+  // Handle creating architecture - send message to agent.
+  // NO-OP for architecture-first projects: their creation prompt (sent at
+  // project creation) already tells the agent to draw architecture.md, and on
+  // arch-first we land on the Architecture tab BEFORE the conversation/stream
+  // has loaded in the UI — so isStreaming is still false and this would fire a
+  // redundant second "Create architecture" turn racing the first. Guard on the
+  // ref too (not just the async isStreaming state) to block a same-tick double.
   const handleCreateArchitecture = useCallback(() => {
-    if (isCreatingArchitecture || isStreaming) return;
+    if (project?.architecture_first) return;
+    if (isCreatingArchitecture || isStreaming || isStreamingRef.current) return;
     setIsCreatingArchitecture(true);
     handleSendMessage("Create an /architecture.md file at the project root level with an architecture diagram matching our solution - read the databricks-architecture skill reference");
-  }, [isCreatingArchitecture, isStreaming, handleSendMessage]);
+  }, [project?.architecture_first, isCreatingArchitecture, isStreaming, handleSendMessage]);
 
   // Handle Package as DAB button click - sends message to agent
   const handlePackageAsDAB = useCallback(() => {
