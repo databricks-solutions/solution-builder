@@ -1,0 +1,82 @@
+# ============================================================================
+# Per-deployment configuration for the `prod` target.
+# ============================================================================
+# INTERNAL ONLY — committed to the PRIVATE repo, excluded from the public
+# mirror via .publicignore. Holds internal deploy values (workspace/Lakebase
+# IDs, endpoint names, admin emails; no secrets). Do NOT merge to the public
+# repo (github.com/databricks-solutions/solution-builder).
+#
+# Deploy:  databricks bundle deploy
+# (No -t flag needed — `prod` is the only target and is marked default.)
+# ============================================================================
+
+targets:
+  prod:
+    # ────────────────────────────────────────────────────────────────────────
+    # Section 1 — workspace profile
+    # ────────────────────────────────────────────────────────────────────────
+    # Maps to a profile in ~/.databrickscfg. Switch to `field-eng` if you
+    # prefer that profile (both point at https://e2-demo-field-eng.cloud.databricks.com).
+    workspace:
+      profile: DEFAULT
+
+    # ────────────────────────────────────────────────────────────────────────
+    # Section 2 — bundle variables
+    # ────────────────────────────────────────────────────────────────────────
+    # Resource identifiers used by `databricks.yml` to grant the app's SP
+    # access. Each must already exist in the target workspace.
+    variables:
+      app_name: dbdemos-generator
+      # Lakebase autoscaling project + branch + database (3 separate values
+      # so the bundle can manage project/branch as resources AND we can
+      # compose the full LAKEBASE_DATABASE_PATH for the runtime env).
+      # The "Production" branch in this project is br-rough-cell-d14s0r2i —
+      # that's the auto-generated default branch name in Lakebase's UI.
+      # Existing Lakebase project — workspace has hit the 1000-project quota
+      # so we can't create a fresh one via the bundle. project_id + branch_id
+      # are the UIDs from the Lakebase UI URL (/lakebase/projects/<id>?branchId=<id>).
+      # When quota frees up, switch these to slugs (e.g. demo-generator/production)
+      # and uncomment the postgres_projects + postgres_branches block in databricks.yml.
+      lakebase_project_id: 97127996-3b61-466e-bd7f-da2619d73f7f
+      lakebase_branch_id: br-rough-cell-d14s0r2i
+      lakebase_database_name: demo_generator
+      # Claude Code routes through the AI Gateway custom endpoint
+      # `demo-generator-do-not-delete` — reconfigured to accept the
+      # anthropic/v1/messages destination shape. Combined with the
+      # upgraded Claude Code SDK (≥0.1.71 / CLI ≥2.1.111) which sends
+      # `thinking.type.adaptive`, this works for opus-4-7. Verified on
+      # staging first.
+      anthropic_llm_endpoint: demo-generator-do-not-delete
+      anthropic_base_path: ai-gateway/anthropic
+      # LLMService — same AI Gateway endpoint, OpenAI/chat-completions shape.
+      ai_gateway: demo-generator-do-not-delete
+      ai_gateway_mini: databricks-gpt-5-4-mini
+      ai_gateway_embedding: databricks-qwen3-embedding-0-6b
+      # Default Unity Catalog every new project lands in. Created at app
+      # boot if missing; USE CATALOG + CREATE SCHEMA granted to `account
+      # users`, ALL PRIVILEGES granted to each admin in template_admin_emails.
+      default_catalog: ai_demo_gen
+
+      # ──────────────────────────────────────────────────────────────────────
+      # Section 3 — runtime environment
+      # ──────────────────────────────────────────────────────────────────────
+      # `build.sh` copies this dict 1:1 into `.build/app.yml`'s `env:` block.
+      # Add a new line here and it appears as a container env var on the next
+      # `databricks bundle deploy`. No other file needs editing.
+      app_env:
+        # Composed from the 3 lakebase_* vars above — the backend reads this
+        # single env var, and core/lakebase.py parses it back into project +
+        # branch + database to mint OAuth tokens against the right endpoint.
+        LAKEBASE_DATABASE_PATH: projects/${var.lakebase_project_id}/branches/${var.lakebase_branch_id}/databases/${var.lakebase_database_name}
+        ANTHROPIC_LLM_ENDPOINT: ${var.anthropic_llm_endpoint}
+        ANTHROPIC_BASE_PATH: ${var.anthropic_base_path}
+        AI_GATEWAY: ${var.ai_gateway}
+        AI_GATEWAY_MINI: ${var.ai_gateway_mini}
+        AI_GATEWAY_EMBEDDING: ${var.ai_gateway_embedding}
+        DEFAULT_CATALOG: ${var.default_catalog}
+        # Internal deploy → show vendor logos in the architecture diagram by
+        # default (public build leaves this off; users opt in per diagram).
+        ENABLE_LOGO_BY_DEFAULT: "true"
+        # Admins get read access to every project + template
+        # publish/approve actions. Comma-separated.
+        DEMO_PROMPT_GENERATOR_TEMPLATE_ADMIN_EMAILS: cal.reynolds@databricks.com,quentin.ambard@databricks.com,max.nienu@databricks.com
