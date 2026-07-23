@@ -251,7 +251,7 @@ def ensure_project_files_restored(
     Two separate responsibilities, both run on every call:
 
     1. **Skills** are managed out-of-band (copied from the bundled
-       databricks-demo-generator + ai-dev-kit skills, see skills_manager).
+       databricks-solution-builder + ai-dev-kit skills, see skills_manager).
        They live under `.claude/skills/`, which is intentionally NOT
        persisted to Lakebase — so a fresh container has none of them. We
        re-copy on every load: cheap, idempotent (the inner function noops

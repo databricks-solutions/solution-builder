@@ -495,11 +495,11 @@ async def stream_agent_response(
 
             # Build allowed tools list. `Skill` enables the agent's Skill tool
             # so it can invoke skills declared in <cwd>/.claude/skills/ (notably
-            # databricks-demo-generator + the per-project ai-dev-kit skills).
+            # databricks-solution-builder + the per-project ai-dev-kit skills).
             # Skills are enabled via the dedicated `skills=` option on
             # ClaudeAgentOptions (set below); "Skill" in allowed_tools was
             # deprecated in claude-agent-sdk 0.1.77.
-            # `Task` lets the agent spawn subagents — the demo-generator skill's
+            # `Task` lets the agent spawn subagents — the solution-builder skill's
             # Stage 2 fan-out (app-spec subagent + 02/03/04 batched) and
             # Stage 3 build parallelization (Genie/Dashboard + KA/MAS + App
             # subagents) rely on it. Without `Task` enabled the agent
@@ -626,7 +626,7 @@ async def stream_agent_response(
                 allowed_tools=allowed_tools,
                 disallowed_tools=disallowed_tools,
                 # Enable every installed skill — the project's .claude/skills/
-                # contains exactly the set we want available (demo-generator +
+                # contains exactly the set we want available (solution-builder +
                 # all ai-dev-kit skills, copied at create time). This replaces
                 # the deprecated `"Skill"` in allowed_tools.
                 skills="all",

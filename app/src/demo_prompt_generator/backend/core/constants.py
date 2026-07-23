@@ -2,7 +2,7 @@
 Constants for the template library feature.
 
 Industries are Databricks verticals.
-Capabilities are loaded from markdown files in .claude/skills/databricks-demo-generator/references/blocks/capabilities/.
+Capabilities are loaded from markdown files in .claude/skills/databricks-solution-builder/references/blocks/capabilities/.
 """
 
 import logging
@@ -35,13 +35,13 @@ CATEGORY_ORDER = ["lakeflow", "ai-bi", "agent-bricks", "uc-governance", "apps-in
 
 
 def _get_capabilities_folder() -> Optional[Path]:
-    """Find the capabilities folder in the demo-generator skill.
+    """Find the capabilities folder in the solution-builder skill.
 
-    Same path inside the wheel and the dev tree: `.claude/skills/databricks-demo-generator/`.
+    Same path inside the wheel and the dev tree: `.claude/skills/databricks-solution-builder/`.
     """
     bundled = (
         Path(__file__).parent.parent.parent / ".claude" / "skills"
-        / "databricks-demo-generator" / "references" / "blocks" / "capabilities"
+        / "databricks-solution-builder" / "references" / "blocks" / "capabilities"
     )
     if bundled.exists():
         return bundled
@@ -50,7 +50,7 @@ def _get_capabilities_folder() -> Optional[Path]:
     current_file = Path(__file__)
     for parent in current_file.parents:
         capabilities_dir = (
-            parent / ".claude" / "skills" / "databricks-demo-generator"
+            parent / ".claude" / "skills" / "databricks-solution-builder"
             / "references" / "blocks" / "capabilities"
         )
         if capabilities_dir.exists():

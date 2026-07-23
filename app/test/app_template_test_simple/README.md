@@ -11,7 +11,7 @@ src/
 ```
 
 Both files are byte-for-byte copies of
-`.claude/skills/databricks-demo-generator/references/example-luxebeauty-simple/`
+`.claude/skills/databricks-solution-builder/references/example-luxebeauty-simple/`
 — keep them in sync when the skill reference changes.
 
 ## Run it

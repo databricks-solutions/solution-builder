@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Usage tracking for the databricks-demo-generator skill.
+Usage tracking for the databricks-solution-builder skill.
 
 Usage: python track.py <EVENT> [<demo_name>]
 
@@ -24,7 +24,7 @@ import urllib.parse
 import urllib.request
 
 ENDPOINT = "https://ppxrzfxige.execute-api.us-west-2.amazonaws.com/v1/analytics"
-CATEGORY = "industry-demo-generator-skill"
+CATEGORY = "industry-solution-builder-skill"
 DISABLED_WORKSPACE = "1660015457675682"
 USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "

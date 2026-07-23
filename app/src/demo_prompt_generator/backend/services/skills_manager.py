@@ -3,7 +3,7 @@ Skills manager for managing skills in projects.
 
 Workflow:
 1. On app startup: ai-dev-kit is cloned/updated by dev.sh or build-electron.sh
-2. On project creation: Copy demo-generator + default skills to .claude/skills/
+2. On project creation: Copy solution-builder + default skills to .claude/skills/
 3. Skills folder is IGNORED from watchdog sync (managed here only)
 """
 
@@ -159,8 +159,8 @@ def _get_repo_skill_path(skill_name: str) -> Optional[Path]:
 
 
 def get_demo_generator_skill_path() -> Optional[Path]:
-    """Get the path to the demo-generator skill."""
-    return _get_repo_skill_path("databricks-demo-generator")
+    """Get the path to the solution-builder skill."""
+    return _get_repo_skill_path("databricks-solution-builder")
 
 
 def get_architecture_skill_path() -> Optional[Path]:
@@ -255,7 +255,7 @@ def _localize_arch_skill_for_app(skill_md: Path) -> None:
 
 
 def copy_skills_to_project(project_id: str) -> bool:
-    """Copy the demo-generator skill + every non-excluded ai-dev-kit skill
+    """Copy the solution-builder skill + every non-excluded ai-dev-kit skill
     into the project's `.claude/skills/` directory.
 
     Every project gets the full set. Capability-based filtering was tried
@@ -269,17 +269,17 @@ def copy_skills_to_project(project_id: str) -> bool:
 
     copied = 0
 
-    # Copy the demo-generator skill (lives in this repo, not ai-dev-kit).
+    # Copy the solution-builder skill (lives in this repo, not ai-dev-kit).
     demo_skill_path = get_demo_generator_skill_path()
     if demo_skill_path and demo_skill_path.exists():
-        dest = skills_dest / "databricks-demo-generator"
+        dest = skills_dest / "databricks-solution-builder"
         if dest.exists():
             shutil.rmtree(dest)
         shutil.copytree(demo_skill_path, dest, ignore=_SKILL_COPY_IGNORE)
         copied += 1
 
     # Copy the databricks-architecture skill (also this repo). The
-    # demo-generator SKILL.md points the agent at
+    # solution-builder SKILL.md points the agent at
     # `.claude/skills/databricks-architecture/SKILL.md` for the flat
     # nodes/edges schema + component catalog + reference diagrams — without
     # this copy that path doesn't exist inside a project session.
@@ -339,11 +339,11 @@ def ensure_project_skills(project_id: str) -> bool:
 
 def refresh_project_skills(project_id: str) -> bool:
     """Re-copy all skills from ai-dev-kit to project."""
-    # Remove old skills (except demo-generator)
+    # Remove old skills (except solution-builder)
     skills_dir = Path(PROJECTS_BASE_DIR) / project_id / ".claude" / "skills"
     if skills_dir.exists():
         for item in skills_dir.iterdir():
-            if item.name != "databricks-demo-generator":
+            if item.name != "databricks-solution-builder":
                 shutil.rmtree(item)
 
     return copy_skills_to_project(project_id)

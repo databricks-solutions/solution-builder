@@ -28,8 +28,8 @@ bun.lockb
 
 # …but the demo-generator's app_template/ ships package.json + lockfile
 # as part of the template — those files are content, not noise.
-!.claude/skills/databricks-demo-generator/app/app_template/package.json
-!.claude/skills/databricks-demo-generator/app/app_template/package-lock.json
+!.claude/skills/databricks-solution-builder/app/app_template/package.json
+!.claude/skills/databricks-solution-builder/app/app_template/package-lock.json
 
 # Same exception for the test app — the bundle CLI honors .gitignore at
 # the repo root when packaging the app source, so without these un-ignore

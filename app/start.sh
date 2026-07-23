@@ -56,7 +56,7 @@ fi
 export PATH="$DBCLI_DIR:$PATH"
 
 # ── jq ────────────────────────────────────────────────────────────────────
-# Apps containers don't ship jq either, but the demo-generator skills tell the
+# Apps containers don't ship jq either, but the solution-builder skills tell the
 # agent to pipe `databricks ... -o json | jq -r .field`. Without jq those
 # commands fail only in the deployed container (dev laptops have jq), so the
 # agent silently can't read resource IDs. Fetch the official static binary

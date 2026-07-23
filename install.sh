@@ -4,7 +4,7 @@
 # One-liner:
 #   bash <(curl -sL https://raw.githubusercontent.com/databricks-solutions/solution-builder/main/install.sh)
 #
-# Installs the `databricks-demo-generator` and `databricks-architecture` skills
+# Installs the `databricks-solution-builder` and `databricks-architecture` skills
 # into ~/.claude/skills/ (or ./.claude/skills/ with --project) and chains into
 # the AI Dev Kit installer unless --skill-only is passed.
 
@@ -15,7 +15,7 @@ set -euo pipefail
 REPO_OWNER="${DSB_REPO_OWNER:-databricks-solutions}"
 REPO_NAME="${DSB_REPO_NAME:-solution-builder}"
 # Skills installed by this script (each is .claude/skills/<name> in the repo).
-SKILLS=("databricks-demo-generator" "databricks-architecture")
+SKILLS=("databricks-solution-builder" "databricks-architecture")
 AI_DEV_KIT_INSTALLER="https://raw.githubusercontent.com/databricks-solutions/ai-dev-kit/main/install.sh"
 
 BRANCH="${DSB_BRANCH:-main}"

@@ -62,7 +62,7 @@ No improvisation. No "I hope this is the right pattern." The agent works from a 
 
 ### `03` &nbsp; Two surfaces, one library
 
-Prefer your terminal? Install the [Solution Generator Skill](.claude/skills/databricks-demo-generator) into any Claude Code project and use it from the CLI. Want a guided UI with chat, file viewer, and live diagrams? Use this app. **Same library, same outputs, same deploys** — pick whichever surface fits the moment.
+Prefer your terminal? Install the [Solution Builder Skill](.claude/skills/databricks-solution-builder) into any Claude Code project and use it from the CLI. Want a guided UI with chat, file viewer, and live diagrams? Use this app. **Same library, same outputs, same deploys** — pick whichever surface fits the moment.
 
 ### `04` &nbsp; Reuse and remix
 
@@ -422,8 +422,8 @@ solution-builder/
 │   ├── package.json              # Frontend deps (use bun)
 │   ├── scripts/                  # dev.sh, build.sh, build-electron.sh, release.sh
 │   └── .env.example              # Local-dev environment variable template
-├── .claude/skills/databricks-demo-generator/
-│   └── references/blocks/        # Context blocks (Solution Generator Skill)
+├── .claude/skills/databricks-solution-builder/
+│   └── references/blocks/        # Context blocks (Solution Builder Skill)
 │       ├── capabilities/         #   26+ Databricks feature blocks
 │       ├── domains/              #   Industry verticals
 │       └── patterns/             #   Analytical patterns
@@ -440,7 +440,7 @@ solution-builder/
 
 <br>
 
-Create a Markdown file in the appropriate `.claude/skills/databricks-demo-generator/references/blocks/` subdirectory (`domains/`, `capabilities/`, or `patterns/`) with YAML frontmatter:
+Create a Markdown file in the appropriate `.claude/skills/databricks-solution-builder/references/blocks/` subdirectory (`domains/`, `capabilities/`, or `patterns/`) with YAML frontmatter:
 
 ```markdown
 ---

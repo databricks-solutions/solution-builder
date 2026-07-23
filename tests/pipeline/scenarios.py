@@ -3,7 +3,7 @@
 Each scenario drives a single project from creation through the agent until it
 reaches a target stage. To add a new scenario, append a Scenario to SCENARIOS.
 Capability slugs must match filenames in
-.claude/skills/databricks-demo-generator/references/blocks/capabilities/.
+.claude/skills/databricks-solution-builder/references/blocks/capabilities/.
 """
 
 from __future__ import annotations

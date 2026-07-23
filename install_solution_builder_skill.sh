@@ -1,5 +1,5 @@
 #!/bin/bash
-# Install the databricks-demo-generator skill into your local project
+# Install the databricks-solution-builder skill into your local project
 #
 # For most users the curl-piped installer is simpler — it doesn't require a
 # clone and can also install the AI Dev Kit alongside the skill:
@@ -16,7 +16,7 @@
 
 set -e
 
-SKILL_NAME="databricks-demo-generator"
+SKILL_NAME="databricks-solution-builder"
 SKILL_PATH=".claude/skills/$SKILL_NAME"
 
 # Get the directory where this script is located

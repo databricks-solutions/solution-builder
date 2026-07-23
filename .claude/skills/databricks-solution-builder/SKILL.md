@@ -1,5 +1,5 @@
 ---
-name: databricks-demo-generator
+name: databricks-solution-builder
 description: Generate comprehensive specification files for building Databricks assets, demos or end 2 end projects. Use when users want to create a new demo, design a demo story, or need help structuring demo components, create an entire project. This skill creates prompts that another agent will execute to build the actual demo.
 ---
 

@@ -10,7 +10,7 @@ resolved relative to brand.json's own folder — so the JSON is portable. Helper
 here return project-root-relative paths (e.g. "brand/brand.json") for the
 file-sync layer, which keys everything off the project root.
 
-The demo-generator skill + app.md read `brand/brand.json` to theme the app. It's
+The solution-builder skill + app.md read `brand/brand.json` to theme the app. It's
 a normal project file, so the file-sync watcher persists it to the DB and
 restores it on reload like any other artifact.
 """

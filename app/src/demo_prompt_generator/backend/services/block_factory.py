@@ -104,7 +104,7 @@ example: config
 
 
 def _blocks_root() -> Path:
-    """Find the blocks/ directory in the demo-generator skill.
+    """Find the blocks/ directory in the solution-builder skill.
 
     Walks up from this file looking for the skill's references/blocks/
     directory that contains the expected subdirectories.
@@ -112,13 +112,13 @@ def _blocks_root() -> Path:
     current = Path(__file__)
     for parent in current.parents:
         blocks = (
-            parent / ".claude" / "skills" / "databricks-demo-generator"
+            parent / ".claude" / "skills" / "databricks-solution-builder"
             / "references" / "blocks"
         )
         if blocks.is_dir() and (blocks / "capabilities").is_dir():
             return blocks
     raise FileNotFoundError(
-        "Cannot locate .claude/skills/databricks-demo-generator/references/blocks/"
+        "Cannot locate .claude/skills/databricks-solution-builder/references/blocks/"
     )
 
 
@@ -170,7 +170,7 @@ class BlockFactory:
         generated: list[GeneratedBlock] = []
         for spec in specs:
             markdown = self._generate_block(spec, doc_text)
-            rel_path = f".claude/skills/databricks-demo-generator/references/blocks/{_CATEGORY_DIR[spec.category]}/{spec.slug}.md"
+            rel_path = f".claude/skills/databricks-solution-builder/references/blocks/{_CATEGORY_DIR[spec.category]}/{spec.slug}.md"
 
             block = GeneratedBlock(
                 spec=spec,
