@@ -17,8 +17,8 @@
  * the other agent handlers in the route).
  */
 
-import { memo, useCallback, useEffect, useRef, useState } from "react";
-import { Loader2, Pencil, UserRoundCog, Rocket, Sparkles, ArrowRight } from "lucide-react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Loader2, Pencil, UserRoundCog, Rocket, Sparkles, ArrowRight, Blocks } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -32,7 +32,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 
-export type StoryAdaptMode = "full" | "customer";
+export type StoryAdaptMode = "full" | "customer" | "component";
 
 interface StoryAdaptDialogProps {
   /** null → closed. The mode also drives the copy shown in the dialog. */
@@ -68,6 +68,16 @@ const COPY: Record<
     placeholder:
       "e.g. Swap LuxeBeauty for “Northwind Outfitters”, an outdoor-apparel retailer. Persona is Maya Chen, VP of Merchandising. Keep everything else the same.",
     cta: "Adapt details",
+  },
+  component: {
+    title: "Add a Databricks component",
+    icon: Blocks,
+    description:
+      "Extend this demo with another Databricks capability — e.g. a Lakeflow Spark Declarative Pipeline for the data layer, or a Databricks App as the front end. The agent updates the story, specs, and architecture to include it.",
+    label: "What should we add?",
+    placeholder:
+      "e.g. Add a Lakeflow Spark Declarative Pipeline that ingests the raw data through bronze → silver → gold.\n\nOr: Add a Databricks App — a small React front end where an analyst can explore the results and ask Genie questions.",
+    cta: "Add component",
   },
 };
 
@@ -195,15 +205,21 @@ interface StoryAdaptActionsProps {
   onUseAsIs: () => void;
   /** Assemble + send the agent prompt for the chosen adapt mode. */
   onAdaptStory: (mode: StoryAdaptMode, instructions: string) => Promise<void> | void;
+  /** The demo's current capability ids (buildable + talking-track). Drives the
+   *  "Add a Databricks component" card — shown only when a headline component
+   *  (SDP pipeline / app) isn't already part of the demo. */
+  capabilities?: string[];
   className?: string;
 }
 
-const ADAPT_CARDS: Array<{
+type AdaptCard = {
   mode: StoryAdaptMode;
   icon: typeof Pencil;
   title: string;
   blurb: string;
-}> = [
+};
+
+const BASE_ADAPT_CARDS: AdaptCard[] = [
   {
     mode: "customer",
     icon: UserRoundCog,
@@ -222,9 +238,29 @@ export const StoryAdaptActions = memo(function StoryAdaptActions({
   isStreaming,
   onUseAsIs,
   onAdaptStory,
+  capabilities,
   className,
 }: StoryAdaptActionsProps) {
   const [adaptMode, setAdaptMode] = useState<StoryAdaptMode | null>(null);
+
+  // Offer "Add a Databricks component" only for the headline components this
+  // demo doesn't already have — a Lakeflow SDP pipeline and/or a Databricks App.
+  const adaptCards = useMemo<AdaptCard[]>(() => {
+    const have = new Set(capabilities ?? []);
+    const missing: string[] = [];
+    if (!have.has("sdp")) missing.push("a Lakeflow Spark Declarative Pipeline");
+    if (!have.has("databricks-apps")) missing.push("an Application");
+    if (missing.length === 0) return BASE_ADAPT_CARDS;
+    return [
+      ...BASE_ADAPT_CARDS,
+      {
+        mode: "component" as StoryAdaptMode,
+        icon: Blocks,
+        title: "Add a Databricks component",
+        blurb: `Add ${missing.join(", ")}.`,
+      },
+    ];
+  }, [capabilities]);
 
   return (
     <section
@@ -276,13 +312,13 @@ export const StoryAdaptActions = memo(function StoryAdaptActions({
             Or adapt it first
           </p>
           <div className="flex flex-col sm:flex-row gap-2.5">
-            {ADAPT_CARDS.map(({ mode, icon: Icon, title, blurb }) => (
+            {adaptCards.map(({ mode, icon: Icon, title, blurb }) => (
               <button
                 key={mode}
                 type="button"
                 onClick={() => setAdaptMode(mode)}
                 disabled={isStreaming}
-                className="flex-1 group flex items-start gap-3 rounded-xl border border-border/60 bg-card px-4 py-3 text-left transition-colors hover:border-primary/50 hover:bg-primary/5 disabled:opacity-50 disabled:pointer-events-none"
+                className="flex-1 group flex items-start gap-3 rounded-xl border border-border/60 bg-card px-4 py-3 text-left cursor-pointer transition-colors hover:border-primary/50 hover:bg-primary/5 disabled:opacity-50 disabled:pointer-events-none disabled:cursor-not-allowed"
               >
                 <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
                   <Icon className="h-4 w-4" />

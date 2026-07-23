@@ -492,7 +492,7 @@ class _LakebaseDependency(LifespanDependency):
             def _seed():
                 try:
                     from ..services.seed_templates import seed_default_templates
-                    seed_default_templates(engine)
+                    seed_default_templates(engine, ws)
                 except Exception as e:
                     logger.warning(f"Template seeding failed (non-fatal): {e}")
 

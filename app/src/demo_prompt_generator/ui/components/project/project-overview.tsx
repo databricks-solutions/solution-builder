@@ -1444,6 +1444,7 @@ export const ProjectOverview = memo(function ProjectOverview({
             isStreaming={isStreaming}
             onUseAsIs={onForkBuildAsIs}
             onAdaptStory={onAdaptStory}
+            capabilities={[...buildable, ...(capabilities?.talking_track ?? [])]}
           />
         )}
 

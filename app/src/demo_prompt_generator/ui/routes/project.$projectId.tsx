@@ -1754,6 +1754,17 @@ function ProjectPage() {
             `2. Sweep the other project files (specifications/, architecture.md, data-generation, app copy, etc.) for the old customer's name and branding and update them to match.\n` +
             `3. When done, briefly summarize the swaps you made.`,
         );
+      } else if (mode === "component") {
+        handleSendMessage(
+          `${provenance} I want to ADD a Databricks component to this demo — extending the solution, not re-skinning it.\n\n` +
+            `Component to add:\n${instructions}\n\n` +
+            `Please:\n` +
+            `1. Update \`resources.json\` to add the new capability to \`capabilities.buildable\` (e.g. \`sdp\` for a Lakeflow Spark Declarative Pipeline, \`databricks-apps\` for an Application).\n` +
+            `2. Update \`README.md\` so the story reflects the new component and where it fits.\n` +
+            `3. Update \`architecture.md\` to place the new component in the diagram and wire its data flow.\n` +
+            `4. Add or update the matching specification file under \`specifications/\` for the new component (follow the solution generator skill).\n` +
+            `5. Briefly summarize what you added, then ask whether I'd like you to build it now.`,
+        );
       } else {
         handleSendMessage(
           `${provenance} I want to substantially revise its story and take it in a new direction.\n\n` +
