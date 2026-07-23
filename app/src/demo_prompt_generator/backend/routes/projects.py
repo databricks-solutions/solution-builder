@@ -1189,7 +1189,7 @@ async def set_project_brand(
 
     `search=True` runs the keyless brand service (company → palette + website);
     `search=False` saves the palette/website the user edited by hand. Either way
-    the resulting brand.json is what the demo-generator skill + app read to theme
+    the resulting brand.json is what the solution-builder skill + app read to theme
     the generated app. Returns the refreshed project (with `brand`)."""
     user_email = _get_user_email(headers)
     project = _require_write_access(session, project_id, user_email, config.template_admin_emails)

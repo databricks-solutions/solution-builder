@@ -61,7 +61,7 @@ Otherwise FAIL — the per-scenario `README.md` lists every issue.
 
 Append a `Scenario(...)` to `SCENARIOS` in `scenarios.py`. Capability slugs
 must match filenames (without `.md`) in
-`.claude/skills/databricks-demo-generator/references/blocks/capabilities/`.
+`.claude/skills/databricks-solution-builder/references/blocks/capabilities/`.
 A new scenario runs in parallel with the rest automatically — no other wiring.
 
 ## Files

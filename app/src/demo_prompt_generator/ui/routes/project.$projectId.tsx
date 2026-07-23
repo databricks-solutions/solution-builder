@@ -1625,9 +1625,9 @@ function ProjectPage() {
     setIsPackagingDAB(true);
     handleSendMessage(
       "Package this project as a Databricks Asset Bundle. Follow these steps:\n\n" +
-      "1. **Read `.claude/skills/databricks-demo-generator/references/dab/dab.md`** for the authoring rules, then **mirror the layout of `.claude/skills/databricks-demo-generator/references/dab/example_databricks.yml`** — it's the canonical single-file shape (bundle / sync / variables / one `resources:` block / `dev` + `prod` targets).\n" +
+      "1. **Read `.claude/skills/databricks-solution-builder/references/dab/dab.md`** for the authoring rules, then **mirror the layout of `.claude/skills/databricks-solution-builder/references/dab/example_databricks.yml`** — it's the canonical single-file shape (bundle / sync / variables / one `resources:` block / `dev` + `prod` targets).\n" +
       "2. **Scan the project files** and map each one to a resource in `databricks.yml`: pipelines, dashboards, jobs (for SQL/notebooks), apps, UC schemas/volumes. Don't split into multiple yaml files.\n" +
-      "3. **For components not declarable in the bundle** (Genie Spaces, Knowledge Assistants, Multi-Agent Supervisors, PDF uploads): copy the matching reference script from `.claude/skills/databricks-demo-generator/references/dab/scripts/` into `src/deploy/` and wire it as a `notebook_task` (or `python_wheel_task`) in the bundle job.\n" +
+      "3. **For components not declarable in the bundle** (Genie Spaces, Knowledge Assistants, Multi-Agent Supervisors, PDF uploads): copy the matching reference script from `.claude/skills/databricks-solution-builder/references/dab/scripts/` into `src/deploy/` and wire it as a `notebook_task` (or `python_wheel_task`) in the bundle job.\n" +
       "4. **If the project has a Databricks App + Lakebase**: the `app/scripts/` Lakebase scripts already ship — reference them in `dab_instructions.md` (run before/after `bundle deploy`). Do NOT declare `postgres_*` resources in `databricks.yml`.\n" +
       "5. **Validate** with `databricks bundle validate`.\n" +
       "6. **Write a short `dab_instructions.md`** — just the commands to run (setup script if needed → `databricks bundle deploy` → grant script if needed → `bundle run`). Don't restate what's already in `databricks.yml`.\n\n"
@@ -1639,7 +1639,7 @@ function ProjectPage() {
     if (isStreaming) return;
     handleSendMessage(
       "Update the existing `databricks.yml` to cover any new or changed project assets:\n\n" +
-      "1. **Re-read `.claude/skills/databricks-demo-generator/references/dab/dab.md`** and skim `example_databricks.yml` for the resource shapes.\n" +
+      "1. **Re-read `.claude/skills/databricks-solution-builder/references/dab/dab.md`** and skim `example_databricks.yml` for the resource shapes.\n" +
       "2. **Diff the project tree against `databricks.yml`** — find any pipelines, dashboards, jobs, apps, or volumes that exist on disk but aren't declared.\n" +
       "3. **Edit `databricks.yml` in place** (one file, one `resources:` block — don't split). For Genie/KA/MAS additions, drop the corresponding `references/dab/scripts/deploy_*.py` into `src/deploy/` and wire a new `notebook_task`.\n" +
       "4. **Validate** with `databricks bundle validate`.\n" +

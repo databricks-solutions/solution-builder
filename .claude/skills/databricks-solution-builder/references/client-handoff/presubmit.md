@@ -13,7 +13,7 @@ Each defect caught here saves ~5 minutes of bundle deploy + job run + failure di
 
 ## When to invoke
 
-- The demo-generator agent has produced a Stage 5 handoff package and is about to run `databricks bundle validate` (Step 5 of `client-handoff.md`).
+- The solution-builder agent has produced a Stage 5 handoff package and is about to run `databricks bundle validate` (Step 5 of `client-handoff.md`).
 - The user runs presubmit directly on a `client_ready/` dir before importing to a client workspace.
 - The user reports a deploy/job-run failure matching one of the patterns below.
 

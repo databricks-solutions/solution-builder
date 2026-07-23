@@ -103,8 +103,8 @@ rm -rf "$PKG_DIR/.claude" "$PKG_DIR/initial_templates" "$PKG_DIR/ai_dev_kit"
 # alone is ~13 MB compressed. Instead, start.sh downloads + caches it
 # at container boot. See app/start.sh.
 
-# .claude/skills/databricks-demo-generator/ — the demo-generator skill itself.
-if [[ -d "../.claude/skills/databricks-demo-generator" ]]; then
+# .claude/skills/databricks-solution-builder/ — the solution-builder skill itself.
+if [[ -d "../.claude/skills/databricks-solution-builder" ]]; then
     mkdir -p "$PKG_DIR/.claude/skills"
     rsync -a \
         --exclude='node_modules' \
@@ -115,8 +115,8 @@ if [[ -d "../.claude/skills/databricks-demo-generator" ]]; then
         --exclude='.pglite' \
         --exclude='.tanstack' \
         --exclude='__dist__' \
-        "../.claude/skills/databricks-demo-generator/" \
-        "$PKG_DIR/.claude/skills/databricks-demo-generator/"
+        "../.claude/skills/databricks-solution-builder/" \
+        "$PKG_DIR/.claude/skills/databricks-solution-builder/"
 
     # Rewrite the template app's npm lockfile internal-proxy URLs -> public
     # registry IN THE WHEEL COPY (never the source — local dev keeps the proxy).
@@ -127,7 +127,7 @@ if [[ -d "../.claude/skills/databricks-demo-generator" ]]; then
     # setting, so it must be scrubbed here. Same gate + intent as the uv.lock
     # rewrite below (on any bundle deploy; local builds keep the faster proxy).
     if [[ "${REWRITE_LOCK_TO_PUBLIC_PYPI:-}" == "1" ]]; then
-        _tmpl_lock="$PKG_DIR/.claude/skills/databricks-demo-generator/app/app_template/package-lock.json"
+        _tmpl_lock="$PKG_DIR/.claude/skills/databricks-solution-builder/app/app_template/package-lock.json"
         if [[ -f "$_tmpl_lock" ]]; then
             echo "  Rewriting app_template package-lock.json internal proxy URLs -> public npm registry"
             perl -i -pe 's{https://npm-proxy[.-][a-z0-9.-]*databricks\.com/}{https://registry.npmjs.org/}g' "$_tmpl_lock"
@@ -141,7 +141,7 @@ if [[ -d "../.claude/skills/databricks-demo-generator" ]]; then
 fi
 
 # .claude/skills/databricks-architecture/ — the architecture-diagram skill the
-# demo-generator SKILL.md points the agent at (flat nodes/edges schema +
+# solution-builder SKILL.md points the agent at (flat nodes/edges schema +
 # component catalog + reference diagrams). skills_manager copies it into every
 # project (renderer/ excluded there), so the wheel must ship it. renderer/ IS
 # included in the wheel: the backend serves architecture-editor.html for the

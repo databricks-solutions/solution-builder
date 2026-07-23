@@ -9,9 +9,9 @@ A **system that generates Databricks demos**. Not one app — **three**, plus a 
 
 1. **Generator app** (`app/`) — the user-facing tool. FastAPI + React. A user opens it, picks an industry/capability, chats with a Claude Code agent (via `claude-agent-sdk`), and the agent assembles a personalized demo by reading **blocks** from the skill below. Generated artifacts (demo code, specs, app boilerplate, deployable Databricks assets) land in a per-project directory. The home page has **three entry modes** (a `mode` field on each project): *story* (describe it → agent builds every Databricks resource), *architecture* (draw the diagram first → generate from it), and *genie-code-workshop* (agent writes Genie-Code prompts → you build the resources live in notebooks). The mode picks the agent's Build fork; capability blocks carry a `genie_code_workshop` flag so the workshop tab hides what can't be built via Genie Code (apps, Lakebase, KA, MAS).
 
-2. **Demo-generator skill** (`.claude/skills/databricks-demo-generator/`) — the agent's brain. SKILL.md + reference blocks + stage guides + the template app. The generator's agent reads from here. **The skill is the product; the generator is the UI.**
+2. **Solution-builder skill** (`.claude/skills/databricks-solution-builder/`) — the agent's brain. SKILL.md + reference blocks + stage guides + the template app. The generator's agent reads from here. **The skill is the product; the generator is the UI.** (Formerly named `databricks-demo-generator` — renamed to `databricks-solution-builder`.)
 
-3. **Template app** (`.claude/skills/databricks-demo-generator/app/app_template/`) — a complete Node.js + Express + React Databricks App that ships *as part of every generated demo*. The agent copies + customizes it. It is **NOT** a sub-component of the generator — it's an artifact the generator emits.
+3. **Template app** (`.claude/skills/databricks-solution-builder/app/app_template/`) — a complete Node.js + Express + React Databricks App that ships *as part of every generated demo*. The agent copies + customizes it. It is **NOT** a sub-component of the generator — it's an artifact the generator emits.
 
 4. **Test copies** (`app/test/{app_template_test,app_template_test_simple,luxebeauty_workshop}/`) — runnable, live-workspace-wired copies of the skill's template app + reference demos, used to dogfood + iterate. **The workflow is: debug in the test copy, then sync the working content back into the skill.** They must stay in lockstep. See "Test apps ↔ skill" below.
 
@@ -22,7 +22,7 @@ Plus: **ai_dev_kit** (`app/ai_dev_kit/`) — a cloned external repo (`github.com
 ```
 USER opens generator app (app/)
    ↓ chats with agent
-AGENT reads .claude/skills/databricks-demo-generator/
+AGENT reads .claude/skills/databricks-solution-builder/
    - SKILL.md → 4-stage workflow (Intent → Design → Spec → Build)
    - references/blocks/{domains,capabilities,patterns}/*.md
    - stages/0X-*.md
@@ -78,7 +78,7 @@ industry-demo-prompts/
 │   ├── package.json                      # bun. React 19, Vite, TanStack Router
 │   └── scripts/{dev,build,release,build-electron}.sh + arch-skill build chain
 │       # build-architecture-skill.sh, build-arch-standalone.sh, gen-architecture-skill.ts, render-arch.mjs
-├── .claude/skills/databricks-demo-generator/   # ★ The skill (the brain)
+├── .claude/skills/databricks-solution-builder/   # ★ The skill (the brain)
 │   ├── SKILL.md                          # 4-stage workflow
 │   ├── stages/0X-*.md                    # Stage-specific guides
 │   ├── references/
@@ -94,7 +94,7 @@ industry-demo-prompts/
 │   └── renderer/                         # standalone viewer/editor HTML + render-arch.mjs (built from app code)
 ├── initial_templates/                    # Pre-built seed templates (6: 5 AI/BI ports from dbdemos + luxebeauty-returns full-stack). manifest.json + one dir each. See "Initial templates" below.
 ├── tests/                                # Playwright E2E for the generator (targets :9000)
-├── install.sh                            # End-user installer — installs BOTH skills (demo-generator + architecture) + ai-dev-kit
+├── install.sh                            # End-user installer — installs BOTH skills (solution-builder + architecture) + ai-dev-kit
 └── docs/                                 # Screenshots for README
 ```
 
@@ -107,7 +107,7 @@ industry-demo-prompts/
 - Wraps `claude-agent-sdk>=0.2.83` (Python). One `ClaudeSDKClient` per project, pooled.
 - Streams via SSE: thinking blocks, text deltas, tool calls/results.
 - Routes through Databricks Foundation Model API in prod (`ANTHROPIC_BASE_PATH`), direct Anthropic locally.
-- The agent gets `CLAUDE_CONFIG_DIR=<project>/.claude` so it reads project-local skills (the demo-generator skill is copied into each project on creation by `skills_manager.py`).
+- The agent gets `CLAUDE_CONFIG_DIR=<project>/.claude` so it reads project-local skills (the solution-builder skill is copied into each project on creation by `skills_manager.py`).
 - **The chat panel in the UI is the agent's mouth.** Reasoning/thinking blocks render there.
 
 ## Reapers / background sweeps (memory + disk reclamation)
@@ -284,7 +284,7 @@ The `databricks-architecture` skill (`.claude/skills/databricks-architecture/`) 
 
 ### Mode 1 — Pure skill (standalone, outside the app)
 
-`install.sh` (or a repo tarball) installs the skill dir **whole, including `renderer/`**, into `~/.claude/skills/` (or `./.claude/skills` with `--project`). `install.sh` installs BOTH `databricks-demo-generator` AND `databricks-architecture` (a `SKILLS=(…)` array it loops over). With no app around, the agent's feedback loop is **file + headless-browser**:
+`install.sh` (or a repo tarball) installs the skill dir **whole, including `renderer/`**, into `~/.claude/skills/` (or `./.claude/skills` with `--project`). `install.sh` installs BOTH `databricks-solution-builder` AND `databricks-architecture` (a `SKILLS=(…)` array it loops over). With no app around, the agent's feedback loop is **file + headless-browser**:
 
 ```
 cp renderer/architecture-viewer.html my-arch.html   # edit the inline JSON
