@@ -56,7 +56,7 @@ rsync -a \
 1. Read `TEMPLATE_MAP.md` in the app root — comprehensive map of every file, schema, route, tool, and component. Tells you what to customize vs keep as-is. **Read this instead of scanning the codebase.**
 2. Make sure you know the overall demo story in README.md and specifications/lakeflow.md
 3. Read the app specs from `specifications/app/` in the current project (written during stage 2). These describe the pages, assistant behavior, agent tools, data model, and narrative for **this specific demo**.
-2. run sql exploration against the delta table to get the exact schema for the tables you want to use/query (output of the sdp pipeline) (when loading data from delta to PG, be careful with the data type to avoid conflict).
+4. run sql exploration against the delta table to get the exact schema for the tables you want to use/query (output of the sdp pipeline) (when loading data from delta to PG, be careful with the data type to avoid conflict).
   - `databricks experimental aitools tools query --warehouse WH "SHOW TABLES IN catalog.schema"`
   - `databricks experimental aitools tools discover-schema catalog.schema.table1 catalog.schema.table2`
   - `databricks experimental aitools tools query --warehouse WH "SELECT..."`

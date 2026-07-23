@@ -32,7 +32,7 @@ The main loop lives in this file (SKILL.md) — it describes **the flow**: stage
 
 The opening message tells you which of three flows the user started (from the home page's tabs). The stages above are the **default**; two variants change where the run starts or how Build forks.
 
-**A — Build the resources (default).** Run stages 0→3.1: design the story, write specs, then **provision the real Databricks resources** (`stages/03.1-build.md`). Deployable demo; DAB optional only if the user ask at the end.
+**A — Build the resources (default).** Run stages 0→3.1: design the story, write specs, then **provision the real Databricks resources** (`stages/03.1-build.md`). Deployable demo; DAB optional only if the user asks at the end.
 
 **B — Build a workshop** The SAME demo, delivered as prompts instead of resources: you generate a **package of clean notebooks whose cells are Genie Code prompts** that an SA (or customer) pastes into the Databricks Genie Assistant to build the demo **live, step by step** — raw data (Volume) → SDP → dashboard → Genie space.
 - **Stages 0–2 UNCHANGED** — story, `resources.json` + `README.md`, specs, as normal. (Capabilities are pre-scoped to workshop-ready ones — no ML/app/KA/MAS in V1.)
@@ -202,7 +202,7 @@ The coherence contract still applies: every change must ripple through all depen
 
 Generic pattern when adding a new capability (app, ML model, dashboard, etc.) to a project that didn't originally include it:
 
-1. **Find example** — check `DEMO_SKILL_DIR/references/blocks/capabilities/<slug>.md` if you need to know more about it and always `DEMO_SKILL_DIR/references/example-luxebeauty/specifications/` for an existing spec of the same capability. Mirror its shape if you don't have lot of instructions.
+1. **Find example** — check `DEMO_SKILL_DIR/references/blocks/capabilities/<slug>.md` if you need to know more about it and always `DEMO_SKILL_DIR/references/example-luxebeauty/specifications/` for an existing spec of the same capability. Mirror its shape if you don't have a lot of instructions.
 2. **Story fit** — does the existing demo arc justify this component? If no, extend the README story beat before writing the spec.
 3. **Upstream prerequisites** — does this need new data, a new column, a new dashboard viz, a new model output? If so, patch the upstream specs (`01-lakeflow.md`, etc.) first, regenerate the data, update and re run the sdp pipeline if required and only then write the new component spec.
 4. **Write the new component spec when required** — under `specifications/`, following the standards in `stages/02-write-specs.md`.
@@ -242,7 +242,7 @@ First, assess the user's input — how much is already decided?
    ```
 
 **Moderate** ("fraud detection demo for a bank using data from xx, with dashboards + Genie to investigate suspicious transactions"): story direction is clear but needs fleshing out.
-2. Propose a short story (~3-5 sentences, see below). Confirm the from `platform_architecture.md`, ask question if something isn't clear — no need to propose alternatives.
+1. Propose a short story (~3-5 sentences, see below). Confirm it against `platform_architecture.md`, ask questions if something isn't clear — no need to propose alternatives.
 
 **Detailed** (full PRD with protagonist, catalyst, narrative arc already defined): the user has done the thinking. Skip ideation — go straight to stage 1, making sure you have the right capabilities in mind.
 
