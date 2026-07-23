@@ -468,7 +468,7 @@ class FileSyncService:
         - User switches devices
         - Manual refresh requested
 
-        Also ensures the project's ai-dev-kit skills are in place — skills aren't
+        Also ensures the project's DAS skills are in place — skills aren't
         backed up to the DB (they live in the monorepo), so a restore must copy
         them fresh too.
 

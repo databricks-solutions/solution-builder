@@ -109,7 +109,7 @@ ID formats: `CUST-NNNNNN` / `SKU-NNNN` / `LOT-YYYY-MMDD` / `ORD-YYYYMMDD-NNNNNN`
 
 ## B. SDP Pipeline
 
-**Skill to use**: `databricks-spark-declarative-pipelines` — read `SKILLS/databricks-spark-declarative-pipelines/SKILL.md` before implementing.
+**Skill to use**: `databricks-pipelines` — read `SKILLS/databricks-pipelines/SKILL.md` before implementing.
 
 Create pipeline `luxebeauty_operations` transforming raw parquet → analytics tables.
 

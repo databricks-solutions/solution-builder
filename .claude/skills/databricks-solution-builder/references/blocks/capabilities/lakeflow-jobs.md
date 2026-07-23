@@ -28,7 +28,7 @@ Closing the loop: "Here's how you run this in production every 5 minutes, with a
 
 ## Implementation
 
-The `databricks-jobs` ai-dev-kit skill covers implementation details. Specs should specify WHAT to build and WHY (demo story), not HOW.
+The `databricks-jobs` Databricks Agent Skill (DAS) covers implementation details. Specs should specify WHAT to build and WHY (demo story), not HOW.
 
 ## Demo Tips
 

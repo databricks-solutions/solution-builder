@@ -944,7 +944,7 @@ function Index() {
       }
 
       // Backend will generate name and schema from description using LLM.
-      // Passing capabilityIds scopes which ai-dev-kit skills get copied into the project.
+      // Passing capabilityIds scopes which DAS skills get copied into the project.
       // Passing initialPrompt persists the opening message as a real user Message so it
       // shows up as the first chat bubble on load — no URL-param round-trip, no race.
       // Passing contextFiles writes the originals + .extracted.md siblings

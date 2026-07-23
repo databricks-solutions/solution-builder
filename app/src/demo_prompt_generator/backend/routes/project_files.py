@@ -251,7 +251,7 @@ def ensure_project_files_restored(
     Two separate responsibilities, both run on every call:
 
     1. **Skills** are managed out-of-band (copied from the bundled
-       databricks-solution-builder + ai-dev-kit skills, see skills_manager).
+       databricks-solution-builder + DAS skills, see skills_manager).
        They live under `.claude/skills/`, which is intentionally NOT
        persisted to Lakebase — so a fresh container has none of them. We
        re-copy on every load: cheap, idempotent (the inner function noops
@@ -273,7 +273,7 @@ def ensure_project_files_restored(
     with _get_restore_lock(project_id):
         # (1) Skills + auth helpers always (idempotent when already present).
         # Skills are NEVER persisted to the DB (intentional: they live in
-        # the monorepo / ai-dev-kit and need to track upstream changes).
+        # the monorepo / Databricks Agent Skills (DAS) and need to track upstream changes).
         # ensure_project_skills re-copies only when `.claude/skills/` is
         # empty/missing — cheap on the hot path (just an `iterdir()` check)
         # and self-heals after a container restart where the skill tree is

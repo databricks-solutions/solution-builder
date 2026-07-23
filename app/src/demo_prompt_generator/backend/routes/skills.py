@@ -125,7 +125,7 @@ def refresh_skills(
     session: Dependencies.Session,
     headers: Dependencies.Headers,
 ):
-    """Re-copy skills from ai-dev-kit to project."""
+    """Re-copy skills from Databricks Agent Skills (DAS) to project."""
     user_email = _get_user_email(headers)
     _verify_project_access(session, project_id, user_email)
 

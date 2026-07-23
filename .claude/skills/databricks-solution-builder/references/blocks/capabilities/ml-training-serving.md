@@ -3,14 +3,14 @@ name: ML Training & Serving
 category: agent-bricks
 disabled: false
 buildable: true
-skill: databricks-ml-training-serving
+skill: databricks-model-serving
 ---
 
 # ML Training & Serving — MLflow + Unity Catalog
 
 **One capability, full lifecycle**: train with MLflow, register in Unity Catalog, consume the same artifact as cheap batch inference over Delta or (when needed) a real-time REST endpoint. Same model, two consumption patterns.
 
-> Everything technical — Optuna+autolog code, alias mechanics, Spark UDF patterns, serverless job submission, endpoint deployment — lives in the **`databricks-ml-training-serving`** skill. This block exists to help you *position* the capability in the demo narrative. The build agent reads the skill for *how*.
+> Everything technical — Optuna+autolog code, alias mechanics, Spark UDF patterns, serverless job submission, endpoint deployment — lives in the **`databricks-ml-training`** / **`databricks-model-serving`** Databricks Agent Skills (DAS). This block exists to help you *position* the capability in the demo narrative. The build agent reads the skill for *how*.
 
 ## Pain
 

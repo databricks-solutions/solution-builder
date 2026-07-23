@@ -84,7 +84,7 @@ All ~750K active members got the same 15% coupon on Q1_CAMPAIGN_DATE. Redemption
 
 ## B. SDP Pipeline
 
-**Skill to use**: `databricks-spark-declarative-pipelines` — read `SKILLS/databricks-spark-declarative-pipelines/SKILL.md` before implementing.
+**Skill to use**: `databricks-pipelines` — read `SKILLS/databricks-pipelines/SKILL.md` before implementing.
 
 Create pipeline `harvestly_loyalty` transforming raw parquet → analytics tables.
 

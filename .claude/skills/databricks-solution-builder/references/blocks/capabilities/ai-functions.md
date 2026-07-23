@@ -29,7 +29,7 @@ Data enrichment at scale — classify tickets, extract entities, summarize docum
 
 ## Implementation
 
-The `databricks-ai-functions` ai-dev-kit skill covers implementation details. Specs should specify WHAT to build and WHY (demo story), not HOW.
+The `databricks-ai-functions` Databricks Agent Skill (DAS) covers implementation details. Specs should specify WHAT to build and WHY (demo story), not HOW.
 
 ## Demo Tips
 

@@ -15,7 +15,7 @@ A **system that generates Databricks demos**. Not one app — **three**, plus a 
 
 4. **Test copies** (`app/test/{app_template_test,app_template_test_simple,luxebeauty_workshop}/`) — runnable, live-workspace-wired copies of the skill's template app + reference demos, used to dogfood + iterate. **The workflow is: debug in the test copy, then sync the working content back into the skill.** They must stay in lockstep. See "Test apps ↔ skill" below.
 
-Plus: **ai_dev_kit** (`app/ai_dev_kit/`) — a cloned external repo (`github.com/databricks-solutions/ai-dev-kit`) holding ~26 sub-skills for creating individual Databricks resources (pipelines, dashboards, Genie spaces, KAs, MAS, etc.). The generator's agent uses these during the Build stage.
+Plus: **Databricks Agent Skills (DAS)** — cloned into `app/ai_dev_kit/` (dir name kept for path stability) from `github.com/databricks/databricks-agent-skills`, holding ~28 per-resource skills for creating individual Databricks resources (pipelines, dashboards, Genie spaces, KAs, MAS, etc.). Skills live under `skills/*` + `experimental/databricks-genie`; the generator's agent uses these during the Build stage. (Migrated from the retired `databricks-solutions/ai-dev-kit`.)
 
 ## Mental model
 
@@ -28,7 +28,7 @@ AGENT reads .claude/skills/databricks-solution-builder/
    - stages/0X-*.md
    ↓
 AGENT writes specs + scaffolds a Databricks App by copying app_template/
-AGENT delegates resource creation to subagents using ai_dev_kit skills
+AGENT delegates resource creation to subagents using Databricks Agent Skills (DAS)
    ↓
 ARTIFACTS land in:
    - per-project directory (specs, code)
@@ -70,8 +70,9 @@ industry-demo-prompts/
 │   │   ├── app_template_test_simple/     #   SIMPLE demo variant (src/ only): synth data → dashboard + genie
 │   │   ├── luxebeauty_workshop/          #   GENIE CODE WORKSHOP: src/ (notebooks + data_gen + answer-key SQL + CONTEXT.md) + deploy.sh
 │   │   └── architecture/                 #   (NOT a test app) gitignored render-loop scratch dir for the architecture skill
-│   ├── ai_dev_kit/                       # Cloned external repo (not submodule)
-│   │   └── databricks-skills/            # 26 per-resource skills
+│   ├── ai_dev_kit/                       # Cloned databricks-agent-skills repo (dir name kept; not a submodule)
+│   │   ├── skills/                       # ~28 per-resource skills (GA)
+│   │   └── experimental/databricks-genie/#   the one experimental skill we ship
 │   ├── databricks.yml                    # DAB config for the generator itself
 │   ├── databricks.{prod,staging}.yml     # Deployment overlays (admin emails live here)
 │   ├── pyproject.toml                    # uv. claude-agent-sdk>=0.2.83
@@ -94,7 +95,7 @@ industry-demo-prompts/
 │   └── renderer/                         # standalone viewer/editor HTML + render-arch.mjs (built from app code)
 ├── initial_templates/                    # Pre-built seed templates (6: 5 AI/BI ports from dbdemos + luxebeauty-returns full-stack). manifest.json + one dir each. See "Initial templates" below.
 ├── tests/                                # Playwright E2E for the generator (targets :9000)
-├── install.sh                            # End-user installer — installs BOTH skills (solution-builder + architecture) + ai-dev-kit
+├── install.sh                            # End-user installer — installs BOTH skills (solution-builder + architecture) + Databricks Agent Skills via the CLI
 └── docs/                                 # Screenshots for README
 ```
 

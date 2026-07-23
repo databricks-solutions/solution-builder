@@ -3,7 +3,7 @@ name: Spark Declarative Pipelines
 category: lakeflow
 disabled: false
 buildable: true
-skill: databricks-spark-declarative-pipelines
+skill: databricks-pipelines
 ---
 
 # Spark Declarative Pipelines
@@ -26,7 +26,7 @@ SDP (formerly DLT) defines medallion-architecture pipelines using streaming tabl
 5. **Pipeline mode:** Triggered with a single refresh for demos.
 6. **Aggregation strategy:** Gold MVs work for a few focused aggregations. For cube-style analytics with many dimension combinations, prefer Metric Views over creating many Gold MVs.
 
-The `databricks-spark-declarative-pipelines` ai-dev-kit skill handles SQL/Python implementation, Auto Loader config, and pipeline deployment.
+The `databricks-pipelines` Databricks Agent Skill (DAS) handles SQL/Python implementation, Auto Loader config, and pipeline deployment.
 
 **Design Gold backward** — start from dashboard/Genie needs, then work backward through Silver to Bronze. This prevents the most common pitfall: Gold tables that don't match downstream queries.
 

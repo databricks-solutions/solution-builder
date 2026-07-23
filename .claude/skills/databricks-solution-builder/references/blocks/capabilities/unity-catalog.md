@@ -65,11 +65,11 @@ Do not include in demo instructions:
 - SCIM provisioning, IdP federation, or account-level admin setup — enterprise deployment concerns, not demo scope.
 - External locations or storage credentials — adds complexity with no demo payoff.
 - Cross-region or Delta Sharing setup — only if the demo story explicitly requires multi-region.
-- Data quality monitors — covered by the ai-dev-kit skill if needed; don't prescribe setup details here.
+- Data quality monitors — covered by the DAS skill if needed; don't prescribe setup details here.
 
 ## Implementation
 
-The `databricks-unity-catalog` ai-dev-kit skill covers implementation details. Specs should specify WHAT to build and WHY (demo story), not HOW.
+The `databricks-unity-catalog` Databricks Agent Skill (DAS) covers implementation details. Specs should specify WHAT to build and WHY (demo story), not HOW.
 
 ## Demo Tips
 

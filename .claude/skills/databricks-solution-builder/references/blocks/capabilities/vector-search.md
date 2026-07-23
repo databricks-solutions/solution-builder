@@ -22,7 +22,7 @@ Creates and queries vector indexes for similarity search. Powers the retrieval s
 2. **Index type:** Delta Sync Index (auto-syncs with source table) is standard.
 3. **Document corpus:** Chunk source table must include metadata (document title, section, page number) for proper KA citations.
 
-The `databricks-vector-search` ai-dev-kit skill handles endpoint creation, embedding config, chunking strategy, and index management.
+The `databricks-vector-search` Databricks Agent Skill (DAS) handles endpoint creation, embedding config, chunking strategy, and index management.
 
 ## Pitfalls
 
