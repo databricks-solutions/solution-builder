@@ -100,7 +100,7 @@ GROUP BY ALL;
 
 ## Implementation
 
-`databricks-metric-views` ai-dev-kit skill covers the build flow. Specs should state WHAT (metric names, dimensions, materialization targets) and WHY (demo story), not HOW.
+`databricks-metric-views` Databricks Agent Skill (DAS) covers the build flow. Specs should state WHAT (metric names, dimensions, materialization targets) and WHY (demo story), not HOW.
 
 ## When to Include
 

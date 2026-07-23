@@ -23,7 +23,7 @@ RAG-based Q&A over unstructured documents (PDFs, reports, policies). Searches vi
 2. **Smoking gun pattern:** One document containing a specific finding connecting to the data anomaly — confirmed breach, inspection finding, clinical study result. The "aha moment."
 3. **Identifier cross-referencing:** Documents must reference the same IDs, dates, entity names as structured data (merchant IDs, device fingerprints, patient IDs). Creates unified investigation feel.
 4. **System instructions:** Frame KA as domain specialist. Include guidance on searching, quoting, connecting findings to data patterns.
-5. **Document generation:** PDFs generated synthetically — ai-dev-kit skill handles volume upload and indexing.
+5. **Document generation:** PDFs generated synthetically — the DAS skill handles volume upload and indexing.
 
 ## Pitfalls
 

@@ -4,7 +4,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/Claude-Agent%20SDK-D97706?style=flat-square&logo=anthropic&logoColor=white" alt="Claude Agent SDK">
-  <img src="https://img.shields.io/badge/AI%20Dev%20Kit-Powered-7C3AED?style=flat-square&logo=python&logoColor=white" alt="AI Dev Kit">
+  <img src="https://img.shields.io/badge/Databricks%20Agent%20Skills-Powered-7C3AED?style=flat-square&logo=python&logoColor=white" alt="Databricks Agent Skills">
   <img src="https://img.shields.io/badge/FastAPI-009688?style=flat-square&logo=fastapi&logoColor=white" alt="FastAPI">
   <img src="https://img.shields.io/badge/React_19-61DAFB?style=flat-square&logo=react&logoColor=black" alt="React 19">
   <img src="https://img.shields.io/badge/Tailwind_v4-06B6D4?style=flat-square&logo=tailwindcss&logoColor=white" alt="Tailwind v4">
@@ -125,7 +125,7 @@ All of these live in `app/.env` (copy from [`app/.env.example`](app/.env.example
 | **`AI_GATEWAY`** | ✅ | `databricks-claude-opus-4-7` | Primary AI Gateway endpoint for the backend |
 | **`AI_GATEWAY_MINI`** | ✅ | `databricks-gpt-5-4-mini` | Cheap/fast endpoint for utility calls |
 | **`AI_GATEWAY_EMBEDDING`** | ✅ | `databricks-qwen3-embedding-0-6b` | Embedding endpoint for template semantic search |
-| `AI_DEV_KIT_BRANCH` | optional | `experimental` | Branch of [ai-dev-kit](https://github.com/databricks-solutions/ai-dev-kit) that `dev.sh` clones |
+| `DAS_BRANCH` | optional | `main` | Branch of [databricks-agent-skills](https://github.com/databricks/databricks-agent-skills) that `dev.sh` clones (legacy alias: `AI_DEV_KIT_BRANCH`) |
 | `DEMO_PROMPT_GENERATOR_TRACKER_ENABLED` | optional | `1` | Anonymous usage analytics — see the privacy note below; set to `0` to opt out |
 
 See [`app/.env.example`](app/.env.example) for the full annotated list with inline guidance.
@@ -252,7 +252,7 @@ To cut a versioned release:
 
 ## 🧰 Use it from the CLI — no app required
 
-Install the Solution Generator skill (and, optionally, the [AI Dev Kit](https://github.com/databricks-solutions/ai-dev-kit)) into your `~/.claude/` once, then drive everything from any terminal:
+Install the Solution Generator skill (and the [Databricks Agent Skills](https://github.com/databricks/databricks-agent-skills), via the Databricks CLI) into your `~/.claude/` once, then drive everything from any terminal:
 
 ```bash
 bash <(curl -sL https://raw.githubusercontent.com/databricks-solutions/solution-builder/main/install.sh)
@@ -264,9 +264,8 @@ bash <(curl -sL https://raw.githubusercontent.com/databricks-solutions/solution-
 
 | Flag | Behavior |
 |------|----------|
-| _(none)_ | Installs skill to `~/.claude/skills/` and the AI Dev Kit globally |
+| _(none)_ | Installs the skill to `~/.claude/skills/` and the Databricks Agent Skills (via the Databricks CLI) |
 | `--project` | Installs the skill into `./.claude/skills/` in the current directory instead |
-| `--skill-only` | Skips the AI Dev Kit step (skill only) |
 | `--branch <name>` | Pulls the skill from a non-`main` branch |
 
 Same library as the app, same outputs — pick whichever surface fits the moment. Use the app when you want chat + file viewer + gallery; use the CLI when you want to stay in your terminal.
@@ -367,10 +366,10 @@ Tables are auto-created on startup via SQLModel + DDL migrations in `lakebase.py
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/projects/{id}/skills` | List available AI Dev Kit skills |
+| `GET` | `/projects/{id}/skills` | List available Databricks Agent Skills |
 | `GET` | `/projects/{id}/skills/{name}/files` | List files in a skill |
 | `GET` | `/projects/{id}/skills/{name}/files/{path}` | Read skill file content |
-| `POST` | `/projects/{id}/skills/refresh` | Re-sync skills from AI Dev Kit |
+| `POST` | `/projects/{id}/skills/refresh` | Re-sync skills from Databricks Agent Skills |
 | `GET` | `/projects/{id}/system-prompt` | Preview the agent's system prompt |
 | `GET` | `/resources/clusters` | List available clusters |
 | `GET` | `/resources/warehouses` | List available SQL warehouses |
@@ -487,7 +486,7 @@ Licensed under the [Databricks License](LICENSE). Built on top of and powered by
 | [claude-agent-sdk](https://github.com/anthropics/claude-agent-sdk) | ≥0.2.83 | MIT | https://github.com/anthropics/claude-agent-sdk |
 | [databricks-sdk](https://github.com/databricks/databricks-sdk-py) | ≥0.114.0 | Apache-2.0 | https://github.com/databricks/databricks-sdk-py |
 | [databricks-connect](https://docs.databricks.com/dev-tools/databricks-connect.html) | ≥16.1,&lt;16.2 | Databricks | https://docs.databricks.com/dev-tools/databricks-connect.html |
-| [ai-dev-kit](https://github.com/databricks-solutions/ai-dev-kit) | — | Databricks | https://github.com/databricks-solutions/ai-dev-kit |
+| [databricks-agent-skills](https://github.com/databricks/databricks-agent-skills) | — | Databricks | https://github.com/databricks/databricks-agent-skills |
 
 ### Backend (Python)
 

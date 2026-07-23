@@ -32,11 +32,11 @@ Any "stream data directly from devices/apps/services" scenario. IoT telemetry, a
 - Combine with SDP for real-time transformations after ingestion
 - REST/gRPC simplicity: one API call lands data in a governed table
 - Observability demos: highlight OpenTelemetry support (logs, metrics, traces)
-- For demos, simulate push ingestion — ai-dev-kit skill handles implementation
+- For demos, simulate push ingestion — the DAS skill handles implementation
 
 ## Implementation
 
-The `databricks-zerobus-ingest` ai-dev-kit skill covers implementation details. Specs should specify WHAT to build and WHY (demo story), not HOW.
+The `databricks-zerobus-ingest` Databricks Agent Skill (DAS) covers implementation details. Specs should specify WHAT to build and WHY (demo story), not HOW.
 
 ## Use Cases
 

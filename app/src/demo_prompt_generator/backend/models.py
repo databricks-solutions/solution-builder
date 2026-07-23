@@ -754,7 +754,7 @@ class ProjectCreateRequest(BaseModel):
     )
     capabilities: list[str] = Field(
         default_factory=list,
-        description="Selected capability IDs — used to scope which ai-dev-kit skills get copied into the project.",
+        description="Selected capability IDs — used to scope which DAS skills get copied into the project.",
     )
     initial_prompt: Optional[str] = Field(
         None,

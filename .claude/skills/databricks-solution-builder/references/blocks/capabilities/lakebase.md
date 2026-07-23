@@ -3,7 +3,7 @@ name: Lakebase
 category: apps-infra
 disabled: false
 buildable: true
-skill: databricks-lakebase-autoscale
+skill: databricks-lakebase
 genie_code_workshop: false
 ---
 

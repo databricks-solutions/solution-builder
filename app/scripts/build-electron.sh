@@ -21,11 +21,11 @@
 #   --rebuild-frontend          Force rebuild the frontend
 #   --rebuild-backend           Force rebuild the PyInstaller backend
 #   --clean                     Remove all build artifacts and start fresh
-#   --ai-dev-kit-branch BRANCH  Clone/checkout specific ai-dev-kit branch (default: simplify-skills-remove-mcp)
+#   --ai-dev-kit-branch BRANCH  Clone/checkout a specific databricks-agent-skills branch (default: main). Alias: --das-branch
 #   --lakebase-url URL          Embed Lakebase PostgreSQL connection URL
 #
 # Environment variables:
-#   AI_DEV_KIT_BRANCH           Same as --ai-dev-kit-branch
+#   AI_DEV_KIT_BRANCH           Same as --das-branch / --ai-dev-kit-branch
 #   LAKEBASE_PG_URL             Same as --lakebase-url
 #
 # Requirements:
@@ -59,9 +59,8 @@ SKIP_FRONTEND=false
 REBUILD_FRONTEND=false
 REBUILD_BACKEND=false
 CLEAN=false
-# IMPORTANT: Using 'simplify-skills-remove-mcp' branch which is pure skills (no Python packages)
-# TODO: Change back to 'main' once this branch is merged
-AI_DEV_KIT_BRANCH="${AI_DEV_KIT_BRANCH:-simplify-skills-remove-mcp}"
+# Databricks Agent Skills (DAS) branch — pure skills, no Python packages.
+DAS_BRANCH="${DAS_BRANCH:-${AI_DEV_KIT_BRANCH:-main}}"
 LAKEBASE_URL="${LAKEBASE_PG_URL:-}"
 
 while [[ $# -gt 0 ]]; do
@@ -124,40 +123,40 @@ if [ "$REBUILD_BACKEND" = true ]; then
 fi
 
 # ==============================================================================
-# Clone ai_dev_kit if not present
+# Clone the Databricks Agent Skills repo if not present (dir kept as ai_dev_kit/)
 # ==============================================================================
-AI_DEV_KIT_REPO="https://github.com/databricks-solutions/ai-dev-kit.git"
+DAS_REPO="https://github.com/databricks/databricks-agent-skills.git"
 
 if [ ! -d "$APP_DIR/ai_dev_kit" ]; then
-    echo -e "${CYAN}Cloning ai-dev-kit repository (branch: $AI_DEV_KIT_BRANCH)...${NC}"
-    git clone --branch "$AI_DEV_KIT_BRANCH" "$AI_DEV_KIT_REPO" "$APP_DIR/ai_dev_kit"
-    echo -e "${GREEN}ai-dev-kit cloned successfully${NC}"
-elif [ ! -d "$APP_DIR/ai_dev_kit/databricks-skills" ]; then
-    # Incomplete or wrong structure - remove and re-clone
-    echo -e "${YELLOW}ai_dev_kit folder has wrong structure, re-cloning...${NC}"
+    echo -e "${CYAN}Cloning databricks-agent-skills (branch: $DAS_BRANCH)...${NC}"
+    git clone --branch "$DAS_BRANCH" "$DAS_REPO" "$APP_DIR/ai_dev_kit"
+    echo -e "${GREEN}databricks-agent-skills cloned successfully${NC}"
+elif [ ! -d "$APP_DIR/ai_dev_kit/skills" ] || [ "$(cd "$APP_DIR/ai_dev_kit" && git remote get-url origin 2>/dev/null)" != "$DAS_REPO" ]; then
+    # Wrong structure or a stale ai-dev-kit clone - remove and re-clone.
+    echo -e "${YELLOW}ai_dev_kit folder is stale/wrong-remote, re-cloning...${NC}"
     rm -rf "$APP_DIR/ai_dev_kit"
-    git clone --branch "$AI_DEV_KIT_BRANCH" "$AI_DEV_KIT_REPO" "$APP_DIR/ai_dev_kit"
-    echo -e "${GREEN}ai-dev-kit cloned successfully${NC}"
+    git clone --branch "$DAS_BRANCH" "$DAS_REPO" "$APP_DIR/ai_dev_kit"
+    echo -e "${GREEN}databricks-agent-skills cloned successfully${NC}"
 else
     # Check if we need to switch branches or update
     CURRENT_BRANCH=$(cd "$APP_DIR/ai_dev_kit" && git branch --show-current)
-    if [ "$CURRENT_BRANCH" != "$AI_DEV_KIT_BRANCH" ]; then
+    if [ "$CURRENT_BRANCH" != "$DAS_BRANCH" ]; then
         # Different branch - do a complete reset to avoid stale files
-        echo -e "${YELLOW}Switching ai-dev-kit to branch: $AI_DEV_KIT_BRANCH (full reset)${NC}"
+        echo -e "${YELLOW}Switching databricks-agent-skills to branch: $DAS_BRANCH (full reset)${NC}"
         (cd "$APP_DIR/ai_dev_kit" && \
             git fetch origin && \
-            git checkout "$AI_DEV_KIT_BRANCH" && \
-            git reset --hard "origin/$AI_DEV_KIT_BRANCH" && \
+            git checkout "$DAS_BRANCH" && \
+            git reset --hard "origin/$DAS_BRANCH" && \
             git clean -fdx)
-        echo -e "${GREEN}ai-dev-kit switched and reset${NC}"
+        echo -e "${GREEN}databricks-agent-skills switched and reset${NC}"
     else
         # Same branch - hard reset to origin to ensure clean state
-        echo -e "${CYAN}Updating ai-dev-kit (branch: $AI_DEV_KIT_BRANCH)...${NC}"
+        echo -e "${CYAN}Updating databricks-agent-skills (branch: $DAS_BRANCH)...${NC}"
         (cd "$APP_DIR/ai_dev_kit" && \
             git fetch origin && \
-            git reset --hard "origin/$AI_DEV_KIT_BRANCH" && \
+            git reset --hard "origin/$DAS_BRANCH" && \
             git clean -fdx) && \
-        echo -e "${GREEN}ai-dev-kit updated${NC}" || echo -e "${YELLOW}ai-dev-kit update failed${NC}"
+        echo -e "${GREEN}databricks-agent-skills updated${NC}" || echo -e "${YELLOW}databricks-agent-skills update failed${NC}"
     fi
 fi
 

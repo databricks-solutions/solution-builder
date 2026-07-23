@@ -94,4 +94,4 @@ Licensed under the [Databricks License](https://www.databricks.com/legal/db-lice
 | Package | Version | Project URL | Copyright |
 |---------|---------|-------------|-----------|
 | Databricks Connect | ≥16.1,&lt;16.2 | https://docs.databricks.com/dev-tools/databricks-connect.html | Databricks, Inc. |
-| ai-dev-kit | — | https://github.com/databricks-solutions/ai-dev-kit | 2026 Databricks, Inc. |
+| databricks-agent-skills | — | https://github.com/databricks/databricks-agent-skills | 2026 Databricks, Inc. |

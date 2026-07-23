@@ -68,10 +68,6 @@ dependencies = [
     "opentelemetry-instrumentation-system-metrics>=0.48b0",
 ]
 
-# Local path dependencies for Databricks MCP tools
-[tool.uv.sources]
-databricks-mcp-server = { path = "ai_dev_kit/databricks-mcp-server", editable = true }
-
 [dependency-groups]
 dev = [
     "ty>=0.0.12",

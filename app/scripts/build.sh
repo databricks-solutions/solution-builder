@@ -172,11 +172,11 @@ if [[ -d "../initial_templates" ]]; then
            -o -name ".DS_Store" \) -delete 2>/dev/null || true
 fi
 
-# ai_dev_kit/ — clone the same branch dev.sh uses so the deployed app has
-# the skill catalog without runtime cloning. Frozen with the wheel; redeploy
-# to update.
-AI_DEV_KIT_REPO="https://github.com/databricks-solutions/ai-dev-kit.git"
-AI_DEV_KIT_BRANCH="${AI_DEV_KIT_BRANCH:-experimental}"
+# ai_dev_kit/ — clone the Databricks Agent Skills repo (same branch dev.sh uses)
+# so the deployed app has the skill catalog without runtime cloning. Dir name
+# kept as ai_dev_kit/ for path stability. Frozen with the wheel; redeploy to update.
+DAS_REPO="https://github.com/databricks/databricks-agent-skills.git"
+DAS_BRANCH="${DAS_BRANCH:-${AI_DEV_KIT_BRANCH:-main}}"
 if [[ ! -d "$PKG_DIR/ai_dev_kit" ]]; then
     if [[ -d "ai_dev_kit/.git" ]]; then
         # Fast path: copy the locally cloned repo (already on the right branch
@@ -185,8 +185,8 @@ if [[ ! -d "$PKG_DIR/ai_dev_kit" ]]; then
         rsync -a --exclude='.git' --exclude='node_modules' --exclude='__pycache__' \
             "ai_dev_kit/" "$PKG_DIR/ai_dev_kit/"
     else
-        echo "  Cloning ai_dev_kit ($AI_DEV_KIT_REPO branch $AI_DEV_KIT_BRANCH) into wheel..."
-        git clone --depth 1 --branch "$AI_DEV_KIT_BRANCH" "$AI_DEV_KIT_REPO" "$PKG_DIR/ai_dev_kit"
+        echo "  Cloning databricks-agent-skills ($DAS_REPO branch $DAS_BRANCH) into wheel..."
+        git clone --depth 1 --branch "$DAS_BRANCH" "$DAS_REPO" "$PKG_DIR/ai_dev_kit"
         rm -rf "$PKG_DIR/ai_dev_kit/.git"
     fi
 fi

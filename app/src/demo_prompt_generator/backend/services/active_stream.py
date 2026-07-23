@@ -1,7 +1,7 @@
 """Active stream management for Claude Code agent execution.
 
 Provides in-memory event buffering with cursor-based retrieval.
-Follows ai-dev-kit patterns for reliable streaming.
+Follows Databricks Agent Skills (DAS) patterns for reliable streaming.
 """
 
 from __future__ import annotations

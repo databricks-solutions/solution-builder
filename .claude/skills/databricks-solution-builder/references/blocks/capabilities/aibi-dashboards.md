@@ -164,7 +164,7 @@ When writing dashboard specifications, include:
 6. **Self-sufficient page header**: spec out the Row-1 markdown text widget — what the persona, the event, the headline number, and the "what to look at on this page" hint should be.
 7. **Validation criteria**: KPI values, chart shape (spike position, decay), filter behavior (select X → all widgets update), and color-pin sanity checks (same category = same color across widgets).
 
-The spec describes WHAT to show. The ai-dev-kit `databricks-aibi-dashboards` skill handles HOW to build the JSON. Don't put full JSON in the spec.
+The spec describes WHAT to show. The `databricks-aibi-dashboards` Databricks Agent Skill (DAS) handles HOW to build the JSON. Don't put full JSON in the spec.
 
 ## Pitfalls
 

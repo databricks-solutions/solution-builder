@@ -21,7 +21,7 @@ The main loop lives in this file (SKILL.md) — it describes **the flow**: stage
 | **1. Design Story** | Write `resources.json` + `README.md` (batched in one message) | ✅ *"Approve the story?"* | `stages/01-design-story.md` |
 | **2. Write Specs** | Write `01-lakeflow.md`, then the other top-level specs, then the app spec (if app needed), coherence review | ✅ *"Ready to build?"* | `stages/02-write-specs.md` |
 | **3. Build** — *pick ONE fork (by mode):* | | | |
-| &nbsp;&nbsp;↳ **3.1 Build resources** *(default)* | Provision the Databricks resources via ai-dev-kit skills | — (build completes) | `stages/03.1-build.md` |
+| &nbsp;&nbsp;↳ **3.1 Build resources** *(default)* | Provision the Databricks resources via Databricks Agent Skills (DAS) | — (build completes) | `stages/03.1-build.md` |
 | &nbsp;&nbsp;↳ **3.2 Build a workshop** *(workshop mode)* | Instead of provisioning, generate a notebook workshop (build-it-live via Genie Code) | — (package ready) | `stages/03.2-workshop.md` |
 | **4. Package as a DAB** (opt) | On user request only, post-build | — | `references/dab/dab.md` |
 

@@ -5,8 +5,8 @@
 #   bash <(curl -sL https://raw.githubusercontent.com/databricks-solutions/solution-builder/main/install.sh)
 #
 # Installs the `databricks-solution-builder` and `databricks-architecture` skills
-# into ~/.claude/skills/ (or ./.claude/skills/ with --project) and chains into
-# the AI Dev Kit installer unless --skill-only is passed.
+# into ~/.claude/skills/ (or ./.claude/skills/ with --project), then installs the
+# Databricks Agent Skills (the per-resource build skills) via the Databricks CLI.
 
 set -euo pipefail
 
@@ -16,11 +16,9 @@ REPO_OWNER="${DSB_REPO_OWNER:-databricks-solutions}"
 REPO_NAME="${DSB_REPO_NAME:-solution-builder}"
 # Skills installed by this script (each is .claude/skills/<name> in the repo).
 SKILLS=("databricks-solution-builder" "databricks-architecture")
-AI_DEV_KIT_INSTALLER="https://raw.githubusercontent.com/databricks-solutions/ai-dev-kit/main/install.sh"
 
 BRANCH="${DSB_BRANCH:-main}"
 DEST_MODE="${DSB_DEST:-user}"   # "user" or "project"
-INSTALL_AI_DEV_KIT=1
 
 # ─── Colors ───────────────────────────────────────────────────────────────────
 if [ -t 1 ]; then
@@ -45,8 +43,6 @@ while [ $# -gt 0 ]; do
     case "$1" in
         --project)         DEST_MODE="project"; shift ;;
         --user)            DEST_MODE="user"; shift ;;
-        --skill-only|--no-ai-dev-kit)
-                           INSTALL_AI_DEV_KIT=0; shift ;;
         --branch)          BRANCH="${2:-main}"; shift 2 ;;
         -h|--help)
             cat <<EOF
@@ -57,7 +53,6 @@ Usage:
 
 Flags:
   --project          Install skill into ./.claude/skills (default: ~/.claude/skills)
-  --skill-only       Skip the AI Dev Kit installer
   --branch <name>    Pull skill from this branch of ${REPO_NAME} (default: main)
   -h, --help         Show this help
 
@@ -161,22 +156,26 @@ for SKILL_NAME in "${SKILLS[@]}"; do
     success "Installed ${SKILL_NAME} → $DEST"
 done
 
-# ─── AI Dev Kit ───────────────────────────────────────────────────────────────
-if [ "$INSTALL_AI_DEV_KIT" -eq 1 ]; then
+# ─── Databricks Agent Skills ────────────────────────────────────────────────
+# The per-resource build skills now ship in github.com/databricks/databricks-agent-skills
+# and install via the Databricks CLI (`databricks aitools install`). --experimental
+# includes the experimental skills we use (e.g. databricks-genie).
+DAS_INSTALL_CMD="databricks aitools install --experimental"
+echo
+if command -v databricks >/dev/null 2>&1; then
+    info "Installing Databricks Agent Skills (databricks aitools install --experimental) …"
     echo
-    info "Chaining into the AI Dev Kit installer …"
-    echo
-    if ! bash <(curl -sL "$AI_DEV_KIT_INSTALLER"); then
-        warn "AI Dev Kit installer exited non-zero. The Demo Generator skill is still installed."
+    if ! databricks aitools install --experimental; then
+        warn "Databricks Agent Skills install exited non-zero. The solution-builder skill is still installed."
         warn "You can retry it later with:"
-        warn "  bash <(curl -sL $AI_DEV_KIT_INSTALLER)"
+        warn "  ${DAS_INSTALL_CMD}"
     else
-        success "AI Dev Kit installed"
+        success "Databricks Agent Skills installed"
     fi
 else
-    info "Skipping AI Dev Kit installer (--skill-only)."
-    info "Install it later with:"
-    info "  bash <(curl -sL $AI_DEV_KIT_INSTALLER)"
+    warn "Databricks CLI not found — skipping Databricks Agent Skills install."
+    warn "Install the CLI (https://docs.databricks.com/dev-tools/cli/install.html), then run:"
+    warn "  ${DAS_INSTALL_CMD}"
 fi
 
 # ─── Post-install message ─────────────────────────────────────────────────────

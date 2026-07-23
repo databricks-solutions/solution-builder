@@ -495,7 +495,7 @@ async def stream_agent_response(
 
             # Build allowed tools list. `Skill` enables the agent's Skill tool
             # so it can invoke skills declared in <cwd>/.claude/skills/ (notably
-            # databricks-solution-builder + the per-project ai-dev-kit skills).
+            # databricks-solution-builder + the per-project DAS skills).
             # Skills are enabled via the dedicated `skills=` option on
             # ClaudeAgentOptions (set below); "Skill" in allowed_tools was
             # deprecated in claude-agent-sdk 0.1.77.
@@ -627,7 +627,7 @@ async def stream_agent_response(
                 disallowed_tools=disallowed_tools,
                 # Enable every installed skill — the project's .claude/skills/
                 # contains exactly the set we want available (solution-builder +
-                # all ai-dev-kit skills, copied at create time). This replaces
+                # all DAS skills, copied at create time). This replaces
                 # the deprecated `"Skill"` in allowed_tools.
                 skills="all",
                 # "dontAsk" + a can_use_tool callback gives us programmatic

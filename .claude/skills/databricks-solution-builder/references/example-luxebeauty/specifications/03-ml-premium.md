@@ -1,6 +1,6 @@
 # ML — Hidden Premium Customer Classifier
 
-**Skill**: `databricks-ml-training-serving` (owns the *how* — UC registry URI, experiment parent-folder trap, `@prod` alias, Optuna+autolog, `spark_udf` env_manager rules, serverless-job `--no-wait` + TASK-run_id pattern, gotchas table). This spec is *what*.
+**Skill**: `databricks-ml-training` / `databricks-model-serving` (owns the *how* — UC registry URI, experiment parent-folder trap, `@prod` alias, Optuna+autolog, `spark_udf` env_manager rules, serverless-job `--no-wait` + TASK-run_id pattern, gotchas table). This spec is *what*.
 
 Reads `gold_customer_features` from `01-lakeflow.md`. Writes `gold_customer_premium_predictions`.
 

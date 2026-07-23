@@ -2,7 +2,7 @@
 # Install the databricks-solution-builder skill into your local project
 #
 # For most users the curl-piped installer is simpler — it doesn't require a
-# clone and can also install the AI Dev Kit alongside the skill:
+# clone and also installs the Databricks Agent Skills (via the CLI) alongside the skill:
 #
 #   bash <(curl -sL https://raw.githubusercontent.com/databricks-solutions/solution-builder/main/install.sh) --project
 #

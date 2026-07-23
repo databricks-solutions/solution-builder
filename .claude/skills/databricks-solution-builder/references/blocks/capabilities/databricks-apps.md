@@ -21,7 +21,7 @@ Full-stack web applications (FastAPI + React, Streamlit, or Gradio) deployed on 
 
 1. **Framework:** FastAPI + React for full-stack with custom UI. Streamlit/Gradio for quick prototypes or data-science audiences.
 2. **OAuth model:** App-level (service principal — app acts as itself) vs user-level (passthrough — acts as logged-in user). User-level better for row-level access control demos.
-3. **Resource bindings:** Declare SQL warehouses, serving endpoints, Lakebase databases as app resources — never hardcode connection strings. The ai-dev-kit skill handles `app.yaml` config.
+3. **Resource bindings:** Declare SQL warehouses, serving endpoints, Lakebase databases as app resources — never hardcode connection strings. The DAS skill handles `app.yaml` config.
 4. **Backend routes:** Small API surface — 3-5 endpoints for a demo.
 5. **Frontend:** 2-4 screens for a demo app — don't over-scope.
 
