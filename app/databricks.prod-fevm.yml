@@ -88,6 +88,6 @@ targets:
         demo-prompt-generator-app:
           telemetry_export_destinations:
             - unity_catalog:
-                logs_table: solution_builder_internal.app_internal.otel_logs
-                metrics_table: solution_builder_internal.app_internal.otel_metrics
-                traces_table: solution_builder_internal.app_internal.otel_span
+                logs_table: solution_builder_monitoring.solution_builder_app_otel.otel_logs
+                metrics_table: solution_builder_monitoring.solution_builder_app_otel.otel_metrics
+                traces_table: solution_builder_monitoring.solution_builder_app_otel.otel_spans
