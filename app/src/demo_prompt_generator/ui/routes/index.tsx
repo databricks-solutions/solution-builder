@@ -1,4 +1,4 @@
-import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -8,7 +8,7 @@ import { BubbleBackground } from "@/components/backgrounds/bubble";
 import { ProjectTile } from "@/components/project/project-tile";
 import { ProjectInvitations } from "@/components/project/project-invitations";
 import { SharedWithMe } from "@/components/project/shared-with-me";
-import { TemplateTile } from "@/components/template/template-tile";
+import { HomeTemplateShowcase } from "@/components/template/home-template-showcase";
 import { TemplateGallerySheet } from "@/components/template/gallery/template-gallery-sheet";
 import { CapabilitiesPanel, WORKSHOP_BASELINE } from "@/components/capabilities-panel";
 import { DatabricksAnimatedLogo } from "@/components/databricks-animated-logo";
@@ -24,7 +24,6 @@ import {
   ArrowRight,
   Lightbulb,
   Loader2,
-  Library,
   FolderOpen,
   Database,
   Paperclip,
@@ -41,14 +40,12 @@ import {
   createProject,
   toggleProjectStar,
   extractFiles,
-  searchTemplates,
   createProjectFromTemplate,
   getMe,
   getCapabilities,
   streamSuggestCapabilities,
   type ProjectListItem,
   type ProjectShareOut,
-  type TemplateSearchResult,
   type TemplateDetail,
   type Capability,
   type CapabilityInput,
@@ -167,9 +164,7 @@ function Index() {
   const [refineText, setRefineText] = useState("");
   const [isRefining, setIsRefining] = useState(false);
 
-  // Template search state
-  const [matchingTemplates, setMatchingTemplates] = useState<TemplateSearchResult[]>([]);
-  const [isSearchingTemplates, setIsSearchingTemplates] = useState(false);
+  // Template detail sheet + fork state (search/carousel live in HomeTemplateShowcase).
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
   const [isForking, setIsForking] = useState(false);
 
@@ -372,30 +367,6 @@ function Index() {
       })
       .catch((err) => console.warn("Failed to check identity:", err));
   }, [navigate]);
-
-  // Debounced template search (500ms). Story-tab only — the architecture
-  // tab doesn't surface templates, so skip the search there.
-  useEffect(() => {
-    if (mode !== "story" || topic.trim().length < 3) {
-      setMatchingTemplates([]);
-      setIsSearchingTemplates(false);
-      return;
-    }
-
-    setIsSearchingTemplates(true);
-    const timer = setTimeout(async () => {
-      try {
-        const results = await searchTemplates(topic.trim(), 3);
-        setMatchingTemplates(results);
-      } catch {
-        setMatchingTemplates([]);
-      } finally {
-        setIsSearchingTemplates(false);
-      }
-    }, 500);
-
-    return () => clearTimeout(timer);
-  }, [topic, mode]);
 
   // Streaming suggestion helper.
   //
@@ -1735,55 +1706,17 @@ function Index() {
           {/* Research agent callout - hidden when collapsed */}
         </div>
 
-        {/* Matching templates section — story-tab only (the architecture
-            tab leads with a single create button, no templates). */}
-        {mode === "story" && topic.trim().length >= 3 && (
-          <div className="relative z-10 mx-auto mt-12 w-full max-w-5xl">
-            <div className="mb-4 flex items-start justify-between">
-              <div>
-                <div className="flex items-center gap-2">
-                  <h2 className="text-lg font-semibold tracking-tight">
-                    Matching Templates
-                  </h2>
-                  {isSearchingTemplates && (
-                    <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-                  )}
-                </div>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  Templates that match your topic
-                </p>
-              </div>
-              <Link
-                to="/templates"
-                className="text-xs text-muted-foreground hover:text-primary transition-colors flex items-center gap-1"
-              >
-                <Library className="h-3 w-3" />
-                Browse All
-              </Link>
-            </div>
-            {matchingTemplates.length > 0 ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {matchingTemplates.map((template) => (
-                  <TemplateTile
-                    key={template.id}
-                    template={template}
-                    showSimilarity
-                    onClick={() => setSelectedTemplateId(template.id)}
-                  />
-                ))}
-              </div>
-            ) : !isSearchingTemplates && (
-              <div className="text-center py-6 border border-dashed border-border/50 rounded-lg">
-                <p className="text-sm text-muted-foreground">No matching templates found</p>
-                <Link
-                  to="/templates"
-                  className="text-xs text-primary hover:underline mt-1 inline-block"
-                >
-                  Explore all templates
-                </Link>
-              </div>
-            )}
-          </div>
+        {/* Template showcase — story-tab only (the architecture tab leads with
+            a single create button, no templates). Default: a full-width
+            carousel of the FEATURED templates. When the user types in the top
+            input, it swaps to the same semantic search as /templates (over ALL
+            templates). */}
+        {mode === "story" && (
+          <HomeTemplateShowcase
+            className="relative z-10 mx-auto mt-12 w-full max-w-5xl"
+            query={topic}
+            onSelect={(id) => setSelectedTemplateId(id)}
+          />
         )}
 
         {/* Pending share invitations — above Recent Projects. Renders nothing
