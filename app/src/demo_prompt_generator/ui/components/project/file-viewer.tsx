@@ -296,23 +296,23 @@ const ArchitectureView = memo(function ArchitectureView({
       </div>
     );
   }
-  if (isStreaming) {
-    return (
-      <div className="flex-1 flex items-center justify-center">
-        <div className="text-center text-muted-foreground">
-          <Loader2 className="h-8 w-8 animate-spin mx-auto mb-3 text-primary" />
-          <p className="text-sm font-medium">Please wait while the agent is working...</p>
-          <p className="text-xs mt-1">The architecture will be generated once the current task completes</p>
-        </div>
-      </div>
-    );
-  }
+  // No content yet. On the Architecture tab this means the agent is either
+  // actively drawing architecture.md or is about to (an arch-first opener runs
+  // server-side before isStreaming flips true in this freshly-loaded UI, and a
+  // capability-first project generates it during the build). Either way, show a
+  // building spinner — never a static "nothing here" state that reads as broken.
   return (
     <div className="flex-1 flex items-center justify-center">
       <div className="text-center text-muted-foreground">
-        <Network className="h-12 w-12 mx-auto mb-3 opacity-50" />
-        <p className="text-sm">No architecture diagram yet</p>
-        <p className="text-xs mt-1">Generating automatically...</p>
+        <Loader2 className="h-8 w-8 animate-spin mx-auto mb-3 text-primary" />
+        <p className="text-sm font-medium">
+          {isStreaming
+            ? "Please wait while the agent is working..."
+            : "Preparing your architecture..."}
+        </p>
+        <p className="text-xs mt-1">
+          The architecture diagram will appear here once the agent generates it.
+        </p>
       </div>
     </div>
   );
