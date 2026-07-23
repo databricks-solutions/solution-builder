@@ -205,9 +205,15 @@ function Index() {
   const adjustTextareaHeight = useCallback(() => {
     const textarea = textareaRef.current;
     if (textarea) {
+      const maxHeight = 200; // Max height in pixels before the box scrolls
       textarea.style.height = "auto";
-      const maxHeight = 200; // Max height in pixels
-      textarea.style.height = `${Math.min(textarea.scrollHeight, maxHeight)}px`;
+      const next = Math.min(textarea.scrollHeight, maxHeight);
+      textarea.style.height = `${next}px`;
+      // Once we've hit the cap, let the box SCROLL its own content instead of
+      // clipping it (overflow-hidden made long prompts un-scrollable). Toggling
+      // overflow only at the boundary also kills the auto↔max height flicker
+      // that jittered the page while typing near the cap.
+      textarea.style.overflowY = textarea.scrollHeight > maxHeight ? "auto" : "hidden";
     }
   }, []);
 
@@ -788,6 +794,10 @@ function Index() {
     e?: React.FormEvent,
     idea?: UseCaseIdea,
     architectureFirst = false,
+    // "Start with a blank architecture" — architecture-first with NO prompt.
+    // Seeds an empty architecture.md and primes the agent to await edits instead
+    // of drawing a full diagram. Implies architectureFirst.
+    blank = false,
   ) => {
     e?.preventDefault();
     // In Pro mode the suggestion stream never ran, so there's no `idea` to
@@ -799,7 +809,8 @@ function Index() {
     // falls back to the picked idea's hook (which was generated from the
     // file content) or to a file-only summary string. Pro mode REQUIRES
     // typed text (or files) since there's no idea fallback.
-    if (isCreating || (!topic.trim() && !effectiveIdea && uploadedFiles.length === 0)) return;
+    // Blank architecture is the one path that's allowed with NO input.
+    if (isCreating || (!blank && !topic.trim() && !effectiveIdea && uploadedFiles.length === 0)) return;
 
     // Capabilities are from selectedProducts (shared across ideas), sanitized
     // for workshop mode. EXCEPTION: architecture-first sends NONE — an
@@ -816,7 +827,12 @@ function Index() {
       // Build description: if we have an idea, use it; otherwise use raw topic
       let description: string;
 
-      if (effectiveIdea) {
+      if (blank) {
+        // Blank architecture: no prompt. Give the project a neutral name/desc
+        // (the backend derives the display name from this) — the user renames
+        // it or it gets one once they describe the diagram.
+        description = "Blank architecture";
+      } else if (effectiveIdea) {
         // Use the idea's title + hook as description
         description = `${effectiveIdea.title}\n\n${effectiveIdea.hook}`;
         if (effectiveIdea.datasources && effectiveIdea.datasources.length > 0) {
@@ -848,7 +864,15 @@ function Index() {
         : "";
 
       let initialPrompt: string;
-      if (architectureFirst) {
+      if (blank) {
+        // Blank-architecture entry: the user clicked "Start with a blank
+        // architecture" with no prompt. The empty architecture.md is already
+        // seeded by the backend; the agent should NOT draw anything yet — just
+        // read the skill and stand by for the user's edits/requests.
+        initialPrompt =
+          `The user just created a BLANK architecture diagram — they want to start from an empty canvas and build it up themselves (or ask you for specific additions).\n\n` +
+          `Read the databricks-architecture skill (\`.claude/skills/databricks-architecture/SKILL.md\`) so you understand the flat \`architecture.md\` format, the component catalog, and the positioning system. \`architecture.md\` already exists at the project root with one empty tab — do NOT populate it or draw a full end-to-end diagram now. Just confirm you're ready, and wait for the user to tell you what to add or change; then make targeted edits to \`architecture.md\`.`;
+      } else if (architectureFirst) {
         // Architecture-first entry: the user wants to START by laying out an
         // architecture diagram — NOT a story. Their text can be anything
         // (a tidy prompt, pasted meeting notes, a transcript). The agent's job
@@ -935,6 +959,8 @@ function Index() {
         architectureFirst,
         // Entry mode — drives the agent's Build fork (workshop → notebooks).
         mode,
+        // Blank canvas: backend seeds an empty architecture.md; agent stands by.
+        blank,
       );
 
       // Per-session preference: Pro mode resets after each create so the
@@ -1126,9 +1152,16 @@ function Index() {
               <form
                 onSubmit={(e) => {
                   e.preventDefault();
-                  // Direct create — pass the picked idea (if any) so the
-                  // build uses the highlighted story; otherwise raw topic.
-                  handleCreateProject(undefined, ideas[selectedIdeaIdx]);
+                  // Direct create. In architecture mode, submit follows the
+                  // architecture-first path (blank when nothing's typed) so
+                  // Enter matches the CTA button; otherwise pass the picked
+                  // idea so the build uses the highlighted story.
+                  if (mode === "architecture") {
+                    const isBlank = !topic.trim() && uploadedFiles.length === 0;
+                    handleCreateProject(undefined, undefined, true, isBlank);
+                  } else {
+                    handleCreateProject(undefined, ideas[selectedIdeaIdx]);
+                  }
                 }}
                 className="space-y-2.5"
               >
@@ -1151,7 +1184,7 @@ function Index() {
                       setTopic(e.target.value);
                       adjustTextareaHeight();
                     }}
-                    className="min-h-12 text-lg md:text-lg bg-background/60 resize-none overflow-hidden flex-1"
+                    className="min-h-12 text-lg md:text-lg bg-background/60 resize-none overflow-y-hidden flex-1"
                     rows={1}
                     autoFocus
                   />
@@ -1192,7 +1225,8 @@ function Index() {
                   <p className="text-xs text-muted-foreground">
                     💡 Paste anything — a rough idea, meeting notes, or a
                     transcript. We'll pull out the components and lay out a
-                    starting architecture you can edit.
+                    starting architecture you can edit. Or leave it empty to
+                    start with a blank canvas.
                   </p>
                 )}
                 {mode === "story" && (
@@ -1601,22 +1635,26 @@ function Index() {
                     component set over-constrained the diagram to a preset shape;
                     the agent now infers the architecture from the user's words.
                     Once they've typed (or attached files), show the create CTA. */}
-                {mode === "architecture" && isHeroCollapsed && (
-                  <div className="flex flex-col items-center gap-2 pt-2">
-                    <button
-                      type="button"
-                      onClick={() => handleCreateProject(undefined, undefined, true)}
-                      disabled={
-                        isCreating ||
-                        (!topic.trim() && uploadedFiles.length === 0)
-                      }
-                      className="inline-flex items-center justify-center gap-2 px-6 py-2.5 rounded-md text-sm font-semibold transition-all bg-destructive text-destructive-foreground hover:bg-destructive/90 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer shadow-sm"
-                    >
-                      <Sparkles className="h-4 w-4" />
-                      Create my architecture
-                    </button>
-                  </div>
-                )}
+                {/* Architecture CTA — ALWAYS shown in architecture mode (not
+                    gated on typed input). With a prompt: "Create my architecture"
+                    (agent designs it). With nothing typed: "Start with a blank
+                    architecture" (seeds an empty canvas + primes the agent). */}
+                {mode === "architecture" && (() => {
+                  const isBlank = !topic.trim() && uploadedFiles.length === 0;
+                  return (
+                    <div className="flex flex-col items-center gap-2 pt-2">
+                      <button
+                        type="button"
+                        onClick={() => handleCreateProject(undefined, undefined, true, isBlank)}
+                        disabled={isCreating}
+                        className="inline-flex items-center justify-center gap-2 px-6 py-2.5 rounded-md text-sm font-semibold transition-all bg-destructive text-destructive-foreground hover:bg-destructive/90 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer shadow-sm"
+                      >
+                        <Sparkles className="h-4 w-4" />
+                        {isBlank ? "Start with a blank architecture" : "Create my architecture"}
+                      </button>
+                    </div>
+                  );
+                })()}
 
                 {/* Primary CTA — direct create. Capability set is fully
                     user-visible (locked baseline in Simple, granular tile
