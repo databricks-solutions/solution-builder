@@ -1747,32 +1747,33 @@ function ProjectPage() {
         : "This project was forked from a template.";
       if (mode === "customer") {
         handleSendMessage(
-          `${provenance} I want to re-brand it for a different customer while keeping the same solution, capabilities, and architecture — this is a re-skin, not a redesign.\n\n` +
+          `${provenance} I want to add/modify it for a different customer while keeping the same solution and architecture — a re-skin, not a redesign.\n\n` +
             `Customer details:\n${instructions}\n\n` +
             `Please:\n` +
-            `1. Rewrite \`README.md\` to swap in the new customer name and details — company name, industry specifics, persona names, and product/brand references — while preserving the story's structure and the underlying solution.\n` +
-            `2. Sweep the other project files (specifications/, architecture.md, data-generation, app copy, etc.) for the old customer's name and branding and update them to match.\n` +
-            `3. When done, briefly summarize the swaps you made.`,
+            `1. First read the solution-builder skill (SKILL.md + the relevant references) so you follow its conventions.\n` +
+            `2. Review the forked project — list and explore its files to understand the scope — and find everywhere the current customer's identity lives.\n` +
+            `3. Re-skin the demo to the new customer across ALL the content, not just the README: names, persona, industry specifics, and product references baked into the data generation, genie, dashboard, app, or any existing component. Keep the solution and architecture the same.\n` +
+            `4. Then rebuild the resources you changed directly — follow the build stage (\`stages/03.1-build.md\`): load the relevant skill, rebuild + validate each, and update its ID in \`resources.json\` created_resources. Don't ask first.`,
         );
       } else if (mode === "component") {
         handleSendMessage(
-          `${provenance} I want to ADD a Databricks component to this demo — extending the solution, not re-skinning it.\n\n` +
-            `Component to add:\n${instructions}\n\n` +
+          `${provenance} I want to add/modify a Databricks component in this demo — extending the solution, not re-skinning it.\n\n` +
+            `What to add/modify:\n${instructions}\n\n` +
             `Please:\n` +
-            `1. Update \`resources.json\` to add the new capability to \`capabilities.buildable\` (e.g. \`sdp\` for a Lakeflow Spark Declarative Pipeline, \`databricks-apps\` for an Application).\n` +
-            `2. Update \`README.md\` so the story reflects the new component and where it fits.\n` +
-            `3. Update \`architecture.md\` to place the new component in the diagram and wire its data flow.\n` +
-            `4. Add or update the matching specification file under \`specifications/\` for the new component (follow the solution generator skill).\n` +
-            `5. Briefly summarize what you added, then ask whether I'd like you to build it now.`,
+            `1. First read the solution-builder skill (SKILL.md + the relevant references, incl. the build stage \`stages/03.1-build.md\`) so you follow its conventions.\n` +
+            `2. Review the forked project — list and explore its files to understand its current scope — and how the new/changed component should fit.\n` +
+            `3. Weave the component through ALL the relevant content, not just the README: add it to \`resources.json\` \`capabilities.buildable\`, update the README story and architecture data flow, add/update its spec, and adjust the data generation, genie, dashboard, app, or any existing component wherever it connects.\n` +
+            `4. Then build the resource directly per this request — follow the build stage (\`stages/03.1-build.md\`): load the relevant skill, build + validate it, and record its ID in \`resources.json\` created_resources. Don't ask first.`,
         );
       } else {
         handleSendMessage(
-          `${provenance} I want to substantially revise its story and take it in a new direction.\n\n` +
+          `${provenance} I want to add/modify its story and take it in a new direction.\n\n` +
             `New direction:\n${instructions}\n\n` +
             `Please:\n` +
-            `1. Rewrite \`README.md\` to reflect this new direction — update the narrative, persona, industry framing, and business context as needed while keeping the overall story format.\n` +
-            `2. Briefly summarize what changed.\n` +
-            `3. Ask me whether I'd like the architecture and specification files updated to match before you touch them.`,
+            `1. First read the solution-builder skill (SKILL.md + the relevant references) so you follow its conventions.\n` +
+            `2. Review the forked project — list and explore its files to understand its current scope.\n` +
+            `3. Reshape the demo to this new direction across ALL the content, not just the README: the narrative and personas, the specs, the architecture, and the underlying data generation, genie, dashboard, app, or any existing component, so the whole demo tells the new story coherently.\n` +
+            `4. Then rebuild the resources you changed directly — follow the build stage (\`stages/03.1-build.md\`): load the relevant skill, rebuild + validate each, and update its ID in \`resources.json\` created_resources. Don't ask first.`,
         );
       }
     },
