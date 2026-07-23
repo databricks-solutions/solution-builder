@@ -184,6 +184,31 @@ def _upsert_template_content(
     return {"added": added, "changed": changed, "unchanged": unchanged, "removed": removed}
 
 
+def _embedding_text(
+    *,
+    name: str | None = None,
+    industry: str | None = None,
+    narrative: str | None = None,
+    description: str | None = None,
+    readme: str | None = None,
+) -> str:
+    """Combined text indexed for semantic search.
+
+    We embed the title, industry, narrative, short description AND the README —
+    not the README alone — so a query about a template's name/industry/story
+    matches, not only its body prose. Parts are newline-joined; empties skipped.
+    The README is truncated so one long doc doesn't dominate the vector.
+    """
+    parts = [
+        name,
+        industry,
+        narrative,
+        description,
+        (readme or "")[:8000] or None,
+    ]
+    return "\n\n".join(p.strip() for p in parts if p and p.strip())
+
+
 def _store_embedding(session: Session, template_id: str, embedding: list[float]) -> None:
     """Store an embedding vector, gracefully skipping if pgvector is unavailable (PGLite)."""
     # PGLite doesn't support the vector type — skip embedding storage.
@@ -303,8 +328,17 @@ class TemplateService:
         extracted = _summarize_readme(self.llm, readme_content)
         capabilities = real_capabilities or extracted.get("capabilities", [])
 
-        # Generate embedding
-        embedding = self.llm.get_embedding(readme_content)
+        # Generate embedding from the COMBINED text (title + industry + narrative
+        # + description + README) so search matches more than the README prose.
+        embedding = self.llm.get_embedding(
+            _embedding_text(
+                name=project.name,
+                industry=extracted.get("industry"),
+                narrative=project.narrative,
+                description=extracted.get("description"),
+                readme=readme_content,
+            )
+        )
 
         # Create template record
         template_id = generate_uuid()
@@ -354,7 +388,10 @@ class TemplateService:
         status: str = "APPROVED",
     ) -> list[dict]:
         """
-        Semantic search for templates using pgvector, with text fallback for PGLite.
+        Search templates: pgvector semantic ranking BLENDED with a lexical
+        (ILIKE) match on name / industry / description, so both meaning-level
+        queries AND literal title/industry fragments (e.g. "heath" → Healthcare)
+        surface. Falls back to lexical-only when pgvector is unavailable (PGLite).
 
         Args:
             query: Search query text
@@ -363,13 +400,33 @@ class TemplateService:
             status: Filter by status (default APPROVED)
 
         Returns:
-            List of template dicts with similarity scores
+            List of template dicts with similarity scores, best first.
         """
-        try:
-            # Try pgvector semantic search first
-            query_embedding = self.llm.get_embedding(query)
+        def _row_to_dict(r, similarity: float) -> dict:
+            return {
+                "id": r.id,
+                "name": r.name,
+                "description": r.description,
+                "industry": r.industry,
+                "capabilities": json.loads(r.capabilities) if r.capabilities else [],
+                "similarity": similarity,
+            }
 
-            results = session.execute(
+        # Merge helper: keep the highest similarity per id, preserving best-first.
+        merged: dict[str, dict] = {}
+
+        def _add(rows, sim_fn):
+            for r in rows:
+                d = _row_to_dict(r, sim_fn(r))
+                prev = merged.get(d["id"])
+                if prev is None or d["similarity"] > prev["similarity"]:
+                    merged[d["id"]] = d
+
+        # 1) Semantic (pgvector). Best-effort — unavailable on PGLite.
+        semantic_ok = False
+        try:
+            query_embedding = self.llm.get_embedding(query)
+            rows = session.execute(
                 text("""
                     SELECT
                         id, name, description, industry, capabilities,
@@ -380,47 +437,43 @@ class TemplateService:
                     ORDER BY embedding <=> CAST(:query_embedding AS vector)
                     LIMIT :limit
                 """),
-                {
-                    "query_embedding": str(query_embedding),
-                    "status": status,
-                    "limit": limit,
-                }
+                {"query_embedding": str(query_embedding), "status": status, "limit": limit},
             ).fetchall()
+            _add(rows, lambda r: float(r.similarity) if r.similarity is not None else 0.0)
+            semantic_ok = True
         except Exception as e:
-            logger.debug(f"pgvector search unavailable, falling back to text search: {e}")
+            logger.debug(f"pgvector search unavailable, using lexical only: {e}")
             session.rollback()
-            # Fallback: simple ILIKE text search on name and description
-            results = session.execute(
+
+        # 2) Lexical (ILIKE) on name / industry / description. Always run — it's
+        #    the safety net for typos/fragments the vector misses. Give a fixed
+        #    baseline similarity so a title hit ranks above weak semantic hits
+        #    but below strong ones.
+        try:
+            lex_rows = session.execute(
                 text("""
-                    SELECT
-                        id, name, description, industry, capabilities,
-                        0.5 AS similarity
+                    SELECT id, name, description, industry, capabilities
                     FROM templates
                     WHERE status = :status
                     AND (
                         name ILIKE '%' || :query || '%'
+                        OR industry ILIKE '%' || :query || '%'
                         OR description ILIKE '%' || :query || '%'
                     )
                     LIMIT :limit
                 """),
-                {
-                    "query": query,
-                    "status": status,
-                    "limit": limit,
-                }
+                {"query": query, "status": status, "limit": limit},
             ).fetchall()
+            # Lexical baseline: 0.55 when blending with semantic (a title match is
+            # a strong signal), 0.5 when lexical is all we have (PGLite parity).
+            lex_sim = 0.55 if semantic_ok else 0.5
+            _add(lex_rows, lambda r: lex_sim)
+        except Exception as e:
+            logger.debug(f"Lexical search failed: {e}")
+            session.rollback()
 
-        return [
-            {
-                "id": r.id,
-                "name": r.name,
-                "description": r.description,
-                "industry": r.industry,
-                "capabilities": json.loads(r.capabilities) if r.capabilities else [],
-                "similarity": float(r.similarity) if r.similarity else 0.0,
-            }
-            for r in results
-        ]
+        ranked = sorted(merged.values(), key=lambda d: d["similarity"], reverse=True)
+        return ranked[:limit]
 
     def list_templates(
         self,
