@@ -256,8 +256,16 @@ const ArchitectureView = memo(function ArchitectureView({
   }
   // The capability-layer diagram renders from the catalog + resources.json
   // even before architecture.md exists — so show it whenever we have either
-  // an architecture file OR a capability set to seed component states.
-  const hasContent = (hasArchitecture && architectureContent) || !!capabilities;
+  // an architecture file OR a NON-EMPTY capability set to seed component states.
+  // A scaffolded resources.json can carry `capabilities: {buildable:[],
+  // talking_track:[]}` — a truthy-but-empty object — which must NOT count as
+  // content (it would render an empty diagram instead of the building spinner
+  // while the agent is still drawing architecture.md).
+  const hasCapabilities =
+    !!capabilities &&
+    ((capabilities.buildable?.length ?? 0) > 0 ||
+      (capabilities.talking_track?.length ?? 0) > 0);
+  const hasContent = (hasArchitecture && architectureContent) || hasCapabilities;
   if (hasContent) {
     return (
       <div className="flex flex-1 min-h-0 flex-col">
