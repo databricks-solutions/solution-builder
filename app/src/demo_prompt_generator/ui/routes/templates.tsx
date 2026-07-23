@@ -6,6 +6,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState, useEffect, useMemo } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Badge } from "@/components/ui/badge";
 import {
   Select,
@@ -23,6 +24,7 @@ import {
   getIndustries,
   getCurrentUser,
   updateTemplateStatus,
+  setTemplateOfficial,
   deleteTemplate,
   openTemplateProject,
   createProjectFromTemplate,
@@ -83,6 +85,8 @@ function TemplatesPage() {
     navigate({ to: "/templates", search: (prev) => ({ ...prev, template: id ?? undefined }), replace: true });
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [isForking, setIsForking] = useState(false);
+  // Template pending a delete-confirmation popup (tile quick-delete). null = closed.
+  const [pendingDelete, setPendingDelete] = useState<TemplateListItem | null>(null);
   // Semantic (pgvector) search over the template summaries. Empty = no search.
   const [searchQuery, setSearchQuery] = useState("");
   const [searchRank, setSearchRank] = useState<string[] | null>(null); // ordered template ids, or null
@@ -230,22 +234,58 @@ function TemplatesPage() {
     }
   };
 
-  const handleDelete = async (templateId: string, e: React.MouseEvent) => {
+  // Tile quick-delete: open the confirmation popup (actual delete in confirmDelete).
+  const handleDelete = (templateId: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    const name = templates.find((t) => t.id === templateId)?.name ?? "template";
-    if (!confirm("Are you sure you want to delete this template?")) return;
+    const template = templates.find((t) => t.id === templateId) ?? null;
+    setPendingDelete(template);
+  };
 
-    setActionLoading(templateId);
+  const confirmDelete = async () => {
+    if (!pendingDelete) return;
+    const { id, name } = pendingDelete;
+    setActionLoading(id);
     try {
-      await deleteTemplate(templateId);
-      setTemplates((prev) => prev.filter((t) => t.id !== templateId));
+      await deleteTemplate(id);
+      setTemplates((prev) => prev.filter((t) => t.id !== id));
       toast.success(`Deleted "${name}"`);
+      setPendingDelete(null);
     } catch (error) {
       console.error("Failed to delete template:", error);
       toast.error("Failed to delete template");
     } finally {
       setActionLoading(null);
     }
+  };
+
+  // Reload the current listing (respecting the active filters).
+  const reloadTemplates = async () => {
+    const status = statusFilter === "ALL" ? undefined : statusFilter;
+    const industry = industryFilter === "ALL" ? undefined : industryFilter;
+    setTemplates(await listTemplates(status, industry));
+  };
+
+  // Sheet admin handlers (no MouseEvent — the sheet owns its own busy state and
+  // surfaces errors; here we just call the API + refresh the list).
+  const handleSheetStatusChange = async (id: string, status: "APPROVED" | "REJECTED") => {
+    const name = templates.find((t) => t.id === id)?.name ?? "template";
+    await updateTemplateStatus(id, status);
+    await reloadTemplates();
+    toast.success(`${status === "APPROVED" ? "Approved" : "Rejected"} "${name}"`);
+  };
+
+  const handleSheetToggleOfficial = async (id: string, official: boolean) => {
+    const name = templates.find((t) => t.id === id)?.name ?? "template";
+    await setTemplateOfficial(id, official);
+    await reloadTemplates();
+    toast.success(official ? `Featured "${name}"` : `Removed featured from "${name}"`);
+  };
+
+  const handleSheetDelete = async (id: string) => {
+    const name = templates.find((t) => t.id === id)?.name ?? "template";
+    await deleteTemplate(id);
+    setTemplates((prev) => prev.filter((t) => t.id !== id));
+    toast.success(`Deleted "${name}"`);
   };
 
   // Filter tabs based on admin status
@@ -512,6 +552,27 @@ function TemplatesPage() {
         templateId={selectedTemplateId}
         onClose={() => openTemplate(null)}
         onFork={handleFork}
+        isAdmin={isAdmin}
+        onStatusChange={handleSheetStatusChange}
+        onToggleOfficial={handleSheetToggleOfficial}
+        onDelete={handleSheetDelete}
+      />
+
+      {/* Tile quick-delete confirmation popup */}
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        onOpenChange={(o) => { if (!o && actionLoading === null) setPendingDelete(null); }}
+        title="Delete this template?"
+        description={
+          <>
+            <span className="font-medium text-foreground">{pendingDelete?.name}</span> and
+            all its files will be permanently removed. This can't be undone.
+          </>
+        }
+        confirmLabel="Delete"
+        destructive
+        loading={pendingDelete !== null && actionLoading === pendingDelete.id}
+        onConfirm={confirmDelete}
       />
 
       {/* Full-screen forking overlay */}

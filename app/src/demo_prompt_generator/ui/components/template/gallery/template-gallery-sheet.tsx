@@ -25,9 +25,11 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { cn } from "@/lib/utils";
 import { Prose } from "@/components/markdown-prose";
 import {
+  Check,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -42,6 +44,9 @@ import {
   GitFork,
   Loader2,
   Network,
+  Sparkles,
+  Trash2,
+  X,
 } from "lucide-react";
 import type { ComponentType, SVGProps } from "react";
 import {
@@ -108,6 +113,10 @@ export function TemplateGallerySheet({
   onClose,
   links,
   onFork,
+  isAdmin = false,
+  onStatusChange,
+  onToggleOfficial,
+  onDelete,
 }: {
   /** null → closed. Keyed off the id so any caller can open it. */
   templateId: string | null;
@@ -115,6 +124,14 @@ export function TemplateGallerySheet({
   links?: DemoResourceLinks;
   /** Fork into a new project (as-is — adapt happens post-fork on the overview). */
   onFork?: (t: TemplateDetail) => void;
+  /** Admin controls (approve/reject, feature, delete) render only when true. */
+  isAdmin?: boolean;
+  /** Set the template's status (APPROVED / REJECTED). Parent refreshes its list. */
+  onStatusChange?: (id: string, status: "APPROVED" | "REJECTED") => Promise<void>;
+  /** Toggle the featured/official flag. Parent refreshes its list. */
+  onToggleOfficial?: (id: string, official: boolean) => Promise<void>;
+  /** Delete the template. Parent refreshes its list; sheet closes on success. */
+  onDelete?: (id: string) => Promise<void>;
 }) {
   const [detail, setDetail] = useState<TemplateDetail | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -143,6 +160,52 @@ export function TemplateGallerySheet({
   const [showRaw, setShowRaw] = useState(false);
 
   const isMarkdownFile = selectedFile?.endsWith(".md") ?? false;
+
+  // Admin action state (approve/reject, feature toggle, delete confirm).
+  const [adminBusy, setAdminBusy] = useState<null | "status" | "official" | "delete">(null);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+
+  const handleStatusChange = async (status: "APPROVED" | "REJECTED") => {
+    if (!templateId || !onStatusChange) return;
+    setAdminBusy("status");
+    try {
+      await onStatusChange(templateId, status);
+      // Reflect the new status locally so the header badge + fork button update.
+      setDetail((prev) => (prev ? { ...prev, status } : prev));
+    } catch (e) {
+      console.error("Failed to change template status:", e);
+    } finally {
+      setAdminBusy(null);
+    }
+  };
+
+  const handleToggleOfficial = async () => {
+    if (!templateId || !onToggleOfficial || !detail) return;
+    const next = !(detail.official === true);
+    setAdminBusy("official");
+    try {
+      await onToggleOfficial(templateId, next);
+      setDetail((prev) => (prev ? { ...prev, official: next } : prev));
+    } catch (e) {
+      console.error("Failed to toggle featured:", e);
+    } finally {
+      setAdminBusy(null);
+    }
+  };
+
+  const handleDeleteConfirmed = async () => {
+    if (!templateId || !onDelete) return;
+    setAdminBusy("delete");
+    try {
+      await onDelete(templateId);
+      setDeleteConfirmOpen(false);
+      onClose(); // template's gone — close the sheet
+    } catch (e) {
+      console.error("Failed to delete template:", e);
+    } finally {
+      setAdminBusy(null);
+    }
+  };
 
   const handleDownloadDab = async () => {
     if (!templateId) return;
@@ -224,6 +287,7 @@ export function TemplateGallerySheet({
   const fileTree = buildFileTree(files);
 
   return (
+    <>
     <Sheet open={templateId !== null} onOpenChange={(o) => { if (!o) onClose(); }}>
       <SheetContent
         side="right"
@@ -486,6 +550,94 @@ export function TemplateGallerySheet({
               </div>
             </ScrollArea>
 
+            {/* Admin action bar — status, feature toggle, delete. Only when the
+                caller passes isAdmin + the mutation handlers. */}
+            {isAdmin && (onStatusChange || onToggleOfficial || onDelete) && (
+              <div className="flex flex-wrap items-center gap-2 border-t bg-muted/20 px-6 py-3">
+                <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                  Admin
+                </span>
+                <Badge
+                  variant={detail?.status === "APPROVED" ? "default" : "secondary"}
+                  className="text-[10px]"
+                >
+                  {detail?.status === "REVIEW_REQUESTED"
+                    ? "Pending review"
+                    : (detail?.status ?? "").toLowerCase() || "—"}
+                </Badge>
+
+                {/* Approve / Reject */}
+                {onStatusChange && detail && detail.status !== "APPROVED" && (
+                  <Button
+                    size="sm"
+                    className="h-7 bg-green-600 text-white hover:bg-green-700"
+                    onClick={() => handleStatusChange("APPROVED")}
+                    disabled={adminBusy !== null}
+                  >
+                    {adminBusy === "status" ? (
+                      <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Check className="mr-1.5 h-3.5 w-3.5" />
+                    )}
+                    Approve
+                  </Button>
+                )}
+                {onStatusChange && detail && detail.status !== "REJECTED" && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7"
+                    onClick={() => handleStatusChange("REJECTED")}
+                    disabled={adminBusy !== null}
+                  >
+                    <X className="mr-1.5 h-3.5 w-3.5" />
+                    Reject
+                  </Button>
+                )}
+
+                {/* Featured / official toggle */}
+                {onToggleOfficial && detail && (
+                  <Button
+                    size="sm"
+                    variant={detail.official === true ? "default" : "outline"}
+                    className={cn(
+                      "h-7",
+                      detail.official === true &&
+                        "bg-primary text-primary-foreground hover:bg-primary/90",
+                    )}
+                    onClick={handleToggleOfficial}
+                    disabled={adminBusy !== null}
+                    title={
+                      detail.official === true
+                        ? "Remove the Featured flag"
+                        : "Mark as Featured (surfaces on the home carousel + internal demos)"
+                    }
+                  >
+                    {adminBusy === "official" ? (
+                      <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Sparkles className="mr-1.5 h-3.5 w-3.5" />
+                    )}
+                    {detail.official === true ? "Featured" : "Make featured"}
+                  </Button>
+                )}
+
+                {/* Delete (with confirm popup) */}
+                {onDelete && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="ml-auto h-7 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                    onClick={() => setDeleteConfirmOpen(true)}
+                    disabled={adminBusy !== null}
+                  >
+                    <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+                    Delete
+                  </Button>
+                )}
+              </div>
+            )}
+
             {/* Footer — download the DAB + (optional) fork */}
             <div className="flex items-center gap-3 border-t px-6 py-4">
               {/* Download as a deployable DAB bundle (zip). Available for every
@@ -544,6 +696,23 @@ export function TemplateGallerySheet({
         )}
       </SheetContent>
     </Sheet>
+
+    <ConfirmDialog
+      open={deleteConfirmOpen}
+      onOpenChange={(o) => { if (!adminBusy) setDeleteConfirmOpen(o); }}
+      title="Delete this template?"
+      description={
+        <>
+          <span className="font-medium text-foreground">{detail?.name}</span> and all
+          its files will be permanently removed. This can't be undone.
+        </>
+      }
+      confirmLabel="Delete"
+      destructive
+      loading={adminBusy === "delete"}
+      onConfirm={handleDeleteConfirmed}
+    />
+    </>
   );
 }
 
