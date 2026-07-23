@@ -22,6 +22,7 @@ import {
   addEdge,
   useReactFlow,
   useStoreApi,
+  useNodesInitialized,
   type Node,
   type Edge,
   type Connection,
@@ -169,7 +170,7 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
       return sel.map((n) => n.id);
     });
   }, []);
-  const { screenToFlowPosition, getInternalNode } = useReactFlow();
+  const { screenToFlowPosition, getInternalNode, getViewport, setViewport, fitView } = useReactFlow();
   const rfStore = useStoreApi();
   // NOTE: fit-view on tab open is handled by the built-in `fitView` prop on
   // <ReactFlow> below. The ReactFlowProvider is keyed by tab in the shell, so
@@ -179,6 +180,62 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
   // A manual useNodesInitialized+fitView() effect here fought that queue and
   // fit against a mid-transition bbox (box not yet sized → zoomed in too far).
   const wrapRef = useRef<HTMLDivElement>(null);
+
+  // --- Device-aware wheel: mouse wheel zooms (to cursor, via ReactFlow's
+  //     zoomOnScroll), trackpad two-finger scroll PANS. ReactFlow can't tell the
+  //     two apart from props, so we detect a trackpad-pan gesture here and pan
+  //     manually, letting a real mouse wheel fall through to ReactFlow's zoom.
+  //     Heuristic (the widely-used one): a trackpad pan has a horizontal
+  //     component (deltaX ≠ 0) OR small fractional/non-line deltas; a mouse
+  //     wheel is a vertical-only, larger, line/page-mode tick. `ctrlKey` (set by
+  //     the OS for a trackpad PINCH) always means zoom → let it through. --------
+  const onWheelCapture = useCallback((e: React.WheelEvent) => {
+    if (e.ctrlKey) return; // pinch-zoom (OS sets ctrlKey) → ReactFlow zooms
+    const { deltaX, deltaY, deltaMode } = e;
+    // Distinguish trackpad two-finger scroll from a mouse wheel:
+    //  • Any horizontal component (deltaX ≠ 0) → only a trackpad does this → PAN.
+    //  • A pixel-mode (deltaMode 0) vertical scroll with a SMALL delta → trackpad
+    //    inertia → PAN. A mouse wheel arrives as a big notch (|deltaY| ≥ ~40, or
+    //    line/page mode deltaMode ≠ 0) → let it fall through to ReactFlow's
+    //    zoom-to-cursor. The 40px threshold cleanly separates trackpad ticks
+    //    (~1–30px) from wheel notches (~100px, or 120 on Windows).
+    const isTrackpadPan =
+      Math.abs(deltaX) > 0 || (deltaMode === 0 && Math.abs(deltaY) < 40);
+    if (!isTrackpadPan) return; // mouse wheel → ReactFlow zooms to the cursor
+    // Pan: shift the viewport by the scroll delta (natural scroll direction).
+    e.preventDefault();
+    e.stopPropagation();
+    const vp = getViewport();
+    setViewport({ x: vp.x - deltaX, y: vp.y - deltaY, zoom: vp.zoom });
+  }, [getViewport, setViewport]);
+
+  // --- READ-ONLY previews only: re-fit when the container gains real size. The
+  //     built-in `fitView` prop runs at mount, but a preview mounted inside a
+  //     STILL-ANIMATING sheet/slide-over (the template gallery) measures a
+  //     0/tiny container and frames wrong. A ResizeObserver re-fits once the
+  //     container settles. Scoped to readOnly so it never fights an editing
+  //     user's manual zoom/pan on a normal window resize — the workspace path
+  //     is already correctly sized at mount and needs none of this. -------------
+  const initialized = useNodesInitialized();
+  const lastFitSize = useRef<string>("");
+  useEffect(() => {
+    if (!readOnly) return;
+    const el = wrapRef.current;
+    if (!el || !initialized) return;
+    const refit = () => {
+      const w = el.clientWidth, h = el.clientHeight;
+      if (w < 2 || h < 2) return; // not laid out yet
+      const key = `${w}x${h}`;
+      if (key === lastFitSize.current) return; // size unchanged → skip
+      lastFitSize.current = key;
+      // rAF so the fit runs after the browser has committed the new layout.
+      requestAnimationFrame(() => fitView({ duration: 0 }));
+    };
+    refit();
+    const ro = new ResizeObserver(refit);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [readOnly, initialized, fitView]);
 
   // "Copy style → paste onto others" mode. While `copiedStyle` is set, a banner
   // shows and clicking any node applies the style instead of selecting it
@@ -1469,7 +1526,7 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
     <EdgeOpsContext.Provider value={edgeOps}>
     <DropTargetContext.Provider value={dropTargetId}>
     <SingleSelectionContext.Provider value={singleSelection}>
-    <div className="flex min-h-0 flex-1" ref={wrapRef}>
+    <div className="flex min-h-0 flex-1" ref={wrapRef} onWheelCapture={onWheelCapture}>
       {editMode && (
         <LibraryPalette
           schema={schema}
@@ -1644,13 +1701,13 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
           // pans with the middle/right button (PAN_ON_DRAG).
           selectionOnDrag={editMode}
           panOnDrag={editMode ? PAN_ON_DRAG : true}
-          // Trackpad-first panning (Lucid / Excalidraw behavior): a two-finger
-          // scroll PANS the canvas — no right-click / two-finger click needed.
-          // Pinch (and ctrl/⌘+scroll) still ZOOMS. This is the primary way to
-          // move around on a laptop; the drag-to-pan bindings above stay as a
-          // mouse fallback.
-          panOnScroll
-          zoomOnScroll={false}
+          // Wheel behavior is device-aware (see `onWheelCapture` on the wrapper
+          // below): a MOUSE WHEEL zooms to the cursor (ReactFlow's built-in
+          // zoomOnScroll), a TRACKPAD two-finger scroll pans. We keep
+          // zoomOnScroll ON for the mouse-wheel-zoom default and intercept only
+          // the trackpad-pan gesture to pan instead — so no modifier key is
+          // needed for either. Pinch still zooms.
+          zoomOnScroll
           selectNodesOnDrag={false}
           // Shift = additive multi-select (shift-click toggles a node in/out of
           // the selection). selectionKeyCode is DISABLED: ReactFlow's default is
