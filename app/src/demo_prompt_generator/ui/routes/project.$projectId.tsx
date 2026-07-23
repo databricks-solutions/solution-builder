@@ -596,7 +596,11 @@ function ProjectPage() {
   const debouncedRefreshFiles = useCallback(() => {
     if (fileRefreshTimerRef.current) clearTimeout(fileRefreshTimerRef.current);
     fileRefreshTimerRef.current = setTimeout(() => {
-      listProjectFiles(projectId, { includeHidden: showHiddenRef.current })
+      // force: bypass the backend's in-memory file cache. This refresh fires
+      // right after the agent wrote files (tool-completion / SSE file_changed),
+      // so we must read disk truth — the cache resync depends on a filesystem
+      // watcher that may lag or (on some deploy filesystems) miss events.
+      listProjectFiles(projectId, { includeHidden: showHiddenRef.current, force: true })
         .then(setFiles)
         .catch(() => {});
     }, 500);
