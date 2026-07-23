@@ -8,19 +8,9 @@
 #
 # Syntax: gitignore-style globs, repo-root-relative.
 
-# Internal demo catalog page (/internal-demos) + its data/components.
-app/src/demo_prompt_generator/ui/routes/internal-demos.tsx
-app/src/demo_prompt_generator/ui/components/internal/
-
 # Internal deploy overlays — real workspace/Lakebase IDs, endpoint names, admin
 # emails for the official prod / staging / FEVM deployments. No secrets, but
 # internal-only. The public repo ships only the *.example templates.
 app/databricks.prod.yml
 app/databricks.staging.yml
 app/databricks.prod-fevm.yml
-
-# NOTE: app/src/demo_prompt_generator/ui/routeTree.gen.ts is AUTO-GENERATED and
-# will contain an `internal-demos` route entry. Do NOT hand-edit it; the public
-# mirror should regenerate the route tree AFTER removing the route file above
-# (running the frontend build regenerates routeTree.gen.ts from whatever routes/
-# files are present), so the public tree simply won't include the route.
