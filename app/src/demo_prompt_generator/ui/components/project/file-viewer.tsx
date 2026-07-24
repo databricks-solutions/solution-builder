@@ -110,6 +110,8 @@ interface FileViewerProps {
   onArchTabChange?: (name: string) => void;
   /** Vendor-logo toggle default (env ENABLE_LOGO_BY_DEFAULT) — see PlatformDiagram. */
   defaultLogosOn?: boolean;
+  /** Opens the Share dialog from the canvas "Share live with others" button. */
+  onShareLive?: () => void;
   /** Architecture-first project awaiting its build: hide Overview + Story
    *  tabs and default the workspace to the Architecture tab. */
   architectureFirst?: boolean;
@@ -227,6 +229,7 @@ interface ArchitectureViewProps {
   initialArchTab?: string;
   onArchTabChange?: (name: string) => void;
   defaultLogosOn?: boolean;
+  onShareLive?: () => void;
 }
 
 const ArchitectureView = memo(function ArchitectureView({
@@ -242,6 +245,7 @@ const ArchitectureView = memo(function ArchitectureView({
   initialArchTab,
   onArchTabChange,
   defaultLogosOn,
+  onShareLive,
 }: ArchitectureViewProps) {
   if (isCreatingArchitecture) {
     return (
@@ -280,6 +284,11 @@ const ArchitectureView = memo(function ArchitectureView({
               initialArchTab={initialArchTab}
               onArchTabChange={onArchTabChange}
               defaultLogosOn={defaultLogosOn}
+              // Live multi-user editing: the workspace canvas joins the project's
+              // collab room (cursors, presence, live edits, agent takeover). The
+              // hook self-disables when solo/offline, so this is safe always-on.
+              enableCollab
+              onShareLive={onShareLive}
             />
           </Suspense>
           {/* Reload spinner: the agent rewrote architecture.md and we're
@@ -844,6 +853,7 @@ export const FileViewer = memo(function FileViewer({
   initialArchTab,
   onArchTabChange,
   defaultLogosOn,
+  onShareLive,
   architectureFirst = false,
   isStreaming = false,
   resources,
@@ -1033,6 +1043,7 @@ export const FileViewer = memo(function FileViewer({
               initialArchTab={initialArchTab}
               onArchTabChange={onArchTabChange}
               defaultLogosOn={defaultLogosOn}
+              onShareLive={onShareLive}
             />
           ) : activeTab === "app" ? (
             <AppPreviewTab

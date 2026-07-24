@@ -85,12 +85,20 @@ import { useDiagramHistory } from "./hooks/use-diagram-history";
 import { useNodeMutations } from "./hooks/use-node-mutations";
 import { useEdgeMutations } from "./hooks/use-edge-mutations";
 import { usePasteImage } from "./hooks/use-paste-image";
+import { CollabCursors } from "./collab/collab-cursors";
+import type { CanvasCollab } from "./collab/types";
 
 interface CanvasProps {
   schema: PlatformSchema;
   deepLinks: Record<string, string | null>;
   onPersist: (layout: PlatformSchema["layout"]) => void;
   onSetTrademark: (on: boolean) => void;
+  /** Live collaboration binding (cursors + presence). Absent when the project
+   *  isn't shared / collab is off. */
+  collab?: CanvasCollab;
+  /** Opens the Share dialog ("Share live with others"). When set, a share
+   *  button shows in the floating toolbar. Absent in standalone / read-only. */
+  onShareLive?: () => void;
   /** Initial edit-mode. Defaults to true (the in-app editor); the standalone
    *  viewer passes false to render read-only. */
   defaultEditMode?: boolean;
@@ -135,7 +143,7 @@ const MULTI_SELECT_KEYS = ["Shift"];
 // (memoized schema/deepLinks, useCallback'd handlers), so the memo drops those
 // parent-driven full re-renders entirely — they'd otherwise re-run the whole
 // render body for a status chip the Canvas doesn't even show.
-export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSetTrademark, defaultEditMode = true, readOnly = false, toolbarExtras, toolbarStatus, tabBar }: CanvasProps) {
+export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSetTrademark, collab, onShareLive, defaultEditMode = true, readOnly = false, toolbarExtras, toolbarStatus, tabBar }: CanvasProps) {
   const [confirmTrademark, setConfirmTrademark] = useState(false);
   const [sourcePicker, setSourcePicker] = useState(false);
   // "see more logos" from search → the full logo picker, seeded with the query
@@ -180,6 +188,18 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
   // A manual useNodesInitialized+fitView() effect here fought that queue and
   // fit against a mid-transition bbox (box not yet sized → zoomed in too far).
   const wrapRef = useRef<HTMLDivElement>(null);
+
+  // --- Live collab: relay this tab's pointer (in FLOW coords, so peers place it
+  //     correctly at any zoom/pan) whenever collaboration is active. Throttling
+  //     lives in the hook's sendCursor. --------------------------------------
+  const collabRef = useRef(collab);
+  collabRef.current = collab;
+  const onPointerMoveCursor = useCallback((e: React.PointerEvent) => {
+    const c = collabRef.current;
+    if (!c) return;
+    const p = screenToFlowPosition({ x: e.clientX, y: e.clientY });
+    c.sendCursor(p.x, p.y);
+  }, [screenToFlowPosition]);
 
   // --- Device-aware wheel: mouse wheel zooms (to cursor, via ReactFlow's
   //     zoomOnScroll), trackpad two-finger scroll PANS. ReactFlow can't tell the
@@ -1526,7 +1546,7 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
     <EdgeOpsContext.Provider value={edgeOps}>
     <DropTargetContext.Provider value={dropTargetId}>
     <SingleSelectionContext.Provider value={singleSelection}>
-    <div className="flex min-h-0 flex-1" ref={wrapRef} onWheelCapture={onWheelCapture}>
+    <div className="flex min-h-0 flex-1" ref={wrapRef} onWheelCapture={onWheelCapture} onPointerMove={collab ? onPointerMoveCursor : undefined}>
       {editMode && (
         <LibraryPalette
           schema={schema}
@@ -1586,6 +1606,27 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
             standalone viewer shows only the diagram). */}
         {!readOnly && (
         <div className="absolute right-3 top-3 z-10 flex items-center gap-1.5">
+          {/* Share live with others — opens the Share dialog (link + invite).
+              Highlighted when someone else is already in the room. */}
+          {onShareLive && (
+            <button
+              type="button"
+              onClick={onShareLive}
+              title="Share this architecture live with others"
+              className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-border bg-card/95 px-2.5 py-1.5 text-[11px] font-medium text-foreground shadow-sm backdrop-blur transition-colors hover:border-primary/50 hover:bg-primary/5"
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-primary">
+                <circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" />
+                <line x1="8.6" y1="10.5" x2="15.4" y2="6.5" /><line x1="8.6" y1="13.5" x2="15.4" y2="17.5" />
+              </svg>
+              Share live
+              {collab && collab.members.length > 1 && (
+                <span className="ml-0.5 rounded-full bg-primary px-1.5 text-[10px] font-semibold text-primary-foreground">
+                  {collab.members.length}
+                </span>
+              )}
+            </button>
+          )}
           {/* Save-status icon OUTSIDE the bar, to its left — so an idle/empty
               status leaves no gap inside the bar. */}
           {toolbarStatus}
@@ -1748,6 +1789,9 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
         >
           <Background variant={BackgroundVariant.Dots} gap={16} size={1.6} color="#94a3b8" className="opacity-40" />
           <Controls className="!bg-background !border-border !shadow-sm [&>button]:!bg-background [&>button]:!border-border [&>button]:!text-foreground" showInteractive={false} />
+          {/* Live peer cursors — inside <ReactFlow> so they re-render on
+              pan/zoom (via useStore) and overlay the pane. */}
+          {collab && <CollabCursors members={collab.members} meConnId={collab.meConnId} />}
         </ReactFlow>
 
         {/* Searchable logo picker for a "Logo" annotation. Honors the

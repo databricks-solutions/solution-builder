@@ -23,6 +23,8 @@ from ..services.llm_service import LLMService, ModelSize
 from ..models import (
     DescriptionAiEditRequest,
     DescriptionAiEditResponse,
+    LinkAccessRequest,
+    LinkAccessResult,
     Message,
     Project,
     ProjectCreateRequest,
@@ -403,6 +405,13 @@ def _get_project_access(
         # 'editor' or 'viewer'; default to viewer for any unexpected value.
         level = ACCESS_EDITOR if share.role == ShareRole.EDITOR.value else ACCESS_VIEWER
         return project, level
+    # "Anyone with the link" — no explicit relationship, but the owner opened the
+    # project to link access at some role. Grants that role to any signed-in user
+    # who has the URL (still gated by the app's own workspace auth).
+    if project.link_access == ShareRole.EDITOR.value:
+        return project, ACCESS_EDITOR
+    if project.link_access == ShareRole.VIEWER.value:
+        return project, ACCESS_VIEWER
     raise HTTPException(status_code=404, detail="Project not found")
 
 
@@ -1098,6 +1107,7 @@ def get_project(
         source_template_id=project.source_template_id,
         source_template_name=_resolve_template_name(session, project.source_template_id),
         my_role=my_role,
+        link_access=project.link_access,
         **_driver_out_fields(session, project, my_role, user_email),
     )
 
@@ -1897,6 +1907,36 @@ def share_project(
     session.commit()
     session.refresh(share)
     return _share_out(share)
+
+
+@router.patch(
+    "/projects/{project_id}/link-access",
+    response_model=LinkAccessResult,
+    operation_id="setProjectLinkAccess",
+)
+def set_project_link_access(
+    project_id: str,
+    body: LinkAccessRequest,
+    session: Dependencies.Session,
+    headers: Dependencies.Headers,
+    config: Dependencies.Config,
+):
+    """Owner-only: set 'anyone with the link' access ('none'|'viewer'|'editor').
+
+    When not 'none', any signed-in app user who opens the project URL gets that
+    role without an explicit email invite. Managing access is owner-only, like
+    email sharing.
+    """
+    user_email = _get_user_email(headers)
+    project = _require_owner(session, project_id, user_email, config.template_admin_emails)
+    value = body.link_access
+    if value not in ("none", ShareRole.VIEWER.value, ShareRole.EDITOR.value):
+        raise HTTPException(status_code=400, detail="link_access must be 'none', 'viewer', or 'editor'")
+    project.link_access = value
+    project.updated_at = utc_now()
+    session.add(project)
+    session.commit()
+    return LinkAccessResult(link_access=value)
 
 
 @router.get(
