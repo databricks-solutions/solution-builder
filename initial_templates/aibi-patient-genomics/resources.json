@@ -13,12 +13,5 @@
             "genie-one"
         ]
     },
-    "created_resources": {
-        "catalog": "dbdemos_templates",
-        "schema": "aibi_patient_genomics",
-        "warehouse_id": "e9b34f7a2e4b0561",
-        "metric_view_name": "dbdemos_templates.aibi_patient_genomics.genomics_metrics",
-        "dashboard_id": "01f1851d024f1ed2a89b72cf18c47221",
-        "genie_space_id": "01f165b7c4c510598be721597815a840"
-    }
+    "created_resources": {}
 }

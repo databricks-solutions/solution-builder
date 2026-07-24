@@ -15,12 +15,5 @@
       "genie-code"
     ]
   },
-  "created_resources": {
-    "catalog": "dbdemos_templates",
-    "schema": "aibi_cfo_health_budget_variance",
-    "warehouse_id": "e9b34f7a2e4b0561",
-    "dashboard_id": "01f185c49e311fe8ba9afee48af43079",
-    "genie_space_id": "01f185c724f616ca81b97b7a6ce494f2",
-    "metric_view_name": "metrics_budget_variance"
-  }
+  "created_resources": {}
 }

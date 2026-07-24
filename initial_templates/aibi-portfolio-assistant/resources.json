@@ -14,12 +14,5 @@
             "genie-one"
         ]
     },
-    "created_resources": {
-        "catalog": "dbdemos_templates",
-        "schema": "aibi_portfolio_assistant",
-        "warehouse_id": "e9b34f7a2e4b0561",
-        "metric_view_name": "dbdemos_templates.aibi_portfolio_assistant.portfolio_metrics",
-        "dashboard_id": "01f184f2b5481a419c56c59991bf8d12",
-        "genie_space_id": "01f165b20bc61c73b14b29db0671422c"
-    }
+    "created_resources": {}
 }

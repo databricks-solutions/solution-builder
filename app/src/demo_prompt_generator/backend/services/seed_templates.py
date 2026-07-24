@@ -29,6 +29,7 @@ from ..models import Template, TemplateScreenshot, TemplateStatus, utc_now
 from .file_sync import compress_content, compute_file_hash
 from .template_service import (
     _should_include_in_template,
+    _clear_created_resources,
     _upsert_template_content,
     _store_embedding,
     _embedding_text,
@@ -93,7 +94,15 @@ def _collect_files(template_dir: Path) -> list[tuple[str, bytes]]:
         if not _should_include_in_template(rel_path):
             continue
         try:
-            files.append((rel_path, path.read_bytes()))
+            content = path.read_bytes()
+            # A demo folder's resources.json carries the AUTHOR's live workspace
+            # state — real resource IDs and (for luxebeauty) an internal app URL.
+            # A template is a reusable blueprint pointing at NO live objects, so
+            # strip created_resources before it's stored/shipped/exported. The
+            # capability selection (which the modal + fork rely on) is preserved.
+            if rel_path.lower() == "resources.json":
+                content = _clear_created_resources(content)
+            files.append((rel_path, content))
         except Exception as e:
             logger.warning(f"Could not read seed template file {rel_path}: {e}")
     return files

@@ -363,18 +363,36 @@ class TemplateService:
         # Store embedding (gracefully skips on PGLite where pgvector is unavailable)
         _store_embedding(session, template_id, embedding)
 
-        # Bulk copy project files to template_content (skip excluded files)
-        template_files = [
-            TemplateContent(
-                template_id=template_id,
-                relative_path=f.relative_path,
-                content_compressed=f.content_compressed,
-                content_hash=f.content_hash,
-                file_size=f.file_size,
-            )
-            for f in project_files
-            if _should_include_in_template(f.relative_path)
-        ]
+        # Bulk copy project files to template_content (skip excluded files).
+        # resources.json is scrubbed of `created_resources` first — a template is
+        # a reusable blueprint pointing at NO live objects, so the author's real
+        # resource IDs (and any app URL) must not ship in the stored/exported
+        # files. Capabilities (which the gallery + fork rely on) are preserved.
+        template_files = []
+        for f in project_files:
+            if not _should_include_in_template(f.relative_path):
+                continue
+            if f.relative_path.lower() == "resources.json":
+                scrubbed = _clear_created_resources(decompress_content(f.content_compressed))
+                template_files.append(
+                    TemplateContent(
+                        template_id=template_id,
+                        relative_path=f.relative_path,
+                        content_compressed=compress_content(scrubbed),
+                        content_hash=compute_file_hash(scrubbed),
+                        file_size=len(scrubbed),
+                    )
+                )
+            else:
+                template_files.append(
+                    TemplateContent(
+                        template_id=template_id,
+                        relative_path=f.relative_path,
+                        content_compressed=f.content_compressed,
+                        content_hash=f.content_hash,
+                        file_size=f.file_size,
+                    )
+                )
         session.add_all(template_files)
         session.commit()
         session.refresh(template)
@@ -784,12 +802,25 @@ class TemplateService:
             elif f.relative_path.lower() == "resources.json":
                 resources_text = decompress_content(f.content_compressed).decode("utf-8")
 
-        # Smooth sync: only touch changed/added/removed files (no delete-all churn).
+        # Smooth sync: only touch changed/added/removed files (no delete-all
+        # churn). resources.json is scrubbed of `created_resources` first (see
+        # create_template_from_project) so a stored template never ships the
+        # author's live resource IDs / app URL.
+        def _content_tuple(f: ProjectFile) -> tuple[str, bytes, str, int]:
+            if f.relative_path.lower() == "resources.json":
+                scrubbed = _clear_created_resources(decompress_content(f.content_compressed))
+                return (
+                    f.relative_path,
+                    compress_content(scrubbed),
+                    compute_file_hash(scrubbed),
+                    len(scrubbed),
+                )
+            return (f.relative_path, f.content_compressed, f.content_hash, f.file_size)
+
         _upsert_template_content(
             session,
             template_id,
-            [(f.relative_path, f.content_compressed, f.content_hash, f.file_size)
-             for f in filtered_files],
+            [_content_tuple(f) for f in filtered_files],
         )
 
         # Use project name/description if no README
