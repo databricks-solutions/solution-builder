@@ -254,7 +254,11 @@ platform-diagram/
 ├── menus/context-menu.tsx           # the EDGE edit panel (docked on click; flow/arrow/shape/label/delete)
 ├── composite-{lakeflow,lakeflow-genie,genie-code,governance,agent-bricks,db-platform,genie-one}.tsx  # rich composite kinds
 ├── annotations.tsx                  # free-form text/box/logo/image annotations + IconPicker
-└── hooks/{use-diagram-history,use-node-mutations,use-edge-mutations,use-paste-image}.ts
+├── hooks/{use-diagram-history,use-node-mutations,use-edge-mutations,use-paste-image}.ts
+└── collab/                          # ★ live multi-user editing (see "Live collaboration" below)
+    ├── use-collab.ts                 #   WS client: room lifecycle, roster, cursors, ops, reconnect
+    ├── collab-cursors.tsx            #   peer-cursor overlay + presence-avatar bar
+    └── types.ts                      #   CanvasCollab (the slice Canvas needs)
 ```
 
 Dependency direction is a strict leaf→root DAG (shared/edge-routing → edge-flow/composites → component-node/flow-edge → node-types/flow-mapping/panels/menus → canvas → platform-diagram). The custom Canvas hooks own the undo/redo burst machinery, the node/edge mutators, and paste. Selection comes from ReactFlow's `selected` NodeProp, edit mode from `EditModeContext`, draggability from `<ReactFlow nodesDraggable>` — node `data` identity stays stable so `React.memo` holds.
@@ -278,6 +282,20 @@ Beyond the plain `component` tile, each composite is its own node type + `compos
 `app/scripts/gen-architecture-skill.ts` (`bun run gen:arch-skill`) writes the component catalog + icon-bank sections **directly into `.claude/skills/databricks-architecture/SKILL.md`** (between `<!-- BEGIN/END: generated-catalog -->` and `<!-- BEGIN/END: generated-icons -->`), derived from `CATALOG`. It also runs a build-time **drift guard**: prose that references an `@in-*` port not in `CATALOG.ports` fails the build. After changing a component's label/desc/`authoring`/`ports`, re-run it so the skill can't drift. The rest of that SKILL.md (workflow, format, authoring rules, Sources) is hand-written. (NOTE: this is *generation into the skill*; how the skill is *packaged/shipped* — pure vs in-app — is a separate concern, covered next.)
 
 **Merge/rebase conflicts in the generated artifacts** (the arch `SKILL.md` catalog/icon-bank blocks + the two renderer HTMLs) — **don't hand-merge them.** They're derived from `platform-architecture.ts` (+ `standalone.tsx`), which merges cleanly on its own. Resolve each conflicted artifact to *either* side (e.g. `git checkout --theirs`), finish the merge/rebase, then run `cd app && bun run build:arch-skill` to **regenerate them from the merged source** — that produces the correct combined result (e.g. one side's renamed ids + the other's node sizes). Commit the regen.
+
+## Live collaboration on the architecture canvas (WS)
+
+The Architecture tab supports **N-user live editing**: shared cursors, live edits, and AI-agent takeover — all over ONE WebSocket per project. It's **in-app only** (never the standalone skill / read-only previews — the collab hook is gated `enableCollab && !onSave && !readOnly`, so the standalone canvas is byte-identical to before).
+
+**Transport + hub (backend).** `services/collab.py` = an in-process `CollabHub` (singleton, like `ActiveStreamManager`), one `CollabRoom` per project. `routes/collab.py` = the `@router.websocket("/api/projects/{id}/collab")` endpoint (WS auth reuses `_get_project_access`; identity from the same `X-Forwarded-Email`/`-Preferred-Username` headers HTTP uses). Fan-out is plain asyncio — **single-replica only** (the hub is behind a tiny surface so a future multi-replica story could swap in Postgres `LISTEN/NOTIFY`, but that's not built). Frames (small JSON): `presence`/`writer` (roster + who persists), `cursor` (in FLOW coords, so a peer's cursor maps correctly at any zoom/pan), `op` (an edit — a whole serialized tab body, server-stamped `seq`), `snapshot` (full `architecture.md` for late-joiners + agent takeovers), `ping` (liveness).
+
+**Consistency model — one elected WRITER + per-object LWW.** Exactly one room member (first editor in; re-elected on leave) PERSISTS `architecture.md`; everyone else applies ops and never saves (kills the multi-writer clobber). Client `isWriter` is TRUE only when the server confirmed our connId — a fresh joiner is NOT a writer until confirmed (closes the election-window double-persist race). Remote ops apply through the diagram's existing re-seed path in `platform-diagram.tsx` (the "Live collaboration" section there: `applyRemoteOp`/`applySnapshot`/writer-gated `writeTabs`), ordered by `seq` (stale/out-of-order ops dropped).
+
+**AI-agent takeover (the unification).** The agent always writes `architecture.md` on disk → the file-watcher `sync_callback` in `lakebase.py` calls `hub.maybe_broadcast_external_write`, which broadcasts a `snapshot(source:"agent")` so every client hard-reseeds + shows a toast. A **content-hash echo-guard** (`note_saved` on the `saveProjectFile` route + `note_baseline` on join) tells the agent's write apart from the room writer's OWN save — so a human save never triggers a false takeover.
+
+**Ghost reaping / dev gotchas.** The client heartbeats a `ping` every ~20s; the server reaps a socket silent for ~60s (`MAX_MISSED` idle windows) — this drains half-open ghosts that a `send` wouldn't error on. The `use-collab` effect cleanup closes an abandoned CONNECTING socket **on open** (React StrictMode dev double-mount would otherwise leave a ghost member → the "count doubles" bug). **DEV ONLY:** `vite.config.ts` must set `ws: true` on the `/api` proxy or the collab WS upgrade is dropped behind Vite (prod serves one origin, no proxy — unaffected).
+
+**Sharing model + "Share live".** Two access paths (owner-managed, `share-dialog.tsx`): (1) **email invites** (`ProjectShare`, viewer/editor, accept-to-grant — the pre-existing path); (2) **"Anyone with the link"** — a new `Project.link_access` field (`none`/`viewer`/`editor`, migration `v16`) that `_get_project_access` honors so any signed-in app user who opens the URL gets that role WITHOUT an invite (set via owner-only `PATCH /projects/{id}/link-access`). The canvas floating toolbar has a **"Share live"** button (badge = live member count) that opens the dialog prefilled with `window.location.href` (the deep link incl. `?tab=architecture&archTab=…`). A URL carrying `?archTab=` implies the Architecture tab even without `?tab=`, so a shared link mounts the canvas (+ its collab room) on open.
 
 ## The architecture skill: two modes + the render/feedback loop
 
@@ -364,9 +382,11 @@ core/        # _factory (app+lifespan+static), _config (AppConfig), _headers,
              #   dependencies (DI aliases), lakebase (engine, migrations, session)
 routes/      # one module per resource: agent, projects, project_files (incl
              #   architecture-snapshot PNG), messages, templates, resources,
-             #   skills, config, constants, block_factory
+             #   skills, config, constants, block_factory,
+             #   collab (WS /projects/{id}/collab — live arch editing)
 services/    # agent (SDK+streaming), llm_service (FMAPI), file_sync, file_watcher,
-             #   skills_manager, template_service, block_factory, system_prompt, active_stream
+             #   skills_manager, template_service, block_factory, system_prompt,
+             #   active_stream (agent SSE), collab (live-edit WS hub — see below)
 ```
 
 - **DI:** use the `Dependencies` class in handlers, never build clients manually — `Dependencies.{Session, Client (app SP), UserClient (OBO), Config, Headers}`.

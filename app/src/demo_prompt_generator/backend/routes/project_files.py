@@ -965,6 +965,16 @@ def save_project_file(
     except OSError as e:
         raise HTTPException(status_code=500, detail=f"Write failed: {e}")
 
+    # Live collab: record this content as the room's known hash so the resulting
+    # file-watcher event is recognized as the writer's OWN save (echo) and not
+    # mis-broadcast as an agent takeover. Harmless when no room exists.
+    if basename == "architecture.md":
+        try:
+            from ..services.collab import get_collab_hub
+            get_collab_hub().note_saved(project_id, body.content)
+        except Exception:
+            pass
+
     return ProjectFileContent(
         path=file_path,
         content=body.content,

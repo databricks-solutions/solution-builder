@@ -14,14 +14,16 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Loader2, Share2, Trash2, Eye, Pencil, Check, AlertTriangle } from "lucide-react";
+import { Loader2, Share2, Trash2, Eye, Pencil, Check, AlertTriangle, Link2, Copy } from "lucide-react";
 import {
   shareProject,
   updateProjectShare,
   listProjectShares,
   unshareProject,
+  setProjectLinkAccess,
   type ProjectShareOut,
   type ShareRole,
+  type LinkAccess,
 } from "@/lib/custom-api";
 
 interface ShareDialogProps {
@@ -29,6 +31,13 @@ interface ShareDialogProps {
   projectName: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** Current "anyone with the link" access (from the loaded project). */
+  initialLinkAccess?: LinkAccess;
+  /** The URL to share — a deep link (e.g. …?tab=architecture&archTab=…). Falls
+   *  back to the project URL. Used by the canvas "Share live with others" entry. */
+  linkUrl?: string;
+  /** Notified when link access changes so the parent can update its project. */
+  onLinkAccessChange?: (v: LinkAccess) => void;
 }
 
 const ROLE_OPTIONS: {
@@ -56,6 +65,9 @@ export function ShareDialog({
   projectName,
   open,
   onOpenChange,
+  initialLinkAccess = "none",
+  linkUrl,
+  onLinkAccessChange,
 }: ShareDialogProps) {
   const [email, setEmail] = useState("");
   const [message, setMessage] = useState("");
@@ -63,6 +75,13 @@ export function ShareDialog({
   const [isSharing, setIsSharing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [shares, setShares] = useState<ProjectShareOut[]>([]);
+  // "Anyone with the link" state.
+  const [linkAccess, setLinkAccess] = useState<LinkAccess>(initialLinkAccess);
+  const [linkBusy, setLinkBusy] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const shareUrl = linkUrl ||
+    (typeof window !== "undefined" ? `${window.location.origin}/project/${projectId}` : "");
 
   useEffect(() => {
     if (!open) return;
@@ -70,13 +89,40 @@ export function ShareDialog({
     setMessage("");
     setRole("viewer");
     setError(null);
+    setLinkAccess(initialLinkAccess);
+    setCopied(false);
     // Reset to empty first so the "Shared with" section doesn't briefly show a
     // previous project's shares while this load is in flight.
     setShares([]);
     listProjectShares(projectId)
       .then(setShares)
       .catch(() => setShares([]));
-  }, [open, projectId]);
+  }, [open, projectId, initialLinkAccess]);
+
+  // Toggle / change "anyone with the link" access. Optimistic; reverts on error.
+  const applyLinkAccess = async (next: LinkAccess) => {
+    const prev = linkAccess;
+    setLinkAccess(next);
+    setLinkBusy(true);
+    setError(null);
+    try {
+      await setProjectLinkAccess(projectId, next);
+      onLinkAccessChange?.(next);
+    } catch (err) {
+      setLinkAccess(prev);
+      setError(err instanceof Error ? err.message : "Failed to update link access");
+    } finally {
+      setLinkBusy(false);
+    }
+  };
+
+  const copyLink = async () => {
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch { /* clipboard blocked — user can select the field manually */ }
+  };
 
   const handleShare = async () => {
     if (!email.trim()) return;
@@ -123,9 +169,76 @@ export function ShareDialog({
             Share Project
           </DialogTitle>
           <DialogDescription>
-            Share &ldquo;{projectName}&rdquo; with a teammate via their email.
+            Share &ldquo;{projectName}&rdquo; — with anyone who has the link, or invite a teammate by email.
           </DialogDescription>
         </DialogHeader>
+
+        {/* Anyone with the link */}
+        <div className="rounded-lg border border-border p-3 space-y-2.5">
+          <label className="flex items-start gap-2.5 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={linkAccess !== "none"}
+              disabled={linkBusy}
+              onChange={(e) => applyLinkAccess(e.target.checked ? "editor" : "none")}
+              className="mt-0.5 h-4 w-4 rounded border-border accent-primary cursor-pointer"
+            />
+            <span className="min-w-0">
+              <span className="flex items-center gap-1.5 text-sm font-medium text-foreground">
+                <Link2 className="h-3.5 w-3.5" /> Anyone with the link can access
+                {linkBusy && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />}
+              </span>
+              <span className="block text-[11px] text-muted-foreground mt-0.5">
+                No invite needed — anyone signed in who opens the link joins live.
+              </span>
+            </span>
+          </label>
+
+          {linkAccess !== "none" && (
+            <>
+              {/* viewer/editor for link access */}
+              <div className="flex items-center gap-2 pl-6">
+                {(["viewer", "editor"] as const).map((v) => (
+                  <button
+                    key={v}
+                    type="button"
+                    disabled={linkBusy}
+                    onClick={() => applyLinkAccess(v)}
+                    className={`flex items-center gap-1 rounded-md border px-2 py-1 text-[12px] transition-colors ${
+                      linkAccess === v ? "border-primary bg-primary/5 text-foreground" : "border-border text-muted-foreground hover:border-primary/40"
+                    }`}
+                  >
+                    {v === "viewer" ? <Eye className="h-3 w-3" /> : <Pencil className="h-3 w-3" />}
+                    {v === "viewer" ? "Can view" : "Can edit"}
+                  </button>
+                ))}
+              </div>
+              {/* copyable link */}
+              <div className="flex items-center gap-2">
+                <input
+                  readOnly
+                  value={shareUrl}
+                  onFocus={(e) => e.currentTarget.select()}
+                  className="min-w-0 flex-1 rounded-md border border-border bg-muted/40 px-2 py-1.5 text-[12px] text-muted-foreground focus:outline-none"
+                />
+                <Button type="button" variant="outline" size="sm" onClick={copyLink} className="shrink-0">
+                  {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+                  <span className="ml-1">{copied ? "Copied" : "Copy"}</span>
+                </Button>
+              </div>
+              {linkAccess === "editor" && (
+                <div className="flex items-start gap-1.5 rounded-md border border-amber-500/30 bg-amber-500/10 px-2.5 py-1.5 text-[11px] leading-snug text-amber-700 dark:text-amber-400">
+                  <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-px" />
+                  <span>Anyone with the link can edit live. The agent runs as whoever holds the conversation.</span>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
+        <div className="relative py-0.5 text-center">
+          <span className="bg-background px-2 text-[11px] uppercase tracking-wider text-muted-foreground">or invite by email</span>
+        </div>
 
         <div className="space-y-3">
           <div>

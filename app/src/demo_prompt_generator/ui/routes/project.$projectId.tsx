@@ -312,7 +312,10 @@ function ProjectPage() {
     ? (tabFromUrl === "architecture" || tabFromUrl === "app" || tabFromUrl === "files"
         ? tabFromUrl
         : "architecture")
-    : (tabFromUrl ?? "overview");
+    // A link carrying `?archTab=` (a shared architecture deep link) implies the
+    // Architecture tab even if `?tab=` is absent — so the diagram (and its live
+    // collab room) mounts on open. Otherwise fall back to the URL tab / overview.
+    : (tabFromUrl ?? (archTabFromUrl ? "architecture" : "overview"));
   const [projectNotFound, setProjectNotFound] = useState(false);
   const [files, setFiles] = useState<ProjectFile[]>([]);
   // True once the initial file list has loaded — guards the architecture
@@ -2494,6 +2497,7 @@ function ProjectPage() {
             initialArchTab={archTabFromUrl}
             onArchTabChange={setArchTab}
             defaultLogosOn={defaultLogosOn}
+            onShareLive={() => setShareOpen(true)}
             architectureFirst={!!project?.architecture_first}
             isStreaming={isStreaming}
             resources={{
@@ -2622,13 +2626,18 @@ function ProjectPage() {
         );
       })()}
 
-      {/* Share Dialog — owner-only, opened from the header Share button. */}
+      {/* Share Dialog — owner-only, opened from the header Share button or the
+          canvas "Share live with others" button. Prefilled with the current
+          deep link (tab + archTab) so recipients land on the same view. */}
       {project && (
         <ShareDialog
           projectId={project.id}
           projectName={project.name}
           open={shareOpen}
           onOpenChange={setShareOpen}
+          initialLinkAccess={(project.link_access as "none" | "viewer" | "editor") ?? "none"}
+          linkUrl={typeof window !== "undefined" ? window.location.href : undefined}
+          onLinkAccessChange={(v) => setProject((p) => (p ? { ...p, link_access: v } : p))}
         />
       )}
 

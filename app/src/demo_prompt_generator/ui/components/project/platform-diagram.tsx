@@ -33,6 +33,8 @@ import {
   type PlatformSchema,
 } from "@/lib/platform-architecture";
 import { saveProjectFile, getArchitectureStandaloneTemplate, type DeployedResourceLink } from "@/lib/custom-api";
+import { useCollab, type CollabOp, type CollabSnapshot } from "./platform-diagram/collab/use-collab";
+import { PresenceBar } from "./platform-diagram/collab/collab-cursors";
 import { Check, ChevronDown, Download, Loader2, X } from "lucide-react";
 import {
   DropdownMenu,
@@ -86,11 +88,19 @@ interface PlatformDiagramProps {
    *  the ENABLE_LOGO_BY_DEFAULT env via /api/config/status). An explicit
    *  per-diagram toggle still wins. Defaults false. */
   defaultLogosOn?: boolean;
+  /** Enable live multi-user collaboration (WS room: cursors, presence, live
+   *  edits, agent-takeover). Opt-in from the workspace when the project is
+   *  shared + editable. Never in the standalone (onSave) path or read-only
+   *  previews. Defaults false. */
+  enableCollab?: boolean;
+  /** Opens the Share dialog from the canvas "Share live with others" button.
+   *  Absent in standalone / read-only. */
+  onShareLive?: () => void;
 }
 
 type SaveStatus = "idle" | "saving" | "saved" | "error";
 
-function PlatformDiagram({ content, deployedResources, projectId, defaultEditMode = true, readOnly, onSave, hideChrome, toolbarExtras: toolbarExtrasProp, onDirty, initialArchTab, onArchTabChange, defaultLogosOn = false }: PlatformDiagramProps) {
+function PlatformDiagram({ content, deployedResources, projectId, defaultEditMode = true, readOnly, onSave, hideChrome, toolbarExtras: toolbarExtrasProp, onDirty, initialArchTab, onArchTabChange, defaultLogosOn = false, enableCollab = false, onShareLive }: PlatformDiagramProps) {
   // --- Guard against the diagram's own auto-save echoing back and reverting
   //     the canvas to a stale version. -------------------------------------
   // The canvas auto-saves architecture.md (debounced). That write trips the
@@ -225,6 +235,10 @@ function PlatformDiagram({ content, deployedResources, projectId, defaultEditMod
     lastAuthoredMd.current = md;
     if (onSave) { onSave(md); return; }
     onDirty?.(); // a user edit changed the diagram → mark the snapshot dirty
+    // In a collab room, ONLY the elected writer persists architecture.md — every
+    // client applies the same ops, so a single writer avoids concurrent clobber.
+    // A non-writer still updated its local tabBodies + broadcast its op above.
+    if (collabRef.current.connected && !collabRef.current.isWriter) return;
     setStatus("saving");
     savePending.current = true;
     saveProjectFile(projectId, "architecture.md", md)
@@ -242,12 +256,18 @@ function PlatformDiagram({ content, deployedResources, projectId, defaultEditMod
   const persistTab = useCallback((index: number, body: string) => {
     const bodies = tabBodiesRef.current.slice();
     if (index < 0 || index >= bodies.length) return; // tab removed meanwhile
-    bodies[index] = body;
+    if (bodies[index] === body) { /* no-op edit */ } else {
+      bodies[index] = body;
+    }
     // Mark this as our own body so the resulting tabBodies update doesn't
     // re-parse + re-seed the canvas (which would drop the live selection).
     selfAuthoredBody.current = body;
     setTabBodies(bodies);
     writeTabs(bodies);
+    // Broadcast this edit to the room (if any) so peers apply it live. Only the
+    // writer PERSISTS (in writeTabs), but EVERY editor broadcasts its own edits.
+    const c = collabRef.current;
+    if (c.connected) c.sendOp({ kind: "state", tab: index, body });
   }, [writeTabs]);
 
   const persistActive = useCallback(
@@ -264,6 +284,83 @@ function PlatformDiagram({ content, deployedResources, projectId, defaultEditMod
       persistTab(activeIndex, serializeArchitecture(schemaRef.current, layout));
     },
     [persistTab, activeIndex],
+  );
+
+  // --- Live collaboration -------------------------------------------------
+  // A shared, editable project opens a WS room: cursors + presence + live edits
+  // + AI-agent takeover. Disabled for the standalone (onSave) path and read-only
+  // previews (nothing to collaborate on there).
+  const collabEnabled = enableCollab && !onSave && !readOnly;
+
+  // Apply a peer's edit: a `state` op carries a whole single-tab body. Splice it
+  // into `tabBodies`. If it's the ACTIVE tab, the changed `activeBody` differs
+  // from our selfAuthoredBody/builtBody, so the `built` memo re-parses and the
+  // canvas re-seeds to the peer's version automatically — no extra plumbing.
+  // Non-active tabs just update their stored body (re-seed on next switch).
+  const appliedSeq = useRef<Map<number, number>>(new Map());
+  const applyRemoteOp = useCallback((op: CollabOp) => {
+    if (op.kind !== "state") return;
+    const bodies = tabBodiesRef.current.slice();
+    if (op.tab < 0 || op.tab >= bodies.length) return;
+    // Enforce the server's total order: drop an op that's older than the newest
+    // one we've already applied to this tab, so an out-of-order/late delivery
+    // can't regress the tab to a stale body (whole-body LWW needs monotonic seq).
+    if (op.seq != null) {
+      const last = appliedSeq.current.get(op.tab) ?? 0;
+      if (op.seq <= last) return;
+      appliedSeq.current.set(op.tab, op.seq);
+    }
+    if (bodies[op.tab] === op.body) return; // no change
+    bodies[op.tab] = op.body;
+    setTabBodies(bodies);
+  }, []);
+
+  // Apply an agent takeover (or the init snapshot): the full architecture.md was
+  // rewritten out-of-band. Hard-reseed the whole canvas from it — the one case a
+  // full re-seed is correct. `source:"agent"` also flags a toast.
+  const [agentTookOver, setAgentTookOver] = useState(false);
+  const lastSnapshotSeq = useRef(0);
+  const applySnapshot = useCallback((snap: CollabSnapshot) => {
+    if (!snap.content) return;
+    // Drop a stale/duplicate agent snapshot (out-of-order WS delivery): only
+    // apply one whose seq is newer than the last we took. The `init` snapshot on
+    // join has no seq — always accepted (it's the baseline for this session).
+    if (snap.seq != null) {
+      if (snap.seq <= lastSnapshotSeq.current) return;
+      lastSnapshotSeq.current = snap.seq;
+    }
+    // A whole-doc reseed is a fresh baseline → reset per-tab op ordering so a
+    // pre-snapshot op that arrives late can't be mistaken for newer.
+    appliedSeq.current.clear();
+    // Bypass the own-echo / mid-save guards: this is authoritative external
+    // content. Clear the guards so the acceptedContent effect definitely takes
+    // it (an agent write is never our own echo).
+    lastAuthoredMd.current = null;
+    savePending.current = false;
+    setAcceptedContent(snap.content);
+    if (snap.source === "agent") {
+      setAgentTookOver(true);
+      window.setTimeout(() => setAgentTookOver(false), 4000);
+    }
+  }, []);
+
+  const collab = useCollab({
+    projectId,
+    enabled: collabEnabled,
+    onSnapshot: applySnapshot,
+    onOp: applyRemoteOp,
+  });
+  const collabRef = useRef(collab);
+  collabRef.current = collab;
+
+  // The slice Canvas needs (cursors + presence). Only when the room is live, so
+  // a solo / offline canvas is byte-for-byte its old self (collab undefined).
+  const canvasCollab = useMemo(
+    () =>
+      collab.connected
+        ? { members: collab.members, meConnId: collab.me?.connId ?? null, sendCursor: collab.sendCursor }
+        : undefined,
+    [collab.connected, collab.members, collab.me, collab.sendCursor],
   );
 
   // Toggle the trademark-logo opt-in and persist (re-serializes with the flag).
@@ -399,7 +496,23 @@ function PlatformDiagram({ content, deployedResources, projectId, defaultEditMod
   );
 
   return (
-    <div className="flex h-full w-full flex-col">
+    <div className="relative flex h-full w-full flex-col">
+      {/* Presence avatars (who else is here) — top-right, above the canvas. */}
+      {canvasCollab && (
+        <div className="pointer-events-none absolute right-3 top-3 z-20 flex items-center gap-2">
+          <div className="pointer-events-auto rounded-full bg-background/80 px-2 py-1 shadow-sm ring-1 ring-border backdrop-blur">
+            <PresenceBar members={canvasCollab.members} meConnId={canvasCollab.meConnId} />
+          </div>
+        </div>
+      )}
+      {/* AI-agent-took-over toast. */}
+      {agentTookOver && (
+        <div className="pointer-events-none absolute left-1/2 top-3 z-30 -translate-x-1/2">
+          <div className="rounded-full bg-primary px-3 py-1.5 text-[12px] font-medium text-primary-foreground shadow-md">
+            🤖 The assistant updated the architecture
+          </div>
+        </div>
+      )}
       <CustomLogosContext.Provider value={schema.customLogos ?? {}}>
         {/* Key the PROVIDER (not just the Canvas) by tab so the whole ReactFlow
             store is recreated on a tab switch — reproducing the cold-mount path
@@ -412,6 +525,8 @@ function PlatformDiagram({ content, deployedResources, projectId, defaultEditMod
             deepLinks={deepLinks}
             onPersist={onPersist}
             onSetTrademark={onSetTrademark}
+            collab={canvasCollab}
+            onShareLive={!onSave && !readOnly ? onShareLive : undefined}
             defaultEditMode={defaultEditMode}
             readOnly={readOnly}
             toolbarExtras={toolbarExtrasProp ?? builtInExtras}

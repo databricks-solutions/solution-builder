@@ -83,6 +83,8 @@ export interface Project {
   /** Caller's access on this project: "owner" | "admin" | "editor" | "viewer".
    *  Populated by getProject; drives the read-only UI for shared viewers. */
   my_role?: string | null;
+  /** "Anyone with the link" access: "none" | "viewer" | "editor". */
+  link_access?: string | null;
   /** Conversation driver — the user whose PAT the agent's CLI runs as (null =
    *  unclaimed). `is_driver` = the caller currently holds it. A non-driver may
    *  STILL run the agent while `driver_token_expired` is false (they ride the
@@ -624,6 +626,25 @@ export async function shareProject(
   if (!resp.ok) {
     const err = await resp.json().catch(() => ({}));
     throw new Error(err.detail || `Failed to share project: ${resp.status}`);
+  }
+  return resp.json();
+}
+
+/** "Anyone with the link" access level. "none" turns it off. */
+export type LinkAccess = "none" | "viewer" | "editor";
+
+export async function setProjectLinkAccess(
+  projectId: string,
+  linkAccess: LinkAccess,
+): Promise<{ link_access: LinkAccess }> {
+  const resp = await fetch(apiUrl(`/api/projects/${projectId}/link-access`), {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ link_access: linkAccess }),
+  });
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({}));
+    throw new Error(err.detail || `Failed to set link access: ${resp.status}`);
   }
   return resp.json();
 }
