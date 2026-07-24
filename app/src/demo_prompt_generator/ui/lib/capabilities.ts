@@ -3,7 +3,7 @@
  *
  * Single source of truth for how each Databricks capability is presented in
  * the Summary tab's overview card. Slugs match
- * `.claude/skills/databricks-demo-generator/references/platform_architecture.md`
+ * `.claude/skills/databricks-solution-builder/references/platform_architecture.md`
  * — update both files together when adding capabilities.
  *
  * `deployed_type` tells the renderer which `DeployedResourceLink.resource_type`

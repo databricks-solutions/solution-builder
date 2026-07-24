@@ -22,6 +22,7 @@ from .routes import me as _me  # noqa: E402, F401  # /api/me — see AUTH.md
 from .routes import stats as _stats  # noqa: E402, F401  # /api/stats — admin dashboard
 from .routes import uploads as _uploads  # noqa: E402, F401  # /api/uploads/extract — home-page file upload
 from .routes import brands as _brands  # noqa: E402, F401  # /api/brands/resolve — company brand (logo + palette)
+from .routes import collab as _collab  # noqa: E402, F401  # /api/projects/{id}/collab — live multi-user architecture editing (WS)
 
 
 @router.get("/health", operation_id="health")

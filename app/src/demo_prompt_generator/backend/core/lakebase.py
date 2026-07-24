@@ -492,7 +492,7 @@ class _LakebaseDependency(LifespanDependency):
             def _seed():
                 try:
                     from ..services.seed_templates import seed_default_templates
-                    seed_default_templates(engine)
+                    seed_default_templates(engine, ws)
                 except Exception as e:
                     logger.warning(f"Template seeding failed (non-fatal): {e}")
 
@@ -530,6 +530,25 @@ class _LakebaseDependency(LifespanDependency):
                     f"[watcher] no active stream for project {project_id} — "
                     f"{len(paths)} file change(s) NOT pushed to UI: {paths}"
                 )
+
+            # Live collab: if architecture.md changed on disk and it's NOT the
+            # room writer's own save (hash guard inside the hub), it's an AGENT
+            # write — broadcast a takeover snapshot to everyone in the room so
+            # their canvas hard-reseeds from the agent's version. Independent of
+            # the agent SSE stream above (a human-shared room may have none).
+            if "architecture.md" in ui_paths:
+                try:
+                    from ..services.collab import get_collab_hub
+                    hub = get_collab_hub()
+                    if hub.has_room(project_id):
+                        from ..services.skills_manager import get_project_directory
+                        arch_path = get_project_directory(project_id) / "architecture.md"
+                        if arch_path.exists():
+                            await hub.maybe_broadcast_external_write(
+                                project_id, arch_path.read_text(encoding="utf-8")
+                            )
+                except Exception as e:
+                    logger.debug(f"[watcher] collab snapshot skipped: {e!r}")
 
             # If README.md changed, kick off a background narrative regen.
             # The service hashes the README and skips when it matches the

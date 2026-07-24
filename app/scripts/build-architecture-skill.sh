@@ -5,7 +5,7 @@
 #   2. build the two self-contained standalone HTMLs (viewer + editor),
 #   3. copy the HTMLs + render-arch.mjs into the skill's renderer/,
 #   4. copy platform_architecture.md (the "how components connect" reference)
-#      from the demo-generator skill into reference/.
+#      from the solution-builder skill into reference/.
 # The reference jsoncs are authored in the skill itself, so they're left as-is.
 set -euo pipefail
 cd "$(dirname "$0")/.."           # app/
@@ -14,7 +14,7 @@ export NODE_OPTIONS=""            # a stale --require shim breaks node tools
 SKILL_DIR="../.claude/skills/databricks-architecture"
 RENDERER="$SKILL_DIR/renderer"
 REFERENCE="$SKILL_DIR/reference"
-DEMO_SKILL="../.claude/skills/databricks-demo-generator"
+DEMO_SKILL="../.claude/skills/databricks-solution-builder"
 mkdir -p "$RENDERER" "$REFERENCE"
 
 echo "→ generating catalog + icon bank into SKILL.md…"
@@ -33,5 +33,5 @@ cp "$DEMO_SKILL/references/platform_architecture.md" "$REFERENCE/platform_archit
 
 echo "✓ databricks-architecture skill refreshed:"
 echo "   SKILL.md (catalog + icon bank regenerated)"
-echo "   reference/platform_architecture.md (copied from demo-generator skill)"
+echo "   reference/platform_architecture.md (copied from solution-builder skill)"
 ls -lh "$RENDERER"/*.html "$RENDERER"/render-arch.mjs | awk '{print "   "$NF" ("$5")"}'

@@ -406,6 +406,14 @@ class Project(SQLModel, table=True):
     # Template lineage
     source_template_id: Optional[str] = SQLField(default=None, max_length=50)
 
+    # Link access — "anyone with the link" sharing. "none" (default) = link
+    # sharing off, access only via owner/admin/accepted-share. "viewer"/"editor"
+    # = ANY signed-in user who opens the project URL gets that role without an
+    # explicit email invite. Owner-only to change (see PATCH /link-access). Note
+    # this grants access to authenticated app users with the link — not the
+    # public internet (the Databricks App still requires workspace auth).
+    link_access: str = SQLField(default="none", max_length=20)
+
     # Timestamps
     created_at: datetime = SQLField(default_factory=utc_now)
     updated_at: datetime = SQLField(default_factory=utc_now)
@@ -754,7 +762,7 @@ class ProjectCreateRequest(BaseModel):
     )
     capabilities: list[str] = Field(
         default_factory=list,
-        description="Selected capability IDs — used to scope which ai-dev-kit skills get copied into the project.",
+        description="Selected capability IDs — used to scope which DAS skills get copied into the project.",
     )
     initial_prompt: Optional[str] = Field(
         None,
@@ -763,6 +771,15 @@ class ProjectCreateRequest(BaseModel):
     architecture_first: bool = Field(
         False,
         description="Architecture-first project: opens on the Architecture tab and shows the 'Build the solution' CTA until the build is kicked off.",
+    )
+    blank_architecture: bool = Field(
+        False,
+        description=(
+            "Architecture-first with NO prompt: the user clicked 'Start with a blank "
+            "architecture'. Seeds an empty architecture.md (one empty tab) so the "
+            "canvas opens blank instead of the agent drawing a full end-to-end diagram. "
+            "Only meaningful when architecture_first is true."
+        ),
     )
     mode: str = Field(
         "story",
@@ -883,6 +900,10 @@ class ProjectOut(BaseModel):
     # "viewer". Drives the read-only UI. Only populated by get_project; other
     # (write) endpoints leave it None since their caller is never a viewer.
     my_role: Optional[str] = None
+    # "Anyone with the link" access: "none" | "viewer" | "editor". The share
+    # dialog reads/writes this; the canvas "Share live" button surfaces the link
+    # when it's not "none".
+    link_access: Optional[str] = None
     # Conversation driver — the user whose PAT the agent's CLI runs as. Null =
     # unclaimed. `is_driver` is the caller-relative flag the chat UI uses to
     # decide whether to allow sending or show the "take over" banner.
@@ -1017,6 +1038,19 @@ class BrandOut(BaseModel):
 class ShareRoleUpdateRequest(BaseModel):
     """Owner changes an existing share's role (viewer/editor)."""
     role: str = Field(..., description="New access level: 'viewer' or 'editor'")
+
+
+class LinkAccessRequest(BaseModel):
+    """Owner sets 'anyone with the link' access for a project."""
+    link_access: str = Field(
+        ...,
+        description="'none' (off), 'viewer' (anyone with the link can view/clone), or 'editor' (anyone with the link can edit live).",
+    )
+
+
+class LinkAccessResult(BaseModel):
+    """Current 'anyone with the link' access after a set."""
+    link_access: str
 
 
 class ShareResponseRequest(BaseModel):

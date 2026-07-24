@@ -44,6 +44,12 @@ export default defineConfig(({ mode: _mode }) => {
           // runs on a non-default port (e.g. 8000 is taken by another app).
           target: process.env.VITE_BACKEND_URL || "http://127.0.0.1:8000",
           changeOrigin: true,
+          // Forward WebSocket upgrades too — the live-collab room connects to
+          // /api/projects/{id}/collab. Without this, dev-mode WS upgrades on
+          // /api are dropped by Vite and the room never connects (cursors /
+          // live edits silently do nothing behind the proxy). Agent traffic is
+          // SSE (plain HTTP), so this only affects the collab socket.
+          ws: true,
         },
         // Preview iframe + its proxied HTTP/WS/SSE traffic to the child app.
         // Match `/preview/<uuid>[/...]` only — NOT Vite's own module requests

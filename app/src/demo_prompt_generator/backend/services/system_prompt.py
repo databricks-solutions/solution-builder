@@ -46,8 +46,8 @@ def get_system_prompt(
         f"## Path References\n\n"
         f"- **PROJECT**: `{p}`\n"
         f"- **SKILLS**: `{p}/.claude/skills`\n"
-        f"- **DEMO_SKILL_DIR**: `{p}/.claude/skills/databricks-demo-generator`\n"
-        f"- **DEMO_SKILL**: `{p}/.claude/skills/databricks-demo-generator/SKILL.md`\n"
+        f"- **DEMO_SKILL_DIR**: `{p}/.claude/skills/databricks-solution-builder`\n"
+        f"- **DEMO_SKILL**: `{p}/.claude/skills/databricks-solution-builder/SKILL.md`\n"
         f"\nAll paths below use these references.",
         _PROMPT_TEMPLATE,
     ]

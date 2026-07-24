@@ -27,7 +27,12 @@ from sqlmodel import Session, select
 
 from ..models import Template, TemplateScreenshot, TemplateStatus, utc_now
 from .file_sync import compress_content, compute_file_hash
-from .template_service import _should_include_in_template, _upsert_template_content, _store_embedding
+from .template_service import (
+    _should_include_in_template,
+    _upsert_template_content,
+    _store_embedding,
+    _embedding_text,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -205,7 +210,7 @@ def _folder_signature(template_dir: Path, meta: str) -> str:
     return h.hexdigest()
 
 
-def seed_default_templates(engine: Engine) -> None:
+def seed_default_templates(engine: Engine, ws: "WorkspaceClient | None" = None) -> None:
     """Upsert the official templates from the initial_templates/ folders.
 
     Each seed template is a self-contained folder carrying its OWN
@@ -213,11 +218,24 @@ def seed_default_templates(engine: Engine) -> None:
     narrative). We discover them by scanning — no central index to edit; add a
     template by dropping a folder in.
 
+    `ws` (a WorkspaceClient) is needed to build the embedding for semantic
+    search; when None (or unavailable) seeding still runs, just without
+    embeddings (search then relies on the lexical fallback).
+
     Called once at startup after migrations. Idempotent + smooth:
       - new id            → insert (official, APPROVED)
       - existing, same    → skip (checksum match)
       - existing, changed → diff-update only changed files + refresh metadata
     """
+    # Build one LLMService for the whole seed pass (embeddings). Best-effort:
+    # if it can't be constructed, we seed without embeddings.
+    llm: "LLMService | None" = None
+    if ws is not None:
+        try:
+            from .llm_service import LLMService
+            llm = LLMService(ws)
+        except Exception as e:  # pragma: no cover - defensive
+            logger.warning(f"Embedding disabled for seeding (LLMService init failed): {e}")
     templates_dir = _find_initial_templates_dir()
     if not templates_dir:
         logger.warning(
@@ -339,14 +357,23 @@ def seed_default_templates(engine: Engine) -> None:
                 for ordinal, img in extra_screenshots:
                     session.add(TemplateScreenshot(template_id=template_id, ordinal=ordinal, image=img))
 
-                # Best-effort embedding (skips on PGLite / no pgvector).
-                if full_description:
-                    try:
-                        # Local import to avoid an LLM dependency at module load.
-                        from .llm_service import LLMService
-                        _store_embedding(session, template_id, LLMService().get_embedding(full_description))
-                    except Exception as e:
-                        logger.debug(f"Skipping embedding for seed template {template_id}: {e}")
+                # Best-effort embedding (skips on PGLite / no pgvector, or when
+                # no LLMService was available). Index a COMBINED text — name,
+                # industry, narrative, short description, and README — so search
+                # matches the title/industry/story, not just the README prose.
+                if llm is not None:
+                    embed_text = _embedding_text(
+                        name=entry["name"],
+                        industry=entry.get("industry"),
+                        narrative=narrative,
+                        description=short_description,
+                        readme=full_description,
+                    )
+                    if embed_text:
+                        try:
+                            _store_embedding(session, template_id, llm.get_embedding(embed_text))
+                        except Exception as e:
+                            logger.debug(f"Skipping embedding for seed template {template_id}: {e}")
 
                 session.commit()
                 if is_new:

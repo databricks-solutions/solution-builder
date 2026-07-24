@@ -640,10 +640,10 @@ export const CATALOG: Record<BandId, CatalogComponent[]> = {
   ],
   "agentic-work": [
     { id: "databricks-apps-work", label: "Databricks Apps", icon: "databricksAppsBrand", sublabel: "Deploy business apps", desc: "Deploy business apps",
-      authoring: "The custom business app — PREFERRED over the legacy databricks-apps tile. Runs on Lakebase; can embed the dashboard + Genie Space." },
+      authoring: "The custom business app — PREFERRED over the legacy databricks-apps tile. Runs on Lakebase; can embed the dashboard + Genie Agent." },
     { id: "genie-one", label: "Genie One - Mobile app", icon: "genieOneBrand", kind: "genie-one", sublabel: "Databricks access for business user", desc: "Databricks access for business user",
-      authoring: "The business-user / mobile entry point. It has a Business-users persona built IN (a small user icon docked above the Genie One mark) — so you do NOT need a separate file:persona/user node beside it. Wire Genie One --> dashboard / Genie Space / app (auto-arrows; leave `arrow` out)." },
-    { id: "genie", label: "Genie Space", icon: "genieBrand", sublabel: "Ask anything about your data", desc: "ask anything about your data" },
+      authoring: "The business-user / mobile entry point. It has a Business-users persona built IN (a small user icon docked above the Genie One mark) — so you do NOT need a separate file:persona/user node beside it. Wire Genie One --> dashboard / Genie Agent / app (auto-arrows; leave `arrow` out)." },
+    { id: "genie", label: "Genie Agent", icon: "genieBrand", sublabel: "Ask anything about your data", desc: "ask anything about your data" },
     { id: "knowledge-assistant", label: "Knowledge Assistant", icon: "knowledgeAssistant", desc: "Chat with your documents — grounded, cited answers from unstructured content." },
     { id: "supervisor-agent", label: "Supervisor Agent", icon: "multiAgentSupervisor", desc: "Routes a question to the right specialist agent and composes the answer." },
     // Composite "Agent Bricks" block: the bundled agent building blocks
@@ -811,7 +811,7 @@ export function naturalSize(type: string, params?: Record<string, boolean>): { w
   if (kind === "medallion-table") return medallionSize(params);
   if (type === "sdp") return { w: 230, h: 112 };
   // EVERY plain single-line catalog tile shares ONE footprint (230×54) so any
-  // column of them lines up — Lakehouse, Genie Space, Knowledge Assistant,
+  // column of them lines up — Lakehouse, Genie Agent, Knowledge Assistant,
   // Supervisor Agent, Model Serving, … all identical. (Previously the size keyed
   // on whether a tile happened to carry a `sublabel`, so sibling agent tiles came
   // out different sizes — the bug this fixes.)
@@ -1716,7 +1716,7 @@ export function parseArchitecture(content: string, defaultLogosOn = false): Plat
 /** The raw global catalog as bands — every component with its CATALOG label /
  *  icon / desc, with NO per-project overrides merged in. The library palette
  *  (left menu) renders from this so it always shows the canonical component
- *  set, not a demo's story-tied relabels (e.g. a demo renaming Genie Space must
+ *  set, not a demo's story-tied relabels (e.g. a demo renaming Genie Agent must
  *  not change what the palette calls it). `state` is omitted — the palette only
  *  needs id/label/icon/desc. */
 export function catalogBands(): { id: BandId; label: string; sublabel?: string; components: CatalogComponent[] }[] {

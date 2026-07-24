@@ -20,6 +20,8 @@ from typing import Callable, Optional
 
 from watchdog.events import FileSystemEvent, FileSystemEventHandler
 from watchdog.observers import Observer
+from watchdog.observers.api import BaseObserver
+from watchdog.observers.polling import PollingObserver
 
 logger = logging.getLogger(__name__)
 
@@ -201,7 +203,7 @@ class FileWatcherService:
             sync_callback: Async function(project_id, list[relative_paths]) to sync files
         """
         self.sync_callback = sync_callback
-        self._observer: Optional[Observer] = None
+        self._observer: Optional[BaseObserver] = None
         self._pending: dict[str, set[str]] = defaultdict(set)  # project_id -> {paths}
         self._debounce_tasks: dict[str, asyncio.Task] = {}
         self._running = False
@@ -212,15 +214,34 @@ class FileWatcherService:
         self._loop = loop
         self._running = True
 
-        base_dir = Path(PROJECTS_BASE_DIR)
+        # Schedule on the RESOLVED base path so watcher event paths match
+        # `_extract_project_info`'s resolved base (which does `.resolve()`).
+        # A raw relative "./projects" here + resolved compare there silently
+        # drops events when cwd/symlinks differ.
+        base_dir = Path(PROJECTS_BASE_DIR).resolve()
         base_dir.mkdir(parents=True, exist_ok=True)
 
+        # In the Databricks Apps container the project dir lives on an overlay
+        # filesystem where Linux inotify does NOT deliver events for writes made
+        # by the agent's separate subprocess — the default Observer() (inotify)
+        # sees nothing, so the file cache never resyncs and the UI/agent don't
+        # get file-change notices until a force refresh. PollingObserver stats
+        # the tree on an interval and works regardless of the fs. Locally
+        # (macOS FSEvents / native inotify on a real disk) the fast native
+        # Observer works fine, so only switch to polling in the container.
         handler = ProjectEventHandler(on_change=self._on_file_change)
-        self._observer = Observer()
+        in_apps = bool(os.getenv("DATABRICKS_APP_PORT"))
+        if in_apps:
+            self._observer = PollingObserver(timeout=2.0)
+        else:
+            self._observer = Observer()
         self._observer.schedule(handler, str(base_dir), recursive=True)
         self._observer.start()
 
-        logger.info(f"File watcher started on {base_dir}")
+        logger.info(
+            f"File watcher started on {base_dir} "
+            f"({'polling' if in_apps else 'native'} observer)"
+        )
 
     def stop(self) -> None:
         """Stop watching."""

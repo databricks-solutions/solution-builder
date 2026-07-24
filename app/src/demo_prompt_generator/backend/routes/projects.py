@@ -23,6 +23,8 @@ from ..services.llm_service import LLMService, ModelSize
 from ..models import (
     DescriptionAiEditRequest,
     DescriptionAiEditResponse,
+    LinkAccessRequest,
+    LinkAccessResult,
     Message,
     Project,
     ProjectCreateRequest,
@@ -403,6 +405,13 @@ def _get_project_access(
         # 'editor' or 'viewer'; default to viewer for any unexpected value.
         level = ACCESS_EDITOR if share.role == ShareRole.EDITOR.value else ACCESS_VIEWER
         return project, level
+    # "Anyone with the link" — no explicit relationship, but the owner opened the
+    # project to link access at some role. Grants that role to any signed-in user
+    # who has the URL (still gated by the app's own workspace auth).
+    if project.link_access == ShareRole.EDITOR.value:
+        return project, ACCESS_EDITOR
+    if project.link_access == ShareRole.VIEWER.value:
+        return project, ACCESS_VIEWER
     raise HTTPException(status_code=404, detail="Project not found")
 
 
@@ -840,6 +849,20 @@ def create_project(
         encoding="utf-8",
     )
 
+    # Blank-architecture entry ("Start with a blank architecture" — no prompt):
+    # seed an EMPTY architecture.md (one empty tab) so the canvas opens truly
+    # blank. Without this the agent would draw a full end-to-end diagram on its
+    # first turn; here the injected message just primes it to await the user's
+    # edits (see the frontend's blank-architecture prompt). Only for
+    # architecture-first; a normal arch-first project lets the agent author the
+    # diagram from the user's request.
+    if body.architecture_first and body.blank_architecture:
+        empty_arch = [{"name": "Architecture", "nodes": [], "edges": []}]
+        (project_dir / "architecture.md").write_text(
+            "```json\n" + json.dumps(empty_arch, indent=2) + "\n```\n",
+            encoding="utf-8",
+        )
+
     # Save uploaded context files (home-page widget) + the legacy
     # single-document fallback.
     #
@@ -1084,6 +1107,7 @@ def get_project(
         source_template_id=project.source_template_id,
         source_template_name=_resolve_template_name(session, project.source_template_id),
         my_role=my_role,
+        link_access=project.link_access,
         **_driver_out_fields(session, project, my_role, user_email),
     )
 
@@ -1175,7 +1199,7 @@ async def set_project_brand(
 
     `search=True` runs the keyless brand service (company → palette + website);
     `search=False` saves the palette/website the user edited by hand. Either way
-    the resulting brand.json is what the demo-generator skill + app read to theme
+    the resulting brand.json is what the solution-builder skill + app read to theme
     the generated app. Returns the refreshed project (with `brand`)."""
     user_email = _get_user_email(headers)
     project = _require_write_access(session, project_id, user_email, config.template_admin_emails)
@@ -1883,6 +1907,36 @@ def share_project(
     session.commit()
     session.refresh(share)
     return _share_out(share)
+
+
+@router.patch(
+    "/projects/{project_id}/link-access",
+    response_model=LinkAccessResult,
+    operation_id="setProjectLinkAccess",
+)
+def set_project_link_access(
+    project_id: str,
+    body: LinkAccessRequest,
+    session: Dependencies.Session,
+    headers: Dependencies.Headers,
+    config: Dependencies.Config,
+):
+    """Owner-only: set 'anyone with the link' access ('none'|'viewer'|'editor').
+
+    When not 'none', any signed-in app user who opens the project URL gets that
+    role without an explicit email invite. Managing access is owner-only, like
+    email sharing.
+    """
+    user_email = _get_user_email(headers)
+    project = _require_owner(session, project_id, user_email, config.template_admin_emails)
+    value = body.link_access
+    if value not in ("none", ShareRole.VIEWER.value, ShareRole.EDITOR.value):
+        raise HTTPException(status_code=400, detail="link_access must be 'none', 'viewer', or 'editor'")
+    project.link_access = value
+    project.updated_at = utc_now()
+    session.add(project)
+    session.commit()
+    return LinkAccessResult(link_access=value)
 
 
 @router.get(

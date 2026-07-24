@@ -82,6 +82,16 @@ if [[ ! -f "src/demo_prompt_generator/__dist__/index.html" ]]; then
     exit 1
 fi
 
+# Drop the heavy vendored microsite architecture SVGs (~5 MB each) from the
+# wheel. They push the wheel over the Apps source-export 10 MB per-file cap
+# (which makes `bundle run` fail), and the microsites render fine without the
+# static SVG. Best-effort — the microsites' index.html/app.js remain.
+for _svg in \
+    "src/demo_prompt_generator/__dist__/architecture.svg" \
+    "src/demo_prompt_generator/__dist__/shift-left/architecture.svg"; do
+    [[ -f "$_svg" ]] && rm -f "$_svg" && echo "  Stripped $_svg from the wheel"
+done
+
 # --- 2. Stage runtime data INTO the package source tree (paths mirror dev) ---
 # The wheel ships .claude/, initial_templates/, and ai_dev_kit/ INSIDE
 # src/demo_prompt_generator/ so paths inside the installed package match the
@@ -103,8 +113,8 @@ rm -rf "$PKG_DIR/.claude" "$PKG_DIR/initial_templates" "$PKG_DIR/ai_dev_kit"
 # alone is ~13 MB compressed. Instead, start.sh downloads + caches it
 # at container boot. See app/start.sh.
 
-# .claude/skills/databricks-demo-generator/ — the demo-generator skill itself.
-if [[ -d "../.claude/skills/databricks-demo-generator" ]]; then
+# .claude/skills/databricks-solution-builder/ — the solution-builder skill itself.
+if [[ -d "../.claude/skills/databricks-solution-builder" ]]; then
     mkdir -p "$PKG_DIR/.claude/skills"
     rsync -a \
         --exclude='node_modules' \
@@ -115,8 +125,8 @@ if [[ -d "../.claude/skills/databricks-demo-generator" ]]; then
         --exclude='.pglite' \
         --exclude='.tanstack' \
         --exclude='__dist__' \
-        "../.claude/skills/databricks-demo-generator/" \
-        "$PKG_DIR/.claude/skills/databricks-demo-generator/"
+        "../.claude/skills/databricks-solution-builder/" \
+        "$PKG_DIR/.claude/skills/databricks-solution-builder/"
 
     # Rewrite the template app's npm lockfile internal-proxy URLs -> public
     # registry IN THE WHEEL COPY (never the source — local dev keeps the proxy).
@@ -127,7 +137,7 @@ if [[ -d "../.claude/skills/databricks-demo-generator" ]]; then
     # setting, so it must be scrubbed here. Same gate + intent as the uv.lock
     # rewrite below (on any bundle deploy; local builds keep the faster proxy).
     if [[ "${REWRITE_LOCK_TO_PUBLIC_PYPI:-}" == "1" ]]; then
-        _tmpl_lock="$PKG_DIR/.claude/skills/databricks-demo-generator/app/app_template/package-lock.json"
+        _tmpl_lock="$PKG_DIR/.claude/skills/databricks-solution-builder/app/app_template/package-lock.json"
         if [[ -f "$_tmpl_lock" ]]; then
             echo "  Rewriting app_template package-lock.json internal proxy URLs -> public npm registry"
             perl -i -pe 's{https://npm-proxy[.-][a-z0-9.-]*databricks\.com/}{https://registry.npmjs.org/}g' "$_tmpl_lock"
@@ -141,7 +151,7 @@ if [[ -d "../.claude/skills/databricks-demo-generator" ]]; then
 fi
 
 # .claude/skills/databricks-architecture/ — the architecture-diagram skill the
-# demo-generator SKILL.md points the agent at (flat nodes/edges schema +
+# solution-builder SKILL.md points the agent at (flat nodes/edges schema +
 # component catalog + reference diagrams). skills_manager copies it into every
 # project (renderer/ excluded there), so the wheel must ship it. renderer/ IS
 # included in the wheel: the backend serves architecture-editor.html for the
@@ -172,11 +182,11 @@ if [[ -d "../initial_templates" ]]; then
            -o -name ".DS_Store" \) -delete 2>/dev/null || true
 fi
 
-# ai_dev_kit/ — clone the same branch dev.sh uses so the deployed app has
-# the skill catalog without runtime cloning. Frozen with the wheel; redeploy
-# to update.
-AI_DEV_KIT_REPO="https://github.com/databricks-solutions/ai-dev-kit.git"
-AI_DEV_KIT_BRANCH="${AI_DEV_KIT_BRANCH:-experimental}"
+# ai_dev_kit/ — clone the Databricks Agent Skills repo (same branch dev.sh uses)
+# so the deployed app has the skill catalog without runtime cloning. Dir name
+# kept as ai_dev_kit/ for path stability. Frozen with the wheel; redeploy to update.
+DAS_REPO="https://github.com/databricks/databricks-agent-skills.git"
+DAS_BRANCH="${DAS_BRANCH:-${AI_DEV_KIT_BRANCH:-main}}"
 if [[ ! -d "$PKG_DIR/ai_dev_kit" ]]; then
     if [[ -d "ai_dev_kit/.git" ]]; then
         # Fast path: copy the locally cloned repo (already on the right branch
@@ -185,8 +195,8 @@ if [[ ! -d "$PKG_DIR/ai_dev_kit" ]]; then
         rsync -a --exclude='.git' --exclude='node_modules' --exclude='__pycache__' \
             "ai_dev_kit/" "$PKG_DIR/ai_dev_kit/"
     else
-        echo "  Cloning ai_dev_kit ($AI_DEV_KIT_REPO branch $AI_DEV_KIT_BRANCH) into wheel..."
-        git clone --depth 1 --branch "$AI_DEV_KIT_BRANCH" "$AI_DEV_KIT_REPO" "$PKG_DIR/ai_dev_kit"
+        echo "  Cloning databricks-agent-skills ($DAS_REPO branch $DAS_BRANCH) into wheel..."
+        git clone --depth 1 --branch "$DAS_BRANCH" "$DAS_REPO" "$PKG_DIR/ai_dev_kit"
         rm -rf "$PKG_DIR/ai_dev_kit/.git"
     fi
 fi

@@ -1,0 +1,93 @@
+# ============================================================================
+# Per-deployment configuration for the `prod-fevm` target.
+# ============================================================================
+# FEVM Solution Builder workspace (https://fevm-solution-builder.cloud.databricks.com).
+#
+# INTERNAL ONLY — committed to the PRIVATE repo, excluded from the public
+# mirror via .publicignore. Do NOT merge to the public repo.
+#
+# Deploy:  databricks bundle deploy -t prod-fevm
+# (Non-default target — the `-t prod-fevm` flag is required.)
+# ============================================================================
+
+targets:
+  prod-fevm:
+    # ────────────────────────────────────────────────────────────────────────
+    # Section 1 — workspace profile
+    # ────────────────────────────────────────────────────────────────────────
+    # ~/.databrickscfg profile pointing at fevm-solution-builder.
+    workspace:
+      profile: SOLUTION_BUILDER
+
+    # ────────────────────────────────────────────────────────────────────────
+    # Section 2 — bundle variables
+    # ────────────────────────────────────────────────────────────────────────
+    variables:
+      # Redeploy the existing app under the plain name `solution-builder`.
+      app_name: solution-builder
+      # Lakebase autoscaling project — from the existing app's
+      # LAKEBASE_DATABASE_PATH (projects/<id>/branches/<branch>/databases/<db>).
+      lakebase_project_id: solution-builder-3r8axn
+      lakebase_branch_id: production
+      lakebase_database_name: databricks_solution_builder
+      # Route the agent's Claude traffic through the custom AI Gateway endpoint
+      # (governance / budgets / metrics), resolved by the ai-gateway/anthropic
+      # shim (Anthropic /v1/messages) — NOT serving-endpoints/anthropic (FMAPI,
+      # which only knows built-in databricks-claude-* names). The AI Gateway
+      # endpoint is addressed by its FULL Unity Catalog name. Verified:
+      #   POST {host}/ai-gateway/anthropic/v1/messages
+      #   {"model":"solution_builder_internal.default.solution-builder-ai-gateway-do-not-delete", ...}
+      # → 200 (routes to claude-opus-4-7 under the hood).
+      anthropic_llm_endpoint: solution_builder_internal.default.solution-builder-ai-gateway-do-not-delete
+      anthropic_base_path: ai-gateway/anthropic
+      # Custom AI Gateway endpoint (not bound as a resource — grant the app SP
+      # CAN_QUERY manually via the AI Gateway UI; see databricks.yml notes).
+      ai_gateway: solution-builder-ai-gateway-do-not-delete
+      ai_gateway_mini: databricks-gpt-5-4-mini
+      ai_gateway_embedding: databricks-qwen3-embedding-0-6b
+      # Unity Catalog every new project lands in (created at app boot if missing).
+      default_catalog: solution_builder
+
+      # ──────────────────────────────────────────────────────────────────────
+      # Section 3 — runtime environment (copied 1:1 into .build/app.yml's env:)
+      # ──────────────────────────────────────────────────────────────────────
+      app_env:
+        # This workspace's default uv index (pypi-proxy.dev.databricks.com) is
+        # unreachable from the Apps container — package install fails. Pin uv to
+        # public PyPI so `uv sync` at app boot resolves.
+        UV_INDEX_URL: "https://pypi.org/simple/"
+        LAKEBASE_DATABASE_PATH: projects/${var.lakebase_project_id}/branches/${var.lakebase_branch_id}/databases/${var.lakebase_database_name}
+        ANTHROPIC_LLM_ENDPOINT: ${var.anthropic_llm_endpoint}
+        ANTHROPIC_BASE_PATH: ${var.anthropic_base_path}
+        AI_GATEWAY: ${var.ai_gateway}
+        AI_GATEWAY_MINI: ${var.ai_gateway_mini}
+        AI_GATEWAY_EMBEDDING: ${var.ai_gateway_embedding}
+        DEFAULT_CATALOG: ${var.default_catalog}
+        # Internal deploy → show vendor logos in the architecture diagram by
+        # default (public build leaves this off; users opt in per diagram).
+        ENABLE_LOGO_BY_DEFAULT: "true"
+        DEMO_PROMPT_GENERATOR_TEMPLATE_ADMIN_EMAILS: "cal.reynolds@databricks.com,quentin.ambard@databricks.com,max.nienu@databricks.com"
+        # ── Observability (OpenTelemetry) ─────────────────────────────────
+        # These two are inert until Databricks injects OTEL_EXPORTER_OTLP_ENDPOINT,
+        # which it does once telemetry export is configured (the
+        # telemetry_export_destinations below). start.sh then runs uvicorn under
+        # `opentelemetry-instrument`. See app/start.sh.
+        OTEL_TRACES_SAMPLER: always_on          # every request span (no sampling)
+        OTEL_SERVICE_NAME: solution-builder      # service label in the OTEL tables
+
+    # ────────────────────────────────────────────────────────────────────────
+    # Section 4 — app-resource override: OTEL telemetry export to UC tables
+    # ────────────────────────────────────────────────────────────────────────
+    # Deep-merges onto the shared `resources.apps.demo-prompt-generator-app`
+    # (databricks.yml). Enables Apps observability declaratively (no UI toggle):
+    # logs/metrics/traces stream to these Unity Catalog tables. All three are
+    # REQUIRED by the API. prod-fevm only — other targets don't set this, so
+    # they stay telemetry-off. Tables live in solution_builder_internal.app_internal.
+    resources:
+      apps:
+        demo-prompt-generator-app:
+          telemetry_export_destinations:
+            - unity_catalog:
+                logs_table: solution_builder_monitoring.solution_builder_app_otel.otel_logs
+                metrics_table: solution_builder_monitoring.solution_builder_app_otel.otel_metrics
+                traces_table: solution_builder_monitoring.solution_builder_app_otel.otel_spans

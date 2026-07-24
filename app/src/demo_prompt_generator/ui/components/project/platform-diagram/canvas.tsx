@@ -22,6 +22,7 @@ import {
   addEdge,
   useReactFlow,
   useStoreApi,
+  useNodesInitialized,
   type Node,
   type Edge,
   type Connection,
@@ -84,12 +85,20 @@ import { useDiagramHistory } from "./hooks/use-diagram-history";
 import { useNodeMutations } from "./hooks/use-node-mutations";
 import { useEdgeMutations } from "./hooks/use-edge-mutations";
 import { usePasteImage } from "./hooks/use-paste-image";
+import { CollabCursors } from "./collab/collab-cursors";
+import type { CanvasCollab } from "./collab/types";
 
 interface CanvasProps {
   schema: PlatformSchema;
   deepLinks: Record<string, string | null>;
   onPersist: (layout: PlatformSchema["layout"]) => void;
   onSetTrademark: (on: boolean) => void;
+  /** Live collaboration binding (cursors + presence). Absent when the project
+   *  isn't shared / collab is off. */
+  collab?: CanvasCollab;
+  /** Opens the Share dialog ("Share live with others"). When set, a share
+   *  button shows in the floating toolbar. Absent in standalone / read-only. */
+  onShareLive?: () => void;
   /** Initial edit-mode. Defaults to true (the in-app editor); the standalone
    *  viewer passes false to render read-only. */
   defaultEditMode?: boolean;
@@ -134,7 +143,7 @@ const MULTI_SELECT_KEYS = ["Shift"];
 // (memoized schema/deepLinks, useCallback'd handlers), so the memo drops those
 // parent-driven full re-renders entirely — they'd otherwise re-run the whole
 // render body for a status chip the Canvas doesn't even show.
-export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSetTrademark, defaultEditMode = true, readOnly = false, toolbarExtras, toolbarStatus, tabBar }: CanvasProps) {
+export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSetTrademark, collab, onShareLive, defaultEditMode = true, readOnly = false, toolbarExtras, toolbarStatus, tabBar }: CanvasProps) {
   const [confirmTrademark, setConfirmTrademark] = useState(false);
   const [sourcePicker, setSourcePicker] = useState(false);
   // "see more logos" from search → the full logo picker, seeded with the query
@@ -169,7 +178,7 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
       return sel.map((n) => n.id);
     });
   }, []);
-  const { screenToFlowPosition, getInternalNode } = useReactFlow();
+  const { screenToFlowPosition, getInternalNode, getViewport, setViewport, fitView } = useReactFlow();
   const rfStore = useStoreApi();
   // NOTE: fit-view on tab open is handled by the built-in `fitView` prop on
   // <ReactFlow> below. The ReactFlowProvider is keyed by tab in the shell, so
@@ -179,6 +188,74 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
   // A manual useNodesInitialized+fitView() effect here fought that queue and
   // fit against a mid-transition bbox (box not yet sized → zoomed in too far).
   const wrapRef = useRef<HTMLDivElement>(null);
+
+  // --- Live collab: relay this tab's pointer (in FLOW coords, so peers place it
+  //     correctly at any zoom/pan) whenever collaboration is active. Throttling
+  //     lives in the hook's sendCursor. --------------------------------------
+  const collabRef = useRef(collab);
+  collabRef.current = collab;
+  const onPointerMoveCursor = useCallback((e: React.PointerEvent) => {
+    const c = collabRef.current;
+    if (!c) return;
+    const p = screenToFlowPosition({ x: e.clientX, y: e.clientY });
+    c.sendCursor(p.x, p.y);
+  }, [screenToFlowPosition]);
+
+  // --- Device-aware wheel: mouse wheel zooms (to cursor, via ReactFlow's
+  //     zoomOnScroll), trackpad two-finger scroll PANS. ReactFlow can't tell the
+  //     two apart from props, so we detect a trackpad-pan gesture here and pan
+  //     manually, letting a real mouse wheel fall through to ReactFlow's zoom.
+  //     Heuristic (the widely-used one): a trackpad pan has a horizontal
+  //     component (deltaX ≠ 0) OR small fractional/non-line deltas; a mouse
+  //     wheel is a vertical-only, larger, line/page-mode tick. `ctrlKey` (set by
+  //     the OS for a trackpad PINCH) always means zoom → let it through. --------
+  const onWheelCapture = useCallback((e: React.WheelEvent) => {
+    if (e.ctrlKey) return; // pinch-zoom (OS sets ctrlKey) → ReactFlow zooms
+    const { deltaX, deltaY, deltaMode } = e;
+    // Distinguish trackpad two-finger scroll from a mouse wheel:
+    //  • Any horizontal component (deltaX ≠ 0) → only a trackpad does this → PAN.
+    //  • A pixel-mode (deltaMode 0) vertical scroll with a SMALL delta → trackpad
+    //    inertia → PAN. A mouse wheel arrives as a big notch (|deltaY| ≥ ~40, or
+    //    line/page mode deltaMode ≠ 0) → let it fall through to ReactFlow's
+    //    zoom-to-cursor. The 40px threshold cleanly separates trackpad ticks
+    //    (~1–30px) from wheel notches (~100px, or 120 on Windows).
+    const isTrackpadPan =
+      Math.abs(deltaX) > 0 || (deltaMode === 0 && Math.abs(deltaY) < 40);
+    if (!isTrackpadPan) return; // mouse wheel → ReactFlow zooms to the cursor
+    // Pan: shift the viewport by the scroll delta (natural scroll direction).
+    e.preventDefault();
+    e.stopPropagation();
+    const vp = getViewport();
+    setViewport({ x: vp.x - deltaX, y: vp.y - deltaY, zoom: vp.zoom });
+  }, [getViewport, setViewport]);
+
+  // --- READ-ONLY previews only: re-fit when the container gains real size. The
+  //     built-in `fitView` prop runs at mount, but a preview mounted inside a
+  //     STILL-ANIMATING sheet/slide-over (the template gallery) measures a
+  //     0/tiny container and frames wrong. A ResizeObserver re-fits once the
+  //     container settles. Scoped to readOnly so it never fights an editing
+  //     user's manual zoom/pan on a normal window resize — the workspace path
+  //     is already correctly sized at mount and needs none of this. -------------
+  const initialized = useNodesInitialized();
+  const lastFitSize = useRef<string>("");
+  useEffect(() => {
+    if (!readOnly) return;
+    const el = wrapRef.current;
+    if (!el || !initialized) return;
+    const refit = () => {
+      const w = el.clientWidth, h = el.clientHeight;
+      if (w < 2 || h < 2) return; // not laid out yet
+      const key = `${w}x${h}`;
+      if (key === lastFitSize.current) return; // size unchanged → skip
+      lastFitSize.current = key;
+      // rAF so the fit runs after the browser has committed the new layout.
+      requestAnimationFrame(() => fitView({ duration: 0 }));
+    };
+    refit();
+    const ro = new ResizeObserver(refit);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [readOnly, initialized, fitView]);
 
   // "Copy style → paste onto others" mode. While `copiedStyle` is set, a banner
   // shows and clicking any node applies the style instead of selecting it
@@ -1469,7 +1546,7 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
     <EdgeOpsContext.Provider value={edgeOps}>
     <DropTargetContext.Provider value={dropTargetId}>
     <SingleSelectionContext.Provider value={singleSelection}>
-    <div className="flex min-h-0 flex-1" ref={wrapRef}>
+    <div className="flex min-h-0 flex-1" ref={wrapRef} onWheelCapture={onWheelCapture} onPointerMove={collab ? onPointerMoveCursor : undefined}>
       {editMode && (
         <LibraryPalette
           schema={schema}
@@ -1529,6 +1606,27 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
             standalone viewer shows only the diagram). */}
         {!readOnly && (
         <div className="absolute right-3 top-3 z-10 flex items-center gap-1.5">
+          {/* Share live with others — opens the Share dialog (link + invite).
+              Highlighted when someone else is already in the room. */}
+          {onShareLive && (
+            <button
+              type="button"
+              onClick={onShareLive}
+              title="Share this architecture live with others"
+              className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-border bg-card/95 px-2.5 py-1.5 text-[11px] font-medium text-foreground shadow-sm backdrop-blur transition-colors hover:border-primary/50 hover:bg-primary/5"
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-primary">
+                <circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" />
+                <line x1="8.6" y1="10.5" x2="15.4" y2="6.5" /><line x1="8.6" y1="13.5" x2="15.4" y2="17.5" />
+              </svg>
+              Share live
+              {collab && collab.members.length > 1 && (
+                <span className="ml-0.5 rounded-full bg-primary px-1.5 text-[10px] font-semibold text-primary-foreground">
+                  {collab.members.length}
+                </span>
+              )}
+            </button>
+          )}
           {/* Save-status icon OUTSIDE the bar, to its left — so an idle/empty
               status leaves no gap inside the bar. */}
           {toolbarStatus}
@@ -1644,6 +1742,13 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
           // pans with the middle/right button (PAN_ON_DRAG).
           selectionOnDrag={editMode}
           panOnDrag={editMode ? PAN_ON_DRAG : true}
+          // Wheel behavior is device-aware (see `onWheelCapture` on the wrapper
+          // below): a MOUSE WHEEL zooms to the cursor (ReactFlow's built-in
+          // zoomOnScroll), a TRACKPAD two-finger scroll pans. We keep
+          // zoomOnScroll ON for the mouse-wheel-zoom default and intercept only
+          // the trackpad-pan gesture to pan instead — so no modifier key is
+          // needed for either. Pinch still zooms.
+          zoomOnScroll
           selectNodesOnDrag={false}
           // Shift = additive multi-select (shift-click toggles a node in/out of
           // the selection). selectionKeyCode is DISABLED: ReactFlow's default is
@@ -1684,6 +1789,9 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
         >
           <Background variant={BackgroundVariant.Dots} gap={16} size={1.6} color="#94a3b8" className="opacity-40" />
           <Controls className="!bg-background !border-border !shadow-sm [&>button]:!bg-background [&>button]:!border-border [&>button]:!text-foreground" showInteractive={false} />
+          {/* Live peer cursors — inside <ReactFlow> so they re-render on
+              pan/zoom (via useStore) and overlay the pane. */}
+          {collab && <CollabCursors members={collab.members} meConnId={collab.meConnId} />}
         </ReactFlow>
 
         {/* Searchable logo picker for a "Logo" annotation. Honors the

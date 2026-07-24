@@ -312,7 +312,10 @@ function ProjectPage() {
     ? (tabFromUrl === "architecture" || tabFromUrl === "app" || tabFromUrl === "files"
         ? tabFromUrl
         : "architecture")
-    : (tabFromUrl ?? "overview");
+    // A link carrying `?archTab=` (a shared architecture deep link) implies the
+    // Architecture tab even if `?tab=` is absent — so the diagram (and its live
+    // collab room) mounts on open. Otherwise fall back to the URL tab / overview.
+    : (tabFromUrl ?? (archTabFromUrl ? "architecture" : "overview"));
   const [projectNotFound, setProjectNotFound] = useState(false);
   const [files, setFiles] = useState<ProjectFile[]>([]);
   // True once the initial file list has loaded — guards the architecture
@@ -348,6 +351,13 @@ function ProjectPage() {
   const [isLoadingMessages, setIsLoadingMessages] = useState(true);
   const [isClearingSession, setIsClearingSession] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
+  // Synchronous mirror of isStreaming. The useState flag flips asynchronously,
+  // so two sends fired in the same tick (e.g. the auto-kick opener + a
+  // "Create Architecture" button/effect) both see isStreaming===false in their
+  // captured closure and BOTH go through — a double-send. This ref is set the
+  // instant a send starts, so the second caller bails immediately. Keep it in
+  // lockstep with every setIsStreaming(...) call.
+  const isStreamingRef = useRef(false);
   const [streamingContent, setStreamingContent] = useState("");
   const [streamingThinkingBlocks, setStreamingThinkingBlocks] = useState<ThinkingBlock[]>([]);
   const [streamingTools, setStreamingTools] = useState<Map<string, { name: string; input: unknown; result?: string; isError?: boolean; startedAt?: string; completedAt?: string }>>(new Map());
@@ -596,7 +606,11 @@ function ProjectPage() {
   const debouncedRefreshFiles = useCallback(() => {
     if (fileRefreshTimerRef.current) clearTimeout(fileRefreshTimerRef.current);
     fileRefreshTimerRef.current = setTimeout(() => {
-      listProjectFiles(projectId, { includeHidden: showHiddenRef.current })
+      // force: bypass the backend's in-memory file cache. This refresh fires
+      // right after the agent wrote files (tool-completion / SSE file_changed),
+      // so we must read disk truth — the cache resync depends on a filesystem
+      // watcher that may lag or (on some deploy filesystems) miss events.
+      listProjectFiles(projectId, { includeHidden: showHiddenRef.current, force: true })
         .then(setFiles)
         .catch(() => {});
     }, 500);
@@ -715,10 +729,14 @@ function ProjectPage() {
       message: string,
       options: { skipOptimisticUserMessage?: boolean; isAutoFix?: boolean } = {},
     ) => {
-      if (isStreaming) return;
+      // Ref guard first (synchronous) — blocks a same-tick double-send that
+      // the async isStreaming state can't catch. Then claim the turn.
+      if (isStreamingRef.current || isStreaming) return;
+      isStreamingRef.current = true;
       // A non-driver may run the agent only while the driver's token is fresh;
       // once expired they must take over. The driver can always send.
       if (!canSend) {
+        isStreamingRef.current = false; // didn't actually start a turn
         toast.error(
           "This conversation's session token has expired — take over to continue.",
         );
@@ -997,6 +1015,7 @@ function ProjectPage() {
         if (reasoningRef.current) {
           setLastReasoning(reasoningRef.current);
         }
+        isStreamingRef.current = false;
         setIsStreaming(false);
         setStreamingContent("");
         setStreamingThinkingBlocks([]);
@@ -1092,6 +1111,7 @@ function ProjectPage() {
         if (reasoningRef.current) {
           setLastReasoning(reasoningRef.current);
         }
+        isStreamingRef.current = false;
         setIsStreaming(false);
         setStreamingContent("");
         setStreamingThinkingBlocks([]);
@@ -1131,6 +1151,7 @@ function ProjectPage() {
     const exec = execution;
 
     // There's an active execution — resume streaming
+    isStreamingRef.current = true;
     setIsStreaming(true);
     setExecutionId(exec.execution_id);
     abortControllerRef.current = new AbortController();
@@ -1272,6 +1293,7 @@ function ProjectPage() {
         getDeployedResources(projectId).catch(() => null),
       ]);
       if (reasoningRef.current) setLastReasoning(reasoningRef.current);
+      isStreamingRef.current = false;
       setIsStreaming(false);
       setStreamingContent("");
       setStreamingThinkingBlocks([]);
@@ -1297,6 +1319,7 @@ function ProjectPage() {
     } finally {
       // Safety net — success path already cleared these.
       if (reasoningRef.current) setLastReasoning(reasoningRef.current);
+      isStreamingRef.current = false;
       setIsStreaming(false);
       setStreamingContent("");
       setStreamingThinkingBlocks([]);
@@ -1612,12 +1635,19 @@ function ProjectPage() {
     handleSendMessage(ARCHITECTURE_MIGRATION_PROMPT);
   }, [architectureContent, projectId, isStreaming, handleSendMessage]);
 
-  // Handle creating architecture - send message to agent
+  // Handle creating architecture - send message to agent.
+  // NO-OP for architecture-first projects: their creation prompt (sent at
+  // project creation) already tells the agent to draw architecture.md, and on
+  // arch-first we land on the Architecture tab BEFORE the conversation/stream
+  // has loaded in the UI — so isStreaming is still false and this would fire a
+  // redundant second "Create architecture" turn racing the first. Guard on the
+  // ref too (not just the async isStreaming state) to block a same-tick double.
   const handleCreateArchitecture = useCallback(() => {
-    if (isCreatingArchitecture || isStreaming) return;
+    if (project?.architecture_first) return;
+    if (isCreatingArchitecture || isStreaming || isStreamingRef.current) return;
     setIsCreatingArchitecture(true);
     handleSendMessage("Create an /architecture.md file at the project root level with an architecture diagram matching our solution - read the databricks-architecture skill reference");
-  }, [isCreatingArchitecture, isStreaming, handleSendMessage]);
+  }, [project?.architecture_first, isCreatingArchitecture, isStreaming, handleSendMessage]);
 
   // Handle Package as DAB button click - sends message to agent
   const handlePackageAsDAB = useCallback(() => {
@@ -1625,9 +1655,9 @@ function ProjectPage() {
     setIsPackagingDAB(true);
     handleSendMessage(
       "Package this project as a Databricks Asset Bundle. Follow these steps:\n\n" +
-      "1. **Read `.claude/skills/databricks-demo-generator/references/dab/dab.md`** for the authoring rules, then **mirror the layout of `.claude/skills/databricks-demo-generator/references/dab/example_databricks.yml`** — it's the canonical single-file shape (bundle / sync / variables / one `resources:` block / `dev` + `prod` targets).\n" +
+      "1. **Read `.claude/skills/databricks-solution-builder/references/dab/dab.md`** for the authoring rules, then **mirror the layout of `.claude/skills/databricks-solution-builder/references/dab/example_databricks.yml`** — it's the canonical single-file shape (bundle / sync / variables / one `resources:` block / `dev` + `prod` targets).\n" +
       "2. **Scan the project files** and map each one to a resource in `databricks.yml`: pipelines, dashboards, jobs (for SQL/notebooks), apps, UC schemas/volumes. Don't split into multiple yaml files.\n" +
-      "3. **For components not declarable in the bundle** (Genie Spaces, Knowledge Assistants, Multi-Agent Supervisors, PDF uploads): copy the matching reference script from `.claude/skills/databricks-demo-generator/references/dab/scripts/` into `src/deploy/` and wire it as a `notebook_task` (or `python_wheel_task`) in the bundle job.\n" +
+      "3. **For components not declarable in the bundle** (Genie Spaces, Knowledge Assistants, Multi-Agent Supervisors, PDF uploads): copy the matching reference script from `.claude/skills/databricks-solution-builder/references/dab/scripts/` into `src/deploy/` and wire it as a `notebook_task` (or `python_wheel_task`) in the bundle job.\n" +
       "4. **If the project has a Databricks App + Lakebase**: the `app/scripts/` Lakebase scripts already ship — reference them in `dab_instructions.md` (run before/after `bundle deploy`). Do NOT declare `postgres_*` resources in `databricks.yml`.\n" +
       "5. **Validate** with `databricks bundle validate`.\n" +
       "6. **Write a short `dab_instructions.md`** — just the commands to run (setup script if needed → `databricks bundle deploy` → grant script if needed → `bundle run`). Don't restate what's already in `databricks.yml`.\n\n"
@@ -1639,7 +1669,7 @@ function ProjectPage() {
     if (isStreaming) return;
     handleSendMessage(
       "Update the existing `databricks.yml` to cover any new or changed project assets:\n\n" +
-      "1. **Re-read `.claude/skills/databricks-demo-generator/references/dab/dab.md`** and skim `example_databricks.yml` for the resource shapes.\n" +
+      "1. **Re-read `.claude/skills/databricks-solution-builder/references/dab/dab.md`** and skim `example_databricks.yml` for the resource shapes.\n" +
       "2. **Diff the project tree against `databricks.yml`** — find any pipelines, dashboards, jobs, apps, or volumes that exist on disk but aren't declared.\n" +
       "3. **Edit `databricks.yml` in place** (one file, one `resources:` block — don't split). For Genie/KA/MAS additions, drop the corresponding `references/dab/scripts/deploy_*.py` into `src/deploy/` and wire a new `notebook_task`.\n" +
       "4. **Validate** with `databricks bundle validate`.\n" +
@@ -1747,21 +1777,33 @@ function ProjectPage() {
         : "This project was forked from a template.";
       if (mode === "customer") {
         handleSendMessage(
-          `${provenance} I want to re-brand it for a different customer while keeping the same solution, capabilities, and architecture — this is a re-skin, not a redesign.\n\n` +
+          `${provenance} I want to add/modify it for a different customer while keeping the same solution and architecture — a re-skin, not a redesign.\n\n` +
             `Customer details:\n${instructions}\n\n` +
             `Please:\n` +
-            `1. Rewrite \`README.md\` to swap in the new customer name and details — company name, industry specifics, persona names, and product/brand references — while preserving the story's structure and the underlying solution.\n` +
-            `2. Sweep the other project files (specifications/, architecture.md, data-generation, app copy, etc.) for the old customer's name and branding and update them to match.\n` +
-            `3. When done, briefly summarize the swaps you made.`,
+            `1. First read the solution-builder skill (SKILL.md + the relevant references) so you follow its conventions.\n` +
+            `2. Review the forked project — list and explore its files to understand the scope — and find everywhere the current customer's identity lives.\n` +
+            `3. Re-skin the demo to the new customer across ALL the content, not just the README: names, persona, industry specifics, and product references baked into the data generation, genie, dashboard, app, or any existing component. Keep the solution and architecture the same.\n` +
+            `4. Then rebuild the resources you changed directly — follow the build stage (\`stages/03.1-build.md\`): load the relevant skill, rebuild + validate each, and update its ID in \`resources.json\` created_resources. Don't ask first.`,
+        );
+      } else if (mode === "component") {
+        handleSendMessage(
+          `${provenance} I want to add/modify a Databricks component in this demo — extending the solution, not re-skinning it.\n\n` +
+            `What to add/modify:\n${instructions}\n\n` +
+            `Please:\n` +
+            `1. First read the solution-builder skill (SKILL.md + the relevant references, incl. the build stage \`stages/03.1-build.md\`) so you follow its conventions.\n` +
+            `2. Review the forked project — list and explore its files to understand its current scope — and how the new/changed component should fit.\n` +
+            `3. Weave the component through ALL the relevant content, not just the README: add it to \`resources.json\` \`capabilities.buildable\`, update the README story and architecture data flow, add/update its spec, and adjust the data generation, genie, dashboard, app, or any existing component wherever it connects.\n` +
+            `4. Then build the resource directly per this request — follow the build stage (\`stages/03.1-build.md\`): load the relevant skill, build + validate it, and record its ID in \`resources.json\` created_resources. Don't ask first.`,
         );
       } else {
         handleSendMessage(
-          `${provenance} I want to substantially revise its story and take it in a new direction.\n\n` +
+          `${provenance} I want to add/modify its story and take it in a new direction.\n\n` +
             `New direction:\n${instructions}\n\n` +
             `Please:\n` +
-            `1. Rewrite \`README.md\` to reflect this new direction — update the narrative, persona, industry framing, and business context as needed while keeping the overall story format.\n` +
-            `2. Briefly summarize what changed.\n` +
-            `3. Ask me whether I'd like the architecture and specification files updated to match before you touch them.`,
+            `1. First read the solution-builder skill (SKILL.md + the relevant references) so you follow its conventions.\n` +
+            `2. Review the forked project — list and explore its files to understand its current scope.\n` +
+            `3. Reshape the demo to this new direction across ALL the content, not just the README: the narrative and personas, the specs, the architecture, and the underlying data generation, genie, dashboard, app, or any existing component, so the whole demo tells the new story coherently.\n` +
+            `4. Then rebuild the resources you changed directly — follow the build stage (\`stages/03.1-build.md\`): load the relevant skill, rebuild + validate each, and update its ID in \`resources.json\` created_resources. Don't ask first.`,
         );
       }
     },
@@ -2455,6 +2497,7 @@ function ProjectPage() {
             initialArchTab={archTabFromUrl}
             onArchTabChange={setArchTab}
             defaultLogosOn={defaultLogosOn}
+            onShareLive={() => setShareOpen(true)}
             architectureFirst={!!project?.architecture_first}
             isStreaming={isStreaming}
             resources={{
@@ -2583,13 +2626,18 @@ function ProjectPage() {
         );
       })()}
 
-      {/* Share Dialog — owner-only, opened from the header Share button. */}
+      {/* Share Dialog — owner-only, opened from the header Share button or the
+          canvas "Share live with others" button. Prefilled with the current
+          deep link (tab + archTab) so recipients land on the same view. */}
       {project && (
         <ShareDialog
           projectId={project.id}
           projectName={project.name}
           open={shareOpen}
           onOpenChange={setShareOpen}
+          initialLinkAccess={(project.link_access as "none" | "viewer" | "editor") ?? "none"}
+          linkUrl={typeof window !== "undefined" ? window.location.href : undefined}
+          onLinkAccessChange={(v) => setProject((p) => (p ? { ...p, link_access: v } : p))}
         />
       )}
 

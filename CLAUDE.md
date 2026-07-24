@@ -9,26 +9,26 @@ A **system that generates Databricks demos**. Not one app — **three**, plus a 
 
 1. **Generator app** (`app/`) — the user-facing tool. FastAPI + React. A user opens it, picks an industry/capability, chats with a Claude Code agent (via `claude-agent-sdk`), and the agent assembles a personalized demo by reading **blocks** from the skill below. Generated artifacts (demo code, specs, app boilerplate, deployable Databricks assets) land in a per-project directory. The home page has **three entry modes** (a `mode` field on each project): *story* (describe it → agent builds every Databricks resource), *architecture* (draw the diagram first → generate from it), and *genie-code-workshop* (agent writes Genie-Code prompts → you build the resources live in notebooks). The mode picks the agent's Build fork; capability blocks carry a `genie_code_workshop` flag so the workshop tab hides what can't be built via Genie Code (apps, Lakebase, KA, MAS).
 
-2. **Demo-generator skill** (`.claude/skills/databricks-demo-generator/`) — the agent's brain. SKILL.md + reference blocks + stage guides + the template app. The generator's agent reads from here. **The skill is the product; the generator is the UI.**
+2. **Solution-builder skill** (`.claude/skills/databricks-solution-builder/`) — the agent's brain. SKILL.md + reference blocks + stage guides + the template app. The generator's agent reads from here. **The skill is the product; the generator is the UI.** (Formerly named `databricks-demo-generator` — renamed to `databricks-solution-builder`.)
 
-3. **Template app** (`.claude/skills/databricks-demo-generator/app/app_template/`) — a complete Node.js + Express + React Databricks App that ships *as part of every generated demo*. The agent copies + customizes it. It is **NOT** a sub-component of the generator — it's an artifact the generator emits.
+3. **Template app** (`.claude/skills/databricks-solution-builder/app/app_template/`) — a complete Node.js + Express + React Databricks App that ships *as part of every generated demo*. The agent copies + customizes it. It is **NOT** a sub-component of the generator — it's an artifact the generator emits.
 
 4. **Test copies** (`app/test/{app_template_test,app_template_test_simple,luxebeauty_workshop}/`) — runnable, live-workspace-wired copies of the skill's template app + reference demos, used to dogfood + iterate. **The workflow is: debug in the test copy, then sync the working content back into the skill.** They must stay in lockstep. See "Test apps ↔ skill" below.
 
-Plus: **ai_dev_kit** (`app/ai_dev_kit/`) — a cloned external repo (`github.com/databricks-solutions/ai-dev-kit`) holding ~26 sub-skills for creating individual Databricks resources (pipelines, dashboards, Genie spaces, KAs, MAS, etc.). The generator's agent uses these during the Build stage.
+Plus: **Databricks Agent Skills (DAS)** — cloned into `app/ai_dev_kit/` (dir name kept for path stability) from `github.com/databricks/databricks-agent-skills`, holding ~28 per-resource skills for creating individual Databricks resources (pipelines, dashboards, Genie spaces, KAs, MAS, etc.). Skills live under `skills/*` + `experimental/databricks-genie`; the generator's agent uses these during the Build stage. (Migrated from the retired `databricks-solutions/ai-dev-kit`.)
 
 ## Mental model
 
 ```
 USER opens generator app (app/)
    ↓ chats with agent
-AGENT reads .claude/skills/databricks-demo-generator/
+AGENT reads .claude/skills/databricks-solution-builder/
    - SKILL.md → 4-stage workflow (Intent → Design → Spec → Build)
    - references/blocks/{domains,capabilities,patterns}/*.md
    - stages/0X-*.md
    ↓
 AGENT writes specs + scaffolds a Databricks App by copying app_template/
-AGENT delegates resource creation to subagents using ai_dev_kit skills
+AGENT delegates resource creation to subagents using Databricks Agent Skills (DAS)
    ↓
 ARTIFACTS land in:
    - per-project directory (specs, code)
@@ -70,15 +70,16 @@ industry-demo-prompts/
 │   │   ├── app_template_test_simple/     #   SIMPLE demo variant (src/ only): synth data → dashboard + genie
 │   │   ├── luxebeauty_workshop/          #   GENIE CODE WORKSHOP: src/ (notebooks + data_gen + answer-key SQL + CONTEXT.md) + deploy.sh
 │   │   └── architecture/                 #   (NOT a test app) gitignored render-loop scratch dir for the architecture skill
-│   ├── ai_dev_kit/                       # Cloned external repo (not submodule)
-│   │   └── databricks-skills/            # 26 per-resource skills
+│   ├── ai_dev_kit/                       # Cloned databricks-agent-skills repo (dir name kept; not a submodule)
+│   │   ├── skills/                       # ~28 per-resource skills (GA)
+│   │   └── experimental/databricks-genie/#   the one experimental skill we ship
 │   ├── databricks.yml                    # DAB config for the generator itself
 │   ├── databricks.{prod,staging}.yml     # Deployment overlays (admin emails live here)
 │   ├── pyproject.toml                    # uv. claude-agent-sdk>=0.2.83
 │   ├── package.json                      # bun. React 19, Vite, TanStack Router
 │   └── scripts/{dev,build,release,build-electron}.sh + arch-skill build chain
 │       # build-architecture-skill.sh, build-arch-standalone.sh, gen-architecture-skill.ts, render-arch.mjs
-├── .claude/skills/databricks-demo-generator/   # ★ The skill (the brain)
+├── .claude/skills/databricks-solution-builder/   # ★ The skill (the brain)
 │   ├── SKILL.md                          # 4-stage workflow
 │   ├── stages/0X-*.md                    # Stage-specific guides
 │   ├── references/
@@ -94,7 +95,7 @@ industry-demo-prompts/
 │   └── renderer/                         # standalone viewer/editor HTML + render-arch.mjs (built from app code)
 ├── initial_templates/                    # Pre-built seed templates (6: 5 AI/BI ports from dbdemos + luxebeauty-returns full-stack). manifest.json + one dir each. See "Initial templates" below.
 ├── tests/                                # Playwright E2E for the generator (targets :9000)
-├── install.sh                            # End-user installer — installs BOTH skills (demo-generator + architecture) + ai-dev-kit
+├── install.sh                            # End-user installer — installs BOTH skills (solution-builder + architecture) + Databricks Agent Skills via the CLI
 └── docs/                                 # Screenshots for README
 ```
 
@@ -107,7 +108,7 @@ industry-demo-prompts/
 - Wraps `claude-agent-sdk>=0.2.83` (Python). One `ClaudeSDKClient` per project, pooled.
 - Streams via SSE: thinking blocks, text deltas, tool calls/results.
 - Routes through Databricks Foundation Model API in prod (`ANTHROPIC_BASE_PATH`), direct Anthropic locally.
-- The agent gets `CLAUDE_CONFIG_DIR=<project>/.claude` so it reads project-local skills (the demo-generator skill is copied into each project on creation by `skills_manager.py`).
+- The agent gets `CLAUDE_CONFIG_DIR=<project>/.claude` so it reads project-local skills (the solution-builder skill is copied into each project on creation by `skills_manager.py`).
 - **The chat panel in the UI is the agent's mouth.** Reasoning/thinking blocks render there.
 
 ## Reapers / background sweeps (memory + disk reclamation)
@@ -253,7 +254,11 @@ platform-diagram/
 ├── menus/context-menu.tsx           # the EDGE edit panel (docked on click; flow/arrow/shape/label/delete)
 ├── composite-{lakeflow,lakeflow-genie,genie-code,governance,agent-bricks,db-platform,genie-one}.tsx  # rich composite kinds
 ├── annotations.tsx                  # free-form text/box/logo/image annotations + IconPicker
-└── hooks/{use-diagram-history,use-node-mutations,use-edge-mutations,use-paste-image}.ts
+├── hooks/{use-diagram-history,use-node-mutations,use-edge-mutations,use-paste-image}.ts
+└── collab/                          # ★ live multi-user editing (see "Live collaboration" below)
+    ├── use-collab.ts                 #   WS client: room lifecycle, roster, cursors, ops, reconnect
+    ├── collab-cursors.tsx            #   peer-cursor overlay + presence-avatar bar
+    └── types.ts                      #   CanvasCollab (the slice Canvas needs)
 ```
 
 Dependency direction is a strict leaf→root DAG (shared/edge-routing → edge-flow/composites → component-node/flow-edge → node-types/flow-mapping/panels/menus → canvas → platform-diagram). The custom Canvas hooks own the undo/redo burst machinery, the node/edge mutators, and paste. Selection comes from ReactFlow's `selected` NodeProp, edit mode from `EditModeContext`, draggability from `<ReactFlow nodesDraggable>` — node `data` identity stays stable so `React.memo` holds.
@@ -278,13 +283,27 @@ Beyond the plain `component` tile, each composite is its own node type + `compos
 
 **Merge/rebase conflicts in the generated artifacts** (the arch `SKILL.md` catalog/icon-bank blocks + the two renderer HTMLs) — **don't hand-merge them.** They're derived from `platform-architecture.ts` (+ `standalone.tsx`), which merges cleanly on its own. Resolve each conflicted artifact to *either* side (e.g. `git checkout --theirs`), finish the merge/rebase, then run `cd app && bun run build:arch-skill` to **regenerate them from the merged source** — that produces the correct combined result (e.g. one side's renamed ids + the other's node sizes). Commit the regen.
 
+## Live collaboration on the architecture canvas (WS)
+
+The Architecture tab supports **N-user live editing**: shared cursors, live edits, and AI-agent takeover — all over ONE WebSocket per project. It's **in-app only** (never the standalone skill / read-only previews — the collab hook is gated `enableCollab && !onSave && !readOnly`, so the standalone canvas is byte-identical to before).
+
+**Transport + hub (backend).** `services/collab.py` = an in-process `CollabHub` (singleton, like `ActiveStreamManager`), one `CollabRoom` per project. `routes/collab.py` = the `@router.websocket("/api/projects/{id}/collab")` endpoint (WS auth reuses `_get_project_access`; identity from the same `X-Forwarded-Email`/`-Preferred-Username` headers HTTP uses). Fan-out is plain asyncio — **single-replica only** (the hub is behind a tiny surface so a future multi-replica story could swap in Postgres `LISTEN/NOTIFY`, but that's not built). Frames (small JSON): `presence`/`writer` (roster + who persists), `cursor` (in FLOW coords, so a peer's cursor maps correctly at any zoom/pan), `op` (an edit — a whole serialized tab body, server-stamped `seq`), `snapshot` (full `architecture.md` for late-joiners + agent takeovers), `ping` (liveness).
+
+**Consistency model — one elected WRITER + per-object LWW.** Exactly one room member (first editor in; re-elected on leave) PERSISTS `architecture.md`; everyone else applies ops and never saves (kills the multi-writer clobber). Client `isWriter` is TRUE only when the server confirmed our connId — a fresh joiner is NOT a writer until confirmed (closes the election-window double-persist race). Remote ops apply through the diagram's existing re-seed path in `platform-diagram.tsx` (the "Live collaboration" section there: `applyRemoteOp`/`applySnapshot`/writer-gated `writeTabs`), ordered by `seq` (stale/out-of-order ops dropped).
+
+**AI-agent takeover (the unification).** The agent always writes `architecture.md` on disk → the file-watcher `sync_callback` in `lakebase.py` calls `hub.maybe_broadcast_external_write`, which broadcasts a `snapshot(source:"agent")` so every client hard-reseeds + shows a toast. A **content-hash echo-guard** (`note_saved` on the `saveProjectFile` route + `note_baseline` on join) tells the agent's write apart from the room writer's OWN save — so a human save never triggers a false takeover.
+
+**Ghost reaping / dev gotchas.** The client heartbeats a `ping` every ~20s; the server reaps a socket silent for ~60s (`MAX_MISSED` idle windows) — this drains half-open ghosts that a `send` wouldn't error on. The `use-collab` effect cleanup closes an abandoned CONNECTING socket **on open** (React StrictMode dev double-mount would otherwise leave a ghost member → the "count doubles" bug). **DEV ONLY:** `vite.config.ts` must set `ws: true` on the `/api` proxy or the collab WS upgrade is dropped behind Vite (prod serves one origin, no proxy — unaffected).
+
+**Sharing model + "Share live".** Two access paths (owner-managed, `share-dialog.tsx`): (1) **email invites** (`ProjectShare`, viewer/editor, accept-to-grant — the pre-existing path); (2) **"Anyone with the link"** — a new `Project.link_access` field (`none`/`viewer`/`editor`, migration `v16`) that `_get_project_access` honors so any signed-in app user who opens the URL gets that role WITHOUT an invite (set via owner-only `PATCH /projects/{id}/link-access`). The canvas floating toolbar has a **"Share live"** button (badge = live member count) that opens the dialog prefilled with `window.location.href` (the deep link incl. `?tab=architecture&archTab=…`). A URL carrying `?archTab=` implies the Architecture tab even without `?tab=`, so a shared link mounts the canvas (+ its collab room) on open.
+
 ## The architecture skill: two modes + the render/feedback loop
 
 The `databricks-architecture` skill (`.claude/skills/databricks-architecture/`) is **one source of truth, consumed two ways.** There is a single skill dir on disk — `SKILL.md` + `reference/*.jsonc` + `renderer/` (the standalone viewer/editor HTMLs + `render-arch.mjs`). Both the HTMLs and `render-arch.mjs` are BUILT from the app: `cd app && bun run build:arch-skill` (= `build-architecture-skill.sh`) does 3 steps — (1) `gen:arch-skill` regenerates SKILL.md's catalog/icon-bank, (2) `build:arch-standalone` builds the two HTMLs from `ui/standalone.tsx` via `vite.standalone.config.ts` (ARCH_MODE=viewer|editor), (3) copies the HTMLs + `scripts/render-arch.mjs` into the skill's `renderer/`. **This is a dev-time step you run before committing — it is NOT run at app start.** `render-arch.mjs`'s source of truth is `app/scripts/render-arch.mjs`; the skill copy is a build artifact — edit the source, not the copy.
 
 ### Mode 1 — Pure skill (standalone, outside the app)
 
-`install.sh` (or a repo tarball) installs the skill dir **whole, including `renderer/`**, into `~/.claude/skills/` (or `./.claude/skills` with `--project`). `install.sh` installs BOTH `databricks-demo-generator` AND `databricks-architecture` (a `SKILLS=(…)` array it loops over). With no app around, the agent's feedback loop is **file + headless-browser**:
+`install.sh` (or a repo tarball) installs the skill dir **whole, including `renderer/`**, into `~/.claude/skills/` (or `./.claude/skills` with `--project`). `install.sh` installs BOTH `databricks-solution-builder` AND `databricks-architecture` (a `SKILLS=(…)` array it loops over). With no app around, the agent's feedback loop is **file + headless-browser**:
 
 ```
 cp renderer/architecture-viewer.html my-arch.html   # edit the inline JSON
@@ -363,9 +382,11 @@ core/        # _factory (app+lifespan+static), _config (AppConfig), _headers,
              #   dependencies (DI aliases), lakebase (engine, migrations, session)
 routes/      # one module per resource: agent, projects, project_files (incl
              #   architecture-snapshot PNG), messages, templates, resources,
-             #   skills, config, constants, block_factory
+             #   skills, config, constants, block_factory,
+             #   collab (WS /projects/{id}/collab — live arch editing)
 services/    # agent (SDK+streaming), llm_service (FMAPI), file_sync, file_watcher,
-             #   skills_manager, template_service, block_factory, system_prompt, active_stream
+             #   skills_manager, template_service, block_factory, system_prompt,
+             #   active_stream (agent SSE), collab (live-edit WS hub — see below)
 ```
 
 - **DI:** use the `Dependencies` class in handlers, never build clients manually — `Dependencies.{Session, Client (app SP), UserClient (OBO), Config, Headers}`.
@@ -493,7 +514,7 @@ cd app/test/luxebeauty_workshop && ./deploy.sh     # Gen raw data → UC Volume 
 - **Routing** (generator UI): TanStack Router file-based. Don't edit `routeTree.gen.ts`.
 - **Template app stack**: Node + Express (`@databricks/appkit`) + React + Drizzle + OpenAI Agents SDK + mlflow-tracing. Different stack from the generator.
 - **Logger** (template `server/lib/logger.ts`): `console.debug` is gated by `LOG_LEVEL` env (default INFO). Use it for per-request chatter; reserve `console.error` for actual failures.
-- **Public mirror / internal-only content**: this repo (`databricks-field-eng/industry-demo-prompts`) is the PRIVATE source; `github.com/databricks-solutions/solution-builder` is the public mirror. Internal-only files (live Demo-West links, internal catalogs) live under clearly-`INTERNAL`-marked paths and are listed in **`.publicignore`** (repo root) — the private→public mirror job must exclude everything there. Current internal content: the **`/internal-demos`** page (`ui/routes/internal-demos.tsx` + `ui/components/internal/`). It reuses the shared `components/template/gallery/` UI but filters to `official` templates and overlays a **slug→live-resource-links JS map defined inline in that route file** (the live Demo-West dashboard/genie/app/data links — kept ONLY here, never in the DB). The shared gallery has NO dependency on `components/internal/`, so the public `/templates` doesn't break when the mirror strips it. `routeTree.gen.ts` is auto-generated — the mirror regenerates it after dropping the route file, so the public tree omits the route.
+- **Public mirror / internal-only content**: this repo (`databricks-field-eng/industry-demo-prompts`) is the PRIVATE source; `github.com/databricks-solutions/solution-builder` is the public mirror. Internal-only files live under clearly-`INTERNAL`-marked paths and are listed in **`.publicignore`** (repo root) — the private→public mirror job must exclude everything there. Current internal content: the three committed **deploy overlays** (`app/databricks.{prod,staging,prod-fevm}.yml` — real workspace/Lakebase IDs, endpoint names, admin emails; no secrets). (The former `/internal-demos` Demo-West catalog page was removed.)
 
 ## Operational rules (durable preferences)
 

@@ -110,6 +110,8 @@ interface FileViewerProps {
   onArchTabChange?: (name: string) => void;
   /** Vendor-logo toggle default (env ENABLE_LOGO_BY_DEFAULT) — see PlatformDiagram. */
   defaultLogosOn?: boolean;
+  /** Opens the Share dialog from the canvas "Share live with others" button. */
+  onShareLive?: () => void;
   /** Architecture-first project awaiting its build: hide Overview + Story
    *  tabs and default the workspace to the Architecture tab. */
   architectureFirst?: boolean;
@@ -227,6 +229,7 @@ interface ArchitectureViewProps {
   initialArchTab?: string;
   onArchTabChange?: (name: string) => void;
   defaultLogosOn?: boolean;
+  onShareLive?: () => void;
 }
 
 const ArchitectureView = memo(function ArchitectureView({
@@ -242,6 +245,7 @@ const ArchitectureView = memo(function ArchitectureView({
   initialArchTab,
   onArchTabChange,
   defaultLogosOn,
+  onShareLive,
 }: ArchitectureViewProps) {
   if (isCreatingArchitecture) {
     return (
@@ -256,8 +260,16 @@ const ArchitectureView = memo(function ArchitectureView({
   }
   // The capability-layer diagram renders from the catalog + resources.json
   // even before architecture.md exists — so show it whenever we have either
-  // an architecture file OR a capability set to seed component states.
-  const hasContent = (hasArchitecture && architectureContent) || !!capabilities;
+  // an architecture file OR a NON-EMPTY capability set to seed component states.
+  // A scaffolded resources.json can carry `capabilities: {buildable:[],
+  // talking_track:[]}` — a truthy-but-empty object — which must NOT count as
+  // content (it would render an empty diagram instead of the building spinner
+  // while the agent is still drawing architecture.md).
+  const hasCapabilities =
+    !!capabilities &&
+    ((capabilities.buildable?.length ?? 0) > 0 ||
+      (capabilities.talking_track?.length ?? 0) > 0);
+  const hasContent = (hasArchitecture && architectureContent) || hasCapabilities;
   if (hasContent) {
     return (
       <div className="flex flex-1 min-h-0 flex-col">
@@ -280,6 +292,11 @@ const ArchitectureView = memo(function ArchitectureView({
               initialArchTab={initialArchTab}
               onArchTabChange={onArchTabChange}
               defaultLogosOn={defaultLogosOn}
+              // Live multi-user editing: the workspace canvas joins the project's
+              // collab room (cursors, presence, live edits, agent takeover). The
+              // hook self-disables when solo/offline, so this is safe always-on.
+              enableCollab
+              onShareLive={onShareLive}
             />
           </Suspense>
           {/* Reload spinner: the agent rewrote architecture.md and we're
@@ -296,23 +313,23 @@ const ArchitectureView = memo(function ArchitectureView({
       </div>
     );
   }
-  if (isStreaming) {
-    return (
-      <div className="flex-1 flex items-center justify-center">
-        <div className="text-center text-muted-foreground">
-          <Loader2 className="h-8 w-8 animate-spin mx-auto mb-3 text-primary" />
-          <p className="text-sm font-medium">Please wait while the agent is working...</p>
-          <p className="text-xs mt-1">The architecture will be generated once the current task completes</p>
-        </div>
-      </div>
-    );
-  }
+  // No content yet. On the Architecture tab this means the agent is either
+  // actively drawing architecture.md or is about to (an arch-first opener runs
+  // server-side before isStreaming flips true in this freshly-loaded UI, and a
+  // capability-first project generates it during the build). Either way, show a
+  // building spinner — never a static "nothing here" state that reads as broken.
   return (
     <div className="flex-1 flex items-center justify-center">
       <div className="text-center text-muted-foreground">
-        <Network className="h-12 w-12 mx-auto mb-3 opacity-50" />
-        <p className="text-sm">No architecture diagram yet</p>
-        <p className="text-xs mt-1">Generating automatically...</p>
+        <Loader2 className="h-8 w-8 animate-spin mx-auto mb-3 text-primary" />
+        <p className="text-sm font-medium">
+          {isStreaming
+            ? "Please wait while the agent is working..."
+            : "Preparing your architecture..."}
+        </p>
+        <p className="text-xs mt-1">
+          The architecture diagram will appear here once the agent generates it.
+        </p>
       </div>
     </div>
   );
@@ -844,6 +861,7 @@ export const FileViewer = memo(function FileViewer({
   initialArchTab,
   onArchTabChange,
   defaultLogosOn,
+  onShareLive,
   architectureFirst = false,
   isStreaming = false,
   resources,
@@ -1033,6 +1051,7 @@ export const FileViewer = memo(function FileViewer({
               initialArchTab={initialArchTab}
               onArchTabChange={onArchTabChange}
               defaultLogosOn={defaultLogosOn}
+              onShareLive={onShareLive}
             />
           ) : activeTab === "app" ? (
             <AppPreviewTab

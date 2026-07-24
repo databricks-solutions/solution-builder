@@ -1,0 +1,62 @@
+# ============================================================================
+# Per-deployment configuration for the `staging` target.
+# ============================================================================
+# INTERNAL ONLY — committed to the PRIVATE repo, excluded from the public
+# mirror via .publicignore. Do NOT merge to the public repo. Same shape as
+# databricks.prod.yml; only app_name and lakebase_database_name differ from
+# prod (everything else is shared, including Lakebase project + branch).
+#
+# Deploy:  databricks bundle deploy -t staging
+# ============================================================================
+
+targets:
+  staging:
+    # ────────────────────────────────────────────────────────────────────────
+    # Section 1 — workspace profile
+    # ────────────────────────────────────────────────────────────────────────
+    workspace:
+      profile: DEFAULT
+
+    # ────────────────────────────────────────────────────────────────────────
+    # Section 2 — bundle variables
+    # ────────────────────────────────────────────────────────────────────────
+    variables:
+      app_name: dbdemos-generator-staging
+      # Same Lakebase project + branch as prod; staging just gets its own
+      # database within that branch (auto-created on first boot by
+      # core/lakebase.py — no manual `CREATE DATABASE` needed).
+      lakebase_project_id: 97127996-3b61-466e-bd7f-da2619d73f7f
+      lakebase_branch_id: br-rough-cell-d14s0r2i
+      lakebase_database_name: demo_generator_staging
+      # Routing Claude Code through the AI Gateway custom endpoint.
+      # `demo-generator-do-not-delete` was reconfigured (your latest changes)
+      # to accept the anthropic/v1/messages destination shape. Combined
+      # with the upgraded Claude Code SDK (0.1.71 / CLI 2.1.123) which
+      # sends `thinking.type.adaptive`, this should work for opus-4-7.
+      anthropic_llm_endpoint: demo-generator-do-not-delete
+      anthropic_base_path: ai-gateway/anthropic
+      ai_gateway: databricks-claude-opus-4-7
+      ai_gateway_mini: databricks-gpt-5-4-mini
+      ai_gateway_embedding: databricks-qwen3-embedding-0-6b
+      # Staging catalog — created at app boot if missing; USE CATALOG +
+      # CREATE SCHEMA granted to `account users`, ALL PRIVILEGES granted
+      # to each admin in template_admin_emails.
+      default_catalog: ai_demo_gen_staging
+
+      # ──────────────────────────────────────────────────────────────────────
+      # Section 3 — runtime environment
+      # ──────────────────────────────────────────────────────────────────────
+      app_env:
+        LAKEBASE_DATABASE_PATH: projects/${var.lakebase_project_id}/branches/${var.lakebase_branch_id}/databases/${var.lakebase_database_name}
+        ANTHROPIC_LLM_ENDPOINT: ${var.anthropic_llm_endpoint}
+        ANTHROPIC_BASE_PATH: ${var.anthropic_base_path}
+        AI_GATEWAY: ${var.ai_gateway}
+        AI_GATEWAY_MINI: ${var.ai_gateway_mini}
+        AI_GATEWAY_EMBEDDING: ${var.ai_gateway_embedding}
+        DEFAULT_CATALOG: ${var.default_catalog}
+        # Internal deploy → show vendor logos in the architecture diagram by
+        # default (public build leaves this off; users opt in per diagram).
+        ENABLE_LOGO_BY_DEFAULT: "true"
+        # Admins get read access to every project + template
+        # publish/approve actions. Comma-separated.
+        DEMO_PROMPT_GENERATOR_TEMPLATE_ADMIN_EMAILS: cal.reynolds@databricks.com,quentin.ambard@databricks.com,max.nienu@databricks.com

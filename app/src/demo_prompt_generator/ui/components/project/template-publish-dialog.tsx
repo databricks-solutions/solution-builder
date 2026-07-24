@@ -197,10 +197,6 @@ export const TemplatePublishDialog = memo(function TemplatePublishDialog({
               delay={300}
             />
           </div>
-          <p className="mt-4 text-center text-xs text-muted-foreground">
-            Sharing spreads a proven solution — teammates start from your work,
-            swap in their industry, data and capabilities, and ship faster.
-          </p>
         </div>
 
         {/* What's actually captured + the template's identity. */}

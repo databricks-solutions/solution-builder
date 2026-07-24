@@ -1,7 +1,7 @@
 # LuxeBeauty Workshop — test / dogfood folder
 
 Runnable copy of the **`example-luxebeauty-workshop`** reference (in the
-demo-generator skill), used to dogfood the workshop end-to-end against a live
+solution-builder skill), used to dogfood the workshop end-to-end against a live
 workspace — the same pattern as `app_template_test/` for the standard demo.
 
 ## What the workshop is
@@ -38,4 +38,4 @@ the SA via the notebooks' Genie Code prompts (that's the workshop).
 ## Sync back to the reference
 
 Edit + verify here, then copy `src/` changes back to
-`.claude/skills/databricks-demo-generator/references/example-luxebeauty-workshop/`.
+`.claude/skills/databricks-solution-builder/references/example-luxebeauty-workshop/`.

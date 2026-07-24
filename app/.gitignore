@@ -44,9 +44,16 @@ node_modules/
 .databricks
 .build/
 
-# per-target deploy configs (e.g. databricks.prod.yml). Examples are committed.
+# per-target deploy configs. Examples are committed. The three official
+# deploy overlays (prod / staging / prod-fevm) ARE committed — they hold
+# internal deploy values (no secrets). INTERNAL-ONLY: excluded from the public
+# mirror via .publicignore. Any other databricks.*.yml (e.g. a personal
+# databricks.dev.yml) stays ignored.
 databricks.*.yml
 !databricks.*.yml.example
+!databricks.prod.yml
+!databricks.staging.yml
+!databricks.prod-fevm.yml
 
 # Legacy dev tooling
 .apx/

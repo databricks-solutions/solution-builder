@@ -83,7 +83,7 @@ function AboutPage() {
         number="04"
         eyebrow="Why not just use a general LLM?"
         title="Databricks best practices baked in — not bolted on."
-        body="A general LLM can piece a solution together — at 10× the tool calls, with no guarantee it follows our patterns. The AI Dev Kit ships those patterns built in: the spec hands off to an interface that already knows the right way."
+        body="A general LLM can piece a solution together — at 10× the tool calls, with no guarantee it follows our patterns. The Databricks Agent Skills (DAS) ships those patterns built in: the spec hands off to an interface that already knows the right way."
         visual={<BestPracticesVisual />}
         align="right"
       />
@@ -96,7 +96,7 @@ function AboutPage() {
           <>
             The <HelpCircle className="inline h-3.5 w-3.5 -mt-0.5 text-primary" /> icon in
             the top-right opens a slide-by-slide guide — ideation, architecture,
-            specification, and the AI Dev Kit handoff. Handy when you're new or onboarding
+            specification, and the Databricks Agent Skills (DAS) handoff. Handy when you're new or onboarding
             a teammate.
           </>
         }
@@ -725,7 +725,7 @@ function BestPracticesVisual() {
         </div>
         <div className="rounded-lg border border-primary/40 bg-primary/5 p-3 space-y-2">
           <div className="text-[10px] font-semibold text-primary uppercase tracking-wider">
-            AI Dev Kit
+            Databricks Agent Skills (DAS)
           </div>
           <div className="space-y-1 py-0.5">
             {guarantees.map((label, i) => (

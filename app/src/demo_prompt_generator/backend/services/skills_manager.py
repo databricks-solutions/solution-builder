@@ -2,8 +2,8 @@
 Skills manager for managing skills in projects.
 
 Workflow:
-1. On app startup: ai-dev-kit is cloned/updated by dev.sh or build-electron.sh
-2. On project creation: Copy demo-generator + default skills to .claude/skills/
+1. On app startup: Databricks Agent Skills (DAS) is cloned/updated by dev.sh or build-electron.sh
+2. On project creation: Copy solution-builder + default skills to .claude/skills/
 3. Skills folder is IGNORED from watchdog sync (managed here only)
 """
 
@@ -19,11 +19,13 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 # Configuration
-# ai-dev-kit cloning is handled by:
+# The Databricks Agent Skills (DAS) repo is cloned by:
 #   - dev.sh (clones into ./ai_dev_kit/ for editable dev)
 #   - scripts/build.sh (clones into the wheel under demo_prompt_generator/ai_dev_kit/)
-# Resolution order (first hit wins): explicit AI_DEV_KIT_PATH env var, wheel-bundled
-# path inside the installed package, then ./ai_dev_kit/ relative to cwd (dev.sh setup).
+# (The clone dir is still named `ai_dev_kit/` for path stability; its CONTENTS are
+# now github.com/databricks/databricks-agent-skills.) Resolution order (first hit
+# wins): explicit AI_DEV_KIT_PATH env var, wheel-bundled path inside the installed
+# package, then ./ai_dev_kit/ relative to cwd (dev.sh setup).
 def _resolve_ai_dev_kit_local() -> str:
     explicit = os.getenv("AI_DEV_KIT_PATH")
     if explicit:
@@ -36,43 +38,60 @@ def _resolve_ai_dev_kit_local() -> str:
 AI_DEV_KIT_LOCAL = _resolve_ai_dev_kit_local()
 PROJECTS_BASE_DIR = os.getenv("PROJECTS_BASE_DIR", "./projects")
 
-# Skill dirs from ai-dev-kit that we never copy into a project.
+# Skill dirs from the DAS repo that we never copy into a project.
 #
-# - TEMPLATE: scaffolding/stub entry inside ai-dev-kit, not a real skill.
+# - TEMPLATE: scaffolding/stub entry, not a real skill.
 # - databricks-apps-python: generic AppKit/Streamlit/Dash/Gradio/Flask
 #   Python-app skill. Our app flow is Node/React/FastAPI via
 #   `app_template` + `app.md` — if this skill is in the project, build
 #   subagents tend to default to Streamlit/Python frameworks, which
 #   conflicts with the template. Excluded.
-# - databricks-lakebase-provisioned: we use Lakebase Autoscaling
-#   (branch-based) via app.md's own provisioning flow.
-#   databricks-lakebase-autoscale is the one that applies.
+# - databricks-apps: the generic Databricks Apps skill — same concern as
+#   databricks-apps-python (steers app-build subagents away from our
+#   app_template + app.md Node/React/FastAPI flow). Excluded.
+# - databricks-lakebase-provisioned: legacy name; we use branch-based
+#   Lakebase via app.md's own provisioning flow (databricks-lakebase).
+#   Kept here as a no-op guard in case the name reappears.
 EXCLUDE_SKILLS: set[str] = {
     "TEMPLATE",
     "databricks-apps-python",
+    "databricks-apps",
     "databricks-lakebase-provisioned",
 }
 
 
+def _iter_source_skill_dirs() -> list[Path]:
+    """Every skill directory the DAS repo exposes to the generator, from BOTH
+    roots the new repo (github.com/databricks/databricks-agent-skills) uses:
+      - `skills/*` — the GA per-resource skills.
+      - `experimental/databricks-genie` — the one experimental skill we ship.
+    Returns the source dirs (excluded names + non-dirs filtered out here);
+    callers still check for a SKILL.md. Missing roots are skipped silently."""
+    root = Path(AI_DEV_KIT_LOCAL)
+    dirs: list[Path] = []
+    skills_dir = root / "skills"
+    if skills_dir.exists():
+        dirs.extend(sorted(p for p in skills_dir.iterdir() if p.is_dir()))
+    genie = root / "experimental" / "databricks-genie"
+    if genie.is_dir():
+        dirs.append(genie)
+    return [d for d in dirs if d.name not in EXCLUDE_SKILLS]
+
+
 def get_available_skills() -> list[dict]:
     """
-    Get list of available skills from ai-dev-kit.
+    Get list of available skills from the Databricks Agent Skills (DAS) repo.
 
     Returns:
         List of {name, description, path, dir_name} dicts
     """
-    skills_dir = Path(AI_DEV_KIT_LOCAL) / "databricks-skills"
-    if not skills_dir.exists():
+    source_dirs = _iter_source_skill_dirs()
+    if not source_dirs:
         logger.warning("Skills directory not found")
         return []
 
     skills = []
-    for skill_path in skills_dir.iterdir():
-        if not skill_path.is_dir():
-            continue
-        if skill_path.name in EXCLUDE_SKILLS:
-            continue
-
+    for skill_path in source_dirs:
         skill_md = skill_path / "SKILL.md"
         if not skill_md.exists():
             continue
@@ -159,8 +178,8 @@ def _get_repo_skill_path(skill_name: str) -> Optional[Path]:
 
 
 def get_demo_generator_skill_path() -> Optional[Path]:
-    """Get the path to the demo-generator skill."""
-    return _get_repo_skill_path("databricks-demo-generator")
+    """Get the path to the solution-builder skill."""
+    return _get_repo_skill_path("databricks-solution-builder")
 
 
 def get_architecture_skill_path() -> Optional[Path]:
@@ -255,7 +274,7 @@ def _localize_arch_skill_for_app(skill_md: Path) -> None:
 
 
 def copy_skills_to_project(project_id: str) -> bool:
-    """Copy the demo-generator skill + every non-excluded ai-dev-kit skill
+    """Copy the solution-builder skill + every non-excluded Databricks Agent Skills (DAS) skill
     into the project's `.claude/skills/` directory.
 
     Every project gets the full set. Capability-based filtering was tried
@@ -269,17 +288,17 @@ def copy_skills_to_project(project_id: str) -> bool:
 
     copied = 0
 
-    # Copy the demo-generator skill (lives in this repo, not ai-dev-kit).
+    # Copy the solution-builder skill (lives in this repo, not Databricks Agent Skills (DAS)).
     demo_skill_path = get_demo_generator_skill_path()
     if demo_skill_path and demo_skill_path.exists():
-        dest = skills_dest / "databricks-demo-generator"
+        dest = skills_dest / "databricks-solution-builder"
         if dest.exists():
             shutil.rmtree(dest)
         shutil.copytree(demo_skill_path, dest, ignore=_SKILL_COPY_IGNORE)
         copied += 1
 
     # Copy the databricks-architecture skill (also this repo). The
-    # demo-generator SKILL.md points the agent at
+    # solution-builder SKILL.md points the agent at
     # `.claude/skills/databricks-architecture/SKILL.md` for the flat
     # nodes/edges schema + component catalog + reference diagrams — without
     # this copy that path doesn't exist inside a project session.
@@ -301,21 +320,16 @@ def copy_skills_to_project(project_id: str) -> bool:
         _localize_arch_skill_for_app(dest / "SKILL.md")
         copied += 1
 
-    # Copy every non-excluded skill from ai-dev-kit.
-    skills_src = Path(AI_DEV_KIT_LOCAL) / "databricks-skills"
-    if skills_src.exists():
-        for src in skills_src.iterdir():
-            if not src.is_dir():
-                continue
-            if src.name in EXCLUDE_SKILLS:
-                continue
-            if not (src / "SKILL.md").exists():
-                continue  # not a real skill (e.g. TEMPLATE-like stub)
-            dest = skills_dest / src.name
-            if dest.exists():
-                shutil.rmtree(dest)
-            shutil.copytree(src, dest, ignore=_SKILL_COPY_IGNORE)
-            copied += 1
+    # Copy every non-excluded skill from the DAS repo (skills/* + the one
+    # experimental/databricks-genie), via the shared source enumerator.
+    for src in _iter_source_skill_dirs():
+        if not (src / "SKILL.md").exists():
+            continue  # not a real skill (e.g. TEMPLATE-like stub)
+        dest = skills_dest / src.name
+        if dest.exists():
+            shutil.rmtree(dest)
+        shutil.copytree(src, dest, ignore=_SKILL_COPY_IGNORE)
+        copied += 1
 
     logger.info(f"Copied {copied} skills to project {project_id}")
     return True
@@ -338,12 +352,12 @@ def ensure_project_skills(project_id: str) -> bool:
 
 
 def refresh_project_skills(project_id: str) -> bool:
-    """Re-copy all skills from ai-dev-kit to project."""
-    # Remove old skills (except demo-generator)
+    """Re-copy all skills from Databricks Agent Skills (DAS) to project."""
+    # Remove old skills (except solution-builder)
     skills_dir = Path(PROJECTS_BASE_DIR) / project_id / ".claude" / "skills"
     if skills_dir.exists():
         for item in skills_dir.iterdir():
-            if item.name != "databricks-demo-generator":
+            if item.name != "databricks-solution-builder":
                 shutil.rmtree(item)
 
     return copy_skills_to_project(project_id)

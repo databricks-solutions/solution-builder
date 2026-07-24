@@ -77,7 +77,7 @@ npx playwright test --ui                  # interactive mode
 
 To add a new domain, capability, or pattern to the Solution Generator Skill:
 
-1. Create a Markdown file in the appropriate subdirectory under `.claude/skills/databricks-demo-generator/references/blocks/` (`domains/`, `capabilities/`, or `patterns/`).
+1. Create a Markdown file in the appropriate subdirectory under `.claude/skills/databricks-solution-builder/references/blocks/` (`domains/`, `capabilities/`, or `patterns/`).
 2. Add YAML frontmatter with `name`, `slug`, `category`, `tags`, `description`, `related`.
 3. Blocks on disk are automatically available to the agent's system prompt for new projects.
 
