@@ -97,7 +97,12 @@ class ProjectStage(str, Enum):
 # Capabilities not listed (or listed with []) don't require a deployed ID.
 _CAPABILITY_RESOURCE_KEYS: dict[str, list[str]] = {
     "sdp": ["pipeline_id"],
-    "synthetic-data-gen": ["pipeline_id"],
+    # Synthetic data is "built" once data has landed in a target — either via an
+    # SDP pipeline (pipeline_id) OR, for a simple no-SDP demo, directly into a
+    # catalog/schema (the data-gen script writes tables there, no pipeline). A
+    # simple demo records catalog+schema but no pipeline_id, so keying only on
+    # pipeline_id wrongly showed "Not built yet" for every no-SDP demo.
+    "synthetic-data-gen": ["pipeline_id", "catalog", "schema"],
     "lakeflow-connect": ["pipeline_id"],
     "aibi-dashboards": ["dashboard_id"],
     "genie": ["genie_space_id"],
