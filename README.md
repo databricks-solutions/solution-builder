@@ -26,55 +26,58 @@
 
 ---
 
-Describe what you want to build and an AI agent designs, writes, and ships it for you — on Databricks, the way Databricks intends. Customer-facing solution, internal POC, pilot on your own production data: same engine. Whether you start with synthetic data or point at your real tables, what comes out is a real, running solution in your workspace — yours to inspect, edit, and own.
+**Describe what you want to build, and an AI agent designs, writes, and ships it for you** — on Databricks, the way Databricks intends. A customer-facing demo, an internal POC, or a pilot on your own production data: same engine. Start with synthetic data or point at your real tables — either way, what comes out is a real, running solution in your workspace, yours to inspect, edit, and own.
 
 > **In one line:** describe it, ship it, iterate on what actually matters.
 
-> **Two ways in.** Run the **[full app](#-quickstart-local-dev)** for chat + UI + gallery, or install just the **[CLI skill](#-use-it-from-the-cli--no-app-required)** into `~/.claude/` and drive everything from any terminal. Same library, same outputs.
+> **Two ways in.** Run the **[full app](#-quickstart-local-dev)** for chat, a file viewer, and a template gallery — or install just the **[CLI skill](#-use-it-from-the-cli--no-app-required)** and drive everything from your terminal. Same library, same outputs.
 
 > [!CAUTION]
-> **Use at your own risk.** Databricks Solution Builder spanws AI agents writing code and creating resources on your behalf with full permission.
+> **Use at your own risk.** Solution Builder spawns AI agents that write code and create resources on your behalf, with full permission.
 >
-> **Shared container.** When deployed as a Databricks App, every user's session runs AI Agents inside the **same container** with **full access to your Databricks resources** — The Unity Catalog objects, jobs, pipelines, dashboards, and anything else your identity can reach. The AI Agent can easily escape the project. Share the app to users you trust, or deploy 1 app instance per user (this will be improved soon).
+> **Shared container.** Deployed as a Databricks App, every user's session runs inside the **same container** with **full access to whatever your identity can reach** — Unity Catalog objects, jobs, pipelines, dashboards, and more. An agent can reach beyond a single project. Share the app only with people you trust, or run one instance per user (improving soon).
 >
-> Deploy on an isolated workspace, don't deploy and use this app on a sensitive, production-grade workspace.
-> Don't point it at production data you can't afford to lose. Software provided "as is" — see [LICENSE](LICENSE).
+> Deploy to an isolated or sandbox workspace — not a sensitive, production-grade one — and don't point it at data you can't afford to lose. Software provided "as is"; see [LICENSE](LICENSE).
 
 ---
 
 ## 💡 Why you'll love it
 
-### `01` &nbsp; Bring your own data, or start with ours
+### `01` &nbsp; Start with our data, or bring your own
 
 <p align="center">
-  <img src="docs/composition.svg" alt="Synthetic or your real data — same engine, same result" width="900">
+  <img src="docs/composition.svg" alt="Synthetic data or your own real tables — same engine, same result" width="900">
 </p>
 
-Trying an idea? The agent fabricates realistic synthetic data and gives you something to click through in minutes. Bringing your own? Point at the tables you already have. **You don't switch tools when you graduate from sandbox to production** — same engine, same patterns, same result.
+Trying an idea? The agent generates realistic synthetic data you can click through in minutes. Ready for the real thing? Point it at the tables you already have. **You don't switch tools when you move from sandbox to production** — same engine, same patterns, same result.
 
 ### `02` &nbsp; Done the Databricks way — every time
 
 <p align="center">
-  <img src="docs/comparison.svg" alt="Reliable, governed, yours — every time" width="900">
+  <img src="docs/comparison.svg" alt="Reliable, governed, and yours — every time" width="900">
 </p>
 
-No improvisation. No "I hope this is the right pattern." The agent works from a curated library and hands off to an interface that already knows the right way to do every Databricks thing. You can show the result to your customer on Monday with confidence.
+No improvisation, no guessing at the right pattern. The agent works from a curated library of Databricks best practices and builds every resource the right way — governed, owned, and inspectable. Show it to your customer on Monday with confidence.
 
-### `03` &nbsp; Two surfaces, one library
+### `03` &nbsp; A polished architecture diagram, generated for you
 
-Prefer your terminal? Install the [Solution Builder Skill](.claude/skills/databricks-solution-builder) into any Claude Code project and use it from the CLI. Want a guided UI with chat, file viewer, and live diagrams? Use this app. **Same library, same outputs, same deploys** — pick whichever surface fits the moment.
-
-### `04` &nbsp; Reuse and remix
-
-Every solution becomes context for the next. Reskin one industry for another; swap one pattern for a related one; recombine for a new pitch. Publish finished projects as templates that anyone in your org can fork from the gallery. The library compounds.
-
-### `05` &nbsp; A polished architecture diagram, generated for you
-
-Every solution comes with an editable **architecture diagram** — the "Data + AI Platform" picture, wired to the resources it actually builds. Author it in a Lucidchart-style canvas (drag components, wire flows, drop in partner logos) and export it to PNG/SVG for a deck or a one-pager.
+Every solution comes with an editable, **live architecture diagram** — the "Data + AI Platform" picture, wired to the resources it actually builds. Author it on a Lucidchart-style canvas (drag components, wire flows, drop in partner logos), then export to PNG or SVG for a deck or a one-pager.
 
 <p align="center">
-  <img src="docs/architecture-example.svg" alt="Example generated Databricks solution architecture — sources through a governed Lakeflow/Genie pipeline to a lakehouse, dashboards, Genie, and an app" width="900">
+  <img src="docs/architecture-example.svg" alt="Example generated Databricks solution architecture — sources flow through a governed Lakeflow and Genie pipeline into a lakehouse, then out to dashboards, Genie, and a live app" width="100%">
 </p>
+
+### `04` &nbsp; A gallery of solutions to start from
+
+<p align="center">
+  <img src="docs/gallery.png" alt="Solution Builder template gallery — featured, industry-tagged Databricks solutions ready to fork" width="900">
+</p>
+
+Fork a vetted blueprint and tell the agent what to change for your customer or industry. Publish any finished solution as a template your whole org can reuse — reskin one industry for another, swap a pattern, recombine for a new pitch. **Every solution becomes a starting point for the next.**
+
+### `05` &nbsp; Two surfaces, one library
+
+Prefer your terminal? Install the [Solution Builder skill](.claude/skills/databricks-solution-builder) into any Claude Code project and drive it from the CLI. Want a guided UI with chat, a file viewer, and live diagrams? Use this app. **Same library, same outputs, same deploys** — pick whichever fits the moment.
 
 ---
 
@@ -252,7 +255,7 @@ To cut a versioned release:
 
 ## 🧰 Use it from the CLI — no app required
 
-Install the Solution Generator skill (and the [Databricks Agent Skills](https://github.com/databricks/databricks-agent-skills), via the Databricks CLI) into your `~/.claude/` once, then drive everything from any terminal:
+Install the Solution Builder skill (and the [Databricks Agent Skills](https://github.com/databricks/databricks-agent-skills), via the Databricks CLI) into your `~/.claude/` once, then drive everything from any terminal:
 
 ```bash
 bash <(curl -sL https://raw.githubusercontent.com/databricks-solutions/solution-builder/main/install.sh)

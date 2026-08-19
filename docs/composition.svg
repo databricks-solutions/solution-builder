@@ -1,85 +1,93 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 380" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 400" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, sans-serif">
   <defs>
-    <linearGradient id="dBg" x1="0" y1="0" x2="0" y2="1">
+    <linearGradient id="cBg" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0%" stop-color="#F0FDF4"/>
       <stop offset="100%" stop-color="#FFFFFF"/>
     </linearGradient>
-    <linearGradient id="dGreen" x1="0" y1="0" x2="1" y2="1">
+    <linearGradient id="cGreen" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0%" stop-color="#34D399"/>
       <stop offset="100%" stop-color="#059669"/>
     </linearGradient>
-    <linearGradient id="dAmber" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#FBBF24"/>
-      <stop offset="100%" stop-color="#D97706"/>
+    <linearGradient id="cAmber" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#FDBA74"/>
+      <stop offset="100%" stop-color="#F59E0B"/>
     </linearGradient>
-    <linearGradient id="dBrick" x1="0" y1="0" x2="1" y2="1">
+    <linearGradient id="cBrick" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0%" stop-color="#FF6B47"/>
       <stop offset="100%" stop-color="#E83A1F"/>
     </linearGradient>
-    <radialGradient id="dGlow" cx="0.5" cy="0.5" r="0.5">
-      <stop offset="0%" stop-color="#10B981" stop-opacity="0.18"/>
+    <radialGradient id="cGlow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0%" stop-color="#10B981" stop-opacity="0.16"/>
       <stop offset="100%" stop-color="#10B981" stop-opacity="0"/>
     </radialGradient>
-    <filter id="dShadow" x="-30%" y="-30%" width="160%" height="160%">
-      <feGaussianBlur in="SourceAlpha" stdDeviation="7"/>
-      <feOffset dx="0" dy="5"/>
-      <feComponentTransfer><feFuncA type="linear" slope="0.2"/></feComponentTransfer>
-      <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
+    <filter id="cCard" x="-20%" y="-20%" width="140%" height="150%">
+      <feDropShadow dx="0" dy="7" stdDeviation="11" flood-color="#059669" flood-opacity="0.10"/>
+    </filter>
+    <filter id="cBrickSh" x="-40%" y="-40%" width="180%" height="180%">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#E83A1F" flood-opacity="0.28"/>
     </filter>
   </defs>
 
-  <rect width="1000" height="380" fill="url(#dBg)"/>
+  <rect width="1000" height="400" fill="url(#cBg)"/>
+  <ellipse cx="820" cy="245" rx="220" ry="140" fill="url(#cGlow)"/>
 
   <!-- Title -->
-  <text x="500" y="54" text-anchor="middle" font-size="24" font-weight="700" fill="#0F172A">Bring your own data, or start with ours.</text>
-  <text x="500" y="82" text-anchor="middle" font-size="14" fill="#64748B">Same engine. Same patterns. Same result.</text>
+  <text x="500" y="50" text-anchor="middle" font-size="26" font-weight="800" fill="#0F172A">Start with our data, or bring your own.</text>
+  <text x="500" y="79" text-anchor="middle" font-size="15" fill="#64748B">Same engine. Same best practices. Same real, running result.</text>
 
-  <!-- Glow behind merge -->
-  <ellipse cx="730" cy="230" rx="170" ry="90" fill="url(#dGlow)"/>
-
-  <!-- Converging dashed paths -->
-  <path d="M 170 175 Q 420 175 600 225" stroke="#FED7AA" stroke-width="3" stroke-dasharray="6 8" fill="none" stroke-linecap="round"/>
-  <path d="M 170 285 Q 420 285 600 235" stroke="#A7F3D0" stroke-width="3" stroke-dasharray="6 8" fill="none" stroke-linecap="round"/>
-
-  <!-- ===== Top source: Synthetic ===== -->
-  <g transform="translate(110, 175)">
-    <g filter="url(#dShadow)">
-      <circle r="50" fill="#FFFFFF" stroke="#FED7AA" stroke-width="2"/>
-      <!-- sparkle glyph for "synthetic / magic / generated" -->
-      <g transform="translate(0, 0)" fill="url(#dAmber)">
-        <path d="M 0 -22 L 5 -6 L 21 -1 L 5 4 L 0 20 L -5 4 L -21 -1 L -5 -6 Z"/>
-      </g>
-    </g>
-    <text x="76" y="-4" font-size="18" font-weight="700" fill="#0F172A">Synthetic</text>
-    <text x="76" y="18" font-size="13" fill="#64748B">Instant. Realistic.</text>
+  <!-- Connectors -->
+  <g stroke="#CBD5E1" stroke-width="2.5" fill="none" stroke-linecap="round">
+    <path d="M 320 175 C 390 175 400 236 452 236"/>
+    <path d="M 320 303 C 390 303 400 240 452 240"/>
+    <path d="M 546 238 h 118"/>
+    <path d="M 656 230 l 10 8 l -10 8" stroke="#059669"/>
   </g>
 
-  <!-- ===== Bottom source: Your data ===== -->
-  <g transform="translate(110, 285)">
-    <g filter="url(#dShadow)">
-      <circle r="50" fill="#FFFFFF" stroke="#A7F3D0" stroke-width="2"/>
-      <!-- folder glyph -->
-      <g transform="translate(-22, -22)" fill="url(#dGreen)">
-        <path d="M 4 12 L 4 38 a 4 4 0 0 0 4 4 h 28 a 4 4 0 0 0 4 -4 v -22 a 4 4 0 0 0 -4 -4 h -16 l -4 -4 h -8 a 4 4 0 0 0 -4 4 z"/>
-        <rect x="10" y="22" width="24" height="2.5" rx="1.2" fill="#FFFFFF"/>
-        <rect x="10" y="28" width="18" height="2.5" rx="1.2" fill="#FFFFFF"/>
-        <rect x="10" y="34" width="22" height="2.5" rx="1.2" fill="#FFFFFF"/>
-      </g>
+  <!-- ===== Input 1: Synthetic ===== -->
+  <g transform="translate(48, 123)">
+    <rect width="272" height="104" rx="16" fill="#FFFFFF" stroke="#FDE68A" stroke-width="1.5" filter="url(#cCard)"/>
+    <rect x="22" y="30" width="44" height="44" rx="12" fill="url(#cAmber)"/>
+    <g transform="translate(44, 52)" fill="#FFFFFF">
+      <path d="M 0 -14 L 4 -4 L 14 0 L 4 4 L 0 14 L -4 4 L -14 0 L -4 -4 Z"/>
     </g>
-    <text x="76" y="-4" font-size="18" font-weight="700" fill="#0F172A">Your data</text>
-    <text x="76" y="18" font-size="13" fill="#64748B">Real. Production-ready.</text>
+    <text x="84" y="46" font-size="17" font-weight="800" fill="#0F172A">Synthetic data</text>
+    <text x="84" y="68" font-size="12.5" fill="#64748B">Realistic, generated in minutes.</text>
+    <text x="84" y="85" font-size="12.5" fill="#64748B">Perfect for a quick demo.</text>
   </g>
 
-  <!-- ===== Merge: one outcome ===== -->
-  <g transform="translate(760, 230)">
-    <g filter="url(#dShadow)">
-      <circle r="76" fill="url(#dBrick)"/>
-      <g transform="translate(0, 0)" fill="#FFFFFF">
-        <!-- big sparkle -->
-        <path d="M 0 -30 L 6 -10 L 26 -4 L 6 2 L 0 22 L -6 2 L -26 -4 L -6 -10 Z"/>
-        <path d="M 22 -22 L 24 -14 L 32 -12 L 24 -10 L 22 -2 L 20 -10 L 12 -12 L 20 -14 Z" opacity="0.75"/>
-      </g>
+  <!-- ===== Input 2: Your data ===== -->
+  <g transform="translate(48, 251)">
+    <rect width="272" height="104" rx="16" fill="#FFFFFF" stroke="#A7F3D0" stroke-width="1.5" filter="url(#cCard)"/>
+    <rect x="22" y="30" width="44" height="44" rx="12" fill="url(#cGreen)"/>
+    <g transform="translate(44, 52)" fill="#FFFFFF">
+      <ellipse cx="0" cy="-9" rx="13" ry="4.5"/>
+      <path d="M -13 -9 v 18 c 0 2.5 5.8 4.5 13 4.5 s 13 -2 13 -4.5 v -18" fill="none" stroke="#FFFFFF" stroke-width="3"/>
+      <path d="M -13 0 c 0 2.5 5.8 4.5 13 4.5 s 13 -2 13 -4.5" fill="none" stroke="#FFFFFF" stroke-width="2.4"/>
     </g>
-    <text x="0" y="116" text-anchor="middle" font-size="18" font-weight="700" fill="#0F172A">A solution that runs.</text>
+    <text x="84" y="46" font-size="17" font-weight="800" fill="#0F172A">Your real tables</text>
+    <text x="84" y="68" font-size="12.5" fill="#64748B">Point at Unity Catalog and build</text>
+    <text x="84" y="85" font-size="12.5" fill="#64748B">a pilot on production data.</text>
+  </g>
+
+  <!-- ===== Agent ===== -->
+  <g transform="translate(499, 238)">
+    <rect x="-47" y="-47" width="94" height="94" rx="22" fill="url(#cBrick)" filter="url(#cBrickSh)"/>
+    <g fill="#FFFFFF">
+      <path d="M 0 -22 L 6 -6 L 22 0 L 6 6 L 0 22 L -6 6 L -22 0 L -6 -6 Z"/>
+      <path d="M 17 -17 L 19 -9 L 27 -7 L 19 -5 L 17 3 L 15 -5 L 7 -7 L 15 -9 Z" opacity="0.8"/>
+    </g>
+    <text x="0" y="76" text-anchor="middle" font-size="14" font-weight="800" fill="#0F172A">Solution Builder</text>
+  </g>
+
+  <!-- ===== Output ===== -->
+  <g transform="translate(680, 172)">
+    <rect width="272" height="132" rx="16" fill="#FFFFFF" stroke="#A7F3D0" stroke-width="2" filter="url(#cCard)"/>
+    <text x="24" y="40" font-size="17" font-weight="800" fill="#0F172A">A solution that runs</text>
+    <g font-size="12.5" font-weight="700" fill="#047857">
+      <g transform="translate(24, 58)"><rect width="108" height="26" rx="13" fill="#ECFDF5" stroke="#A7F3D0"/><text x="54" y="17.5" text-anchor="middle">Pipelines</text></g>
+      <g transform="translate(140, 58)"><rect width="108" height="26" rx="13" fill="#ECFDF5" stroke="#A7F3D0"/><text x="54" y="17.5" text-anchor="middle">Dashboards</text></g>
+      <g transform="translate(24, 92)"><rect width="108" height="26" rx="13" fill="#ECFDF5" stroke="#A7F3D0"/><text x="54" y="17.5" text-anchor="middle">Genie / AI</text></g>
+      <g transform="translate(140, 92)"><rect width="108" height="26" rx="13" fill="#ECFDF5" stroke="#A7F3D0"/><text x="54" y="17.5" text-anchor="middle">A live app</text></g>
+    </g>
   </g>
 </svg>

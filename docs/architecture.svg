@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 420" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 400" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, sans-serif">
   <defs>
     <linearGradient id="hBg" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0%" stop-color="#FFF7F4"/>
@@ -8,82 +8,88 @@
       <stop offset="0%" stop-color="#FF6B47"/>
       <stop offset="100%" stop-color="#E83A1F"/>
     </linearGradient>
-    <linearGradient id="hAmber" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#FBBF24"/>
-      <stop offset="100%" stop-color="#D97706"/>
+    <linearGradient id="hAmberSq" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#FDBA74"/>
+      <stop offset="100%" stop-color="#F59E0B"/>
     </linearGradient>
-    <linearGradient id="hGreen" x1="0" y1="0" x2="1" y2="1">
+    <linearGradient id="hGreenSq" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0%" stop-color="#34D399"/>
       <stop offset="100%" stop-color="#059669"/>
     </linearGradient>
-    <radialGradient id="glow" cx="0.5" cy="0.5" r="0.5">
-      <stop offset="0%" stop-color="#FF6B47" stop-opacity="0.25"/>
+    <radialGradient id="hGlow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0%" stop-color="#FF6B47" stop-opacity="0.22"/>
       <stop offset="100%" stop-color="#FF6B47" stop-opacity="0"/>
     </radialGradient>
-    <filter id="hShadow" x="-30%" y="-30%" width="160%" height="160%">
-      <feGaussianBlur in="SourceAlpha" stdDeviation="8"/>
-      <feOffset dx="0" dy="6" result="off"/>
-      <feComponentTransfer><feFuncA type="linear" slope="0.22"/></feComponentTransfer>
-      <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
+    <filter id="hCard" x="-20%" y="-20%" width="140%" height="150%">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#E83A1F" flood-opacity="0.10"/>
     </filter>
   </defs>
 
-  <rect width="1000" height="420" fill="url(#hBg)"/>
-
-  <!-- Decorative glow behind center -->
-  <ellipse cx="500" cy="220" rx="320" ry="160" fill="url(#glow)"/>
-
-  <!-- Flow curve connecting the three stages -->
-  <path d="M 220 220 Q 360 140 500 220 T 780 220" stroke="#FECDD3" stroke-width="3" stroke-dasharray="6 8" fill="none" stroke-linecap="round"/>
-
-  <!-- ===== Stage 1: Describe ===== -->
-  <g transform="translate(160, 220)">
-    <g filter="url(#hShadow)">
-      <circle r="68" fill="#FFFFFF" stroke="#FED7AA" stroke-width="2"/>
-      <!-- chat bubble glyph -->
-      <g transform="translate(-26, -22)">
-        <path d="M 4 4 h 44 a 6 6 0 0 1 6 6 v 24 a 6 6 0 0 1 -6 6 h -28 l -12 10 v -10 h -4 a 6 6 0 0 1 -6 -6 v -24 a 6 6 0 0 1 6 -6 z" fill="url(#hAmber)"/>
-        <circle cx="16" cy="22" r="2.4" fill="#fff"/>
-        <circle cx="26" cy="22" r="2.4" fill="#fff"/>
-        <circle cx="36" cy="22" r="2.4" fill="#fff"/>
-      </g>
-    </g>
-    <text x="0" y="108" text-anchor="middle" font-size="22" font-weight="700" fill="#0F172A">Describe</text>
-    <text x="0" y="134" text-anchor="middle" font-size="13" fill="#64748B">What do you want to build?</text>
-  </g>
-
-  <!-- ===== Stage 2: Build ===== -->
-  <g transform="translate(500, 220)">
-    <g filter="url(#hShadow)">
-      <circle r="86" fill="url(#hBrick)"/>
-      <!-- sparkle glyph -->
-      <g transform="translate(-30, -32)" fill="#FFFFFF">
-        <path d="M 30 0 L 36 22 L 58 28 L 36 34 L 30 56 L 24 34 L 2 28 L 24 22 Z"/>
-        <path d="M 56 4 L 58 12 L 66 14 L 58 16 L 56 24 L 54 16 L 46 14 L 54 12 Z" opacity="0.7"/>
-        <path d="M 6 42 L 8 50 L 16 52 L 8 54 L 6 62 L 4 54 L -4 52 L 4 50 Z" opacity="0.5"/>
-      </g>
-    </g>
-    <text x="0" y="126" text-anchor="middle" font-size="22" font-weight="700" fill="#0F172A">Build</text>
-    <text x="0" y="152" text-anchor="middle" font-size="13" fill="#64748B">An AI agent designs and writes it for you.</text>
-  </g>
-
-  <!-- ===== Stage 3: Ship ===== -->
-  <g transform="translate(840, 220)">
-    <g filter="url(#hShadow)">
-      <circle r="68" fill="#FFFFFF" stroke="#A7F3D0" stroke-width="2"/>
-      <!-- rocket glyph -->
-      <g transform="translate(-22, -26)" fill="url(#hGreen)">
-        <path d="M 22 2 C 30 8 36 18 36 32 L 36 44 L 28 44 L 28 52 L 16 52 L 16 44 L 8 44 L 8 32 C 8 18 14 8 22 2 Z"/>
-        <circle cx="22" cy="22" r="5" fill="#FFFFFF"/>
-        <path d="M 4 48 L 12 38 L 12 48 Z" opacity="0.6"/>
-        <path d="M 40 48 L 32 38 L 32 48 Z" opacity="0.6"/>
-      </g>
-    </g>
-    <text x="0" y="108" text-anchor="middle" font-size="22" font-weight="700" fill="#0F172A">Ship</text>
-    <text x="0" y="134" text-anchor="middle" font-size="13" fill="#64748B">Live on Databricks. Yours.</text>
-  </g>
+  <rect width="1000" height="400" fill="url(#hBg)"/>
+  <ellipse cx="500" cy="235" rx="380" ry="150" fill="url(#hGlow)"/>
 
   <!-- Title -->
-  <text x="500" y="56" text-anchor="middle" font-size="26" font-weight="700" fill="#0F172A">From an idea to a running solution.</text>
-  <text x="500" y="86" text-anchor="middle" font-size="15" fill="#64748B">On Databricks. With best practices, by construction.</text>
+  <text x="500" y="52" text-anchor="middle" font-size="27" font-weight="800" fill="#0F172A">From an idea to a running solution.</text>
+  <text x="500" y="82" text-anchor="middle" font-size="15" fill="#64748B">On Databricks — with best practices built in, by construction.</text>
+
+  <!-- Connector arrows between cards -->
+  <g stroke="#FCA5A5" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M 302 210 h 62"/>
+    <path d="M 356 202 l 10 8 l -10 8"/>
+    <path d="M 632 210 h 62"/>
+    <path d="M 686 202 l 10 8 l -10 8"/>
+  </g>
+
+  <!-- ===== Card 1: Describe ===== -->
+  <g transform="translate(42, 140)">
+    <rect width="260" height="140" rx="18" fill="#FFFFFF" stroke="#FED7AA" stroke-width="1.5" filter="url(#hCard)"/>
+    <rect x="24" y="24" width="52" height="52" rx="14" fill="url(#hAmberSq)"/>
+    <g transform="translate(37, 38)" fill="#FFFFFF">
+      <path d="M 2 2 h 22 a 4 4 0 0 1 4 4 v 12 a 4 4 0 0 1 -4 4 h -14 l -7 6 v -6 h -1 a 4 4 0 0 1 -4 -4 v -12 a 4 4 0 0 1 4 -4 z"/>
+      <circle cx="8" cy="12" r="1.5" fill="#F59E0B"/>
+      <circle cx="14" cy="12" r="1.5" fill="#F59E0B"/>
+      <circle cx="20" cy="12" r="1.5" fill="#F59E0B"/>
+    </g>
+    <circle cx="236" cy="24" r="14" fill="#FFF7ED" stroke="#FED7AA" stroke-width="1.5"/>
+    <text x="236" y="29" text-anchor="middle" font-size="15" font-weight="800" fill="#D97706">1</text>
+    <text x="24" y="100" font-size="19" font-weight="800" fill="#0F172A">Describe it</text>
+    <text x="24" y="120" font-size="12.5" fill="#64748B">Say what you want to build,</text>
+    <text x="24" y="137" font-size="12.5" fill="#64748B">in plain words.</text>
+  </g>
+
+  <!-- ===== Card 2: Build (emphasis) ===== -->
+  <g transform="translate(372, 132)">
+    <rect width="260" height="156" rx="18" fill="url(#hBrick)" filter="url(#hCard)"/>
+    <rect x="24" y="26" width="52" height="52" rx="14" fill="#FFFFFF" fill-opacity="0.18"/>
+    <g transform="translate(50, 52)" fill="#FFFFFF">
+      <path d="M 0 -18 L 5 -5 L 18 0 L 5 5 L 0 18 L -5 5 L -18 0 L -5 -5 Z"/>
+      <path d="M 15 -14 L 17 -8 L 23 -6 L 17 -4 L 15 2 L 13 -4 L 7 -6 L 13 -8 Z" opacity="0.8"/>
+    </g>
+    <circle cx="236" cy="26" r="14" fill="#FFFFFF" fill-opacity="0.2"/>
+    <text x="236" y="31" text-anchor="middle" font-size="15" font-weight="800" fill="#FFFFFF">2</text>
+    <text x="24" y="108" font-size="19" font-weight="800" fill="#FFFFFF">An AI agent builds it</text>
+    <text x="24" y="128" font-size="12.5" fill="#FFFFFF" fill-opacity="0.92">Designs and writes every</text>
+    <text x="24" y="145" font-size="12.5" fill="#FFFFFF" fill-opacity="0.92">resource — the right way.</text>
+  </g>
+
+  <!-- ===== Card 3: Ship ===== -->
+  <g transform="translate(702, 140)">
+    <rect width="260" height="140" rx="18" fill="#FFFFFF" stroke="#A7F3D0" stroke-width="1.5" filter="url(#hCard)"/>
+    <rect x="24" y="24" width="52" height="52" rx="14" fill="url(#hGreenSq)"/>
+    <g transform="translate(50, 50)" fill="#FFFFFF">
+      <path d="M -4 4 C -11 8 -14 13 -14 18 L -5 15 Z"/>
+      <path d="M 4 4 C 11 8 14 13 14 18 L 5 15 Z"/>
+      <path d="M 0 -19 C 8 -9 8 5 5 15 L -5 15 C -8 5 -8 -9 0 -19 Z"/>
+      <circle cx="0" cy="-4" r="3.8" fill="#059669"/>
+      <path d="M -3.4 15 L 0 21 L 3.4 15 Z" fill="#A7F3D0"/>
+    </g>
+    <circle cx="236" cy="24" r="14" fill="#ECFDF5" stroke="#A7F3D0" stroke-width="1.5"/>
+    <text x="236" y="29" text-anchor="middle" font-size="15" font-weight="800" fill="#059669">3</text>
+    <text x="24" y="100" font-size="19" font-weight="800" fill="#0F172A">Ship &amp; own it</text>
+    <text x="24" y="120" font-size="12.5" fill="#64748B">Live in your workspace —</text>
+    <text x="24" y="137" font-size="12.5" fill="#64748B">yours to edit and keep.</text>
+  </g>
+
+  <!-- Footer: two starting points -->
+  <text x="500" y="352" text-anchor="middle" font-size="13" fill="#94A3B8"><tspan font-weight="700" fill="#64748B">Start from</tspan> synthetic data for a quick demo &#160;&#160;·&#160;&#160; or your own real tables for a production pilot</text>
 </svg>
