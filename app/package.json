@@ -35,7 +35,7 @@
         "yjs": "^13.6.32"
     },
     "devDependencies": {
-        "@opentelemetry/api-logs": "^0.214.0",
+        "@opentelemetry/api-logs": "^0.219.0",
         "@opentelemetry/exporter-logs-otlp-http": "^0.214.0",
         "@opentelemetry/resources": "^2.7.1",
         "@opentelemetry/sdk-logs": "^0.214.0",
