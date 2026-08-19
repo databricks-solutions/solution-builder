@@ -16,8 +16,8 @@
 <h1 align="center">Databricks Solution Builder</h1>
 
 <p align="center">
-  <b>Build your use-case on Databricks — with the assurance you're using Databricks best practices.</b><br>
-  <sub>On synthetic data, or on your own real data. Same engine. Same patterns.</sub>
+  <b>Build real solutions on Databricks — with best practices built in.</b><br>
+  <sub>Start with sample data, or your own. Same engine either way.</sub>
 </p>
 
 <p align="center">
@@ -26,22 +26,13 @@
 
 ---
 
-**Describe what you want to build, and an AI agent designs, writes, and ships it for you** — on Databricks, the way Databricks intends. A customer-facing demo, an internal POC, or a pilot on your own production data: same engine. Start with synthetic data or point at your real tables — either way, what comes out is a real, running solution in your workspace, yours to inspect, edit, and own.
+**Describe what you want to build, and an AI agent builds it for you** — on Databricks, done the right way. A quick demo, an internal proof of concept, or a pilot on your real data: same engine. What you get back is a real, running solution in your workspace — yours to inspect, edit, and keep.
 
-> **In one line:** describe it, ship it, iterate on what actually matters.
-
-> **Two ways in.** Run the **[full app](#-quickstart-local-dev)** for chat, a file viewer, and a template gallery — or install just the **[CLI skill](#-use-it-from-the-cli--no-app-required)** and drive everything from your terminal. Same library, same outputs.
-
-> [!CAUTION]
-> **Use at your own risk.** Solution Builder spawns AI agents that write code and create resources on your behalf, with full permission.
->
-> **Shared container.** Deployed as a Databricks App, every user's session runs inside the **same container** with **full access to whatever your identity can reach** — Unity Catalog objects, jobs, pipelines, dashboards, and more. An agent can reach beyond a single project. Share the app only with people you trust, or run one instance per user (improving soon).
->
-> Deploy to an isolated or sandbox workspace — not a sensitive, production-grade one — and don't point it at data you can't afford to lose. Software provided "as is"; see [LICENSE](LICENSE).
+> Two ways to use it: run the **[full app](#quickstart-local-dev)** for chat, a file viewer, and a template gallery, or install the **[CLI skill](#use-it-from-the-cli--no-app-required)** and work from your terminal. Same library, same results.
 
 ---
 
-## 💡 Why you'll love it
+## Why you'll love it
 
 ### `01` &nbsp; Start with our data, or bring your own
 
@@ -82,9 +73,9 @@ Prefer your terminal? Install the [Solution Builder skill](.claude/skills/databr
 ---
 
 > [!IMPORTANT]
-> **Beta — account admin access required.** Databricks Solution Builder is currently in beta and depends on the `all-apis` OAuth scope to talk to the full surface of Databricks APIs reliably. Granting that scope requires **account admin** privileges on your Databricks account. Until the scope requirement is narrowed, this app is best run in **development or sandbox workspaces** — not against production. If you don't have account admin rights, ask whoever does to either grant the scope post-deploy (see [Deploy to Databricks](#-deploy-to-databricks-production--click-to-expand)) or run the app for you on a dev workspace.
+> **Beta — account admin access needed.** Solution Builder is in beta and needs the `all-apis` OAuth scope to use the full Databricks API surface reliably. Granting that scope requires **account admin** rights. For now, run it in a **development or sandbox workspace**, not production. No admin rights? Ask an admin to grant the scope after deploy (see [Deploy to Databricks](#deploy-to-databricks-production--click-to-expand)) or to run the app for you.
 
-## 🚀 Quickstart (local dev)
+## Quickstart (local dev)
 
 ```bash
 # 1. Clone
@@ -111,7 +102,7 @@ PGLite auto-provisions a local Postgres — no DB setup required. Reset with `RE
 **Prerequisites:** [`uv`](https://docs.astral.sh/uv/) · [`bun`](https://bun.sh/) · [Databricks CLI](https://docs.databricks.com/dev-tools/cli/index.html) v0.239.0+ authenticated to a workspace.
 
 <details>
-<summary><b>🔧 Environment variables — click to expand</b></summary>
+<summary><b>Environment variables — click to expand</b></summary>
 
 <br>
 
@@ -133,7 +124,7 @@ All of these live in `app/.env` (copy from [`app/.env.example`](app/.env.example
 
 See [`app/.env.example`](app/.env.example) for the full annotated list with inline guidance.
 
-> **📊 Anonymous usage analytics are on by default.**
+> **Anonymous usage analytics are on by default.**
 > We collect aggregated, anonymized events (page views, feature usage counts) **only to understand what's working and what needs improvement** — never for sales contact. The underlying [`dbdemos-tracker`](https://pypi.org/project/dbdemos-tracker/) package filters at the source so events fire only for `@databricks.com` users; external installations send nothing. See [`PRIVACY.md`](PRIVACY.md) for the full list of fields. Opt out anytime with `DEMO_PROMPT_GENERATOR_TRACKER_ENABLED=0`.
 
 </details>
@@ -148,7 +139,7 @@ uv run mypy src           # Python
 
 ---
 
-## 🛠️ Three ways to run
+## Three ways to run
 
 | Mode | Where it runs | Auth model | Use case |
 |------|---------------|------------|----------|
@@ -157,7 +148,7 @@ uv run mypy src           # Python
 | **Electron** | Your laptop, packaged | `~/.databrickscfg` profile | Standalone desktop app for end-users |
 
 <details>
-<summary><b>📦 Deploy to Databricks (production) — click to expand</b></summary>
+<summary><b>Deploy to Databricks (production) — click to expand</b></summary>
 
 <br>
 
@@ -225,7 +216,7 @@ databricks bundle run demo-prompt-generator-app -t staging
 </details>
 
 <details>
-<summary><b>🖥️ Build the Electron desktop app — click to expand</b></summary>
+<summary><b>Build the Electron desktop app — click to expand</b></summary>
 
 <br>
 
@@ -253,7 +244,7 @@ To cut a versioned release:
 
 ---
 
-## 🧰 Use it from the CLI — no app required
+## Use it from the CLI — no app required
 
 Install the Solution Builder skill (and the [Databricks Agent Skills](https://github.com/databricks/databricks-agent-skills), via the Databricks CLI) into your `~/.claude/` once, then drive everything from any terminal:
 
@@ -275,7 +266,7 @@ Same library as the app, same outputs — pick whichever surface fits the moment
 
 ---
 
-## 🏗️ Architecture reference
+## Architecture reference
 
 <details>
 <summary><b>Lakebase tables</b></summary>
@@ -463,7 +454,7 @@ Blocks on disk are automatically available to the agent's system prompt for all 
 
 ---
 
-## ⭐ Star history
+## Star history
 
 <a href="https://star-history.com/#databricks-solutions/solution-builder&Date">
   <picture>
@@ -476,7 +467,7 @@ Blocks on disk are automatically available to the agent's system prompt for all 
 ---
 
 <details>
-<summary><b>📜 License &amp; attribution — click to expand</b></summary>
+<summary><b>License &amp; attribution — click to expand</b></summary>
 
 <br>
 
@@ -534,6 +525,15 @@ Licensed under the [Databricks License](LICENSE). Built on top of and powered by
 | [playwright](https://github.com/microsoft/playwright) | — (npx) | Apache-2.0 | https://github.com/microsoft/playwright |
 
 </details>
+
+---
+
+> [!CAUTION]
+> **Use at your own risk.** Solution Builder spawns AI agents that write code and create resources on your behalf, with full permission.
+>
+> **Shared container.** Deployed as a Databricks App, every user's session runs inside the **same container** with **full access to whatever your identity can reach** — Unity Catalog objects, jobs, pipelines, dashboards, and more. An agent can reach beyond a single project. Share the app only with people you trust, or run one instance per user (improving soon).
+>
+> Deploy to an isolated or sandbox workspace — not a sensitive, production-grade one — and don't point it at data you can't afford to lose. Software provided "as is"; see [LICENSE](LICENSE).
 
 ---
 
